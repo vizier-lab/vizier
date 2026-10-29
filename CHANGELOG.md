@@ -7,6 +7,11 @@ All notable changes to this project will be documented in this file.
 ### 🚀 Features
 
 - Add permanent artifacts and explicit session-file clearing
+
+### ⚙️ Miscellaneous Tasks
+
+- Bump version to 0.13.5
+- Pin webui to the rebased artifacts commit
 ## [0.13.4] - 2026-10-28
 
 ### 🚀 Features
