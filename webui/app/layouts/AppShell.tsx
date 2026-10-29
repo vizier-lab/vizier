@@ -15,7 +15,7 @@ import { Outlet, useLocation, useMatches, useNavigate, useParams } from 'react-r
 import { motion } from 'motion/react'
 import { motionDurations, motionEases } from '@vizier/design'
 import { agentState } from '../api/endpoints/agents'
-import { canManageSecrets } from '../lib/access'
+import { canManageSecrets, canViewArtifacts } from '../lib/access'
 import { relativeTime } from '../lib/format'
 import { read, write } from '../lib/remember'
 import { useMobile } from '../lib/useMobile'
@@ -33,13 +33,14 @@ const RECENT_KEY = 'vizier.agents.recent'
 const RECENT_MAX = 5
 
 /** The pages that belong to the selected agent, so lead nowhere without one. */
-const AGENT_PAGES: SidebarPage[] = ['chat', 'core', 'memory', 'tasks', 'skills', 'dreams', 'channels', 'addons', 'mcp', 'usage', 'secrets', 'config']
+const AGENT_PAGES: SidebarPage[] = ['chat', 'core', 'memory', 'artifacts', 'tasks', 'skills', 'dreams', 'channels', 'addons', 'mcp', 'usage', 'secrets', 'config']
 
 const PAGE_PATH: Record<SidebarPage, string> = {
     home: '',
     chat: '/chat',
     core: '/core',
     memory: '/memory',
+    artifacts: '/artifacts',
     tasks: '/tasks',
     skills: '/skills',
     dreams: '/dream',
@@ -233,9 +234,10 @@ export default function AppShell() {
             }
             active={pageOf(pathname)}
             collapsed={inDrawer ? false : collapsed}
-            hiddenPages={
-                agent && canManageSecrets(agent) ? undefined : ['secrets']
-            }
+            hiddenPages={[
+                ...(agent && canManageSecrets(agent) ? [] : (['secrets'] as SidebarPage[])),
+                ...(agent && canViewArtifacts(agent) ? [] : (['artifacts'] as SidebarPage[])),
+            ]}
             // Without an agent its pages have nowhere to go; Config is for
             // the people who may change the agent.
             disabledPages={

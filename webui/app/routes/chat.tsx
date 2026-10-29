@@ -26,6 +26,7 @@ import { useAgents } from '../stores/agents'
 import { topicKey, useConnection } from '../stores/connection'
 import { useSession } from '../stores/session'
 import { toast } from '../stores/toasts'
+import { canManageArtifacts } from '../lib/access'
 import { useTurns } from '../stores/turns'
 
 const EMPTY = emptyTopic()
@@ -135,6 +136,7 @@ export default function Chat() {
         react,
         clientEvent,
         saveClientState,
+        dispatch,
     } = useTurns.getState()
 
     // "Back online" shows for a moment after a drop.
@@ -202,7 +204,13 @@ export default function Chat() {
                 }
                 onJumpToStart={() => {}}
             />
-            <SessionFilesPanel files={state.files} />
+            <SessionFilesPanel
+                files={state.files}
+                agentId={agentId}
+                topicId={topicId ?? ''}
+                canPromote={agent ? canManageArtifacts(agent) : false}
+                onClear={() => dispatch(agentId, topicId ?? '', { type: 'files', files: [] })}
+            />
         </>
     )
 

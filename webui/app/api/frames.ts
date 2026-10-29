@@ -191,7 +191,12 @@ export interface VizierRequestMessage {
 // VizierAttachment - matches backend VizierAttachment
 export interface VizierAttachment {
   filename: string
-  content: { url: string } | { bytes: number[] } | { base64: string } | { local: string }
+  content:
+    | { url: string }
+    | { bytes: number[] }
+    | { base64: string }
+    | { local: string }
+    | { artifact: { agent_id: string; artifact_id: string; available?: boolean } }
 }
 
 // Response stats from backend

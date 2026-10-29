@@ -28,6 +28,29 @@ export function canManageSecrets(agent: { owner_id?: string }): boolean {
     )
 }
 
+/** Whether the current person may see `agent`'s artifact gallery and content. Mirrors
+ * `src/artifacts/access.rs`: manage implies view, owned requires ownership. */
+export function canViewArtifacts(agent: { owner_id?: string }): boolean {
+    const { user, can } = useSession.getState()
+    if (!user) return false
+    return (
+        can('all_agents:view_artifacts') ||
+        can('all_agents:manage_artifacts') ||
+        ((can('owned_agents:view_artifacts') || can('owned_agents:manage_artifacts')) &&
+            agent.owner_id === user.user_id)
+    )
+}
+
+/** Whether the current person may promote or delete `agent`'s artifacts. */
+export function canManageArtifacts(agent: { owner_id?: string }): boolean {
+    const { user, can } = useSession.getState()
+    if (!user) return false
+    return (
+        can('all_agents:manage_artifacts') ||
+        (can('owned_agents:manage_artifacts') && agent.owner_id === user.user_id)
+    )
+}
+
 export function canViewUsage(): boolean {
     return useSession.getState().user != null
 }
