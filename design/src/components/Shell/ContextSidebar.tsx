@@ -53,7 +53,7 @@ export function ContextSidebar({ agent, active, hiddenPages, hrefFor, children, 
   return (
     <nav aria-label="Agent" className={cx("flex h-full w-208 shrink-0 flex-col gap-8 bg-shell px-10 pt-12 pb-14", className)} {...rest}>
       {agent}
-      <div className="flex flex-col gap-2 pt-12">
+      <div className="flex flex-col gap-2 pt-16">
         {ESSENTIALS.filter((p) => !hidden.has(p.page)).map((p) => (
           <NavItem key={p.page} icon={p.icon} label={p.label} href={hrefFor(p.page)} active={active === p.page} />
         ))}
