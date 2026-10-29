@@ -3,14 +3,15 @@ import type { IconName } from "../../icons/map";
 import { cx } from "../../lib/cx";
 import { NavItem } from "../NavItem/NavItem";
 
-/** The agent's essentials, always one click away; everything else lives in the agent card's menu. */
-export type EssentialPage = "memory" | "tasks" | "skills" | "dreams";
+/** The agent's essentials (Artifacts shows only to people who may view them), always one click away; everything else lives in the agent card's menu. */
+export type EssentialPage = "memory" | "artifacts" | "tasks" | "skills" | "dreams";
 
 /** The pages behind the agent card, in the menu's three groups. */
 export type MenuPage = "core" | "channels" | "addons" | "mcp" | "usage" | "secrets" | "config";
 
 export const ESSENTIALS: { page: EssentialPage; label: string; icon: IconName }[] = [
   { page: "memory", label: "Memory", icon: "memory" },
+  { page: "artifacts", label: "Artifacts", icon: "folder" },
   { page: "tasks", label: "Tasks", icon: "tasks" },
   { page: "skills", label: "Skills", icon: "skills" },
   { page: "dreams", label: "Dreams", icon: "dreams" },
