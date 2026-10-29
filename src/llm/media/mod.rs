@@ -1,6 +1,7 @@
 //! Media and embedding clients. They implement vizier's existing `Vizier*Model` traits
 //! directly, over the same transport as completions (contract S9).
 
+pub mod bedrock;
 pub mod cohere;
 pub mod gemini;
 pub mod huggingface;
@@ -64,6 +65,29 @@ pub async fn endpoint(
     id: &ProviderId,
     model: String,
 ) -> crate::Result<Endpoint> {
+    if *id == ProviderId::AMAZON_BEDROCK {
+        // One saved connection (access key pair + region) serves embeddings and images; the
+        // same region/pair rules as the chat resolver decide the host (research R6/R7).
+        let env = crate::llm::resolve::provider_env(&deps.catalogue, id);
+        let credentials = crate::provider_keys::resolve_credentials(&deps.storage, id, &env)
+            .await
+            .map(|(c, _)| c)
+            .unwrap_or_default();
+        let region = crate::llm::resolve::bedrock_region(&credentials)?;
+        let (access_key_id, secret_access_key, session_token) =
+            crate::llm::resolve::bedrock_keys(&credentials)?;
+        return Ok(Endpoint {
+            http: deps.http.clone(),
+            base_url: crate::llm::bedrock::runtime_endpoint(&region),
+            credential: crate::llm::auth::SigV4Credential::bedrock(
+                access_key_id,
+                secret_access_key,
+                session_token,
+                region,
+            ),
+            model,
+        });
+    }
     let base_url = media_base_url(id).to_string();
     if *id == ProviderId::OLLAMA {
         let env = crate::llm::resolve::provider_env(&deps.catalogue, id);

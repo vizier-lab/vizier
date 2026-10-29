@@ -2,13 +2,52 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use parking_lot::Mutex;
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension};
 
 use crate::{
     embedding::VizierEmbeddingModel,
     indexer::DocumentIndexer,
     schema::DocumentIndex,
 };
+
+/// The dimension declared by an existing `document_index` table, if there is one.
+fn declared_dimension(conn: &Connection) -> Result<Option<usize>> {
+    let ddl: Option<String> = conn
+        .query_row(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'document_index'",
+            [],
+            |row| row.get(0),
+        )
+        .optional()?;
+    let Some(ddl) = ddl else {
+        return Ok(None);
+    };
+    let start = ddl
+        .find("float[")
+        .map(|at| at + "float[".len())
+        .ok_or_else(|| anyhow::anyhow!("cannot read the dimension of the existing memory index"))?;
+    let end = ddl[start..]
+        .find(']')
+        .map(|at| at + start)
+        .ok_or_else(|| anyhow::anyhow!("cannot read the dimension of the existing memory index"))?;
+    Ok(Some(ddl[start..end].trim().parse()?))
+}
+
+/// A different embedding model can return vectors of another size. Writing them into an index
+/// built for the old size would silently corrupt recall, so the mismatch is refused with both
+/// sizes and the fix (FR-023).
+fn check_dimension(conn: &Connection, model_dim: usize) -> Result<()> {
+    if let Some(index_dim) = declared_dimension(conn)?
+        && index_dim != model_dim
+    {
+        return Err(anyhow::anyhow!(
+            "the memory index has dimension {index_dim}, but this embedding model returns \
+             {model_dim}; the memory index must be rebuilt/reindexed before this embedding \
+             model can be used"
+        ));
+    }
+    Ok(())
+}
 
 pub struct SqliteIndexer {
     conn: Arc<Mutex<Connection>>,
@@ -25,6 +64,7 @@ impl SqliteIndexer {
 
         {
             let conn = conn.lock();
+            check_dimension(&conn, dim)?;
             conn.execute_batch(&format!(
                 "CREATE VIRTUAL TABLE IF NOT EXISTS document_index USING vec0(
                     embedding float[{}] distance_metric=cosine,
@@ -176,5 +216,37 @@ impl DocumentIndexer for SqliteIndexer {
             rusqlite::params![context, path],
         )?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_pre_existing_index_dimension_must_match_the_model() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = crate::storage::sqlite::SqliteStorage::open_connection(
+            dir.path().to_str().unwrap(),
+        )
+        .unwrap();
+
+        // No table yet: the probe's dimension creates it, as before.
+        check_dimension(&conn, 1024).unwrap();
+
+        conn.execute_batch(
+            "CREATE VIRTUAL TABLE document_index USING vec0(
+                embedding float[768] distance_metric=cosine,
+                context TEXT,
+                path TEXT
+            )",
+        )
+        .unwrap();
+        assert_eq!(declared_dimension(&conn).unwrap(), Some(768));
+        let err = check_dimension(&conn, 1024).unwrap_err().to_string();
+        assert!(err.contains("768"), "{err}");
+        assert!(err.contains("1024"), "{err}");
+        assert!(err.contains("reindexed"), "{err}");
+        check_dimension(&conn, 768).unwrap();
     }
 }

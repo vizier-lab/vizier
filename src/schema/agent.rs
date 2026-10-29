@@ -227,6 +227,7 @@ pub enum EmbeddingProvider {
     Together,
     Cohere,
     Copilot,
+    Bedrock,
 }
 
 impl EmbeddingProvider {
@@ -243,6 +244,7 @@ impl EmbeddingProvider {
             Self::Together => ProviderId::TOGETHERAI,
             Self::Cohere => ProviderId::COHERE,
             Self::Copilot => ProviderId::GITHUB_COPILOT,
+            Self::Bedrock => ProviderId::AMAZON_BEDROCK,
         })
     }
 
@@ -258,6 +260,7 @@ impl EmbeddingProvider {
             Self::Together => "together",
             Self::Cohere => "cohere",
             Self::Copilot => "copilot",
+            Self::Bedrock => "bedrock",
         }
     }
 }
@@ -415,6 +418,7 @@ pub enum ImageGenProvider {
     Xai,
     Huggingface,
     Hyperbolic,
+    Bedrock,
 }
 
 impl ImageGenProvider {
@@ -426,6 +430,7 @@ impl ImageGenProvider {
             Self::Xai => ProviderId::XAI,
             Self::Huggingface => ProviderId::HUGGINGFACE,
             Self::Hyperbolic => ProviderId::HYPERBOLIC,
+            Self::Bedrock => ProviderId::AMAZON_BEDROCK,
         })
     }
 
@@ -436,6 +441,7 @@ impl ImageGenProvider {
             Self::Xai => "grok-2-image-1212",
             Self::Huggingface => "stabilityai/stable-diffusion-xl-base-1.0",
             Self::Hyperbolic => "SDXL1.0-base",
+            Self::Bedrock => crate::llm::media::bedrock::DEFAULT_IMAGE_MODEL,
         }
     }
 }
@@ -550,5 +556,37 @@ mod media_provider_tests {
         let json = serde_json::to_string(&image).unwrap();
         assert!(json.contains(r#""provider":"openrouter""#), "{json}");
         assert_eq!(serde_json::from_str::<SttProvider>(r#""openai""#).unwrap(), SttProvider::Openai);
+    }
+
+    #[test]
+    fn bedrock_is_selectable_for_embeddings_and_images_with_documented_defaults() {
+        assert_eq!(
+            EmbeddingProvider::Bedrock.credentials(),
+            Some(ProviderId::AMAZON_BEDROCK)
+        );
+        assert_eq!(EmbeddingProvider::Bedrock.display_name(), "bedrock");
+        assert_eq!(
+            crate::llm::media::bedrock::DEFAULT_EMBEDDING_MODEL,
+            "amazon.titan-embed-text-v2:0"
+        );
+
+        assert_eq!(
+            ImageGenProvider::Bedrock.credentials(),
+            Some(ProviderId::AMAZON_BEDROCK)
+        );
+        assert_eq!(
+            ImageGenProvider::Bedrock.default_model(),
+            "amazon.nova-canvas-v1:0"
+        );
+
+        // Saved agents keep loading; the new values serialise as their snake_case names.
+        assert_eq!(
+            serde_json::from_str::<EmbeddingProvider>(r#""bedrock""#).unwrap(),
+            EmbeddingProvider::Bedrock
+        );
+        assert_eq!(
+            serde_json::from_str::<ImageGenProvider>(r#""bedrock""#).unwrap(),
+            ImageGenProvider::Bedrock
+        );
     }
 }

@@ -10,6 +10,7 @@ use super::resolve::ResolvedModel;
 use super::types::{AssistantPart, CompletionResponse, Message, ToolChoice, ToolDefinition};
 
 pub mod anthropic;
+pub mod bedrock;
 pub mod gemini;
 pub mod ollama;
 pub mod openai_chat;
@@ -24,6 +25,7 @@ pub enum DialectKind {
     OpenAiChat,
     OpenAiResponses,
     Anthropic,
+    Bedrock,
     Gemini,
     Ollama,
 }
@@ -111,8 +113,10 @@ pub(crate) fn finish_reason(raw: Option<&str>, content: &[AssistantPart]) -> Opt
         "stop" | "end_turn" | "stop_sequence" | "completed" => "stop".to_string(),
         "length" | "max_tokens" | "max_output_tokens" => "length".to_string(),
         "tool_calls" | "tool_use" | "function_call" => "tool_call".to_string(),
-        "content_filter" | "safety" | "recitation" | "blocklist" | "prohibited_content"
-        | "spii" | "refusal" => "content_filter".to_string(),
+        "content_filter" | "content_filtered" | "guardrail_intervened" | "safety"
+        | "recitation" | "blocklist" | "prohibited_content" | "spii" | "refusal" => {
+            "content_filter".to_string()
+        }
         other => other.to_string(),
     };
     let calls_a_tool = content
@@ -200,6 +204,8 @@ mod finish_reason_tests {
             ("MAX_TOKENS", "length"),           // Gemini
             ("max_output_tokens", "length"),    // Responses
             ("content_filter", "content_filter"),
+            ("content_filtered", "content_filter"),   // Bedrock Converse
+            ("guardrail_intervened", "content_filter"),
             ("SAFETY", "content_filter"),
             ("refusal", "content_filter"),
             ("pause_turn", "pause_turn"),       // unrecognised: kept, lower-cased

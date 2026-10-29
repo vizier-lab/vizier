@@ -1,6 +1,16 @@
 //! Shared helpers for `#[cfg(test)]` modules. Not compiled into the binary.
 
+use std::sync::{Mutex, MutexGuard};
+
 use crate::schema::AgentConfig;
+
+static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+/// Serialize tests that read or mutate process environment variables: cargo runs tests in
+/// parallel threads, and one test's `set_var` is every other test's environment.
+pub fn env_lock() -> MutexGuard<'static, ()> {
+    ENV_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
 
 /// A minimal, valid dummyplug agent config, so tests that need a stored agent can create one.
 pub fn agent_config(id: &str) -> AgentConfig {

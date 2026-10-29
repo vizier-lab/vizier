@@ -656,7 +656,11 @@ async fn create_agent_parsed(
     body: CreateAgentRequest,
 ) -> models::response::Response<AgentSaved> {
     if let Some(emb) = &body.embedding {
-        if emb.model.trim().is_empty() {
+        // Bedrock's empty model selects the documented Titan V2 default (FR-020); every other
+        // remote provider needs an explicit model.
+        if emb.model.trim().is_empty()
+            && emb.provider != crate::schema::agent::EmbeddingProvider::Bedrock
+        {
             return err_response(StatusCode::BAD_REQUEST, "embedding.model is required".into());
         }
     }
@@ -726,7 +730,11 @@ async fn update_agent_parsed(
     body: CreateAgentRequest,
 ) -> models::response::Response<AgentSaved> {
     if let Some(emb) = &body.embedding {
-        if emb.model.trim().is_empty() {
+        // Bedrock's empty model selects the documented Titan V2 default (FR-020); every other
+        // remote provider needs an explicit model.
+        if emb.model.trim().is_empty()
+            && emb.provider != crate::schema::agent::EmbeddingProvider::Bedrock
+        {
             return err_response(StatusCode::BAD_REQUEST, "embedding.model is required".into());
         }
     }

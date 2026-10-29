@@ -14,6 +14,13 @@ pub enum CredentialField {
     BaseUrl,
     AccessToken,
     AccountId,
+    /// AWS access key id; an identifier, not a secret.
+    AccessKeyId,
+    SecretAccessKey,
+    /// Temporary-credential session token.
+    SessionToken,
+    /// AWS region (also a Bedrock chat model's region).
+    Region,
 }
 
 #[derive(Debug, Clone)]

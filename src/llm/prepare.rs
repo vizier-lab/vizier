@@ -198,6 +198,52 @@ mod tests {
     }
 
     #[test]
+    fn bedrock_images_follow_the_catalogue_capability() {
+        use crate::llm::dialect::DialectKind;
+        let image = Part::Attachment {
+            mime: "image/png".into(),
+            data: vec![1],
+            name: Some("cat.png".into()),
+        };
+        let msg = Message::User(vec![Part::Text("look".into()), image.clone()]);
+        let with_caps = |input: &[&str]| ResolvedModel {
+            dialect: DialectKind::Bedrock,
+            caps: Capabilities {
+                input: input.iter().map(|s| s.to_string()).collect(),
+                ..Default::default()
+            },
+            ..ResolvedModel::test("amazon.nova-lite-v1:0")
+        };
+
+        let kept = prepare(req(vec![msg.clone()]), &with_caps(&["text", "image"]), SystemStyle::Field);
+        assert_eq!(kept.messages, vec![msg.clone()]);
+        let kept_unknown = prepare(req(vec![msg.clone()]), &with_caps(&[]), SystemStyle::Field);
+        assert_eq!(kept_unknown.messages, vec![msg.clone()], "unknown counts as supported");
+
+        let replaced = prepare(req(vec![msg]), &with_caps(&["text"]), SystemStyle::Field);
+        assert_eq!(
+            replaced.messages,
+            vec![Message::User(vec![
+                Part::Text("look".into()),
+                Part::Text("[image attached: cat.png, but this model cannot view images]".into())
+            ])]
+        );
+
+        let pdf = Part::Attachment {
+            mime: "application/pdf".into(),
+            data: vec![1],
+            name: Some("a.pdf".into()),
+        };
+        let out = prepare(
+            req(vec![Message::User(vec![pdf])]),
+            &with_caps(&["text", "image"]),
+            SystemStyle::Field,
+        );
+        let Message::User(parts) = &out.messages[0] else { panic!() };
+        assert!(parts[0].text().unwrap().starts_with("[document attached: a.pdf"));
+    }
+
+    #[test]
     fn inline_style_is_unchanged() {
         let messages = vec![Message::system("one"), Message::user_text("hi").unwrap()];
         let (system, rest) = normalize_system(messages.clone(), SystemStyle::Inline);

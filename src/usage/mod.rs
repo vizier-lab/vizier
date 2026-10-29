@@ -918,6 +918,58 @@ mod tests {
         assert_eq!(v, vec![(Some(3.0), 5), (Some(1.0), 10), (None, 1000), (None, 900)]);
     }
 
+    fn bedrock_catalogue() -> Catalogue {
+        Catalogue::new(
+            crate::catalogue::data::parse(
+                br#"{"amazon-bedrock": {"id": "amazon-bedrock", "name": "Amazon Bedrock",
+                    "npm": "@ai-sdk/amazon-bedrock", "models": {
+                      "amazon.nova-lite-v1:0": {"id": "amazon.nova-lite-v1:0", "tool_call": true,
+                        "cost": {"input": 0.06, "output": 0.24}},
+                      "anthropic.claude-haiku-4-5-20251001-v1:0": {"id": "anthropic.claude-haiku-4-5-20251001-v1:0",
+                        "tool_call": true, "cost": {"input": 1.0, "output": 5.0, "cache_read": 0.1, "cache_write": 1.25}},
+                      "amazon.nova-pro-v1:0": {"id": "amazon.nova-pro-v1:0", "tool_call": true}
+                    }}}"#,
+            )
+            .unwrap(),
+        )
+    }
+
+    /// T037: a Converse reply's usage is priced from the catalogue; a model with no price shows
+    /// no invented cost, and Bedrock's embedding/image models are not chat-priced at all.
+    #[test]
+    fn a_converse_reply_is_priced_from_the_catalogue() {
+        let c = bedrock_catalogue();
+        let mut pricer = Pricer::new(&c);
+        let tokens = TokenCounts {
+            input: 1_000_000,
+            output: 500_000,
+            cached: 0,
+            cache_write: 0,
+        };
+        let cost = pricer
+            .cost("amazon-bedrock", "amazon.nova-lite-v1:0", &tokens)
+            .unwrap();
+        assert!((cost - (0.06 + 0.12)).abs() < 1e-9, "{cost}");
+
+        assert_eq!(
+            pricer.cost("amazon-bedrock", "amazon.nova-pro-v1:0", &tokens),
+            None,
+            "a catalogue model without a price gets no invented cost"
+        );
+        for media in [
+            "amazon.titan-embed-text-v2:0",
+            "cohere.embed-english-v3",
+            "amazon.nova-canvas-v1:0",
+            "amazon.titan-image-generator-v2:0",
+        ] {
+            assert!(
+                pricer.cost("amazon-bedrock", media, &tokens).is_none(),
+                "{media} must not be chat-priced"
+            );
+        }
+        assert!(c.model(&ProviderId::AMAZON_BEDROCK, "amazon.nova-canvas-v1:0").is_none());
+    }
+
     mod report {
         use std::sync::Arc;
 

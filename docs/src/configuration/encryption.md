@@ -58,6 +58,7 @@ Protected at rest:
 
 - agent secret-store values;
 - saved provider API keys and access tokens, including ChatGPT's session token;
+- AWS Bedrock's `secret_access_key` and `session_token` (the `access_key_id` and `region` stay readable identifiers);
 - custom-provider API keys and every custom request-header value (header names stay readable);
 - Discord and Telegram bot tokens;
 - the Brave Search API key;

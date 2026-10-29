@@ -60,6 +60,13 @@ pub struct ProviderResponse {
     pub base_url: Option<String>,
     pub has_access_token: bool,
     pub account_id: Option<String>,
+    /// AWS Bedrock: the access key id is an identifier, not a secret.
+    pub access_key_id: Option<String>,
+    /// Never the value itself.
+    pub has_secret_access_key: bool,
+    pub has_session_token: bool,
+    /// AWS region, safe to show.
+    pub region: Option<String>,
     /// The pre-015 name this provider's saved row was migrated from.
     pub migrated_from: Option<String>,
     pub used_by: UsedBy,
@@ -108,6 +115,10 @@ async fn connected(state: &HTTPState) -> Vec<ProviderResponse> {
             base_url: creds.base_url.or(p.endpoint),
             has_access_token: set(&creds.access_token),
             account_id: creds.account_id,
+            access_key_id: creds.access_key_id.filter(|v| !v.is_empty()),
+            has_secret_access_key: set(&creds.secret_access_key),
+            has_session_token: set(&creds.session_token),
+            region: creds.region.filter(|v| !v.is_empty()),
             used_by,
             id: p.id,
         });
@@ -162,6 +173,14 @@ pub struct UpsertProviderRequest {
     pub base_url: Option<String>,
     pub access_token: Option<String>,
     pub account_id: Option<String>,
+    /// AWS Bedrock access key id.
+    pub access_key_id: Option<String>,
+    /// AWS Bedrock secret access key (write-only after saving).
+    pub secret_access_key: Option<String>,
+    /// AWS Bedrock temporary-credential session token (write-only after saving).
+    pub session_token: Option<String>,
+    /// AWS region.
+    pub region: Option<String>,
 }
 
 impl UpsertProviderRequest {
@@ -174,6 +193,10 @@ impl UpsertProviderRequest {
             (BaseUrl, &self.base_url),
             (AccessToken, &self.access_token),
             (AccountId, &self.account_id),
+            (AccessKeyId, &self.access_key_id),
+            (SecretAccessKey, &self.secret_access_key),
+            (SessionToken, &self.session_token),
+            (Region, &self.region),
         ]
         .into_iter()
         .filter(|(_, v)| v.is_some())
@@ -188,6 +211,10 @@ impl UpsertProviderRequest {
             base_url: self.base_url,
             access_token: self.access_token,
             account_id: self.account_id,
+            access_key_id: self.access_key_id,
+            secret_access_key: self.secret_access_key,
+            session_token: self.session_token,
+            region: self.region,
         }
     }
 }
@@ -208,6 +235,41 @@ fn field_name(f: CredentialField) -> &'static str {
         CredentialField::BaseUrl => "base_url",
         CredentialField::AccessToken => "access_token",
         CredentialField::AccountId => "account_id",
+        CredentialField::AccessKeyId => "access_key_id",
+        CredentialField::SecretAccessKey => "secret_access_key",
+        CredentialField::SessionToken => "session_token",
+        CredentialField::Region => "region",
+    }
+}
+
+/// A Bedrock save must not leave exactly one half of the signing pair behind (FR-005). Clearing
+/// everything disconnects, and setting the region (or a session token) before the pair is fine.
+fn check_bedrock_pair(
+    id: &ProviderId,
+    creds: &ProviderCredentials,
+) -> Result<(), (StatusCode, String)> {
+    if *id != ProviderId::AMAZON_BEDROCK {
+        return Ok(());
+    }
+    if let Some(region) = creds.region.as_deref().filter(|r| !r.is_empty())
+        && !crate::llm::bedrock::valid_region(region)
+    {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            format!("invalid AWS region {region:?}: use a form like us-east-1"),
+        ));
+    }
+    let has = |v: &Option<String>| v.as_deref().is_some_and(|s| !s.is_empty());
+    match (has(&creds.access_key_id), has(&creds.secret_access_key)) {
+        (true, false) => Err((
+            StatusCode::BAD_REQUEST,
+            "the secret access key is missing: set it too, or clear the access key ID".into(),
+        )),
+        (false, true) => Err((
+            StatusCode::BAD_REQUEST,
+            "the access key ID is missing: set it too, or clear the secret access key".into(),
+        )),
+        _ => Ok(()),
     }
 }
 
@@ -285,8 +347,15 @@ pub(crate) async fn upsert_provider(
             base_url: apply(stored.base_url, body.base_url),
             access_token: apply(stored.access_token, body.access_token),
             account_id: apply(stored.account_id, body.account_id),
+            access_key_id: apply(stored.access_key_id, body.access_key_id),
+            secret_access_key: apply(stored.secret_access_key, body.secret_access_key),
+            session_token: apply(stored.session_token, body.session_token),
+            region: apply(stored.region, body.region),
         },
     };
+    if let Err((status, message)) = check_bedrock_pair(&id, &entry.credentials) {
+        return err_response(status, message);
+    }
     let saved = if entry.credentials.is_empty() {
         state.storage.delete_provider(&id).await
     } else {
@@ -543,5 +612,147 @@ mod dummyplug_provider_tests {
         )
         .await;
         assert_eq!(put.0, StatusCode::BAD_REQUEST);
+    }
+
+    fn body(access: Option<&str>, secret: Option<&str>, region: Option<&str>) -> UpsertProviderRequest {
+        UpsertProviderRequest {
+            access_key_id: access.map(str::to_string),
+            secret_access_key: secret.map(str::to_string),
+            region: region.map(str::to_string),
+            ..Default::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn bedrock_saves_masks_and_refuses_an_incomplete_pair() {
+        let (state, dir) = state().await;
+
+        // Exactly one half of the pair is refused, naming what is missing.
+        let put = upsert_provider(
+            Path("amazon-bedrock".into()),
+            State(state.clone()),
+            axum::Json(body(Some("AKIAEXAMPLE"), None, Some("us-east-1"))),
+        )
+        .await;
+        assert_eq!(put.0, StatusCode::BAD_REQUEST);
+        assert!(
+            put.1.0.message.as_deref().unwrap_or_default().contains("secret access key"),
+            "{:?}",
+            put.1.0
+        );
+        assert!(state.storage.get_provider(&ProviderId::AMAZON_BEDROCK).await.unwrap().is_none());
+
+        // A malformed region is refused before any request.
+        let put = upsert_provider(
+            Path("amazon-bedrock".into()),
+            State(state.clone()),
+            axum::Json(body(Some("AKIAEXAMPLE"), Some("secret"), Some("not-a-region"))),
+        )
+        .await;
+        assert_eq!(put.0, StatusCode::BAD_REQUEST);
+        assert!(
+            put.1.0.message.as_deref().unwrap_or_default().contains("invalid AWS region"),
+            "{:?}",
+            put.1.0
+        );
+
+        // The complete pair saves; the secret is write-only and encrypted at rest.
+        let put = upsert_provider(
+            Path("amazon-bedrock".into()),
+            State(state.clone()),
+            axum::Json(body(Some("AKIAEXAMPLE"), Some("secret-access"), Some("us-east-1"))),
+        )
+        .await;
+        assert_eq!(put.0, StatusCode::OK, "{:?}", put.1.0);
+        let data = put.1.0.data.unwrap();
+        assert_eq!(data.access_key_id.as_deref(), Some("AKIAEXAMPLE"));
+        assert_eq!(data.region.as_deref(), Some("us-east-1"));
+        assert!(data.has_secret_access_key);
+        assert!(!data.has_session_token);
+        assert!(!data.has_api_key);
+        assert_eq!(
+            data.fields,
+            vec![
+                CredentialField::AccessKeyId,
+                CredentialField::SecretAccessKey,
+                CredentialField::SessionToken,
+                CredentialField::Region,
+            ]
+        );
+
+        let stored = state
+            .storage
+            .get_provider(&ProviderId::AMAZON_BEDROCK)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(stored.credentials.access_key_id.as_deref(), Some("AKIAEXAMPLE"));
+        assert_eq!(stored.credentials.region.as_deref(), Some("us-east-1"));
+        // The secret is written protected: read the row without the storage decryptor.
+        let raw = crate::storage::sqlite::SqliteStorage::open_connection(
+            dir.path().to_str().unwrap(),
+        )
+        .unwrap()
+        .query_row(
+            "SELECT data FROM provider_config WHERE variant = 'amazon-bedrock'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .unwrap();
+        assert!(raw.contains("enc:v1:"), "{raw}");
+        assert!(!raw.contains("secret-access"), "{raw}");
+        assert!(raw.contains("AKIAEXAMPLE"), "the identifier stays readable: {raw}");
+
+        let get = get_provider(Path("amazon-bedrock".into()), State(state.clone())).await;
+        let json = serde_json::to_value(get.1.0.data.unwrap()).unwrap();
+        assert!(json.get("secret_access_key").is_none());
+        assert!(!json.to_string().contains("secret-access"), "{json}");
+        assert_eq!(json["has_secret_access_key"], serde_json::json!(true));
+
+        // A Bedrock API key is refused by the provider's field list.
+        let put = upsert_provider(
+            Path("amazon-bedrock".into()),
+            State(state.clone()),
+            axum::Json(UpsertProviderRequest {
+                api_key: Some("bearer".into()),
+                ..Default::default()
+            }),
+        )
+        .await;
+        assert_eq!(put.0, StatusCode::BAD_REQUEST);
+        assert!(
+            put.1.0.message.as_deref().unwrap_or_default().contains("does not use api_key"),
+            "{:?}",
+            put.1.0
+        );
+
+        // A base URL is refused: the regional endpoint is derived from the region.
+        let put = upsert_provider(
+            Path("amazon-bedrock".into()),
+            State(state.clone()),
+            axum::Json(UpsertProviderRequest {
+                base_url: Some("https://elsewhere.example".into()),
+                ..Default::default()
+            }),
+        )
+        .await;
+        assert_eq!(put.0, StatusCode::BAD_REQUEST);
+        assert!(
+            put.1.0.message.as_deref().unwrap_or_default().contains("does not take a base_url"),
+            "{:?}",
+            put.1.0
+        );
+
+        // Deleting removes the connection; the provider is no longer connected.
+        let deleted = delete_provider(
+            Path("amazon-bedrock".into()),
+            Query(DeleteQuery { confirm: true }),
+            State(state.clone()),
+        )
+        .await;
+        assert_eq!(deleted.0, StatusCode::OK);
+        assert!(state.storage.get_provider(&ProviderId::AMAZON_BEDROCK).await.unwrap().is_none());
+        let get = get_provider(Path("amazon-bedrock".into()), State(state)).await;
+        assert_eq!(get.0, StatusCode::NOT_FOUND);
     }
 }

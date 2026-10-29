@@ -42,6 +42,35 @@ impl Endpoint {
             .timeout(Duration::from_secs(300));
         self.credential.authorize(req, &RequestInfo::default()).await
     }
+
+    /// POST a JSON body, serializing it once so a body-aware credential (AWS SigV4) signs the
+    /// exact bytes sent. The unchanged clients keep [`Endpoint::post`].
+    pub(crate) async fn post_json(
+        &self,
+        path: &str,
+        body: &Value,
+    ) -> std::result::Result<http::HttpResponse, LlmError> {
+        let base = self
+            .credential
+            .base_url()
+            .await?
+            .unwrap_or_else(|| self.base_url.clone());
+        let url = join_url(&base, path);
+        let bytes = serde_json::to_vec(body)
+            .map_err(|e| LlmError::Decode(format!("cannot serialize the request body: {e}")))?;
+        let req = self
+            .http
+            .post(&url)
+            .timeout(Duration::from_secs(300))
+            .header(reqwest::header::CONTENT_TYPE, "application/json")
+            .header(reqwest::header::ACCEPT, "application/json")
+            .body(bytes.clone());
+        let req = self
+            .credential
+            .authorize_with_body(req, &RequestInfo::default(), "POST", &url, &bytes)
+            .await?;
+        http::send(req).await
+    }
 }
 
 fn err(what: &str, e: LlmError) -> VizierError {

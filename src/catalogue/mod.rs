@@ -9,6 +9,7 @@ use serde::Serialize;
 pub mod builtin;
 pub mod cache;
 pub mod data;
+pub mod guide;
 pub mod media;
 pub mod refresh;
 pub mod seed;
@@ -193,13 +194,27 @@ pub fn sort_newest_first(models: &mut [CatalogueModel]) {
 
 fn catalogue_listing(p: &CatalogueProvider) -> ProviderListing {
     use CredentialField::*;
-    let mut fields = vec![ApiKey];
-    if p.dialect == Some(DialectKind::OpenAiChat) && p.npm == "@ai-sdk/azure" {
-        fields.push(Endpoint);
-    }
-    if p.kind == ProviderKind::Local {
-        fields.push(BaseUrl);
-    }
+    // Bedrock signs requests with an access key pair and a region: no `api_key` at all.
+    let fields = if p.dialect == Some(DialectKind::Bedrock) {
+        vec![AccessKeyId, SecretAccessKey, SessionToken, Region]
+    } else {
+        let mut fields = vec![ApiKey];
+        if p.dialect == Some(DialectKind::OpenAiChat) && p.npm == "@ai-sdk/azure" {
+            fields.push(Endpoint);
+        }
+        if p.kind == ProviderKind::Local {
+            fields.push(BaseUrl);
+        }
+        fields
+    };
+    // The catalogue lists only some of a provider's variables; the extra ones matter for the
+    // connection state, the form and the resolver's fallback order.
+    let mut env = p.env.clone();
+    env.extend(
+        crate::provider_keys::extra_env(&p.id)
+            .iter()
+            .map(|name| name.to_string()),
+    );
     ProviderListing {
         id: p.id.clone(),
         name: p.name.clone(),
@@ -207,7 +222,7 @@ fn catalogue_listing(p: &CatalogueProvider) -> ProviderListing {
         kind: p.kind,
         dialect: p.dialect,
         model_count: p.models.len(),
-        env: p.env.clone(),
+        env,
         fields,
     }
 }
@@ -259,7 +274,11 @@ mod tests {
           "claudeish": {"id": "claudeish", "name": "C", "npm": "@ai-sdk/anthropic", "api": "https://c/v1", "models": {
             "shared": {"id": "shared", "limit": {"context": 2}}
           }},
-          "bedrock": {"id": "bedrock", "name": "B", "npm": "@ai-sdk/amazon-bedrock", "models": {}}
+          "bedrock": {"id": "amazon-bedrock", "name": "Amazon Bedrock", "npm": "@ai-sdk/amazon-bedrock", "models": {
+            "anthropic.claude-x-v1:0": {"id": "anthropic.claude-x-v1:0", "tool_call": true, "limit": {"context": 200000}},
+            "amazon.nova-lite-v1:0": {"id": "amazon.nova-lite-v1:0", "tool_call": true, "limit": {"context": 300000}}
+          }},
+          "galadriel": {"id": "galadriel", "name": "G", "npm": "some-unsupported-provider", "models": {}}
         }"#,
             )
             .unwrap(),
@@ -284,7 +303,13 @@ mod tests {
         let c = catalogue();
         let listed = c.providers(&[]);
         assert!(listed.iter().any(|p| p.id.as_str() == "acme"));
-        assert!(!listed.iter().any(|p| p.id.as_str() == "bedrock"));
+        let bedrock = listed
+            .iter()
+            .find(|p| p.id == ProviderId::AMAZON_BEDROCK)
+            .expect("amazon-bedrock is listed");
+        assert_eq!(bedrock.dialect, Some(DialectKind::Bedrock));
+        assert_eq!(bedrock.model_count, 2);
+        assert!(!listed.iter().any(|p| p.id.as_str() == "galadriel"));
         assert!(listed.iter().any(|p| p.id == ProviderId::DUMMYPLUG));
 
         let custom = CustomProvider {

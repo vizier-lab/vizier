@@ -26,6 +26,7 @@ impl ProviderId {
     pub const HUGGINGFACE: ProviderId = ProviderId::new_static("huggingface");
     pub const GITHUB_COPILOT: ProviderId = ProviderId::new_static("github-copilot");
     pub const AZURE: ProviderId = ProviderId::new_static("azure");
+    pub const AMAZON_BEDROCK: ProviderId = ProviderId::new_static("amazon-bedrock");
     pub const OPENCODE_GO: ProviderId = ProviderId::new_static("opencode-go");
     pub const OLLAMA: ProviderId = ProviderId::new_static("ollama");
     pub const LLAMA_CPP: ProviderId = ProviderId::new_static("llama-cpp");

@@ -166,6 +166,7 @@ fn key_style(dialect: DialectKind) -> KeyStyle {
     match dialect {
         DialectKind::Anthropic => KeyStyle::Header("x-api-key"),
         DialectKind::Gemini => KeyStyle::Header("x-goog-api-key"),
+        DialectKind::Bedrock => KeyStyle::None,
         _ => KeyStyle::Bearer,
     }
 }
@@ -201,6 +202,88 @@ fn missing_key(provider: &ProviderId, env: &[String]) -> VizierError {
     ))
 }
 
+fn env_non_empty(name: &str) -> Option<String> {
+    std::env::var(name)
+        .ok()
+        .filter(|v| !v.trim().is_empty())
+}
+
+/// The region a Bedrock connection uses: the saved value, then `AWS_REGION`, then
+/// `AWS_DEFAULT_REGION`. Never guessed (FR-003).
+pub(crate) fn bedrock_region(creds: &ProviderCredentials) -> crate::Result<String> {
+    let region = creds
+        .region
+        .clone()
+        .filter(|r| !r.is_empty())
+        .or_else(|| env_non_empty("AWS_REGION"))
+        .or_else(|| env_non_empty("AWS_DEFAULT_REGION"))
+        .ok_or_else(|| {
+            VizierError(
+                "no AWS region for \"amazon-bedrock\": set the region in Settings › Providers, \
+                 or set AWS_REGION (or AWS_DEFAULT_REGION)"
+                    .into(),
+            )
+        })?;
+    if !crate::llm::bedrock::valid_region(&region) {
+        return Err(VizierError(format!(
+            "invalid AWS region {region:?} for \"amazon-bedrock\": use a form like us-east-1"
+        )));
+    }
+    Ok(region)
+}
+
+/// The access key pair, refusing a bearer token and an incomplete pair with a message that names
+/// what is missing (FR-005).
+pub(crate) fn bedrock_keys(creds: &ProviderCredentials) -> crate::Result<(String, String, Option<String>)> {
+    let access = creds.access_key_id.as_deref().filter(|v| !v.is_empty());
+    let secret = creds.secret_access_key.as_deref().filter(|v| !v.is_empty());
+    let bearer = creds.api_key.as_deref().filter(|v| !v.is_empty());
+    if access.is_none() && secret.is_none() && bearer.is_some() {
+        return Err(VizierError(
+            "Bedrock API keys are not supported; set an access key ID and secret access key \
+             (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY)"
+                .into(),
+        ));
+    }
+    let access = access.ok_or_else(|| {
+        VizierError(
+            "no AWS access key ID for \"amazon-bedrock\": set the access key ID in \
+             Settings › Providers or set AWS_ACCESS_KEY_ID"
+                .into(),
+        )
+    })?;
+    let secret = secret.ok_or_else(|| {
+        VizierError(
+            "no AWS secret access key for \"amazon-bedrock\": set the secret access key in \
+             Settings › Providers or set AWS_SECRET_ACCESS_KEY"
+                .into(),
+        )
+    })?;
+    Ok((
+        access.to_string(),
+        secret.to_string(),
+        creds.session_token.clone().filter(|t| !t.is_empty()),
+    ))
+}
+
+fn resolve_bedrock(
+    model: &str,
+    creds: &ProviderCredentials,
+    mut resolved: ResolvedModel,
+) -> crate::Result<ResolvedModel> {
+    let region = bedrock_region(creds)?;
+    let (access_key_id, secret_access_key, session_token) = bedrock_keys(creds)?;
+    resolved.model = model.to_string();
+    resolved.base_url = crate::llm::bedrock::runtime_endpoint(&region);
+    resolved.credential = super::auth::SigV4Credential::bedrock(
+        access_key_id,
+        secret_access_key,
+        session_token,
+        region,
+    );
+    Ok(resolved)
+}
+
 /// Resolve one `(provider, model)` (data-model §6). Custom providers come first, then the
 /// catalogue, then the built-ins; anything else is "not available".
 pub fn resolve_with(
@@ -231,6 +314,12 @@ pub fn resolve_with(
     if let Some(m) = entry {
         resolved.caps = m.caps.clone();
         resolved.cost = m.cost.clone();
+    }
+
+    // Bedrock signs with an IAM access key pair and talks to a regional host; it has no
+    // `api_key` at all (research R5, contract `provider-layer.md` §4).
+    if dialect == DialectKind::Bedrock {
+        return resolve_bedrock(model, &creds, resolved);
     }
 
     let key = creds.api_key.clone().filter(|k| !k.is_empty());
@@ -411,6 +500,8 @@ pub async fn fill_context_from_provider(resolved: &mut ResolvedModel, http: &req
         DialectKind::Ollama => {
             super::dialect::ollama::show_context(http, &resolved.base_url, &resolved.model).await
         }
+        // Catalogue limits are authoritative; there is no model listing to ask (research R5).
+        DialectKind::Bedrock => None,
         _ => {
             let model = super::build(
                 resolved.clone(),
@@ -439,13 +530,20 @@ pub async fn fill_context_from_provider(resolved: &mut ResolvedModel, http: &req
     }
 }
 
-/// The env vars a provider's credentials may come from: the catalogue's, or a built-in's.
+/// The env vars a provider's credentials may come from: the catalogue's, or a built-in's, plus
+/// any names only the resolver knows about (Bedrock's session token and default region).
 pub fn provider_env(catalogue: &Catalogue, provider: &ProviderId) -> Vec<String> {
-    catalogue
+    let mut env: Vec<String> = catalogue
         .provider(provider)
         .map(|p| p.env)
         .or_else(|| builtin::builtin(provider).map(|b| b.env.iter().map(|e| e.to_string()).collect()))
-        .unwrap_or_default()
+        .unwrap_or_default();
+    env.extend(
+        crate::provider_keys::extra_env(provider)
+            .iter()
+            .map(|name| name.to_string()),
+    );
+    env
 }
 
 /// [`resolve_with`] after looking up this provider's custom definition and credentials.
@@ -503,7 +601,10 @@ mod resolve_tests {
             "gpt-4o": {"id": "gpt-4o", "limit": {"context": 128000}}
           }},
           "lmstudio": {"id": "lmstudio", "name": "LM Studio", "npm": "@ai-sdk/openai-compatible", "api": "http://127.0.0.1:1234/v1", "models": {}},
-          "bedrock": {"id": "bedrock", "name": "B", "npm": "@ai-sdk/amazon-bedrock", "models": {}}
+          "amazon-bedrock": {"id": "amazon-bedrock", "name": "Amazon Bedrock", "npm": "@ai-sdk/amazon-bedrock",
+            "env": ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_REGION", "AWS_BEARER_TOKEN_BEDROCK"],
+            "models": {"amazon.nova-lite-v1:0": {"id": "amazon.nova-lite-v1:0", "tool_call": true,
+              "modalities": {"input": ["text", "image"]}, "limit": {"context": 300000, "output": 10000}}}}
         }"#,
             )
             .unwrap(),
@@ -601,10 +702,178 @@ mod resolve_tests {
         let c = catalogue();
         let err = resolve_with(&ctx(&c, None), &id("galadriel"), "m", &ModelOverrides::default()).unwrap_err();
         assert_eq!(err.0, "provider \"galadriel\" is not available; pick another provider");
-        assert!(resolve_with(&ctx(&c, key("k")), &id("bedrock"), "m", &ModelOverrides::default()).is_err());
         assert!(resolve_with(&ctx(&c, None), &id("anthropic"), "claude-x", &ModelOverrides::default()).is_err());
         // Local catalogue providers need no key.
         assert!(resolve_with(&ctx(&c, None), &id("lmstudio"), "x", &ModelOverrides::default()).is_ok());
+    }
+
+    fn bedrock() -> ProviderId {
+        ProviderId::AMAZON_BEDROCK
+    }
+
+    fn bedrock_creds(region: Option<&str>) -> ProviderCredentials {
+        ProviderCredentials {
+            access_key_id: Some("AKIATEST".into()),
+            secret_access_key: Some("secret".into()),
+            region: region.map(str::to_string),
+            ..Default::default()
+        }
+    }
+
+    /// Save, clear and restore the AWS variables a Bedrock resolution reads, so a developer's
+    /// own credentials never decide what the tests see.
+    struct AwsEnv {
+        saved: Vec<(&'static str, Option<String>)>,
+    }
+
+    impl AwsEnv {
+        fn cleared() -> Self {
+            let names = [
+                "AWS_REGION",
+                "AWS_DEFAULT_REGION",
+                "AWS_ACCESS_KEY_ID",
+                "AWS_SECRET_ACCESS_KEY",
+                "AWS_SESSION_TOKEN",
+                "AWS_BEARER_TOKEN_BEDROCK",
+            ];
+            let saved = names.iter().map(|n| (*n, std::env::var(n).ok())).collect();
+            for name in names {
+                // SAFETY: serialized by `tests_support::env_lock`; restored on drop.
+                unsafe { std::env::remove_var(name) };
+            }
+            Self { saved }
+        }
+    }
+
+    impl Drop for AwsEnv {
+        fn drop(&mut self) {
+            for (name, value) in &self.saved {
+                // SAFETY: as above.
+                match value {
+                    Some(value) => unsafe { std::env::set_var(name, value) },
+                    None => unsafe { std::env::remove_var(name) },
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn bedrock_resolves_the_regional_endpoint_limits_and_capabilities() {
+        let c = catalogue();
+        let r = resolve_with(
+            &ctx(&c, Some(bedrock_creds(Some("us-east-1")))),
+            &bedrock(),
+            "amazon.nova-lite-v1:0",
+            &ModelOverrides::default(),
+        )
+        .unwrap();
+        assert_eq!(r.dialect, DialectKind::Bedrock);
+        assert_eq!(r.base_url, "https://bedrock-runtime.us-east-1.amazonaws.com");
+        assert_eq!(r.context_window, Some(300000));
+        assert_eq!(r.context_source, ContextSource::Catalogue);
+        assert_eq!(r.max_output, Some(10000));
+        assert_eq!(r.caps.image_input(), Some(true));
+        assert!(r.headers.is_empty() && r.query.is_empty());
+        assert!(!r.stream_required);
+        // The id is never rewritten, cross-region prefixes included.
+        let r = resolve_with(
+            &ctx(&c, Some(bedrock_creds(Some("us-east-1")))),
+            &bedrock(),
+            "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+            &ModelOverrides::default(),
+        )
+        .unwrap();
+        assert_eq!(r.model, "us.anthropic.claude-haiku-4-5-20251001-v1:0");
+        assert_eq!(r.base_url, "https://bedrock-runtime.us-east-1.amazonaws.com");
+    }
+
+    #[test]
+    fn bedrock_region_comes_from_the_setting_then_the_environment() {
+        let _env = crate::tests_support::env_lock();
+        let _aws = AwsEnv::cleared();
+        let c = catalogue();
+        let resolve = |creds: Option<ProviderCredentials>| {
+            resolve_with(
+                &ctx(&c, creds),
+                &bedrock(),
+                "amazon.nova-lite-v1:0",
+                &ModelOverrides::default(),
+            )
+        };
+
+        let err = resolve(None).unwrap_err().0;
+        assert!(err.contains("no AWS region"), "{err}");
+        assert!(err.contains("AWS_REGION") && err.contains("AWS_DEFAULT_REGION"), "{err}");
+
+        // No saved value: AWS_DEFAULT_REGION, then AWS_REGION wins over it.
+        // SAFETY: serialized by `env_lock` and restored by `AwsEnv`.
+        unsafe { std::env::set_var("AWS_DEFAULT_REGION", "ap-southeast-2") };
+        assert_eq!(
+            resolve(Some(bedrock_creds(None))).unwrap().base_url,
+            "https://bedrock-runtime.ap-southeast-2.amazonaws.com"
+        );
+        // SAFETY: as above.
+        unsafe { std::env::set_var("AWS_REGION", "eu-west-1") };
+        assert_eq!(
+            resolve(Some(bedrock_creds(None))).unwrap().base_url,
+            "https://bedrock-runtime.eu-west-1.amazonaws.com"
+        );
+
+        // The saved region wins over both.
+        assert_eq!(
+            resolve(Some(bedrock_creds(Some("us-west-2"))))
+                .unwrap()
+                .base_url,
+            "https://bedrock-runtime.us-west-2.amazonaws.com"
+        );
+
+        // A malformed region is refused before any request.
+        let err = resolve(Some(bedrock_creds(Some("not-a-region"))))
+            .unwrap_err()
+            .0;
+        assert!(err.contains("invalid AWS region"), "{err}");
+        assert!(err.contains("not-a-region"), "{err}");
+    }
+
+    #[test]
+    fn bedrock_refuses_a_bearer_token_and_an_incomplete_pair() {
+        let _env = crate::tests_support::env_lock();
+        let _aws = AwsEnv::cleared();
+        let c = catalogue();
+        let resolve = |creds: ProviderCredentials| {
+            resolve_with(
+                &ctx(&c, Some(creds)),
+                &bedrock(),
+                "amazon.nova-lite-v1:0",
+                &ModelOverrides::default(),
+            )
+        };
+
+        let bearer = ProviderCredentials {
+            api_key: Some("AWS_BEARER".into()),
+            region: Some("us-east-1".into()),
+            ..Default::default()
+        };
+        let err = resolve(bearer).unwrap_err().0;
+        assert!(err.contains("Bedrock API keys are not supported"), "{err}");
+        assert!(err.contains("AWS_ACCESS_KEY_ID") && err.contains("AWS_SECRET_ACCESS_KEY"), "{err}");
+
+        let mut half = bedrock_creds(Some("us-east-1"));
+        half.secret_access_key = None;
+        let err = resolve(half).unwrap_err().0;
+        assert!(err.contains("secret access key"), "{err}");
+        assert!(err.contains("AWS_SECRET_ACCESS_KEY"), "{err}");
+
+        let mut half = bedrock_creds(Some("us-east-1"));
+        half.access_key_id = None;
+        let err = resolve(half).unwrap_err().0;
+        assert!(err.contains("access key ID"), "{err}");
+        assert!(err.contains("AWS_ACCESS_KEY_ID"), "{err}");
+
+        // A complete pair with an optional session token resolves.
+        let mut complete = bedrock_creds(Some("us-east-1"));
+        complete.session_token = Some("token".into());
+        assert!(resolve(complete).is_ok());
     }
 
     #[test]

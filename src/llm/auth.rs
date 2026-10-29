@@ -12,6 +12,7 @@ use tokio::sync::Mutex;
 
 use super::error::LlmError;
 use super::http;
+use super::sigv4::{self, SigV4Request};
 
 /// What a credential source may need to know about the request it authorises.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -29,6 +30,20 @@ pub trait CredentialSource: Send + Sync {
         req: RequestBuilder,
         info: &RequestInfo,
     ) -> Result<RequestBuilder, LlmError>;
+
+    /// [`CredentialSource::authorize`] for a source that signs the request body as well as its
+    /// headers (AWS SigV4). The default keeps every existing source unchanged; the bytes given
+    /// here are the exact bytes the caller sends.
+    async fn authorize_with_body(
+        &self,
+        req: RequestBuilder,
+        info: &RequestInfo,
+        _method: &str,
+        _url: &str,
+        _body: &[u8],
+    ) -> Result<RequestBuilder, LlmError> {
+        self.authorize(req, info).await
+    }
 
     /// A base URL that replaces the configured one, when the credential decides it (Copilot
     /// tokens name their own API host).
@@ -87,6 +102,112 @@ impl CredentialSource for StaticKey {
             KeyStyle::Query(name) => req.query(&[(name, key)]),
             KeyStyle::None => req,
         })
+    }
+}
+
+// AWS Signature Version 4 (Bedrock).
+
+/// Signs each request with an AWS access key pair and a region (contract `provider-layer.md` §2).
+/// The body-aware path is the only one that can sign, because the payload hash covers the exact
+/// bytes sent; calling [`CredentialSource::authorize`] without a body is a configuration error,
+/// never an unsigned request.
+pub struct SigV4Credential {
+    pub access_key_id: String,
+    pub secret_access_key: String,
+    pub session_token: Option<String>,
+    pub region: String,
+    pub service: &'static str,
+}
+
+impl SigV4Credential {
+    /// A Bedrock credential (`service = "bedrock"`), ready for `ResolvedModel.credential`.
+    pub fn bedrock(
+        access_key_id: String,
+        secret_access_key: String,
+        session_token: Option<String>,
+        region: String,
+    ) -> Arc<dyn CredentialSource> {
+        Arc::new(Self {
+            access_key_id,
+            secret_access_key,
+            session_token: session_token.filter(|t| !t.is_empty()),
+            region,
+            service: super::bedrock::SERVICE,
+        })
+    }
+
+    /// The host to sign: `host[:port]` with an explicit non-default port.
+    fn sign_host(url: &reqwest::Url) -> Result<String, LlmError> {
+        let host = url
+            .host_str()
+            .ok_or_else(|| LlmError::Config(format!("the request URL {url} has no host")))?;
+        Ok(match url.port() {
+            Some(port) => format!("{host}:{port}"),
+            None => host.to_string(),
+        })
+    }
+}
+
+impl std::fmt::Debug for SigV4Credential {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SigV4Credential")
+            .field("access_key_id", &self.access_key_id)
+            .field("secret_access_key", &"[redacted]")
+            .field(
+                "session_token",
+                &self.session_token.as_ref().map(|_| "[redacted]"),
+            )
+            .field("region", &self.region)
+            .field("service", &self.service)
+            .finish()
+    }
+}
+
+#[async_trait::async_trait]
+impl CredentialSource for SigV4Credential {
+    async fn authorize(
+        &self,
+        _req: RequestBuilder,
+        _info: &RequestInfo,
+    ) -> Result<RequestBuilder, LlmError> {
+        Err(LlmError::Config(
+            "SigV4 signing requires the request body; use the body-aware path".into(),
+        ))
+    }
+
+    async fn authorize_with_body(
+        &self,
+        req: RequestBuilder,
+        _info: &RequestInfo,
+        method: &str,
+        url: &str,
+        body: &[u8],
+    ) -> Result<RequestBuilder, LlmError> {
+        let parsed = reqwest::Url::parse(url)
+            .map_err(|e| LlmError::Config(format!("cannot sign the request URL {url}: {e}")))?;
+        let host = Self::sign_host(&parsed)?;
+        let signature = sigv4::sign(&SigV4Request {
+            method,
+            path: parsed.path(),
+            query: parsed.query().unwrap_or(""),
+            host: &host,
+            content_type: Some("application/json"),
+            body,
+            access_key_id: &self.access_key_id,
+            secret_access_key: &self.secret_access_key,
+            session_token: self.session_token.as_deref(),
+            region: &self.region,
+            service: self.service,
+            now: chrono::Utc::now(),
+        });
+        let mut req = req
+            .header(reqwest::header::CONTENT_TYPE, "application/json")
+            .header("x-amz-date", signature.amz_date)
+            .header(reqwest::header::AUTHORIZATION, signature.authorization);
+        if let Some(token) = &self.session_token {
+            req = req.header("x-amz-security-token", token);
+        }
+        Ok(req)
     }
 }
 
@@ -402,5 +523,69 @@ mod tests {
         let token = format!("h.{payload}.s");
         assert_eq!(chatgpt_account_id_from_jwt(&token).as_deref(), Some("acct_1"));
         assert_eq!(chatgpt_account_id_from_jwt("opaque"), None);
+    }
+
+    fn bedrock_credential() -> SigV4Credential {
+        SigV4Credential {
+            access_key_id: "AKIDEXAMPLE".into(),
+            secret_access_key: "secret-access-key".into(),
+            session_token: Some("session-token".into()),
+            region: "us-east-1".into(),
+            service: crate::llm::bedrock::SERVICE,
+        }
+    }
+
+    #[tokio::test]
+    async fn sigv4_needs_a_body_and_signs_the_headers() {
+        let credential = bedrock_credential();
+        let url = "https://bedrock-runtime.us-east-1.amazonaws.com/model/amazon.nova-lite-v1%3A0/converse";
+        let unsigned = reqwest::Client::new().post(url);
+        let err = credential
+            .authorize(unsigned, &RequestInfo::default())
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("body-aware"));
+
+        let req = reqwest::Client::new().post(url);
+        let built = credential
+            .authorize_with_body(req, &RequestInfo::default(), "POST", url, br#"{"messages":[]}"#)
+            .await
+            .unwrap()
+            .build()
+            .unwrap();
+        let authorization = built
+            .headers()
+            .get(reqwest::header::AUTHORIZATION)
+            .unwrap()
+            .to_str()
+            .unwrap();
+        assert!(
+            authorization.starts_with("AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/"),
+            "{authorization}"
+        );
+        assert!(authorization.contains("Signature="));
+        assert_eq!(
+            built
+                .headers()
+                .get("x-amz-security-token")
+                .unwrap()
+                .to_str()
+                .unwrap(),
+            "session-token"
+        );
+        assert!(built.headers().get("x-amz-date").is_some());
+        assert_eq!(
+            built.headers().get(reqwest::header::CONTENT_TYPE).unwrap(),
+            "application/json"
+        );
+    }
+
+    #[test]
+    fn sigv4_debug_never_prints_the_secrets() {
+        let printed = format!("{:?}", bedrock_credential());
+        assert!(!printed.contains("secret-access-key"), "{printed}");
+        assert!(!printed.contains("session-token"), "{printed}");
+        assert!(printed.contains("[redacted]"));
+        assert!(printed.contains("AKIDEXAMPLE"));
     }
 }

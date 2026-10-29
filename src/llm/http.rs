@@ -135,14 +135,20 @@ static SECRETS: LazyLock<Vec<(Regex, &'static str)>> = LazyLock::new(|| {
         ),
         (r"(?i)([?&]key=)[^&\s]+", "${1}[redacted]"),
         (r"\bsk-[A-Za-z0-9_-]{8,}", "sk-[redacted]"),
+        // AWS SigV4: the credential id, signed headers and signature are one unit.
+        (r#"AWS4-HMAC-SHA256\s+Credential=[^"\r\n]+"#, "AWS4-HMAC-SHA256 [redacted]"),
+        (
+            r#"(?i)("?(?:x-amz-security-token)"?\s*[:=]\s*"?)[^",\s}]+"#,
+            "${1}[redacted]",
+        ),
     ]
     .into_iter()
     .filter_map(|(p, r)| Regex::new(p).ok().map(|re| (re, r)))
     .collect()
 });
 
-/// Hide credentials (`Bearer …`, `x-api-key`, `api-key`, `x-goog-api-key`, `key=`) in text
-/// bound for a log.
+/// Hide credentials (`Bearer …`, `x-api-key`, `api-key`, `x-goog-api-key`, `key=`, AWS SigV4
+/// `Authorization`, `x-amz-security-token`) in text bound for a log.
 pub fn redact(text: &str) -> String {
     let mut out = text.to_string();
     for (re, replacement) in SECRETS.iter() {
@@ -172,6 +178,16 @@ mod tests {
         );
         assert_eq!(redact("api-key=topsecret"), "api-key=[redacted]");
         assert_eq!(redact("used sk-abcdefghijkl here"), "used sk-[redacted] here");
+        assert_eq!(
+            redact(
+                "Authorization: AWS4-HMAC-SHA256 Credential=AKIA/20250101/us-east-1/bedrock/aws4_request, SignedHeaders=host, Signature=abc123"
+            ),
+            "Authorization: AWS4-HMAC-SHA256 [redacted]"
+        );
+        assert_eq!(
+            redact(r#"{"x-amz-security-token": "session-secret", "a": 1}"#),
+            r#"{"x-amz-security-token": "[redacted]", "a": 1}"#
+        );
         assert_eq!(redact("nothing to hide"), "nothing to hide");
     }
 }

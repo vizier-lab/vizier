@@ -3,6 +3,7 @@ use std::sync::Arc;
 use crate::dependencies::VizierDependencies;
 use crate::llm::media::{
     self,
+    bedrock::BedrockImages,
     huggingface::HuggingFaceImages,
     hyperbolic::HyperbolicImages,
     openai_shaped::{ImageApi, ImageSizing, OpenAiImages},
@@ -23,6 +24,7 @@ impl VizierImageGen {
         let model = settings
             .model
             .clone()
+            .filter(|m| !m.trim().is_empty())
             .unwrap_or_else(|| provider.default_model().into());
         let Some(id) = provider.credentials() else {
             unreachable!("every image provider has credentials");
@@ -43,6 +45,7 @@ impl VizierImageGen {
             }),
             ImageGenProvider::Huggingface => Arc::new(HuggingFaceImages(endpoint)),
             ImageGenProvider::Hyperbolic => Arc::new(HyperbolicImages(endpoint)),
+            ImageGenProvider::Bedrock => Arc::new(BedrockImages::new(endpoint)?),
         };
 
         Ok(Self(model))

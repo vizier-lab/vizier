@@ -227,6 +227,31 @@ pub async fn check(state: &HTTPState, mut resolved: ResolvedModel) -> TestResult
             Err(_) => TestResult::failed(LlmError::Timeout),
         };
     }
+    // Bedrock verifies the key pair and region with a signed control-plane listing, which
+    // needs no model access and spends no tokens (research R8).
+    if resolved.dialect == DialectKind::Bedrock {
+        let timeout = Duration::from_secs(15);
+        return match tokio::time::timeout(
+            timeout,
+            crate::llm::bedrock::list_foundation_models(
+                &state.deps.http,
+                resolved.credential.as_ref(),
+                &resolved.base_url,
+                timeout,
+            ),
+        )
+        .await
+        {
+            Ok(Ok(count)) => TestResult {
+                ok: true,
+                model_count: Some(count),
+                status: None,
+                error: None,
+            },
+            Ok(Err(e)) => TestResult::failed(e),
+            Err(_) => TestResult::failed(LlmError::Timeout),
+        };
+    }
     let model = crate::llm::build(resolved, state.deps.http.clone(), no_retry);
     match tokio::time::timeout(REACHABLE_TIMEOUT.max(Duration::from_secs(10)), model.list_models())
         .await
@@ -282,4 +307,32 @@ pub async fn migrated_from(state: &HTTPState) -> BTreeMap<String, String> {
         .flatten()
         .and_then(|v| serde_json::from_value(v).ok())
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::schema::agent::{EmbeddingConfig, EmbeddingProvider, ImageGenProvider};
+
+    /// One saved Bedrock connection is the chat provider, the embedding provider and the image
+    /// provider at once, so a credential change restarts this agent and no other provider's.
+    #[test]
+    fn bedrock_counts_for_chat_embeddings_and_images_together() {
+        let mut config = crate::tests_support::agent_config("a");
+        config.provider = ProviderId::AMAZON_BEDROCK;
+        config.model = "amazon.nova-lite-v1:0".into();
+        config.embedding = Some(EmbeddingConfig {
+            provider: EmbeddingProvider::Bedrock,
+            model: String::new(),
+        });
+        config.tools.image_gen.enabled = true;
+        config.tools.image_gen.settings.provider = ImageGenProvider::Bedrock;
+
+        let found = features(&config, &ProviderId::AMAZON_BEDROCK);
+        assert!(found.contains(&"chat"), "{found:?}");
+        assert!(found.contains(&"embedding"), "{found:?}");
+        assert!(found.contains(&"image_gen"), "{found:?}");
+        assert_eq!(found.iter().filter(|f| **f == "chat").count(), 1, "{found:?}");
+        assert!(features(&config, &ProviderId::OPENAI).is_empty());
+    }
 }

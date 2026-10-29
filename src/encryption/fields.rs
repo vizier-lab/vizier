@@ -134,6 +134,18 @@ pub fn protect_provider_entry(
         out.credentials.access_token = Some(stored);
         changed |= did;
     }
+    // AWS Bedrock: both halves of the signing secret are protected; the access key id and the
+    // region stay readable identifiers.
+    for (field, slot) in [
+        ("credentials.secret_access_key", &mut out.credentials.secret_access_key),
+        ("credentials.session_token", &mut out.credentials.session_token),
+    ] {
+        if let Some(value) = slot.as_deref() {
+            let (stored, did) = protect_value(cipher, "provider_config", record, field, value, mode)?;
+            *slot = Some(stored);
+            changed |= did;
+        }
+    }
     Ok((out, changed))
 }
 
@@ -160,6 +172,14 @@ pub fn decrypt_provider_entry(
             "credentials.access_token",
             value,
         )?);
+    }
+    for (field, slot) in [
+        ("credentials.secret_access_key", &mut out.credentials.secret_access_key),
+        ("credentials.session_token", &mut out.credentials.session_token),
+    ] {
+        if let Some(value) = slot.as_deref() {
+            *slot = Some(decrypt_value(cipher, "provider_config", record, field, value)?);
+        }
     }
     Ok(out)
 }
@@ -504,6 +524,10 @@ mod tests {
                 base_url: Some("https://base.example/v1".into()),
                 access_token: access_token.map(str::to_string),
                 account_id: Some("acct".into()),
+                access_key_id: Some("AKIAEXAMPLE".into()),
+                secret_access_key: Some("aws-secret".into()),
+                session_token: Some("aws-session".into()),
+                region: Some("us-east-1".into()),
             },
         }
     }
@@ -631,6 +655,24 @@ mod tests {
             Some("https://base.example/v1")
         );
         assert_eq!(protected.credentials.account_id.as_deref(), Some("acct"));
+        assert_eq!(protected.credentials.access_key_id.as_deref(), Some("AKIAEXAMPLE"));
+        assert_eq!(protected.credentials.region.as_deref(), Some("us-east-1"));
+        assert!(
+            protected
+                .credentials
+                .secret_access_key
+                .as_ref()
+                .unwrap()
+                .starts_with("enc:v1:")
+        );
+        assert!(
+            protected
+                .credentials
+                .session_token
+                .as_ref()
+                .unwrap()
+                .starts_with("enc:v1:")
+        );
 
         assert_eq!(
             decrypt_provider_entry(&c, &protected).unwrap(),

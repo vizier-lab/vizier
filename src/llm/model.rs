@@ -95,8 +95,19 @@ impl<D: Dialect> HttpModel<D> {
         body: &serde_json::Value,
         info: &RequestInfo,
     ) -> Result<http::HttpResponse, LlmError> {
-        let req = self.with_fixed_headers(self.http.post(url)).json(body);
-        let req = self.resolved.credential.authorize(req, info).await?;
+        // Serialize once: the bytes signed by a body-aware credential (AWS SigV4) must be the
+        // exact bytes sent. `.json(body)` would re-serialize after signing.
+        let bytes = serde_json::to_vec(body)
+            .map_err(|e| LlmError::Decode(format!("cannot serialize the request body: {e}")))?;
+        let req = self
+            .with_fixed_headers(self.http.post(url))
+            .header(reqwest::header::CONTENT_TYPE, "application/json")
+            .body(bytes.clone());
+        let req = self
+            .resolved
+            .credential
+            .authorize_with_body(req, info, "POST", url, &bytes)
+            .await?;
         http::send(req).await
     }
 }
@@ -547,5 +558,71 @@ mod tests {
         assert_eq!(classify_status(400), Failure::Permanent);
         assert_eq!(classify(&LlmError::Transport("refused".into())), Failure::Unavailable);
         assert_eq!(classify(&LlmError::Config("no key".into())), Failure::Permanent);
+    }
+
+    /// Bedrock's error names ride on the HTTP status: 400/403/404 are permanent, 408/429/5xx are
+    /// retried, and an exhausted budget keeps AWS's message (contract `bedrock-wire.md` §7).
+    #[tokio::test]
+    async fn bedrock_errors_follow_the_provider_policy() {
+        for (status, name) in [
+            (403, "AccessDeniedException"),
+            (404, "ResourceNotFoundException"),
+            (400, "ValidationException"),
+        ] {
+            let body = format!(r#"{{"message":"{name}: the request was refused"}}"#);
+            let model = Scripted::new(vec![Some(Err(http(status, &body)))]);
+            let err = run(&model, &fast_config(4), None).await.unwrap_err();
+            assert_eq!(model.calls.load(Ordering::SeqCst), 1, "{name} must not retry");
+            assert!(err.to_string().contains(name), "{name}: {err}");
+        }
+
+        for (status, name) in [
+            (429, "ThrottlingException"),
+            (429, "ModelNotReadyException"),
+            (503, "ServiceUnavailableException"),
+            (500, "InternalServerException"),
+            (408, "ModelTimeoutException"),
+        ] {
+            let body = format!(r#"{{"message":"{name}: try again"}}"#);
+            let model = Scripted::new(vec![Some(Err(http(status, &body))), Some(Ok(()))]);
+            run(&model, &fast_config(4), None).await.unwrap();
+            assert_eq!(model.calls.load(Ordering::SeqCst), 2, "{name} is retried");
+        }
+
+        // Exhausted throttling keeps AWS's message and reads as rate limiting.
+        let body = r#"{"message":"ThrottlingException: too many requests"}"#;
+        let model = Scripted::new(vec![
+            Some(Err(http(429, body))),
+            Some(Err(http(429, body))),
+        ]);
+        let err = run(&model, &fast_config(2), None).await.unwrap_err();
+        assert!(err.to_string().starts_with(RATE_LIMITED), "{err}");
+        assert!(err.to_string().contains("ThrottlingException"), "{err}");
+        assert_eq!(model.calls.load(Ordering::SeqCst), 2);
+
+        // An exhausted 503 reads as provider unavailable.
+        let model = Scripted::new(vec![
+            Some(Err(http(503, "ServiceUnavailableException"))),
+            Some(Err(http(503, "ServiceUnavailableException"))),
+        ]);
+        let err = run(&model, &fast_config(2), None).await.unwrap_err();
+        assert!(err.to_string().starts_with(PROVIDER_UNAVAILABLE), "{err}");
+
+        // A Retry-After is honoured even when it is longer than the backoff.
+        let model = Scripted::new(vec![
+            Some(Err(LlmError::Http {
+                status: 429,
+                retry_after: Some(Duration::from_millis(40)),
+                body: "ThrottlingException".into(),
+            })),
+            Some(Ok(())),
+        ]);
+        let started = Instant::now();
+        run(&model, &fast_config(4), None).await.unwrap();
+        assert!(
+            started.elapsed() >= Duration::from_millis(40),
+            "the provider's retry hint is honoured: {:?}",
+            started.elapsed()
+        );
     }
 }

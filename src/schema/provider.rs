@@ -144,6 +144,18 @@ pub struct ProviderCredentials {
     /// ChatGPT.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub account_id: Option<String>,
+    /// AWS Bedrock access key id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub access_key_id: Option<String>,
+    /// AWS Bedrock secret access key (encrypted at rest).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub secret_access_key: Option<String>,
+    /// AWS Bedrock temporary-credential session token (encrypted at rest).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_token: Option<String>,
+    /// AWS region.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub region: Option<String>,
 }
 
 impl ProviderCredentials {
@@ -154,6 +166,10 @@ impl ProviderCredentials {
             &self.base_url,
             &self.access_token,
             &self.account_id,
+            &self.access_key_id,
+            &self.secret_access_key,
+            &self.session_token,
+            &self.region,
         ]
         .iter()
         .all(|v| v.as_deref().is_none_or(str::is_empty))
@@ -170,6 +186,10 @@ impl ProviderCredentials {
             base_url: pick(&self.base_url, &other.base_url),
             access_token: pick(&self.access_token, &other.access_token),
             account_id: pick(&self.account_id, &other.account_id),
+            access_key_id: pick(&self.access_key_id, &other.access_key_id),
+            secret_access_key: pick(&self.secret_access_key, &other.secret_access_key),
+            session_token: pick(&self.session_token, &other.session_token),
+            region: pick(&self.region, &other.region),
         }
     }
 }
@@ -217,4 +237,49 @@ pub struct CustomProvider {
     pub models: Vec<CustomModel>,
     #[serde(default)]
     pub models_fetched_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+#[cfg(test)]
+mod credential_tests {
+    use super::*;
+
+    #[test]
+    fn bedrock_fields_take_part_in_is_empty_and_merge() {
+        let empty = ProviderCredentials::default();
+        assert!(empty.is_empty());
+        let region_only = ProviderCredentials {
+            region: Some("us-east-1".into()),
+            ..Default::default()
+        };
+        assert!(!region_only.is_empty());
+
+        let stored = ProviderCredentials {
+            access_key_id: Some("AKIAOLD".into()),
+            secret_access_key: Some("old-secret".into()),
+            session_token: Some("old-token".into()),
+            region: Some("us-east-1".into()),
+            ..Default::default()
+        };
+        let update = ProviderCredentials {
+            access_key_id: Some("AKIANEW".into()),
+            // An empty value does not replace a stored one.
+            secret_access_key: Some(String::new()),
+            session_token: None,
+            region: Some("eu-west-1".into()),
+            ..Default::default()
+        };
+        let merged = stored.merged_with(&update);
+        assert_eq!(merged.access_key_id.as_deref(), Some("AKIANEW"));
+        assert_eq!(merged.secret_access_key.as_deref(), Some("old-secret"));
+        assert_eq!(merged.session_token.as_deref(), Some("old-token"));
+        assert_eq!(merged.region.as_deref(), Some("eu-west-1"));
+    }
+
+    #[test]
+    fn records_saved_without_the_bedrock_fields_still_load() {
+        let creds: ProviderCredentials =
+            serde_json::from_value(serde_json::json!({"api_key": "k"})).unwrap();
+        assert!(creds.access_key_id.is_none());
+        assert_eq!(creds.api_key.as_deref(), Some("k"));
+    }
 }

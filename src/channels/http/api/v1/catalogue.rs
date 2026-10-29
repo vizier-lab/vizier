@@ -233,6 +233,8 @@ pub struct ProviderSummary {
     pub endpoint: Option<String>,
     /// The provider's documentation page.
     pub doc: Option<String>,
+    /// The in-form setup guide, when this provider has one (Amazon Bedrock today).
+    pub guide: Option<crate::catalogue::guide::ProviderGuide>,
 }
 
 #[derive(Debug, Deserialize, utoipa::IntoParams)]
@@ -247,6 +249,7 @@ pub struct ProvidersQuery {
 const MEDIA_PROVIDERS: &[&str] = &[
     "openai", "google", "togetherai", "github-copilot", "groq", "mistral", "cohere",
     "openrouter", "huggingface", "xai", "elevenlabs", "voyageai", "hyperbolic", "ollama",
+    "amazon-bedrock",
 ];
 
 pub(crate) fn logo_url(id: &str) -> Option<String> {
@@ -334,6 +337,12 @@ pub(crate) async fn provider_summaries(state: &HTTPState) -> Vec<ProviderSummary
                         .and_then(|b| b.default_base_url.map(String::from))
                 });
             let doc = entry.and_then(|e| e.doc.clone());
+            // Static provider metadata, never for a custom provider that shadows the id.
+            let guide = if p.origin == ProviderOrigin::Custom {
+                None
+            } else {
+                crate::catalogue::guide::for_provider(&p.id)
+            };
             let connection = connections.remove(&p.id).unwrap_or(Connection {
                 status: "missing".into(),
                 source: None,
@@ -357,6 +366,7 @@ pub(crate) async fn provider_summaries(state: &HTTPState) -> Vec<ProviderSummary
                 fields: p.fields,
                 endpoint,
                 doc,
+                guide,
             }
         })
         .collect();
@@ -757,5 +767,76 @@ mod tests {
         assert_eq!(empty.len(), 1);
         assert_eq!(empty[0].id, "bytedance-seed/seedream-4.5");
         assert!(empty[0].default && !empty[0].listed);
+    }
+
+    async fn test_state() -> (HTTPState, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        let config = crate::config::VizierConfig {
+            workspace: dir.path().to_string_lossy().to_string(),
+            ..Default::default()
+        };
+        let deps = crate::dependencies::VizierDependencies::new(config).await.unwrap();
+        let state = HTTPState {
+            config: deps.config.clone(),
+            transport: deps.transport.clone(),
+            storage: deps.storage.clone(),
+            background_jobs: deps.background_jobs.clone(),
+            catalogue: deps.catalogue.clone(),
+            deps,
+            client_events: std::sync::Arc::new(crate::channels::http::rate_limit::RateLimiter::new(
+                10,
+                std::time::Duration::from_secs(60),
+            )),
+            client_state_saves: std::sync::Arc::new(crate::channels::http::rate_limit::RateLimiter::new(
+                2,
+                std::time::Duration::from_secs(1),
+            )),
+            visit_throttle: std::sync::Arc::new(crate::channels::http::rate_limit::RateLimiter::new(
+                1,
+                std::time::Duration::from_secs(60),
+            )),
+            deferred_client_calls: Default::default(),
+        };
+        (state, dir)
+    }
+
+    /// FR-001/FR-011a: Bedrock is listed with the four credential fields, the two extra env
+    /// names and its guide; every other provider has no guide.
+    #[tokio::test]
+    async fn amazon_bedrock_lists_with_four_fields_and_its_guide() {
+        use crate::catalogue::builtin::CredentialField;
+        let (state, _dir) = test_state().await;
+        let summaries = provider_summaries(&state).await;
+        let bedrock = summaries
+            .iter()
+            .find(|p| p.id == ProviderId::AMAZON_BEDROCK)
+            .expect("Amazon Bedrock is listed");
+        assert_eq!(
+            bedrock.fields,
+            vec![
+                CredentialField::AccessKeyId,
+                CredentialField::SecretAccessKey,
+                CredentialField::SessionToken,
+                CredentialField::Region,
+            ]
+        );
+        assert!(!bedrock.fields.contains(&CredentialField::ApiKey));
+        assert_eq!(bedrock.dialect, Some(DialectKind::Bedrock));
+        assert!(bedrock.model_count > 100, "the catalogue's Bedrock models are listed");
+        for name in ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_REGION", "AWS_SESSION_TOKEN", "AWS_DEFAULT_REGION"] {
+            assert!(bedrock.env.iter().any(|e| e == name), "{name} missing from {:?}", bedrock.env);
+        }
+        let guide = bedrock.guide.as_ref().expect("Bedrock has a setup guide");
+        assert_eq!(guide.steps.len(), 5);
+        assert!(guide.policy.code.contains("bedrock:InvokeModel"));
+        assert!(guide.policy.code.contains("bedrock:ListFoundationModels"));
+        assert!(guide.links.iter().any(|l| l.url.ends_with("#amazon-bedrock")));
+        assert!(
+            summaries
+                .iter()
+                .filter(|p| p.id != ProviderId::AMAZON_BEDROCK)
+                .all(|p| p.guide.is_none()),
+            "no other provider has a guide"
+        );
     }
 }

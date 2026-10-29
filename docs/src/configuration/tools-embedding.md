@@ -121,8 +121,9 @@ In the WebUI the boolean and its `_settings` are one form section; in the API th
 | `xai` | `grok-2-image-1212` | `xai` key |
 | `huggingface` | `stabilityai/stable-diffusion-xl-base-1.0` | `huggingface` key |
 | `hyperbolic` | `SDXL1.0-base` | `hyperbolic` key |
+| `bedrock` | `amazon.nova-canvas-v1:0` | `amazon-bedrock` connection (access key pair + region) |
 
-`size` is optional. OpenRouter receives it as its `size` convenience (explicit pixels such as `1792x1024`, or a tier such as `2K`) and normalizes it per model; leave it empty to let the provider choose. The saved file keeps the media type the provider actually returned (PNG, JPEG, WebP or SVG) and its default filename extension follows that type.
+`size` is optional. OpenRouter receives it as its `size` convenience (explicit pixels such as `1792x1024`, or a tier such as `2K`) and normalizes it per model; leave it empty to let the provider choose. Bedrock receives explicit `WxH` pixels (default `1024x1024`; Nova Canvas accepts 320–4096 per side, multiples of 16, aspect 1:4–4:1, under 4,194,304 pixels; Titan Image Generator V2 follows its own size table) and surfaces the provider's refusal for an unsupported size. The saved file keeps the media type the provider actually returned (PNG, JPEG, WebP or SVG) and its default filename extension follows that type.
 
 ### Choosing OpenRouter media models
 
@@ -148,7 +149,7 @@ Each agent has its own embedding model, used for semantic memory search and skil
 
 Defaults when omitted on create: `local` / `all_mini_lml6_v2` and `sqlite` indexer. If either `embedding` or `indexer` is `null`, the agent has **no** vector index — memory tools and skill recommendation are disabled.
 
-> **Vector dimension caveat.** Embeddings are generated when a memory is written or imported (not re-generated on boot). The `document_index` vector table in the workspace database is created once, with the dimension of the first embedding model that touches it, and is shared by every agent in the workspace. Agents using a model with a different dimension will fail to index (the error is logged and the write to markdown still succeeds, but semantic search won't find it). Keep all agents in a workspace on same-dimension embedding models, or reset the index if you switch.
+> **Vector dimension caveat.** Embeddings are generated when a memory is written or imported (not re-generated on boot). The `document_index` vector table in the workspace database is created once, with the dimension of the first embedding model that touches it, and is shared by every agent in the workspace. When an agent is built with a model whose vectors have a different size, the build is refused with the index's dimension, the model's dimension and the reindex instruction, and no wrong-sized vectors are written. Keep all agents in a workspace on same-dimension embedding models, or rebuild the index when you switch.
 
 ### Embedding providers
 
@@ -164,8 +165,32 @@ Defaults when omitted on create: `local` / `all_mini_lml6_v2` and `sqlite` index
 | `together` | `togethercomputer/m2-bert-80M-8k-retrieval` | Uses the `togetherai` key |
 | `cohere` | `embed-english-v3.0` | |
 | `copilot` | `text-embedding-3-small` | |
+| `bedrock` | `amazon.titan-embed-text-v2:0` (default when empty) | Uses the `amazon-bedrock` connection; see below |
 
 Cloud providers use the credentials of the matching provider in Settings → Providers, or its environment variable (see [Providers](./providers.md#connecting-a-provider)). There is no per-agent embedding key; an `api_key`/`base_url` saved on an older agent is ignored.
+
+### Amazon Bedrock
+
+Bedrock embeddings and image generation reuse the one `amazon-bedrock` connection (access key pair and region) described in [Providers](./providers.md#amazon-bedrock). Leave the model empty to use the documented default; a typed id is stored and sent unchanged. A cross-region inference profile prefix (`us.`, `eu.`, `apac.`, `global.`) is accepted and ignored for family detection.
+
+**Embeddings:**
+
+| Family | Model ids | Request | Dimension |
+|---|---|---|---|
+| Amazon Titan Text Embeddings V2 (default) | `amazon.titan-embed-text-v2:0` | one text per call, `normalize: true` | 1024 |
+| Amazon Titan Text Embeddings V1 | `amazon.titan-embed-text-v1` | one text per call | 1024 |
+| Cohere Embed v3 | `cohere.embed-english-v3`, `cohere.embed-multilingual-v3` | batches of up to 96 texts, `input_type: search_document` | 1024 |
+
+All supported models return 1024-dimensional vectors, so they share one index. There is no dimension setting. A model id outside these families fails the agent's build, naming the model and the supported families, before any request. A model whose vectors differ from the existing index is refused with the reindex instruction above.
+
+**Image generation:**
+
+| Family | Model ids | Default size |
+|---|---|---|
+| Amazon Nova Canvas (default) | `amazon.nova-canvas-v1:0` | `1024x1024` |
+| Amazon Titan Image Generator V2 | `amazon.titan-image-generator-v2:0` | `1024x1024` |
+
+The tool asks for one image per call. A blocked prompt or a response with no image fails the tool call with the provider's message and saves no file. The media type is read from the bytes (PNG, JPEG or WebP), so the filename extension matches what was returned.
 
 ### Local models
 

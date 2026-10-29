@@ -52,6 +52,71 @@ API: `GET|POST /api/v1/providers/custom`, `PUT|DELETE /api/v1/providers/custom/{
 
 Every other provider comes from the catalogue.
 
+## Amazon Bedrock
+
+Amazon Bedrock is a catalogue provider (`amazon-bedrock`, **Amazon Bedrock**) for chat, memory embeddings and image generation. One connection supplies all three capabilities; changing it (keys or region) affects every Bedrock agent and no agent on another provider. Speech is not offered: Bedrock has no batch text-to-speech or speech-to-text API, so use Amazon Polly and Amazon Transcribe directly, or the existing TTS/STT providers.
+
+### Connect
+
+1. **Create an IAM access key.** IAM → Users → Security credentials → Create access key. Choose *Application running outside AWS*. The secret is shown once.
+2. **Attach the minimal policy.** Allow the actions below. `bedrock:ListFoundationModels` is used by **Test**; `bedrock:InvokeModel` runs chat, embeddings and images.
+
+   ```json
+   {
+     "Version": "2012-10-17",
+     "Statement": [{
+       "Effect": "Allow",
+       "Action": ["bedrock:InvokeModel", "bedrock:ListFoundationModels"],
+       "Resource": "*"
+     }]
+   }
+   ```
+
+3. **Enable model access.** Bedrock → Model access: enable the chat, embedding and image models you will use. Anthropic models may need a use-case form.
+4. **Choose a region.** Use a Bedrock region where the model is offered, e.g. `us-east-1`. Cross-region ids (`us.`, `eu.`, `apac.`, `global.`) are accepted as model ids.
+5. **Paste the values.** Enter the access key ID, secret access key and region. Add the session token only for temporary credentials.
+
+The same steps appear in the connect form, with a copy button for the policy ([AWS IAM users](https://console.aws.amazon.com/iam/home#/users), [Bedrock model access](https://console.aws.amazon.com/bedrock/home#/modelaccess), [AWS supported models](https://docs.aws.amazon.com/bedrock/latest/userguide/models-supported.html)).
+
+### Credentials and region
+
+| Field | Secret | Environment variables |
+|-------|--------|-----------------------|
+| `access_key_id` | no (an identifier) | `AWS_ACCESS_KEY_ID` |
+| `secret_access_key` | yes, encrypted at rest | `AWS_SECRET_ACCESS_KEY` |
+| `session_token` | yes, encrypted at rest | `AWS_SESSION_TOKEN` (temporary credentials only) |
+| `region` | no | `AWS_REGION`, then `AWS_DEFAULT_REGION` |
+
+The saved connection wins field by field; the environment fills what it leaves unset, and the provider list shows the source (`saved` or `env:AWS_ACCESS_KEY_ID`). Both halves of the key pair are required: an incomplete pair is refused when saving and at build time, naming the missing field. A Bedrock **API key** (bearer token, `AWS_BEARER_TOKEN_BEDROCK`) is not supported; the error names the access-key variables instead. `base_url` is refused — a Bedrock connection always uses the regional endpoint derived from the region, and an operator who needs another address uses a custom provider.
+
+There is **one region per saved connection**; switching regions is a settings change and restarts only the Bedrock agents. If no region is set anywhere, the build fails naming the setting and both environment variables instead of guessing. There is no AWS credential-chain support (profiles, roles, instance metadata): only a static access key pair.
+
+Requests are signed with AWS Signature Version 4 (service `bedrock`); the access key pair never travels in a header or query parameter.
+
+### Models
+
+Chat models come from the catalogue — their ids, names, context windows, output limits, tool/vision capabilities and prices are used unchanged. The picker lists all 200 catalogue entries, cross-region profiles included; a typed id the picker does not list is stored and sent exactly as entered, and the provider decides whether it is valid.
+
+Embeddings (`embedding.provider: bedrock`) and image generation (`image_gen_settings.provider: bedrock`) use the same saved connection and region. See [Tools & Embedding](./tools-embedding.md#amazon-bedrock) for their model families, defaults and dimensions.
+
+### Errors and recovery
+
+The provider's own error is kept and shown:
+
+| What happened | What it looks like | What to do |
+|---|---|---|
+| Missing region | Build error naming the region setting, `AWS_REGION` and `AWS_DEFAULT_REGION` | Save a region in Settings → Providers or set the variable |
+| Incomplete key pair | Error naming the missing field | Save both halves together |
+| Bearer-only configuration | "Bedrock API keys are not supported" | Set `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` |
+| Wrong region / DNS | Transport error naming the `bedrock-runtime.<region>` host | Check the region value |
+| Model not enabled or not offered in the region | 403 `AccessDeniedException` or 404 `ResourceNotFoundException` body | Enable model access, or choose a model/region that offers it |
+| Missing IAM permission | 403 body naming the action | Attach `bedrock:InvokeModel` (and `bedrock:ListFoundationModels` for Test) |
+| Expired session token | 403 body naming the expiry | Save a new session token or a permanent key pair |
+| Bad model or parameters | 400 `ValidationException` body | The model states what it accepts |
+| Throttling / unavailable | 429/503, retried with backoff | Wait; the existing retry policy applies |
+
+Rotating keys, changing the region or removing the connection restarts exactly the agents that use Bedrock; their next turn uses the new values without a Vizier restart. Invalid credentials make the agent's health report the failure, and saving working credentials recovers it. Startup, catalogue refresh, the scheduler and dream cycles never make an AWS request.
+
 ## Ids from earlier versions
 
 Provider ids now follow the catalogue. The old names are still accepted everywhere (API, agent configs) and are normalised on read, and the environment variables Vizier used before are still honoured:

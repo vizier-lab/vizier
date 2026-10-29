@@ -5,6 +5,7 @@
 use std::sync::Arc;
 
 pub mod auth;
+pub mod bedrock;
 pub mod dialect;
 pub mod error;
 pub mod http;
@@ -12,6 +13,7 @@ pub mod media;
 pub mod model;
 pub mod prepare;
 pub mod resolve;
+pub mod sigv4;
 pub mod sse;
 pub mod telemetry;
 pub mod types;
@@ -46,6 +48,7 @@ pub fn build(
             wrap(dialect::openai_responses::OpenAiResponses, resolved, http, retry)
         }
         DialectKind::Anthropic => wrap(dialect::anthropic::Anthropic, resolved, http, retry),
+        DialectKind::Bedrock => wrap(dialect::bedrock::Bedrock, resolved, http, retry),
         DialectKind::Gemini => wrap(dialect::gemini::Gemini, resolved, http, retry),
         DialectKind::Ollama => wrap(dialect::ollama::Ollama, resolved, http, retry),
     }

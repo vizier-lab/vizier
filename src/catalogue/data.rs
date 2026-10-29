@@ -351,6 +351,7 @@ pub fn dialect_for_npm(npm: &str, shape: Option<&str>) -> Option<DialectKind> {
         "@ai-sdk/openai" => Some(DialectKind::OpenAiResponses),
         "@ai-sdk/anthropic" => Some(DialectKind::Anthropic),
         "@ai-sdk/google" => Some(DialectKind::Gemini),
+        "@ai-sdk/amazon-bedrock" => Some(DialectKind::Bedrock),
         _ => None,
     }?;
     Some(match shape {
@@ -430,7 +431,8 @@ mod tests {
                  "bad": {"id": 5}
                }},
       "openai": {"id": "openai", "name": "OpenAI", "env": ["OPENAI_API_KEY"], "npm": "@ai-sdk/openai", "models": {}},
-      "bedrock": {"id": "bedrock", "name": "Bedrock", "npm": "@ai-sdk/amazon-bedrock", "models": {}},
+      "amazon-bedrock": {"id": "amazon-bedrock", "name": "Amazon Bedrock", "npm": "@ai-sdk/amazon-bedrock", "models": {}},
+      "galadriel": {"id": "galadriel", "name": "Galadriel", "npm": "some-unsupported-provider", "models": {}},
       "local": {"id": "local", "name": "Local", "npm": "@ai-sdk/openai-compatible", "api": "http://127.0.0.1:1234/v1", "models": {}}
     }"#;
 
@@ -476,9 +478,24 @@ mod tests {
     #[test]
     fn an_unsupported_provider_has_no_dialect() {
         let d = data();
-        let bedrock = &d.providers[&id("bedrock")];
-        assert_eq!(bedrock.dialect, None);
-        assert_eq!(dialect_for(bedrock, None), None);
+        let galadriel = &d.providers[&id("galadriel")];
+        assert_eq!(galadriel.dialect, None);
+        assert_eq!(dialect_for(galadriel, None), None);
+    }
+
+    #[test]
+    fn amazon_bedrock_maps_to_its_own_dialect() {
+        let d = data();
+        let bedrock = &d.providers[&id("amazon-bedrock")];
+        assert_eq!(bedrock.dialect, Some(DialectKind::Bedrock));
+        assert_eq!(
+            dialect_for(bedrock, None).map(|(d, _)| d),
+            Some(DialectKind::Bedrock)
+        );
+        assert_eq!(
+            dialect_for_npm("@ai-sdk/amazon-bedrock", None),
+            Some(DialectKind::Bedrock)
+        );
     }
 
     #[test]
