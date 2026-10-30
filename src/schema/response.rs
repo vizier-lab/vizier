@@ -10,7 +10,8 @@ use crate::{
     schema::VizierAttachment,
 };
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema, utoipa::ToSchema)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct VizierResponseStats {
     pub input_tokens: u64,
     pub cached_input_tokens: u64,
@@ -31,13 +32,14 @@ pub struct VizierResponseStats {
     pub ended_by_tool: Option<String>,
     /// The provider and model that answered, for the usage view's cost estimate (FR-021).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schema(value_type = Option<String>)]
+    #[cfg_attr(feature = "utoipa", schema(value_type = Option<String>))]
     pub provider: Option<crate::config::provider::ProviderId>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema, utoipa::ToSchema)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct VizierResponse {
     pub timestamp: DateTime<Utc>,
     pub content: VizierResponseContent,
@@ -52,7 +54,8 @@ pub struct VizierResponse {
     pub resumed: bool,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, JsonSchema, utoipa::ToSchema)]
+#[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum ErrorKind {
     Completion,
@@ -110,7 +113,8 @@ impl ErrorKind {
     }
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema, utoipa::ToSchema)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum VizierResponseContent {
     ThinkingStart,

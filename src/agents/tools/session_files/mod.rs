@@ -6,15 +6,18 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    agents::tools::{
-        ToolCategory, ToolContext, VizierTool,
-        office::{DOCX_MIME, XLS_MIME, XLSX_MIME},
-    },
+    agents::tools::{ToolCategory, ToolContext, VizierTool},
     error::VizierError,
     file_manager::FileManager,
     schema::{VizierResponse, VizierResponseContent, session_file::SessionFileRecord},
     storage::{VizierStorage, session_file::SessionFileStorage},
 };
+
+/// Office MIME types, kept here because reading a session file refuses them with a pointer to
+/// the Office addon whether or not this build includes it.
+pub const DOCX_MIME: &str = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+pub const XLSX_MIME: &str = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+pub const XLS_MIME: &str = "application/vnd.ms-excel";
 
 mod send_attachment;
 pub use send_attachment::SendAttachment;
@@ -134,11 +137,16 @@ fn extract_text(mime_type: &str, content: Vec<u8>) -> Result<String, VizierError
                 .map_err(|e| VizierError(format!("Invalid UTF-8: {}", e)))?;
             Ok(text)
         }
+        #[cfg(feature = "documents")]
         "application/pdf" => {
             let text = pdf_extract::extract_text_from_mem(&content)
                 .map_err(|e| VizierError(format!("Failed to extract PDF: {}", e)))?;
             Ok(text)
         }
+        #[cfg(not(feature = "documents"))]
+        "application/pdf" => Err(VizierError(
+            "PDF text extraction is not supported in this build".into(),
+        )),
         // Word and Excel are read by the Office addon (specs/036-office-addon).
         DOCX_MIME | XLSX_MIME | XLS_MIME => Err(VizierError(
             "read_document_file no longer reads Word and Excel files. Use office_docx_read_as_md for .docx, or office_xlsx_read_as_cells (typed cells) / office_xlsx_read_as_csv (whole-workbook preview) for .xlsx and .xls. These tools belong to the Office addon: install it or turn it on in the agent's integrations if they are missing.".into(),
@@ -205,7 +213,7 @@ impl VizierTool for ReadDocumentFile {
 #[cfg(test)]
 mod tests {
     use super::extract_text;
-    use crate::agents::tools::office::{DOCX_MIME, XLS_MIME, XLSX_MIME};
+    use super::{DOCX_MIME, XLS_MIME, XLSX_MIME};
 
     #[test]
     fn word_and_excel_point_to_the_office_tools() {

@@ -1,4 +1,5 @@
 pub mod elevenlabs;
+#[cfg(feature = "media")]
 pub mod kokoro;
 
 use std::sync::Arc;
@@ -33,12 +34,19 @@ impl VizierTts {
         let provider = &settings.provider;
         let model = resolved_model(settings);
         let model: Arc<dyn VizierTtsModel> = match (provider, provider.credentials()) {
+            #[cfg(feature = "media")]
             (TtsProvider::Kokoro, _) => Arc::new(kokoro::KokoroTtsModel::new(
                 model,
                 workspace,
                 deps.setup.clone(),
                 agent_id.to_string(),
             )),
+            #[cfg(not(feature = "media"))]
+            (TtsProvider::Kokoro, _) => {
+                return Err(VizierError(
+                    "local speech (kokoro) is not compiled into this build".into(),
+                ));
+            }
             (TtsProvider::Elevenlabs, Some(id)) => Arc::new(elevenlabs::ElevenLabsTtsModel::new(
                 media::api_key(deps, &id).await?,
                 model,
@@ -66,201 +74,219 @@ impl VizierTts {
     }
 }
 
-/// A minimal MPEG Layer III frame header, enough to find its Xing/Info tag.
-struct FrameHeader {
-    /// MPEG version bits: `3` is MPEG1, `2` MPEG2, `0` MPEG2.5.
-    version: u8,
-    mono: bool,
-}
+#[cfg(feature = "media")]
+mod mp3 {
+    use crate::{Result, VizierError};
 
-fn frame_header(bytes: &[u8]) -> Option<FrameHeader> {
-    if bytes.len() < 4 {
-        return None;
+    /// A minimal MPEG Layer III frame header, enough to find its Xing/Info tag.
+    pub(super) struct FrameHeader {
+        /// MPEG version bits: `3` is MPEG1, `2` MPEG2, `0` MPEG2.5.
+        version: u8,
+        mono: bool,
     }
-    let (b1, b2, b3) = (bytes[1], bytes[2], bytes[3]);
-    // Sync, then Layer III with a valid MPEG version, bitrate and sample rate.
-    if bytes[0] != 0xFF || (b1 & 0xE0) != 0xE0 {
-        return None;
-    }
-    let version = (b1 >> 3) & 0x3;
-    let layer = (b1 >> 1) & 0x3;
-    if layer != 0b01 || version == 0b01 || (b2 >> 4) & 0xF == 0xF || (b2 >> 2) & 0x3 == 0x3 {
-        return None;
-    }
-    Some(FrameHeader {
-        version,
-        mono: (b3 >> 6) == 0b11,
-    })
-}
 
-/// How many bytes a stream that starts with a Xing/Info header records itself as. Providers
-/// that stream speech one sentence at a time concatenate independent MP3 streams, each with
-/// its own header; the byte count is the only thing that tells them apart.
-fn xing_stream_len(bytes: &[u8]) -> Option<usize> {
-    let header = frame_header(bytes)?;
-    // The Xing tag follows the frame header and the side information.
-    let side_info = match (header.version, header.mono) {
-        (0b11, true) => 17,
-        (0b11, false) => 32,
-        (_, true) => 9,
-        (_, false) => 17,
-    };
-    let xing = 4 + side_info;
-    if !matches!(bytes.get(xing..xing + 4)?, b"Xing" | b"Info") {
-        return None;
-    }
-    let flags = u32::from_be_bytes(bytes.get(xing + 4..xing + 8)?.try_into().ok()?);
-    let mut at = xing + 8;
-    if flags & 0x1 != 0 {
-        at += 4; // frame count
-    }
-    if flags & 0x2 == 0 {
-        return None; // no byte count
-    }
-    let len = u32::from_be_bytes(bytes.get(at..at + 4)?.try_into().ok()?) as usize;
-    (len > 4 && len <= bytes.len()).then_some(len)
-}
-
-/// Decode one MP3 stream, appending its samples.
-fn decode_mp3_stream(
-    mp3_bytes: &[u8],
-    samples: &mut Vec<i16>,
-    spec: &mut Option<hound::WavSpec>,
-) -> Result<()> {
-    use symphonia::core::codecs::audio::AudioDecoderOptions;
-    use symphonia::core::formats::probe::Hint;
-    use symphonia::core::formats::{FormatOptions, TrackType};
-    use symphonia::core::io::MediaSourceStream;
-    use symphonia::core::meta::MetadataOptions;
-
-    let cursor = std::io::Cursor::new(mp3_bytes.to_vec());
-    let mss = MediaSourceStream::new(Box::new(cursor), Default::default());
-
-    let mut format = symphonia::default::get_probe()
-        .probe(
-            &Hint::new(),
-            mss,
-            FormatOptions::default(),
-            MetadataOptions::default(),
-        )
-        .map_err(|e| VizierError(format!("mp3 probe: {e}")))?;
-
-    let track = format
-        .default_track(TrackType::Audio)
-        .ok_or_else(|| VizierError("no default track in mp3".into()))?;
-    let track_id = track.id;
-    let params = track
-        .codec_params
-        .as_ref()
-        .and_then(|p| p.audio())
-        .ok_or_else(|| VizierError("no audio codec parameters in mp3".into()))?
-        .clone();
-
-    let sample_rate = params
-        .sample_rate
-        .ok_or_else(|| VizierError("unknown sample rate".into()))?;
-    let channels = params.channels.as_ref().map(|c| c.count()).unwrap_or(1) as u16;
-    match spec {
-        Some(current) if current.sample_rate != sample_rate || current.channels != channels => {
-            return Err(VizierError(
-                "concatenated mp3 streams disagree on sample rate or channels".into(),
-            ));
+    pub(super) fn frame_header(bytes: &[u8]) -> Option<FrameHeader> {
+        if bytes.len() < 4 {
+            return None;
         }
-        Some(_) => {}
-        None => {
-            *spec = Some(hound::WavSpec {
-                channels,
-                sample_rate,
-                bits_per_sample: 16,
-                sample_format: hound::SampleFormat::Int,
-            })
+        let (b1, b2, b3) = (bytes[1], bytes[2], bytes[3]);
+        // Sync, then Layer III with a valid MPEG version, bitrate and sample rate.
+        if bytes[0] != 0xFF || (b1 & 0xE0) != 0xE0 {
+            return None;
         }
+        let version = (b1 >> 3) & 0x3;
+        let layer = (b1 >> 1) & 0x3;
+        if layer != 0b01 || version == 0b01 || (b2 >> 4) & 0xF == 0xF || (b2 >> 2) & 0x3 == 0x3 {
+            return None;
+        }
+        Some(FrameHeader {
+            version,
+            mono: (b3 >> 6) == 0b11,
+        })
     }
 
-    let mut decoder = symphonia::default::get_codecs()
-        .make_audio_decoder(&params, &AudioDecoderOptions::default())
-        .map_err(|e| VizierError(format!("mp3 decoder: {e}")))?;
+    /// How many bytes a stream that starts with a Xing/Info header records itself as. Providers
+    /// that stream speech one sentence at a time concatenate independent MP3 streams, each with
+    /// its own header; the byte count is the only thing that tells them apart.
+    pub(super) fn xing_stream_len(bytes: &[u8]) -> Option<usize> {
+        let header = frame_header(bytes)?;
+        // The Xing tag follows the frame header and the side information.
+        let side_info = match (header.version, header.mono) {
+            (0b11, true) => 17,
+            (0b11, false) => 32,
+            (_, true) => 9,
+            (_, false) => 17,
+        };
+        let xing = 4 + side_info;
+        if !matches!(bytes.get(xing..xing + 4)?, b"Xing" | b"Info") {
+            return None;
+        }
+        let flags = u32::from_be_bytes(bytes.get(xing + 4..xing + 8)?.try_into().ok()?);
+        let mut at = xing + 8;
+        if flags & 0x1 != 0 {
+            at += 4; // frame count
+        }
+        if flags & 0x2 == 0 {
+            return None; // no byte count
+        }
+        let len = u32::from_be_bytes(bytes.get(at..at + 4)?.try_into().ok()?) as usize;
+        (len > 4 && len <= bytes.len()).then_some(len)
+    }
 
-    let mut chunk: Vec<i16> = Vec::new();
-    loop {
-        let packet = match format.next_packet() {
-            Ok(Some(packet)) => packet,
-            Ok(None) => break,
-            Err(symphonia::core::errors::Error::IoError(e))
-                if e.kind() == std::io::ErrorKind::UnexpectedEof =>
-            {
+    /// Decode one MP3 stream, appending its samples.
+    pub(super) fn decode_mp3_stream(
+        mp3_bytes: &[u8],
+        samples: &mut Vec<i16>,
+        spec: &mut Option<hound::WavSpec>,
+    ) -> Result<()> {
+        use symphonia::core::codecs::audio::AudioDecoderOptions;
+        use symphonia::core::formats::probe::Hint;
+        use symphonia::core::formats::{FormatOptions, TrackType};
+        use symphonia::core::io::MediaSourceStream;
+        use symphonia::core::meta::MetadataOptions;
+
+        let cursor = std::io::Cursor::new(mp3_bytes.to_vec());
+        let mss = MediaSourceStream::new(Box::new(cursor), Default::default());
+
+        let mut format = symphonia::default::get_probe()
+            .probe(
+                &Hint::new(),
+                mss,
+                FormatOptions::default(),
+                MetadataOptions::default(),
+            )
+            .map_err(|e| VizierError(format!("mp3 probe: {e}")))?;
+
+        let track = format
+            .default_track(TrackType::Audio)
+            .ok_or_else(|| VizierError("no default track in mp3".into()))?;
+        let track_id = track.id;
+        let params = track
+            .codec_params
+            .as_ref()
+            .and_then(|p| p.audio())
+            .ok_or_else(|| VizierError("no audio codec parameters in mp3".into()))?
+            .clone();
+
+        let sample_rate = params
+            .sample_rate
+            .ok_or_else(|| VizierError("unknown sample rate".into()))?;
+        let channels = params.channels.as_ref().map(|c| c.count()).unwrap_or(1) as u16;
+        match spec {
+            Some(current) if current.sample_rate != sample_rate || current.channels != channels => {
+                return Err(VizierError(
+                    "concatenated mp3 streams disagree on sample rate or channels".into(),
+                ));
+            }
+            Some(_) => {}
+            None => {
+                *spec = Some(hound::WavSpec {
+                    channels,
+                    sample_rate,
+                    bits_per_sample: 16,
+                    sample_format: hound::SampleFormat::Int,
+                })
+            }
+        }
+
+        let mut decoder = symphonia::default::get_codecs()
+            .make_audio_decoder(&params, &AudioDecoderOptions::default())
+            .map_err(|e| VizierError(format!("mp3 decoder: {e}")))?;
+
+        let mut chunk: Vec<i16> = Vec::new();
+        loop {
+            let packet = match format.next_packet() {
+                Ok(Some(packet)) => packet,
+                Ok(None) => break,
+                Err(symphonia::core::errors::Error::IoError(e))
+                    if e.kind() == std::io::ErrorKind::UnexpectedEof =>
+                {
+                    break;
+                }
+                Err(e) => return Err(VizierError(format!("mp3 read: {e}"))),
+            };
+            if packet.track_id != track_id {
+                continue;
+            }
+            match decoder.decode(&packet) {
+                Ok(decoded) => {
+                    chunk.resize(decoded.samples_interleaved(), 0);
+                    decoded.copy_to_slice_interleaved(&mut chunk);
+                    samples.extend_from_slice(&chunk);
+                }
+                Err(symphonia::core::errors::Error::IoError(e))
+                    if e.kind() == std::io::ErrorKind::UnexpectedEof =>
+                {
+                    break;
+                }
+                Err(e) => return Err(VizierError(format!("mp3 decode: {e}"))),
+            }
+        }
+        Ok(())
+    }
+
+    pub fn mp3_to_wav(mp3_bytes: &[u8]) -> Result<Vec<u8>> {
+        let mut samples: Vec<i16> = Vec::new();
+        let mut spec: Option<hound::WavSpec> = None;
+
+        // A speech provider may split one answer into a sentence per independently encoded MP3
+        // stream and concatenate them (OpenRouter/Kokoro does). Decode each stream on its own:
+        // one reader over the concatenation stops at the end of the first. A plain MP3 is the
+        // single-stream case of this loop.
+        let mut offset = 0;
+        while offset < mp3_bytes.len() {
+            let at_frame = frame_header(&mp3_bytes[offset..]).is_some();
+            let stream_len = if at_frame || offset == 0 {
+                xing_stream_len(&mp3_bytes[offset..])
+            } else {
+                None
+            };
+            let end = match stream_len {
+                Some(len) if offset + len <= mp3_bytes.len() => offset + len,
+                _ if at_frame || offset == 0 => mp3_bytes.len(),
+                _ => break, // trailing tag or padding after the last stream
+            };
+            decode_mp3_stream(&mp3_bytes[offset..end], &mut samples, &mut spec)?;
+            if end >= mp3_bytes.len() {
                 break;
             }
-            Err(e) => return Err(VizierError(format!("mp3 read: {e}"))),
-        };
-        if packet.track_id != track_id {
-            continue;
+            offset = end;
         }
-        match decoder.decode(&packet) {
-            Ok(decoded) => {
-                chunk.resize(decoded.samples_interleaved(), 0);
-                decoded.copy_to_slice_interleaved(&mut chunk);
-                samples.extend_from_slice(&chunk);
+
+        let spec = spec.ok_or_else(|| VizierError("mp3 has no decodable audio".into()))?;
+        let mut wav_buf = std::io::Cursor::new(Vec::new());
+        {
+            let mut writer = hound::WavWriter::new(&mut wav_buf, spec)
+                .map_err(|e| VizierError(format!("wav writer: {e}")))?;
+            for s in samples {
+                writer
+                    .write_sample(s)
+                    .map_err(|e| VizierError(format!("wav write: {e}")))?;
             }
-            Err(symphonia::core::errors::Error::IoError(e))
-                if e.kind() == std::io::ErrorKind::UnexpectedEof =>
-            {
-                break;
-            }
-            Err(e) => return Err(VizierError(format!("mp3 decode: {e}"))),
-        }
-    }
-    Ok(())
-}
-
-pub fn mp3_to_wav(mp3_bytes: &[u8]) -> Result<Vec<u8>> {
-    let mut samples: Vec<i16> = Vec::new();
-    let mut spec: Option<hound::WavSpec> = None;
-
-    // A speech provider may split one answer into a sentence per independently encoded MP3
-    // stream and concatenate them (OpenRouter/Kokoro does). Decode each stream on its own:
-    // one reader over the concatenation stops at the end of the first. A plain MP3 is the
-    // single-stream case of this loop.
-    let mut offset = 0;
-    while offset < mp3_bytes.len() {
-        let at_frame = frame_header(&mp3_bytes[offset..]).is_some();
-        let stream_len = if at_frame || offset == 0 {
-            xing_stream_len(&mp3_bytes[offset..])
-        } else {
-            None
-        };
-        let end = match stream_len {
-            Some(len) if offset + len <= mp3_bytes.len() => offset + len,
-            _ if at_frame || offset == 0 => mp3_bytes.len(),
-            _ => break, // trailing tag or padding after the last stream
-        };
-        decode_mp3_stream(&mp3_bytes[offset..end], &mut samples, &mut spec)?;
-        if end >= mp3_bytes.len() {
-            break;
-        }
-        offset = end;
-    }
-
-    let spec = spec.ok_or_else(|| VizierError("mp3 has no decodable audio".into()))?;
-    let mut wav_buf = std::io::Cursor::new(Vec::new());
-    {
-        let mut writer = hound::WavWriter::new(&mut wav_buf, spec)
-            .map_err(|e| VizierError(format!("wav writer: {e}")))?;
-        for s in samples {
             writer
-                .write_sample(s)
-                .map_err(|e| VizierError(format!("wav write: {e}")))?;
+                .finalize()
+                .map_err(|e| VizierError(format!("wav finalize: {e}")))?;
         }
-        writer
-            .finalize()
-            .map_err(|e| VizierError(format!("wav finalize: {e}")))?;
-    }
 
-    Ok(wav_buf.into_inner())
+        Ok(wav_buf.into_inner())
+    }
 }
 
-#[cfg(test)]
+#[cfg(feature = "media")]
+pub use mp3::mp3_to_wav;
+
+/// Without the `media` feature there is no MP3 decoder: a provider that answers in MP3 fails
+/// with this, and one that answers in WAV is unaffected.
+#[cfg(not(feature = "media"))]
+pub fn mp3_to_wav(_mp3_bytes: &[u8]) -> Result<Vec<u8>> {
+    Err(VizierError(
+        "MP3 audio decoding is not compiled into this build".into(),
+    ))
+}
+
+#[cfg(all(test, feature = "media"))]
 mod tests {
+    use super::mp3::*;
     use super::*;
     use base64::Engine as _;
 

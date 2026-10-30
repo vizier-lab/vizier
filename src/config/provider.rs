@@ -144,6 +144,7 @@ impl<'de> Deserialize<'de> for ProviderId {
     }
 }
 
+#[cfg(feature = "utoipa")]
 impl utoipa::PartialSchema for ProviderId {
     fn schema() -> utoipa::openapi::RefOr<utoipa::openapi::schema::Schema> {
         utoipa::openapi::ObjectBuilder::new()
@@ -155,6 +156,7 @@ impl utoipa::PartialSchema for ProviderId {
     }
 }
 
+#[cfg(feature = "utoipa")]
 impl utoipa::ToSchema for ProviderId {}
 
 impl schemars::JsonSchema for ProviderId {

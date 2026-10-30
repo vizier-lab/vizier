@@ -39,6 +39,8 @@ pub mod artifacts;
 pub mod catalogue;
 #[doc(hidden)]
 pub mod channels;
+// Binary-only code, in this crate until the workspace split moves it to `vizier`.
+#[cfg(feature = "full")]
 #[doc(hidden)]
 pub mod cli;
 #[doc(hidden)]

@@ -5,7 +5,8 @@ use serde::{Deserialize, Serialize};
 use super::{AgentId, DreamStage};
 use crate::utils::markdown::MarkdownDoc;
 
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema, MarkdownDoc)]
+#[derive(Debug, Clone, Serialize, Deserialize, MarkdownDoc)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct DreamJournalEntry {
     pub id: String,
     pub dream_cycle_id: String,
@@ -33,7 +34,8 @@ pub struct DreamJournalEntry {
 use chrono::{Duration, NaiveDate};
 
 /// What a dream did to one document.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum ChangeKind {
     Wrote,
@@ -43,7 +45,8 @@ pub enum ChangeKind {
     Core,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct DreamChange {
     pub kind: ChangeKind,
     /// Memory changes only.
@@ -54,7 +57,8 @@ pub struct DreamChange {
     pub at: DateTime<Utc>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum DreamCycleState {
     Running,
@@ -62,7 +66,8 @@ pub enum DreamCycleState {
     Failed,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct DreamCycle {
     pub cycle_id: String,
     pub started_at: DateTime<Utc>,
@@ -82,7 +87,8 @@ pub struct DreamCycle {
     pub cost_usd: Option<f64>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct DreamNight {
     pub date: NaiveDate,
     /// The latest cycle of the night.
@@ -93,7 +99,8 @@ pub struct DreamNight {
     pub state: Option<DreamCycleState>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct DreamNights {
     /// One per night, oldest first.
     pub nights: Vec<DreamNight>,

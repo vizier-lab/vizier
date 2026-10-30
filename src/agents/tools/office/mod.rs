@@ -22,9 +22,7 @@ pub mod xlsx;
 #[cfg(test)]
 mod fixture_tests;
 
-pub const DOCX_MIME: &str = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-pub const XLSX_MIME: &str = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-pub const XLS_MIME: &str = "application/vnd.ms-excel";
+pub use crate::agents::tools::session_files::{DOCX_MIME, XLS_MIME, XLSX_MIME};
 
 /// Reads return at most this much text (about 200 KB), then say they were cut.
 pub const READ_MAX_CHARS: usize = 200_000;

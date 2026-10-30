@@ -8,7 +8,8 @@ use crate::schema::{
     ReactionEntry, VizierRequest, VizierResponse, VizierResponseContent, VizierSession,
 };
 
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct SessionHistory {
     pub uid: String,
     pub vizier_session: VizierSession,
@@ -29,7 +30,8 @@ pub struct SessionHistory {
     pub seq: Option<i64>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, JsonSchema, utoipa::ToSchema)]
+#[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub enum SessionHistoryContent {
     Request(VizierRequest),
     Response(VizierResponse),
@@ -110,9 +112,8 @@ impl SessionHistoryContent {
 }
 
 /// How recalled passages reached the turn.
-#[derive(
-    Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, JsonSchema, utoipa::ToSchema,
-)]
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, JsonSchema)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum RecallOrigin {
     /// Retrieved automatically from the message, before the first model call.
@@ -121,7 +122,8 @@ pub enum RecallOrigin {
     Search,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, JsonSchema, utoipa::ToSchema)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct RecalledPassage {
     pub bundle: String,
     pub path: String,
@@ -149,7 +151,8 @@ pub fn dedupe_passages(passages: Vec<RecalledPassage>) -> Vec<RecalledPassage> {
 }
 
 /// How a client tool call ended, or `Pending` while it is in flight.
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, JsonSchema, utoipa::ToSchema)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum ClientCallOutcome {
     Pending,

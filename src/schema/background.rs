@@ -13,9 +13,8 @@ pub fn new_job_id() -> BackgroundJobId {
     format!("b-{}", &hex[..6])
 }
 
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, utoipa::ToSchema,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum JobKind {
     Batch,
@@ -42,9 +41,8 @@ impl JobKind {
 /// `running` and `reporting` are the in-flight states. Cancel and the runner race on one
 /// guarded transition out of `running`, which is what makes a job end exactly once: either
 /// reported or cancelled, never both.
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, utoipa::ToSchema,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum JobState {
     Running,
@@ -80,9 +78,8 @@ impl JobState {
     }
 }
 
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, utoipa::ToSchema,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum PieceState {
     Running,
@@ -130,7 +127,8 @@ impl PieceState {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, utoipa::ToSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum Canceller {
     Agent(AgentId),
@@ -156,7 +154,8 @@ impl Canceller {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct BackgroundJob {
     pub id: BackgroundJobId,
     pub kind: JobKind,
@@ -183,7 +182,8 @@ impl BackgroundJob {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct BackgroundPiece {
     /// 0-based position in the original task order.
     pub ordinal: u32,
@@ -197,7 +197,8 @@ pub struct BackgroundPiece {
 }
 
 /// What `VizierRequestContent::BackgroundReport` carries; rendered for the model by `Display`.
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct BackgroundReport {
     pub job_id: BackgroundJobId,
     pub kind: JobKind,
@@ -206,7 +207,8 @@ pub struct BackgroundReport {
     pub entries: Vec<ReportEntry>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct ReportEntry {
     pub ordinal: u32,
     pub prompt: String,
@@ -218,7 +220,8 @@ pub struct ReportEntry {
 }
 
 /// The WebUI wire shape (`contracts/http-api.md`).
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct BackgroundJobSnapshot {
     pub id: BackgroundJobId,
     pub kind: JobKind,
@@ -232,7 +235,8 @@ pub struct BackgroundJobSnapshot {
     pub pieces: Vec<BackgroundPieceSnapshot>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct BackgroundPieceSnapshot {
     pub ordinal: u32,
     pub prompt: String,

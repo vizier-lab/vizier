@@ -109,12 +109,12 @@ description: "Task list for extracting vizier-core and splitting the workspace (
 
 ### Optional feature groups (PR 5)
 
-- [ ] T035 [P] [US2] In `Cargo.toml` add `[features]` `discord`, `telegram`, `media`, `docker-shell`, `documents`, `utoipa`, `telemetry`, `full` and mark their dependencies `optional = true` exactly as research R9's table (versions untouched); keep `default = ["full"]` **for now** so the single-crate binary is unchanged (T046 sets core's `default = []`)
-- [ ] T036 [US2] Gate Discord/Telegram: `#[cfg(feature = "discord")]` on `pub mod discord` in `src/channels/mod.rs`, on `kinds::discord` and its `Arc::new(kinds::discord::DiscordKind)` line in `src/integrations/mod.rs:35`, on `src/agents/tools/discord/` and `src/utils/discord.rs`; same for `telegram` (`src/channels/telegram/`, `kinds::telegram`, `src/agents/tools/telegram/`, `src/utils/telegram.rs`, `channels/side_chat` Telegram ledger); a stored integration of a missing kind takes the existing unknown-kind path
-- [ ] T037 [US2] Gate `media` (`src/stt/whisper.rs`, `src/tts/kokoro.rs` and their registration in `src/stt/mod.rs`/`src/tts/mod.rs`, symphonia/hound decoding users), `docker-shell` (`src/agents/shell/docker/` and the `ShellConfig::Docker` arm in `src/agents/shell/mod.rs:27`, which without the feature returns `VizierError("docker shell support is not compiled into this build")`), and `documents` (`src/agents/tools/office/`, `kinds::office` registration in `src/integrations/mod.rs:37`, PDF/DOCX extraction in `src/agents/tools/session_files/mod.rs:138`, which without the feature returns a "not supported in this build" result)
-- [ ] T038 [US2] Gate `utoipa`: replace `utoipa::ToSchema`/`IntoParams` derives and `#[schema(..)]`/`#[param(..)]` attributes in the 34 non-HTTP files (`grep -rln utoipa src --include='*.rs' | grep -v '^src/channels/http'`) with `#[cfg_attr(feature = "utoipa", …)]`; the HTTP module keeps plain derives
-- [ ] T039 [US2] Gate `telemetry`: `src/llm/telemetry.rs` histograms and the `tracing_opentelemetry` context propagation in `src/telemetry.rs`/`RequestTrace` behind `#[cfg(feature = "telemetry")]` with no-op fallbacks that keep the same function signatures; `opentelemetry-otlp` stays a binary-only dependency (T032)
-- [ ] T040 [US2] Make `cargo check --all-targets --no-default-features` and `cargo test --no-default-features --test dummyplug_e2e` pass; make the `core-minimal` CI job required; run `cargo run --no-default-features --example headless -- --workspace $(mktemp -d)/ws` (quickstart §3)
+- [X] T035 [P] [US2] In `Cargo.toml` add `[features]` `discord`, `telegram`, `media`, `docker-shell`, `documents`, `utoipa`, `telemetry`, `full` and mark their dependencies `optional = true` exactly as research R9's table (versions untouched); keep `default = ["full"]` **for now** so the single-crate binary is unchanged (T046 sets core's `default = []`)
+- [X] T036 [US2] Gate Discord/Telegram: `#[cfg(feature = "discord")]` on `pub mod discord` in `src/channels/mod.rs`, on `kinds::discord` and its `Arc::new(kinds::discord::DiscordKind)` line in `src/integrations/mod.rs:35`, on `src/agents/tools/discord/` and `src/utils/discord.rs`; same for `telegram` (`src/channels/telegram/`, `kinds::telegram`, `src/agents/tools/telegram/`, `src/utils/telegram.rs`, `channels/side_chat` Telegram ledger); a stored integration of a missing kind takes the existing unknown-kind path
+- [X] T037 [US2] Gate `media` (`src/stt/whisper.rs`, `src/tts/kokoro.rs` and their registration in `src/stt/mod.rs`/`src/tts/mod.rs`, symphonia/hound decoding users), `docker-shell` (`src/agents/shell/docker/` and the `ShellConfig::Docker` arm in `src/agents/shell/mod.rs:27`, which without the feature returns `VizierError("docker shell support is not compiled into this build")`), and `documents` (`src/agents/tools/office/`, `kinds::office` registration in `src/integrations/mod.rs:37`, PDF/DOCX extraction in `src/agents/tools/session_files/mod.rs:138`, which without the feature returns a "not supported in this build" result)
+- [X] T038 [US2] Gate `utoipa`: replace `utoipa::ToSchema`/`IntoParams` derives and `#[schema(..)]`/`#[param(..)]` attributes in the 34 non-HTTP files (`grep -rln utoipa src --include='*.rs' | grep -v '^src/channels/http'`) with `#[cfg_attr(feature = "utoipa", …)]`; the HTTP module keeps plain derives
+- [X] T039 [US2] Gate `telemetry`: `src/llm/telemetry.rs` histograms and the `tracing_opentelemetry` context propagation in `src/telemetry.rs`/`RequestTrace` behind `#[cfg(feature = "telemetry")]` with no-op fallbacks that keep the same function signatures; `opentelemetry-otlp` stays a binary-only dependency (T032)
+- [X] T040 [US2] Make `cargo check --all-targets --no-default-features` and `cargo test --no-default-features --test dummyplug_e2e` pass; make the `core-minimal` CI job required; run `cargo run --no-default-features --example headless -- --workspace $(mktemp -d)/ws` (quickstart §3)
 
 **Checkpoint**: US2 independent test passes; server zero-diff; harness green in both feature sets.
 
@@ -304,3 +304,17 @@ Each PR is conventional-commit titled (table above), passes CI, and must show ze
   `VizierConfig::expand_env` was added so config-less mode still expands `${VIZIER_JWT_SECRET}`.
   The forced-stop hook is `stop_subsystem_for_test` (`#[doc(hidden)]`). Verified: second
   instance exits 1 "already in use", `shutdown` exits 0, a busy port exits 1 with the #51 log line.
+- **T035–T040** (single-crate stand-ins, all retired by the split): `utoipa` stays a real
+  dependency (the HTTP module still derives schemas) so the `utoipa` feature only gates the
+  engine's own derives; `channels::http` requires the `utoipa` feature, `cli` and the `vizier`
+  bin require `full`; `opentelemetry-otlp` is still a plain dependency, so `opentelemetry`
+  remains in the minimal tree until T046 moves the exporter to the binary.
+- **T037**: `mp3_to_wav` is also used by the cloud TTS clients, so without `media` it returns
+  "MP3 audio decoding is not compiled into this build" (a provider that answers in WAV is
+  unaffected). The Office MIME constants moved to `agents::tools::session_files` (re-exported from
+  `office`) because reading a session file refuses them either way.
+- **T038**: derive lists and `#[schema(..)]` became `#[cfg_attr(feature = "utoipa", ..)]` in the 33
+  non-HTTP files plus the manual `ProviderId` impls; `/openapi.json` is byte-identical.
+- Tests that need a feature carry the matching `#[cfg(feature = ..)]`: the tool/category table
+  needs discord+telegram+documents, the Office seeding tests need documents, the media goldens
+  need media. `cargo test` passes with default, `--no-default-features` and `--all-features`.

@@ -12,7 +12,8 @@ use crate::catalogue::data::{Capabilities, Cost};
 use crate::config::provider::ProviderId;
 
 /// Where an agent's effective context window came from (R8), shown in agent health.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum ContextSource {
     /// The agent's own `context_window`.

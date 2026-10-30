@@ -423,6 +423,7 @@ impl VizierAgents {
 
         // Built-in default addon, before the agent starts (specs/036-office-addon). A failure
         // is logged and never fails the creation.
+        #[cfg(feature = "documents")]
         if let Err(e) = crate::integrations::service::seed_default(
             &self.deps,
             &agent_id,

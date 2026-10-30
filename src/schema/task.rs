@@ -12,7 +12,8 @@ use crate::utils::markdown::MarkdownDoc;
 /// up on its own initiative — made unforgeable in the type. `User`'s payload is
 /// deliberately not an account: most people reaching an agent have none, and the
 /// chat channels already synthesise an identity string for them.
-#[derive(Debug, Serialize, Clone, PartialEq, Eq, JsonSchema, utoipa::ToSchema)]
+#[derive(Debug, Serialize, Clone, PartialEq, Eq, JsonSchema)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum Requester {
     /// Someone asked for this task, identified as the channel they reached the
@@ -66,7 +67,8 @@ impl Requester {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, JsonSchema, utoipa::ToSchema, MarkdownDoc)]
+#[derive(Debug, Serialize, Deserialize, Clone, JsonSchema, MarkdownDoc)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct Task {
     pub slug: String,
     pub requester: Requester,
@@ -80,7 +82,8 @@ pub struct Task {
     pub timestamp: DateTime<Utc>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, JsonSchema, utoipa::ToSchema)]
+#[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub enum TaskSchedule {
     CronTask(String),
     OneTimeTask(DateTime<Utc>),
@@ -92,7 +95,8 @@ pub enum TaskSchedule {
 /// **not** hold the response text — a second copy would drift from the
 /// conversation it came from. The response is sliced from `session_history` when
 /// asked for.
-#[derive(Debug, Serialize, Deserialize, Clone, JsonSchema, utoipa::ToSchema)]
+#[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct TaskRun {
     /// Monotonic; the low half of the page cursor.
     pub id: i64,
@@ -111,7 +115,8 @@ pub struct TaskRun {
 ///
 /// `Answered` means the agent produced a response, not that the news was good: a
 /// run whose response reports a failure is still `Answered`.
-#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, JsonSchema, utoipa::ToSchema)]
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, JsonSchema)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum TaskRunState {
     Running,

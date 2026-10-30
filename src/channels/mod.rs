@@ -6,11 +6,15 @@ use crate::{channels::connections::ChannelConnections, dependencies::VizierDepen
 
 pub mod commands;
 pub mod connections;
+#[cfg(feature = "discord")]
 pub mod discord;
+// Until the workspace split gives it its own crate, it needs the engine's schema derives.
+#[cfg(feature = "utoipa")]
 pub mod http;
 pub mod reactions;
 pub mod readers;
 pub mod side_chat;
+#[cfg(feature = "telegram")]
 pub mod telegram;
 pub mod woken;
 

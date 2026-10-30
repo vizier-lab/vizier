@@ -11,21 +11,24 @@ use serde_json::json;
 
 use crate::{error::VizierError, schema::BackgroundReport, utils::get_mime_type};
 
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, utoipa::ToSchema, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum PlatformMessageId {
     Discord(u64),
     Telegram(i64),
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum ReactionAction {
     Added,
     Removed,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, utoipa::ToSchema, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct ReactionEntry {
     pub user_id: String,
     pub emoji: String,
@@ -33,7 +36,8 @@ pub struct ReactionEntry {
     pub user_name: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum VizierRequestContent {
     Chat(String),
@@ -63,18 +67,16 @@ pub enum VizierRequestContent {
 /// One `/btw` side chat carried in each request: the question being asked now and the
 /// aside's earlier turns, held between asks only by whoever shows the side chat (the WebUI
 /// panel, or a Discord/Telegram reader). Never stored.
-#[derive(
-    Debug, Clone, Serialize, Deserialize, JsonSchema, utoipa::ToSchema, PartialEq,
-)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct SideChat {
     pub question: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub turns: Vec<SideChatTurn>,
 }
 
-#[derive(
-    Debug, Clone, Serialize, Deserialize, JsonSchema, utoipa::ToSchema, PartialEq,
-)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct SideChatTurn {
     pub question: String,
     pub answer: String,
@@ -82,7 +84,8 @@ pub struct SideChatTurn {
 
 /// What a client event carries: the text shown as the person's message, data only the
 /// agent sees, and the client tool call it came from.
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, utoipa::ToSchema, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct ClientEvent {
     pub text: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -155,7 +158,8 @@ impl Display for VizierRequestContent {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum VizierAttachmentContent {
     Bytes(Vec<u8>),
@@ -172,7 +176,8 @@ pub enum VizierAttachmentContent {
     },
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct VizierAttachment {
     pub filename: String,
     pub content: VizierAttachmentContent,
@@ -261,7 +266,8 @@ impl VizierAttachment {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, utoipa::ToSchema, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct VizierRequest {
     pub timestamp: DateTime<Utc>,
     pub user: String,
@@ -292,28 +298,28 @@ pub struct VizierRequest {
     /// remains for inspection.
     #[serde(skip)]
     #[schemars(skip)]
-    #[schema(ignore)]
+    #[cfg_attr(feature = "utoipa", schema(ignore))]
     pub transient: bool,
     /// The trace this request continues (`crate::telemetry`); in-process only.
     #[serde(skip)]
     #[schemars(skip)]
-    #[schema(ignore)]
+    #[cfg_attr(feature = "utoipa", schema(ignore))]
     pub trace: crate::telemetry::RequestTrace,
     /// Tools the sending client offers for this one turn (`specs/019-client-tools`). Read
     /// off the WebSocket frame and moved into `client` once checked, so they never reach a
     /// stored request.
     #[serde(default, skip_serializing)]
     #[schemars(skip)]
-    #[schema(ignore)]
+    #[cfg_attr(feature = "utoipa", schema(ignore))]
     pub client_tools: Vec<crate::agents::client::ClientToolDeclaration>,
     #[serde(default, skip_serializing)]
     #[schemars(skip)]
-    #[schema(ignore)]
+    #[cfg_attr(feature = "utoipa", schema(ignore))]
     pub client_categories: Vec<crate::agents::client::ClientCategoryDeclaration>,
     /// The checked declarations and the connection that answers them; in-process only.
     #[serde(skip)]
     #[schemars(skip)]
-    #[schema(ignore)]
+    #[cfg_attr(feature = "utoipa", schema(ignore))]
     pub client: Option<crate::agents::client::ClientBinding>,
 }
 

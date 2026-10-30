@@ -18,7 +18,8 @@ pub enum CatalogueSource {
     Cached,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum ProviderKind {
     Cloud,
@@ -88,7 +89,8 @@ pub struct CatalogueModel {
 
 /// What a model can do. Absence is "unknown", never "false", and unknown counts as supported
 /// (FR-013).
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct Capabilities {
     pub tool_call: Option<bool>,
     pub reasoning: Option<bool>,
@@ -126,7 +128,8 @@ impl Capabilities {
 }
 
 /// Token limits; a `0` in the catalogue is unknown.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct Limits {
     pub context: Option<u64>,
     pub input: Option<u64>,
@@ -134,7 +137,8 @@ pub struct Limits {
 }
 
 /// USD per 1M tokens.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct Cost {
     pub input: f64,
     pub output: f64,
@@ -142,7 +146,8 @@ pub struct Cost {
     pub cache_write: Option<f64>,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum ModelStatus {
     #[default]

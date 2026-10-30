@@ -6,7 +6,8 @@ use crate::config::provider::ProviderId;
 use crate::llm::dialect::DialectKind;
 
 /// A credential field a provider's connect form asks for.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum CredentialField {
     ApiKey,

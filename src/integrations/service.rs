@@ -498,6 +498,7 @@ mod tests {
         (VizierDependencies::new(config).await.unwrap(), dir)
     }
 
+    #[cfg(feature = "documents")]
     #[tokio::test]
     async fn seeding_adds_the_addon_once_with_its_event_and_needs_no_permission() {
         let (deps, _dir) = deps().await;
@@ -518,6 +519,7 @@ mod tests {
         assert_eq!(events[0].actor, Requester::User("owner-1".into()));
     }
 
+    #[cfg(feature = "documents")]
     #[tokio::test]
     async fn seeding_announces_the_change_so_running_agents_recompose() {
         let (deps, _dir) = deps().await;
@@ -530,6 +532,7 @@ mod tests {
         assert_eq!(change.agents, vec!["c".to_string()]);
     }
 
+    #[cfg(feature = "documents")]
     #[tokio::test]
     async fn turning_the_addon_off_and_on_publishes_without_touching_the_agent() {
         use super::{Actor, IntegrationPatch, update};
@@ -557,6 +560,7 @@ mod tests {
 
     /// A person turned the addon off: seeding again (as a restart or an update would, were
     /// either to seed) neither turns it on nor adds a second one.
+    #[cfg(feature = "documents")]
     #[tokio::test]
     async fn a_disabled_addon_is_not_re_enabled_or_duplicated_by_seeding() {
         let (deps, _dir) = deps().await;
@@ -572,6 +576,7 @@ mod tests {
         assert!(!listed[0].enabled);
     }
 
+    #[cfg(feature = "documents")]
     #[tokio::test]
     async fn an_agent_without_an_owner_is_seeded_as_system() {
         let (deps, _dir) = deps().await;

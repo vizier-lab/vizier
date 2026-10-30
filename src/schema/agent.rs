@@ -116,7 +116,8 @@ fn default_retry_attempt_timeout() -> DurationString {
 /// kind. `SilentRead` fires for every non-mention message in a Discord guild channel and every
 /// Telegram group message, so its cost scales with channel traffic rather than with conversation
 /// volume — it defaults to zero and `Chat` does not (FR-030, research Decision 9).
-#[derive(Debug, Serialize, Deserialize, Clone, utoipa::ToSchema, JsonSchema)]
+#[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct AutoContextConfig {
     /// Passages injected on the `Chat` / `AudioChat` path.
     #[serde(default = "default_auto_context_chat_passages")]
@@ -205,15 +206,15 @@ pub struct ToolConfig<Settings> {
     pub settings: Settings,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default, utoipa::ToSchema, JsonSchema)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default, JsonSchema)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct EmbeddingConfig {
     pub provider: EmbeddingProvider,
     pub model: String,
 }
 
-#[derive(
-    Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Default, utoipa::ToSchema, JsonSchema,
-)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Default, JsonSchema)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum EmbeddingProvider {
     #[default]
@@ -265,15 +266,15 @@ impl EmbeddingProvider {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default, utoipa::ToSchema, JsonSchema)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default, JsonSchema)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct IndexerConfig {
     #[serde(default)]
     pub kind: IndexerKind,
 }
 
-#[derive(
-    Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Default, utoipa::ToSchema, JsonSchema,
-)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Default, JsonSchema)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum IndexerKind {
     #[default]
@@ -288,7 +289,8 @@ impl IndexerKind {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Default, utoipa::ToSchema)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum TtsProvider {
     Openai,
@@ -337,7 +339,8 @@ impl TtsProvider {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default, utoipa::ToSchema)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(default)]
 pub struct TtsToolSettings {
     pub provider: TtsProvider,
@@ -349,7 +352,8 @@ pub struct TtsToolSettings {
     pub speed: Option<f32>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Default, utoipa::ToSchema)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum SttProvider {
     Openai,
@@ -392,7 +396,8 @@ impl SttProvider {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default, utoipa::ToSchema)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(default)]
 pub struct SttToolSettings {
     pub provider: SttProvider,
@@ -402,14 +407,16 @@ pub struct SttToolSettings {
     pub language: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default, utoipa::ToSchema)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(default)]
 pub struct ReadImageToolSettings {
     pub provider: Option<ProviderId>,
     pub model: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Default, utoipa::ToSchema)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum ImageGenProvider {
     #[default]
@@ -446,7 +453,8 @@ impl ImageGenProvider {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default, utoipa::ToSchema)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(default)]
 pub struct ImageGenToolSettings {
     pub provider: ImageGenProvider,

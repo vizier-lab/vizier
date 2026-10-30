@@ -7,17 +7,8 @@ pub type AgentId = String;
 
 pub type TopicId = String;
 
-#[derive(
-    Debug,
-    Clone,
-    Hash,
-    PartialEq,
-    Eq,
-    Serialize,
-    Deserialize,
-    JsonSchema,
-    utoipa::ToSchema,
-)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct VizierSession(pub AgentId, pub VizierChannelId, pub Option<TopicId>);
 
 impl VizierSession {
@@ -59,17 +50,8 @@ impl VizierSession {
     }
 }
 
-#[derive(
-    Debug,
-    Clone,
-    Hash,
-    PartialEq,
-    Eq,
-    Serialize,
-    Deserialize,
-    JsonSchema,
-    utoipa::ToSchema,
-)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub enum VizierChannelId {
     DiscordChanel(u64),
     TelegramChannel(i64),
@@ -144,9 +126,8 @@ pub struct VizierSessionDetail {
     pub is_thinking: bool,
 }
 
-#[derive(
-    Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize, JsonSchema, utoipa::ToSchema,
-)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum DreamStage {
     Extraction,

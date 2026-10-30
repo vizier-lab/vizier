@@ -23,7 +23,8 @@ use crate::{Result, VizierError};
 const TERMINAL_TTL: Duration = Duration::from_secs(5);
 
 /// Where an agent's setup currently is.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum SetupPhase {
     /// Building, nothing to report in detail yet.
@@ -38,7 +39,8 @@ pub enum SetupPhase {
 }
 
 /// What kind of artifact a download is fetching.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum DownloadKind {
     /// The agent's chat model (an Ollama pull).
@@ -52,7 +54,8 @@ pub enum DownloadKind {
 }
 
 /// One in-flight download.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct DownloadStatus {
     pub kind: DownloadKind,
     pub label: String,
@@ -66,7 +69,8 @@ pub struct DownloadStatus {
 }
 
 /// One agent's setup, as the WebUI sees it.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct SetupState {
     pub agent_id: String,
     /// The agent's display name from the build's config; a create build is not in the agent
@@ -82,12 +86,13 @@ pub struct SetupState {
     /// The owner of the config being built, never sent: it decides who sees the setup of
     /// an agent that is still being created, so not in storage yet.
     #[serde(skip)]
-    #[schema(ignore)]
+    #[cfg_attr(feature = "utoipa", schema(ignore))]
     pub owner_id: Option<String>,
 }
 
 /// The answer of `GET /api/v1/utils/setup-state`.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct SetupStates {
     pub setups: Vec<SetupState>,
 }

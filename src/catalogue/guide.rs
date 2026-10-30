@@ -7,27 +7,31 @@ use serde::Serialize;
 use crate::config::provider::ProviderId;
 
 /// One numbered step of a guide.
-#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct GuideStep {
     pub title: String,
     pub body: String,
 }
 
 /// A copyable policy or snippet.
-#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct GuidePolicy {
     pub language: String,
     pub code: String,
 }
 
-#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct GuideLink {
     pub label: String,
     pub url: String,
 }
 
 /// What the connect form shows above the fields. Static metadata, never stored or editable.
-#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct ProviderGuide {
     pub intro: String,
     pub steps: Vec<GuideStep>,

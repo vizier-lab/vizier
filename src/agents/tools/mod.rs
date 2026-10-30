@@ -56,11 +56,13 @@ mod artifacts;
 mod background_jobs;
 pub mod brave_search;
 mod consult;
+#[cfg(feature = "discord")]
 pub mod discord;
 mod dream_journal;
 mod fetch;
 mod http_client;
 mod image_gen;
+#[cfg(feature = "documents")]
 pub mod office;
 mod python;
 mod read_image;
@@ -73,6 +75,7 @@ mod shell;
 mod skill;
 pub mod stt;
 mod subagents;
+#[cfg(feature = "telegram")]
 pub mod telegram;
 mod think;
 pub mod tts;
@@ -1441,20 +1444,26 @@ mod tests {
     use crate::agents::tools::{
         artifacts::{ListArtifacts, LoadArtifactAsSessionFile, PromoteArtifact, UpdateArtifact},
         brave_search::{BraveSearch, NewsOnlySearch, WebOnlySearch},
-        office::{
-            OfficeDocxRead, OfficeDocxWrite, OfficeXlsxRead, OfficeXlsxReadCsv, OfficeXlsxWrite,
-        },
-        discord::{
-            GetDiscordChannelInfo, GetDiscordGuildInfo, GetDiscordMemberInfo, GetDiscordMessage,
-            ReactDiscordMessage, SendDiscordMessage,
-        },
         dream_journal::WriteDreamJournal,
-        telegram::{GetTelegramMessage, ReactTelegramMessage, SendTelegramMessage},
         vector_memory::{
             MemoryDelete, MemoryDeleteBundle, MemoryFollow, MemoryGraphTool, MemoryList,
             MemoryRead, MemorySearch, MemoryWrite,
             attachments::{AttachArtifactToMemory, DetachAttachmentFromMemory},
         },
+    };
+
+    #[cfg(feature = "documents")]
+    use crate::agents::tools::office::{
+        OfficeDocxRead, OfficeDocxWrite, OfficeXlsxRead, OfficeXlsxReadCsv, OfficeXlsxWrite,
+    };
+    #[cfg(feature = "discord")]
+    use crate::agents::tools::discord::{
+        GetDiscordChannelInfo, GetDiscordGuildInfo, GetDiscordMemberInfo, GetDiscordMessage,
+        ReactDiscordMessage, SendDiscordMessage,
+    };
+    #[cfg(feature = "telegram")]
+    use crate::agents::tools::telegram::{
+        GetTelegramMessage, ReactTelegramMessage, SendTelegramMessage,
     };
 
     fn entry<T: VizierTool>() -> (String, Option<ToolCategory>) {
@@ -1512,24 +1521,38 @@ mod tests {
             entry::<ReadTmp>(),
             entry::<BraveSearch<WebOnlySearch>>(),
             entry::<BraveSearch<NewsOnlySearch>>(),
+            #[cfg(feature = "documents")]
             entry::<OfficeDocxRead>(),
+            #[cfg(feature = "documents")]
             entry::<OfficeXlsxRead>(),
+            #[cfg(feature = "documents")]
             entry::<OfficeXlsxReadCsv>(),
+            #[cfg(feature = "documents")]
             entry::<OfficeDocxWrite>(),
+            #[cfg(feature = "documents")]
             entry::<OfficeXlsxWrite>(),
             entry::<FetchWebpage>(),
             entry::<HttpClient>(),
             entry::<TtsGenerate>(),
             entry::<SttTranscribe>(),
             entry::<ImageGenerate>(),
+            #[cfg(feature = "discord")]
             entry::<SendDiscordMessage>(),
+            #[cfg(feature = "discord")]
             entry::<ReactDiscordMessage>(),
+            #[cfg(feature = "discord")]
             entry::<GetDiscordMessage>(),
+            #[cfg(feature = "discord")]
             entry::<GetDiscordGuildInfo>(),
+            #[cfg(feature = "discord")]
             entry::<GetDiscordChannelInfo>(),
+            #[cfg(feature = "discord")]
             entry::<GetDiscordMemberInfo>(),
+            #[cfg(feature = "telegram")]
             entry::<SendTelegramMessage>(),
+            #[cfg(feature = "telegram")]
             entry::<ReactTelegramMessage>(),
+            #[cfg(feature = "telegram")]
             entry::<GetTelegramMessage>(),
             entry::<SendWebuiMessage>(),
             entry::<ListWebuiTopics>(),
@@ -1550,6 +1573,7 @@ mod tests {
         ]
     }
 
+    #[cfg(all(feature = "discord", feature = "telegram", feature = "documents"))]
     #[test]
     fn every_tool_is_in_its_category() {
         use ToolCategory::*;
@@ -1605,14 +1629,23 @@ mod tests {
             ("tts_generate", Audio),
             ("stt_transcribe", Audio),
             ("image_generate", Media),
+            #[cfg(feature = "discord")]
             ("discord_send_message", Discord),
+            #[cfg(feature = "discord")]
             ("discord_react_message", Discord),
+            #[cfg(feature = "discord")]
             ("discord_get_message_by_id", Discord),
+            #[cfg(feature = "discord")]
             ("discord_get_guild_info", Discord),
+            #[cfg(feature = "discord")]
             ("discord_get_channel_info", Discord),
+            #[cfg(feature = "discord")]
             ("discord_get_member_info", Discord),
+            #[cfg(feature = "telegram")]
             ("telegram_send_message", Telegram),
+            #[cfg(feature = "telegram")]
             ("telegram_react_message", Telegram),
+            #[cfg(feature = "telegram")]
             ("telegram_get_message_by_id", Telegram),
             ("webui_send_message", Webui),
             ("webui_list_topics", Webui),
@@ -1629,19 +1662,29 @@ mod tests {
         const ADDON: &[(&str, &str)] = &[
             ("brave_search_web", "brave_search"),
             ("brave_search_news", "brave_search"),
+            #[cfg(feature = "documents")]
             ("office_docx_read_as_md", "office"),
+            #[cfg(feature = "documents")]
             ("office_xlsx_read_as_cells", "office"),
+            #[cfg(feature = "documents")]
             ("office_xlsx_read_as_csv", "office"),
+            #[cfg(feature = "documents")]
             ("office_docx_write_from_md", "office"),
+            #[cfg(feature = "documents")]
             ("office_xlsx_write_from_sheets", "office"),
         ];
         const UNCATEGORISED: &[&str] = &[
             "brave_search_web",
             "brave_search_news",
+            #[cfg(feature = "documents")]
             "office_docx_read_as_md",
+            #[cfg(feature = "documents")]
             "office_xlsx_read_as_cells",
+            #[cfg(feature = "documents")]
             "office_xlsx_read_as_csv",
+            #[cfg(feature = "documents")]
             "office_docx_write_from_md",
+            #[cfg(feature = "documents")]
             "office_xlsx_write_from_sheets",
             "think",
             "execute_python",

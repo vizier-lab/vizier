@@ -14,7 +14,8 @@ use crate::{
 };
 
 /// Who performed a save.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum RevisionActor {
     Agent,
@@ -47,7 +48,8 @@ impl RevisionActor {
 }
 
 /// What caused a save.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum RevisionTrigger {
     Conversation,
@@ -92,7 +94,8 @@ impl RevisionTrigger {
 /// Provenance attached to every recorded revision. Built at the boundary that knows who is
 /// saving (agent tools via `from_session`, HTTP handlers via `from_user`) and threaded through
 /// the storage write signatures so the single write path per document kind can record it.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct RevisionOrigin {
     pub actor: RevisionActor,
     pub trigger: RevisionTrigger,
@@ -155,7 +158,8 @@ impl RevisionOrigin {
 
 /// One line of a diff hunk. `op` is `"equal"`, `"insert"` or `"delete"`; line numbers are
 /// 1-based and `None` on the side the line does not exist on.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct DiffLine {
     pub op: String,
     pub old_line: Option<usize>,
@@ -163,7 +167,8 @@ pub struct DiffLine {
     pub text: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct DiffHunk {
     pub old_start: usize,
     pub old_lines: usize,
@@ -173,7 +178,8 @@ pub struct DiffHunk {
 }
 
 /// Changes introduced by `to_seq` relative to `from_seq`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct RevisionDiff {
     pub from_seq: i64,
     pub to_seq: i64,
@@ -182,7 +188,8 @@ pub struct RevisionDiff {
     pub hunks: Vec<DiffHunk>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct RollbackResponse {
     /// `true` when the restored content was already identical to the current one, so no new
     /// revision was appended.
@@ -193,7 +200,8 @@ pub struct RollbackResponse {
 
 // ---- CORE API types ----
 
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct CoreRevisionSummary {
     pub seq: i64,
     pub actor: RevisionActor,
@@ -203,7 +211,8 @@ pub struct CoreRevisionSummary {
     pub size_bytes: usize,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct CoreRevision {
     pub seq: i64,
     pub actor: RevisionActor,
@@ -214,7 +223,8 @@ pub struct CoreRevision {
     pub content: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct PaginatedCoreRevisions {
     pub revisions: Vec<CoreRevisionSummary>,
     pub total: usize,
@@ -224,7 +234,8 @@ pub struct PaginatedCoreRevisions {
 
 // ---- Memory API types ----
 
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct MemoryRevisionSummary {
     pub seq: i64,
     pub deleted: bool,
@@ -235,7 +246,8 @@ pub struct MemoryRevisionSummary {
     pub size_bytes: usize,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct MemoryRevision {
     pub seq: i64,
     pub deleted: bool,
@@ -250,7 +262,8 @@ pub struct MemoryRevision {
     pub tags: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct PaginatedMemoryRevisions {
     pub revisions: Vec<MemoryRevisionSummary>,
     pub total: usize,

@@ -13,9 +13,8 @@ use crate::schema::Requester;
 pub type ArtifactId = String;
 
 /// What an artifact is, derived from its MIME type (or extension) at promotion.
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, utoipa::ToSchema,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum ArtifactKind {
     Image,
@@ -111,7 +110,8 @@ impl std::fmt::Display for ArtifactKind {
 }
 
 /// A permanent, agent-owned file.
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct Artifact {
     pub id: String,
     pub agent_id: String,
@@ -146,9 +146,8 @@ impl Artifact {
 /// Where an artifact came from: the promoting conversation and the session file that supplied
 /// the current content. All parts are optional (an agent promotion in a dream has a source
 /// conversation; a migration may have none).
-#[derive(
-    Debug, Clone, Default, Serialize, Deserialize, JsonSchema, utoipa::ToSchema, PartialEq,
-)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema, PartialEq)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct ArtifactOrigin {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub channel: Option<String>,
@@ -158,9 +157,8 @@ pub struct ArtifactOrigin {
     pub source_filename: Option<String>,
 }
 
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, utoipa::ToSchema,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum ArtifactEventAction {
     Promoted,
@@ -189,7 +187,8 @@ impl ArtifactEventAction {
 
 /// One successful promotion, replacement or deletion. Never stores content, and survives the
 /// artifact row (agent deletion removes it).
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct ArtifactEvent {
     pub id: String,
     pub agent_id: String,
@@ -207,7 +206,8 @@ pub struct ArtifactEvent {
 }
 
 /// A derived index row of where an artifact is used (`message` or `memory`).
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct ArtifactReference {
     pub artifact_id: String,
     pub agent_id: String,
@@ -242,7 +242,8 @@ impl ArtifactReference {
 }
 
 /// One keyset page of artifacts, newest `updated_at` first.
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct ArtifactPage {
     pub items: Vec<Artifact>,
     /// The last item's cursor, or `None` on the last page.
@@ -258,14 +259,16 @@ pub struct ArtifactPage {
 
 /// What a delete did. Message references remain (the history row keeps the artifact id and
 /// reads as unavailable); memory links are removed.
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct ArtifactDeleteResult {
     pub removed: bool,
     pub references: usize,
     pub memory_links_removed: usize,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema, utoipa::ToSchema)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct ArtifactStats {
     pub total: usize,
     pub total_bytes: u64,

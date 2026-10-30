@@ -7,10 +7,8 @@ use serde::{Deserialize, Serialize};
 
 /// What kind of event a notification records. Exposed for semantics and tests; never offered as
 /// a filter.
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, schemars::JsonSchema,
-    utoipa::ToSchema,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, schemars::JsonSchema)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum NotificationCategory {
     AgentStartFailure,
@@ -55,10 +53,8 @@ impl NotificationCategory {
 }
 
 /// How a row reads: ordinary, a failure, or a successful outcome.
-#[derive(
-    Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema,
-    utoipa::ToSchema,
-)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum NotificationTone {
     #[default]
@@ -87,10 +83,8 @@ impl NotificationTone {
 }
 
 /// Which rows a page returns. `all` is the default.
-#[derive(
-    Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema,
-    utoipa::ToSchema,
-)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum NotificationFilter {
     #[default]
@@ -137,7 +131,8 @@ pub struct NotificationDraft {
 }
 
 /// One row as the API returns it.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct NotificationItem {
     /// Stable public id; cursors and read marks use it.
     pub id: i64,
@@ -153,7 +148,8 @@ pub struct NotificationItem {
 }
 
 /// Counts over the whole visible, retained set, independent of the selected page/filter.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct NotificationCounts {
     pub all: u64,
     pub unread: u64,
@@ -161,7 +157,8 @@ pub struct NotificationCounts {
 }
 
 /// One page of the inbox plus the counts for its filters.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct NotificationPage {
     pub items: Vec<NotificationItem>,
     pub counts: NotificationCounts,

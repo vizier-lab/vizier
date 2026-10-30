@@ -1,4 +1,5 @@
 pub mod elevenlabs;
+#[cfg(feature = "media")]
 pub mod whisper;
 
 use std::sync::Arc;
@@ -38,12 +39,19 @@ impl VizierStt {
         let provider = &settings.provider;
         let model = resolved_model(settings);
         let model: Arc<dyn VizierSttModel> = match (provider, provider.credentials()) {
+            #[cfg(feature = "media")]
             (SttProvider::Whisper, _) => Arc::new(whisper::WhisperSttModel::new(
                 model,
                 workspace,
                 deps.setup.clone(),
                 agent_id.to_string(),
             )),
+            #[cfg(not(feature = "media"))]
+            (SttProvider::Whisper, _) => {
+                return Err(crate::VizierError(
+                    "local speech recognition (whisper) is not compiled into this build".into(),
+                ));
+            }
             (SttProvider::Elevenlabs, Some(id)) => Arc::new(elevenlabs::ElevenLabsSttModel::new(
                 media::api_key(deps, &id).await?,
                 model,

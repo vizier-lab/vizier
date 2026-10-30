@@ -284,17 +284,20 @@ impl VizierDependencies {
                 crate::channels::side_chat::ASK_WINDOW,
             )),
         };
+        #[cfg(feature = "documents")]
         deps.seed_office_defaults().await;
         Ok(deps)
     }
 
     /// Set once every agent that existed has been given the Office addon.
+    #[cfg(feature = "documents")]
     pub const OFFICE_DEFAULT_SEEDED: &'static str = "migration.office_default_seeded";
 
     /// Spec 036 (FR-025): give every agent that exists now the Office addon, once. The key is
     /// set only after every agent was handled, so a failure is retried on the next start; once
     /// set, an addon a person removed or turned off stays that way. Never blocks startup.
     /// Tracked for removal in #82.
+    #[cfg(feature = "documents")]
     async fn seed_office_defaults(&self) {
         use crate::storage::{agent::AgentStorage, state::StateStorage};
 
@@ -1523,6 +1526,7 @@ mod encryption_startup_tests {
         assert_eq!(raw, raw_again);
     }
 
+    #[cfg(feature = "documents")]
     #[tokio::test]
     async fn the_office_backfill_seeds_each_agent_once_and_leaves_removals_alone() {
         use crate::storage::{agent::AgentStorage, integration::IntegrationStorage, state::StateStorage};

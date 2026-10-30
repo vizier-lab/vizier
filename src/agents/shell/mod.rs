@@ -2,11 +2,11 @@ use std::sync::Arc;
 
 use anyhow::Result;
 
-use crate::{
-    config::shell::ShellConfig,
-    agents::shell::{docker::DockerShell, local::LocalShell},
-};
+#[cfg(feature = "docker-shell")]
+use crate::agents::shell::docker::DockerShell;
+use crate::{agents::shell::local::LocalShell, config::shell::ShellConfig};
 
+#[cfg(feature = "docker-shell")]
 pub mod docker;
 pub mod local;
 
@@ -24,7 +24,12 @@ impl VizierShell {
 
     pub async fn new(config: &ShellConfig) -> Result<Self> {
         Ok(match config {
+            #[cfg(feature = "docker-shell")]
             ShellConfig::Docker(docker) => Self::build(DockerShell::new(docker.clone()).await?),
+            #[cfg(not(feature = "docker-shell"))]
+            ShellConfig::Docker(_) => {
+                anyhow::bail!("docker shell support is not compiled into this build")
+            }
             ShellConfig::Local(local) => Self::build(LocalShell::new(local.clone()).await?),
         })
     }

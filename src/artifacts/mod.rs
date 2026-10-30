@@ -61,7 +61,8 @@ fn revision_origin(actor: &Requester) -> crate::schema::RevisionOrigin {
 }
 
 /// What a promotion/replacement produced, for the HTTP view and tools.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct ArtifactWrite {
     pub artifact: Artifact,
     pub available: bool,

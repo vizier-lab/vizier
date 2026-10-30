@@ -17,7 +17,8 @@ use crate::storage::session::SessionStorage;
 use crate::storage::session_file::SessionFileStorage;
 use crate::storage::turn::TurnStorage;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct ClearResult {
     pub removed: usize,
     pub bytes: u64,

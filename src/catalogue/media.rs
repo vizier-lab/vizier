@@ -33,9 +33,8 @@ const FAILURE_BACKOFF: chrono::Duration = chrono::Duration::hours(1);
 
 /// The one axis discovery varies on (data-model §1). It is also the storage key and the API
 /// query value.
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, utoipa::ToSchema,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum MediaCapability {
     Speech,
@@ -91,9 +90,8 @@ impl MediaCapability {
 }
 
 /// One model in a capability's list, as the seed, the cache and the domain hold it.
-#[derive(
-    Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema,
-)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(default)]
 pub struct MediaModel {
     pub id: String,
@@ -168,7 +166,8 @@ impl MediaSeed {
 
 /// The listing the API serves: `MediaModel` plus whether it is the documented default and
 /// whether it came from a fetched list (data-model §2).
-#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct MediaModelSummary {
     pub id: String,
     pub name: String,

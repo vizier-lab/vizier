@@ -128,7 +128,8 @@ pub enum LegacyProviderEntryConfig {
 /// A provider's stored credentials (data-model §4): one generic shape for every catalogue and
 /// built-in provider, replacing the per-provider `ProviderEntryConfig` variants. Only the
 /// fields a provider uses are accepted by the API.
-#[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq, Eq, utoipa::ToSchema)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct ProviderCredentials {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub api_key: Option<String>,
@@ -195,7 +196,8 @@ impl ProviderCredentials {
 }
 
 /// The wire protocol an operator-defined provider speaks.
-#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, utoipa::ToSchema)]
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum CustomProtocol {
     OpenaiCompatible,
@@ -204,7 +206,8 @@ pub enum CustomProtocol {
 
 /// A model an operator listed for a custom provider; unset fields are filled from the
 /// catalogue (FR-024).
-#[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq, utoipa::ToSchema)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct CustomModel {
     pub id: String,
     #[serde(default)]

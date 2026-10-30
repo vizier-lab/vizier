@@ -6,7 +6,8 @@ use crate::schema::{
     agent::AgentConfig, file::FileRecord,
 };
 
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct AgentHealthStatus {
     pub agent_id: AgentId,
     /// `state == Running`, kept for clients that only read this.
@@ -36,7 +37,8 @@ pub struct AgentHealthStatus {
 }
 
 /// The model an agent runs on, with its effective limits and where they came from.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct AgentModelInfo {
     pub provider: crate::config::provider::ProviderId,
     pub model: String,
@@ -46,7 +48,8 @@ pub struct AgentModelInfo {
 }
 
 /// One of an agent's platform readers, as its health reports it.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct ChannelHealth {
     pub platform: ChannelPlatform,
     pub state: ChannelState,
@@ -60,7 +63,8 @@ pub struct ChannelHealth {
     pub next_retry_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum ChannelPlatform {
     Discord,
@@ -76,7 +80,8 @@ impl std::fmt::Display for ChannelPlatform {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum ChannelState {
     Running,
@@ -88,7 +93,8 @@ pub enum ChannelState {
 }
 
 /// Where an agent's supervisor is (#42).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum AgentRunState {
     /// Being built: requests queue until it runs.
@@ -168,7 +174,8 @@ pub enum AgentCommandResult {
     Error(String),
 }
 
-#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct AgentSummary {
     pub agent_id: String,
     pub name: String,

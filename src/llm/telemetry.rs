@@ -7,9 +7,8 @@
 use std::sync::LazyLock;
 use std::time::Duration;
 
-use opentelemetry::KeyValue;
-use opentelemetry::metrics::Histogram;
 use tracing::Span;
+#[cfg(feature = "telemetry")]
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 use super::error::LlmError;
@@ -60,14 +59,7 @@ pub fn record(
     elapsed: Duration,
     result: &Result<CompletionResponse, LlmError>,
 ) {
-    let mut attrs = vec![
-        KeyValue::new("gen_ai.operation.name", "chat"),
-        KeyValue::new("gen_ai.provider.name", resolved.provider.to_string()),
-        KeyValue::new("gen_ai.request.model", resolved.model.clone()),
-    ];
-    if let (Some(address), _) = server(&resolved.base_url) {
-        attrs.push(KeyValue::new("server.address", address));
-    }
+    let mut metric = metrics::Call::new(resolved, server(&resolved.base_url).0);
 
     match result {
         Ok(response) => {
@@ -86,14 +78,10 @@ pub fn record(
             }
             if let Some(model) = &response.model {
                 span.record("gen_ai.response.model", model.as_str());
-                attrs.push(KeyValue::new("gen_ai.response.model", model.clone()));
+                metric.response_model(model);
             }
             if let Some(reason) = &response.finish_reason {
-                // A string array in the conventions, which a `tracing` field can't hold.
-                span.set_attribute(
-                    "gen_ai.response.finish_reasons",
-                    opentelemetry::Value::Array(vec![opentelemetry::StringValue::from(reason.clone())].into()),
-                );
+                finish_reason(span, reason);
             }
             span.record("gen_ai.usage.input_tokens", usage.input_tokens);
             span.record("gen_ai.usage.output_tokens", usage.output_tokens);
@@ -102,24 +90,29 @@ pub fn record(
                 "gen_ai.usage.cache_creation.input_tokens",
                 usage.cache_creation_input_tokens,
             );
-
-            let token_attrs = |kind: &'static str| {
-                let mut a = attrs.clone();
-                a.push(KeyValue::new("gen_ai.token.type", kind));
-                a
-            };
-            TOKEN_USAGE.record(usage.input_tokens, &token_attrs("input"));
-            TOKEN_USAGE.record(usage.output_tokens, &token_attrs("output"));
+            metric.tokens(usage.input_tokens, usage.output_tokens);
         }
         Err(err) => {
             let kind = error_type(err);
             span.record("otel.status_code", "ERROR");
             span.record("error.type", kind.as_str());
-            attrs.push(KeyValue::new("error.type", kind));
+            metric.error(kind);
         }
     }
-    DURATION.record(elapsed.as_secs_f64(), &attrs);
+    metric.finish(elapsed);
 }
+
+/// A string array in the conventions, which a `tracing` field can't hold.
+#[cfg(feature = "telemetry")]
+fn finish_reason(span: &Span, reason: &str) {
+    span.set_attribute(
+        "gen_ai.response.finish_reasons",
+        opentelemetry::Value::Array(vec![opentelemetry::StringValue::from(reason.to_string())].into()),
+    );
+}
+
+#[cfg(not(feature = "telemetry"))]
+fn finish_reason(_span: &Span, _reason: &str) {}
 
 /// Put the request's messages and tool definitions on the span, in the conventions' JSON
 /// shapes. The leading system messages are the system instructions; one later in the
@@ -232,27 +225,103 @@ fn server(base_url: &str) -> (Option<String>, Option<u16>) {
     }
 }
 
-// Bucket boundaries are the ones the semantic conventions recommend.
+/// The `gen_ai.client.*` metrics of one call. Compiled to nothing without the `telemetry`
+/// feature.
+#[cfg(feature = "telemetry")]
+mod metrics {
+    use std::sync::LazyLock;
+    use std::time::Duration;
 
-static TOKEN_USAGE: LazyLock<Histogram<u64>> = LazyLock::new(|| {
-    opentelemetry::global::meter("vizier")
-        .u64_histogram("gen_ai.client.token.usage")
-        .with_unit("{token}")
-        .with_description("Number of input and output tokens used")
-        .with_boundaries(vec![
-            1.0, 4.0, 16.0, 64.0, 256.0, 1024.0, 4096.0, 16384.0, 65536.0, 262144.0, 1048576.0,
-            4194304.0, 16777216.0, 67108864.0,
-        ])
-        .build()
-});
+    use opentelemetry::KeyValue;
+    use opentelemetry::metrics::Histogram;
 
-static DURATION: LazyLock<Histogram<f64>> = LazyLock::new(|| {
-    opentelemetry::global::meter("vizier")
-        .f64_histogram("gen_ai.client.operation.duration")
-        .with_unit("s")
-        .with_description("GenAI operation duration")
-        .with_boundaries(vec![
-            0.01, 0.02, 0.04, 0.08, 0.16, 0.32, 0.64, 1.28, 2.56, 5.12, 10.24, 20.48, 40.96, 81.92,
-        ])
-        .build()
-});
+    use crate::llm::resolve::ResolvedModel;
+
+    pub struct Call {
+        attrs: Vec<KeyValue>,
+        tokens: Option<(u64, u64)>,
+    }
+
+    impl Call {
+        pub fn new(resolved: &ResolvedModel, address: Option<String>) -> Self {
+            let mut attrs = vec![
+                KeyValue::new("gen_ai.operation.name", "chat"),
+                KeyValue::new("gen_ai.provider.name", resolved.provider.to_string()),
+                KeyValue::new("gen_ai.request.model", resolved.model.clone()),
+            ];
+            if let Some(address) = address {
+                attrs.push(KeyValue::new("server.address", address));
+            }
+            Self { attrs, tokens: None }
+        }
+
+        pub fn response_model(&mut self, model: &str) {
+            self.attrs.push(KeyValue::new("gen_ai.response.model", model.to_string()));
+        }
+
+        pub fn tokens(&mut self, input: u64, output: u64) {
+            self.tokens = Some((input, output));
+        }
+
+        pub fn error(&mut self, kind: String) {
+            self.attrs.push(KeyValue::new("error.type", kind));
+        }
+
+        pub fn finish(self, elapsed: Duration) {
+            if let Some((input, output)) = self.tokens {
+                let with = |kind: &'static str| {
+                    let mut a = self.attrs.clone();
+                    a.push(KeyValue::new("gen_ai.token.type", kind));
+                    a
+                };
+                TOKEN_USAGE.record(input, &with("input"));
+                TOKEN_USAGE.record(output, &with("output"));
+            }
+            DURATION.record(elapsed.as_secs_f64(), &self.attrs);
+        }
+    }
+
+    // Bucket boundaries are the ones the semantic conventions recommend.
+
+    static TOKEN_USAGE: LazyLock<Histogram<u64>> = LazyLock::new(|| {
+        opentelemetry::global::meter("vizier")
+            .u64_histogram("gen_ai.client.token.usage")
+            .with_unit("{token}")
+            .with_description("Number of input and output tokens used")
+            .with_boundaries(vec![
+                1.0, 4.0, 16.0, 64.0, 256.0, 1024.0, 4096.0, 16384.0, 65536.0, 262144.0, 1048576.0,
+                4194304.0, 16777216.0, 67108864.0,
+            ])
+            .build()
+    });
+
+    static DURATION: LazyLock<Histogram<f64>> = LazyLock::new(|| {
+        opentelemetry::global::meter("vizier")
+            .f64_histogram("gen_ai.client.operation.duration")
+            .with_unit("s")
+            .with_description("GenAI operation duration")
+            .with_boundaries(vec![
+                0.01, 0.02, 0.04, 0.08, 0.16, 0.32, 0.64, 1.28, 2.56, 5.12, 10.24, 20.48, 40.96, 81.92,
+            ])
+            .build()
+    });
+}
+
+#[cfg(not(feature = "telemetry"))]
+mod metrics {
+    use std::time::Duration;
+
+    use crate::llm::resolve::ResolvedModel;
+
+    pub struct Call;
+
+    impl Call {
+        pub fn new(_resolved: &ResolvedModel, _address: Option<String>) -> Self {
+            Self
+        }
+        pub fn response_model(&mut self, _model: &str) {}
+        pub fn tokens(&mut self, _input: u64, _output: u64) {}
+        pub fn error(&mut self, _kind: String) {}
+        pub fn finish(self, _elapsed: Duration) {}
+    }
+}

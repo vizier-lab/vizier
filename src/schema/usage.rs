@@ -10,20 +10,8 @@ use serde::{Deserialize, Serialize};
 use crate::schema::metrics::TokenCounts;
 
 /// What a model call was for. Decided once, when the call is recorded (research R4).
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    Hash,
-    PartialOrd,
-    Ord,
-    Serialize,
-    Deserialize,
-    JsonSchema,
-    utoipa::ToSchema,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum UsageActivity {
     Chat,
@@ -106,13 +94,15 @@ pub struct UsageEvent {
     pub legacy: bool,
 }
 
-#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct UsageRange {
     pub start: DateTime<Utc>,
     pub end: DateTime<Utc>,
 }
 
-#[derive(Debug, Clone, Default, Serialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Default, Serialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct FailedTotals {
     /// `null` when nothing failed is priced.
     pub cost_usd: Option<f64>,
@@ -120,7 +110,8 @@ pub struct FailedTotals {
     pub turns: u64,
 }
 
-#[derive(Debug, Clone, Default, Serialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Default, Serialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct UsageSummary {
     /// `null` (not `0`) when nothing in scope has a known price.
     pub cost_usd: Option<f64>,
@@ -136,29 +127,33 @@ pub struct UsageSummary {
     pub share_of_all: Option<f64>,
 }
 
-#[derive(Debug, Clone, Default, Serialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Default, Serialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct PeriodTotals {
     pub cost_usd: Option<f64>,
     pub tokens: u64,
     pub calls: u64,
 }
 
-#[derive(Debug, Clone, Default, Serialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Default, Serialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct DayActivity {
     pub cost_usd: Option<f64>,
     pub tokens: u64,
     pub calls: u64,
 }
 
-#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct DailyUsage {
-    #[schema(value_type = String)]
+    #[cfg_attr(feature = "utoipa", schema(value_type = String))]
     pub date: NaiveDate,
     /// Keyed by `UsageActivity` (snake_case).
     pub by_activity: BTreeMap<UsageActivity, DayActivity>,
 }
 
-#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct BreakdownRow {
     pub key: String,
     pub label: String,
@@ -170,7 +165,8 @@ pub struct BreakdownRow {
     pub calls: u64,
 }
 
-#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct ModelRow {
     #[serde(flatten)]
     pub row: BreakdownRow,
@@ -182,7 +178,8 @@ pub struct ModelRow {
     pub priced: bool,
 }
 
-#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct ConversationRow {
     pub channel: String,
     pub topic: Option<String>,
@@ -198,13 +195,15 @@ pub struct ConversationRow {
     pub exists: bool,
 }
 
-#[derive(Debug, Clone, Default, Serialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Default, Serialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct UnpricedNote {
     pub tokens: u64,
     pub models: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct UsageReport {
     pub range: UsageRange,
     /// When complete accounting started (R6); ranges before it lack dreams, compaction and
@@ -221,7 +220,8 @@ pub struct UsageReport {
     pub unpriced: UnpricedNote,
 }
 
-#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct CallRow {
     pub at: DateTime<Utc>,
     pub activity: UsageActivity,
@@ -236,7 +236,8 @@ pub struct CallRow {
     pub failed: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum UsageLinkKind {
     Chat,
@@ -245,20 +246,23 @@ pub enum UsageLinkKind {
     Topic,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct UsageLink {
     pub kind: UsageLinkKind,
     pub path: String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum NoLinkReason {
     NoWebPage,
     Deleted,
 }
 
-#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct ConversationUsage {
     pub label: String,
     pub detail: Option<String>,

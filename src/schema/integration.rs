@@ -6,7 +6,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::schema::{AgentId, Requester};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum IntegrationFamily {
     Channel,
@@ -73,7 +74,8 @@ impl Integration {
 }
 
 /// One agent's view of one integration.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(tag = "state", rename_all = "snake_case")]
 pub enum IntegrationStatus {
     Disabled,
@@ -110,7 +112,8 @@ pub struct IntegrationChanged {
 }
 
 /// One integration family an agent may manage itself (research R1). A row means the switch is on.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct IntegrationGrant {
     pub agent_id: AgentId,
     pub family: IntegrationFamily,
@@ -118,7 +121,8 @@ pub struct IntegrationGrant {
     pub granted_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum EventAction {
     Created,
@@ -162,7 +166,8 @@ impl EventAction {
 
 /// One recorded change to an agent's integrations or grants (research R6). `fields` names the
 /// settings that changed, never their values.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct IntegrationEvent {
     pub id: String,
     pub agent_id: AgentId,

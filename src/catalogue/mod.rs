@@ -24,7 +24,8 @@ use crate::schema::provider::{CustomProtocol, CustomProvider};
 // Whether a catalogue refresh (models.dev, or a media capability's list) is on, running, or
 // last failed. A plain comment: a doc comment would become the schema's description in the
 // OpenAPI document.
-#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct RefreshStatus {
     pub enabled: bool,
     pub ttl: String,
@@ -71,7 +72,8 @@ pub struct Catalogue(
     Arc<media::MediaCatalogue>,
 );
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum ProviderOrigin {
     Catalogue,
@@ -397,7 +399,8 @@ mod tests {
 
 /// A setting that saves but probably isn't what was meant (FR-013, FR-035). Never blocks a
 /// save.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct AgentWarning {
     pub code: &'static str,
     pub message: String,

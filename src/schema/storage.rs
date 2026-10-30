@@ -110,7 +110,8 @@ impl MemoryAttachment {
 
 /// The HTTP view of a memory attachment: tagged by kind and carrying read-time availability.
 /// The stored document stays the untagged [`MemoryAttachment`] enum.
-#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum MemoryAttachmentView {
     Artifact {
@@ -155,7 +156,8 @@ pub struct PaginatedMemory {
     pub limit: usize,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, utoipa::ToSchema)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct BundleSummary {
     pub name: String,
     pub concept_count: usize,
@@ -165,13 +167,15 @@ pub struct BundleSummary {
     pub link_count: usize,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default, utoipa::ToSchema)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct ImportReport {
     pub imported: Vec<String>,
     pub skipped: Vec<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, utoipa::ToSchema)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct MemoryGraphNode {
     pub slug: String,
     pub bundle: String,
@@ -182,14 +186,16 @@ pub struct MemoryGraphNode {
     pub boundary: bool,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, utoipa::ToSchema)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct MemoryGraphEdge {
     pub source: String,
     pub target: String,
     pub broken: bool,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, utoipa::ToSchema)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct MemoryGraph {
     pub nodes: Vec<MemoryGraphNode>,
     pub edges: Vec<MemoryGraphEdge>,
@@ -215,7 +221,8 @@ pub struct DocumentIndex {
 /// surfaces rather than three near-identical ones (Principle II).
 ///
 /// `text` is sliced out of the document at query time and never stored (research Decision 3).
-#[derive(Debug, Serialize, Deserialize, Clone, utoipa::ToSchema, schemars::JsonSchema)]
+#[derive(Debug, Serialize, Deserialize, Clone, schemars::JsonSchema)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct MemoryPassageResult {
     pub bundle: String,
     pub path: String,

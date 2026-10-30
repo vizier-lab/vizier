@@ -29,7 +29,8 @@ pub struct ConversationNames {
 pub type NamesFuture =
     std::pin::Pin<Box<dyn std::future::Future<Output = Option<ConversationNames>> + Send>>;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum FieldType {
     /// Redacted in every response and kept when a request leaves it out or sends it back
@@ -44,7 +45,8 @@ pub enum FieldType {
     Select,
 }
 
-#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct KindField {
     pub key: &'static str,
     pub label: &'static str,
@@ -53,7 +55,7 @@ pub struct KindField {
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub required: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[schema(value_type = Option<Object>)]
+    #[cfg_attr(feature = "utoipa", schema(value_type = Option<Object>))]
     pub default: Option<Value>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub options: Vec<&'static str>,
@@ -82,7 +84,8 @@ impl KindField {
 
 /// What the catalogue shows for a kind; for an addon, its tile. The description also
 /// describes an addon's tool category in the system prompt.
-#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct KindListing {
     pub name: &'static str,
     pub description: &'static str,

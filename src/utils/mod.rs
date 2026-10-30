@@ -1,12 +1,14 @@
 use regex::Regex;
 use std::path::PathBuf;
 
+#[cfg(feature = "discord")]
 pub mod discord;
 pub mod json_schema;
 pub mod markdown;
 pub mod ollama;
 pub mod rate_limit;
 pub mod tar;
+#[cfg(feature = "telegram")]
 pub mod telegram;
 
 pub fn remove_think_tags(text: &str) -> String {

@@ -29,6 +29,7 @@ path = "src/lib.rs"
 [[bin]]
 name = "vizier"
 path = "src/main.rs"
+required-features = ["full"]
 
 [dependencies]
 chrono = { version = "0.4.43", features = ["serde"] }
@@ -52,11 +53,11 @@ serde_json = "1.0.149"
 serde_urlencoded = "0.7.1"
 serde_yaml = "0.9.34"
 rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs"] }
-twilight-gateway = { version = "0.17.1", default-features = false, features = ["rustls-platform-verifier", "twilight-http", "zstd"] }
-twilight-http = { version = "0.17.1", default-features = false, features = ["rustls-platform-verifier", "decompression"] }
-twilight-model = "0.17.1"
-twilight-util = { version = "0.17.0", features = ["builder", "snowflake"] }
-teloxide = "0.17"
+twilight-gateway = { version = "0.17.1", default-features = false, features = ["rustls-platform-verifier", "twilight-http", "zstd"], optional = true }
+twilight-http = { version = "0.17.1", default-features = false, features = ["rustls-platform-verifier", "decompression"], optional = true }
+twilight-model = { version = "0.17.1", optional = true }
+twilight-util = { version = "0.17.0", features = ["builder", "snowflake"], optional = true }
+teloxide = { version = "0.17", optional = true }
 slugify = "0.1.0"
 strum = "0.28.0"
 text-splitter = { version = "0.33.0", features = ["markdown"] }
@@ -90,13 +91,15 @@ sqlite-vec = "0.1.9"
 # binaries. Keep the pin until that target is available.
 fastembed = "=4.9.1"
 croner = { version = "4.0.1", features = ["serde"] }
-indicatif = "0.18.6"
+indicatif = { version = "0.18.6", optional = true }
 rand = "0.10.0"
 
 dotenvy = "0.15.7"
 async-trait = "0.1.89"
 
 termimad = "0.35.5"
+# Not optional until the HTTP adapter leaves this crate: it derives schemas unconditionally.
+# The `utoipa` feature gates only the engine's own derives.
 utoipa = { version = "6", features = ["chrono"] }
 utoipa-axum = "0.3"
 utoipa-swagger-ui = { version = "10", features = ["axum"] }
@@ -105,7 +108,7 @@ tar = "0.4"
 bzip2 = "0.6"
 zip = { version = "9.0", default-features = false, features = ["deflate"] }
 shellexpand = "3.1.2"
-bollard = { version = "0.21.1", features = ["buildkit", "chrono"] }
+bollard = { version = "0.21.1", features = ["buildkit", "chrono"], optional = true }
 rmcp = { version = "3.5.1", features = [
   "client",
   "macros",
@@ -116,28 +119,28 @@ rmcp = { version = "3.5.1", features = [
 html2md = "0.2.15"
 daemonize = "0.5.0"
 tempfile = "3"
-pdf-extract = "0.12"
-docx-rs = "0.4"
-calamine = "0.36"
-rust_xlsxwriter = "0.101.0"
+pdf-extract = { version = "0.12", optional = true }
+docx-rs = { version = "0.4", optional = true }
+calamine = { version = "0.36", optional = true }
+rust_xlsxwriter = { version = "0.101.0", optional = true }
 # Calculates formulas for office_xlsx_read_as_csv(executed_formula=true); used only in
 # src/agents/tools/office/formula.rs. Chosen by the trial in specs/036-office-addon/research.md R10.
-ironcalc = "0.9"
+ironcalc = { version = "0.9", optional = true }
 pulldown-cmark = "0.13"
-hound = "3.5"
-symphonia = { version = "0.6.1", features = ["mp3", "ogg", "vorbis", "wav", "flac", "isomp4", "mkv", "pcm"] }
+hound = { version = "3.5", optional = true }
+symphonia = { version = "0.6.1", features = ["mp3", "ogg", "vorbis", "wav", "flac", "isomp4", "mkv", "pcm"], optional = true }
 # Opus is what browsers (WebM), Discord and Telegram (Ogg) record; symphonia has no decoder
 # of its own. Pure Rust, so the binary stays self-contained.
-symphonia-adapter-opus-rs = "0.1.1"
-whisper-rs = { version = "0.16.0", features = ["tracing_backend"] }
-any-tts = { version = "0.2.0", default-features = false, features = ["kokoro"] }
+symphonia-adapter-opus-rs = { version = "0.1.1", optional = true }
+whisper-rs = { version = "0.16.0", features = ["tracing_backend"], optional = true }
+any-tts = { version = "0.2.0", default-features = false, features = ["kokoro"], optional = true }
 similar = { version = "3", default-features = false, features = ["text"] }
 monty = "=1.0.0"
 monty-types = "=1.0.0"
 vizier-derive = { path = "vizier-derive", version = "0.13.5" }
-opentelemetry = "0.33"
-opentelemetry_sdk = "0.33"
-tracing-opentelemetry = "0.34"
+opentelemetry = { version = "0.33", optional = true }
+opentelemetry_sdk = { version = "0.33", optional = true }
+tracing-opentelemetry = { version = "0.34", optional = true }
 opentelemetry-otlp = { version = "0.33", default-features = false, features = ["trace", "metrics", "http-proto", "reqwest-blocking-client"] }
 
 [build-dependencies]
@@ -154,7 +157,17 @@ tokio = { version = "1.49.0", features = ["test-util"] }
 opt-level = 3
 
 [features]
-default = []
+# Optional engine capabilities (specs/037-core-extraction research R9). `default = ["full"]`
+# until the workspace split gives `vizier-core` its own `default = []`.
+default = ["full"]
+discord = ["dep:twilight-gateway", "dep:twilight-http", "dep:twilight-model", "dep:twilight-util"]
+telegram = ["dep:teloxide"]
+media = ["dep:whisper-rs", "dep:any-tts", "dep:symphonia", "dep:symphonia-adapter-opus-rs", "dep:hound"]
+docker-shell = ["dep:bollard", "dep:indicatif"]
+documents = ["dep:pdf-extract", "dep:docx-rs", "dep:calamine", "dep:rust_xlsxwriter", "dep:ironcalc"]
+utoipa = []
+telemetry = ["dep:opentelemetry", "dep:opentelemetry_sdk", "dep:tracing-opentelemetry"]
+full = ["discord", "telegram", "media", "docker-shell", "documents", "utoipa", "telemetry"]
 
 [package.metadata.binstall]
 pkg-url = "{ repo }/releases/download/v{ version }/vizier-v{ version }-{ target }.tar.gz"

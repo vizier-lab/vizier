@@ -184,6 +184,7 @@ async fn run_ours(name: &str, model: &str, base: String) -> Value {
     }
 }
 
+#[cfg(feature = "media")]
 #[tokio::test]
 async fn every_media_golden_matches_rig() {
     let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/llm/media/fixtures/golden");
