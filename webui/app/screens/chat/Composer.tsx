@@ -214,6 +214,10 @@ export function Composer({
     }
 
     const startRecording = async () => {
+        if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+            toast.error("Audio recording isn't available in this window.")
+            return
+        }
         try {
             const stream = await navigator.mediaDevices.getUserMedia({
                 audio: true,

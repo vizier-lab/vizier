@@ -3,6 +3,7 @@ import { type ReactNode } from 'react'
 import { motion } from 'motion/react'
 import { Outlet, useLocation, useNavigate } from 'react-router'
 import { useMobile } from '../lib/useMobile'
+import { transport } from '../api/transport'
 import { useSession } from '../stores/session'
 
 const ACCOUNT: { value: SettingsPage; label: string }[] = [
@@ -50,7 +51,7 @@ export default function SettingsLayout() {
                 <div className="border-b border-border bg-sidebar px-16 py-12">
                     <Select
                         aria-label="Settings page"
-                        options={admin ? [...ACCOUNT, ...ADMIN] : ACCOUNT}
+                        options={[...ACCOUNT, ...(admin ? ADMIN : []), ...(transport.authMode === 'desktop' ? [{ value: 'desktop' as SettingsPage, label: 'Desktop' }] : [])]}
                         value={active}
                         onChange={(page) => navigate(`/settings/${page}`)}
                     />

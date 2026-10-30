@@ -1,6 +1,7 @@
 import { Rail, UserMenu } from '@vizier/design'
 import { useState } from 'react'
 import { useNavigate } from 'react-router'
+import { transport } from '../../api/transport'
 import { agentState } from '../../api/endpoints/agents'
 import { useAgents } from '../../stores/agents'
 import { useNotifications } from '../../stores/notifications'
@@ -49,6 +50,8 @@ export function ShellRail({ pathname, view, routeAgent }: { pathname: string; vi
             settingsActive={view === 'settings'}
             onToggleTheme={toggleTheme}
             user={
+                // The desktop owner is signed in by opening the app: the design's Sign out is hidden.
+                <div className={transport.authMode === 'desktop' ? 'contents [&_button[aria-label="Sign out"]]:hidden' : 'contents'}>
                 <UserMenu
                     name={user?.username ?? ''}
                     role={user?.role_name}
@@ -60,6 +63,7 @@ export function ShellRail({ pathname, view, routeAgent }: { pathname: string; vi
                         navigate('/login')
                     }}
                 />
+                </div>
             }
         />
     )

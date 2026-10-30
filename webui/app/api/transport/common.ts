@@ -36,6 +36,15 @@ export type DesktopState = {
     detail?: unknown
 }
 
+export type DesktopSettings = {
+    close_to_tray: boolean
+    web_access: { enabled: boolean; allow_network: boolean; port: number }
+    updates: { check_on_start: boolean }
+    workspace?: string
+}
+
+export type UpdateInfo = { available: boolean; version?: string; notes?: string }
+
 export interface DesktopShell {
     state(): Promise<DesktopState>
     onState(fn: (s: DesktopState) => void): Promise<() => void>
@@ -46,9 +55,10 @@ export interface DesktopShell {
     chooseOwner(userId: string): Promise<void>
     openWorkspace(path?: string): Promise<void>
     restart(): Promise<void>
-    settingsGet(): Promise<unknown>
-    settingsSet(settings: unknown): Promise<unknown>
-    updateCheck(): Promise<{ available: boolean; version?: string; notes?: string }>
+    settingsGet(): Promise<DesktopSettings>
+    settingsSet(settings: DesktopSettings): Promise<DesktopSettings>
+    updateCheck(): Promise<UpdateInfo>
+    onUpdate(fn: (u: UpdateInfo) => void): Promise<() => void>
     updateInstall(): Promise<void>
 }
 

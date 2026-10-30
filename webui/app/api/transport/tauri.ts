@@ -2,7 +2,7 @@
 import { Channel, invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { sendNotification } from '@tauri-apps/plugin-notification'
-import { API_BASE, settle, type DesktopShell, type DesktopState, type Envelope, type Transport, type TopicHandle, type TopicOptions } from './common'
+import { API_BASE, settle, type DesktopShell, type DesktopState, type Envelope, type Transport, type UpdateInfo, type TopicHandle, type TopicOptions } from './common'
 
 const ASSET = 'vizier-asset://localhost'
 const encoder = new TextEncoder()
@@ -28,6 +28,7 @@ export const tauriShell: DesktopShell = {
     restart: () => invoke('runtime_restart'),
     settingsGet: () => invoke('desktop_settings_get'),
     settingsSet: (settings) => invoke('desktop_settings_set', { settings }),
+    onUpdate: (fn) => listen<UpdateInfo>('desktop://update', (e) => fn(e.payload)),
     updateCheck: () => invoke('update_check'),
     updateInstall: () => invoke('update_install'),
 }
