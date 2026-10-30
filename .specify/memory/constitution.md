@@ -1,27 +1,29 @@
 <!--
 Sync Impact Report
 ==================
-Version change: 1.1.0 → 1.2.0
+Version change: 1.2.0 → 1.3.0
 Modified principles: none
 Added sections: none
 Modified sections:
-  - Development Workflow & Quality Gates — added the "End-to-end
-    verification through a dummyplug agent" gate: features that change
-    agent-observable behavior MUST be exercised against a running binary
-    with an agent on the offline `dummyplug` provider
-    (specs/008-dummyplug-provider), with each feature's quickstart.md
-    scripted as dummyplug steps; the dummyplug chat protocol is now a test
-    harness contract.
+  - Development Workflow & Quality Gates — added "Matching submodule
+    branches, driven by `just`" (every spec branch MUST exist under the same
+    name in the workspace and in every submodule; cross-repo git work goes
+    through the Justfile recipes) and widened "Conventional commits" from
+    commits to commit messages AND pull request titles, in every repo
+    (workspace and submodules), including Spec Kit auto-commits.
 Templates requiring updates:
-  - .specify/templates/plan-template.md ✅ updated (Testing field names the
-    dummyplug e2e harness)
-  - .specify/templates/tasks-template.md ✅ updated (Polish phase gets a
-    dummyplug e2e task next to quickstart validation)
-  - .specify/templates/spec-template.md ✅ no change needed (Independent Test
-    wording already fits; the harness is a plan/tasks concern)
-  - .specify/templates/checklist-template.md ✅ no constitution references present
-  - CLAUDE.md ✅ updated (Commands section points at dummyplug for e2e checks)
-Follow-up TODOs: none
+  - .specify/templates/tasks-template.md ✅ updated (commit guidance names
+    `just commit` and conventional format)
+  - .specify/extensions/git/git-config.yml ✅ updated (auto-commit and init
+    messages were "[Spec Kit] ..."; now conventional commits)
+  - .specify/templates/plan-template.md ✅ no change needed (Constitution
+    Check reads the gates from this file)
+  - .specify/templates/spec-template.md, checklist-template.md ✅ no change
+  - CLAUDE.md ✅ updated (Commands section lists the branch/commit recipes)
+Follow-up TODOs:
+  - The Spec Kit `speckit.git.feature` hook (create-new-feature.sh) creates
+    the branch in the workspace only; run `just checkout <branch>` after it
+    to create the submodule branches. Not scripted yet.
 -->
 
 # Vizier Constitution
@@ -152,9 +154,24 @@ instead of each module reinventing its own convention.
 - **`cargo clippy` and `cargo test` MUST pass** before a change is
   considered done; there is no separate `just lint`/`just test` — use these
   directly. WebUI changes MUST pass `cd webui && npm run typecheck`.
-- **Conventional commits** (`feat:`, `fix:`, `doc:`, `perf:`, `refactor:`,
-  `chore:`, with `[**breaking**]` where applicable) are required, since the
-  changelog is generated from commit history via `git-cliff`.
+- **Conventional commits everywhere**: every commit message AND every pull
+  request title MUST be in conventional-commit format (`feat:`, `fix:`,
+  `doc:`, `perf:`, `refactor:`, `chore:`, with `[**breaking**]` where
+  applicable), in the workspace and in every submodule. The changelog is
+  generated from history via `git-cliff`, and a squash-merged PR title
+  becomes the commit. Tool-generated messages (Spec Kit auto-commits, bots)
+  are held to the same rule; a `[Spec Kit] ...` style prefix is not allowed.
+- **Matching submodule branches, driven by `just`**: every spec branch
+  (`NNN-short-name`) MUST exist under the same name in the workspace and in
+  every submodule (`design`, `webui`, `landing`, `dummyplug`), so a feature
+  that spans repos is one branch name everywhere and its PRs can be linked.
+  Cross-repo git interaction MUST go through the Justfile recipes, not
+  hand-rolled per-submodule git: `just checkout <branch>` (create or switch
+  everywhere), `just status`, `just pull`, `just commit "<message>"`,
+  `just push` (submodules first, then the workspace, so pins never point at
+  unpushed commits), `just branch-rm`, `just worktree`. If a needed
+  interaction has no recipe, add one to the Justfile instead of repeating
+  the raw commands. Commit order across repos is design → webui → vizier.
 - **Manual verification for runtime-affecting changes**: since the
   automated test suite is sparse, changes to process startup, storage
   migrations, or the build pipeline (`build.rs`, `Cross.toml`, `Dockerfile`)
@@ -209,4 +226,4 @@ service or non-embedded runtime dependency). Deviations MUST be justified
 in the PR description (equivalent to the plan template's Complexity
 Tracking table) or the change MUST be revised before merge.
 
-**Version**: 1.2.0 | **Ratified**: 2026-08-13 | **Last Amended**: 2026-09-27
+**Version**: 1.3.0 | **Ratified**: 2026-08-13 | **Last Amended**: 2026-10-30
