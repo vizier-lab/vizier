@@ -89,6 +89,17 @@ async fn main() -> vizier_core::Result<()> {
         }
     }
 
+    // The service layer answers the questions an adapter asks about a person. A workspace
+    // with no users refuses an unknown one the same way for every host.
+    match runtime
+        .services()
+        .principal_for("nobody", vizier_core::auth::AuthMethod::Jwt)
+        .await
+    {
+        Ok(principal) => println!("principal: {}", principal.username),
+        Err(e) => println!("no such person ({}): {e}", e.status()),
+    }
+
     runtime.shutdown().await
 }
 

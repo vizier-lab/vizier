@@ -43,7 +43,7 @@ fn scrub(value: &mut Value) {
     match value {
         Value::Object(map) => {
             for (k, v) in map.iter_mut() {
-                if k.ends_with("_at") || k == "timestamp" || k == "uid" || k == "seq" || k == "revision_id" || k == "role_id" || k == "id" || k == "accounting_since" || k == "hours" {
+                if k.ends_with("_at") || k == "timestamp" || k == "uid" || k == "updated" || k == "seq" || k == "revision_id" || k == "role_id" || k == "id" || k == "accounting_since" || k == "hours" {
                     *v = Value::Null;
                 } else {
                     scrub(v);

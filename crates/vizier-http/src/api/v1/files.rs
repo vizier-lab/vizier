@@ -1,28 +1,24 @@
-use std::path::PathBuf;
-
 use axum::{
     body::Body,
-    extract::{Json, Path, State},
+    extract::{Extension, Json, Path, State},
     http::{StatusCode, header::CONTENT_TYPE},
     response::{IntoResponse, Response},
 };
-use base64::Engine;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use tokio::fs;
 use utoipa::ToSchema;
 
-use crate::{models::response::{APIResponse, api_response, err_response}, state::HTTPState};
+use crate::{
+    api::v1::integrations::svc,
+    auth::Principal,
+    models::response::{APIResponse, api_response, err_response},
+    state::HTTPState,
+};
+use vizier_core::service::files as service;
 
 use super::range::{RangeRequest, parse_range};
 
-const UPLOADS_DIR: &str = "uploads";
-
-#[derive(Debug, Serialize, Clone, ToSchema)]
-pub struct UploadResponse {
-    pub file_id: String,
-    pub filename: String,
-    pub url: String,
-}
+pub use service::UploadResponse;
 
 #[derive(Debug, Deserialize, Clone, ToSchema)]
 pub struct UploadRequest {
@@ -45,46 +41,16 @@ pub struct UploadRequest {
 )]
 pub async fn upload_file(
     State(state): State<HTTPState>,
+    Extension(user): Extension<Principal>,
     Json(body): Json<UploadRequest>,
 ) -> impl IntoResponse {
-    if body.file.is_empty() {
-        return err_response(StatusCode::BAD_REQUEST, "No file provided".to_string());
+    match service::upload(&svc(&state), &user, &body.file, body.filename).await {
+        Ok(uploaded) => api_response(StatusCode::CREATED, uploaded),
+        Err(e) => err_response(
+            StatusCode::from_u16(e.status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
+            e.message().to_string(),
+        ),
     }
-
-    let file_data = match base64::engine::general_purpose::STANDARD.decode(&body.file) {
-        Ok(data) => data,
-        Err(e) => {
-            return err_response(StatusCode::BAD_REQUEST, format!("Invalid base64: {}", e));
-        }
-    };
-
-    if file_data.is_empty() {
-        return err_response(StatusCode::BAD_REQUEST, "Empty file content".to_string());
-    }
-
-    let file_record = match state
-        .transport
-        .send_file_upload(body.filename, file_data)
-        .await
-    {
-        Ok(record) => record,
-        Err(e) => {
-            tracing::error!("Failed to upload file: {}", e);
-            return err_response(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to upload file: {}", e),
-            );
-        }
-    };
-
-    api_response(
-        StatusCode::CREATED,
-        UploadResponse {
-            file_id: file_record.id,
-            filename: file_record.filename,
-            url: file_record.url,
-        },
-    )
 }
 
 #[utoipa::path(
@@ -103,39 +69,14 @@ pub async fn download_file(
     Path(file_id): Path<String>,
     headers: axum::http::HeaderMap,
 ) -> Response {
-    let workspace = &state.config.workspace;
-    let uploads_dir = PathBuf::from(workspace).join(UPLOADS_DIR).join(&file_id);
-
-    let mut entries = match fs::read_dir(&uploads_dir).await {
-        Ok(entries) => entries,
-        Err(_) => {
-            let (status, json) =
-                err_response::<String>(StatusCode::NOT_FOUND, "File not found".to_string());
-            return (status, json).into_response();
-        }
-    };
-
-    let entry = match entries.next_entry().await {
-        Ok(Some(e)) => e,
-        Ok(None) => {
-            let (status, json) =
-                err_response::<String>(StatusCode::NOT_FOUND, "File not found".to_string());
-            return (status, json).into_response();
-        }
-        Err(_) => {
-            let (status, json) =
-                err_response::<String>(StatusCode::NOT_FOUND, "File not found".to_string());
-            return (status, json).into_response();
-        }
-    };
-
-    let file_path = entry.path();
-    let _filename = entry.file_name().to_string_lossy().to_string();
-
     let not_found = || {
         let (status, json) =
             err_response::<String>(StatusCode::NOT_FOUND, "File not found".to_string());
         (status, json).into_response()
+    };
+
+    let Ok(file_path) = service::locate(&svc(&state), &file_id).await else {
+        return not_found();
     };
 
     let mime_type = mime_guess::from_path(&file_path)
