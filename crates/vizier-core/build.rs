@@ -1,0 +1,48 @@
+use std::io::Write;
+use std::path::Path;
+
+fn main() {
+    embed_catalogue_seed();
+    validate_media_seed();
+}
+
+/// Gzip the committed model catalogue seed into `$OUT_DIR/catalogue.json.gz`, which
+/// `src/catalogue/seed.rs` embeds. Never touches the network: the seed is refreshed by
+/// `just catalogue-update` (and once per release), not by the build.
+fn embed_catalogue_seed() {
+    println!("cargo:rerun-if-changed=assets/catalogue");
+
+    let seed = Path::new("assets/catalogue/api.json");
+    let hint = "run `just catalogue-update` to fetch the model catalogue seed";
+    let bytes = std::fs::read(seed)
+        .unwrap_or_else(|e| panic!("cannot read {}: {e}; {hint}", seed.display()));
+    if let Err(e) = serde_json::from_slice::<serde_json::Value>(&bytes) {
+        panic!("{} is not valid JSON ({e}); {hint}", seed.display());
+    }
+
+    let out_dir = std::env::var("OUT_DIR").expect("OUT_DIR is set by cargo");
+    let out = Path::new(&out_dir).join("catalogue.json.gz");
+    let file = std::fs::File::create(&out)
+        .unwrap_or_else(|e| panic!("cannot create {}: {e}", out.display()));
+    let mut encoder = flate2::write::GzEncoder::new(file, flate2::Compression::best());
+    encoder
+        .write_all(&bytes)
+        .and_then(|_| encoder.finish().map(|_| ()))
+        .unwrap_or_else(|e| panic!("cannot write {}: {e}", out.display()));
+}
+
+/// Validate the committed OpenRouter media seed (spec 028, research R8). It is embedded as-is by
+/// `src/catalogue/seed.rs` (small enough not to gzip), so only its syntax is checked here: a
+/// malformed file should fail the build early, while a logically empty one is still tolerated
+/// at runtime.
+fn validate_media_seed() {
+    println!("cargo:rerun-if-changed=assets/catalogue/openrouter_media.json");
+
+    let seed = Path::new("assets/catalogue/openrouter_media.json");
+    let hint = "run `just catalogue-update` to fetch the OpenRouter media model lists";
+    let bytes = std::fs::read(seed)
+        .unwrap_or_else(|e| panic!("cannot read {}: {e}; {hint}", seed.display()));
+    if let Err(e) = serde_json::from_slice::<serde_json::Value>(&bytes) {
+        panic!("{} is not valid JSON ({e}); {hint}", seed.display());
+    }
+}

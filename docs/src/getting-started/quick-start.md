@@ -90,10 +90,10 @@ just dev         # cargo watch -s "just run" (hot reload, uses dev.vizier.yaml)
 | `just run-d` | Same, detached |
 | `just shutdown` | Stop the dev instance |
 | `just build` | Build the WebUI (`npm run build`) |
-| `just release` | `cargo build --release` |
+| `just release` | `cargo build --release -p vizier` |
 | `just docker` | `docker-compose down && docker-compose up -d` |
 
-There is no `just test`/`just lint` — use `cargo test` and `cargo clippy` directly. WebUI typecheck: `cd webui && npm run typecheck`.
+`just test` and `just lint` run `cargo test --workspace` and `cargo clippy --workspace`. WebUI typecheck: `cd webui && npm run typecheck`.
 
 ## Next Steps
 

@@ -75,20 +75,25 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Update Cargo.toml versions
+        # Every version lives in the root Cargo.toml: the workspace version, and the
+        # requirements of the three crates the others depend on by path *and* version
+        # (cargo refuses to resolve e.g. `^0.10.0` against a member at `0.11.0`).
         run: |
           VERSION="${{ steps.version.outputs.version }}"
-          sed -i 's/^version = ".*"/version = "'"$VERSION"'"/' Cargo.toml
-          sed -i 's/^version = ".*"/version = "'"$VERSION"'"/' vizier-derive/Cargo.toml
-          # The root crate depends on vizier-derive by path *and* version; the
-          # requirement must track the workspace member's version or cargo
-          # refuses to resolve it (e.g. `^0.10.0` vs member `0.11.0`).
-          sed -i 's/^\(vizier-derive = { path = "vizier-derive", version = "\)[^"]*"/\1'"$VERSION"'"/' Cargo.toml
-          echo "Root: $(grep -m1 '^version = ' Cargo.toml)"
-          echo "Derive: $(grep -m1 '^version = ' vizier-derive/Cargo.toml)"
-          echo "Derive dep: $(grep -m1 '^vizier-derive = ' Cargo.toml)"
-          grep -q "^version = \"$VERSION\"$" Cargo.toml || (echo "::error::root version not bumped"; exit 1)
-          grep -q "^version = \"$VERSION\"$" vizier-derive/Cargo.toml || (echo "::error::vizier-derive version not bumped"; exit 1)
-          grep -q "^vizier-derive = { path = \"vizier-derive\", version = \"$VERSION\" }$" Cargo.toml || (echo "::error::vizier-derive dependency requirement not bumped"; exit 1)
+          sed -i '/^\[workspace\.package\]/,/^\[/ s/^version = ".*"/version = "'"$VERSION"'"/' Cargo.toml
+          for crate in vizier-derive vizier-core vizier-http; do
+            sed -i 's/^\('"$crate"' = { path = "crates\/'"$crate"'", version = "\)[^"]*"/\1'"$VERSION"'"/' Cargo.toml
+          done
+          echo "Workspace: $(grep -m1 '^version = ' Cargo.toml)"
+          grep -E '^vizier-(derive|core|http) = ' Cargo.toml
+          grep -q "^version = \"$VERSION\"$" Cargo.toml || (echo "::error::workspace version not bumped"; exit 1)
+          for crate in vizier-derive vizier-core vizier-http; do
+            grep -q "^$crate = { path = \"crates/$crate\", version = \"$VERSION\" }$" Cargo.toml || (echo "::error::$crate dependency requirement not bumped"; exit 1)
+          done
+
+      - name: Refresh Cargo.lock
+        # The lockfile records the four workspace crates' versions; nothing else may move.
+        run: cargo update --workspace
 
       - name: Refresh model catalogue
         # Offline or a bad response keeps the committed snapshot (a warning, never a failure).
@@ -119,7 +124,7 @@ jobs:
 
       - name: Commit version bump
         run: |
-          git add Cargo.toml vizier-derive/Cargo.toml CHANGELOG.md assets/catalogue
+          git add Cargo.toml Cargo.lock CHANGELOG.md crates/vizier-core/assets/catalogue
           # A retried release finds the bump already committed by the failed run.
           git diff --cached --quiet || git commit -m "chore: bump version to ${{ steps.version.outputs.version }}"
           git tag -a "v${{ steps.version.outputs.version }}" -m "Release v${{ steps.version.outputs.version }}"
@@ -212,7 +217,7 @@ jobs:
             make
 
       - name: Build binary
-        run: cargo build --release --target ${{ matrix.target }}
+        run: cargo build --release -p vizier --target ${{ matrix.target }}
 
       - name: Package binary (Unix)
         if: runner.os != 'Windows'
@@ -294,12 +299,6 @@ jobs:
 
             ### Manual download
             Download the appropriate binary archive for your platform from the assets below.
-
-            ### Need Python Support?
-            Pre-built binaries do not include Python. To use the Python interpreter tool, build from source with the `python` feature:
-            ```bash
-            cargo install vizier --features python
-            ```
           draft: false
           prerelease: ${{ contains(needs.prepare-release.outputs.version, '-') }}
           files: release-assets/*

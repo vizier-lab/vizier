@@ -1,8 +1,8 @@
 name: CI
 
-# Per-PR checks (specs/037-core-extraction research R15). Until the workspace split the
-# `core-*` jobs run on the single `vizier` crate with the same feature sets they will use for
-# `vizier-core`; they still need the WebUI built, because the single crate's build script embeds it.
+# Per-PR checks (specs/037-core-extraction research R15). `core-*` build the engine alone, with
+# no optional features and with all of them; only `vizier-http` embeds the WebUI, so only
+# `server` needs it built.
 
 on:
   pull_request:
@@ -50,11 +50,11 @@ jobs:
       - name: Clear node_modules so cargo doesn't rebuild the WebUI
         run: rm -rf webui/node_modules
       - name: Clippy
-        run: cargo clippy --all-targets -- $CLIPPY_LINTS
+        run: cargo clippy --workspace --all-targets -- $CLIPPY_LINTS
       - name: Test
-        run: cargo test
+        run: cargo test --workspace
       - name: Build release
-        run: cargo build --release
+        run: cargo build --release -p vizier
 
   webui:
     name: webui
@@ -93,32 +93,57 @@ jobs:
         with:
           submodules: recursive
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
       - uses: Swatinem/rust-cache@v2
         with:
           key: core-${{ matrix.set }}
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: 'npm'
-          cache-dependency-path: |
-            design/package-lock.json
-            webui/package-lock.json
       - name: Install Linux dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y pkg-config libssl-dev python3-dev libclang-dev clang perl make
-      - name: Build WebUI
-        run: |
-          (cd design && npm ci)
-          (cd webui && npm ci && npm run build)
-          rm -rf webui/node_modules
-      - name: Check
-        run: cargo check --all-targets ${{ matrix.features }}
+      - name: Clippy
+        run: cargo clippy -p vizier-core --all-targets ${{ matrix.features }} -- $CLIPPY_LINTS
       - name: Test
         # The dummyplug harness starts the Node server from the `dummyplug` submodule.
         env:
           CI: 'true'
-        run: cargo test ${{ matrix.features }}
+        run: cargo test -p vizier-core ${{ matrix.features }}
+      - name: Headless example
+        run: cargo build -p vizier-core ${{ matrix.features }} --example headless
+
+  layering:
+    name: layering
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Check each crate's direct dependencies
+        # The engine must not declare the web framework, the CLI or the terminal UI, and the
+        # HTTP adapter must not declare the CLI. Direct dependencies only: a third-party crate
+        # may legitimately pull axum or tower-http in transitively (bollard via tonic).
+        run: |
+          set -euo pipefail
+          direct() {
+            cargo metadata --format-version 1 --locked \
+              | jq -r --arg c "$1" '.packages[] | select(.name==$c) | .dependencies[] | select(.kind==null) | .name'
+          }
+          fail=0
+          check() {
+            crate="$1"; shift
+            for banned in "$@"; do
+              if direct "$crate" | grep -qx "$banned"; then
+                echo "::error::$crate depends on $banned, which belongs to a layer above it"
+                fail=1
+              fi
+            done
+          }
+          check vizier-core axum axum-extra tower-http utoipa-axum utoipa-swagger-ui clap inquire termimad daemonize dotenvy opentelemetry-otlp jsonwebtoken argon2 tracing-subscriber
+          check vizier-http clap inquire termimad daemonize dotenvy opentelemetry-otlp
+          exit $fail
 
   deps:
     name: deps

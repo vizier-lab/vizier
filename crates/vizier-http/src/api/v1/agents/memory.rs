@@ -1,0 +1,1340 @@
+use axum::{
+    Extension, Json, Router,
+    extract::{Path, Query, State},
+    http::header,
+    response::IntoResponse,
+    routing::{delete, get, post, put},
+};
+use axum_extra::extract::Multipart;
+use chrono::{DateTime, Utc};
+use reqwest::StatusCode;
+use serde::{Deserialize, Serialize};
+
+use crate::{models::{self, response::{APIResponse, api_response, err_response}}, state::HTTPState};
+use vizier_core::{
+    schema::{
+        BundleSummary, ImportReport, Memory, MemoryGraph, MemoryPassageResult, MemoryQueryParams,
+        MemoryRevision, PaginatedMemoryRevisions, RevisionDiff, RevisionOrigin, RevisionTrigger,
+        RollbackResponse, VizierAttachment, default_bundle,
+    },
+    storage::{agent::AgentStorage, artifact::ArtifactStorage},
+};
+
+use super::user_can_view_agent;
+use vizier_core::access::Caller;
+use vizier_core::artifacts::access as ArtifactsAccess;
+use crate::models::page::{self, ListQuery, Listing, SortKey, SortOrder};
+
+pub fn memory() -> Router<HTTPState> {
+    Router::new()
+        .route("/", get(get_all_memories))
+        .route("/", post(create_memory))
+        .route("/query", get(query_memories))
+        .route("/bundles", get(list_bundles))
+        .route("/bundles/graph", get(get_bundle_level_graph))
+        .route("/bundles/import", post(import_bundle_handler))
+        .route("/bundles/{bundle}", delete(delete_bundle_handler))
+        .route("/bundles/{bundle}/export", get(export_bundle_handler))
+        .route(
+            "/history/{bundle}/{*path}",
+            get(get_memory_history).post(rollback_memory),
+        )
+        .route("/{bundle}/graph", get(get_bundle_graph))
+        .route("/{slug}", get(get_memory_detail))
+        .route("/{slug}", put(update_memory))
+        .route("/{slug}", delete(delete_memory))
+        .route("/{slug}/related", get(get_related_memories))
+        .route("/doc/{bundle}/{*path}", get(get_memory_detail_scoped))
+        .route("/doc/{bundle}/{*path}", put(update_memory_scoped))
+        .route("/doc/{bundle}/{*path}", delete(delete_memory_scoped))
+        // Attach/detach live on their own prefix because axum requires a catch-all to be the
+        // last segment, so `/doc/{bundle}/{*path}/attachments` cannot be a route.
+        .route("/attachments/{bundle}/{*path}", post(attach_artifact))
+        .route("/attachments/{bundle}/{*path}", delete(detach_attachment))
+        .route(
+            "/related/{bundle}/{*path}",
+            get(get_related_memories_scoped),
+        )
+}
+
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub struct CreateMemoryRequest {
+    title: String,
+    content: String,
+    #[serde(default)]
+    bundle: Option<String>,
+    #[serde(default)]
+    path: Option<String>,
+    #[serde(default)]
+    tags: Vec<String>,
+    #[serde(default)]
+    attachments: Option<Vec<VizierAttachment>>,
+}
+
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub struct UpdateMemoryRequest {
+    title: String,
+    content: String,
+    #[serde(default)]
+    tags: Vec<String>,
+    #[serde(default)]
+    attachments: Option<Vec<VizierAttachment>>,
+}
+
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub struct QueryMemoryRequest {
+    query: String,
+    #[serde(default)]
+    bundle: Option<String>,
+    #[serde(default = "default_limit")]
+    limit: usize,
+    #[serde(default = "default_threshold")]
+    threshold: f64,
+}
+
+fn default_limit() -> usize {
+    10
+}
+
+fn default_threshold() -> f64 {
+    0.5
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ListMemoryParams {
+    #[serde(default)]
+    pub bundle: Option<String>,
+    #[serde(default)]
+    pub tags: Option<String>,
+    #[serde(default = "default_list_offset")]
+    pub offset: usize,
+    #[serde(default = "default_list_limit")]
+    pub limit: usize,
+    #[serde(default)]
+    pub sort_by: Option<String>,
+    #[serde(default)]
+    pub sort_order: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Default, utoipa::ToSchema)]
+pub struct GraphQueryParams {
+    #[serde(default)]
+    pub search: Option<String>,
+}
+
+fn default_list_offset() -> usize {
+    0
+}
+
+fn default_list_limit() -> usize {
+    50
+}
+
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+pub struct MemorySummary {
+    pub agent_id: String,
+    pub bundle: String,
+    pub path: String,
+    pub title: String,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub tags: Vec<String>,
+    pub relations: Vec<String>,
+    pub attachment_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+pub struct MemoryDetail {
+    pub agent_id: String,
+    pub bundle: String,
+    pub path: String,
+    pub title: String,
+    pub content: String,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub tags: Vec<String>,
+    pub relations: Vec<String>,
+    pub attachments: Vec<vizier_core::schema::MemoryAttachmentView>,
+}
+
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+pub struct CreateMemoryResponse {
+    pub agent_id: String,
+    pub bundle: String,
+    pub title: String,
+    pub path: String,
+    pub message: String,
+    pub tags: Vec<String>,
+    pub relations: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+pub struct UpdateMemoryResponse {
+    pub agent_id: String,
+    pub bundle: String,
+    pub path: String,
+    pub message: String,
+    pub tags: Vec<String>,
+    pub relations: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+pub struct PaginatedMemoryResponse {
+    pub memories: Vec<MemorySummary>,
+    pub total: usize,
+    pub offset: usize,
+    pub limit: usize,
+}
+
+fn summarize_memory(memory: &Memory) -> MemorySummary {
+    MemorySummary {
+        agent_id: memory.agent_id.clone(),
+        bundle: memory.bundle.clone(),
+        path: memory.slug.clone(),
+        title: memory.title.clone(),
+        created_at: memory.created_at,
+        updated_at: memory.updated_at,
+        tags: memory.tags.clone(),
+        relations: memory.relations.clone(),
+        attachment_count: memory.attachment_count,
+    }
+}
+
+async fn detail_from_memory(state: &HTTPState, memory: &Memory) -> MemoryDetail {
+    use vizier_core::schema::{MemoryAttachment, MemoryAttachmentView, VizierAttachmentContent};
+    let mut attachments = Vec::with_capacity(memory.attachments.len());
+    for attachment in &memory.attachments {
+        match attachment {
+            MemoryAttachment::Artifact { artifact_id, name } => {
+                let artifact = state
+                    .storage
+                    .get_artifact(&memory.agent_id, artifact_id)
+                    .await
+                    .ok()
+                    .flatten();
+                let available = artifact.is_some()
+                    && state
+                        .deps
+                        .artifacts
+                        .path_for(&memory.agent_id, artifact_id)
+                        .ok()
+                        .flatten()
+                        .is_some();
+                attachments.push(MemoryAttachmentView::Artifact {
+                    artifact_id: artifact_id.clone(),
+                    name: name.clone(),
+                    mime_type: artifact.as_ref().map(|a| a.mime_type.clone()),
+                    size: artifact.as_ref().map(|a| a.size),
+                    available,
+                });
+            }
+            MemoryAttachment::LegacySessionFile(legacy) => {
+                let available = match &legacy.content {
+                    VizierAttachmentContent::Local(url) => {
+                        let file_id = url.trim_start_matches("/api/v1/files/");
+                        state.deps.file_manager.path_of(file_id).await.is_ok()
+                    }
+                    _ => true,
+                };
+                attachments.push(MemoryAttachmentView::LegacySessionFile {
+                    filename: legacy.filename.clone(),
+                    content: legacy.content.clone(),
+                    available,
+                });
+            }
+        }
+    }
+    MemoryDetail {
+        agent_id: memory.agent_id.clone(),
+        bundle: memory.bundle.clone(),
+        path: memory.slug.clone(),
+        title: memory.title.clone(),
+        content: memory.content.clone(),
+        created_at: memory.created_at,
+        updated_at: memory.updated_at,
+        tags: memory.tags.clone(),
+        relations: memory.relations.clone(),
+        attachments,
+    }
+}
+
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub struct AttachArtifactRequest {
+    pub artifact: String,
+}
+
+#[derive(Debug, Deserialize, utoipa::IntoParams)]
+pub struct DetachAttachmentQuery {
+    pub name: String,
+}
+
+async fn require_memory_and_artifact_view(
+    state: &HTTPState,
+    agent_id: &str,
+    user: &crate::auth::Identity,
+) -> Result<vizier_core::schema::AgentConfig, (StatusCode, String)> {
+    let config = require_agent(state, agent_id, user).await?;
+    if !ArtifactsAccess::can_view(&Caller::from(user), &config) {
+        return Err((
+            StatusCode::FORBIDDEN,
+            "You do not have permission to view this agent's artifacts".into(),
+        ));
+    }
+    Ok(config)
+}
+
+#[utoipa::path(
+    post,
+    path = "/agents/{agent_id}/memory/attachments/{bundle}/{*path}",
+    params(
+        ("agent_id" = String, Path, description = "Agent ID"),
+        ("bundle" = String, Path, description = "Bundle name"),
+        ("path" = String, Path, description = "Memory path")
+    ),
+    request_body = AttachArtifactRequest,
+    responses(
+        (status = 200, description = "The memory with its updated attachment list", body = APIResponse<MemoryDetail>),
+        (status = 403, description = "Memory or artifact visibility denied", body = APIResponse<String>),
+        (status = 404, description = "Memory or artifact not found", body = APIResponse<String>)
+    )
+)]
+pub async fn attach_artifact(
+    Path((agent_id, bundle, path)): Path<(String, String, String)>,
+    State(state): State<HTTPState>,
+    Extension(user): Extension<crate::auth::Identity>,
+    Json(body): Json<AttachArtifactRequest>,
+) -> models::response::Response<MemoryDetail> {
+    if let Err((status, message)) = require_memory_and_artifact_view(&state, &agent_id, &user).await
+    {
+        return err_response(status, message);
+    }
+    let path = path.trim_end_matches(".md").to_string();
+    let artifact = match state
+        .storage
+        .get_artifact_by_name(&agent_id, &body.artifact)
+        .await
+    {
+        Ok(Some(artifact)) => artifact,
+        Ok(None) => {
+            return err_response(
+                StatusCode::NOT_FOUND,
+                format!("artifact '{}' not found", body.artifact),
+            );
+        }
+        Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    };
+    let op = vizier_core::schema::MemoryOpRequest::AttachArtifact {
+        bundle: Some(bundle),
+        path: path.clone(),
+        artifact_id: artifact.id,
+        artifact_name: artifact.name,
+        origin: RevisionOrigin::from_user(&user),
+    };
+    match state.transport.send_memory_op(&agent_id, op).await {
+        Ok(vizier_core::schema::MemoryOpResponse::Memory(memory)) => {
+            api_response(StatusCode::OK, detail_from_memory(&state, &memory).await)
+        }
+        Ok(_) => err_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "unexpected response".into(),
+        ),
+        Err(e) => {
+            let msg = e.to_string();
+            let status = if msg.contains("not found") {
+                StatusCode::NOT_FOUND
+            } else {
+                error_status_for(&msg)
+            };
+            err_response(status, msg)
+        }
+    }
+}
+
+#[utoipa::path(
+    delete,
+    path = "/agents/{agent_id}/memory/attachments/{bundle}/{*path}",
+    params(
+        ("agent_id" = String, Path, description = "Agent ID"),
+        ("bundle" = String, Path, description = "Bundle name"),
+        ("path" = String, Path, description = "Memory path"),
+        DetachAttachmentQuery
+    ),
+    responses(
+        (status = 200, description = "The memory with its updated attachment list", body = APIResponse<MemoryDetail>),
+        (status = 403, description = "Memory visibility denied", body = APIResponse<String>),
+        (status = 404, description = "Memory not found", body = APIResponse<String>)
+    )
+)]
+pub async fn detach_attachment(
+    Path((agent_id, bundle, path)): Path<(String, String, String)>,
+    Query(query): Query<DetachAttachmentQuery>,
+    State(state): State<HTTPState>,
+    Extension(user): Extension<crate::auth::Identity>,
+) -> models::response::Response<MemoryDetail> {
+    if let Err((status, message)) = require_memory_and_artifact_view(&state, &agent_id, &user).await
+    {
+        return err_response(status, message);
+    }
+    let path = path.trim_end_matches(".md").to_string();
+    let op = vizier_core::schema::MemoryOpRequest::DetachAttachment {
+        bundle: Some(bundle),
+        path,
+        name: query.name,
+        origin: RevisionOrigin::from_user(&user),
+    };
+    match state.transport.send_memory_op(&agent_id, op).await {
+        Ok(vizier_core::schema::MemoryOpResponse::Memory(memory)) => {
+            api_response(StatusCode::OK, detail_from_memory(&state, &memory).await)
+        }
+        Ok(_) => err_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "unexpected response".into(),
+        ),
+        Err(e) => {
+            let msg = e.to_string();
+            let status = if msg.contains("not found") {
+                StatusCode::NOT_FOUND
+            } else {
+                error_status_for(&msg)
+            };
+            err_response(status, msg)
+        }
+    }
+}
+
+async fn require_agent(
+    state: &HTTPState,
+    agent_id: &str,
+    user: &crate::auth::Identity,
+) -> Result<vizier_core::schema::AgentConfig, (StatusCode, String)> {
+    let config = match state.storage.get_agent(agent_id).await {
+        Ok(Some(config)) => config,
+        Ok(None) => return Err((StatusCode::NOT_FOUND, format!("agent {agent_id} not found"))),
+        Err(e) => return Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
+    };
+    if !super::user_can_view_agent(user, &config) {
+        return Err((StatusCode::FORBIDDEN, "Access denied".into()));
+    }
+    Ok(config)
+}
+
+fn error_status_for(message: &str) -> StatusCode {
+    let lower = message.to_lowercase();
+    if lower.contains("already exists") {
+        StatusCode::CONFLICT
+    } else if lower.contains("malformed") || lower.contains("archive") {
+        StatusCode::BAD_REQUEST
+    } else if lower.contains("does not exist") || lower.contains("not found") {
+        StatusCode::NOT_FOUND
+    } else if lower.contains("linked in the knowledge graph") || lower.contains("still has") {
+        StatusCode::CONFLICT
+    } else if lower.contains("unknown version") {
+        StatusCode::NOT_FOUND
+    } else if lower.contains("deletion entry") {
+        StatusCode::BAD_REQUEST
+    } else {
+        StatusCode::INTERNAL_SERVER_ERROR
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/agents/{agent_id}/memory",
+    params(
+        ("agent_id" = String, Path, description = "Agent ID"),
+        ("bundle" = Option<String>, Query, description = "Narrow to one bundle; omitted lists across all bundles")
+    ),
+    responses(
+        (status = 200, description = "List of memories", body = APIResponse<PaginatedMemoryResponse>),
+        (status = 404, description = "Agent not found", body = APIResponse<String>)
+    )
+)]
+pub async fn get_all_memories(
+    Path(agent_id): Path<String>,
+    State(state): State<HTTPState>,
+    Extension(user): Extension<crate::auth::Identity>,
+    Query(params): Query<ListMemoryParams>,
+) -> models::response::Response<PaginatedMemoryResponse> {
+    if let Err((status, message)) = require_agent(&state, &agent_id, &user).await {
+        return err_response(status, message);
+    }
+
+    let tags = params.tags.map(|t| {
+        t.split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect::<Vec<_>>()
+    });
+
+    let query_params = MemoryQueryParams {
+        agent_id: agent_id.clone(),
+        bundle: params.bundle,
+        tags,
+        offset: params.offset,
+        limit: params.limit,
+        sort_by: params.sort_by,
+        sort_order: params.sort_order,
+    };
+
+    match state
+        .transport
+        .send_memory_op(
+            &agent_id,
+            vizier_core::schema::MemoryOpRequest::List {
+                params: query_params,
+            },
+        )
+        .await
+    {
+        Ok(vizier_core::schema::MemoryOpResponse::Paginated(result)) => {
+            let memories: Vec<MemorySummary> =
+                result.memories.iter().map(summarize_memory).collect();
+
+            api_response(
+                StatusCode::OK,
+                PaginatedMemoryResponse {
+                    memories,
+                    total: result.total,
+                    offset: result.offset,
+                    limit: result.limit,
+                },
+            )
+        }
+        Ok(_) => err_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "unexpected response".into(),
+        ),
+        Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/agents/{agent_id}/memory",
+    params(
+        ("agent_id" = String, Path, description = "Agent ID")
+    ),
+    request_body = CreateMemoryRequest,
+    responses(
+        (status = 201, description = "Memory created", body = APIResponse<CreateMemoryResponse>),
+        (status = 404, description = "Agent not found", body = APIResponse<String>),
+        (status = 409, description = "A memory already exists at that bundle/path", body = APIResponse<String>),
+        (status = 500, description = "Internal server error", body = APIResponse<String>)
+    )
+)]
+pub async fn create_memory(
+    Path(agent_id): Path<String>,
+    State(state): State<HTTPState>,
+    Extension(user): Extension<crate::auth::Identity>,
+    Json(body): Json<CreateMemoryRequest>,
+) -> models::response::Response<CreateMemoryResponse> {
+    if let Err((status, message)) = require_agent(&state, &agent_id, &user).await {
+        return err_response(status, message);
+    }
+    if body
+        .attachments
+        .as_ref()
+        .is_some_and(|list| !list.is_empty())
+    {
+        return err_response(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "memory attachments must be artifacts; use POST /agents/{agent_id}/memory/doc/{bundle}/{path}/attachments".into(),
+        );
+    }
+
+    match state
+        .transport
+        .send_memory_op(
+            &agent_id,
+            vizier_core::schema::MemoryOpRequest::Write {
+                bundle: body.bundle.clone(),
+                path: body.path,
+                create_only: true,
+                title: body.title.clone(),
+                content: body.content,
+                tags: body.tags.clone(),
+                origin: RevisionOrigin::from_user(&user),
+            },
+        )
+        .await
+    {
+        Ok(vizier_core::schema::MemoryOpResponse::Memory(memory)) => api_response(
+            StatusCode::CREATED,
+            CreateMemoryResponse {
+                agent_id,
+                bundle: memory.bundle,
+                title: body.title,
+                path: memory.slug,
+                message: "memory created successfully".to_string(),
+                tags: memory.tags,
+                relations: memory.relations,
+            },
+        ),
+        Ok(_) => err_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "unexpected response".into(),
+        ),
+        Err(e) => {
+            let msg = e.to_string();
+            err_response(error_status_for(&msg), msg)
+        }
+    }
+}
+
+async fn do_update_memory(
+    state: &HTTPState,
+    agent_id: String,
+    bundle: Option<String>,
+    path: String,
+    body: UpdateMemoryRequest,
+    user: &crate::auth::Identity,
+) -> models::response::Response<UpdateMemoryResponse> {
+    if body
+        .attachments
+        .as_ref()
+        .is_some_and(|list| !list.is_empty())
+    {
+        return err_response(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "memory attachments must be artifacts; use POST /agents/{agent_id}/memory/doc/{bundle}/{path}/attachments".into(),
+        );
+    }
+    match state
+        .transport
+        .send_memory_op(
+            &agent_id,
+            vizier_core::schema::MemoryOpRequest::Write {
+                bundle,
+                path: Some(path.clone()),
+                create_only: false,
+                title: body.title,
+                content: body.content,
+                tags: body.tags.clone(),
+                origin: RevisionOrigin::from_user(user),
+            },
+        )
+        .await
+    {
+        Ok(vizier_core::schema::MemoryOpResponse::Memory(memory)) => api_response(
+            StatusCode::OK,
+            UpdateMemoryResponse {
+                agent_id,
+                bundle: memory.bundle,
+                path: memory.slug,
+                message: "memory updated successfully".to_string(),
+                tags: memory.tags,
+                relations: memory.relations,
+            },
+        ),
+        Ok(_) => err_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "unexpected response".into(),
+        ),
+        Err(e) => {
+            let msg = e.to_string();
+            err_response(error_status_for(&msg), msg)
+        }
+    }
+}
+
+#[utoipa::path(
+    put,
+    path = "/agents/{agent_id}/memory/{slug}",
+    params(
+        ("agent_id" = String, Path, description = "Agent ID"),
+        ("slug" = String, Path, description = "Memory path within the default bundle")
+    ),
+    request_body = UpdateMemoryRequest,
+    responses(
+        (status = 200, description = "Memory updated", body = APIResponse<UpdateMemoryResponse>),
+        (status = 404, description = "Agent or memory not found", body = APIResponse<String>),
+        (status = 500, description = "Internal server error", body = APIResponse<String>)
+    )
+)]
+pub async fn update_memory(
+    Path((agent_id, slug)): Path<(String, String)>,
+    State(state): State<HTTPState>,
+    Extension(user): Extension<crate::auth::Identity>,
+    Json(body): Json<UpdateMemoryRequest>,
+) -> models::response::Response<UpdateMemoryResponse> {
+    if let Err((status, message)) = require_agent(&state, &agent_id, &user).await {
+        return err_response(status, message);
+    }
+    do_update_memory(&state, agent_id, None, slug, body, &user).await
+}
+
+pub async fn update_memory_scoped(
+    Path((agent_id, bundle, path)): Path<(String, String, String)>,
+    State(state): State<HTTPState>,
+    Extension(user): Extension<crate::auth::Identity>,
+    Json(body): Json<UpdateMemoryRequest>,
+) -> models::response::Response<UpdateMemoryResponse> {
+    if let Err((status, message)) = require_agent(&state, &agent_id, &user).await {
+        return err_response(status, message);
+    }
+    do_update_memory(&state, agent_id, Some(bundle), path, body, &user).await
+}
+
+#[utoipa::path(
+    get,
+    path = "/agents/{agent_id}/memory/query",
+    params(
+        ("agent_id" = String, Path, description = "Agent ID")
+    ),
+    request_body = QueryMemoryRequest,
+    responses(
+        (status = 200, description = "Matching passages", body = APIResponse<Vec<MemoryPassageResult>>),
+        (status = 404, description = "Agent not found", body = APIResponse<String>),
+        (status = 500, description = "Internal server error", body = APIResponse<String>)
+    )
+)]
+pub async fn query_memories(
+    Path(agent_id): Path<String>,
+    Query(params): Query<QueryMemoryRequest>,
+    State(state): State<HTTPState>,
+    Extension(user): Extension<crate::auth::Identity>,
+) -> models::response::Response<Vec<MemoryPassageResult>> {
+    if let Err((status, message)) = require_agent(&state, &agent_id, &user).await {
+        return err_response(status, message);
+    }
+
+    match state
+        .transport
+        .send_memory_op(
+            &agent_id,
+            vizier_core::schema::MemoryOpRequest::Query {
+                bundle: params.bundle,
+                query: params.query,
+                limit: params.limit,
+                threshold: params.threshold,
+            },
+        )
+        .await
+    {
+        // Passage results, carrying the same addresses as the agent-facing `memory_search`
+        // (FR-017). One type serves both surfaces rather than two near-identical ones, so
+        // whoever builds a memory-search screen later gets the passage the agent actually saw.
+        Ok(vizier_core::schema::MemoryOpResponse::PassageList(passages)) => {
+            api_response(StatusCode::OK, passages)
+        }
+        Ok(_) => err_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "unexpected response".into(),
+        ),
+        Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    }
+}
+
+async fn do_get_graph(
+    state: &HTTPState,
+    agent_id: String,
+    bundle: Option<String>,
+    search: Option<String>,
+) -> models::response::Response<MemoryGraph> {
+    match state
+        .transport
+        .send_memory_op(
+            &agent_id,
+            vizier_core::schema::MemoryOpRequest::GetGraph { bundle, search },
+        )
+        .await
+    {
+        Ok(vizier_core::schema::MemoryOpResponse::Graph(graph)) => api_response(StatusCode::OK, graph),
+        Ok(_) => err_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "unexpected response".into(),
+        ),
+        Err(e) => {
+            let msg = e.to_string();
+            err_response(error_status_for(&msg), msg)
+        }
+    }
+}
+
+pub async fn get_bundle_level_graph(
+    Path(agent_id): Path<String>,
+    State(state): State<HTTPState>,
+    Extension(user): Extension<crate::auth::Identity>,
+    Query(params): Query<GraphQueryParams>,
+) -> models::response::Response<MemoryGraph> {
+    if let Err((status, message)) = require_agent(&state, &agent_id, &user).await {
+        return err_response(status, message);
+    }
+    let search = params
+        .search
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    do_get_graph(&state, agent_id, None, search).await
+}
+
+pub async fn get_bundle_graph(
+    Path((agent_id, bundle)): Path<(String, String)>,
+    State(state): State<HTTPState>,
+    Extension(user): Extension<crate::auth::Identity>,
+    Query(params): Query<GraphQueryParams>,
+) -> models::response::Response<MemoryGraph> {
+    if let Err((status, message)) = require_agent(&state, &agent_id, &user).await {
+        return err_response(status, message);
+    }
+    let search = params
+        .search
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    do_get_graph(&state, agent_id, Some(bundle), search).await
+}
+
+async fn do_get_memory_detail(
+    state: &HTTPState,
+    agent_id: String,
+    bundle: Option<String>,
+    path: String,
+) -> models::response::Response<MemoryDetail> {
+    match state
+        .transport
+        .send_memory_op(
+            &agent_id,
+            vizier_core::schema::MemoryOpRequest::GetById { bundle, path },
+        )
+        .await
+    {
+        Ok(vizier_core::schema::MemoryOpResponse::MemoryOption(Some(memory))) => {
+            api_response(StatusCode::OK, detail_from_memory(&state, &memory).await)
+        }
+        Ok(vizier_core::schema::MemoryOpResponse::MemoryOption(None)) => {
+            err_response(StatusCode::NOT_FOUND, "Not Found".into())
+        }
+        Ok(_) => err_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "unexpected response".into(),
+        ),
+        Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/agents/{agent_id}/memory/{slug}",
+    params(
+        ("agent_id" = String, Path, description = "Agent ID"),
+        ("slug" = String, Path, description = "Memory path within the default bundle")
+    ),
+    responses(
+        (status = 200, description = "Memory details", body = APIResponse<MemoryDetail>),
+        (status = 404, description = "Agent or memory not found", body = APIResponse<String>)
+    )
+)]
+pub async fn get_memory_detail(
+    Path((agent_id, slug)): Path<(String, String)>,
+    State(state): State<HTTPState>,
+    Extension(user): Extension<crate::auth::Identity>,
+) -> models::response::Response<MemoryDetail> {
+    if let Err((status, message)) = require_agent(&state, &agent_id, &user).await {
+        return err_response(status, message);
+    }
+    do_get_memory_detail(&state, agent_id, None, slug).await
+}
+
+pub async fn get_memory_detail_scoped(
+    Path((agent_id, bundle, path)): Path<(String, String, String)>,
+    State(state): State<HTTPState>,
+    Extension(user): Extension<crate::auth::Identity>,
+) -> models::response::Response<MemoryDetail> {
+    if let Err((status, message)) = require_agent(&state, &agent_id, &user).await {
+        return err_response(status, message);
+    }
+    do_get_memory_detail(&state, agent_id, Some(bundle), path).await
+}
+
+async fn do_get_related_memories(
+    state: &HTTPState,
+    agent_id: String,
+    bundle: Option<String>,
+    path: String,
+) -> models::response::Response<Vec<MemoryDetail>> {
+    match state
+        .transport
+        .send_memory_op(
+            &agent_id,
+            vizier_core::schema::MemoryOpRequest::GetRelated { bundle, path },
+        )
+        .await
+    {
+        Ok(vizier_core::schema::MemoryOpResponse::MemoryList(memories)) => {
+            let mut response: Vec<MemoryDetail> = Vec::with_capacity(memories.len());
+            for memory in &memories {
+                response.push(detail_from_memory(&state, memory).await);
+            }
+            api_response(StatusCode::OK, response)
+        }
+        Ok(_) => err_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "unexpected response".into(),
+        ),
+        Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    }
+}
+
+pub async fn get_related_memories(
+    Path((agent_id, slug)): Path<(String, String)>,
+    State(state): State<HTTPState>,
+    Extension(user): Extension<crate::auth::Identity>,
+) -> models::response::Response<Vec<MemoryDetail>> {
+    if let Err((status, message)) = require_agent(&state, &agent_id, &user).await {
+        return err_response(status, message);
+    }
+    do_get_related_memories(&state, agent_id, None, slug).await
+}
+
+pub async fn get_related_memories_scoped(
+    Path((agent_id, bundle, path)): Path<(String, String, String)>,
+    State(state): State<HTTPState>,
+    Extension(user): Extension<crate::auth::Identity>,
+) -> models::response::Response<Vec<MemoryDetail>> {
+    if let Err((status, message)) = require_agent(&state, &agent_id, &user).await {
+        return err_response(status, message);
+    }
+    do_get_related_memories(&state, agent_id, Some(bundle), path).await
+}
+
+async fn do_delete_memory(
+    state: &HTTPState,
+    agent_id: String,
+    bundle: Option<String>,
+    path: String,
+    user: &crate::auth::Identity,
+) -> models::response::Response<String> {
+    match state
+        .transport
+        .send_memory_op(
+            &agent_id,
+            vizier_core::schema::MemoryOpRequest::Delete {
+                bundle,
+                path: path.clone(),
+                origin: RevisionOrigin::from_user(user),
+            },
+        )
+        .await
+    {
+        Ok(vizier_core::schema::MemoryOpResponse::Unit) => {
+            api_response(StatusCode::OK, format!("{path} deleted"))
+        }
+        Ok(_) => err_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "unexpected response".into(),
+        ),
+        Err(e) => {
+            let msg = e.to_string();
+            if msg.contains("linked in the knowledge graph") {
+                err_response(StatusCode::CONFLICT, msg)
+            } else {
+                err_response(StatusCode::NOT_FOUND, msg)
+            }
+        }
+    }
+}
+
+#[utoipa::path(
+    delete,
+    path = "/agents/{agent_id}/memory/{slug}",
+    params(
+        ("agent_id" = String, Path, description = "Agent ID"),
+        ("slug" = String, Path, description = "Memory path within the default bundle")
+    ),
+    responses(
+        (status = 200, description = "Memory deleted", body = APIResponse<String>),
+        (status = 404, description = "Agent or memory not found", body = APIResponse<String>)
+    )
+)]
+pub async fn delete_memory(
+    Path((agent_id, slug)): Path<(String, String)>,
+    State(state): State<HTTPState>,
+    Extension(user): Extension<crate::auth::Identity>,
+) -> models::response::Response<String> {
+    if let Err((status, message)) = require_agent(&state, &agent_id, &user).await {
+        return err_response(status, message);
+    }
+    do_delete_memory(&state, agent_id, None, slug, &user).await
+}
+
+pub async fn delete_memory_scoped(
+    Path((agent_id, bundle, path)): Path<(String, String, String)>,
+    State(state): State<HTTPState>,
+    Extension(user): Extension<crate::auth::Identity>,
+) -> models::response::Response<String> {
+    if let Err((status, message)) = require_agent(&state, &agent_id, &user).await {
+        return err_response(status, message);
+    }
+    do_delete_memory(&state, agent_id, Some(bundle), path, &user).await
+}
+
+/// Search by name; sorts `documents` (most first), `updated` (newest first), `links` (most
+/// first) and `name`. No filters.
+struct BundleListing;
+
+impl Listing<BundleSummary> for BundleListing {
+    fn matches(&self, item: &BundleSummary, q: &str) -> bool {
+        item.name.to_lowercase().contains(q)
+    }
+
+    fn filter_keys(&self, _: &[BundleSummary]) -> Vec<String> {
+        Vec::new()
+    }
+
+    fn in_filter(&self, _: &str, _: &BundleSummary) -> bool {
+        false
+    }
+
+    fn sort_key(&self, item: &BundleSummary, sort: &str) -> SortKey {
+        match sort {
+            "updated" => SortKey::Num(item.updated_at.map_or(0, |t| t.timestamp_millis())),
+            "links" => SortKey::Num(item.link_count as i64),
+            "name" => SortKey::text(&item.name),
+            _ => SortKey::Num(item.concept_count as i64),
+        }
+    }
+
+    fn sorts(&self) -> &'static [&'static str] {
+        &["documents", "updated", "links", "name"]
+    }
+
+    fn default_order(&self, sort: &str) -> SortOrder {
+        if sort == "name" {
+            SortOrder::Asc
+        } else {
+            SortOrder::Desc
+        }
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/agents/{agent_id}/memory/bundles",
+    params(("agent_id" = String, Path, description = "Agent ID"), ListQuery),
+    responses(
+        (status = 200, description = "Bundles; with `limit`, a page `{items, total, counts}` (sorts `documents`, `updated`, `links`, `name`)", body = APIResponse<Vec<BundleSummary>>)
+    )
+)]
+pub async fn list_bundles(
+    Path(agent_id): Path<String>,
+    Query(query): Query<ListQuery>,
+    State(state): State<HTTPState>,
+    Extension(user): Extension<crate::auth::Identity>,
+) -> models::response::Response<serde_json::Value> {
+    if let Err((status, message)) = require_agent(&state, &agent_id, &user).await {
+        return err_response(status, message);
+    }
+
+    match state
+        .transport
+        .send_memory_op(&agent_id, vizier_core::schema::MemoryOpRequest::ListBundles)
+        .await
+    {
+        Ok(vizier_core::schema::MemoryOpResponse::Bundles(bundles)) => {
+            page::respond(bundles, &BundleListing, &query)
+        }
+        Ok(_) => err_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "unexpected response".into(),
+        ),
+        Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    }
+}
+
+#[derive(Debug, Deserialize, Default, utoipa::ToSchema)]
+pub struct DeleteBundleParams {
+    /// Delete the bundle even if it still contains concept documents (permanently deleting
+    /// them too). Reserved for an operator's explicit, confirmed action — the
+    /// `memory_delete_bundle` agent tool never sets this.
+    #[serde(default)]
+    pub force: bool,
+}
+
+pub async fn delete_bundle_handler(
+    Path((agent_id, bundle)): Path<(String, String)>,
+    State(state): State<HTTPState>,
+    Extension(user): Extension<crate::auth::Identity>,
+    Query(params): Query<DeleteBundleParams>,
+) -> models::response::Response<String> {
+    if let Err((status, message)) = require_agent(&state, &agent_id, &user).await {
+        return err_response(status, message);
+    }
+
+    match state
+        .transport
+        .send_memory_op(
+            &agent_id,
+            vizier_core::schema::MemoryOpRequest::DeleteBundle {
+                bundle: bundle.clone(),
+                force: params.force,
+                origin: RevisionOrigin::from_user(&user),
+            },
+        )
+        .await
+    {
+        Ok(vizier_core::schema::MemoryOpResponse::Unit) => {
+            api_response(StatusCode::OK, format!("bundle '{bundle}' deleted"))
+        }
+        Ok(_) => err_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "unexpected response".into(),
+        ),
+        Err(e) => {
+            let msg = e.to_string();
+            err_response(error_status_for(&msg), msg)
+        }
+    }
+}
+
+pub async fn export_bundle_handler(
+    Path((agent_id, bundle)): Path<(String, String)>,
+    State(state): State<HTTPState>,
+    Extension(user): Extension<crate::auth::Identity>,
+) -> impl IntoResponse {
+    if let Err((status, message)) = require_agent(&state, &agent_id, &user).await {
+        return (status, message).into_response();
+    }
+
+    match state
+        .transport
+        .send_memory_op(
+            &agent_id,
+            vizier_core::schema::MemoryOpRequest::ExportBundle {
+                bundle: bundle.clone(),
+            },
+        )
+        .await
+    {
+        Ok(vizier_core::schema::MemoryOpResponse::Export(bytes)) => (
+            StatusCode::OK,
+            [
+                (header::CONTENT_TYPE, "application/zip".to_string()),
+                (
+                    header::CONTENT_DISPOSITION,
+                    format!("attachment; filename=\"{bundle}.zip\""),
+                ),
+            ],
+            bytes,
+        )
+            .into_response(),
+        Ok(_) => (StatusCode::INTERNAL_SERVER_ERROR, "unexpected response").into_response(),
+        Err(e) => {
+            let msg = e.to_string();
+            (error_status_for(&msg), msg).into_response()
+        }
+    }
+}
+
+pub async fn import_bundle_handler(
+    Path(agent_id): Path<String>,
+    State(state): State<HTTPState>,
+    Extension(user): Extension<crate::auth::Identity>,
+    mut multipart: Multipart,
+) -> models::response::Response<ImportReport> {
+    if let Err((status, message)) = require_agent(&state, &agent_id, &user).await {
+        return err_response(status, message);
+    }
+
+    let mut bundle_name: Option<String> = None;
+    let mut zip_bytes: Option<Vec<u8>> = None;
+
+    loop {
+        let field = match multipart.next_field().await {
+            Ok(Some(f)) => f,
+            Ok(None) => break,
+            Err(e) => return err_response(StatusCode::BAD_REQUEST, e.to_string()),
+        };
+        match field.name().map(|s| s.to_string()) {
+            Some(name) if name == "bundle" => {
+                bundle_name = field.text().await.ok();
+            }
+            Some(name) if name == "file" || name == "zip" => {
+                zip_bytes = field.bytes().await.ok().map(|b| b.to_vec());
+            }
+            _ => {}
+        }
+    }
+
+    let bundle = bundle_name.unwrap_or_else(default_bundle);
+    let Some(bytes) = zip_bytes else {
+        return err_response(
+            StatusCode::BAD_REQUEST,
+            "multipart body must include a 'file' field with the .zip archive".into(),
+        );
+    };
+
+    match state
+        .transport
+        .send_memory_op(
+            &agent_id,
+            vizier_core::schema::MemoryOpRequest::ImportBundle {
+                bundle,
+                zip_bytes: bytes,
+                origin: RevisionOrigin::from_user(&user).with_trigger(RevisionTrigger::Import),
+            },
+        )
+        .await
+    {
+        Ok(vizier_core::schema::MemoryOpResponse::Import(report)) => api_response(StatusCode::OK, report),
+        Ok(_) => err_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "unexpected response".into(),
+        ),
+        Err(e) => {
+            let msg = e.to_string();
+            err_response(error_status_for(&msg), msg)
+        }
+    }
+}
+
+// ---- version history (specs/006-memory-version-history) ----
+
+/// One `GET /history/{bundle}/{*path}` handler dispatches on which query params are present:
+/// `seq` ⇒ one version; `to` (± `from`) ⇒ diff; otherwise a paginated list. The sub-operation
+/// lives in the query rather than the path because `*path` is greedy.
+#[derive(Debug, Deserialize, Default, utoipa::IntoParams)]
+pub struct MemoryHistoryQuery {
+    pub offset: Option<usize>,
+    pub limit: Option<usize>,
+    pub seq: Option<i64>,
+    pub from: Option<i64>,
+    pub to: Option<i64>,
+}
+
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub struct MemoryRollbackRequest {
+    pub seq: i64,
+}
+
+/// The three shapes `GET /history/...` can answer with, depending on the query.
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+#[serde(untagged)]
+pub enum MemoryHistoryResponse {
+    List(PaginatedMemoryRevisions),
+    Revision(MemoryRevision),
+    Diff(RevisionDiff),
+}
+
+fn history_path(raw: &str) -> String {
+    raw.trim_end_matches(".md").to_string()
+}
+
+#[utoipa::path(
+    get,
+    path = "/agents/{agent_id}/memory/history/{bundle}/{path}",
+    params(
+        ("agent_id" = String, Path, description = "Agent ID"),
+        ("bundle" = String, Path, description = "Bundle name"),
+        ("path" = String, Path, description = "Concept path within the bundle (may contain `/`)"),
+        MemoryHistoryQuery
+    ),
+    responses(
+        (status = 200, description = "Paginated list (no `seq`/`to`), one version (`seq`), or a line diff (`to`, optional `from`; `from` defaults to `to - 1`)", body = APIResponse<MemoryHistoryResponse>),
+        (status = 404, description = "Agent, memory, or version not found", body = APIResponse<String>)
+    )
+)]
+pub async fn get_memory_history(
+    Path((agent_id, bundle, path)): Path<(String, String, String)>,
+    State(state): State<HTTPState>,
+    Extension(user): Extension<crate::auth::Identity>,
+    Query(q): Query<MemoryHistoryQuery>,
+) -> models::response::Response<MemoryHistoryResponse> {
+    if let Err((status, message)) = require_agent(&state, &agent_id, &user).await {
+        return err_response(status, message);
+    }
+    let path = history_path(&path);
+    let bundle = Some(bundle);
+
+    let op = if let Some(seq) = q.seq {
+        vizier_core::schema::MemoryOpRequest::GetRevision { bundle, path, seq }
+    } else if let Some(to) = q.to {
+        vizier_core::schema::MemoryOpRequest::DiffRevisions {
+            bundle,
+            path,
+            from: q.from,
+            to,
+        }
+    } else {
+        vizier_core::schema::MemoryOpRequest::ListRevisions {
+            bundle,
+            path,
+            offset: q.offset.unwrap_or(0),
+            limit: q.limit.unwrap_or(50),
+        }
+    };
+
+    match state.transport.send_memory_op(&agent_id, op).await {
+        Ok(vizier_core::schema::MemoryOpResponse::Revisions(page)) if page.total == 0 => {
+            err_response(StatusCode::NOT_FOUND, "memory has no history".into())
+        }
+        Ok(vizier_core::schema::MemoryOpResponse::Revisions(page)) => {
+            api_response(StatusCode::OK, MemoryHistoryResponse::List(page))
+        }
+        Ok(vizier_core::schema::MemoryOpResponse::Revision(Some(rev))) => {
+            api_response(StatusCode::OK, MemoryHistoryResponse::Revision(rev))
+        }
+        Ok(vizier_core::schema::MemoryOpResponse::Revision(None)) => {
+            err_response(StatusCode::NOT_FOUND, "unknown version".into())
+        }
+        Ok(vizier_core::schema::MemoryOpResponse::Diff(diff)) => {
+            api_response(StatusCode::OK, MemoryHistoryResponse::Diff(diff))
+        }
+        Ok(_) => err_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "unexpected response".into(),
+        ),
+        Err(e) => {
+            let msg = e.to_string();
+            err_response(error_status_for(&msg), msg)
+        }
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/agents/{agent_id}/memory/history/{bundle}/{path}",
+    params(
+        ("agent_id" = String, Path, description = "Agent ID"),
+        ("bundle" = String, Path, description = "Bundle name"),
+        ("path" = String, Path, description = "Concept path within the bundle (may contain `/`)")
+    ),
+    request_body = MemoryRollbackRequest,
+    responses(
+        (status = 200, description = "Version restored as a new revision (or `no_change` when already identical); restoring a content version of a deleted memory recreates it", body = APIResponse<RollbackResponse>),
+        (status = 400, description = "The target version is a deletion entry", body = APIResponse<String>),
+        (status = 404, description = "Agent, memory, or version not found", body = APIResponse<String>)
+    )
+)]
+pub async fn rollback_memory(
+    Path((agent_id, bundle, path)): Path<(String, String, String)>,
+    State(state): State<HTTPState>,
+    Extension(user): Extension<crate::auth::Identity>,
+    Json(body): Json<MemoryRollbackRequest>,
+) -> models::response::Response<RollbackResponse> {
+    if let Err((status, message)) = require_agent(&state, &agent_id, &user).await {
+        return err_response(status, message);
+    }
+
+    match state
+        .transport
+        .send_memory_op(
+            &agent_id,
+            vizier_core::schema::MemoryOpRequest::Rollback {
+                bundle: Some(bundle),
+                path: history_path(&path),
+                seq: body.seq,
+                origin: RevisionOrigin::from_user(&user),
+            },
+        )
+        .await
+    {
+        Ok(vizier_core::schema::MemoryOpResponse::Rollback(res)) => api_response(StatusCode::OK, res),
+        Ok(_) => err_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "unexpected response".into(),
+        ),
+        Err(e) => {
+            let msg = e.to_string();
+            err_response(error_status_for(&msg), msg)
+        }
+    }
+}

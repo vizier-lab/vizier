@@ -54,8 +54,9 @@ jobs:
           fi
 
       - name: Verify version in Cargo.toml
+        # `[workspace.package] version`, read through cargo so it doesn't depend on line order.
         run: |
-          CARGO_VERSION=$(grep -m1 '^version = ' Cargo.toml | sed 's/version = "\(.*\)"/\1/')
+          CARGO_VERSION=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name=="vizier") | .version')
           if [ "$CARGO_VERSION" != "${{ inputs.version }}" ]; then
             echo "::error::Version mismatch! Cargo.toml has $CARGO_VERSION but requested ${{ inputs.version }}"
             exit 1
@@ -81,41 +82,52 @@ jobs:
           npm ci
           npm run build
 
+      - name: Stage WebUI
+        # vizier-http embeds the WebUI; a published crate can't reach ../../webui, so the
+        # built files travel inside it (gitignored, listed in the crate's `include`).
+        run: |
+          mkdir -p crates/vizier-http/webui-dist
+          cp -r webui/build/client/. crates/vizier-http/webui-dist/
+
       - name: Verify package
         run: |
-          cargo package --allow-dirty --no-verify --list | tee package-list.txt
-          grep -qx 'assets/catalogue/api.json' package-list.txt || (echo "::error::the package lacks assets/catalogue/api.json (the catalogue seed)"; exit 1)
+          cargo package -p vizier-core --allow-dirty --no-verify --list | tee core-list.txt
+          grep -qx 'assets/catalogue/api.json' core-list.txt || (echo "::error::vizier-core lacks assets/catalogue/api.json (the catalogue seed)"; exit 1)
+          cargo package -p vizier-http --allow-dirty --no-verify --list | tee http-list.txt
+          grep -qx 'webui-dist/index.html' http-list.txt || (echo "::error::vizier-http lacks webui-dist/index.html (the WebUI)"; exit 1)
+          grep -q '^assets/integrations/' http-list.txt || (echo "::error::vizier-http lacks assets/integrations/ (the integration icons)"; exit 1)
           echo ""
-          echo "Package size:"
-          cargo package --allow-dirty --no-verify 2>&1 | grep -E "Packaged|Compressing" || true
+          echo "Packaging every crate (verified against a local overlay of the others):"
+          cargo package --workspace --allow-dirty
+          ls -la target/package/*.crate
+          for crate in target/package/*.crate; do
+            size=$(stat -c %s "$crate")
+            echo "$crate: $size bytes"
+            [ "$size" -le 10485760 ] || (echo "::error::$crate exceeds crates.io's 10 MB limit"; exit 1)
+          done
 
-      - name: Publish vizier-derive
+      - name: Publish
         if: ${{ !inputs.dry_run }}
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        # Cargo publishes the members in dependency order (vizier-derive, vizier-core,
+        # vizier-http, vizier) and waits for each to be indexed. To resume a partial publish,
+        # run `cargo publish -p <crate> --allow-dirty` for the remaining crates in that order.
         run: |
-          cargo publish -p vizier-derive --allow-dirty --no-verify
-          # Give crates.io time to index the new crate before vizier resolves it.
-          sleep 30
-
-      - name: Publish vizier
-        if: ${{ !inputs.dry_run }}
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-        run: |
-          cargo publish --allow-dirty --no-verify
+          cargo publish --workspace --allow-dirty
 
       - name: Dry run publish
         if: ${{ inputs.dry_run }}
         run: |
           echo "## Dry Run - Would publish:" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- Package: vizier" >> $GITHUB_STEP_SUMMARY
           echo "- Package: vizier-derive" >> $GITHUB_STEP_SUMMARY
+          echo "- Package: vizier-core" >> $GITHUB_STEP_SUMMARY
+          echo "- Package: vizier-http" >> $GITHUB_STEP_SUMMARY
+          echo "- Package: vizier" >> $GITHUB_STEP_SUMMARY
           echo "- Version: ${{ inputs.version }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          cargo publish -p vizier-derive --allow-dirty --no-verify --dry-run
-          cargo publish --allow-dirty --no-verify --dry-run
+          cargo publish --workspace --allow-dirty --dry-run
 
       - name: Post-publish summary
         if: ${{ !inputs.dry_run }}
@@ -123,6 +135,9 @@ jobs:
           echo "## Published to crates.io" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "- Package: [vizier](https://crates.io/crates/vizier)" >> $GITHUB_STEP_SUMMARY
+          echo "- Package: [vizier-core](https://crates.io/crates/vizier-core) (the engine)" >> $GITHUB_STEP_SUMMARY
+          echo "- Package: [vizier-http](https://crates.io/crates/vizier-http)" >> $GITHUB_STEP_SUMMARY
+          echo "- Package: [vizier-derive](https://crates.io/crates/vizier-derive)" >> $GITHUB_STEP_SUMMARY
           echo "- Version: ${{ inputs.version }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "Install with:" >> $GITHUB_STEP_SUMMARY
@@ -130,4 +145,6 @@ jobs:
           echo "cargo install vizier" >> $GITHUB_STEP_SUMMARY
           echo "# or" >> $GITHUB_STEP_SUMMARY
           echo "cargo binstall vizier" >> $GITHUB_STEP_SUMMARY
+          echo "# or, as a library" >> $GITHUB_STEP_SUMMARY
+          echo "cargo add vizier-core" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY

@@ -13,7 +13,7 @@ Optional, depending on what you enable later:
 ### Building from source
 
 - [Rust and Cargo](https://rust-lang.org/) (edition 2024)
-- Node.js + npm (the WebUI is built by `build.rs` during `cargo build`)
+- Node.js + npm (the WebUI is built by the `vizier-http` build script during `cargo build`)
 
 ## Installing Vizier
 
@@ -56,7 +56,7 @@ just install        # cargo fetch + npm install in webui/
 cargo build --release
 ```
 
-> **Build note:** `build.rs` runs `npm run build` in `webui/` on every `cargo build` **if** `webui/node_modules/` exists. If `node_modules/` is missing and `webui/build/client/` doesn't exist either, the build fails — run `just install` first.
+> **Build note:** the `vizier-http` build script runs `npm run build` in `webui/` on every `cargo build` **if** `webui/node_modules/` exists. If `node_modules/` is missing and `webui/build/client/` doesn't exist either, the build fails — run `just install` first.
 
 ## Updating
 

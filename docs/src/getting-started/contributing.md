@@ -21,6 +21,40 @@ just landing     # the website on http://localhost:4321 (docs + design from this
 
 If you cloned without `--recurse-submodules`, run `git submodule update --init --recursive`. A `cargo build` with no `webui/node_modules/` and no pre-built `webui/build/client/` stops with a message saying so.
 
+## Workspace layout
+
+The Rust code is a Cargo workspace of four crates under `crates/`. A bare `cargo build` or
+`cargo run` builds the server, because `crates/vizier` is the workspace's default member.
+
+| Crate | What it is | Put here |
+|-------|------------|----------|
+| `vizier-derive` | Derive macros | A new derive |
+| `vizier-core` | The agent engine as a library: agents, tools, memory, storage, providers, scheduler, `VizierRuntime`. It has no web framework, command-line or terminal-UI dependency | A new tool, provider, storage backend, integration kind or channel reader |
+| `vizier-http` | The REST/WebSocket server, authentication, OpenAPI and the embedded WebUI | A new route or payload |
+| `vizier` | The command-line binary: `run`, `shutdown`, `onboard`, `skill`, `agent`, config-file resolution, logging | A new CLI flag or subcommand |
+
+Dependencies point one way: `vizier` → `vizier-http` → `vizier-core` → `vizier-derive`. A CI job
+(`layering`) fails when a crate declares a dependency that belongs to a layer above it.
+
+`vizier-core` runs without the optional parts of the server. Its feature groups (`discord`,
+`telegram`, `media`, `docker-shell`, `documents`, `utoipa`, `telemetry`; `full` turns them all on)
+are off by default, so an app that embeds the engine pays for what it uses. Its stable API is
+`VizierRuntime` with the config, schema, auth and transport types; the other modules are visible
+only because `vizier-http` and `vizier` need them, and are not part of the API. To try the engine
+without the server, run `cargo run -p vizier-core --example headless -- --workspace /tmp/ws` with
+the `dummyplug` test model running (`cd dummyplug && npm start`).
+
+The desktop app planned in [#102](https://github.com/vizier-lab/vizier/issues/102) will be
+distributed through GitHub Releases only; it is not a crate on crates.io.
+
+Check your change the way CI does:
+
+```sh
+cargo clippy --workspace --all-targets
+cargo test --workspace
+cargo test -p vizier-core --no-default-features   # the engine alone
+```
+
 ## Working on the website
 
 Docs are authored in `docs/src/`, next to the code. The website syncs them at
