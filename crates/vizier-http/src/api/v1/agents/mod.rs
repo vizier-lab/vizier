@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{models::{self, response::{APIResponse, api_response, err_response}}, state::HTTPState};
 use vizier_core::{
-    channels::side_chat::SideChatOutcome,
+    service,
     config::shell::ShellConfig,
     schema::{
         AgentCommand, AgentCommandResult, AgentConfig, AgentHealthStatus, AgentSummary,
@@ -107,6 +107,35 @@ fn user_can_edit_agent(
     false
 }
 
+pub(crate) fn svc(state: &HTTPState) -> vizier_core::service::Services {
+    vizier_core::service::Services::new(state.deps.clone())
+}
+
+/// A service result as the API's envelope: `ok` on success, the error's own status and message
+/// otherwise. A coded error carries `{"error": code}` in `data`, as the handlers always did.
+pub(crate) fn respond<T: Serialize + Clone>(
+    result: Result<T, vizier_core::service::ServiceError>,
+    ok: StatusCode,
+) -> axum::response::Response {
+    use vizier_core::service::ServiceError;
+    match result {
+        Ok(value) => api_response(ok, value).into_response(),
+        Err(e) => {
+            let status = StatusCode::from_u16(e.status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+            let message = e.message().to_string();
+            match &e {
+                ServiceError::Invalid { code: Some(code), .. }
+                | ServiceError::Conflict { code: Some(code), .. } => crate::api::v1::integrations::fail(
+                    status,
+                    message,
+                    serde_json::json!({"error": code}),
+                ),
+                _ => err_response::<String>(status, message).into_response(),
+            }
+        }
+    }
+}
+
 pub fn agents() -> Router<HTTPState> {
     Router::new()
         .route("/health", get(health_check))
@@ -140,23 +169,7 @@ pub fn agents() -> Router<HTTPState> {
         .nest("/{agent_id}/conversations", conversations::conversations())
 }
 
-/// One row of `GET /agents`: the summary, plus when the agent was last active.
-#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
-pub struct AgentListItem {
-    #[serde(flatten)]
-    pub summary: AgentSummary,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub last_active: Option<chrono::DateTime<chrono::Utc>>,
-    #[serde(skip)]
-    #[schema(ignore)]
-    mine: bool,
-    #[serde(skip)]
-    #[schema(ignore)]
-    live: bool,
-    #[serde(skip)]
-    #[schema(ignore)]
-    failed: bool,
-}
+pub use vizier_core::service::agents::AgentListItem;
 
 /// Filters `mine`/`live`/`failed`; sorts `last_active` (newest first) and `name`.
 struct AgentListing;
@@ -218,107 +231,14 @@ async fn list_agents(
     State(state): State<HTTPState>,
     Query(query): Query<ListQuery>,
     Extension(user): Extension<crate::auth::Principal>,
-) -> models::response::Response<serde_json::Value> {
-    let agents = match state.storage.list_agents().await {
-        Ok(agents) => agents,
-        Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
-    };
-    // Only what the listing needs: skipped without a `limit`, which has always been just names.
-    let (last_active, live, failed) = if query.is_paged() {
-        let failed: std::collections::HashSet<String> = state
-            .transport
-            .agent_health()
-            .await
-            .map(|h| {
-                h.into_iter()
-                    .filter(|s| s.state == vizier_core::schema::AgentRunState::Failed)
-                    .map(|s| s.agent_id)
-                    .collect()
-            })
-            .unwrap_or_default();
-        (
-            state
-                .storage
-                .last_activity_by_agent()
-                .await
-                .unwrap_or_default(),
-            state.storage.thinking_agents().await.unwrap_or_default(),
-            failed,
-        )
-    } else {
-        Default::default()
-    };
-
-    let mut res = Vec::new();
-    for (id, config) in agents {
-        if !user_can_view_agent(&user, &config) {
-            continue;
-        }
-
-        let owner_username = if let Some(ref owner_id) = config.owner_id {
-            state
-                .storage
-                .get_user_by_id(owner_id)
-                .await
-                .ok()
-                .flatten()
-                .map(|u| u.username)
-        } else {
-            None
-        };
-        res.push(AgentListItem {
-            last_active: last_active.get(&id).copied(),
-            mine: config.owner_id.as_deref() == Some(user.user_id.as_str()),
-            live: live.contains(&id),
-            failed: failed.contains(&id),
-            summary: AgentSummary {
-                agent_id: id,
-                name: config.name,
-                description: config.description,
-                avatar_url: config.avatar_url,
-                owner_username,
-                owner_id: config.owner_id.clone(),
-                shared_to: config.shared_to,
-            },
-        });
+) -> axum::response::Response {
+    match service::agents::list(&svc(&state), &user, query.is_paged()).await {
+        Ok(res) => page::respond(res, &AgentListing, &query).into_response(),
+        Err(e) => respond::<()>(Err(e), StatusCode::OK),
     }
-    page::respond(res, &AgentListing, &query)
 }
 
-#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
-pub struct AgentDetail {
-    pub agent_id: String,
-    pub name: String,
-    pub description: Option<String>,
-    pub provider: vizier_core::config::provider::ProviderId,
-    pub model: String,
-    pub system_prompt: Option<String>,
-    pub thinking_depth: usize,
-    pub checkpoint_threshold: f64,
-    pub max_tokens: Option<u64>,
-    pub context_window: Option<u64>,
-    pub shell: Option<ShellConfig>,
-    pub fetch: bool,
-    pub http_client: bool,
-    pub prompt_timeout: String,
-    pub dream_enabled: bool,
-    pub dream_schedule: Option<String>,
-    pub dream_provider: Option<vizier_core::config::provider::ProviderId>,
-    pub dream_model: Option<String>,
-    pub tools_timeout: String,
-    pub avatar_url: Option<String>,
-    pub silent_read_initiative_chance: f32,
-    pub tts: bool,
-    pub tts_settings: Option<TtsToolSettings>,
-    pub stt: bool,
-    pub stt_settings: Option<SttToolSettings>,
-    pub read_image: bool,
-    pub read_image_settings: Option<ReadImageToolSettings>,
-    pub image_gen: bool,
-    pub image_gen_settings: Option<ImageGenToolSettings>,
-    pub embedding: Option<EmbeddingConfig>,
-    pub indexer: Option<IndexerConfig>,
-}
+pub use vizier_core::service::agents::AgentDetail;
 
 #[utoipa::path(
     get,
@@ -335,240 +255,11 @@ async fn agent_detail(
     Path(agent_id): Path<String>,
     State(state): State<HTTPState>,
     Extension(user): Extension<crate::auth::Principal>,
-) -> models::response::Response<AgentDetail> {
-    match state.storage.get_agent(&agent_id).await {
-        Ok(Some(config)) => {
-            if !user_can_view_agent(&user, &config) {
-                return err_response(StatusCode::FORBIDDEN, "Access denied".into());
-            }
-
-            api_response(
-                StatusCode::OK,
-                AgentDetail {
-                    agent_id,
-                    name: config.name,
-                    description: config.description,
-                    provider: config.provider,
-                    model: config.model,
-                    system_prompt: config.system_prompt,
-                    thinking_depth: config.thinking_depth,
-                    checkpoint_threshold: config.checkpoint_threshold,
-                    max_tokens: config.max_tokens,
-                    context_window: config.context_window,
-                    shell: config.tools.shell,
-                    fetch: config.tools.fetch.enabled,
-                    http_client: config.tools.http_client.enabled,
-                    prompt_timeout: config.prompt_timeout.to_string(),
-                    dream_enabled: config.dream_enabled,
-                    dream_schedule: config.dream_schedule,
-                    dream_provider: config.dream_provider,
-                    dream_model: config.dream_model,
-                    tools_timeout: config.tools.timeout.to_string(),
-                    avatar_url: config.avatar_url,
-                    silent_read_initiative_chance: config.silent_read_initiative_chance,
-                    tts: config.tools.tts.enabled,
-                    tts_settings: if config.tools.tts.settings.provider
-                        != vizier_core::schema::agent::TtsProvider::default()
-                        || config.tools.tts.settings.model.is_some()
-                        || config.tools.tts.settings.voice.is_some()
-                        || config.tools.tts.settings.speed.is_some()
-                    {
-                        Some(config.tools.tts.settings.clone())
-                    } else {
-                        None
-                    },
-                    stt: config.tools.stt.enabled,
-                    stt_settings: if config.tools.stt.settings.provider
-                        != vizier_core::schema::agent::SttProvider::default()
-                        || config.tools.stt.settings.model.is_some()
-                        || config.tools.stt.settings.language.is_some()
-                    {
-                        Some(config.tools.stt.settings.clone())
-                    } else {
-                        None
-                    },
-                    read_image: config.tools.read_image.enabled,
-                    read_image_settings: if config.tools.read_image.settings.provider.is_some()
-                        || config.tools.read_image.settings.model.is_some()
-                    {
-                        Some(config.tools.read_image.settings.clone())
-                    } else {
-                        None
-                    },
-                    image_gen: config.tools.image_gen.enabled,
-                    image_gen_settings: if config.tools.image_gen.settings.provider
-                        != vizier_core::schema::agent::ImageGenProvider::default()
-                        || config.tools.image_gen.settings.model.is_some()
-                        || config.tools.image_gen.settings.size.is_some()
-                    {
-                        Some(config.tools.image_gen.settings.clone())
-                    } else {
-                        None
-                    },
-                    embedding: config.embedding,
-                    indexer: config.indexer,
-                },
-            )
-        }
-        Ok(None) => err_response(StatusCode::NOT_FOUND, "not found".into()),
-        Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string().into()),
-    }
+) -> axum::response::Response {
+    respond(service::agents::detail(&svc(&state), &user, &agent_id).await, StatusCode::OK)
 }
 
-#[derive(Debug, Deserialize, Serialize, utoipa::ToSchema)]
-pub struct CreateAgentRequest {
-    pub agent_id: String,
-    pub name: String,
-    pub description: Option<String>,
-    pub provider: vizier_core::config::provider::ProviderId,
-    pub model: String,
-    #[serde(default)]
-    pub system_prompt: Option<String>,
-    #[serde(default)]
-    pub thinking_depth: Option<usize>,
-    #[serde(default)]
-    pub checkpoint_threshold: Option<f64>,
-    #[serde(default)]
-    pub max_tokens: Option<u64>,
-    #[serde(default)]
-    pub context_window: Option<u64>,
-    #[serde(default)]
-    pub tools: Option<CreateAgentTools>,
-    #[serde(default)]
-    pub prompt_timeout: Option<String>,
-    #[serde(default)]
-    pub dream_enabled: Option<bool>,
-    #[serde(default)]
-    pub dream_schedule: Option<String>,
-    #[serde(default)]
-    pub dream_provider: Option<vizier_core::config::provider::ProviderId>,
-    #[serde(default)]
-    pub dream_model: Option<String>,
-    #[serde(default)]
-    pub avatar_url: Option<String>,
-    #[serde(default)]
-    pub silent_read_initiative_chance: Option<f32>,
-    #[serde(default)]
-    pub embedding: Option<EmbeddingConfig>,
-    #[serde(default)]
-    pub indexer: Option<IndexerConfig>,
-}
-
-#[derive(Debug, Deserialize, Serialize, utoipa::ToSchema)]
-pub struct CreateAgentTools {
-    #[serde(default)]
-    pub shell: Option<ShellConfig>,
-    #[serde(default)]
-    pub fetch: Option<bool>,
-    #[serde(default)]
-    pub http_client: Option<bool>,
-    #[serde(default)]
-    pub timeout: Option<String>,
-    #[serde(default)]
-    pub tts: Option<bool>,
-    #[serde(default)]
-    pub tts_settings: Option<TtsToolSettings>,
-    #[serde(default)]
-    pub stt: Option<bool>,
-    #[serde(default)]
-    pub stt_settings: Option<SttToolSettings>,
-    #[serde(default)]
-    pub read_image: Option<bool>,
-    #[serde(default)]
-    pub read_image_settings: Option<ReadImageToolSettings>,
-    #[serde(default)]
-    pub image_gen: Option<bool>,
-    #[serde(default)]
-    pub image_gen_settings: Option<ImageGenToolSettings>,
-}
-
-impl CreateAgentRequest {
-    fn into_config(self) -> AgentConfig {
-        let tools = self.tools.unwrap_or(CreateAgentTools {
-            shell: None,
-            fetch: None,
-            http_client: None,
-            timeout: None,
-            tts: None,
-            tts_settings: None,
-            stt: None,
-            stt_settings: None,
-            read_image: None,
-            read_image_settings: None,
-            image_gen: None,
-            image_gen_settings: None,
-        });
-
-        AgentConfig {
-            name: self.name,
-            owner_id: None,
-            shared_to: Vec::new(),
-            system_prompt: self.system_prompt,
-            description: self.description,
-            provider: self.provider,
-            model: self.model,
-            thinking_depth: self.thinking_depth.unwrap_or(100),
-            checkpoint_threshold: self.checkpoint_threshold.unwrap_or(0.8).clamp(0.0, 1.0),
-            max_tokens: self.max_tokens,
-            context_window: self.context_window,
-            tools: AgentToolsConfig {
-                timeout: duration_string::DurationString::from_string(
-                    tools.timeout.unwrap_or_else(|| "30m".into()),
-                )
-                .unwrap_or(duration_string::DurationString::from_string("30m".into()).unwrap()),
-                shell: tools.shell,
-                fetch: ToolConfig {
-                    enabled: tools.fetch.unwrap_or(false),
-                    settings: (),
-                },
-                http_client: ToolConfig {
-                    enabled: tools.http_client.unwrap_or(false),
-                    settings: (),
-                },
-                tts: ToolConfig {
-                    enabled: tools.tts.unwrap_or(false),
-                    settings: tools.tts_settings.unwrap_or_default(),
-                },
-                stt: ToolConfig {
-                    enabled: tools.stt.unwrap_or(false),
-                    settings: tools.stt_settings.unwrap_or_default(),
-                },
-                read_image: ToolConfig {
-                    enabled: tools.read_image.unwrap_or(false),
-                    settings: tools.read_image_settings.unwrap_or_default(),
-                },
-                image_gen: ToolConfig {
-                    enabled: tools.image_gen.unwrap_or(false),
-                    settings: tools.image_gen_settings.unwrap_or_default(),
-                },
-            },
-            silent_read_initiative_chance: self.silent_read_initiative_chance.unwrap_or(0.0),
-            include_documents: None,
-            prompt_timeout: duration_string::DurationString::from_string(
-                self.prompt_timeout.unwrap_or("60m".into()),
-            )
-            .unwrap(),
-            documents: vec![],
-            heartbeat_interval: duration_string::DurationString::from_string("30m".into()).unwrap(),
-            core: None,
-            dream_enabled: self.dream_enabled.unwrap_or(false),
-            dream_schedule: self.dream_schedule,
-            dream_provider: self.dream_provider,
-            dream_model: self.dream_model,
-            avatar_url: self.avatar_url,
-            embedding: Some(self.embedding.unwrap_or(EmbeddingConfig {
-                provider: EmbeddingProvider::Local,
-                model: "all_mini_lml6_v2".into(),
-            })),
-            indexer: Some(self.indexer.unwrap_or(IndexerConfig {
-                kind: IndexerKind::Sqlite,
-            })),
-            chunking: Default::default(),
-            auto_context: Default::default(),
-            completion_retry: Default::default(),
-        }
-    }
-}
+pub use vizier_core::service::agents::{CreateAgentRequest, CreateAgentTools};
 
 /// Settings that moved to Integrations (spec 016, FR-021): a body that still carries any is
 /// refused rather than silently ignored.
@@ -622,32 +313,7 @@ fn parse_agent_body(
         .map_err(|e| err_response::<String>(StatusCode::BAD_REQUEST, e.to_string()).into_response())
 }
 
-/// A saved agent, with anything about its model worth knowing (contract `http-api.md` §
-/// Agents).
-#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
-pub struct AgentSaved {
-    #[serde(flatten)]
-    pub summary: AgentSummary,
-    pub warnings: Vec<vizier_core::catalogue::AgentWarning>,
-}
-
-async fn saved_with_warnings(
-    state: &HTTPState,
-    config: &vizier_core::schema::AgentConfig,
-    summary: AgentSummary,
-) -> AgentSaved {
-    use vizier_core::storage::provider::CustomProviderStorage;
-    let custom = state
-        .storage
-        .get_custom_provider(&config.provider)
-        .await
-        .ok()
-        .flatten();
-    AgentSaved {
-        summary,
-        warnings: vizier_core::catalogue::agent_warnings(&state.catalogue, custom.as_ref(), config),
-    }
-}
+pub use vizier_core::service::agents::AgentSaved;
 
 #[utoipa::path(
     post,
@@ -664,63 +330,15 @@ async fn create_agent(
     Extension(user): Extension<crate::auth::Principal>,
     Json(body): Json<serde_json::Value>,
 ) -> axum::response::Response {
-    use axum::response::IntoResponse;
     match parse_agent_body(body) {
-        Ok(body) => create_agent_parsed(state, user, body).await.into_response(),
+        Ok(body) => respond(
+            service::agents::create(&svc(&state), &user, body).await,
+            StatusCode::CREATED,
+        ),
         Err(refused) => refused,
     }
 }
 
-async fn create_agent_parsed(
-    state: HTTPState,
-    user: crate::auth::Principal,
-    body: CreateAgentRequest,
-) -> models::response::Response<AgentSaved> {
-    if let Some(emb) = &body.embedding {
-        // Bedrock's empty model selects the documented Titan V2 default (FR-020); every other
-        // remote provider needs an explicit model.
-        if emb.model.trim().is_empty()
-            && emb.provider != vizier_core::schema::agent::EmbeddingProvider::Bedrock
-        {
-            return err_response(
-                StatusCode::BAD_REQUEST,
-                "embedding.model is required".into(),
-            );
-        }
-    }
-
-    let agent_id = body.agent_id.clone();
-    let mut config = body.into_config();
-    config.owner_id = Some(user.user_id);
-    let saved = config.clone();
-
-    let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
-
-    let cmd = AgentCommand::Create {
-        agent_id,
-        config,
-        resp: resp_tx,
-    };
-
-    if let Err(e) = state.transport.send_agent_command(cmd).await {
-        return err_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("failed to send command: {}", e),
-        );
-    }
-
-    match resp_rx.await {
-        Ok(AgentCommandResult::Ok(summary)) => api_response(
-            StatusCode::CREATED,
-            saved_with_warnings(&state, &saved, summary).await,
-        ),
-        Ok(AgentCommandResult::Error(e)) => err_response(StatusCode::BAD_REQUEST, e),
-        Err(_) => err_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "agent manager unavailable".into(),
-        ),
-    }
-}
 
 #[utoipa::path(
     put,
@@ -741,78 +359,15 @@ async fn update_agent(
     Extension(user): Extension<crate::auth::Principal>,
     Json(body): Json<serde_json::Value>,
 ) -> axum::response::Response {
-    use axum::response::IntoResponse;
     match parse_agent_body(body) {
-        Ok(body) => update_agent_parsed(agent_id, state, user, body)
-            .await
-            .into_response(),
+        Ok(body) => respond(
+            service::agents::update(&svc(&state), &user, &agent_id, body).await,
+            StatusCode::OK,
+        ),
         Err(refused) => refused,
     }
 }
 
-async fn update_agent_parsed(
-    agent_id: String,
-    state: HTTPState,
-    user: crate::auth::Principal,
-    body: CreateAgentRequest,
-) -> models::response::Response<AgentSaved> {
-    if let Some(emb) = &body.embedding {
-        // Bedrock's empty model selects the documented Titan V2 default (FR-020); every other
-        // remote provider needs an explicit model.
-        if emb.model.trim().is_empty()
-            && emb.provider != vizier_core::schema::agent::EmbeddingProvider::Bedrock
-        {
-            return err_response(
-                StatusCode::BAD_REQUEST,
-                "embedding.model is required".into(),
-            );
-        }
-    }
-
-    let mut config = body.into_config();
-
-    // Preserve existing owner_id and shared_to when updating
-    let existing = match state.storage.get_agent(&agent_id).await {
-        Ok(Some(existing)) => existing,
-        Ok(None) => return err_response(StatusCode::NOT_FOUND, "Agent not found".into()),
-        Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
-    };
-
-    if !user_can_edit_agent(&user, &existing) {
-        return err_response(StatusCode::FORBIDDEN, "Access denied".into());
-    }
-
-    config.owner_id = existing.owner_id;
-    config.shared_to = existing.shared_to;
-    let saved = config.clone();
-
-    let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
-
-    let cmd = AgentCommand::Update {
-        agent_id,
-        config,
-        resp: resp_tx,
-    };
-
-    if let Err(e) = state.transport.send_agent_command(cmd).await {
-        return err_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("failed to send command: {}", e),
-        );
-    }
-
-    match resp_rx.await {
-        Ok(AgentCommandResult::Ok(summary)) => api_response(
-            StatusCode::OK,
-            saved_with_warnings(&state, &saved, summary).await,
-        ),
-        Ok(AgentCommandResult::Error(e)) => err_response(StatusCode::BAD_REQUEST, e),
-        Err(_) => err_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "agent manager unavailable".into(),
-        ),
-    }
-}
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct DeleteAgentQuery {
@@ -836,53 +391,11 @@ async fn delete_agent(
     Query(query): Query<DeleteAgentQuery>,
     State(state): State<HTTPState>,
     Extension(user): Extension<crate::auth::Principal>,
-) -> models::response::Response<String> {
-    let can_delete_all =
-        user.role.is_system || user.permissions.contains(&"all_agents:delete".to_string());
-    let can_delete_owned = user
-        .permissions
-        .contains(&"owned_agents:delete".to_string());
-
-    // Check permission
-    if !can_delete_all {
-        let agent = match state.storage.get_agent(&agent_id).await {
-            Ok(Some(agent)) => agent,
-            Ok(None) => return err_response(StatusCode::NOT_FOUND, "Agent not found".into()),
-            Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
-        };
-
-        if let Some(ref owner_id) = agent.owner_id {
-            if *owner_id != user.user_id && !can_delete_owned {
-                return err_response(StatusCode::FORBIDDEN, "Access denied".into());
-            }
-        } else if !can_delete_owned {
-            return err_response(StatusCode::FORBIDDEN, "Access denied".into());
-        }
-    }
-
-    let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
-
-    let cmd = AgentCommand::Delete {
-        agent_id,
-        delete_workspace: query.delete_workspace,
-        resp: resp_tx,
-    };
-
-    if let Err(e) = state.transport.send_agent_command(cmd).await {
-        return err_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("failed to send command: {}", e),
-        );
-    }
-
-    match resp_rx.await {
-        Ok(AgentCommandResult::Ok(_)) => api_response(StatusCode::OK, "deleted".into()),
-        Ok(AgentCommandResult::Error(e)) => err_response(StatusCode::BAD_REQUEST, e),
-        Err(_) => err_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "agent manager unavailable".into(),
-        ),
-    }
+) -> axum::response::Response {
+    respond(
+        service::agents::delete(&svc(&state), &user, &agent_id, query.delete_workspace).await,
+        StatusCode::OK,
+    )
 }
 
 #[utoipa::path(
@@ -900,51 +413,11 @@ pub(crate) async fn restart_agent(
     Path(agent_id): Path<String>,
     State(state): State<HTTPState>,
     Extension(user): Extension<crate::auth::Principal>,
-) -> models::response::Response<AgentHealthStatus> {
-    let config = match state.storage.get_agent(&agent_id).await {
-        Ok(Some(config)) => config,
-        Ok(None) => return err_response(StatusCode::NOT_FOUND, "agent not found".into()),
-        Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
-    };
-    if !user_can_edit_agent(&user, &config) {
-        return err_response(StatusCode::FORBIDDEN, "Access denied".into());
-    }
-
-    let (resp, rx) = tokio::sync::oneshot::channel();
-    if let Err(e) = state
-        .transport
-        .send_agent_command(AgentCommand::Restart {
-            agent_id: agent_id.clone(),
-            resp,
-        })
-        .await
-    {
-        return err_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("failed to send command: {e}"),
-        );
-    }
-    match rx.await {
-        Ok(AgentCommandResult::Ok(_)) => {}
-        Ok(AgentCommandResult::Error(e)) if e.contains("still being created or updated") => {
-            return err_response(StatusCode::CONFLICT, e);
-        }
-        Ok(AgentCommandResult::Error(e)) => return err_response(StatusCode::BAD_REQUEST, e),
-        Err(_) => {
-            return err_response(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "agent manager unavailable".into(),
-            );
-        }
-    }
-
-    match state.transport.agent_health().await {
-        Ok(statuses) => match statuses.into_iter().find(|s| s.agent_id == agent_id) {
-            Some(status) => api_response(StatusCode::ACCEPTED, status),
-            None => err_response(StatusCode::NOT_FOUND, "agent not found".into()),
-        },
-        Err(e) => err_response(StatusCode::SERVICE_UNAVAILABLE, e.to_string()),
-    }
+) -> axum::response::Response {
+    respond(
+        service::agents::restart(&svc(&state), &user, &agent_id).await,
+        StatusCode::ACCEPTED,
+    )
 }
 
 #[derive(Debug, Deserialize, Serialize, utoipa::IntoParams)]
@@ -969,64 +442,6 @@ pub struct ConversationUsageParams {
     pub limit: Option<usize>,
 }
 
-/// The longest range a usage read covers.
-const MAX_USAGE_RANGE_DAYS: i64 = 366;
-
-/// The storage query for a usage read, or the `400` refusing it. The refusal is a whole
-/// response, like `parse_agent_body`'s.
-#[allow(clippy::result_large_err)]
-fn usage_query(
-    agent_id: &str,
-    start_date: Option<&str>,
-    end_date: Option<&str>,
-    activity: Option<&str>,
-) -> Result<vizier_core::storage::usage::UsageQuery, axum::response::Response> {
-    use crate::api::v1::integrations::fail;
-    let parse = |s: &str| DateTime::parse_from_rfc3339(s).map(|dt| dt.with_timezone(&Utc));
-    let bad_range = |message: &str| {
-        fail(
-            StatusCode::BAD_REQUEST,
-            message,
-            serde_json::json!({"error": "invalid_range"}),
-        )
-    };
-
-    let end = match end_date {
-        Some(s) => parse(s).map_err(|_| bad_range("end_date is not RFC 3339"))?,
-        None => Utc::now(),
-    };
-    let start = match start_date {
-        Some(s) => parse(s).map_err(|_| bad_range("start_date is not RFC 3339"))?,
-        None => end - chrono::Duration::days(30),
-    };
-    if start > end {
-        return Err(bad_range("start_date is after end_date"));
-    }
-    if end - start > chrono::Duration::days(MAX_USAGE_RANGE_DAYS) {
-        return Err(bad_range("the range is longer than 366 days"));
-    }
-    let activity = match activity.filter(|a| !a.is_empty()) {
-        Some(a) => Some(
-            a.parse::<vizier_core::schema::usage::UsageActivity>()
-                .map_err(|_| {
-                    fail(
-                        StatusCode::BAD_REQUEST,
-                        format!("unknown activity '{a}'"),
-                        serde_json::json!({"error": "unknown_activity"}),
-                    )
-                })?,
-        ),
-        None => None,
-    };
-    Ok(vizier_core::storage::usage::UsageQuery {
-        agent_id: agent_id.to_string(),
-        start,
-        end,
-        activity,
-        conversation: None,
-    })
-}
-
 #[utoipa::path(
     get,
     path = "/agents/{agent_id}/usage",
@@ -1045,34 +460,20 @@ async fn agent_usage(
     Path(agent_id): Path<String>,
     Query(params): Query<UsageParams>,
     State(state): State<HTTPState>,
+    Extension(user): Extension<crate::auth::Principal>,
 ) -> axum::response::Response {
-    use axum::response::IntoResponse;
-    if !state.is_agent_exists(&agent_id).await {
-        return err_response::<String>(StatusCode::NOT_FOUND, "agent not found".into())
-            .into_response();
-    }
-    let q = match usage_query(
-        &agent_id,
-        params.start_date.as_deref(),
-        params.end_date.as_deref(),
-        params.activity.as_deref(),
-    ) {
-        Ok(q) => q,
-        Err(refused) => return refused,
-    };
-    match vizier_core::usage::build_report(
-        &state.storage,
-        &state.catalogue,
-        &state.deps.integration_kinds,
-        q,
+    respond(
+        service::agents::usage(
+            &svc(&state),
+            &user,
+            &agent_id,
+            params.start_date.as_deref(),
+            params.end_date.as_deref(),
+            params.activity.as_deref(),
+        )
+        .await,
+        StatusCode::OK,
     )
-    .await
-    {
-        Ok(report) => api_response(StatusCode::OK, report).into_response(),
-        Err(e) => {
-            err_response::<String>(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
-        }
-    }
 }
 
 #[utoipa::path(
@@ -1093,59 +494,26 @@ async fn agent_usage_conversation(
     Path(agent_id): Path<String>,
     Query(params): Query<ConversationUsageParams>,
     State(state): State<HTTPState>,
+    Extension(user): Extension<crate::auth::Principal>,
 ) -> axum::response::Response {
-    use axum::response::IntoResponse;
-
-    use crate::api::v1::integrations::fail;
-    if !state.is_agent_exists(&agent_id).await {
-        return err_response::<String>(StatusCode::NOT_FOUND, "agent not found".into())
-            .into_response();
-    }
-    let Some(channel) = params.channel.filter(|c| !c.is_empty()) else {
-        return fail(
-            StatusCode::BAD_REQUEST,
-            "channel is required",
-            serde_json::json!({"error": "missing_channel"}),
-        );
-    };
-    let limit = params.limit.unwrap_or(20);
-    if !(1..=100).contains(&limit) {
-        return fail(
-            StatusCode::BAD_REQUEST,
-            "limit must be between 1 and 100",
-            serde_json::json!({"error": "invalid_limit"}),
-        );
-    }
-    let mut q = match usage_query(
-        &agent_id,
-        params.start_date.as_deref(),
-        params.end_date.as_deref(),
-        params.activity.as_deref(),
-    ) {
-        Ok(q) => q,
-        Err(refused) => return refused,
-    };
-    q.conversation = Some((channel, params.topic.filter(|t| !t.is_empty())));
-    match vizier_core::usage::conversation_usage(
-        &state.storage,
-        &state.catalogue,
-        &state.deps.integration_kinds,
-        q,
-        limit,
+    respond(
+        service::agents::usage_conversation(
+            &svc(&state),
+            &user,
+            &agent_id,
+            params.channel,
+            params.topic,
+            params.start_date.as_deref(),
+            params.end_date.as_deref(),
+            params.activity.as_deref(),
+            params.limit,
+        )
+        .await,
+        StatusCode::OK,
     )
-    .await
-    {
-        Ok(usage) => api_response(StatusCode::OK, usage).into_response(),
-        Err(e) => {
-            err_response::<String>(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
-        }
-    }
 }
 
-#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
-pub struct SharingResponse {
-    pub shared_to: Vec<String>,
-}
+pub use vizier_core::service::agents::SharingResponse;
 
 #[utoipa::path(
     get,
@@ -1163,32 +531,11 @@ async fn get_sharing(
     Path(agent_id): Path<String>,
     State(state): State<HTTPState>,
     Extension(user): Extension<crate::auth::Principal>,
-) -> models::response::Response<SharingResponse> {
-    let config = match state.storage.get_agent(&agent_id).await {
-        Ok(Some(config)) => config,
-        Ok(None) => return err_response(StatusCode::NOT_FOUND, "Agent not found".into()),
-        Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
-    };
-
-    if !user_can_edit_agent(&user, &config) {
-        return err_response(StatusCode::FORBIDDEN, "Access denied".into());
-    }
-
-    api_response(
-        StatusCode::OK,
-        SharingResponse {
-            shared_to: config.shared_to,
-        },
-    )
+) -> axum::response::Response {
+    respond(service::agents::get_sharing(&svc(&state), &user, &agent_id).await, StatusCode::OK)
 }
 
-#[derive(Debug, Deserialize, utoipa::ToSchema)]
-pub struct UpdateSharingRequest {
-    #[serde(default)]
-    pub add: Vec<String>,
-    #[serde(default)]
-    pub remove: Vec<String>,
-}
+pub use vizier_core::service::agents::UpdateSharingRequest;
 
 #[utoipa::path(
     patch,
@@ -1208,33 +555,10 @@ async fn update_sharing(
     State(state): State<HTTPState>,
     Extension(user): Extension<crate::auth::Principal>,
     Json(body): Json<UpdateSharingRequest>,
-) -> models::response::Response<SharingResponse> {
-    let mut config = match state.storage.get_agent(&agent_id).await {
-        Ok(Some(config)) => config,
-        Ok(None) => return err_response(StatusCode::NOT_FOUND, "Agent not found".into()),
-        Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
-    };
-
-    if !user_can_edit_agent(&user, &config) {
-        return err_response(StatusCode::FORBIDDEN, "Access denied".into());
-    }
-
-    for user_id in &body.add {
-        if !config.shared_to.contains(user_id) {
-            config.shared_to.push(user_id.clone());
-        }
-    }
-    config.shared_to.retain(|id| !body.remove.contains(id));
-
-    if let Err(e) = state.storage.update_agent(&agent_id, &config).await {
-        return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string());
-    }
-
-    api_response(
+) -> axum::response::Response {
+    respond(
+        service::agents::update_sharing(&svc(&state), &user, &agent_id, body).await,
         StatusCode::OK,
-        SharingResponse {
-            shared_to: config.shared_to,
-        },
     )
 }
 
@@ -1247,23 +571,12 @@ async fn update_sharing(
 )]
 async fn health_check(
     State(state): State<HTTPState>,
-) -> models::response::Response<Vec<AgentHealthStatus>> {
-    match state.transport.agent_health().await {
-        Ok(mut statuses) => {
-            let live = state.storage.thinking_agents().await.unwrap_or_default();
-            for s in &mut statuses {
-                s.live = s.alive && live.contains(&s.agent_id.to_string());
-            }
-            api_response(StatusCode::OK, statuses)
-        }
-        Err(e) => err_response(StatusCode::SERVICE_UNAVAILABLE, e.to_string()),
-    }
+    Extension(user): Extension<crate::auth::Principal>,
+) -> axum::response::Response {
+    respond(service::agents::health(&svc(&state), &user).await, StatusCode::OK)
 }
 
-#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
-pub struct PingResponse {
-    pub alive: bool,
-}
+pub use vizier_core::service::agents::PingResponse;
 
 #[utoipa::path(
     get,
@@ -1279,35 +592,12 @@ pub struct PingResponse {
 async fn ping_agent(
     Path(agent_id): Path<String>,
     State(state): State<HTTPState>,
-) -> models::response::Response<PingResponse> {
-    if !state.is_agent_exists(&agent_id).await {
-        return err_response(StatusCode::NOT_FOUND, "agent not found".into());
-    }
-
-    match state.transport.agent_health().await {
-        Ok(statuses) => {
-            let alive = statuses.iter().any(|s| s.agent_id == agent_id && s.alive);
-            api_response(StatusCode::OK, PingResponse { alive })
-        }
-        Err(e) => err_response(StatusCode::SERVICE_UNAVAILABLE, e.to_string()),
-    }
+    Extension(user): Extension<crate::auth::Principal>,
+) -> axum::response::Response {
+    respond(service::agents::ping(&svc(&state), &user, &agent_id).await, StatusCode::OK)
 }
 
-#[derive(Debug, Deserialize, Serialize, utoipa::ToSchema)]
-pub struct ChatRequest {
-    pub channel_id: String,
-    pub topic_id: String,
-    pub content: String,
-    #[serde(default)]
-    pub attachments: Option<Vec<VizierAttachment>>,
-}
-
-#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
-pub struct ChatResponse {
-    pub content: String,
-    pub stats: Option<VizierResponseStats>,
-    pub attachments: Vec<VizierAttachment>,
-}
+pub use vizier_core::service::agents::{ChatRequest, ChatResponse};
 
 #[utoipa::path(
     post,
@@ -1326,139 +616,14 @@ async fn agent_chat(
     State(state): State<HTTPState>,
     Extension(user): Extension<crate::auth::Principal>,
     Json(body): Json<ChatRequest>,
-) -> models::response::Response<ChatResponse> {
-    let config = match state.storage.get_agent(&agent_id).await {
-        Ok(Some(config)) => config,
-        Ok(None) => return err_response(StatusCode::NOT_FOUND, "agent not found".into()),
-        Err(e) => {
-            return err_response(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("failed to get agent: {}", e),
-            );
-        }
-    };
-
-    if !user_can_view_agent(&user, &config) {
-        return err_response(StatusCode::FORBIDDEN, "Access denied".into());
-    }
-
-    let transport = state.transport.clone();
-    let session = VizierSession(
-        agent_id,
-        VizierChannelId::HTTP(user.username.clone(), body.channel_id.clone()),
-        Some(body.topic_id.clone()),
-    );
-
-    // A request attachment is a person's upload. Artifact references are created only by the
-    // agent/tool response path, so a client cannot ask agent A to read agent B's artifact by id
-    // (`specs/035-add-artifacts` T060).
-    if body.attachments.as_ref().is_some_and(|list| {
-        list.iter().any(|attachment| {
-            matches!(
-                attachment.content,
-                vizier_core::schema::VizierAttachmentContent::Artifact { .. }
-            )
-        })
-    }) {
-        return err_response(
-            StatusCode::UNPROCESSABLE_ENTITY,
-            "request attachments must be uploads; artifact references are created by the agent"
-                .into(),
-        );
-    }
-    let mut attachments = body.attachments.unwrap_or_default();
-    for attachment in attachments.iter_mut() {
-        match transport.send_file_resolve(attachment.clone()).await {
-            Ok(content) => {
-                match transport
-                    .send_file_upload(attachment.filename.clone(), content)
-                    .await
-                {
-                    Ok(file_record) => {
-                        attachment.content =
-                            vizier_core::schema::VizierAttachmentContent::Local(file_record.url);
-                    }
-                    Err(e) => {
-                        tracing::error!("failed to upload resolved attachment: {}", e);
-                    }
-                }
-            }
-            Err(e) => {
-                tracing::error!("failed to resolve attachment: {}", e);
-            }
-        }
-    }
-
-    let request = VizierRequest {
-        trace: Default::default(),
-        client_tools: vec![],
-        client_categories: vec![],
-        client: None,
-        timestamp: Utc::now(),
-        user: user.username.clone(),
-        content: VizierRequestContent::Chat(body.content),
-        platform_message_id: None,
-        metadata: serde_json::json!({}),
-        attachments,
-        expect_audio_reply: None,
-        scheduled_task: None,
-        background_depth: 0,
-        ..Default::default()
-    };
-
-    let (response_tx, response_rx) = flume::unbounded();
-    if let Err(err) = transport
-        .send_request(session.clone(), request, Some(response_tx))
-        .await
-    {
-        return err_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("failed to send request: {}", err),
-        );
-    }
-
-    let timeout_duration = *config.prompt_timeout;
-    // The same send-and-await loop the side chat's `ask` uses (research R10), mapped to
-    // agent_chat's responses.
-    match vizier_core::channels::side_chat::await_reply(response_rx, timeout_duration).await {
-        Ok(SideChatOutcome::Answered(reply)) => api_response(
-            StatusCode::OK,
-            ChatResponse {
-                content: reply.content,
-                stats: reply.stats,
-                attachments: reply.attachments,
-            },
-        ),
-        Ok(SideChatOutcome::Aborted) => {
-            err_response(StatusCode::INTERNAL_SERVER_ERROR, "Agent aborted the request".into())
-        }
-        Ok(SideChatOutcome::AgentError { kind, message }) => err_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("{}: {}", kind.label(), message),
-        ),
-        Ok(SideChatOutcome::NoAgent) => {
-            err_response(StatusCode::INTERNAL_SERVER_ERROR, "Agent response channel closed".into())
-        }
-        Err(_) => err_response(StatusCode::REQUEST_TIMEOUT, "Agent response timeout".into()),
-    }
+) -> axum::response::Response {
+    respond(
+        service::agents::chat(&svc(&state), &user, &agent_id, body).await,
+        StatusCode::OK,
+    )
 }
 
-#[derive(Debug, Deserialize, Serialize, utoipa::ToSchema)]
-pub struct BtwRequest {
-    pub channel_id: String,
-    pub topic_id: String,
-    /// Trimmed; 1–4,000 characters
-    pub question: String,
-    /// Earlier turns of this side chat, oldest first
-    #[serde(default)]
-    pub turns: Vec<vizier_core::schema::SideChatTurn>,
-}
-
-#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
-pub struct BtwResponse {
-    pub answer: String,
-    pub stats: Option<VizierResponseStats>,
-}
+pub use vizier_core::service::agents::{BtwRequest, BtwResponse};
 
 #[utoipa::path(
     post,
@@ -1482,77 +647,18 @@ async fn agent_btw(
     Extension(user): Extension<crate::auth::Principal>,
     Json(body): Json<BtwRequest>,
 ) -> axum::response::Response {
-    let config = match state.storage.get_agent(&agent_id).await {
-        Ok(Some(config)) => config,
-        Ok(None) => return err_response::<String>(StatusCode::NOT_FOUND, "agent not found".into()).into_response(),
-        Err(e) => {
-            return err_response::<String>(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("failed to get agent: {}", e),
-            )
-            .into_response();
-        }
-    };
-
-    if !user_can_view_agent(&user, &config) {
-        return err_response::<String>(StatusCode::FORBIDDEN, "Access denied".into()).into_response();
-    }
-
-    let session = VizierSession(
-        agent_id,
-        VizierChannelId::HTTP(user.username.clone(), body.channel_id.clone()),
-        Some(body.topic_id.clone()),
-    );
-    let side_chat = vizier_core::schema::SideChat {
-        question: body.question.trim().to_string(),
-        turns: body.turns,
-    };
-
-    use vizier_core::channels::side_chat::SideChatError;
-    let result = vizier_core::channels::side_chat::ask(
-        &state.deps,
-        session,
-        &format!("http:{}", user.username),
-        user.username.clone(),
-        side_chat,
-        *config.prompt_timeout,
-    )
-    .await;
-
-    match result {
-        Ok(answer) => api_response(
-            StatusCode::OK,
-            BtwResponse {
-                answer: answer.answer,
-                stats: answer.stats,
-            },
-        )
-        .into_response(),
-        Err(SideChatError::Invalid(message)) => {
-            err_response::<String>(StatusCode::UNPROCESSABLE_ENTITY, message).into_response()
-        }
-        Err(SideChatError::RateLimited { retry_after_secs }) => {
+    use service::agents::BtwReply;
+    match service::agents::btw(&svc(&state), &user, &agent_id, body).await {
+        Ok(BtwReply::Answer(answer)) => api_response(StatusCode::OK, answer).into_response(),
+        Ok(BtwReply::RetryAfter { secs }) => {
             let mut headers = axum::http::HeaderMap::new();
-            headers.insert(
-                axum::http::header::RETRY_AFTER,
-                retry_after_secs.to_string().parse().unwrap(),
-            );
+            headers.insert(axum::http::header::RETRY_AFTER, secs.to_string().parse().unwrap());
             let (status, Json(body)) = err_response::<String>(
                 StatusCode::TOO_MANY_REQUESTS,
-                format!("slow down — try again in {retry_after_secs}s"),
+                format!("slow down — try again in {secs}s"),
             );
             (status, headers, Json(body)).into_response()
         }
-        Err(SideChatError::Timeout) => {
-            err_response::<String>(StatusCode::REQUEST_TIMEOUT, "Agent response timeout".into()).into_response()
-        }
-        Err(SideChatError::Agent { kind, message }) => {
-            let status = if kind == vizier_core::schema::ErrorKind::AgentUnavailable.label() {
-                StatusCode::SERVICE_UNAVAILABLE
-            } else {
-                StatusCode::INTERNAL_SERVER_ERROR
-            };
-            err_response::<String>(status, format!("{kind}: {message}")).into_response()
-        }
+        Err(e) => respond::<()>(Err(e), StatusCode::OK),
     }
 }

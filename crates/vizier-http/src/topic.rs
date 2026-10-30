@@ -9,14 +9,12 @@ use std::sync::Arc;
 
 use tokio::sync::{broadcast, mpsc};
 use vizier_core::{
-    access::can_view_agent,
     agents::client::ClientConnection,
     auth::Principal,
     schema::{
         VizierAttachmentContent, VizierChannelId, VizierRequest, VizierRequestContent, VizierSession,
     },
     service::ServiceError,
-    storage::agent::AgentStorage,
     transport::{SessionEvent, SessionFrame, VizierTransport},
 };
 
@@ -60,15 +58,12 @@ impl TopicConnection {
         topic_id: &str,
         out: flume::Sender<serde_json::Value>,
     ) -> Result<Self, ServiceError> {
-        let config = state
-            .storage
-            .get_agent(agent_id)
-            .await
-            .map_err(|e| ServiceError::Internal(e.to_string()))?
-            .ok_or_else(|| ServiceError::NotFound("Agent not found".into()))?;
-        if !can_view_agent(principal, &config) {
-            return Err(ServiceError::Forbidden("Forbidden: insufficient permissions".into()));
-        }
+        vizier_core::service::topics::authorize_view(
+            &vizier_core::service::Services::new(state.deps.clone()),
+            principal,
+            agent_id,
+        )
+        .await?;
 
         let session = VizierSession(
             agent_id.to_string(),

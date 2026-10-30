@@ -35,7 +35,8 @@ use vizier_core::{
 };
 use crate::{models::{self, response::{APIResponse, api_response, err_response}}, state::HTTPState};
 
-use super::{platform_of_slug, user_can_show_platform_chats, user_can_view_agent};
+use super::{respond, svc};
+use vizier_core::service::topics;
 use vizier_core::access::Caller;
 use vizier_core::utils::rate_limit::RateLimiter;
 use vizier_core::artifacts::access as ArtifactsAccess;
@@ -43,48 +44,7 @@ use crate::models::page::Page;
 use vizier_core::schema::session_file::SessionFileRecord;
 use vizier_core::storage::session_file::SessionFileStorage;
 
-/// The channel a read-only route means by `channel_id`: a Discord or Telegram conversation by its
-/// slug (`discord__123`, `telegram__-9`, which the conversation picker lists), anything else a
-/// WebUI channel of the caller's own. Routes that write never use this: nobody chats on Discord
-/// through the WebUI.
-fn readable_channel(username: &str, channel_id: &str) -> (VizierChannelId, bool) {
-    if let Some(id) = channel_id
-        .strip_prefix("discord__")
-        .and_then(|id| id.parse::<u64>().ok())
-    {
-        return (VizierChannelId::DiscordChanel(id), true);
-    }
-    if let Some(id) = channel_id
-        .strip_prefix("telegram__")
-        .and_then(|id| id.parse::<i64>().ok())
-    {
-        return (VizierChannelId::TelegramChannel(id), true);
-    }
-    // A blocking subagent's conversation is addressable by its topic, even though it has
-    // no background job row of its own.
-    if channel_id.eq_ignore_ascii_case("SUBAGENT") {
-        return (VizierChannelId::Subagent, false);
-    }
-    (
-        VizierChannelId::HTTP(username.to_string(), channel_id.to_string()),
-        false,
-    )
-}
-
-/// The session a read-only route opens. Discord and Telegram conversations have no topic.
-fn readable_session(
-    agent_id: String,
-    username: &str,
-    channel_id: &str,
-    topic_id: TopicId,
-) -> VizierSession {
-    let (channel, platform) = readable_channel(username, channel_id);
-    VizierSession(
-        agent_id,
-        channel,
-        if platform { None } else { Some(topic_id) },
-    )
-}
+pub use vizier_core::service::topics::{TopicEntry, readable_channel, readable_session};
 
 pub fn channel() -> Router<HTTPState> {
     Router::new()
@@ -119,30 +79,6 @@ pub struct HistoryQuery {
     pub limit: Option<usize>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, utoipa::ToSchema)]
-pub struct TopicEntry {
-    pub topic_id: String,
-    pub title: String,
-    pub agent_id: String,
-    pub channel: String,
-    pub is_thinking: bool,
-    /// Background jobs launched from this topic that are still in flight.
-    pub running_jobs: usize,
-}
-
-impl From<VizierSessionDetail> for TopicEntry {
-    fn from(detail: VizierSessionDetail) -> Self {
-        Self {
-            topic_id: detail.topic.unwrap_or_default(),
-            title: detail.title,
-            agent_id: detail.agent_id,
-            channel: format!("{:?}", detail.channel),
-            is_thinking: detail.is_thinking,
-            running_jobs: 0,
-        }
-    }
-}
-
 #[derive(Debug, Deserialize)]
 pub(crate) struct WebSocketReactionMessage {
     pub(crate) reaction: WebSocketReactionPayload,
@@ -174,39 +110,21 @@ pub async fn get_topic_history(
     Query(params): Query<HistoryQuery>,
     State(state): State<HTTPState>,
     Extension(user): Extension<crate::auth::Principal>,
-) -> models::response::Response<Vec<SessionHistory>> {
-    let config = match state.storage.get_agent(&agent_id).await {
-        Ok(Some(config)) => config,
-        Ok(None) => {
-            return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found"));
-        }
-        Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
-    };
-
-    if !user_can_view_agent(&user, &config) {
-        return err_response(StatusCode::FORBIDDEN, "Access denied".into());
-    }
-
-    if let Some(platform) = platform_of_slug(&channel_id) {
-        if !user_can_show_platform_chats(&user, &config, platform) {
-            return err_response(StatusCode::FORBIDDEN, "Access denied".into());
-        }
-    }
-
-    let session = readable_session(agent_id, &user.username, &channel_id, topic_id);
-
-    let response = state
-        .storage
-        .list_session_history(session, params.before, params.before_seq, params.limit)
-        .await;
-
-    // Every entry kind is returned, `AssistantMessage` included: the intermediate narration
-    // an agent writes alongside its tool calls is part of the trail the WebUI renders, and
-    // dropping it here is what used to make it invisible.
-    match response {
-        Ok(history) => api_response(StatusCode::OK, history),
-        Err(_) => err_response(StatusCode::NOT_FOUND, "Not found".into()),
-    }
+) -> axum::response::Response {
+    respond(
+        topics::history(
+            &svc(&state),
+            &user,
+            &agent_id,
+            &channel_id,
+            topic_id,
+            params.before,
+            params.before_seq,
+            params.limit,
+        )
+        .await,
+        StatusCode::OK,
+    )
 }
 
 #[derive(Debug, Deserialize, utoipa::IntoParams)]
@@ -235,44 +153,23 @@ pub async fn list_topic_files(
     Query(params): Query<FilesQuery>,
     State(state): State<HTTPState>,
     Extension(user): Extension<crate::auth::Principal>,
-) -> models::response::Response<Page<SessionFileRecord>> {
-    let config = match state.storage.get_agent(&agent_id).await {
-        Ok(Some(config)) => config,
-        Ok(None) => {
-            return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found"));
-        }
-        Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
-    };
-    if !user_can_view_agent(&user, &config) {
-        return err_response(StatusCode::FORBIDDEN, "Access denied".into());
-    }
-
-    if let Some(platform) = platform_of_slug(&channel_id) {
-        if !user_can_show_platform_chats(&user, &config, platform) {
-            return err_response(StatusCode::FORBIDDEN, "Access denied".into());
-        }
-    }
-
-    let session = readable_session(agent_id, &user.username, &channel_id, topic_id);
-    let mut files = match state.storage.list_session_files(&session).await {
-        Ok(files) => files,
-        Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
-    };
-    files.sort_by(|a, b| b.added_at.cmp(&a.added_at));
-    let total = files.len();
-    let items = files
-        .into_iter()
-        .skip(params.offset.unwrap_or(0))
-        .take(params.limit.unwrap_or(100).clamp(1, 100))
-        .collect();
-    api_response(
-        StatusCode::OK,
-        Page {
-            items,
-            total,
-            counts: Default::default(),
-        },
+) -> axum::response::Response {
+    let page = topics::list_files(
+        &svc(&state),
+        &user,
+        &agent_id,
+        &channel_id,
+        topic_id,
+        params.offset,
+        params.limit,
     )
+    .await
+    .map(|p| Page {
+        items: p.items,
+        total: p.total,
+        counts: Default::default(),
+    });
+    respond(page, StatusCode::OK)
 }
 
 #[utoipa::path(
@@ -294,36 +191,11 @@ pub async fn clear_topic_files(
     Path((agent_id, channel_id, topic_id)): Path<(String, String, TopicId)>,
     State(state): State<HTTPState>,
     Extension(user): Extension<crate::auth::Principal>,
-) -> models::response::Response<vizier_core::session_files::ClearResult> {
-    let config = match state.storage.get_agent(&agent_id).await {
-        Ok(Some(config)) => config,
-        Ok(None) => {
-            return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found"));
-        }
-        Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
-    };
-    if !user_can_view_agent(&user, &config) {
-        return err_response(StatusCode::FORBIDDEN, "Access denied".into());
-    }
-    if let Some(platform) = platform_of_slug(&channel_id) {
-        if !user_can_show_platform_chats(&user, &config, platform) {
-            return err_response(StatusCode::FORBIDDEN, "Access denied".into());
-        }
-    }
-    let session = readable_session(agent_id, &user.username, &channel_id, topic_id);
-    match state.deps.session_files.clear(&session).await {
-        Ok(result) => api_response(StatusCode::OK, result),
-        Err(vizier_core::session_files::ClearError::TurnActive) => err_response(
-            StatusCode::CONFLICT,
-            "a turn is running or queued in this conversation; wait for it to finish".into(),
-        ),
-        Err(vizier_core::session_files::ClearError::AgentNotFound) => {
-            err_response(StatusCode::NOT_FOUND, "agent not found".into())
-        }
-        Err(vizier_core::session_files::ClearError::Storage(e)) => {
-            err_response(StatusCode::INTERNAL_SERVER_ERROR, e)
-        }
-    }
+) -> axum::response::Response {
+    respond(
+        topics::clear_files(&svc(&state), &user, &agent_id, &channel_id, topic_id).await,
+        StatusCode::OK,
+    )
 }
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
@@ -355,55 +227,20 @@ pub async fn promote_topic_file(
     State(state): State<HTTPState>,
     Extension(user): Extension<crate::auth::Principal>,
     axum::Json(body): axum::Json<PromoteFileRequest>,
-) -> models::response::Response<Artifact> {
-    let config = match state.storage.get_agent(&agent_id).await {
-        Ok(Some(config)) => config,
-        Ok(None) => {
-            return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found"));
-        }
-        Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
-    };
-    if !user_can_view_agent(&user, &config) {
-        return err_response(StatusCode::FORBIDDEN, "Access denied".into());
-    }
-    if let Some(platform) = platform_of_slug(&channel_id) {
-        if !user_can_show_platform_chats(&user, &config, platform) {
-            return err_response(StatusCode::FORBIDDEN, "Access denied".into());
-        }
-    }
-    if !ArtifactsAccess::can_manage(&Caller::from(&user), &config) {
-        return err_response(StatusCode::FORBIDDEN, "Access denied".into());
-    }
-
-    let session = readable_session(agent_id.clone(), &user.username, &channel_id, topic_id);
-    let source = vizier_core::artifacts::SourceFile {
-        session,
-        filename: body.filename.clone(),
-    };
-    match state
-        .deps
-        .artifacts
-        .promote(
+) -> axum::response::Response {
+    respond(
+        topics::promote_file(
+            &svc(&state),
+            &user,
             &agent_id,
-            Requester::User(user.user_id.clone()),
-            &source,
+            &channel_id,
+            topic_id,
+            &body.filename,
             body.name.as_deref(),
         )
-        .await
-    {
-        Ok(artifact) => api_response(StatusCode::CREATED, artifact),
-        Err(e) => {
-            let message = e.to_string();
-            let status = if message.contains("already exists") {
-                StatusCode::CONFLICT
-            } else if message.contains("not found") {
-                StatusCode::NOT_FOUND
-            } else {
-                StatusCode::UNPROCESSABLE_ENTITY
-            };
-            err_response(status, message)
-        }
-    }
+        .await,
+        StatusCode::CREATED,
+    )
 }
 
 #[utoipa::path(
@@ -423,55 +260,11 @@ pub async fn list_topics(
     Path((agent_id, channel_id)): Path<(String, String)>,
     State(state): State<HTTPState>,
     Extension(user): Extension<crate::auth::Principal>,
-) -> models::response::Response<Vec<TopicEntry>> {
-    let config = match state.storage.get_agent(&agent_id).await {
-        Ok(Some(config)) => config,
-        Ok(None) => {
-            return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found"));
-        }
-        Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
-    };
-
-    if !user_can_view_agent(&user, &config) {
-        return err_response(StatusCode::FORBIDDEN, "Access denied".into());
-    }
-
-    let channel = VizierChannelId::HTTP(user.username, channel_id);
-
-    let response = state
-        .storage
-        .get_session_list(agent_id.clone(), Some(channel.clone()))
-        .await;
-
-    // One count query for the whole list; a failure only loses the badge.
-    let running_jobs = state
-        .storage
-        .count_running_background_jobs(agent_id, channel)
-        .await
-        .unwrap_or_else(|e| {
-            tracing::warn!("failed to count running background jobs: {}", e);
-            Default::default()
-        });
-
-    if response.is_err() {
-        return err_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Failed to fetch topics".into(),
-        );
-    }
-
-    let list = response
-        .unwrap()
-        .into_iter()
-        .map(|detail| {
-            let running = running_jobs.get(&detail.topic).copied().unwrap_or(0);
-            let mut entry = TopicEntry::from(detail);
-            entry.running_jobs = running;
-            entry
-        })
-        .collect();
-
-    api_response(StatusCode::OK, list)
+) -> axum::response::Response {
+    respond(
+        topics::list(&svc(&state), &user, &agent_id, &channel_id).await,
+        StatusCode::OK,
+    )
 }
 
 #[utoipa::path(
@@ -492,40 +285,11 @@ pub async fn get_topic_detail(
     Path((agent_id, channel_id, topic_id)): Path<(String, String, TopicId)>,
     State(state): State<HTTPState>,
     Extension(user): Extension<crate::auth::Principal>,
-) -> models::response::Response<TopicEntry> {
-    let config = match state.storage.get_agent(&agent_id).await {
-        Ok(Some(config)) => config,
-        Ok(None) => {
-            return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found"));
-        }
-        Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
-    };
-
-    if !user_can_view_agent(&user, &config) {
-        return err_response(StatusCode::FORBIDDEN, "Access denied".into());
-    }
-
-    if let Some(platform) = platform_of_slug(&channel_id) {
-        if !user_can_show_platform_chats(&user, &config, platform) {
-            return err_response(StatusCode::FORBIDDEN, "Access denied".into());
-        }
-    }
-
-    let (channel, platform) = readable_channel(&user.username, &channel_id);
-
-    match state
-        .storage
-        .get_session_detail_by_topic(
-            agent_id,
-            channel,
-            if platform { None } else { Some(topic_id) },
-        )
-        .await
-    {
-        Ok(Some(detail)) => api_response(StatusCode::OK, TopicEntry::from(detail)),
-        Ok(None) => err_response(StatusCode::NOT_FOUND, "Topic not found".into()),
-        Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
-    }
+) -> axum::response::Response {
+    respond(
+        topics::detail(&svc(&state), &user, &agent_id, &channel_id, topic_id).await,
+        StatusCode::OK,
+    )
 }
 
 #[utoipa::path(
@@ -545,43 +309,11 @@ pub async fn delete_topic(
     Path((agent_id, channel_id, topic_id)): Path<(String, String, TopicId)>,
     State(state): State<HTTPState>,
     Extension(user): Extension<crate::auth::Principal>,
-) -> models::response::Response<String> {
-    let config = match state.storage.get_agent(&agent_id).await {
-        Ok(Some(config)) => config,
-        Ok(None) => {
-            return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found"));
-        }
-        Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
-    };
-
-    if !user_can_view_agent(&user, &config) {
-        return err_response(StatusCode::FORBIDDEN, "Access denied".into());
-    }
-
-    let session = VizierSession(
-        agent_id,
-        VizierChannelId::HTTP(user.username, channel_id),
-        Some(topic_id),
-    );
-    if state.deps.session_files.has_active_turn(&session).await {
-        return err_response(
-            StatusCode::CONFLICT,
-            "a turn is running or queued in this conversation; wait for it to finish".into(),
-        );
-    }
-    match state.deps.session_files.delete_conversation(&session).await {
-        Ok(_) => api_response(StatusCode::OK, "Topic deleted".into()),
-        Err(vizier_core::session_files::ClearError::TurnActive) => err_response(
-            StatusCode::CONFLICT,
-            "a turn is running or queued in this conversation; wait for it to finish".into(),
-        ),
-        Err(vizier_core::session_files::ClearError::AgentNotFound) => {
-            err_response(StatusCode::NOT_FOUND, "Topic not found".into())
-        }
-        Err(vizier_core::session_files::ClearError::Storage(e)) => {
-            err_response(StatusCode::INTERNAL_SERVER_ERROR, e)
-        }
-    }
+) -> axum::response::Response {
+    respond(
+        topics::delete(&svc(&state), &user, &agent_id, &channel_id, topic_id).await,
+        StatusCode::OK,
+    )
 }
 
 #[utoipa::path(

@@ -139,13 +139,30 @@ async fn desktop_dispatch_matches_the_network_router() {
             assert_eq!(net, desk, "network and desktop differ: {label}");
 
             // Identities differ between runs, so the baseline keys on the person's role label.
-            let file = out_dir.join(format!("{}_{}_{}.json", person.label, vector.method, vector.path.trim_matches('/').replace('/', "_")));
+            let legacy = format!("{}_{}_{}.json", person.label, vector.method, vector.path.trim_matches('/').replace('/', "_"));
+            // Vectors that differ only in their body would share a name, so a body is hashed in
+            // (`DefaultHasher::new` is deterministic). A baseline recorded without the hash is
+            // still read when no hashed one exists.
+            let named = match &vector.body {
+                Some(b) => {
+                    use std::hash::{Hash, Hasher};
+                    let mut h = std::collections::hash_map::DefaultHasher::new();
+                    b.to_string().hash(&mut h);
+                    format!("{}_{:08x}.json", legacy.trim_end_matches(".json"), h.finish() as u32)
+                }
+                None => legacy.clone(),
+            };
+            let file = if !record && !out_dir.join(&named).exists() { out_dir.join(&legacy) } else { out_dir.join(&named) };
             let mut snapshot = json!({ "status": desk.0, "body": desk.1 });
             strip_ids(&mut snapshot, &people);
             if record {
                 std::fs::write(&file, serde_json::to_string_pretty(&snapshot).unwrap()).unwrap();
             } else if let Ok(saved) = std::fs::read_to_string(&file) {
-                let saved: Value = serde_json::from_str(&saved).unwrap();
+                let mut saved: Value = serde_json::from_str(&saved).unwrap();
+                let mut snapshot = snapshot.clone();
+                // Fixed when the workspace was created, so it differs between runs.
+                nullify(&mut saved, "accounting_since");
+                nullify(&mut snapshot, "accounting_since");
                 assert_eq!(saved, snapshot, "behaviour changed: {label}");
             }
         }
@@ -202,4 +219,20 @@ fn template_matches(template: &str, concrete: &str) -> bool {
     let concrete = concrete.split('?').next().unwrap_or(concrete);
     let (t, c): (Vec<_>, Vec<_>) = (template.split('/').collect(), concrete.split('/').collect());
     t.len() == c.len() && t.iter().zip(&c).all(|(t, c)| (t.starts_with('{') && t.ends_with('}')) || t == c)
+}
+
+fn nullify(value: &mut Value, key: &str) {
+    match value {
+        Value::Object(m) => {
+            for (k, v) in m.iter_mut() {
+                if k == key {
+                    *v = Value::Null;
+                } else {
+                    nullify(v, key);
+                }
+            }
+        }
+        Value::Array(a) => a.iter_mut().for_each(|v| nullify(v, key)),
+        _ => {}
+    }
 }
