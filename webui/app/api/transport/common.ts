@@ -124,3 +124,6 @@ export function settle<T>(status: number, json: Envelope<T> | undefined | null, 
 }
 
 export const API_BASE = '/api/v1'
+
+/** A path the server returned (`/api/v1/catalogue/logos/x.svg`) or one relative to the API. */
+export const relativeToApi = (path: string) => (path.startsWith(`${API_BASE}/`) ? path.slice(API_BASE.length) : path)

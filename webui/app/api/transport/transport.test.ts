@@ -61,7 +61,7 @@ describe('transports agree', () => {
         const [cmd, bytes, opts] = invoke.mock.calls[0]
         expect(cmd).toBe('api')
         expect(new TextDecoder().decode(bytes as Uint8Array)).toBe('{"a":1}')
-        expect(opts).toEqual({ headers: { 'x-method': 'POST', 'x-path': '/agents', 'content-type': 'application/json' } })
+        expect(opts).toEqual({ headers: { 'x-method': 'POST', 'x-path': '/agents', 'content-type': 'application/json', 'x-content-type': 'application/json' } })
     })
 
     it('upload sends the multipart bytes with their boundary content type', async () => {

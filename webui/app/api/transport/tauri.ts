@@ -2,7 +2,7 @@
 import { Channel, invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { sendNotification } from '@tauri-apps/plugin-notification'
-import { API_BASE, settle, type DesktopShell, type DesktopState, type Envelope, type Transport, type UpdateInfo, type TopicHandle, type TopicOptions } from './common'
+import { API_BASE, relativeToApi, settle, type DesktopShell, type DesktopState, type Envelope, type Transport, type UpdateInfo, type TopicHandle, type TopicOptions } from './common'
 
 const ASSET = 'vizier-asset://localhost'
 const encoder = new TextEncoder()
@@ -11,7 +11,11 @@ type ApiResult<T> = { status: number; body: Envelope<T> | null }
 
 async function call<T>(method: string, path: string, bytes: Uint8Array | ArrayBuffer | undefined, contentType: string | undefined, raw?: boolean): Promise<T> {
     const headers: Record<string, string> = { 'x-method': method, 'x-path': path }
-    if (contentType) headers['content-type'] = contentType
+    if (contentType) {
+        headers['content-type'] = contentType
+        // `invoke` merges its own octet-stream label with ours; the shell reads this one first.
+        headers['x-content-type'] = contentType
+    }
     const res = await invoke<ApiResult<T>>('api', bytes ?? new Uint8Array(), { headers })
     return settle<T>(res.status, res.body, path, raw)
 }
@@ -46,7 +50,7 @@ export const tauri: Transport = {
         if (init?.range) headers.Range = `bytes=${init.range[0]}-${init.range[1]}`
         return fetch(`${ASSET}${API_BASE}${path}`, { headers, signal: init?.signal })
     },
-    assetUrl: (path) => `${ASSET}${API_BASE}${path}`,
+    assetUrl: (path) => `${ASSET}${API_BASE}${relativeToApi(path)}`,
     saveFile: (path, filename) => invoke('save_file', { path: `${API_BASE}${path}`, filename }),
     openFile: (path, filename) => invoke('open_file', { path: `${API_BASE}${path}`, filename }),
     openTopic(t, opts: TopicOptions): TopicHandle {

@@ -1,5 +1,5 @@
 // The browser transport: fetch and a WebSocket per topic, with a bearer token.
-import { API_BASE, getToken, settle, type Envelope, type Transport, type TopicHandle, type TopicOptions } from './common'
+import { API_BASE, getToken, relativeToApi, settle, type Envelope, type Transport, type TopicHandle, type TopicOptions } from './common'
 import { TopicSocket } from './websocket'
 
 async function send<T>(method: string, path: string, body: unknown, init?: { signal?: AbortSignal; raw?: boolean }): Promise<T> {
@@ -41,6 +41,7 @@ export const http: Transport = {
         return fetch(`${API_BASE}${path}`, { headers, signal: init?.signal })
     },
     assetUrl(path) {
+        path = relativeToApi(path)
         const token = getToken()
         const sep = path.includes('?') ? '&' : '?'
         return `${API_BASE}${path}${token ? `${sep}token=${encodeURIComponent(token)}` : ''}`

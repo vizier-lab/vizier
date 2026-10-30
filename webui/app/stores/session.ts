@@ -25,8 +25,10 @@ export function applyTheme(theme: Theme) {
     }
     // The court changes light in one breath: the old and new grounds cross-fade
     // instead of snapping. Browsers without the API, and people who asked for
-    // less movement, get the change straight away.
-    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    // less movement, get the change straight away. So does the desktop window: a view transition
+    // snapshots the page through the compositor, which WebKitGTK may not have (WSL, no GPU), and
+    // the window crashes on the switch.
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches || transport.authMode === 'desktop'
     const start = (
         document as Document & {
             startViewTransition?: (cb: () => void) => unknown
