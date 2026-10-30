@@ -8,6 +8,9 @@ const target = process.env.VIZIER_URL ?? 'http://localhost:9999'
 export default defineConfig({
     plugins: [tailwindcss(), reactRouter(), tsconfigPaths()],
     resolve: { dedupe: ['react', 'react-dom', 'motion'] },
+    // Only reached through the desktop transport's lazy import, so the dep scan misses them and the
+    // first desktop launch re-optimizes and reloads mid-boot (a blank window).
+    optimizeDeps: { include: ['@tauri-apps/api/core', '@tauri-apps/api/event', '@tauri-apps/plugin-notification'] },
     server: {
         port: 5173,
         strictPort: true,
