@@ -8,15 +8,8 @@
 /agents/{agent_id}/channel/{channel_id}/topic/{topic_id}/files
 /agents/{agent_id}/channel/{channel_id}/topic/{topic_id}/files/promote
 /agents/{agent_id}/channel/{channel_id}/topic/{topic_id}/history
-/agents/{agent_id}/channel/{channel_id}/topic/{topic_id}/jobs
-/agents/{agent_id}/channel/{channel_id}/topic/{topic_id}/jobs/{job_id}
-/agents/{agent_id}/channel/{channel_id}/topic/{topic_id}/jobs/{job_id}/cancel
-/agents/{agent_id}/channel/{channel_id}/topic/{topic_id}/jobs/{job_id}/pieces/{ordinal}/history
 /agents/{agent_id}/channel/{channel_id}/topics
 /agents/{agent_id}/chat
-/agents/{agent_id}/conversations
-/agents/{agent_id}/dream/cycles
-/agents/{agent_id}/dream/nights
 /agents/{agent_id}/integrations
 /agents/{agent_id}/integrations/events
 /agents/{agent_id}/integrations/grants
@@ -26,10 +19,6 @@
 /agents/{agent_id}/secrets
 /agents/{agent_id}/secrets/events
 /agents/{agent_id}/secrets/{name}
-/agents/{agent_id}/tasks
-/agents/{agent_id}/tasks/{slug}
-/agents/{agent_id}/tasks/{slug}/runs
-/agents/{agent_id}/tasks/{slug}/runs/{run_id}/history
 /agents/{agent_id}/usage
 /agents/{agent_id}/usage/conversation
 /auth/api-keys
