@@ -165,6 +165,9 @@ async fn desktop_dispatch_matches_the_network_router() {
                 // Fixed when the workspace was created, so it differs between runs.
                 nullify(&mut saved, "accounting_since");
                 nullify(&mut snapshot, "accounting_since");
+                // Relative to today (the dream nights list), so it moves with the clock.
+                nullify(&mut saved, "date");
+                nullify(&mut snapshot, "date");
                 assert_eq!(saved, snapshot, "behaviour changed: {label}");
             }
         }
