@@ -35,5 +35,6 @@ The desktop app planned in #102 will be distributed through GitHub Releases only
 The repository is a Cargo workspace: `crates/vizier-derive`, `crates/vizier-core`,
 `crates/vizier-http`, `crates/vizier`. A bare `cargo run` still starts the server. Source paths in
 issues and docs move from `src/…` to `crates/vizier-core/src/…` (engine), `crates/vizier-http/src/…`
-(HTTP) and `crates/vizier/src/…` (CLI). CI now has `server`, `webui`, `core-minimal`, `core-full`,
-`layering`, `deps` and `package` jobs; the branch protection on `master` should require them.
+(HTTP) and `crates/vizier/src/…` (CLI). CI now has `rust` (clippy and tests for the workspace), `core-minimal` (the engine with no
+features) and `policy` (crate layering and unchanged dependencies); the branch protection on
+`master` should require them.

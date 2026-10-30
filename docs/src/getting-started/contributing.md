@@ -33,8 +33,8 @@ The Rust code is a Cargo workspace of four crates under `crates/`. A bare `cargo
 | `vizier-http` | The REST/WebSocket server, authentication, OpenAPI and the embedded WebUI | A new route or payload |
 | `vizier` | The command-line binary: `run`, `shutdown`, `onboard`, `skill`, `agent`, config-file resolution, logging | A new CLI flag or subcommand |
 
-Dependencies point one way: `vizier` → `vizier-http` → `vizier-core` → `vizier-derive`. A CI job
-(`layering`) fails when a crate declares a dependency that belongs to a layer above it.
+Dependencies point one way: `vizier` → `vizier-http` → `vizier-core` → `vizier-derive`. The `policy` CI job
+fails when a crate declares a dependency that belongs to a layer above it.
 
 `vizier-core` runs without the optional parts of the server. Its feature groups (`discord`,
 `telegram`, `media`, `docker-shell`, `documents`, `utoipa`, `telemetry`; `full` turns them all on)

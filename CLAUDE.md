@@ -13,7 +13,7 @@ A virtual Cargo workspace (`members = ["crates/*"]`, `default-members = ["crates
 | Crate | Path | Holds |
 |---|---|---|
 | `vizier-derive` | `crates/vizier-derive/` | derive macros |
-| `vizier-core` | `crates/vizier-core/` | the engine: agents, tools, storage, providers, scheduler, `VizierRuntime`, Discord/Telegram readers. No web framework, CLI or terminal UI (the `layering` CI job checks each crate's *direct* dependencies). Feature groups `discord telegram media docker-shell documents utoipa telemetry` (`full` = all, `default = []`) |
+| `vizier-core` | `crates/vizier-core/` | the engine: agents, tools, storage, providers, scheduler, `VizierRuntime`, Discord/Telegram readers. No web framework, CLI or terminal UI (the `policy` CI job checks each crate's *direct* dependencies). Feature groups `discord telegram media docker-shell documents utoipa telemetry` (`full` = all, `default = []`) |
 | `vizier-http` | `crates/vizier-http/` | the axum REST/WebSocket server, JWT/argon2 auth, OpenAPI, the embedded WebUI and integration icons; `serve(&runtime, config)` and `router(..)` |
 | `vizier` | `crates/vizier/` | the binary: clap CLI, onboarding, the command socket, config-file/workspace resolution, logging and OTLP export, exit codes |
 

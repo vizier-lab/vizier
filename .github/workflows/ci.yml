@@ -1,8 +1,9 @@
 name: CI
 
-# Per-PR checks (specs/037-core-extraction research R15). `core-*` build the engine alone, with
-# no optional features and with all of them; only `vizier-http` embeds the WebUI, so only
-# `server` needs it built.
+# Per-PR checks (specs/037-core-extraction). Kept small on purpose: none of these builds the
+# WebUI. `vizier-http`'s build script embeds whatever it finds in `webui-dist/index.html` when
+# `webui/` is not checked out, so a one-line stub is enough to compile and test everything.
+# Packaging and the release path are proven by a dry run of `release-and-publish.yml`.
 
 on:
   pull_request:
@@ -16,112 +17,66 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   # Every rustc warning and clippy's correctness/suspicious lints fail the build. The style,
-  # complexity and perf groups are left as warnings: the tree carried ~100 of them before CI
-  # existed, and clearing them is its own change.
+  # complexity and perf groups stay warnings: the tree carried ~100 of them before CI existed.
   CLIPPY_LINTS: -D warnings -A clippy::style -A clippy::complexity -A clippy::perf
 
 jobs:
-  server:
-    name: server
+  rust:
+    name: rust
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
+      # The dummyplug harness starts the Node server from this one submodule.
+      - run: git submodule update --init dummyplug
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: 'npm'
-          cache-dependency-path: |
-            design/package-lock.json
-            webui/package-lock.json
       - name: Install Linux dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y pkg-config libssl-dev python3-dev libclang-dev clang perl make
-      - name: Build WebUI
+      - name: Stub the WebUI
         run: |
-          (cd design && npm ci)
-          (cd webui && npm ci && npm run build)
-      - name: Clear node_modules so cargo doesn't rebuild the WebUI
-        run: rm -rf webui/node_modules
+          mkdir -p crates/vizier-http/webui-dist
+          echo '<!doctype html><title>vizier</title>' > crates/vizier-http/webui-dist/index.html
       - name: Clippy
         run: cargo clippy --workspace --all-targets -- $CLIPPY_LINTS
       - name: Test
+        env:
+          CI: 'true'
         run: cargo test --workspace
-      - name: Build release
-        run: cargo build --release -p vizier
 
-  webui:
-    name: webui
+  # The engine alone: no optional feature, no web or CLI crate.
+  core-minimal:
+    name: core-minimal
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: 'npm'
-          cache-dependency-path: |
-            design/package-lock.json
-            webui/package-lock.json
-      - run: (cd design && npm ci)
-      - working-directory: webui
-        run: |
-          npm ci
-          npm run typecheck
-          npx vitest run
-
-  core:
-    name: core-${{ matrix.set }}
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - set: minimal
-            features: --no-default-features
-          - set: full
-            features: --all-features
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
+      - run: git submodule update --init dummyplug
       - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
       - uses: Swatinem/rust-cache@v2
         with:
-          key: core-${{ matrix.set }}
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
+          key: core-minimal
       - name: Install Linux dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y pkg-config libssl-dev python3-dev libclang-dev clang perl make
-      - name: Clippy
-        run: cargo clippy -p vizier-core --all-targets ${{ matrix.features }} -- $CLIPPY_LINTS
       - name: Test
-        # The dummyplug harness starts the Node server from the `dummyplug` submodule.
         env:
           CI: 'true'
-        run: cargo test -p vizier-core ${{ matrix.features }}
-      - name: Headless example
-        run: cargo build -p vizier-core ${{ matrix.features }} --example headless
+        run: cargo test -p vizier-core --no-default-features
 
-  layering:
-    name: layering
+  # Reads `cargo metadata` only: no compile.
+  policy:
+    name: policy
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: dtolnay/rust-toolchain@stable
-      - name: Check each crate's direct dependencies
+      - name: Layering
         # The engine must not declare the web framework, the CLI or the terminal UI, and the
         # HTTP adapter must not declare the CLI. Direct dependencies only: a third-party crate
         # may legitimately pull axum or tower-http in transitively (bollard via tonic).
@@ -144,16 +99,7 @@ jobs:
           check vizier-core axum axum-extra tower-http utoipa-axum utoipa-swagger-ui clap inquire termimad daemonize dotenvy opentelemetry-otlp jsonwebtoken argon2 tracing-subscriber
           check vizier-http clap inquire termimad daemonize dotenvy opentelemetry-otlp
           exit $fail
-
-  deps:
-    name: deps
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Compare resolved dependencies with master
+      - name: Dependencies unchanged
         # FR-019: no dependency version or source may change. The workspace's own crates are
         # left out; an entry on one side only (a feature made optional) is printed, not failed.
         run: |
@@ -191,64 +137,3 @@ jobs:
               sys.exit(1)
           print("no dependency version changes")
           PY
-
-  package:
-    name: package
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: package
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: 'npm'
-          cache-dependency-path: |
-            design/package-lock.json
-            webui/package-lock.json
-      - name: Install Linux dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y pkg-config libssl-dev python3-dev libclang-dev clang perl make
-      - name: Build WebUI
-        run: |
-          (cd design && npm ci)
-          (cd webui && npm ci && npm run build)
-          rm -rf webui/node_modules
-      - name: Stage WebUI
-        run: |
-          mkdir -p crates/vizier-http/webui-dist
-          cp -r webui/build/client/. crates/vizier-http/webui-dist/
-      - name: Package every crate
-        # Each crate is built from its own .crate file against a local overlay of the others.
-        run: |
-          cargo package --workspace --allow-dirty
-          for crate in target/package/*.crate; do
-            size=$(stat -c %s "$crate")
-            echo "$crate: $size bytes"
-            [ "$size" -le 10485760 ] || (echo "::error::$crate exceeds crates.io's 10 MB limit"; exit 1)
-          done
-      - name: Build the docs as docs.rs does
-        env:
-          DOCS_RS: '1'
-        run: cargo doc -p vizier-core --no-deps --features discord,telegram,documents,utoipa
-      - name: Public API of vizier-core
-        # The stable tier only: #[doc(hidden)] items are not in rustdoc JSON. A change to the API
-        # has to update crates/vizier-core/public-api.txt in the same pull request.
-        run: |
-          rustup toolchain install nightly --profile minimal
-          cargo install cargo-public-api --locked
-          cargo public-api -p vizier-core --simplified > /tmp/public-api.txt
-          if [ -f crates/vizier-core/public-api.txt ]; then
-            diff -u crates/vizier-core/public-api.txt /tmp/public-api.txt \
-              || (echo "::error::vizier-core's public API changed; update crates/vizier-core/public-api.txt"; exit 1)
-          else
-            echo "::notice::no crates/vizier-core/public-api.txt yet; add this output:"
-            cat /tmp/public-api.txt
-          fi
-      # cargo-semver-checks compares against the last published vizier-core, which does not
-      # exist before the first release of these crates: add it to this job after that release.

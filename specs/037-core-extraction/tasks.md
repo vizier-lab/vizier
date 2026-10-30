@@ -366,3 +366,11 @@ Each PR is conventional-commit titled (table above), passes CI, and must show ze
   only `access auth config error prelude runtime schema transport`; none of the hidden modules
   appear. CI installs a fresh nightly, so a rustdoc-JSON format change there could make the diff
   fail for reasons unrelated to the API: regenerate the file with the same command if that happens.
+- **CI simplified after review** (supersedes T005–T007, T053, T059, T060, T070): three jobs, none
+  of which builds the WebUI (a stub `webui-dist/index.html` satisfies `vizier-http`'s build
+  script): `rust` (workspace clippy and tests), `core-minimal` (`vizier-core` with no features) and
+  `policy` (layering and unchanged dependencies, `cargo metadata` only). Dropped: the `webui` job,
+  `core-full` (the workspace build already enables every feature) and the `package` job, so the
+  `public-api.txt` snapshot is no longer diffed in CI; regenerate it by hand with the command in
+  the T069 note when the stable API changes on purpose. Packaging stays covered by a dry run of
+  `release-and-publish.yml`.
