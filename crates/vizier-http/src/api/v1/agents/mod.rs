@@ -46,65 +46,25 @@ use secrets::secrets;
 use skills::agent_skills;
 use task::task;
 
-pub fn user_can_view_agent(
-    user: &crate::auth::Principal,
-    config: &AgentConfig,
-) -> bool {
-    if user.role.is_system || user.permissions.contains(&"all_agents:view".to_string()) {
-        return true;
-    }
-    if let Some(ref owner_id) = config.owner_id {
-        if *owner_id == user.user_id {
-            return true;
-        }
-    }
-    if config.shared_to.contains(&user.user_id) {
-        return true;
-    }
-    false
+pub fn user_can_view_agent(user: &crate::auth::Principal, config: &AgentConfig) -> bool {
+    vizier_core::access::can_view_agent(user, config)
 }
 
 /// Whether `user` may read this agent's Discord (`platform` = `"discord"`) or Telegram
 /// (`"telegram"`) conversations: `all_agents:show_<platform>_chats` for any agent,
 /// `owned_agents:show_<platform>_chats` for agents they own.
-pub fn user_can_show_platform_chats(
-    user: &crate::auth::Principal,
-    config: &AgentConfig,
-    platform: &str,
-) -> bool {
-    let has = |scope: &str| {
-        let wanted = format!("{scope}_agents:show_{platform}_chats");
-        user.permissions.iter().any(|p| *p == wanted)
-    };
-    user.role.is_system
-        || has("all")
-        || (has("owned") && config.owner_id.as_deref() == Some(user.user_id.as_str()))
+pub fn user_can_show_platform_chats(user: &crate::auth::Principal, config: &AgentConfig, platform: &str) -> bool {
+    vizier_core::access::can_show_platform_chats(user, config, platform)
 }
 
 /// The platform a conversation slug belongs to, if it is a Discord or Telegram one.
 pub fn platform_of_slug(channel: &str) -> Option<&'static str> {
-    if channel.starts_with("discord__") {
-        Some("discord")
-    } else if channel.starts_with("telegram__") {
-        Some("telegram")
-    } else {
-        None
-    }
+    vizier_core::access::platform_of_slug(channel)
 }
 
-fn user_can_edit_agent(
-    user: &crate::auth::Principal,
-    config: &AgentConfig,
-) -> bool {
-    if user.role.is_system || user.permissions.contains(&"all_agents:edit".to_string()) {
-        return true;
-    }
-    if let Some(ref owner_id) = config.owner_id {
-        if *owner_id == user.user_id {
-            return true;
-        }
-    }
-    false
+#[allow(dead_code)]
+fn user_can_edit_agent(user: &crate::auth::Principal, config: &AgentConfig) -> bool {
+    vizier_core::access::can_edit_agent(user, config)
 }
 
 pub(crate) fn svc(state: &HTTPState) -> vizier_core::service::Services {
