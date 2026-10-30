@@ -44,9 +44,11 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
-          ref: v${{ inputs.version }}
+          # A dry run publishes nothing and no tag exists for it: check the branch it runs on.
+          ref: ${{ inputs.dry_run && github.ref || format('v{0}', inputs.version) }}
 
       - name: Verify tag exists
+        if: ${{ !inputs.dry_run }}
         run: |
           if ! git describe --tags --exact-match HEAD 2>/dev/null; then
             echo "::error::Tag v${{ inputs.version }} not found. Please run the Release workflow first."
@@ -58,8 +60,13 @@ jobs:
         run: |
           CARGO_VERSION=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name=="vizier") | .version')
           if [ "$CARGO_VERSION" != "${{ inputs.version }}" ]; then
-            echo "::error::Version mismatch! Cargo.toml has $CARGO_VERSION but requested ${{ inputs.version }}"
-            exit 1
+            if [ "${{ inputs.dry_run }}" = "true" ]; then
+              # The version bump of a dry-run release is never pushed, so the branch is still at the old one.
+              echo "::notice::dry run: the branch is at $CARGO_VERSION; a release would be ${{ inputs.version }}"
+            else
+              echo "::error::Version mismatch! Cargo.toml has $CARGO_VERSION but requested ${{ inputs.version }}"
+              exit 1
+            fi
           fi
           echo "Version verified: $CARGO_VERSION"
 
