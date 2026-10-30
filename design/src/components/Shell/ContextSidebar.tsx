@@ -44,17 +44,20 @@ export type ContextSidebarProps = {
   /** Pages the person may not see. */
   hiddenPages?: EssentialPage[];
   hrefFor: (page: EssentialPage) => string;
+  /** Starts a new conversation: a "New" item above the essentials. Omit it to hide the item. */
+  onNew?: () => void;
   /** Below the essentials: the session list. It takes the rest of the height and scrolls itself. */
   children?: ReactNode;
 } & HTMLAttributes<HTMLElement>;
 
 /** The 208px column beside the rail: the agent, its essentials, and what the page puts below them. */
-export function ContextSidebar({ agent, active, hiddenPages, hrefFor, children, className, ...rest }: ContextSidebarProps) {
+export function ContextSidebar({ agent, active, hiddenPages, hrefFor, onNew, children, className, ...rest }: ContextSidebarProps) {
   const hidden = new Set(hiddenPages);
   return (
     <nav aria-label="Agent" className={cx("flex h-full w-256 shrink-0 flex-col gap-8 bg-shell pr-12 pl-0 pt-12 pb-14", className)} {...rest}>
       <div className="shrink-0">{agent}</div>
       <div className="flex shrink-0 flex-col gap-2 pt-4">
+        {onNew && <NavItem icon="chat-plus" label="New" onSelect={onNew} />}
         {ESSENTIALS.filter((p) => !hidden.has(p.page)).map((p) => (
           <NavItem key={p.page} icon={p.icon} label={p.label} href={hrefFor(p.page)} active={active === p.page} />
         ))}
