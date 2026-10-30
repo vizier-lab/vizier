@@ -37,16 +37,16 @@ description: "Task list for extracting vizier-core and splitting the workspace (
 
 **Purpose**: Baselines and CI that every later phase is measured against. Nothing here changes product code.
 
-- [ ] T001 Run `just checkout 037-core-extraction` so the workspace and the `design`, `webui`, `landing`, `dummyplug` submodules are on the same branch (constitution v1.3.0); confirm with `just status`
-- [ ] T002 On `master` (`0eee255` or the current tip), build the release binary and record the baselines from quickstart §1 into `target/037-baseline/` (gitignored): every `--help` output (`help-*.txt`), `GET /openapi.json` (`openapi.json`), and the resolved dependency triples (`deps.txt` from `cargo metadata --format-version 1 --locked`); add `target/037-baseline/` to nothing — `target/` is already ignored
-- [ ] T003 Create a previous-release workspace for upgrade testing: with the current release binary and `VIZIER_DATA_DIR=target/037-baseline/workspace`, create one agent on the `dummyplug` provider, one WebUI conversation, one memory document and one scheduled task (quickstart §1)
-- [ ] T004 Add `scripts/037-baseline-check.sh` that rebuilds the binary and diffs `--help` outputs, `/openapi.json` and the dependency triples against `target/037-baseline/` (the quickstart §4 and §5 commands, with the four workspace crate names filtered out of the dependency diff); exits non-zero on any difference
-- [ ] T005 [P] Create `.github/workflows/ci.yml` (on `pull_request` and push to `master`) with jobs `server` (checkout with submodules, Node 22, `(cd design && npm ci)`, `(cd webui && npm ci && npm run build)`, `cargo clippy --all-targets -- -D warnings`, `cargo test`, `cargo build --release`) and `webui` (`cd webui && npm ci && npm run typecheck && npx vitest run`), per research R15
-- [ ] T006 [P] Add to `.github/workflows/ci.yml` jobs `core-minimal` and `core-full` that, until the split, run `cargo check --all-targets` and `cargo test` on the single crate (with `--no-default-features` and `--all-features` respectively); T040 and T053 retarget them to `-p vizier-core`
-- [ ] T007 [P] Add a `deps` job to `.github/workflows/ci.yml` that fetches `origin/master`, computes `cargo metadata --format-version 1 --locked` `(name, version, source)` triples on both, filters out `vizier`, `vizier-core`, `vizier-http`, `vizier-derive`, and fails on any version or source difference; entries present on only one side are printed for review, not failed (research R12)
-- [ ] T008 Write the in-process harness `src/e2e_tests.rs` (`#[cfg(test)] mod e2e_tests;` in `src/main.rs`): temp workspace via `tempfile`, build `VizierDependencies` from a `VizierConfig` with that workspace, start `VizierAgents` + the transport command handler on the test runtime, create a `dummyplug` agent with `AgentCommand::Create`, then send `Chat` requests through `VizierTransport::send_request` and assert, per `specs/008-dummyplug-provider/contracts/dummyplug-protocol.md`: `tools` lists `think`, `execute_python`, `list_tool_functions`, `describe_tool_function`; `execute_python` returns a sample JSON request; that JSON runs the tool and history holds the call and its result; `context` echoes the context block. Reuse helpers from `src/tests_support.rs`
-- [ ] T009 Run T008 locally (`cargo test e2e_tests`) and in CI (`core-minimal`, `core-full`, `server`); fix flakiness (timeouts, ports) before merging — this harness is the regression gate for every later phase
-- [ ] T010 Confirm `vizier-core` and `vizier-http` are still unclaimed on crates.io (`cargo search vizier-core`, `cargo search vizier-http`, and the crates.io page for each); record the result in the PR 1 description
+- [X] T001 Run `just checkout 037-core-extraction` so the workspace and the `design`, `webui`, `landing`, `dummyplug` submodules are on the same branch (constitution v1.3.0); confirm with `just status`
+- [X] T002 On `master` (`0eee255` or the current tip), build the release binary and record the baselines from quickstart §1 into `target/037-baseline/` (gitignored): every `--help` output (`help-*.txt`), `GET /openapi.json` (`openapi.json`), and the resolved dependency triples (`deps.txt` from `cargo metadata --format-version 1 --locked`); add `target/037-baseline/` to nothing — `target/` is already ignored
+- [X] T003 Create a previous-release workspace for upgrade testing: with the current release binary and `VIZIER_DATA_DIR=target/037-baseline/workspace`, create one agent on the `dummyplug` provider, one WebUI conversation, one memory document and one scheduled task (quickstart §1)
+- [X] T004 Add `scripts/037-baseline-check.sh` that rebuilds the binary and diffs `--help` outputs, `/openapi.json` and the dependency triples against `target/037-baseline/` (the quickstart §4 and §5 commands, with the four workspace crate names filtered out of the dependency diff); exits non-zero on any difference
+- [X] T005 [P] Create `.github/workflows/ci.yml` (on `pull_request` and push to `master`) with jobs `server` (checkout with submodules, Node 22, `(cd design && npm ci)`, `(cd webui && npm ci && npm run build)`, `cargo clippy --all-targets -- -D warnings`, `cargo test`, `cargo build --release`) and `webui` (`cd webui && npm ci && npm run typecheck && npx vitest run`), per research R15
+- [X] T006 [P] Add to `.github/workflows/ci.yml` jobs `core-minimal` and `core-full` that, until the split, run `cargo check --all-targets` and `cargo test` on the single crate (with `--no-default-features` and `--all-features` respectively); T040 and T053 retarget them to `-p vizier-core`
+- [X] T007 [P] Add a `deps` job to `.github/workflows/ci.yml` that fetches `origin/master`, computes `cargo metadata --format-version 1 --locked` `(name, version, source)` triples on both, filters out `vizier`, `vizier-core`, `vizier-http`, `vizier-derive`, and fails on any version or source difference; entries present on only one side are printed for review, not failed (research R12)
+- [X] T008 Write the in-process harness `src/e2e_tests.rs` (`#[cfg(test)] mod e2e_tests;` in `src/main.rs`): temp workspace via `tempfile`, build `VizierDependencies` from a `VizierConfig` with that workspace, start `VizierAgents` + the transport command handler on the test runtime, create a `dummyplug` agent with `AgentCommand::Create`, then send `Chat` requests through `VizierTransport::send_request` and assert, per `specs/008-dummyplug-provider/contracts/dummyplug-protocol.md`: `tools` lists `think`, `execute_python`, `list_tool_functions`, `describe_tool_function`; `execute_python` returns a sample JSON request; that JSON runs the tool and history holds the call and its result; `context` echoes the context block. Reuse helpers from `src/tests_support.rs`
+- [X] T009 Run T008 locally (`cargo test e2e_tests`) and in CI (`core-minimal`, `core-full`, `server`); fix flakiness (timeouts, ports) before merging — this harness is the regression gate for every later phase
+- [X] T010 Confirm `vizier-core` and `vizier-http` are still unclaimed on crates.io (`cargo search vizier-core`, `cargo search vizier-http`, and the crates.io page for each); record the result in the PR 1 description
 
 **Checkpoint**: CI green on `master` + this branch; baselines recorded; harness passes.
 
@@ -270,3 +270,21 @@ Each PR is conventional-commit titled (table above), passes CI, and must show ze
 - Use `git mv` for every move so history follows
 - Never bump a dependency version; the `deps` job and T057 check it
 - Don't delete migrations, legacy shims or `legacy`/`migrated_from` fields while moving code (#82)
+
+## Implementation notes
+
+- **T002/T003**: baselines were recorded from the debug build of `0eee255` (the `--help` and
+  `/openapi.json` output don't depend on the profile; `PROFILE=release scripts/037-baseline-check.sh`
+  checks a release build). The upgrade workspace was seeded with that build (v0.13.5, the
+  current release); `VIZIER_JWT_SECRET` must be set for `vizier run`/`shutdown` without a config.
+- **T008 (deviation from R11)**: `dummyplug` is no longer an in-process Rust model; it is the
+  Node server in the `dummyplug` submodule (spec 030). The harness starts it on a free port
+  and stores that URL as the provider's `base_url`. It is skipped locally without Node or the
+  submodule and fails under `CI`. `agent_config` leaves `prompt_timeout`/`tools.timeout` at
+  zero, so the harness sets the HTTP API's defaults (60m/30m).
+- **T005 (deviation)**: the tree had ~110 clippy style/complexity/perf warnings before CI
+  existed, so CI runs `-D warnings -A clippy::style -A clippy::complexity -A clippy::perf`
+  (`CLIPPY_LINTS` in `ci.yml`): rustc warnings and correctness/suspicious lints fail. Later
+  tasks' "`-D warnings`" means these flags.
+- **T010**: `cargo search` finds neither name and `crates.io/api/v1/crates/vizier-{core,http}`
+  returns 404 for both (2026-10-30).

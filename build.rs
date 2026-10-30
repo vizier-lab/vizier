@@ -12,7 +12,7 @@ fn main() {
     if webui_node_modules.exists() {
         // Run npm build before cargo build
         let status = Command::new("npm")
-            .args(&["run", "build"])
+            .args(["run", "build"])
             .current_dir("webui")
             .status()
             .expect("Failed to build webui");

@@ -48,6 +48,8 @@ mod utils;
 
 #[cfg(test)]
 mod tests_support;
+#[cfg(test)]
+mod e2e_tests;
 
 fn main() -> Result<()> {
     dotenvy::dotenv().ok();

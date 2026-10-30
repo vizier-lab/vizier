@@ -1,0 +1,168 @@
+name: CI
+
+# Per-PR checks (specs/037-core-extraction research R15). Until the workspace split the
+# `core-*` jobs run on the single `vizier` crate with the same feature sets they will use for
+# `vizier-core`; they still need the WebUI built, because the single crate's build script embeds it.
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  # Every rustc warning and clippy's correctness/suspicious lints fail the build. The style,
+  # complexity and perf groups are left as warnings: the tree carried ~100 of them before CI
+  # existed, and clearing them is its own change.
+  CLIPPY_LINTS: -D warnings -A clippy::style -A clippy::complexity -A clippy::perf
+
+jobs:
+  server:
+    name: server
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: |
+            design/package-lock.json
+            webui/package-lock.json
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libssl-dev python3-dev libclang-dev clang perl make
+      - name: Build WebUI
+        run: |
+          (cd design && npm ci)
+          (cd webui && npm ci && npm run build)
+      - name: Clear node_modules so cargo doesn't rebuild the WebUI
+        run: rm -rf webui/node_modules
+      - name: Clippy
+        run: cargo clippy --all-targets -- $CLIPPY_LINTS
+      - name: Test
+        run: cargo test
+      - name: Build release
+        run: cargo build --release
+
+  webui:
+    name: webui
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: |
+            design/package-lock.json
+            webui/package-lock.json
+      - run: (cd design && npm ci)
+      - working-directory: webui
+        run: |
+          npm ci
+          npm run typecheck
+          npx vitest run
+
+  core:
+    name: core-${{ matrix.set }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - set: minimal
+            features: --no-default-features
+          - set: full
+            features: --all-features
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: core-${{ matrix.set }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: |
+            design/package-lock.json
+            webui/package-lock.json
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libssl-dev python3-dev libclang-dev clang perl make
+      - name: Build WebUI
+        run: |
+          (cd design && npm ci)
+          (cd webui && npm ci && npm run build)
+          rm -rf webui/node_modules
+      - name: Check
+        run: cargo check --all-targets ${{ matrix.features }}
+      - name: Test
+        # The dummyplug harness starts the Node server from the `dummyplug` submodule.
+        env:
+          CI: 'true'
+        run: cargo test ${{ matrix.features }}
+
+  deps:
+    name: deps
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Compare resolved dependencies with master
+        # FR-019: no dependency version or source may change. The workspace's own crates are
+        # left out; an entry on one side only (a feature made optional) is printed, not failed.
+        run: |
+          set -euo pipefail
+          triples() {
+            cargo metadata --format-version 1 --locked --manifest-path "$1/Cargo.toml" \
+              | jq -r '.packages[] | "\(.name) \(.version) \(.source)"' \
+              | grep -vE '^vizier(-core|-http|-derive)? ' | sort -u
+          }
+          git worktree add ../master origin/master
+          triples ../master > /tmp/master.txt
+          triples . > /tmp/head.txt
+          # A crate name on both sides whose set of (version, source) differs fails; a crate
+          # locked at several versions is compared as a set, not line by line.
+          python3 -I - /tmp/master.txt /tmp/head.txt <<'PY'
+          import sys
+          from collections import defaultdict
+          def load(path):
+              out = defaultdict(set)
+              for line in open(path):
+                  name, rest = line.rstrip("\n").split(" ", 1)
+                  out[name].add(rest)
+              return out
+          base, head = load(sys.argv[1]), load(sys.argv[2])
+          only = sorted(set(base) ^ set(head))
+          if only:
+              print("::notice::crates present on one side only (review):")
+              for n in only:
+                  print(f"  {n}: master={sorted(base.get(n, []))} head={sorted(head.get(n, []))}")
+          changed = [n for n in sorted(set(base) & set(head)) if base[n] != head[n]]
+          if changed:
+              print("::error::resolved dependency versions or sources changed:")
+              for n in changed:
+                  print(f"  {n}: master={sorted(base[n])} head={sorted(head[n])}")
+              sys.exit(1)
+          print("no dependency version changes")
+          PY
