@@ -33,6 +33,8 @@ pub fn navigation_allowed(url: &str, dev_url: Option<&str>) -> bool {
         url == origin
             || url.strip_prefix(origin).is_some_and(|rest| rest.starts_with('/') || rest.starts_with('?') || rest.starts_with('#'))
     };
+    // `Url::to_string` ends the dev origin with a `/`; compare on the bare origin.
+    let dev_url = dev_url.map(|d| d.trim_end_matches('/'));
     APP_ORIGINS.iter().any(|o| on_origin(o)) || dev_url.is_some_and(on_origin)
 }
 
@@ -141,6 +143,9 @@ mod tests {
         assert!(!navigation_allowed("tauri://localhost.evil.com/", None));
         assert!(navigation_allowed("http://localhost:5173/x", Some("http://localhost:5173")));
         assert!(!navigation_allowed("http://localhost:5173/x", None));
+        // The configured dev URL arrives with a trailing slash.
+        assert!(navigation_allowed("http://localhost:5173/agents/a", Some("http://localhost:5173/")));
+        assert!(navigation_allowed("http://localhost:5173/", Some("http://localhost:5173/")));
     }
 
     #[test]

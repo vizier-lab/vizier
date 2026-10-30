@@ -22,7 +22,7 @@ shell = [
 ]
 
 [build-dependencies]
-tauri-build = { version = "2", optional = true }
+tauri-build = { version = "2", optional = true , features = [] }
 
 [dependencies]
 vizier-core = { path = "../../crates/vizier-core" }
