@@ -1,4 +1,3 @@
-import { StatusDot } from "./StatusDot";
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 import { Sigil } from "../../brand/Sigil/Sigil";
 import { Icon } from "../../icons/Icon";
@@ -36,7 +35,6 @@ export function SidebarAgent({ agentId, imageSrc, name, state, detail, active, t
     >
       <span className="relative shrink-0">
         <Sigil size="rail" agentId={agentId} image={imageSrc} live={state === "live" || state === "running"} />
-        <StatusDot state={state} />
       </span>
       <span className="flex min-w-0 flex-1 flex-col gap-2">
         <span className="truncate type-body-strong text-fg">{name}</span>
