@@ -136,7 +136,7 @@ Maintainers publish installable macOS and Linux builds from the release process,
 - **FR-018**: When web access is on, every network request MUST authenticate through the normal sign-in, including requests from the same machine, and the desktop identity MUST be rejected on the network.
 - **FR-019**: Exposing web access beyond the local machine MUST require an explicit switch with a visible warning, and cross-origin access MUST be limited to the origins the app actually serves.
 - **FR-020**: If the engine or any of its subsystems stops, the app MUST show the failure and offer restart; it MUST NOT exit silently or show a blank window.
-- **FR-021**: The release process MUST publish the app on the project's GitHub Releases, and nowhere else for now, as: one signed and notarized macOS download covering Apple Silicon and Intel (macOS 11 or later), and a Linux AppImage for each of x86_64 and arm64. Installed apps MUST be able to update themselves from those releases.
+- **FR-021**: The release process MUST publish the app on the project's GitHub Releases, and nowhere else for now, as: one macOS download covering Apple Silicon and Intel (macOS 11 or later; unsigned and not notarized for now, tracked in #132), and a Linux AppImage for each of x86_64 and arm64. Installed apps MUST be able to update themselves from those releases.
 - **FR-022**: The server edition's behavior, packages, container image and install paths MUST remain unchanged, and the app MUST NOT add desktop-toolkit requirements to the server's build or test runs.
 - **FR-023**: This work MUST NOT change the pinned embedding and speech dependency versions.
 - **FR-024**: The documentation MUST describe installing the app, the security boundary (operating-system account equals workspace boundary), web access, and how third-party interfaces can build on the engine.
@@ -159,7 +159,7 @@ Maintainers publish installable macOS and Linux builds from the release process,
 - **SC-004**: With default settings, a port scan of the machine finds nothing listening on behalf of the app.
 - **SC-005**: A reply starts appearing in the window within 1 second of the model producing its first output, matching the server's web interface.
 - **SC-006**: Relaunching the app after a forced quit resumes or marks every interrupted turn, with zero lost conversations.
-- **SC-007**: A single macOS download installs and launches on both Apple Silicon and Intel Macs running macOS 11 or later.
+- **SC-007**: A single macOS download installs and launches on both Apple Silicon and Intel Macs running macOS 11 or later, following the documented first-launch step for an unsigned app.
 - **SC-008**: An installed app updates to a newer release on both Mac architectures and both Linux architectures in a release rehearsal.
 - **SC-009**: Server-edition tests, packaging and release dry run pass unchanged, and a server build needs no desktop toolkit installed.
 - **SC-010**: No network request carrying desktop identity is ever accepted, confirmed by an automated check.
@@ -171,6 +171,7 @@ Maintainers publish installable macOS and Linux builds from the release process,
 - The app is local-first. Connecting the app window to a remote vizier is out of scope but must not be made harder.
 - One desktop owner is bound per workspace; an app lock (PIN/biometric) and multi-user sharing of one workspace are follow-ups.
 - Web access over the network uses plain HTTP; the exposed mode is documented as trusted-network only until encryption is added.
+- The macOS app ships unsigned and not notarized: on first launch people allow it once under System Settings › Privacy & Security › Open Anyway (documented), and the microphone permission is asked again after each update. Apple signing and notarization are tracked in #132. Update packages are still signed with the app's own update key on every platform.
 - Other Linux formats (`.deb`, `.rpm`, Flatpak) and package managers (Homebrew, Flathub) are not provided for now; the app is distributed only through GitHub Releases.
 - Native tools for agents (phase 8: agent-callable native capabilities, OS keychain secret store) are a separate issue, not part of this feature.
 - Retiring local speech models (#101) and upgrading the embedding library are separate projects.

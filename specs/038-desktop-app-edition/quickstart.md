@@ -123,8 +123,10 @@ Run `release.yml` with `dry_run: true` from the branch:
 2. `build-app` produces the universal `.dmg` + `.app.tar.gz`, two AppImages, `.sig`s,
    `latest.json`; the job's `lipo -archs` prints `x86_64 arm64`; `file` reports both Linux
    machines.
-3. **[mac]** Install the `.dmg` on an Apple Silicon and an Intel Mac (macOS 11+): opens,
-   Gatekeeper accepts (signed + notarized) (SC-007).
+3. **[mac]** Install the `.dmg` on an Apple Silicon and an Intel Mac (macOS 11+): the first
+   launch is blocked; **Open Anyway** in System Settings › Privacy & Security opens it; the
+   documented steps match what happens (SC-007). After an update, the microphone prompt
+   reappears (expected until #132).
 4. **[linux] [arm64]** Run each AppImage on Ubuntu 22.04 (x86_64 and arm64) → opens, §2 steps
    1–4 pass.
 5. Updater: install version N, publish N+1 to a test release channel (override the endpoint

@@ -313,7 +313,7 @@ the server `build` job), uploading into the same `create-release` step:
 
 | Asset | Runner | Notes |
 |---|---|---|
-| `Vizier_<v>_universal.dmg` + `Vizier.app.tar.gz` (+ `.sig`) | `macos-latest` | `tauri build --target universal-apple-darwin`; both rust targets installed; signed + notarized; minimum macOS 11.0 |
+| `Vizier_<v>_universal.dmg` + `Vizier.app.tar.gz` (+ `.sig`) | `macos-latest` | `tauri build --target universal-apple-darwin`; both rust targets installed; unsigned for now (ad-hoc signature only, #132); minimum macOS 11.0 |
 | `Vizier_<v>_amd64.AppImage` (+ `.sig`) | `ubuntu-22.04` | `bundleMediaFramework: true` (GStreamer for audio recording/playback) |
 | `Vizier_<v>_aarch64.AppImage` (+ `.sig`) | `ubuntu-22.04-arm` | native build, same config |
 | `latest.json` | `create-release` | assembled from the four `.sig` files: `darwin-aarch64` and `darwin-x86_64` both point at the universal `.app.tar.gz`; `linux-x86_64`, `linux-aarch64` at the AppImages |
@@ -326,11 +326,19 @@ not marked `latest`, so app users only follow stable releases. Checks in the job
 the right machine. The server `build` job, tarballs, Docker image and `install.sh` are not
 touched (FR-022). Dry runs build everything and skip upload, like the server job.
 
-**Secrets (maintainer action)**: `TAURI_SIGNING_PRIVATE_KEY` (+ password) for updater
-signatures; `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`,
-`APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID` for codesign + notarization. Without them the
-job builds unsigned artifacts and the release notes say so; a non-dry release fails if they
-are missing.
+**Signing**: the macOS build is **unsigned and not notarized** for now (decided
+2026-10-30, tracked in #132). Consequences, documented in the install docs and release notes:
+Gatekeeper blocks the first launch until the person clicks **Open Anyway** in System Settings ›
+Privacy & Security (macOS 15 removed the right-click › Open bypass), and the microphone
+permission is asked again after each update because the ad-hoc signature changes per build.
+The job signs and notarizes automatically when the `APPLE_*` secrets are present (Tauri reads
+`APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`, `APPLE_ID`,
+`APPLE_PASSWORD`, `APPLE_TEAM_ID`) and builds unsigned otherwise, so #132 is only adding secrets
+and removing the doc step.
+
+**Update signatures** are required on every platform and independent of Apple:
+`TAURI_SIGNING_PRIVATE_KEY` (+ `_PASSWORD`) secrets, public key committed in
+`tauri.conf.json`. A non-dry release fails if they are missing; dry runs skip the `.sig` files.
 
 **Alternatives considered**: `tauri-apps/tauri-action` for build + upload (rejected: it creates
 or edits the release itself, which fights the existing `create-release` job; we only use

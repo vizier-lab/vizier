@@ -5,7 +5,7 @@ assets. Nowhere else (spec FR-021).
 
 | Asset | Platform | Installs on |
 |---|---|---|
-| `Vizier_<version>_universal.dmg` | macOS | Apple Silicon and Intel, macOS 11.0+ |
+| `Vizier_<version>_universal.dmg` | macOS | Apple Silicon and Intel, macOS 11.0+; unsigned and not notarized until #132 |
 | `Vizier_universal.app.tar.gz` + `.sig` | macOS (updater payload) | same |
 | `Vizier_<version>_amd64.AppImage` + `.sig` | Linux x86_64 | glibc ≥ 2.35 (Ubuntu 22.04, Debian 12, Fedora 36 and later) |
 | `Vizier_<version>_aarch64.AppImage` + `.sig` | Linux arm64 | glibc ≥ 2.35 |
@@ -40,4 +40,5 @@ never `latest`, so installed apps only move between stable releases.
   verifies against the public key compiled into the app.
 - The server's assets (`vizier-v<version>-<target>.tar.gz` + `.sha256` for the four targets),
   the Docker image and `install.sh` are byte-for-byte produced by the unchanged server job.
-- Release notes gain an "Desktop app" section listing the three downloads.
+- Release notes gain a "Desktop app" section listing the three downloads and, while the macOS
+  build is unsigned (#132), the Open Anyway first-launch step.
