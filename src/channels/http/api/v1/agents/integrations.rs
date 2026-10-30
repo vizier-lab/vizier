@@ -25,7 +25,7 @@ use crate::{
                 FamilyQuery, IntegrationView, agents_by_id, fail, ok, plain, requester_name,
                 service_error, storage_error, usernames, view,
             },
-            auth::AuthenticatedUser,
+            auth::Identity,
             models::page::{Listing, ListQuery, SortKey, SortOrder, paginate},
             state::HTTPState,
         },
@@ -146,7 +146,7 @@ impl Listing<IntegrationItem> for McpListing {
 /// The agent, if the caller can view it; otherwise the `404` to answer with.
 async fn viewable_agent(
     state: &HTTPState,
-    user: &AuthenticatedUser,
+    user: &Identity,
     agent_id: &str,
 ) -> Result<AgentConfig, Response> {
     match state.storage.get_agent(agent_id).await {
@@ -173,7 +173,7 @@ fn status(
 
 struct ItemContext<'a> {
     state: &'a HTTPState,
-    user: &'a AuthenticatedUser,
+    user: &'a Identity,
     agent_id: &'a str,
     agents: &'a HashMap<AgentId, AgentConfig>,
     users: &'a HashMap<String, String>,
@@ -218,7 +218,7 @@ impl ItemContext<'_> {
 )]
 pub async fn list(
     State(state): State<HTTPState>,
-    Extension(user): Extension<AuthenticatedUser>,
+    Extension(user): Extension<Identity>,
     Path(agent_id): Path<String>,
     Query(query): Query<FamilyQuery>,
     Query(paging): Query<ListQuery>,
@@ -303,7 +303,7 @@ fn default_true() -> bool {
 )]
 pub async fn create(
     State(state): State<HTTPState>,
-    Extension(user): Extension<AuthenticatedUser>,
+    Extension(user): Extension<Identity>,
     Path(agent_id): Path<String>,
     Json(body): Json<CreateIntegration>,
 ) -> Response {
@@ -345,7 +345,7 @@ pub struct IntegrationRemoved {
 }
 
 /// Delete it, or unlink a legacy integration from this agent only (FR-023).
-async fn remove_from_agent(state: &HTTPState, user: &AuthenticatedUser, agent_id: &str, integration_id: &str) -> Response {
+async fn remove_from_agent(state: &HTTPState, user: &Identity, agent_id: &str, integration_id: &str) -> Response {
     if let Err(r) = viewable_agent(state, user, agent_id).await {
         return r;
     }
@@ -380,7 +380,7 @@ async fn remove_from_agent(state: &HTTPState, user: &AuthenticatedUser, agent_id
 )]
 pub async fn remove(
     State(state): State<HTTPState>,
-    Extension(user): Extension<AuthenticatedUser>,
+    Extension(user): Extension<Identity>,
     Path((agent_id, integration_id)): Path<(String, String)>,
 ) -> Response {
     remove_from_agent(&state, &user, &agent_id, &integration_id).await
@@ -407,7 +407,7 @@ pub struct AttachmentBody {
 )]
 pub async fn set_attachment(
     State(state): State<HTTPState>,
-    Extension(user): Extension<AuthenticatedUser>,
+    Extension(user): Extension<Identity>,
     Path((agent_id, integration_id)): Path<(String, String)>,
     Json(body): Json<AttachmentBody>,
 ) -> Response {
@@ -460,7 +460,7 @@ pub struct IntegrationGrants {
     pub grants: GrantStates,
 }
 
-async fn grants_response(state: &HTTPState, user: &AuthenticatedUser, agent_id: &str, agent: &AgentConfig) -> Response {
+async fn grants_response(state: &HTTPState, user: &Identity, agent_id: &str, agent: &AgentConfig) -> Response {
     let grants = match state.storage.list_grants(agent_id).await {
         Ok(grants) => grants,
         Err(e) => return storage_error(e),
@@ -501,7 +501,7 @@ async fn grants_response(state: &HTTPState, user: &AuthenticatedUser, agent_id: 
 )]
 pub async fn get_grants(
     State(state): State<HTTPState>,
-    Extension(user): Extension<AuthenticatedUser>,
+    Extension(user): Extension<Identity>,
     Path(agent_id): Path<String>,
 ) -> Response {
     match viewable_agent(&state, &user, &agent_id).await {
@@ -530,7 +530,7 @@ pub struct SetGrants {
 )]
 pub async fn set_grants(
     State(state): State<HTTPState>,
-    Extension(user): Extension<AuthenticatedUser>,
+    Extension(user): Extension<Identity>,
     Path(agent_id): Path<String>,
     Json(body): Json<SetGrants>,
 ) -> Response {
@@ -590,7 +590,7 @@ pub struct EventPage {
 )]
 pub async fn list_events(
     State(state): State<HTTPState>,
-    Extension(user): Extension<AuthenticatedUser>,
+    Extension(user): Extension<Identity>,
     Path(agent_id): Path<String>,
     Query(query): Query<EventsQuery>,
 ) -> Response {

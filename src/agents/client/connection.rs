@@ -14,7 +14,6 @@ use std::{
     },
 };
 
-use axum::extract::ws::Message;
 use tokio::sync::{mpsc, oneshot};
 
 /// How a call ended on the client's side.
@@ -28,15 +27,16 @@ pub enum ClientAnswer {
 
 pub struct ClientConnection {
     pub id: String,
+    /// One complete client frame per value, written by the adapter that owns the socket.
     /// Taken on `close`, so the socket's writer task can finish once the socket ends even
     /// while queued requests still hold this connection.
-    outbound: Mutex<Option<mpsc::Sender<Message>>>,
+    outbound: Mutex<Option<mpsc::Sender<serde_json::Value>>>,
     pending: Mutex<HashMap<String, oneshot::Sender<ClientAnswer>>>,
     closed: AtomicBool,
 }
 
 impl ClientConnection {
-    pub fn new(outbound: mpsc::Sender<Message>) -> Arc<Self> {
+    pub fn new(outbound: mpsc::Sender<serde_json::Value>) -> Arc<Self> {
         Arc::new(Self {
             id: uuid::Uuid::new_v4().to_string(),
             outbound: Mutex::new(Some(outbound)),
@@ -84,7 +84,7 @@ impl ClientConnection {
             return false;
         };
         match outbound.as_ref() {
-            Some(tx) => tx.try_send(Message::Text(frame.to_string().into())).is_ok(),
+            Some(tx) => tx.try_send(frame).is_ok(),
             None => false,
         }
     }
@@ -123,17 +123,9 @@ impl std::fmt::Debug for ClientConnection {
 #[cfg(test)]
 impl ClientConnection {
     /// A connection whose frames land in the returned receiver.
-    pub fn for_tests() -> (Arc<Self>, mpsc::Receiver<Message>) {
+    pub fn for_tests() -> (Arc<Self>, mpsc::Receiver<serde_json::Value>) {
         let (tx, rx) = mpsc::channel(64);
         (Self::new(tx), rx)
-    }
-}
-
-#[cfg(test)]
-pub fn frame_json(message: Message) -> serde_json::Value {
-    match message {
-        Message::Text(text) => serde_json::from_str(text.as_str()).unwrap(),
-        other => panic!("not a text frame: {other:?}"),
     }
 }
 
@@ -175,7 +167,7 @@ mod tests {
         let (conn, mut rx) = ClientConnection::for_tests();
         let _waiter = conn.register("c1").unwrap();
         conn.cancel("c1");
-        let frame = frame_json(rx.recv().await.unwrap());
+        let frame = rx.recv().await.unwrap();
         assert_eq!(frame["client_tool_cancelled"]["call_id"], "c1");
         assert!(!conn.answer("c1", ClientAnswer::Ok(serde_json::json!(null))));
     }

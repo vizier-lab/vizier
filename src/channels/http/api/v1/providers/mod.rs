@@ -551,15 +551,15 @@ mod dummyplug_provider_tests {
             background_jobs: deps.background_jobs.clone(),
             catalogue: deps.catalogue.clone(),
             deps,
-            client_events: Arc::new(crate::channels::http::rate_limit::RateLimiter::new(
+            client_events: Arc::new(crate::utils::rate_limit::RateLimiter::new(
                 10,
                 std::time::Duration::from_secs(60),
             )),
-            client_state_saves: Arc::new(crate::channels::http::rate_limit::RateLimiter::new(
+            client_state_saves: Arc::new(crate::utils::rate_limit::RateLimiter::new(
                 2,
                 std::time::Duration::from_secs(1),
             )),
-            visit_throttle: Arc::new(crate::channels::http::rate_limit::RateLimiter::new(
+            visit_throttle: Arc::new(crate::utils::rate_limit::RateLimiter::new(
                 1,
                 std::time::Duration::from_secs(60),
             )),

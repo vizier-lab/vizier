@@ -199,7 +199,7 @@ pub struct ArtifactActivityQuery {
 /// or the response to send.
 async fn require_view(
     state: &HTTPState,
-    user: &crate::channels::http::auth::AuthenticatedUser,
+    user: &crate::channels::http::auth::Identity,
     agent_id: &str,
 ) -> Result<crate::schema::AgentConfig, (StatusCode, String)> {
     let config = match state.storage.get_agent(agent_id).await {
@@ -221,7 +221,7 @@ async fn require_view(
 
 async fn require_manage(
     state: &HTTPState,
-    user: &crate::channels::http::auth::AuthenticatedUser,
+    user: &crate::channels::http::auth::Identity,
     agent_id: &str,
 ) -> Result<crate::schema::AgentConfig, (StatusCode, String)> {
     let config = require_view(state, user, agent_id).await?;
@@ -262,7 +262,7 @@ pub async fn list_artifacts(
     Path(agent_id): Path<String>,
     Query(params): Query<ArtifactListQuery>,
     State(state): State<HTTPState>,
-    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
+    Extension(user): Extension<crate::channels::http::auth::Identity>,
 ) -> models::response::Response<ArtifactListView> {
     if let Err((status, message)) = require_view(&state, &user, &agent_id).await {
         return err_response(status, message);
@@ -328,7 +328,7 @@ pub async fn activity(
     Path(agent_id): Path<String>,
     Query(params): Query<ArtifactActivityQuery>,
     State(state): State<HTTPState>,
-    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
+    Extension(user): Extension<crate::channels::http::auth::Identity>,
 ) -> models::response::Response<ArtifactActivityView> {
     if let Err((status, message)) = require_view(&state, &user, &agent_id).await {
         return err_response(status, message);
@@ -381,7 +381,7 @@ pub async fn activity(
 pub async fn artifact_detail(
     Path((agent_id, artifact_id)): Path<(String, String)>,
     State(state): State<HTTPState>,
-    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
+    Extension(user): Extension<crate::channels::http::auth::Identity>,
 ) -> models::response::Response<ArtifactDetailView> {
     if let Err((status, message)) = require_view(&state, &user, &agent_id).await {
         return err_response(status, message);
@@ -437,7 +437,7 @@ fn percent_encode(name: &str) -> String {
 pub async fn artifact_content(
     Path((agent_id, artifact_id)): Path<(String, String)>,
     State(state): State<HTTPState>,
-    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
+    Extension(user): Extension<crate::channels::http::auth::Identity>,
     headers: axum::http::HeaderMap,
 ) -> Response {
     if let Err((status, message)) = require_view(&state, &user, &agent_id).await {
@@ -525,7 +525,7 @@ pub async fn artifact_content(
 pub async fn delete_artifact(
     Path((agent_id, artifact_id)): Path<(String, String)>,
     State(state): State<HTTPState>,
-    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
+    Extension(user): Extension<crate::channels::http::auth::Identity>,
 ) -> models::response::Response<ArtifactDeleteResult> {
     if let Err((status, message)) = require_manage(&state, &user, &agent_id).await {
         return err_response(status, message);

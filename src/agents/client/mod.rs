@@ -590,13 +590,11 @@ impl ClientTools {
 
 #[cfg(test)]
 mod tests {
-    use axum::extract::ws::Message;
     use serde_json::json;
     use tokio::sync::mpsc;
 
     use super::*;
     use crate::{
-        agents::client::connection::frame_json,
         schema::VizierChannelId,
         storage::history::HistoryStorage,
     };
@@ -639,7 +637,7 @@ mod tests {
     struct Setup {
         tools: Arc<ClientTools>,
         connection: Arc<ClientConnection>,
-        rx: mpsc::Receiver<Message>,
+        rx: mpsc::Receiver<serde_json::Value>,
         storage: Arc<VizierStorage>,
         transport: VizierTransport,
     }
@@ -741,9 +739,9 @@ mod tests {
         })
     }
 
-    async fn next_call(rx: &mut mpsc::Receiver<Message>) -> serde_json::Value {
+    async fn next_call(rx: &mut mpsc::Receiver<serde_json::Value>) -> serde_json::Value {
         loop {
-            let frame = frame_json(rx.recv().await.unwrap());
+            let frame = rx.recv().await.unwrap();
             if frame.get("client_tool_call").is_some() {
                 return frame["client_tool_call"].clone();
             }
@@ -809,7 +807,7 @@ mod tests {
 
         let err = call.await.unwrap().unwrap_err().to_string();
         assert!(err.starts_with("timeout"), "{err}");
-        let cancelled = frame_json(s.rx.recv().await.unwrap());
+        let cancelled = s.rx.recv().await.unwrap();
         assert_eq!(cancelled["client_tool_cancelled"]["call_id"], id.as_str());
         assert_eq!(outcome_of(&s.storage, &id).await, Some(ClientCallOutcome::Timeout));
         // A late answer is not pending.
@@ -825,7 +823,7 @@ mod tests {
 
         call.abort();
         let _ = call.await;
-        let cancelled = frame_json(s.rx.recv().await.unwrap());
+        let cancelled = s.rx.recv().await.unwrap();
         assert_eq!(cancelled["client_tool_cancelled"]["call_id"], id.as_str());
         tokio::time::sleep(SETTLE).await;
         assert_eq!(outcome_of(&s.storage, &id).await, Some(ClientCallOutcome::Cancelled));

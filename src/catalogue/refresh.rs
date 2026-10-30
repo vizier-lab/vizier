@@ -16,7 +16,7 @@ use serde_json::{Map, Value};
 
 use super::cache::{self, SCHEMA};
 use super::data::{CatalogueData, CatalogueSource, parse};
-use crate::channels::http::api::v1::catalogue::RefreshStatus;
+use crate::catalogue::RefreshStatus;
 use crate::dependencies::VizierDependencies;
 use crate::storage::{
     agent::AgentStorage,

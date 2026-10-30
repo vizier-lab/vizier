@@ -19,7 +19,6 @@ pub mod models;
 
 pub mod api;
 pub mod auth;
-pub mod rate_limit;
 mod state;
 mod webui;
 
@@ -56,15 +55,15 @@ impl VizierChannel for HTTPChannel {
             background_jobs: self.deps.background_jobs.clone(),
             catalogue: self.deps.catalogue.clone(),
             deps: self.deps.clone(),
-            client_events: std::sync::Arc::new(rate_limit::RateLimiter::new(
+            client_events: std::sync::Arc::new(crate::utils::rate_limit::RateLimiter::new(
                 10,
                 std::time::Duration::from_secs(60),
             )),
-            client_state_saves: std::sync::Arc::new(rate_limit::RateLimiter::new(
+            client_state_saves: std::sync::Arc::new(crate::utils::rate_limit::RateLimiter::new(
                 2,
                 std::time::Duration::from_secs(1),
             )),
-            visit_throttle: std::sync::Arc::new(rate_limit::RateLimiter::new(
+            visit_throttle: std::sync::Arc::new(crate::utils::rate_limit::RateLimiter::new(
                 1,
                 std::time::Duration::from_secs(60),
             )),

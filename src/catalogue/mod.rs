@@ -21,6 +21,18 @@ use crate::config::provider::ProviderId;
 use crate::llm::dialect::DialectKind;
 use crate::schema::provider::{CustomProtocol, CustomProvider};
 
+// Whether a catalogue refresh (models.dev, or a media capability's list) is on, running, or
+// last failed. A plain comment: a doc comment would become the schema's description in the
+// OpenAPI document.
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+pub struct RefreshStatus {
+    pub enabled: bool,
+    pub ttl: String,
+    pub in_progress: bool,
+    pub last_error: Option<String>,
+    pub failed_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
 /// The ids vizier supported before the catalogue, listed first among the unconnected
 /// providers as "popular".
 pub const POPULAR: &[&str] = &[

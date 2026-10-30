@@ -14,8 +14,8 @@ pub struct Caller<'a> {
     pub permissions: &'a [String],
 }
 
-impl<'a> From<&'a crate::channels::http::auth::AuthenticatedUser> for Caller<'a> {
-    fn from(user: &'a crate::channels::http::auth::AuthenticatedUser) -> Self {
+impl<'a> From<&'a crate::auth::Identity> for Caller<'a> {
+    fn from(user: &'a crate::auth::Identity) -> Self {
         Self {
             user_id: &user.user_id,
             is_system: user.role.is_system,

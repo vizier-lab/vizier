@@ -18,12 +18,12 @@ pub struct HTTPState {
     /// For the catalogue and providers APIs, which resolve models and reach providers.
     pub deps: crate::dependencies::VizierDependencies,
     /// Client events per conversation (`specs/019-client-tools` R15): 10 a minute.
-    pub client_events: Arc<crate::channels::http::rate_limit::RateLimiter>,
+    pub client_events: Arc<crate::utils::rate_limit::RateLimiter>,
     /// Saved state per client tool call: 2 a second.
-    pub client_state_saves: Arc<crate::channels::http::rate_limit::RateLimiter>,
+    pub client_state_saves: Arc<crate::utils::rate_limit::RateLimiter>,
     /// One visit write per person a minute. Visits are still recorded, but nothing reads
     /// them since spec 029 removed the overview feed; tracked for #82.
-    pub visit_throttle: Arc<crate::channels::http::rate_limit::RateLimiter>,
+    pub visit_throttle: Arc<crate::utils::rate_limit::RateLimiter>,
     /// Deferred client tool calls some socket is delivering now (research R18).
     pub deferred_client_calls: Arc<crate::agents::client::DeferredClaims>,
 }

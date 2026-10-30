@@ -6,7 +6,7 @@ use axum::{
 };
 
 use crate::channels::http::{
-    auth::{AuthMethod, AuthService, AuthenticatedUser},
+    auth::{AuthMethod, AuthService, Identity},
     state::HTTPState,
 };
 use crate::storage::user::{Role, UserStorage};
@@ -127,12 +127,12 @@ pub async fn require_auth(
                 }
             }
 
-            AuthenticatedUser {
+            Identity {
                 user_id: claims.sub,
                 username: claims.username,
                 role,
                 permissions,
-                auth_method: AuthMethod::Jwt,
+                method: AuthMethod::Jwt,
             }
         }
         "apikey" => {
@@ -154,12 +154,12 @@ pub async fn require_auth(
             // Get the user associated with this API key
             let (role, permissions) = resolve_user_role(&state, &api_key.user_id).await?;
 
-            AuthenticatedUser {
+            Identity {
                 user_id: api_key.user_id,
                 username: String::new(),
                 role,
                 permissions,
-                auth_method: AuthMethod::ApiKey,
+                method: AuthMethod::ApiKey,
             }
         }
         _ => return Err(AuthError::MissingCredentials),
@@ -185,7 +185,7 @@ pub async fn require_permission(
 ) -> Result<Response, AuthError> {
     let user = request
         .extensions()
-        .get::<AuthenticatedUser>()
+        .get::<Identity>()
         .ok_or(AuthError::InvalidCredentials)?;
 
     if user.role.is_system || user.permissions.contains(&state.permission) {

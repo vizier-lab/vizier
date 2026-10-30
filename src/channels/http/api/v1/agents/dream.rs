@@ -70,7 +70,7 @@ pub struct DreamJournalQuery {
 pub async fn trigger_dream(
     Path(agent_id): Path<String>,
     State(state): State<HTTPState>,
-    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
+    Extension(user): Extension<crate::channels::http::auth::Identity>,
 ) -> models::response::Response<String> {
     let config = match state.storage.get_agent(&agent_id).await {
         Ok(Some(config)) => config,
@@ -117,7 +117,7 @@ pub async fn trigger_dream(
 pub async fn dream_status(
     Path(agent_id): Path<String>,
     State(state): State<HTTPState>,
-    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
+    Extension(user): Extension<crate::channels::http::auth::Identity>,
 ) -> models::response::Response<DreamStatusResponse> {
     let config = match state.storage.get_agent(&agent_id).await {
         Ok(Some(config)) => config,
@@ -203,7 +203,7 @@ pub async fn get_dream_journal(
     Path(agent_id): Path<String>,
     Query(query): Query<DreamJournalQuery>,
     State(state): State<HTTPState>,
-    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
+    Extension(user): Extension<crate::channels::http::auth::Identity>,
 ) -> models::response::Response<Vec<DreamJournalEntry>> {
     let config = match state.storage.get_agent(&agent_id).await {
         Ok(Some(config)) => config,
@@ -241,7 +241,7 @@ pub async fn get_dream_journal(
 pub async fn get_dream_entry(
     Path((agent_id, entry_id)): Path<(String, String)>,
     State(state): State<HTTPState>,
-    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
+    Extension(user): Extension<crate::channels::http::auth::Identity>,
 ) -> models::response::Response<DreamJournalEntry> {
     let config = match state.storage.get_agent(&agent_id).await {
         Ok(Some(config)) => config,
@@ -293,7 +293,7 @@ pub struct NightsQuery {
 async fn editable_agent(
     state: &HTTPState,
     agent_id: &str,
-    user: &crate::channels::http::auth::AuthenticatedUser,
+    user: &crate::channels::http::auth::Identity,
 ) -> Result<(), (StatusCode, String)> {
     match state.storage.get_agent(agent_id).await {
         Ok(Some(config)) if user_can_edit_agent(user, &config) => Ok(()),
@@ -355,7 +355,7 @@ pub async fn dream_nights(
     Path(agent_id): Path<String>,
     Query(query): Query<NightsQuery>,
     State(state): State<HTTPState>,
-    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
+    Extension(user): Extension<crate::channels::http::auth::Identity>,
 ) -> models::response::Response<DreamNights> {
     if let Err((status, message)) = editable_agent(&state, &agent_id, &user).await {
         return err_response(status, message);
@@ -410,7 +410,7 @@ pub async fn dream_cycles(
     Path(agent_id): Path<String>,
     Query(query): Query<CyclesQuery>,
     State(state): State<HTTPState>,
-    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
+    Extension(user): Extension<crate::channels::http::auth::Identity>,
 ) -> models::response::Response<DreamCycles> {
     if let Err((status, message)) = editable_agent(&state, &agent_id, &user).await {
         return err_response(status, message);

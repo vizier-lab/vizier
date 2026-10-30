@@ -278,7 +278,7 @@ pub struct DetachAttachmentQuery {
 async fn require_memory_and_artifact_view(
     state: &HTTPState,
     agent_id: &str,
-    user: &crate::channels::http::auth::AuthenticatedUser,
+    user: &crate::channels::http::auth::Identity,
 ) -> Result<crate::schema::AgentConfig, (StatusCode, String)> {
     let config = require_agent(state, agent_id, user).await?;
     if !ArtifactsAccess::can_view(&Caller::from(user), &config) {
@@ -308,7 +308,7 @@ async fn require_memory_and_artifact_view(
 pub async fn attach_artifact(
     Path((agent_id, bundle, path)): Path<(String, String, String)>,
     State(state): State<HTTPState>,
-    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
+    Extension(user): Extension<crate::channels::http::auth::Identity>,
     Json(body): Json<AttachArtifactRequest>,
 ) -> models::response::Response<MemoryDetail> {
     if let Err((status, message)) = require_memory_and_artifact_view(&state, &agent_id, &user).await
@@ -376,7 +376,7 @@ pub async fn detach_attachment(
     Path((agent_id, bundle, path)): Path<(String, String, String)>,
     Query(query): Query<DetachAttachmentQuery>,
     State(state): State<HTTPState>,
-    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
+    Extension(user): Extension<crate::channels::http::auth::Identity>,
 ) -> models::response::Response<MemoryDetail> {
     if let Err((status, message)) = require_memory_and_artifact_view(&state, &agent_id, &user).await
     {
@@ -412,7 +412,7 @@ pub async fn detach_attachment(
 async fn require_agent(
     state: &HTTPState,
     agent_id: &str,
-    user: &crate::channels::http::auth::AuthenticatedUser,
+    user: &crate::channels::http::auth::Identity,
 ) -> Result<crate::schema::AgentConfig, (StatusCode, String)> {
     let config = match state.storage.get_agent(agent_id).await {
         Ok(Some(config)) => config,
@@ -459,7 +459,7 @@ fn error_status_for(message: &str) -> StatusCode {
 pub async fn get_all_memories(
     Path(agent_id): Path<String>,
     State(state): State<HTTPState>,
-    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
+    Extension(user): Extension<crate::channels::http::auth::Identity>,
     Query(params): Query<ListMemoryParams>,
 ) -> models::response::Response<PaginatedMemoryResponse> {
     if let Err((status, message)) = require_agent(&state, &agent_id, &user).await {
@@ -532,7 +532,7 @@ pub async fn get_all_memories(
 pub async fn create_memory(
     Path(agent_id): Path<String>,
     State(state): State<HTTPState>,
-    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
+    Extension(user): Extension<crate::channels::http::auth::Identity>,
     Json(body): Json<CreateMemoryRequest>,
 ) -> models::response::Response<CreateMemoryResponse> {
     if let Err((status, message)) = require_agent(&state, &agent_id, &user).await {
@@ -594,7 +594,7 @@ async fn do_update_memory(
     bundle: Option<String>,
     path: String,
     body: UpdateMemoryRequest,
-    user: &crate::channels::http::auth::AuthenticatedUser,
+    user: &crate::channels::http::auth::Identity,
 ) -> models::response::Response<UpdateMemoryResponse> {
     if body
         .attachments
@@ -661,7 +661,7 @@ async fn do_update_memory(
 pub async fn update_memory(
     Path((agent_id, slug)): Path<(String, String)>,
     State(state): State<HTTPState>,
-    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
+    Extension(user): Extension<crate::channels::http::auth::Identity>,
     Json(body): Json<UpdateMemoryRequest>,
 ) -> models::response::Response<UpdateMemoryResponse> {
     if let Err((status, message)) = require_agent(&state, &agent_id, &user).await {
@@ -673,7 +673,7 @@ pub async fn update_memory(
 pub async fn update_memory_scoped(
     Path((agent_id, bundle, path)): Path<(String, String, String)>,
     State(state): State<HTTPState>,
-    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
+    Extension(user): Extension<crate::channels::http::auth::Identity>,
     Json(body): Json<UpdateMemoryRequest>,
 ) -> models::response::Response<UpdateMemoryResponse> {
     if let Err((status, message)) = require_agent(&state, &agent_id, &user).await {
@@ -699,7 +699,7 @@ pub async fn query_memories(
     Path(agent_id): Path<String>,
     Query(params): Query<QueryMemoryRequest>,
     State(state): State<HTTPState>,
-    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
+    Extension(user): Extension<crate::channels::http::auth::Identity>,
 ) -> models::response::Response<Vec<MemoryPassageResult>> {
     if let Err((status, message)) = require_agent(&state, &agent_id, &user).await {
         return err_response(status, message);
@@ -761,7 +761,7 @@ async fn do_get_graph(
 pub async fn get_bundle_level_graph(
     Path(agent_id): Path<String>,
     State(state): State<HTTPState>,
-    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
+    Extension(user): Extension<crate::channels::http::auth::Identity>,
     Query(params): Query<GraphQueryParams>,
 ) -> models::response::Response<MemoryGraph> {
     if let Err((status, message)) = require_agent(&state, &agent_id, &user).await {
@@ -777,7 +777,7 @@ pub async fn get_bundle_level_graph(
 pub async fn get_bundle_graph(
     Path((agent_id, bundle)): Path<(String, String)>,
     State(state): State<HTTPState>,
-    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
+    Extension(user): Extension<crate::channels::http::auth::Identity>,
     Query(params): Query<GraphQueryParams>,
 ) -> models::response::Response<MemoryGraph> {
     if let Err((status, message)) = require_agent(&state, &agent_id, &user).await {
@@ -833,7 +833,7 @@ async fn do_get_memory_detail(
 pub async fn get_memory_detail(
     Path((agent_id, slug)): Path<(String, String)>,
     State(state): State<HTTPState>,
-    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
+    Extension(user): Extension<crate::channels::http::auth::Identity>,
 ) -> models::response::Response<MemoryDetail> {
     if let Err((status, message)) = require_agent(&state, &agent_id, &user).await {
         return err_response(status, message);
@@ -844,7 +844,7 @@ pub async fn get_memory_detail(
 pub async fn get_memory_detail_scoped(
     Path((agent_id, bundle, path)): Path<(String, String, String)>,
     State(state): State<HTTPState>,
-    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
+    Extension(user): Extension<crate::channels::http::auth::Identity>,
 ) -> models::response::Response<MemoryDetail> {
     if let Err((status, message)) = require_agent(&state, &agent_id, &user).await {
         return err_response(status, message);
@@ -884,7 +884,7 @@ async fn do_get_related_memories(
 pub async fn get_related_memories(
     Path((agent_id, slug)): Path<(String, String)>,
     State(state): State<HTTPState>,
-    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
+    Extension(user): Extension<crate::channels::http::auth::Identity>,
 ) -> models::response::Response<Vec<MemoryDetail>> {
     if let Err((status, message)) = require_agent(&state, &agent_id, &user).await {
         return err_response(status, message);
@@ -895,7 +895,7 @@ pub async fn get_related_memories(
 pub async fn get_related_memories_scoped(
     Path((agent_id, bundle, path)): Path<(String, String, String)>,
     State(state): State<HTTPState>,
-    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
+    Extension(user): Extension<crate::channels::http::auth::Identity>,
 ) -> models::response::Response<Vec<MemoryDetail>> {
     if let Err((status, message)) = require_agent(&state, &agent_id, &user).await {
         return err_response(status, message);
@@ -908,7 +908,7 @@ async fn do_delete_memory(
     agent_id: String,
     bundle: Option<String>,
     path: String,
-    user: &crate::channels::http::auth::AuthenticatedUser,
+    user: &crate::channels::http::auth::Identity,
 ) -> models::response::Response<String> {
     match state
         .transport
@@ -955,7 +955,7 @@ async fn do_delete_memory(
 pub async fn delete_memory(
     Path((agent_id, slug)): Path<(String, String)>,
     State(state): State<HTTPState>,
-    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
+    Extension(user): Extension<crate::channels::http::auth::Identity>,
 ) -> models::response::Response<String> {
     if let Err((status, message)) = require_agent(&state, &agent_id, &user).await {
         return err_response(status, message);
@@ -966,7 +966,7 @@ pub async fn delete_memory(
 pub async fn delete_memory_scoped(
     Path((agent_id, bundle, path)): Path<(String, String, String)>,
     State(state): State<HTTPState>,
-    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
+    Extension(user): Extension<crate::channels::http::auth::Identity>,
 ) -> models::response::Response<String> {
     if let Err((status, message)) = require_agent(&state, &agent_id, &user).await {
         return err_response(status, message);
@@ -1025,7 +1025,7 @@ pub async fn list_bundles(
     Path(agent_id): Path<String>,
     Query(query): Query<ListQuery>,
     State(state): State<HTTPState>,
-    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
+    Extension(user): Extension<crate::channels::http::auth::Identity>,
 ) -> models::response::Response<serde_json::Value> {
     if let Err((status, message)) = require_agent(&state, &agent_id, &user).await {
         return err_response(status, message);
@@ -1059,7 +1059,7 @@ pub struct DeleteBundleParams {
 pub async fn delete_bundle_handler(
     Path((agent_id, bundle)): Path<(String, String)>,
     State(state): State<HTTPState>,
-    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
+    Extension(user): Extension<crate::channels::http::auth::Identity>,
     Query(params): Query<DeleteBundleParams>,
 ) -> models::response::Response<String> {
     if let Err((status, message)) = require_agent(&state, &agent_id, &user).await {
@@ -1095,7 +1095,7 @@ pub async fn delete_bundle_handler(
 pub async fn export_bundle_handler(
     Path((agent_id, bundle)): Path<(String, String)>,
     State(state): State<HTTPState>,
-    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
+    Extension(user): Extension<crate::channels::http::auth::Identity>,
 ) -> impl IntoResponse {
     if let Err((status, message)) = require_agent(&state, &agent_id, &user).await {
         return (status, message).into_response();
@@ -1134,7 +1134,7 @@ pub async fn export_bundle_handler(
 pub async fn import_bundle_handler(
     Path(agent_id): Path<String>,
     State(state): State<HTTPState>,
-    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
+    Extension(user): Extension<crate::channels::http::auth::Identity>,
     mut multipart: Multipart,
 ) -> models::response::Response<ImportReport> {
     if let Err((status, message)) = require_agent(&state, &agent_id, &user).await {
@@ -1242,7 +1242,7 @@ fn history_path(raw: &str) -> String {
 pub async fn get_memory_history(
     Path((agent_id, bundle, path)): Path<(String, String, String)>,
     State(state): State<HTTPState>,
-    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
+    Extension(user): Extension<crate::channels::http::auth::Identity>,
     Query(q): Query<MemoryHistoryQuery>,
 ) -> models::response::Response<MemoryHistoryResponse> {
     if let Err((status, message)) = require_agent(&state, &agent_id, &user).await {
@@ -1314,7 +1314,7 @@ pub async fn get_memory_history(
 pub async fn rollback_memory(
     Path((agent_id, bundle, path)): Path<(String, String, String)>,
     State(state): State<HTTPState>,
-    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
+    Extension(user): Extension<crate::channels::http::auth::Identity>,
     Json(body): Json<MemoryRollbackRequest>,
 ) -> models::response::Response<RollbackResponse> {
     if let Err((status, message)) = require_agent(&state, &agent_id, &user).await {

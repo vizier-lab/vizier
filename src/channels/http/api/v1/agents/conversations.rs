@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     channels::http::{
-        auth::AuthenticatedUser,
+        auth::Identity,
         models::{
             self,
             response::{APIResponse, api_response, err_response},
@@ -142,7 +142,7 @@ fn page_of(rows: &[ConversationRow], cursor: Option<&(DateTime<Utc>, String)>, l
 )]
 pub async fn list(
     State(state): State<HTTPState>,
-    Extension(user): Extension<AuthenticatedUser>,
+    Extension(user): Extension<Identity>,
     Path(agent_id): Path<String>,
     Query(query): Query<ConversationQuery>,
 ) -> models::response::Response<ConversationPage> {

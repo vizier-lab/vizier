@@ -23,7 +23,6 @@ use crate::{
                 self,
                 response::{APIResponse, api_response, err_response},
             },
-            rate_limit::RateLimiter,
             state::HTTPState,
         },
         reactions::{self, ApplyOutcome, ReactionChange, ReactionKind, ReactionTarget},
@@ -46,6 +45,7 @@ use crate::{
 
 use super::{platform_of_slug, user_can_show_platform_chats, user_can_view_agent};
 use crate::access::Caller;
+use crate::utils::rate_limit::RateLimiter;
 use crate::artifacts::access as ArtifactsAccess;
 use crate::channels::http::models::page::Page;
 use crate::schema::session_file::SessionFileRecord;
@@ -181,7 +181,7 @@ pub async fn get_topic_history(
     Path((agent_id, channel_id, topic_id)): Path<(String, String, TopicId)>,
     Query(params): Query<HistoryQuery>,
     State(state): State<HTTPState>,
-    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
+    Extension(user): Extension<crate::channels::http::auth::Identity>,
 ) -> models::response::Response<Vec<SessionHistory>> {
     let config = match state.storage.get_agent(&agent_id).await {
         Ok(Some(config)) => config,
@@ -242,7 +242,7 @@ pub async fn list_topic_files(
     Path((agent_id, channel_id, topic_id)): Path<(String, String, TopicId)>,
     Query(params): Query<FilesQuery>,
     State(state): State<HTTPState>,
-    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
+    Extension(user): Extension<crate::channels::http::auth::Identity>,
 ) -> models::response::Response<Page<SessionFileRecord>> {
     let config = match state.storage.get_agent(&agent_id).await {
         Ok(Some(config)) => config,
@@ -301,7 +301,7 @@ pub async fn list_topic_files(
 pub async fn clear_topic_files(
     Path((agent_id, channel_id, topic_id)): Path<(String, String, TopicId)>,
     State(state): State<HTTPState>,
-    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
+    Extension(user): Extension<crate::channels::http::auth::Identity>,
 ) -> models::response::Response<crate::session_files::ClearResult> {
     let config = match state.storage.get_agent(&agent_id).await {
         Ok(Some(config)) => config,
@@ -361,7 +361,7 @@ pub struct PromoteFileRequest {
 pub async fn promote_topic_file(
     Path((agent_id, channel_id, topic_id)): Path<(String, String, TopicId)>,
     State(state): State<HTTPState>,
-    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
+    Extension(user): Extension<crate::channels::http::auth::Identity>,
     axum::Json(body): axum::Json<PromoteFileRequest>,
 ) -> models::response::Response<Artifact> {
     let config = match state.storage.get_agent(&agent_id).await {
@@ -430,7 +430,7 @@ pub async fn promote_topic_file(
 pub async fn list_topics(
     Path((agent_id, channel_id)): Path<(String, String)>,
     State(state): State<HTTPState>,
-    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
+    Extension(user): Extension<crate::channels::http::auth::Identity>,
 ) -> models::response::Response<Vec<TopicEntry>> {
     let config = match state.storage.get_agent(&agent_id).await {
         Ok(Some(config)) => config,
@@ -499,7 +499,7 @@ pub async fn list_topics(
 pub async fn get_topic_detail(
     Path((agent_id, channel_id, topic_id)): Path<(String, String, TopicId)>,
     State(state): State<HTTPState>,
-    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
+    Extension(user): Extension<crate::channels::http::auth::Identity>,
 ) -> models::response::Response<TopicEntry> {
     let config = match state.storage.get_agent(&agent_id).await {
         Ok(Some(config)) => config,
@@ -552,7 +552,7 @@ pub async fn get_topic_detail(
 pub async fn delete_topic(
     Path((agent_id, channel_id, topic_id)): Path<(String, String, TopicId)>,
     State(state): State<HTTPState>,
-    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
+    Extension(user): Extension<crate::channels::http::auth::Identity>,
 ) -> models::response::Response<String> {
     let config = match state.storage.get_agent(&agent_id).await {
         Ok(Some(config)) => config,
@@ -609,7 +609,7 @@ pub async fn chat(
     Path((agent_id, channel_id, topic_id)): Path<(String, String, TopicId)>,
     ws: WebSocketUpgrade,
     State(state): State<HTTPState>,
-    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
+    Extension(user): Extension<crate::channels::http::auth::Identity>,
 ) -> axum::response::Response {
     let config = match state.storage.get_agent(&agent_id).await {
         Ok(Some(config)) => config,
@@ -1007,10 +1007,17 @@ pub async fn handle_socket(
     let idle_timeout = Duration::from_secs(ws_idle_timeout_secs);
 
     let (write_tx, mut write_rx) = mpsc::channel::<Message>(64);
+    // The client tool calls' frames, as JSON values: the engine has no socket types.
+    let (client_tx, mut client_rx) = mpsc::channel::<serde_json::Value>(64);
 
     // Writer task: handles all outgoing messages
     let write_handle = tokio::spawn(async move {
-        while let Some(msg) = write_rx.recv().await {
+        loop {
+            let msg = tokio::select! {
+                Some(msg) = write_rx.recv() => msg,
+                Some(frame) = client_rx.recv() => Message::Text(frame.to_string().into()),
+                else => break,
+            };
             if writer.send(msg).await.is_err() {
                 break;
             }
@@ -1019,7 +1026,7 @@ pub async fn handle_socket(
 
     // This socket's end of the client tool calls made to it. Closed when the socket ends,
     // which fails every call still waiting on it with `client_disconnected`.
-    let connection = ClientConnection::new(write_tx.clone());
+    let connection = ClientConnection::new(client_tx);
     let send_frame = |frame: serde_json::Value| {
         let write_tx = write_tx.clone();
         async move {

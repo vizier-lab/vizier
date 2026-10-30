@@ -60,14 +60,7 @@ pub fn catalogue(state: HTTPState) -> Router<HTTPState> {
     authed.merge(admin).merge(public)
 }
 
-#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
-pub struct RefreshStatus {
-    pub enabled: bool,
-    pub ttl: String,
-    pub in_progress: bool,
-    pub last_error: Option<String>,
-    pub failed_at: Option<DateTime<Utc>>,
-}
+pub use crate::catalogue::RefreshStatus;
 
 #[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 pub struct CatalogueStatus {
@@ -783,15 +776,15 @@ mod tests {
             background_jobs: deps.background_jobs.clone(),
             catalogue: deps.catalogue.clone(),
             deps,
-            client_events: std::sync::Arc::new(crate::channels::http::rate_limit::RateLimiter::new(
+            client_events: std::sync::Arc::new(crate::utils::rate_limit::RateLimiter::new(
                 10,
                 std::time::Duration::from_secs(60),
             )),
-            client_state_saves: std::sync::Arc::new(crate::channels::http::rate_limit::RateLimiter::new(
+            client_state_saves: std::sync::Arc::new(crate::utils::rate_limit::RateLimiter::new(
                 2,
                 std::time::Duration::from_secs(1),
             )),
-            visit_throttle: std::sync::Arc::new(crate::channels::http::rate_limit::RateLimiter::new(
+            visit_throttle: std::sync::Arc::new(crate::utils::rate_limit::RateLimiter::new(
                 1,
                 std::time::Duration::from_secs(60),
             )),

@@ -7,7 +7,7 @@ use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::channels::http::{
-    auth::{AuthService, AuthenticatedUser},
+    auth::{AuthService, Identity},
     models::{
         self,
         page::{self, ListQuery, Listing, SortKey, SortOrder},
@@ -242,7 +242,7 @@ pub async fn login(
 
 pub async fn get_current_user(
     State(state): State<HTTPState>,
-    Extension(user): Extension<AuthenticatedUser>,
+    Extension(user): Extension<Identity>,
 ) -> models::response::Response<CurrentUserResponse> {
     let role_name = state
         .storage
@@ -276,7 +276,7 @@ pub async fn get_current_user(
 )]
 pub async fn change_password(
     State(state): State<HTTPState>,
-    Extension(user): Extension<AuthenticatedUser>,
+    Extension(user): Extension<Identity>,
     Json(req): Json<ChangePasswordRequest>,
 ) -> models::response::Response<String> {
     let http_config = match &state.config.channels.http {
@@ -356,7 +356,7 @@ pub async fn change_password(
 )]
 pub async fn create_api_key(
     State(state): State<HTTPState>,
-    Extension(user): Extension<AuthenticatedUser>,
+    Extension(user): Extension<Identity>,
     Json(req): Json<CreateApiKeyRequest>,
 ) -> models::response::Response<CreateApiKeyResponse> {
     let http_config = match &state.config.channels.http {
@@ -416,7 +416,7 @@ pub async fn create_api_key(
 )]
 pub async fn list_api_keys(
     State(state): State<HTTPState>,
-    Extension(user): Extension<AuthenticatedUser>,
+    Extension(user): Extension<Identity>,
     Query(query): Query<ListQuery>,
 ) -> models::response::Response<serde_json::Value> {
     let keys = match state.storage.list_api_keys(&user.user_id).await {
@@ -491,7 +491,7 @@ impl Listing<ApiKeyResponse> for ApiKeyListing {
 )]
 pub async fn delete_api_key(
     State(state): State<HTTPState>,
-    Extension(user): Extension<AuthenticatedUser>,
+    Extension(user): Extension<Identity>,
     Path(key_id): Path<String>,
 ) -> models::response::Response<String> {
     // First verify the key belongs to the user
@@ -1302,7 +1302,7 @@ pub async fn delete_user(
 
 pub async fn get_my_profile(
     State(state): State<HTTPState>,
-    Extension(user): Extension<AuthenticatedUser>,
+    Extension(user): Extension<Identity>,
 ) -> models::response::Response<UserProfileResponse> {
     let profile = match state.storage.get_user_profile(&user.user_id).await {
         Ok(profile) => profile,
@@ -1339,7 +1339,7 @@ pub async fn get_my_profile(
 
 pub async fn update_my_profile(
     State(state): State<HTTPState>,
-    Extension(user): Extension<AuthenticatedUser>,
+    Extension(user): Extension<Identity>,
     Json(req): Json<UpdateUserProfileRequest>,
 ) -> models::response::Response<UserProfileResponse> {
     // Get existing profile or create default

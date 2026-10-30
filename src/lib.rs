@@ -2,7 +2,7 @@
 //!
 //! The crate has two tiers of public items:
 //!
-//! - **Stable**: [`config`], [`error`], [`schema`] (the request/response types a host sends and
+//! - **Stable**: [`auth`], [`config`], [`error`], [`schema`] (the request/response types a host sends and
 //!   reads), [`transport::VizierTransport`] and [`access`]. These are documented and checked
 //!   for breaking changes.
 //! - **Adapter surface** (`#[doc(hidden)]`): the modules the HTTP adapter and the command-line
@@ -22,6 +22,7 @@ pub type Result<T> = std::result::Result<T, VizierError>;
 
 // Stable tier.
 pub mod access;
+pub mod auth;
 pub mod config;
 pub mod error;
 pub mod schema;

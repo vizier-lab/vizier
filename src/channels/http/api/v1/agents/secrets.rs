@@ -18,7 +18,7 @@ use crate::{
     access::Caller,
     channels::http::{
         api::v1::integrations::{agents_by_id, fail, ok, plain, requester_name, usernames},
-        auth::AuthenticatedUser,
+        auth::Identity,
         models::page::{self, ListQuery, Listing, SortKey, SortOrder},
         state::HTTPState,
     },
@@ -148,7 +148,7 @@ pub struct EventsQuery {
 /// hiding the page is not the protection.
 async fn manageable_agent(
     state: &HTTPState,
-    user: &AuthenticatedUser,
+    user: &Identity,
     agent_id: &str,
 ) -> Result<AgentConfig, Box<Response>> {
     let agent = match state.storage.get_agent(agent_id).await {
@@ -248,7 +248,7 @@ fn secret_error(err: SecretError) -> Response {
 )]
 pub async fn list(
     State(state): State<HTTPState>,
-    Extension(user): Extension<AuthenticatedUser>,
+    Extension(user): Extension<Identity>,
     Path(agent_id): Path<String>,
     Query(paging): Query<ListQuery>,
 ) -> Response {
@@ -297,7 +297,7 @@ pub async fn list(
 )]
 pub async fn events(
     State(state): State<HTTPState>,
-    Extension(user): Extension<AuthenticatedUser>,
+    Extension(user): Extension<Identity>,
     Path(agent_id): Path<String>,
     Query(query): Query<EventsQuery>,
 ) -> Response {
@@ -333,7 +333,7 @@ pub async fn events(
 )]
 pub async fn set(
     State(state): State<HTTPState>,
-    Extension(user): Extension<AuthenticatedUser>,
+    Extension(user): Extension<Identity>,
     Path((agent_id, name)): Path<(String, String)>,
     Json(req): Json<SetSecretRequest>,
 ) -> Response {
@@ -369,7 +369,7 @@ pub async fn set(
 )]
 pub async fn remove(
     State(state): State<HTTPState>,
-    Extension(user): Extension<AuthenticatedUser>,
+    Extension(user): Extension<Identity>,
     Path((agent_id, name)): Path<(String, String)>,
 ) -> Response {
     if let Err(response) = manageable_agent(&state, &user, &agent_id).await {

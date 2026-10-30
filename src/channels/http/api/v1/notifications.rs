@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     channels::http::{
         api::v1::overview::visible_agents,
-        auth::AuthenticatedUser,
+        auth::Identity,
         models::{
             self,
             response::{APIResponse, api_response, err_response},
@@ -51,7 +51,7 @@ pub struct NotificationQuery {
 }
 
 /// The ids the caller may see, or a logged warning when the inbox cannot be projected.
-async fn visible(state: &HTTPState, user: &AuthenticatedUser) -> Vec<String> {
+async fn visible(state: &HTTPState, user: &Identity) -> Vec<String> {
     visible_agents(state, user)
         .await
         .map(|agents| agents.into_iter().map(|(id, _)| id).collect())
@@ -77,7 +77,7 @@ async fn project(state: &HTTPState) {
 )]
 pub async fn list(
     State(state): State<HTTPState>,
-    Extension(user): Extension<AuthenticatedUser>,
+    Extension(user): Extension<Identity>,
     Query(query): Query<NotificationQuery>,
 ) -> models::response::Response<NotificationPage> {
     let filter = match query.filter.as_deref().map(NotificationFilter::parse) {
@@ -125,7 +125,7 @@ pub async fn list(
 )]
 pub async fn count(
     State(state): State<HTTPState>,
-    Extension(user): Extension<AuthenticatedUser>,
+    Extension(user): Extension<Identity>,
 ) -> models::response::Response<NotificationCounts> {
     project(&state).await;
     let agents = visible(&state, &user).await;
@@ -159,7 +159,7 @@ pub struct NotificationReadRequest {
 )]
 pub async fn set_read(
     State(state): State<HTTPState>,
-    Extension(user): Extension<AuthenticatedUser>,
+    Extension(user): Extension<Identity>,
     Path(id): Path<i64>,
     body: Result<Json<NotificationReadRequest>, JsonRejection>,
 ) -> models::response::Response<NotificationCounts> {
@@ -194,7 +194,7 @@ pub async fn set_read(
 )]
 pub async fn read_all(
     State(state): State<HTTPState>,
-    Extension(user): Extension<AuthenticatedUser>,
+    Extension(user): Extension<Identity>,
 ) -> models::response::Response<NotificationCounts> {
     project(&state).await;
     let agents = visible(&state, &user).await;
@@ -229,7 +229,7 @@ mod tests {
     use crate::{
         channels::http::{
             api::v1::agents::user_can_view_agent,
-            auth::{AuthMethod, AuthenticatedUser},
+            auth::{AuthMethod, Identity},
             state::HTTPState,
         },
         config::VizierConfig,
@@ -252,15 +252,15 @@ mod tests {
             background_jobs: deps.background_jobs.clone(),
             catalogue: deps.catalogue.clone(),
             deps,
-            client_events: Arc::new(crate::channels::http::rate_limit::RateLimiter::new(
+            client_events: Arc::new(crate::utils::rate_limit::RateLimiter::new(
                 10,
                 std::time::Duration::from_secs(60),
             )),
-            client_state_saves: Arc::new(crate::channels::http::rate_limit::RateLimiter::new(
+            client_state_saves: Arc::new(crate::utils::rate_limit::RateLimiter::new(
                 2,
                 std::time::Duration::from_secs(1),
             )),
-            visit_throttle: Arc::new(crate::channels::http::rate_limit::RateLimiter::new(
+            visit_throttle: Arc::new(crate::utils::rate_limit::RateLimiter::new(
                 1,
                 std::time::Duration::from_secs(60),
             )),
@@ -269,8 +269,8 @@ mod tests {
         (state, dir)
     }
 
-    fn user(id: &str, system: bool) -> AuthenticatedUser {
-        AuthenticatedUser {
+    fn user(id: &str, system: bool) -> Identity {
+        Identity {
             user_id: id.into(),
             username: id.into(),
             role: crate::storage::user::Role {
@@ -281,7 +281,7 @@ mod tests {
                 created_at: Utc::now(),
             },
             permissions: vec![],
-            auth_method: AuthMethod::Jwt,
+            method: AuthMethod::Jwt,
         }
     }
 

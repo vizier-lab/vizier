@@ -307,7 +307,7 @@ pub async fn get_tasks(
     Query(params): Query<GetTasksQuery>,
     Query(list): Query<ListQuery>,
     State(state): State<HTTPState>,
-    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
+    Extension(user): Extension<crate::channels::http::auth::Identity>,
 ) -> models::response::Response<serde_json::Value> {
     let config = match state.storage.get_agent(&agent_id).await {
         Ok(Some(config)) => config,
@@ -356,7 +356,7 @@ pub async fn get_tasks(
 pub async fn get_task(
     Path((agent_id, slug)): Path<(String, String)>,
     State(state): State<HTTPState>,
-    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
+    Extension(user): Extension<crate::channels::http::auth::Identity>,
 ) -> models::response::Response<TaskResponse> {
     let config = match state.storage.get_agent(&agent_id).await {
         Ok(Some(config)) => config,
@@ -400,7 +400,7 @@ pub async fn get_task(
 pub async fn create_task(
     Path(agent_id): Path<String>,
     State(state): State<HTTPState>,
-    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
+    Extension(user): Extension<crate::channels::http::auth::Identity>,
     Json(body): Json<CreateTaskRequest>,
 ) -> models::response::Response<TaskResponse> {
     let config = match state.storage.get_agent(&agent_id).await {
@@ -458,7 +458,7 @@ pub async fn create_task(
 pub async fn update_task(
     Path((agent_id, slug)): Path<(String, String)>,
     State(state): State<HTTPState>,
-    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
+    Extension(user): Extension<crate::channels::http::auth::Identity>,
     Json(body): Json<CreateTaskRequest>,
 ) -> models::response::Response<TaskResponse> {
     let config = match state.storage.get_agent(&agent_id).await {
@@ -521,7 +521,7 @@ pub async fn update_task(
 pub async fn delete_task(
     Path((agent_id, slug)): Path<(String, String)>,
     State(state): State<HTTPState>,
-    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
+    Extension(user): Extension<crate::channels::http::auth::Identity>,
 ) -> models::response::Response<String> {
     let config = match state.storage.get_agent(&agent_id).await {
         Ok(Some(config)) => config,
@@ -556,7 +556,7 @@ async fn authorize_task(
     state: &HTTPState,
     agent_id: &str,
     slug: &str,
-    user: &crate::channels::http::auth::AuthenticatedUser,
+    user: &crate::channels::http::auth::Identity,
 ) -> Result<(), (StatusCode, String)> {
     let config = match state.storage.get_agent(agent_id).await {
         Ok(Some(config)) => config,
@@ -603,7 +603,7 @@ pub async fn list_runs(
     Path((agent_id, slug)): Path<(String, String)>,
     Query(params): Query<RunsQuery>,
     State(state): State<HTTPState>,
-    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
+    Extension(user): Extension<crate::channels::http::auth::Identity>,
 ) -> models::response::Response<TaskRunsResponse> {
     if let Err((status, message)) = authorize_task(&state, &agent_id, &slug, &user).await {
         return err_response(status, message);
@@ -663,7 +663,7 @@ pub async fn get_run_history(
     Path((agent_id, slug, run_id)): Path<(String, String, chrono::DateTime<Utc>)>,
     Query(params): Query<crate::channels::http::api::v1::agents::channel::HistoryQuery>,
     State(state): State<HTTPState>,
-    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
+    Extension(user): Extension<crate::channels::http::auth::Identity>,
 ) -> models::response::Response<Vec<SessionHistory>> {
     if let Err((status, message)) = authorize_task(&state, &agent_id, &slug, &user).await {
         return err_response(status, message);

@@ -16,7 +16,7 @@ use serde_json::{Map, Value};
 use super::cache;
 use super::data::CatalogueSource;
 use super::refresh::RefreshError;
-use crate::channels::http::api::v1::catalogue::RefreshStatus;
+use crate::catalogue::RefreshStatus;
 use crate::config::provider::ProviderId;
 use crate::dependencies::VizierDependencies;
 use crate::schema::agent::{ImageGenProvider, SttProvider, TtsProvider};

@@ -14,7 +14,7 @@ use serde::Deserialize;
 use crate::{
     agents::background::{CancelOutcome, CancelScope},
     channels::http::{
-        auth::AuthenticatedUser,
+        auth::Identity,
         models::{
             self,
             response::{APIResponse, api_response, err_response},
@@ -54,7 +54,7 @@ pub struct CancelJobBody {
 /// The caller's own topic session, after the same agent check as the topic routes.
 async fn topic_session<T: serde::Serialize + Clone>(
     state: &HTTPState,
-    user: AuthenticatedUser,
+    user: Identity,
     agent_id: String,
     channel_id: String,
     topic_id: TopicId,
@@ -110,7 +110,7 @@ async fn owned_job(
 pub async fn list_jobs(
     Path((agent_id, channel_id, topic_id)): Path<(String, String, TopicId)>,
     State(state): State<HTTPState>,
-    Extension(user): Extension<AuthenticatedUser>,
+    Extension(user): Extension<Identity>,
 ) -> models::response::Response<Vec<BackgroundJobSnapshot>> {
     let session = match topic_session(&state, user, agent_id, channel_id, topic_id).await {
         Ok(session) => session,
@@ -143,7 +143,7 @@ pub async fn list_jobs(
 pub async fn get_job(
     Path((agent_id, channel_id, topic_id, job_id)): Path<(String, String, TopicId, String)>,
     State(state): State<HTTPState>,
-    Extension(user): Extension<AuthenticatedUser>,
+    Extension(user): Extension<Identity>,
 ) -> models::response::Response<BackgroundJobSnapshot> {
     let session = match topic_session(&state, user, agent_id, channel_id, topic_id).await {
         Ok(session) => session,
@@ -176,7 +176,7 @@ pub async fn get_job(
 pub async fn cancel_job(
     Path((agent_id, channel_id, topic_id, job_id)): Path<(String, String, TopicId, String)>,
     State(state): State<HTTPState>,
-    Extension(user): Extension<AuthenticatedUser>,
+    Extension(user): Extension<Identity>,
     body: Option<Json<CancelJobBody>>,
 ) -> models::response::Response<BackgroundJobSnapshot> {
     let username = user.username.clone();
@@ -248,7 +248,7 @@ pub async fn get_piece_history(
     )>,
     Query(params): Query<HistoryQuery>,
     State(state): State<HTTPState>,
-    Extension(user): Extension<AuthenticatedUser>,
+    Extension(user): Extension<Identity>,
 ) -> models::response::Response<Vec<SessionHistory>> {
     let session = match topic_session(&state, user, agent_id, channel_id, topic_id).await {
         Ok(session) => session,

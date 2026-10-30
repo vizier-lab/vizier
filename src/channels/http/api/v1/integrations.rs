@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     channels::http::{
-        auth::{AuthenticatedUser, middleware::require_auth},
+        auth::{Identity, middleware::require_auth},
         models::response::APIResponse,
         state::HTTPState,
     },
@@ -236,7 +236,7 @@ async fn load(state: &HTTPState, id: &str) -> Result<Integration, Response> {
 )]
 pub async fn get_integration(
     State(state): State<HTTPState>,
-    Extension(user): Extension<AuthenticatedUser>,
+    Extension(user): Extension<Identity>,
     Path(id): Path<String>,
 ) -> Response {
     let integration = match load(&state, &id).await {
@@ -296,7 +296,7 @@ pub struct IntegrationSaved {
 )]
 pub async fn update_integration(
     State(state): State<HTTPState>,
-    Extension(user): Extension<AuthenticatedUser>,
+    Extension(user): Extension<Identity>,
     Path(id): Path<String>,
     Json(body): Json<UpdateIntegration>,
 ) -> Response {
@@ -341,7 +341,7 @@ pub struct IntegrationDeleted {
 )]
 pub async fn delete_integration(
     State(state): State<HTTPState>,
-    Extension(user): Extension<AuthenticatedUser>,
+    Extension(user): Extension<Identity>,
     Path(id): Path<String>,
     Query(query): Query<DeleteQuery>,
 ) -> Response {

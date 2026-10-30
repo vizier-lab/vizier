@@ -76,13 +76,13 @@ description: "Task list for extracting vizier-core and splitting the workspace (
 
 **Independent Test**: `grep -rn "channels::http" src --include='*.rs' | grep -v '^src/channels/http'` prints nothing, and `grep -rln axum src --include='*.rs' | grep -v '^src/channels/http'` prints only test files; client tools (`scripts/client-tools-e2e.mjs`) and catalogue refresh (`GET /api/v1/catalogue/status`) behave as before.
 
-- [ ] T018 [P] [US5] Create `src/auth.rs` with `Identity { user_id, username, role: Role, permissions: Vec<String>, method: AuthMethod }` and `#[non_exhaustive] pub enum AuthMethod { Jwt, ApiKey }` (moved from `src/channels/http/auth/mod.rs:114-126`, `AuthenticatedUser` renamed to `Identity`, field `auth_method` → `method`), re-export `storage::user::Role`; register `pub mod auth` in `src/lib.rs` (stable tier)
-- [ ] T019 [US5] Update `src/channels/http/auth/mod.rs` and `src/channels/http/auth/middleware.rs` to produce `crate::auth::Identity` in request extensions; replace every `AuthenticatedUser` use under `src/channels/http/` with `Identity` (`Extension<Identity>`); keep `AuthService`, `Claims`, JWT and argon2 in `src/channels/http/auth/` (research R4)
-- [ ] T020 [P] [US5] Change `src/access.rs:17` to `impl<'a> From<&'a crate::auth::Identity> for Caller<'a>`; keep its tests passing
-- [ ] T021 [P] [US5] Change `src/schema/revision.rs:11-14` to import `crate::auth::{AuthMethod, Identity}` and build `RevisionOrigin` from `&Identity`; persisted columns and JSON unchanged (check the revision tests and the `/history` OpenAPI schema stay identical)
-- [ ] T022 [P] [US5] Move `RefreshStatus` from `src/channels/http/api/v1/catalogue.rs:63-70` to `src/catalogue/mod.rs`; update the imports in `src/catalogue/media.rs:19`, `src/catalogue/refresh.rs:19` and `src/channels/http/api/v1/catalogue.rs`; keep the `utoipa::ToSchema` derive (gated in T038)
-- [ ] T023 [P] [US5] Move `src/channels/http/rate_limit.rs` to `src/utils/rate_limit.rs` (`git mv`); update `src/dependencies.rs:75,282` and every `src/channels/http/` user
-- [ ] T024 [US5] Replace `axum::extract::ws::Message` in `src/agents/client/connection.rs:17,32,38,87,135` with `serde_json::Value` (`mpsc::Sender<serde_json::Value>`, send the frame value itself); convert to `Message::Text(value.to_string().into())` in the socket writer task created next to `ClientConnection::new` in `src/channels/http/api/v1/agents/channel.rs:1022`; fix the test helper in `src/agents/client/mod.rs:593`; run `node scripts/client-tools-e2e.mjs` against a dummyplug agent (research R5)
+- [X] T018 [P] [US5] Create `src/auth.rs` with `Identity { user_id, username, role: Role, permissions: Vec<String>, method: AuthMethod }` and `#[non_exhaustive] pub enum AuthMethod { Jwt, ApiKey }` (moved from `src/channels/http/auth/mod.rs:114-126`, `AuthenticatedUser` renamed to `Identity`, field `auth_method` → `method`), re-export `storage::user::Role`; register `pub mod auth` in `src/lib.rs` (stable tier)
+- [X] T019 [US5] Update `src/channels/http/auth/mod.rs` and `src/channels/http/auth/middleware.rs` to produce `crate::auth::Identity` in request extensions; replace every `AuthenticatedUser` use under `src/channels/http/` with `Identity` (`Extension<Identity>`); keep `AuthService`, `Claims`, JWT and argon2 in `src/channels/http/auth/` (research R4)
+- [X] T020 [P] [US5] Change `src/access.rs:17` to `impl<'a> From<&'a crate::auth::Identity> for Caller<'a>`; keep its tests passing
+- [X] T021 [P] [US5] Change `src/schema/revision.rs:11-14` to import `crate::auth::{AuthMethod, Identity}` and build `RevisionOrigin` from `&Identity`; persisted columns and JSON unchanged (check the revision tests and the `/history` OpenAPI schema stay identical)
+- [X] T022 [P] [US5] Move `RefreshStatus` from `src/channels/http/api/v1/catalogue.rs:63-70` to `src/catalogue/mod.rs`; update the imports in `src/catalogue/media.rs:19`, `src/catalogue/refresh.rs:19` and `src/channels/http/api/v1/catalogue.rs`; keep the `utoipa::ToSchema` derive (gated in T038)
+- [X] T023 [P] [US5] Move `src/channels/http/rate_limit.rs` to `src/utils/rate_limit.rs` (`git mv`); update `src/dependencies.rs:75,282` and every `src/channels/http/` user
+- [X] T024 [US5] Replace `axum::extract::ws::Message` in `src/agents/client/connection.rs:17,32,38,87,135` with `serde_json::Value` (`mpsc::Sender<serde_json::Value>`, send the frame value itself); convert to `Message::Text(value.to_string().into())` in the socket writer task created next to `ClientConnection::new` in `src/channels/http/api/v1/agents/channel.rs:1022`; fix the test helper in `src/agents/client/mod.rs:593`; run `node scripts/client-tools-e2e.mjs` against a dummyplug agent (research R5)
 
 **Checkpoint**: Independent test passes; `scripts/037-baseline-check.sh` zero diff; harness green.
 
@@ -290,3 +290,11 @@ Each PR is conventional-commit titled (table above), passes CI, and must show ze
   returns 404 for both (2026-10-30).
 - **T016**: the only new diagnostics were the three `src/utils/mod.rs` doc examples, which never
   ran while the crate was a binary; they now import their function and pass as doctests.
+- **T019**: `channels/http/auth` re-exports `crate::auth::{AuthMethod, Identity}` so handlers
+  keep importing them from their own `auth` module (the path still works after the split).
+- **T022**: `RefreshStatus` carries a plain `//` comment, not a doc comment: utoipa would turn a
+  doc comment into the schema description and change `/openapi.json`.
+- **T024**: the socket keeps its `Message` channel for pings, pongs and closes; the connection
+  gets a second channel of JSON values, and the writer task `select!`s over both.
+  `scripts/client-tools-e2e.mjs` passed against a dummyplug agent; `GET /api/v1/catalogue`
+  returns the same `refresh` block.

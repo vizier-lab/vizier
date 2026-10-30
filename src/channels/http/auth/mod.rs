@@ -6,6 +6,7 @@ use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, decode, encode}
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+pub use crate::auth::{AuthMethod, Identity};
 use crate::{config::HTTPChannelConfig, storage::user::Role};
 
 pub mod middleware;
@@ -106,23 +107,6 @@ impl AuthService {
             .map(|b| format!("{b:02x}"))
             .collect()
     }
-}
-
-/// How a request was authenticated — a JWT bearer token (the WebUI's login flow) or an API
-/// key (programmatic callers). Used to attribute document revisions (`RevisionOrigin`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AuthMethod {
-    Jwt,
-    ApiKey,
-}
-
-#[derive(Debug, Clone)]
-pub struct AuthenticatedUser {
-    pub user_id: String,
-    pub username: String,
-    pub role: Role,
-    pub permissions: Vec<String>,
-    pub auth_method: AuthMethod,
 }
 
 #[cfg(test)]

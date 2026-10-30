@@ -72,7 +72,7 @@ pub struct VizierDependencies {
     pub notifications: crate::notifications::Notifications,
     /// The side-chat rate limit (`specs/033-btw-side-chat` research R9): 5 asks per 60 s per
     /// platform identity, shared by the HTTP handler and the Discord/Telegram readers.
-    pub side_chat_limits: Arc<crate::channels::http::rate_limit::RateLimiter>,
+    pub side_chat_limits: Arc<crate::utils::rate_limit::RateLimiter>,
 }
 
 /// Old (pre-bundle) memory frontmatter shape, kept only so `migrate_memory_to_bundles` can parse
@@ -279,7 +279,7 @@ impl VizierDependencies {
             channel_board: Default::default(),
             setup: Default::default(),
             notifications,
-            side_chat_limits: Arc::new(crate::channels::http::rate_limit::RateLimiter::new(
+            side_chat_limits: Arc::new(crate::utils::rate_limit::RateLimiter::new(
                 crate::channels::side_chat::ASKS_PER_WINDOW,
                 crate::channels::side_chat::ASK_WINDOW,
             )),
