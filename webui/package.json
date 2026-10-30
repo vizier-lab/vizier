@@ -16,6 +16,8 @@
     "@json-render/react": "0.21.3",
     "@react-router/node": "^7.12.0",
     "@react-three/fiber": "9.8.2",
+    "@tauri-apps/api": "^2.12.4",
+    "@tauri-apps/plugin-notification": "^2.8.0",
     "@vizier/design": "file:../design",
     "croner": "^9.1.0",
     "isbot": "^5",

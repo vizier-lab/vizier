@@ -42,11 +42,6 @@ export const deleteTopic = (agentId: string, topicId: string) => api.delete(base
 
 export const restartAgent = (agentId: string) => api.post(`/agents/${agentId}/restart`)
 
-export function chatSocketUrl(agentId: string, topicId: string, token: string): string {
-    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
-    return `${proto}//${location.host}/api/v1/agents/${agentId}/channel/${CHANNEL}/topic/${encodeURIComponent(topicId)}/chat?token=${encodeURIComponent(token)}`
-}
-
 export type SideChatRequest = components['schemas']['BtwRequest']
 export type SideChatResponse = components['schemas']['BtwResponse']
 

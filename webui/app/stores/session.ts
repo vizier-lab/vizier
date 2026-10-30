@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { setToken, getToken, setUnauthorizedHandler } from '../api/client'
+import { transport, transportReady, type DesktopState } from '../api/transport'
 import { currentUser, login as apiLogin, type CurrentUser } from '../api/endpoints/auth'
 import type { Agent } from '../api/endpoints/agents'
 
@@ -24,8 +25,10 @@ export function applyTheme(theme: Theme) {
     }
     // The court changes light in one breath: the old and new grounds cross-fade
     // instead of snapping. Browsers without the API, and people who asked for
-    // less movement, get the change straight away.
-    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    // less movement, get the change straight away. So does the desktop window: a view transition
+    // snapshots the page through the compositor, which WebKitGTK may not have (WSL, no GPU), and
+    // the window crashes on the switch.
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches || transport.authMode === 'desktop'
     const start = (
         document as Document & {
             startViewTransition?: (cb: () => void) => unknown
@@ -67,6 +70,23 @@ export const useSession = create<SessionStore>()((set, get) => ({
     },
 
     load: async () => {
+        await transportReady
+        if (transport.authMode === 'desktop') {
+            // The shell signs the bound owner in; wait for the engine, then read who that is.
+            const shell = transport.desktop!
+            const ready = (s: DesktopState) => s.state === 'ready' || s.state === 'degraded'
+            if (!ready(await shell.state())) {
+                await new Promise<void>((resolve) => {
+                    void shell.onState((s) => ready(s) && resolve())
+                })
+            }
+            try {
+                set({ user: await currentUser(), token: null, loading: false })
+            } catch {
+                set({ user: null, loading: false })
+            }
+            return
+        }
         if (!getToken()) {
             set({ user: null, token: null, loading: false })
             return
@@ -79,6 +99,7 @@ export const useSession = create<SessionStore>()((set, get) => ({
     },
 
     signOut: () => {
+        if (transport.authMode === 'desktop') return
         setToken(null)
         set({ token: null, user: null })
     },

@@ -1,3 +1,4 @@
+import { transport } from '../transport'
 import { api, request } from '../client'
 import type { RevisionActor, RevisionDiff, RevisionTrigger } from '../../lib/revisions'
 
@@ -106,8 +107,7 @@ export const rollbackDoc = (agentId: string, bundle: string, path: string, seq: 
 
 /** The bundle as a `.zip`, fetched with the token so it can be saved. */
 export async function exportBundle(agentId: string, bundle: string): Promise<Blob> {
-    const { getToken, API_BASE } = await import('../client')
-    const res = await fetch(`${API_BASE}${base(agentId)}/bundles/${encodeURIComponent(bundle)}/export`, { headers: { Authorization: `Bearer ${getToken()}` } })
+    const res = await transport.fetchFile(`${base(agentId)}/bundles/${encodeURIComponent(bundle)}/export`)
     if (!res.ok) throw new Error(`export failed (${res.status})`)
     return res.blob()
 }

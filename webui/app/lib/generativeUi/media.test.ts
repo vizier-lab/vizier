@@ -21,9 +21,8 @@ describe('session file lookup', () => {
         expect(findFile(files, 'nope.png')).toBeUndefined()
     })
 
-    it('builds a serving address with the token as a query', () => {
-        expect(fileUrl(file('a.png'), 'tok en')).toBe('/api/v1/files/id-a.png?token=tok%20en')
-        expect(fileUrl(file('a.png'), null)).toBe('/api/v1/files/id-a.png')
+    it('builds a serving address through the transport', () => {
+        expect(fileUrl(file('a.png'))).toBe('/api/v1/files/id-a.png')
     })
 
     it('lists the available files for an error, once each', () => {

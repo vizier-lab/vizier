@@ -7,7 +7,9 @@ import {
     type NotificationFilter,
     type NotificationItem,
 } from '../api/endpoints/notifications'
+import { transport } from '../api/transport'
 import { applyAllRead, applyRead, isViewing, mergePage } from '../lib/notifications'
+import { pollDelay } from '../lib/desktop'
 
 /** Within the spec's 30s freshness budget. */
 const POLL_MS = 15_000
@@ -193,8 +195,15 @@ export const useNotifications = create<NotificationStore>()((set, get) => ({
     },
 
     start: () => {
+        let lastRun = 0
         const tick = async () => {
-            if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return
+            if (typeof document !== 'undefined') {
+                // Hidden: the browser stops; the desktop app keeps checking, every minute, so a
+                // finished task still reaches the OS (research R11).
+                const delay = pollDelay(transport.authMode === 'desktop', document.visibilityState)
+                if (delay === null || Date.now() - lastRun < delay - 1000) return
+            }
+            lastRun = Date.now()
             // One request answers both questions: the badge (its counts) and what is new
             // (ids above the high-water mark). A failure keeps the last known badge.
             let page

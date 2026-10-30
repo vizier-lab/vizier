@@ -1,5 +1,4 @@
 import type { ComponentRenderProps } from '@json-render/react'
-import { getToken } from '../../../api/client'
 import { cssColour } from './colours'
 import { fileUrl, findFile } from '../media'
 import { useSessionFiles } from './mediaContext'
@@ -47,7 +46,7 @@ function ShapeSvg({ shape }: { shape: Shape }) {
         case 'image': {
             const file = typeof shape.file === 'string' ? findFile(files, shape.file) : undefined
             // A missing file draws nothing in its place; the rest of the drawing stays.
-            return file ? <image href={fileUrl(file, getToken())} x={num(shape.x)} y={num(shape.y)} width={num(shape.w)} height={num(shape.h)} preserveAspectRatio="xMidYMid meet" /> : null
+            return file ? <image href={fileUrl(file)} x={num(shape.x)} y={num(shape.y)} width={num(shape.w)} height={num(shape.h)} preserveAspectRatio="xMidYMid meet" /> : null
         }
         case 'path':
             return typeof shape.d === 'string' ? <path d={shape.d} {...paint} /> : null

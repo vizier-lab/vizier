@@ -1,4 +1,4 @@
-import { IconButton, MobileTopBar, SettingsNav, ShellFrame, SlideOver, type SettingsPage } from '@vizier/design'
+import { IconButton, MobileTopBar, ShellFrame, SlideOver } from '@vizier/design'
 import { useEffect, useState, type MouseEvent } from 'react'
 import { Outlet, useLocation, useMatches, useNavigate, useParams } from 'react-router'
 import { motion } from 'motion/react'
@@ -10,6 +10,7 @@ import { useNotifications } from '../stores/notifications'
 import { NotificationsAside, NotificationsPanel } from '../screens/notifications/NotificationsPanel'
 import { NotificationsBell } from '../screens/shared/NotificationsBell'
 import { NotificationToasts } from '../screens/shared/NotificationToasts'
+import { SettingsSidebar } from '../screens/settings/SettingsSidebar'
 import { AgentSidebar } from '../screens/shell/AgentSidebar'
 import { viewOf } from '../screens/shell/pages'
 import { ShellRail } from '../screens/shell/ShellRail'
@@ -74,12 +75,12 @@ export default function AppShell() {
     }
 
     const admin = can('settings:providers') || can('users:manage') || can('roles:manage')
-    const settingsPage = (pathname.split('/')[2] as SettingsPage | undefined) ?? 'profile'
+    const settingsPage = pathname.split('/')[2] ?? 'profile'
     const sidebar =
         view === 'agent' && routeAgent ? (
             <AgentSidebar agentId={routeAgent} />
         ) : view === 'settings' ? (
-            <SettingsNav active={settingsPage} hrefFor={(p) => `/settings/${p}`} showAdministration={admin} />
+            <SettingsSidebar active={settingsPage} admin={admin} />
         ) : undefined
     const sidebarKey = view === 'agent' ? `agent:${routeAgent}` : view
 
@@ -131,7 +132,7 @@ export default function AppShell() {
                         {drawerView === 'agent' && (routeAgent ?? drawerAgent) ? (
                             <AgentSidebar agentId={(routeAgent ?? drawerAgent)!} />
                         ) : drawerView === 'settings' ? (
-                            <SettingsNav active={settingsPage} hrefFor={(p) => `/settings/${p}`} showAdministration={admin} />
+                            <SettingsSidebar active={settingsPage} admin={admin} />
                         ) : null}
                     </div>
                 </SlideOver>

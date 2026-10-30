@@ -5,6 +5,8 @@ export type CurrentUser = {
     username: string
     role_name: string
     permissions: string[]
+    /** False for a desktop owner who skipped the password. */
+    has_password?: boolean
 }
 
 export const login = (username: string, password: string) =>

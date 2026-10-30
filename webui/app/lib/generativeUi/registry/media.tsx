@@ -1,7 +1,6 @@
 import { FilePeek, ImageGallery } from '@vizier/design'
 import type { ComponentRenderProps } from '@json-render/react'
 import { useState } from 'react'
-import { getToken } from '../../../api/client'
 import type { SessionFileRecord } from '../../../api/frames'
 import { Audio as AudioPlayer, Video as VideoPlayer } from '../../../screens/chat/ReplyMedia'
 import { FilePreviewDialog } from '../../../screens/chat/FilePreviewDialog'
@@ -37,7 +36,7 @@ export function ImageC({ element, emit }: ComponentRenderProps<P>) {
     const files = useSessionFiles()
     const send = useEmitter(emit)
     const file = typeof p.file === 'string' ? findFile(files, p.file) : undefined
-    const src = typeof p.src === 'string' && p.src.startsWith('data:image/') ? p.src : file ? fileUrl(file, getToken()) : null
+    const src = typeof p.src === 'string' && p.src.startsWith('data:image/') ? p.src : file ? fileUrl(file) : null
     if (!src) return <Missing name={typeof p.file === 'string' ? p.file : 'image'} />
     return (
         // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-noninteractive-element-interactions
@@ -60,7 +59,7 @@ export function AudioC({ element }: ComponentRenderProps<P>) {
     return (
         <div className="flex flex-col gap-4">
             {typeof p.title === 'string' && <p className="type-ui-medium text-soft">{p.title}</p>}
-            <AudioPlayer src={fileUrl(file, getToken())} transcript={typeof p.transcript === 'string' ? p.transcript : undefined} />
+            <AudioPlayer src={fileUrl(file)} transcript={typeof p.transcript === 'string' ? p.transcript : undefined} />
         </div>
     )
 }
@@ -72,7 +71,7 @@ export function VideoC({ element }: ComponentRenderProps<P>) {
     return (
         <div className="flex flex-col gap-4">
             {typeof p.title === 'string' && <p className="type-ui-medium text-soft">{p.title}</p>}
-            <VideoPlayer a={{ filename: typeof p.title === 'string' ? p.title : file.filename }} src={fileUrl(file, getToken())} />
+            <VideoPlayer a={{ filename: typeof p.title === 'string' ? p.title : file.filename }} src={fileUrl(file)} />
         </div>
     )
 }
@@ -84,7 +83,7 @@ export function FileCardC({ element, emit }: ComponentRenderProps<P>) {
     const send = useEmitter(emit)
     const [open, setOpen] = useState(false)
     if (!file) return <Missing name={String(p.file ?? 'file')} />
-    const download = () => window.open(fileUrl(file, getToken()), '_blank', 'noopener,noreferrer')
+    const download = () => window.open(fileUrl(file), '_blank', 'noopener,noreferrer')
     return (
         <>
             <FilePeek
@@ -110,11 +109,10 @@ export function GalleryC({ element, emit }: ComponentRenderProps<P>) {
     const found = names.map((name) => ({ name, file: findFile(files, name) }))
     const shown = found.filter((x): x is { name: string; file: SessionFileRecord } => !!x.file && IMAGE_MIME.test(x.file.mime_type))
     const missing = found.filter((x) => !x.file)
-    const token = getToken()
     return (
         <div className="flex flex-col gap-8">
             <ImageGallery
-                images={shown.map((x) => ({ src: fileUrl(x.file, token), name: x.name }))}
+                images={shown.map((x) => ({ src: fileUrl(x.file), name: x.name }))}
                 onOpen={(index) => {
                     setOpen(index)
                     send('press', { isTrusted: true }, { file: shown[index]?.name, index })

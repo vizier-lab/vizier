@@ -2,6 +2,7 @@
 // Nothing about a file is stored in the interface but its name; the record, and the address it is
 // served from, are looked up when the interface is drawn.
 import type { SessionFileRecord } from '../../api/frames'
+import { transport } from '../../api/transport'
 
 export const IMAGE_MIME = /^image\//
 
@@ -10,9 +11,9 @@ export function findFile(files: readonly SessionFileRecord[], name: string): Ses
     return files.filter((f) => f.filename === name).sort((a, b) => (a.added_at < b.added_at ? 1 : a.added_at > b.added_at ? -1 : 0))[0]
 }
 
-/** Where a file is served from. The file route takes the token as a query for elements that cannot send headers. */
-export function fileUrl(file: SessionFileRecord, token: string | null): string {
-    return `/api/v1/files/${encodeURIComponent(file.file_id)}${token ? `?token=${encodeURIComponent(token)}` : ''}`
+/** Where a file is served from, as the transport addresses it for elements that cannot send headers. */
+export function fileUrl(file: SessionFileRecord): string {
+    return transport.assetUrl(`/files/${encodeURIComponent(file.file_id)}`)
 }
 
 /** "forecast.png (image/png), report.pdf (application/pdf)" for an error that lists what exists. */

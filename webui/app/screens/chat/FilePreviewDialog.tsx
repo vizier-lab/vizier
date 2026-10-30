@@ -16,7 +16,7 @@ const toPreview = (f: SessionFileRecord): PreviewFile => ({
     name: f.filename,
     mimeType: f.mime_type,
     size: f.size,
-    url: `/api/v1/files/${f.file_id}`,
+    url: `/files/${f.file_id}`,
     meta: `${fileSize(f.size)}${f.sender ? ` · sent by ${f.sender}` : ''}`,
 })
 

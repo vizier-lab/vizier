@@ -20,7 +20,6 @@ import { Panes } from '../shared/Panes'
 import { ConfirmDialog } from '../shared/ConfirmDialog'
 import { Enter, stagger } from '../../lib/motion'
 import { toast } from '../../stores/toasts'
-import { API_BASE } from '../../api/client'
 import { FilePreviewModal, type PreviewFile } from '../shared/FilePreviewModal'
 import { ArtifactDetail } from './ArtifactDetail'
 
@@ -29,7 +28,7 @@ const toPreview = (a: ArtifactItem): PreviewFile => ({
     name: a.name,
     mimeType: a.mime_type,
     size: a.size,
-    url: `${API_BASE}/agents/${a.agent_id}/artifacts/${encodeURIComponent(a.id)}/content`,
+    url: `/agents/${a.agent_id}/artifacts/${encodeURIComponent(a.id)}/content`,
     meta: `${bytesLabel(a.size)} · ${kindLabel(a.kind)} · v${a.version}`,
 })
 

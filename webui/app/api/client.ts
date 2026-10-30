@@ -1,93 +1,10 @@
-export class ApiError extends Error {
-    constructor(
-        public status: number,
-        public code: string | undefined,
-        message: string,
-        public data?: unknown
-    ) {
-        super(message)
-    }
-}
-
-type Envelope<T> = { status: number; message?: string | null; data?: T | null }
-
-export const TOKEN_KEY = 'auth_token'
-
-export function getToken(): string | null {
-    try {
-        return localStorage.getItem(TOKEN_KEY)
-    } catch {
-        return null
-    }
-}
-
-export function setToken(token: string | null) {
-    try {
-        if (token) localStorage.setItem(TOKEN_KEY, token)
-        else localStorage.removeItem(TOKEN_KEY)
-    } catch {
-        /* storage blocked: the session lasts until reload */
-    }
-}
-
-export const API_BASE = '/api/v1'
-
-let onUnauthorized: () => void = () => {
-    setToken(null)
-    if (location.pathname !== '/login') location.assign('/login')
-}
-
-/** The session store installs its own handler so a 401 also clears the stored user. */
-export function setUnauthorizedHandler(fn: () => void) {
-    onUnauthorized = fn
-}
+import { transport } from './transport'
+export { ApiError, TOKEN_KEY, API_BASE, getToken, setToken, setUnauthorizedHandler } from './transport/common'
 
 /** Sends a request and unwraps the `APIResponse` envelope. */
-export async function request<T>(
-    method: string,
-    path: string,
-    body?: unknown,
-    init?: { signal?: AbortSignal; raw?: boolean }
-): Promise<T> {
-    const headers: Record<string, string> = {}
-    const token = getToken()
-    if (token) headers.Authorization = `Bearer ${token}`
-    const isForm = typeof FormData !== 'undefined' && body instanceof FormData
-    if (body !== undefined && !isForm) headers['Content-Type'] = 'application/json'
-
-    const res = await fetch(`${API_BASE}${path}`, {
-        method,
-        headers,
-        body:
-            body === undefined
-                ? undefined
-                : isForm
-                  ? (body as FormData)
-                  : JSON.stringify(body),
-        signal: init?.signal,
-    })
-
-    let json: (Envelope<T> & { code?: string }) | undefined
-    try {
-        json = (await res.json()) as Envelope<T> & { code?: string }
-    } catch {
-        json = undefined
-    }
-
-    if (res.status === 401 && path !== '/auth/login') {
-        onUnauthorized()
-        throw new ApiError(401, 'unauthorized', json?.message ?? 'Signed out')
-    }
-    if (!res.ok) {
-        const data = json?.data as { code?: string } | undefined
-        throw new ApiError(
-            res.status,
-            json?.code ?? data?.code,
-            json?.message ?? res.statusText,
-            json?.data
-        )
-    }
-    return (init?.raw ? (json as unknown as T) : (json?.data as T)) ?? (undefined as T)
+export function request<T>(method: string, path: string, body?: unknown, init?: { signal?: AbortSignal; raw?: boolean }): Promise<T> {
+    if (typeof FormData !== 'undefined' && body instanceof FormData) return transport.upload<T>(path, body)
+    return transport.request<T>(method, path, body, init)
 }
 
 export const api = {

@@ -1,4 +1,5 @@
-import { API_BASE, api, getToken } from '../client'
+import { api } from '../client'
+import { transport } from '../transport'
 
 export type ArtifactKind = 'image' | 'pdf' | 'text' | 'markdown' | 'csv' | 'audio' | 'video' | 'other'
 export type ArtifactAction = 'promoted' | 'replaced' | 'deleted'
@@ -96,9 +97,7 @@ export const deleteArtifact = (agentId: string, id: string) =>
 
 /** The content URL used by `<img>`/`<audio>`/`<video>`/`<iframe>`, with the auth token. */
 export function artifactContentUrl(agentId: string, artifactId: string): string {
-    const token = getToken()
-    const qs = token ? `?token=${encodeURIComponent(token)}` : ''
-    return `${API_BASE}/agents/${agentId}/artifacts/${encodeURIComponent(artifactId)}/content${qs}`
+    return transport.assetUrl(`/agents/${agentId}/artifacts/${encodeURIComponent(artifactId)}/content`)
 }
 
 export const promoteTopicFile = (
