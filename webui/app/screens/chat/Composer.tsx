@@ -12,6 +12,7 @@ import { abbreviate } from '../../lib/format'
 import { useMobile } from '../../lib/useMobile'
 import { toast } from '../../stores/toasts'
 import { fileSize, MAX_UPLOAD_BYTES, uploadFile } from '../../lib/upload'
+import { WavRecorder } from '../../lib/wavRecorder'
 import type { VizierAttachment } from '../../api/frames'
 
 const BUILTIN: SkillMenuItem[] = [
@@ -38,8 +39,10 @@ type Pending = {
 type Props = {
     agentId: string
     agentName: string
-    /** `false` once the agent is known to have no Text-to-Speech; `undefined` while that's unknown. */
-    ttsEnabled?: boolean
+    /** The agent has Speech-to-Text, so the mic is offered. */
+    sttEnabled: boolean
+    /** The agent has Text-to-Speech, so "Ask for a spoken reply" is offered. */
+    ttsEnabled: boolean
     busy: boolean
     /** Why it can't send (the agent is down), in place of the placeholder. */
     disabledReason?: string
@@ -62,6 +65,7 @@ let pendingId = 1
 export function Composer({
     agentId,
     agentName,
+    sttEnabled,
     ttsEnabled,
     busy,
     disabledReason,
@@ -83,14 +87,38 @@ export function Composer({
         blob?: Blob
     } | null>(null)
     const [spoken, setSpoken] = useState(false)
-    // A spoken reply needs the agent's Text-to-Speech; without it, the switch is off and says so.
-    const canSpeak = ttsEnabled !== false
+    // A spoken reply needs the agent's Text-to-Speech; without it there is no switch to keep on.
     useEffect(() => {
-        if (!canSpeak) setSpoken(false)
-    }, [canSpeak])
+        if (!ttsEnabled) setSpoken(false)
+    }, [ttsEnabled])
     const input = useRef<HTMLInputElement>(null)
-    const recorder = useRef<MediaRecorder | null>(null)
+    const recorder = useRef<WavRecorder | null>(null)
     const timer = useRef<ReturnType<typeof setInterval> | null>(null)
+    const [playing, setPlaying] = useState(false)
+    const [progress, setProgress] = useState(0)
+    const player = useRef<HTMLAudioElement | null>(null)
+
+    // The recording, ready to listen back to before it is sent.
+    const recordedBlob = voice?.blob
+    useEffect(() => {
+        setPlaying(false)
+        setProgress(0)
+        if (!recordedBlob) return
+        const url = URL.createObjectURL(recordedBlob)
+        const el = new Audio(url)
+        player.current = el
+        el.ontimeupdate = () =>
+            setProgress(el.duration > 0 ? el.currentTime / el.duration : 0)
+        el.onended = () => {
+            setPlaying(false)
+            setProgress(0)
+        }
+        return () => {
+            el.pause()
+            player.current = null
+            URL.revokeObjectURL(url)
+        }
+    }, [recordedBlob])
 
     useEffect(() => {
         let alive = true
@@ -190,24 +218,18 @@ export function Composer({
             const stream = await navigator.mediaDevices.getUserMedia({
                 audio: true,
             })
-            const chunks: Blob[] = []
-            const rec = new MediaRecorder(stream)
-            recorder.current = rec
-            rec.ondataavailable = (e) => chunks.push(e.data)
-            rec.onstop = () => {
+            let rec: WavRecorder
+            try {
+                rec = await WavRecorder.start(stream)
+            } catch (e) {
                 stream.getTracks().forEach((t) => t.stop())
-                stopTimer()
-                setVoice((v) =>
-                    v
-                        ? {
-                              ...v,
-                              mode: 'recorded',
-                              blob: new Blob(chunks, { type: rec.mimeType }),
-                          }
-                        : v
-                )
+                throw e
             }
-            rec.start()
+            recorder.current = rec
+            rec.onstop = (blob) => {
+                stopTimer()
+                setVoice((v) => (v ? { ...v, mode: 'recorded', blob } : v))
+            }
             setVoice({ mode: 'recording', elapsed: 0 })
             timer.current = setInterval(
                 () =>
@@ -222,21 +244,31 @@ export function Composer({
         }
     }
 
-    useEffect(() => () => stopTimer(), [])
+    useEffect(
+        () => () => {
+            stopTimer()
+            recorder.current?.cancel()
+        },
+        []
+    )
+
+    /** Drops the recording, whether it is still being made or already listened back to. */
+    const discardVoice = () => {
+        recorder.current?.cancel()
+        stopTimer()
+        setVoice(null)
+    }
 
     const sendVoice = async () => {
-        if (!voice?.blob) return
-        const ext = voice.blob.type.includes('ogg')
-            ? 'ogg'
-            : voice.blob.type.includes('mp4')
-              ? 'm4a'
-              : 'webm'
+        // Sending mid-recording stops it first and sends what was recorded.
+        const blob =
+            voice?.mode === 'recording' ? recorder.current?.stop() : voice?.blob
+        if (!blob) return
+        player.current?.pause()
         try {
             onSendAudio(
                 await uploadFile(
-                    new File([voice.blob], `voice-message.${ext}`, {
-                        type: voice.blob.type,
-                    })
+                    new File([blob], 'voice-message.wav', { type: blob.type })
                 )
             )
             setVoice(null)
@@ -270,7 +302,7 @@ export function Composer({
                 value={value}
                 onValueChange={setValue}
                 onSend={() =>
-                    void (voice?.mode === 'recorded' ? sendVoice() : send())
+                    void (voice ? sendVoice() : send())
                 }
                 busy={busy}
                 onStop={onStop}
@@ -282,6 +314,7 @@ export function Composer({
                         ? `${abbreviate(context.used)} / ${abbreviate(context.window)}`
                         : undefined
                 }
+                mic={sttEnabled}
                 recording={voice?.mode === 'recording'}
                 onAttach={() => input.current?.click()}
                 onMic={() =>
@@ -295,10 +328,13 @@ export function Composer({
                         <VoiceRecorder
                             mode={voice.mode}
                             elapsed={voice.elapsed}
-                            onStop={() => recorder.current?.stop()}
-                            onDiscard={() => {
-                                stopTimer()
-                                setVoice(null)
+                            onDiscard={discardVoice}
+                            playing={playing}
+                            progress={progress}
+                            onPlayingChange={(p) => {
+                                setPlaying(p)
+                                if (p) void player.current?.play()
+                                else player.current?.pause()
                             }}
                         />
                     )
@@ -315,22 +351,16 @@ export function Composer({
                     />
                 }
                 below={
-                    <div className="flex flex-col gap-2">
+                    ttsEnabled && (
                         <label className="flex items-center gap-8 type-small text-muted">
                             <Switch
                                 checked={spoken}
                                 onCheckedChange={setSpoken}
-                                disabled={!canSpeak}
                                 aria-label="Ask for a spoken reply"
                             />
                             Ask for a spoken reply
                         </label>
-                        {!canSpeak && (
-                            <p className="type-small-para text-faint">
-                                Turn on Text-to-Speech in Config first.
-                            </p>
-                        )}
-                    </div>
+                    )
                 }
                 attachments={
                     pending.length > 0 ? (

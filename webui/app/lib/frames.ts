@@ -193,10 +193,14 @@ export function reduce(state: TopicState, action: Action): TopicState {
                     // A step of a turn nobody here started (a woken report, another tab) makes
                     // the topic busy.
                     const busy = state.phase === 'idle' && !frame.entry.content.Response && !frame.entry.content.Checkpoint && !frame.entry.content.Command
+                    // A stored request replaces the stand-in drawn for it when it was sent.
+                    const base = frame.entry.content.Request
+                        ? state.entries.filter((e) => !(isLive(e) && e.content.Request && coveredByStored(e, [frame.entry])))
+                        : state.entries
                     return {
                         ...state,
                         phase: busy ? 'working' : state.phase,
-                        entries: mergeEntries(state.entries, [frame.entry]),
+                        entries: mergeEntries(base, [frame.entry]),
                     }
                 }
                 case 'job':
@@ -302,11 +306,26 @@ export function reduce(state: TopicState, action: Action): TopicState {
     }
 }
 
-/** A stand-in request/reply is covered once the stored history holds an entry of its kind after it. */
+/** How far apart a stand-in request and its stored entry can be stamped: the client stamps both within moments, and two real messages are never this close. */
+const STAND_IN_WINDOW_MS = 2_000
+
+const stampedNear = (a: string, b: string) => Math.abs(Date.parse(a) - Date.parse(b)) < STAND_IN_WINDOW_MS
+
+/**
+ * A stand-in request/reply is covered once the stored history holds an entry of its kind after it.
+ * A request is matched by content when the person typed it, and by when it was made otherwise: a
+ * voice message or a generative-UI event is stored as something other than the `chat` text drawn
+ * for it, and a stand-in left uncovered ends up below the reply it started.
+ */
 function coveredByStored(entry: ChatMessage, stored: ChatMessage[]): boolean {
     if (entry.content.Request) {
-        const text = JSON.stringify(entry.content.Request.content)
-        return stored.some((s) => s.content.Request && JSON.stringify(s.content.Request.content) === text)
+        const request = entry.content.Request
+        const text = JSON.stringify(request.content)
+        return stored.some(
+            (s) =>
+                s.content.Request &&
+                (JSON.stringify(s.content.Request.content) === text || stampedNear(s.content.Request.timestamp, request.timestamp))
+        )
     }
     if (entry.content.Response) {
         const ts = entry.content.Response.timestamp

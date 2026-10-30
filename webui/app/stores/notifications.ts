@@ -16,7 +16,7 @@ const PAGE = 20
 const EMPTY: NotificationCounts = { all: 0, unread: 0, read: 0 }
 
 type NotificationStore = {
-    /** Whether the slide-over is showing. */
+    /** Whether the dropdown is showing. */
     open: boolean
     filter: NotificationFilter
     items: NotificationItem[]
@@ -70,7 +70,7 @@ function optimisticCounts(
 
 export const useNotifications = create<NotificationStore>()((set, get) => ({
     open: false,
-    filter: 'all',
+    filter: 'unread',
     items: [],
     counts: EMPTY,
     next: null,
@@ -267,7 +267,7 @@ export const useNotifications = create<NotificationStore>()((set, get) => ({
     reset: () =>
         set({
             open: false,
-            filter: 'all',
+            filter: 'unread',
             items: [],
             counts: EMPTY,
             next: null,

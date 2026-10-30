@@ -14,12 +14,27 @@ import { estimateCost, type Price } from './prices'
 export function requestText(content: VizierRequestContent): string {
     if ('chat' in content) return content.chat
     if ('client_event' in content) return content.client_event.text
-    if ('audio_chat' in content) return content.audio_chat[1] ?? '[Voice message]'
+    if ('audio_chat' in content) return content.audio_chat[1] ?? ''
     if ('silent_read' in content) return content.silent_read
     if ('prompt' in content) return content.prompt
     if ('unattended' in content) return content.unattended
     if ('command' in content) return `/${content.command}`
     return ''
+}
+
+/** A voice message: the audio is the request's own content, not one of its `attachments`. */
+export function isAudioRequest(
+    content: VizierRequestContent
+): content is Extract<VizierRequestContent, { audio_chat: unknown }> {
+    return 'audio_chat' in content
+}
+
+/** Everything a request carries to draw, the voice message included. */
+export function requestAttachments(
+    content: VizierRequestContent,
+    attachments: VizierAttachment[] | undefined
+): VizierAttachment[] {
+    return isAudioRequest(content) ? [content.audio_chat[0], ...(attachments ?? [])] : (attachments ?? [])
 }
 
 export const isBackgroundReport = (c: VizierRequestContent): c is Extract<VizierRequestContent, { background_report: unknown }> =>

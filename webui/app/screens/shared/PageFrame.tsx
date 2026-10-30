@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 import { useMobile } from '../../lib/useMobile'
 import { Link } from 'react-router'
 import { NotificationsBell } from './NotificationsBell'
+import { FadeRule } from './SideCard'
 
 type Props = Omit<PageHeaderProps, 'children'> & {
     children?: ReactNode
@@ -14,7 +15,7 @@ type Props = Omit<PageHeaderProps, 'children'> & {
     /** The body is panes that fill the page and scroll themselves (Chat, Memory, Core): no gutter, no page scroll. */
     fill?: boolean
     /** A sub-page (an editor, one item) goes back to its parent page. */
-    back?: { href: string; label: string }
+    back?: { href: string; label: string; /** Navigation state to hand on, e.g. the way back past it. */ state?: unknown }
 }
 
 /**
@@ -28,10 +29,12 @@ export function PageFrame({ children, width = 'full', fill, back, description, a
     const mobile = useMobile()
     return (
         <div className="flex min-h-0 flex-1 flex-col">
-            <div className="flex min-h-76 shrink-0 items-center border-b border-border px-16 py-12 sm:px-24 lg:h-76 lg:py-0">
+            <div className="relative flex min-h-76 shrink-0 items-center px-16 py-12 sm:px-24 lg:h-76 lg:py-0">
+                <FadeRule className="pointer-events-none absolute inset-x-0 bottom-0" />
                 {back && (
                     <Link
                         to={back.href}
+                        state={back.state}
                         aria-label={`Back to ${back.label}`}
                         title={`Back to ${back.label}`}
                         className="-ml-8 mr-8 grid size-32 shrink-0 place-items-center self-center rounded-md text-muted hover:bg-raised hover:text-fg"

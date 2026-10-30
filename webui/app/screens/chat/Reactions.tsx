@@ -13,7 +13,8 @@ type Props = {
 
 /** The reactions on a reply, with an add button that opens the emoji picker. */
 export function Reactions({ reactions, onToggle, disabled }: Props) {
-    const me = useSession((s) => s.user?.user_id)
+    // The server records the reactor as the login name (the session's channel owner), not the user id.
+    const me = useSession((s) => s.user?.username)
     const groups = useMemo(() => {
         const by = new Map<string, { count: number; mine: boolean }>()
         for (const r of reactions) {

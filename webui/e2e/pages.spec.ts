@@ -90,10 +90,60 @@ test.describe('Day-to-day pages (quickstart §5, §7)', () => {
         await expect(page.getByText('Task created')).toBeVisible()
         // It opens on its own page; the list has it too.
         await expect(page.getByRole('heading', { name: title })).toBeVisible()
-        await page.getByRole('link', { name: 'Back to Tasks' }).click()
+        await page.getByRole('link', { name: 'Back to Schedule' }).click()
+        // The page opens on the calendar and on its Active tab; the table has the task, and All keeps it listed once it is paused.
+        await page.getByRole('button', { name: 'Table' }).click()
+        await page.getByRole('button', { name: /^All/ }).click()
         const row = page.getByRole('row', { name: new RegExp(title) })
         await row.getByRole('switch').click()
         await expect(page.getByRole('row', { name: new RegExp(title) }).getByRole('switch')).toHaveAttribute('aria-checked', 'false')
+    })
+
+    test('Schedule: the calendar opens a month, a day, and the table over the same tasks', async ({ page }) => {
+        const title = unique('E2E daily')
+        await page.goto(`/${AGENT}/tasks/new/edit`)
+        await page.getByLabel('Title').fill(title)
+        await page.getByRole('textbox', { name: 'Markdown source' }).fill('Say hello every day.')
+        await page.getByRole('button', { name: 'Create task' }).click()
+        await expect(page.getByText('Task created')).toBeVisible()
+        await page.goto(`/${AGENT}/tasks`)
+        await expect(page.getByRole('heading', { name: 'Schedule', exact: true })).toBeVisible()
+        // Narrow to this task so earlier runs' tasks don't crowd it out of a cell.
+        await page.getByRole('searchbox', { name: 'Search tasks' }).fill(title)
+        // Calendar is the default view, on the month, and Active is the default tab.
+        await expect(page.getByRole('group', { name: /^[A-Z][a-z]+ 20\d\d$/ })).toBeVisible()
+        await expect(page.getByRole('button', { name: /^Active/ })).toHaveAttribute('aria-pressed', 'true')
+        await expect(page.getByRole('button', { name: new RegExp(title) }).first()).toBeVisible()
+        // A day opens the day view; the task is on its timeline or in its repeat card.
+        await page.getByRole('button', { name: 'Day', exact: true }).click()
+        await expect(page).toHaveURL(/range=day/)
+        await expect(page.getByRole('button', { name: 'Previous day' })).toBeVisible()
+        // The table is the same list.
+        await page.getByRole('button', { name: 'Table' }).click()
+        await expect(page).toHaveURL(/view=table/)
+        await expect(page.getByRole('row', { name: new RegExp(title) })).toBeVisible()
+    })
+
+    test('Schedule: back from a task returns to the view you left (day, filter, search)', async ({ page }) => {
+        const title = unique('E2E return')
+        await page.goto(`/${AGENT}/tasks/new/edit`)
+        await page.getByLabel('Title').fill(title)
+        await page.getByRole('textbox', { name: 'Markdown source' }).fill('Say hello.')
+        await page.getByRole('button', { name: 'Create task' }).click()
+        await expect(page.getByText('Task created')).toBeVisible()
+        const t = new Date(Date.now() + 86_400_000)
+        const day = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`
+        const here = `/${AGENT}/tasks?range=day&date=${day}&filter=all&q=${encodeURIComponent(title)}`
+        await page.goto(here)
+        const open = page.getByRole('button', { name: new RegExp(title) }).or(page.getByRole('link', { name: new RegExp(title) })).first()
+        await open.click()
+        await expect(page.getByRole('heading', { name: title })).toBeVisible()
+        // Editing and cancelling keeps the way back too.
+        await page.getByRole('button', { name: 'Edit' }).click()
+        await page.getByRole('button', { name: 'Cancel' }).click()
+        await page.getByRole('link', { name: 'Back to Schedule' }).click()
+        await expect(page).toHaveURL(new RegExp(`range=day&date=${day}&filter=all&q=`.replace(/[?]/g, '\\?')))
+        await expect(page.getByRole('button', { name: 'Next day' })).toBeVisible()
     })
 
     test('Dreams: the night strip, the journal and Dream now are there', async ({ page }) => {

@@ -5,6 +5,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router'
 import { ApiError } from '../api/client'
 import { deleteTask, getTask, runHistory, taskRuns, updateTask, type Task, type TaskRun } from '../api/endpoints/tasks'
 import { describeCron } from '../lib/cron'
+import { useCarry, useReturnTo } from '../lib/returnTo'
 import { absoluteTime } from '../lib/format'
 import { replyText } from '../lib/messages'
 import { requesterText, runDuration, runStatus, scheduleText, toInput } from '../lib/tasks'
@@ -18,6 +19,8 @@ import { toast } from '../stores/toasts'
 export default function TaskPage() {
     const { agentId = '', slug = '' } = useParams()
     const navigate = useNavigate()
+    const carry = useCarry()
+    const returnTo = useReturnTo(`/${agentId}/tasks`)
     const [params, setParams] = useSearchParams()
     const [task, setTask] = useState<Task | null>(null)
     const [missing, setMissing] = useState(false)
@@ -85,18 +88,18 @@ export default function TaskPage() {
         try {
             await deleteTask(agentId, slug)
             toast.success('Task deleted')
-            navigate(`/${agentId}/tasks`)
+            navigate(returnTo)
         } catch (e) {
             setDeleting(false)
             toast.error("Couldn't delete the task", e instanceof Error ? e.message : undefined)
         }
     }
 
-    const back = { href: `/${agentId}/tasks`, label: 'Tasks' }
+    const back = { href: returnTo, label: 'Schedule' }
     if (missing) {
         return (
             <PageFrame title={slug} back={back}>
-                <EmptyState kind="error" title="This task isn’t there" message="It may have been deleted. Every task is listed on Tasks." />
+                <EmptyState kind="error" title="This task isn’t there" message="It may have been deleted. Every task is listed on Schedule." />
             </PageFrame>
         )
     }
@@ -118,7 +121,7 @@ export default function TaskPage() {
                         <Button variant="ghost" icon="trash" onClick={() => setDeleting(true)}>
                             Delete
                         </Button>
-                        <Button variant="primary" icon="pencil" onClick={() => navigate(`/${agentId}/tasks/${encodeURIComponent(slug)}/edit`)}>
+                        <Button variant="primary" icon="pencil" onClick={() => navigate(`/${agentId}/tasks/${encodeURIComponent(slug)}/edit`, { state: carry })}>
                             Edit
                         </Button>
                     </>

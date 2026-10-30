@@ -105,7 +105,8 @@ export const useSession = create<SessionStore>()((set, get) => ({
     canEditAgent: (agent) => {
         const { user, can } = get()
         if (!user) return false
-        return can('all_agents:edit') || (can('owned_agents:edit') && agent.owner_id === user.user_id)
+        // Mirrors the server's `user_can_edit_agent`: an owner may always edit their own agent.
+        return can('all_agents:edit') || agent.owner_id === user.user_id
     },
 }))
 

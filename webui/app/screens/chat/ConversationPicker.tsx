@@ -20,7 +20,7 @@ import {
     type ConversationPage,
 } from '../../api/endpoints/conversations'
 import { count } from '../../lib/format'
-import { rowTime, sections } from '../../lib/conversations'
+import { conversationTitle, rowTime, sections } from '../../lib/conversations'
 
 type Props = {
     agentId: string
@@ -69,7 +69,9 @@ export function ConversationPicker({
     const [counts, setCounts] = useState<ConversationPage['counts']>()
     const [total, setTotal] = useState(0)
     const [next, setNext] = useState<string | null>(null)
-    const [loading, setLoading] = useState(false)
+    // Loading from the start: the first fetch waits a tick after opening, and an empty list
+    // shown before it would read as "no conversations".
+    const [loading, setLoading] = useState(true)
     const [failed, setFailed] = useState(false)
     const generation = useRef(0)
 
@@ -151,7 +153,7 @@ export function ConversationPicker({
             renderItem={(c, { query: q }) => (
                 <ConversationRow
                     kind={c.kind}
-                    title={c.title}
+                    title={conversationTitle(c.title, c.latest_topic)}
                     query={q}
                     place={c.place}
                     live={
@@ -163,14 +165,30 @@ export function ConversationPicker({
                 />
             )}
             onSelect={onSelect}
+            empty={
+                failed ? (
+                    <>
+                        <span className="type-body-strong text-fg">Couldn’t load conversations</span>
+                        <span>Close and reopen to try again.</span>
+                    </>
+                ) : query.trim() || kind !== 'all' ? (
+                    <>
+                        <span className="type-body-strong text-fg">No conversation matched</span>
+                        <span>Try another search or filter.</span>
+                    </>
+                ) : (
+                    <>
+                        <span className="type-body-strong text-fg">No conversations yet</span>
+                        <span>Start one below.</span>
+                    </>
+                )
+            }
             remainder={
-                failed
-                    ? 'Couldn’t load conversations'
+                failed && items.length > 0
+                    ? 'Couldn’t load more conversations'
                     : remaining > 0
                       ? `${count(remaining)} more · scroll to load`
-                      : items.length === 0 && !loading
-                        ? 'No conversation matched'
-                        : undefined
+                      : undefined
             }
             footer={
                 <PickerAction icon="plus" onClick={onNew}>

@@ -98,6 +98,26 @@ describe('history and reopening', () => {
         expect(s.phase).toBe('working')
     })
 
+    // A voice message or a generative-UI event is stored as something other than the `chat`
+    // text its stand-in showed; the stand-in used to survive and land below the reply.
+    it('drops the stand-in for a request stored in another shape, keeping the order', () => {
+        const at = '2026-10-23T10:00:00.000Z'
+        let s = run(start(), { type: 'send', id: '1', text: '', now: at }, response({ message: { content: 'yo' } }, { history_uid: 'a1', timestamp: '2026-10-23T10:00:09Z' }))
+        const stored = [
+            entry('r1', { Request: { timestamp: '2026-10-23T10:00:00.040Z', user: 'me', content: { audio_chat: [{ filename: 'v.wav', content: { local: '/f' } }, 'hi'] } } }),
+            entry('a1', { Response: { timestamp: '2026-10-23T10:00:09Z', content: { message: { content: 'yo' } } } }),
+        ]
+        s = run(s, { type: 'history', entries: stored })
+        expect(s.entries.map((e) => e.uid)).toEqual(['r1', 'a1'])
+    })
+
+    it('swaps a stand-in for the stored request the moment it is pushed', () => {
+        const at = '2026-10-23T10:00:00.000Z'
+        let s = run(start(), { type: 'send', id: '1', text: '', now: at })
+        s = run(s, frame({ kind: 'history_entry', entry: entry('r1', { Request: { timestamp: at, user: 'me', content: { audio_chat: [{ filename: 'v.wav', content: { local: '/f' } }, 'hi'] } } }) }))
+        expect(s.entries.map((e) => e.uid)).toEqual(['r1'])
+    })
+
     it('replaces the stand-ins drawn while the turn ran once history is read back', () => {
         let s = run(start(), { type: 'send', id: '1', text: 'hi' }, response({ message: { content: 'yo' } }))
         expect(s.entries.every((e) => e.uid.startsWith('live-'))).toBe(true)

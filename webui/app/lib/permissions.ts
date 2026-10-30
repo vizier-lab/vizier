@@ -28,6 +28,15 @@ export const PERMISSION_GROUPS: { title: string; items: { permission: string; la
         ],
     },
     {
+        title: 'Artifacts',
+        items: [
+            { permission: 'all_agents:view_artifacts', label: 'See every agent’s artifacts' },
+            { permission: 'owned_agents:view_artifacts', label: 'See artifacts of agents they own' },
+            { permission: 'all_agents:manage_artifacts', label: 'Promote and delete every agent’s artifacts' },
+            { permission: 'owned_agents:manage_artifacts', label: 'Promote and delete artifacts of agents they own' },
+        ],
+    },
+    {
         title: 'Chats',
         items: [
             { permission: 'all_agents:show_discord_chats', label: 'See every agent’s Discord chats' },

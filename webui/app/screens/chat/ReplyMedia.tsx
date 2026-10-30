@@ -1,6 +1,7 @@
 import { AudioPlayer, FilePeek, ImageGallery, VideoPlayer } from '@vizier/design'
 import { useRef, useState } from 'react'
 import type { SessionFileRecord, VizierAttachment } from '../../api/frames'
+import { artifactContentUrl } from '../../api/endpoints/artifacts'
 import { FilePreviewDialog } from './FilePreviewDialog'
 
 const EXT = (name: string) => name.split('.').pop()?.toLowerCase() ?? ''
@@ -10,7 +11,15 @@ const VIDEO = new Set(['mp4', 'mov', 'mkv', 'm4v'])
 const MIME: Record<string, string> = { csv: 'text/csv', md: 'text/markdown', txt: 'text/plain', json: 'application/json', pdf: 'application/pdf' }
 
 export function attachmentUrl(a: VizierAttachment): string | null {
-    const c = a.content as Record<string, string>
+    const c = a.content as {
+        local?: string
+        url?: string
+        artifact?: { agent_id: string; artifact_id: string; available?: boolean }
+    }
+    if (c.artifact) {
+        if (c.artifact.available === false) return null
+        return artifactContentUrl(c.artifact.agent_id, c.artifact.artifact_id)
+    }
     return c.local ?? c.url ?? null
 }
 
@@ -80,7 +89,11 @@ export function ReplyMedia({ attachments, transcript }: { attachments: VizierAtt
     const items = attachments
         .map((a) => ({ a, url: attachmentUrl(a) }))
         .filter((x): x is { a: VizierAttachment; url: string } => x.url !== null)
-    if (items.length === 0) return null
+    const unavailable = attachments.filter((a) => {
+        const c = a.content as { artifact?: { available?: boolean } }
+        return c.artifact?.available === false
+    })
+    if (items.length === 0 && unavailable.length === 0) return null
 
     const images = items.filter((x) => IMAGE.has(EXT(x.a.filename)))
     const others = items.filter((x) => !IMAGE.has(EXT(x.a.filename)))
@@ -88,6 +101,15 @@ export function ReplyMedia({ attachments, transcript }: { attachments: VizierAtt
 
     return (
         <div className="flex flex-col gap-8">
+            {unavailable.map((a) => (
+                <FilePeek
+                    key={`unavailable-${a.filename}`}
+                    name={a.filename}
+                    meta="artifact unavailable"
+                    failed
+                    action={{ label: 'Retry', onClick: () => window.location.reload() }}
+                />
+            ))}
             {images.length > 0 && (
                 <ImageGallery
                     images={images.map((x) => ({ src: x.url, name: x.a.filename }))}

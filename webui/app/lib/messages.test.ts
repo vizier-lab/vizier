@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import type { VizierAttachment, VizierResponseContent } from '../api/frames'
-import { isAudioReply, replyAttachments, replyText } from './messages'
+import type { VizierAttachment, VizierRequestContent, VizierResponseContent } from '../api/frames'
+import { isAudioReply, requestAttachments, requestText, replyAttachments, replyText } from './messages'
 
 const audio: VizierAttachment = { filename: 'audio_reply_1.wav', content: { local: '/api/v1/files/1' } }
 const file: VizierAttachment = { filename: 'report.pdf', content: { local: '/api/v1/files/2' } }
@@ -27,5 +27,18 @@ describe('spoken replies', () => {
     it('leaves a plain message to its own attachments', () => {
         expect(replyAttachments({ message: { content: 'hi' } }, [file])).toEqual([file])
         expect(replyAttachments({ message: { content: 'hi' } }, undefined)).toEqual([])
+    })
+})
+
+describe('voice messages', () => {
+    const voice: VizierRequestContent = { audio_chat: [audio, 'what is the weather'] }
+
+    it('draws the audio and keeps the transcript as the text', () => {
+        expect(requestAttachments(voice, undefined)).toEqual([audio])
+        expect(requestText(voice)).toBe('what is the weather')
+    })
+
+    it('has no text yet while the transcript is not ready', () => {
+        expect(requestText({ audio_chat: [audio, null] })).toBe('')
     })
 })

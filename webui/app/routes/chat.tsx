@@ -1,3 +1,5 @@
+import { DeleteConversation, type DeleteTarget } from '../screens/chat/DeleteConversation'
+import { FadeRule, SIDE_PANEL_WIDTH, SideCard } from '../screens/shared/SideCard'
 import { IconButton, JobsPill, Presence, SlideOver, motionDurations, motionEases } from '@vizier/design'
 import { nanoid } from 'nanoid'
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -27,7 +29,9 @@ import { useAgents } from '../stores/agents'
 import { topicKey, useConnection } from '../stores/connection'
 import { useSession } from '../stores/session'
 import { toast } from '../stores/toasts'
+import { canManageArtifacts } from '../lib/access'
 import { useTurns } from '../stores/turns'
+import { conversationTitle } from '../lib/conversations'
 
 const EMPTY = emptyTopic()
 // A new key so the details panel starts collapsed for everyone, including people
@@ -44,17 +48,19 @@ export default function Chat() {
     const agent = agents.find((a) => a.agent_id === agentId)
     const agentName = agent?.name ?? agentId
 
-    // "Ask for a spoken reply" only does anything when the agent can speak at all.
-    const [tts, setTts] = useState<boolean | undefined>(undefined)
+    // The mic needs the agent's Speech-to-Text and "Ask for a spoken reply" its Text-to-Speech;
+    // each is offered only once the agent is known to have it.
+    const [voice, setVoice] = useState<{ stt: boolean; tts: boolean }>()
     useEffect(() => {
         let alive = true
-        setTts(undefined)
+        setVoice(undefined)
         getAgent(agentId)
             .then((detail) => {
-                if (alive) setTts(detail.tts)
+                if (alive) setVoice({ stt: detail.stt, tts: detail.tts })
             })
             .catch(() => {
-                /* leave it enabled: the config read is not worth an error on the composer */
+                /* offer both: the config read is not worth an error on the composer */
+                if (alive) setVoice({ stt: true, tts: true })
             })
         return () => {
             alive = false
@@ -138,6 +144,7 @@ export default function Chat() {
         react,
         clientEvent,
         saveClientState,
+        dispatch,
     } = useTurns.getState()
 
     // "Back online" shows for a moment after a drop.
@@ -181,12 +188,32 @@ export default function Chat() {
     const modelName = health?.model?.model
     const failed = health?.state === 'failed'
     const topicIndex = topics.findIndex((t) => t.topic_id === topicId)
-    const title = state.title || topics[topicIndex]?.title || topicId || 'New topic'
+    const title = conversationTitle(state.title || topics[topicIndex]?.title, topicId)
+
+    // Deleting the conversation on screen: the server refuses while a turn runs in it.
+    const [deleting, setDeleting] = useState<DeleteTarget | null>(null)
+    const deleteConversation = topicId ? (
+        <IconButton
+            icon="trash"
+            aria-label="Delete conversation"
+            onClick={() => setDeleting({ topic: topicId, title })}
+        />
+    ) : null
+
+    // The same fresh topic the picker's "New conversation" opens, one click from the header.
+    const newConversation = (
+        <IconButton
+            icon="plus"
+            aria-label="New conversation"
+            onClick={() => navigate(`/${agentId}/chat/${nanoid(10)}`)}
+        />
+    )
 
     // The recalled memory, background jobs and session files: a side panel, or a sheet on a phone.
     const details = (
-        <>
+        <SideCard>
             <RecalledMemoryPanel agentId={agentId} recalled={recalled} />
+            <FadeRule />
             <BackgroundJobsPanel
                 jobs={jobs}
                 onCancel={(id) =>
@@ -196,13 +223,20 @@ export default function Chat() {
                 }
                 onJumpToStart={() => {}}
             />
-            <SessionFilesPanel files={state.files} />
-        </>
+            <FadeRule />
+            <SessionFilesPanel
+                files={state.files}
+                agentId={agentId}
+                topicId={topicId ?? ''}
+                canPromote={agent ? canManageArtifacts(agent) : false}
+                onClear={() => dispatch(agentId, topicId ?? '', { type: 'files', files: [] })}
+            />
+        </SideCard>
     )
 
     return (
-        <div data-chat-area className="flex min-h-0 flex-1">
-            <div className="flex min-w-0 flex-1 flex-col">
+        <div data-chat-area className="flex min-h-0 flex-1 flex-col">
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col">
                 <ConversationHeader
                     agentId={agentId}
                     title={title}
@@ -228,6 +262,8 @@ export default function Chat() {
                                 count={runningJobs}
                                 onClick={() => setSheet(true)}
                             />
+                            {deleteConversation}
+                            {newConversation}
                             <IconButton
                                 icon="layers"
                                 aria-label="Conversation details"
@@ -245,6 +281,8 @@ export default function Chat() {
                                 onClick={() => togglePanel(true)}
                                 open={panel}
                             />
+                            {deleteConversation}
+                            {newConversation}
                             <IconButton
                                 icon="layers"
                                 aria-label={panel ? 'Hide conversation details' : 'Show conversation details'}
@@ -274,8 +312,12 @@ export default function Chat() {
                     configHref={`/${agentId}/config`}
                 />
 
-                <div className="relative flex min-h-0 flex-1 flex-col">
+                {/* The conversation runs the full width and the details card floats over its right
+                    edge, so the messages' scroll bar sits at the panel's edge, not beside the card. */}
+                <div className="relative flex min-h-0 flex-1">
+                <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
                 <MessageList
+                    insetRight={!mobile && panel ? SIDE_PANEL_WIDTH : 0}
                     bottomInset={composerHeight}
                     state={state}
                     agent={{ id: agentId, name: agentName, live: ['live', 'running'].includes(agentState(health)) }}
@@ -309,13 +351,18 @@ export default function Chat() {
                 />
 
                 {/* The composer floats over the messages: its box is the frosted glass, over a fade to the page colour so the toggle below stays readable. */}
-                <div ref={composerBox} className="pointer-events-none absolute inset-x-0 bottom-0 z-10">
-                    <div aria-hidden className="absolute inset-0 bg-gradient-to-t from-ground via-ground/80 to-transparent" />
+                <div
+                    ref={composerBox}
+                    className="pointer-events-none absolute inset-x-0 bottom-0 z-10 transition-[padding] duration-[var(--vz-duration-slow)]"
+                    style={{ paddingRight: !mobile && panel ? SIDE_PANEL_WIDTH : 0 }}
+                >
+                    <div aria-hidden className="absolute inset-0 bg-gradient-to-t from-panel via-panel/80 to-transparent" />
                     <div className="pointer-events-auto relative mx-auto w-full max-w-4xl px-24 pt-24 pb-16">
                     <Composer
                         agentId={agentId}
                         agentName={agentName}
-                        ttsEnabled={tts}
+                        sttEnabled={voice?.stt ?? false}
+                        ttsEnabled={voice?.tts ?? false}
                         busy={state.phase !== 'idle'}
                         disabledReason={
                             failed
@@ -350,6 +397,24 @@ export default function Chat() {
                     </div>
                 </div>
                 </div>
+                <Presence>
+                    {!mobile && panel && (
+                        <motion.aside
+                            key="details"
+                            aria-label="Conversation details"
+                            className="pointer-events-none absolute inset-y-0 right-0 flex w-400 flex-col gap-24 overflow-x-hidden overflow-y-auto p-16 [&>*]:pointer-events-auto [&>*]:min-w-0"
+                            // The conversation makes room for the panel instead of
+                            // jumping when it appears.
+                            initial={{ width: reducedMotion ? SIDE_PANEL_WIDTH : 0, opacity: reducedMotion ? 1 : 0 }}
+                            animate={{ width: SIDE_PANEL_WIDTH, opacity: 1 }}
+                            exit={reducedMotion ? { opacity: 0 } : { width: 0, opacity: 0 }}
+                            transition={{ duration: motionDurations.slow, ease: motionEases.standard }}
+                        >
+                            {details}
+                        </motion.aside>
+                    )}
+                </Presence>
+                </div>
             </div>
 
             <SideChatPanel
@@ -364,23 +429,12 @@ export default function Chat() {
                 question={sideChat.question}
             />
 
-            <Presence>
-                {!mobile && panel && (
-                    <motion.aside
-                        key="details"
-                        aria-label="Conversation details"
-                        className="flex w-320 shrink-0 flex-col gap-24 overflow-x-hidden overflow-y-auto border-l border-border p-16 [&>*]:min-w-0"
-                        // The conversation makes room for the panel instead of
-                        // jumping when it appears.
-                        initial={{ width: reducedMotion ? 320 : 0, opacity: reducedMotion ? 1 : 0 }}
-                        animate={{ width: 320, opacity: 1 }}
-                        exit={reducedMotion ? { opacity: 0 } : { width: 0, opacity: 0 }}
-                        transition={{ duration: motionDurations.slow, ease: motionEases.standard }}
-                    >
-                        {details}
-                    </motion.aside>
-                )}
-            </Presence>
+            <DeleteConversation
+                agentId={agentId}
+                target={deleting}
+                onClose={() => setDeleting(null)}
+                onDeleted={() => navigate(`/${agentId}/chat/${nanoid(10)}`)}
+            />
             {mobile && (
                 <SlideOver
                     open={sheet}

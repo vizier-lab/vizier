@@ -25,17 +25,19 @@ type Props<T> = {
     /** Shown when there is nothing at all (not merely nothing matching). */
     empty: { icon?: ComponentProps<typeof EmptyState>['icon']; title: ReactNode; message?: ReactNode; action?: ReactNode }
     toolbar?: ReactNode
+    /** The filter the list opens on when the URL names none; anything else counts as narrowing. Defaults to `all`. */
+    defaultFilter?: string
 }
 
 /** SearchField + FilterTabs + SortSelect + Table + Pagination over a `usePagedList`. */
 export function PagedTable<T>({
     label, list, columns, row, renderRow, rowKey, onSelect, selectedKey, endAligned,
-    filters, sorts, searchLabel, empty, toolbar,
+    filters, sorts, searchLabel, empty, toolbar, defaultFilter = 'all',
 }: Props<T>) {
     const { data, state, error, loading } = list
     const total = data?.total ?? 0
     const all = data?.counts.all ?? 0
-    const searching = state.q.trim() !== '' || state.filter !== 'all'
+    const searching = state.q.trim() !== '' || state.filter !== defaultFilter
     // Nothing at all: no search, filters or sort over an empty list, just what it's for.
     const nothing = !!data && all === 0 && !searching
 
@@ -49,7 +51,7 @@ export function PagedTable<T>({
                             placeholder={searchLabel}
                             value={list.search}
                             onValueChange={list.setSearch}
-                            count={searching && data ? `${count(total)} of ${count(all)}` : data ? count(all) : undefined}
+                            count={searching && data ? `${count(total)} of ${count(all)}` : data ? count(total) : undefined}
                         />
                     </div>
                     {filters && (

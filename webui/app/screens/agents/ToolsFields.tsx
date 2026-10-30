@@ -2,7 +2,10 @@ import { Card, Checkbox, FilterTabs, Select, TextField, Textarea, ToggleChip, To
 import {
     IMAGE_GEN_DEFAULT_MODELS,
     IMAGE_GEN_PROVIDERS,
+    KOKORO_MODELS,
+    KOKORO_VOICES,
     STT_DEFAULT_MODELS,
+    WHISPER_MODELS,
     STT_PROVIDERS,
     TTS_DEFAULT_MODELS,
     TTS_DEFAULT_VOICES,
@@ -22,6 +25,10 @@ type Props = {
 }
 
 const options = (values: string[]) => values.map((v) => ({ value: v, label: v }))
+
+/** The list, plus the saved value when it is not in it (an older name stays visible). */
+const withCurrent = (list: { value: string; label: string }[], current: string) =>
+    current && !list.some((o) => o.value === current) ? [{ value: current, label: current }, ...list] : list
 
 /** The Tools step of the wizard and Config's Tools tab: what the agent may use beyond memory. */
 export function ToolsFields({ form, errors, set }: Props) {
@@ -57,6 +64,14 @@ export function ToolsFields({ form, errors, set }: Props) {
                             media={ttsMedia}
                             onChange={(ttsModel) => set({ ttsModel })}
                         />
+                    ) : form.ttsProvider === 'kokoro' ? (
+                        <Select
+                            label="Model"
+                            mono
+                            options={withCurrent(KOKORO_MODELS, form.ttsModel)}
+                            value={form.ttsModel || TTS_DEFAULT_MODELS.kokoro}
+                            onChange={(ttsModel) => set({ ttsModel })}
+                        />
                     ) : (
                         <TextField label="Model" mono value={form.ttsModel} placeholder={TTS_DEFAULT_MODELS[form.ttsProvider] ?? 'Provider default'} onChange={(e) => set({ ttsModel: e.target.value })} />
                     )}
@@ -66,6 +81,14 @@ export function ToolsFields({ form, errors, set }: Props) {
                             voice={form.ttsVoice}
                             fallbackDefault={TTS_DEFAULT_VOICES.openrouter}
                             media={ttsMedia}
+                            onChange={(ttsVoice) => set({ ttsVoice })}
+                        />
+                    ) : form.ttsProvider === 'kokoro' ? (
+                        <Select
+                            label="Voice"
+                            mono
+                            options={withCurrent(KOKORO_VOICES, form.ttsVoice)}
+                            value={form.ttsVoice && form.ttsVoice !== 'af' ? form.ttsVoice : 'af_heart'}
                             onChange={(ttsVoice) => set({ ttsVoice })}
                         />
                     ) : (
@@ -103,6 +126,14 @@ export function ToolsFields({ form, errors, set }: Props) {
                             model={form.sttModel}
                             fallbackDefault={STT_DEFAULT_MODELS.openrouter}
                             media={sttMedia}
+                            onChange={(sttModel) => set({ sttModel })}
+                        />
+                    ) : form.sttProvider === 'whisper' ? (
+                        <Select
+                            label="Model"
+                            mono
+                            options={withCurrent(WHISPER_MODELS, form.sttModel)}
+                            value={form.sttModel || STT_DEFAULT_MODELS.whisper}
                             onChange={(sttModel) => set({ sttModel })}
                         />
                     ) : (

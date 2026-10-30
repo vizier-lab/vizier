@@ -8,6 +8,7 @@ import {
 import { classifyFrame, type ChatMessage, type VizierRequestContent } from '../api/frames'
 import { emptyTopic, nextQueued, reduce, type Action, type TopicState } from '../lib/frames'
 import { handleClientCall } from '../lib/clientTools'
+import { playNotify } from '../lib/sound'
 import { topicKey, useConnection } from './connection'
 import { useSession } from './session'
 import { useAgents } from './agents'
@@ -133,6 +134,11 @@ export const useTurns = create<TurnStore>()((set, get) => {
                 onFrame: (raw) => {
                     const frame = classifyFrame(raw)
                     if (!frame) return
+                    // An agent's reply arrived (a streamed step or an error is not one).
+                    if (frame.kind === 'response') {
+                        const content = frame.response.content
+                        if (typeof content === 'object' && ('message' in content || 'audio_reply' in content)) playNotify()
+                    }
                     // A call for a tool this client declared: run it here and answer on this socket.
                     if (frame.kind === 'client' && 'client_tool_call' in frame.frame && frame.frame.client_tool_call.answer) {
                         const call = frame.frame.client_tool_call
@@ -188,7 +194,13 @@ export const useTurns = create<TurnStore>()((set, get) => {
             if ((get().topics[key]?.phase ?? 'idle') !== 'idle') return
             const frame = { ...request({ audio_chat: [attachment, null] } as never), expect_audio_reply: true }
             if (useConnection.getState().send(agentId, topicId, frame)) {
-                dispatch(agentId, topicId, { type: 'send', id: String(nextId++), text: '[Voice message]', now: new Date().toISOString() })
+                dispatch(agentId, topicId, {
+                    type: 'send',
+                    id: String(nextId++),
+                    text: '',
+                    attachments: [attachment as never],
+                    now: new Date().toISOString(),
+                })
             }
         },
 

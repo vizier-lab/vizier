@@ -1,8 +1,8 @@
-import { Badge, Button, DiffView, EmptyState, Eyebrow, FilterTabs, Icon, KeyValueList, LoadMore, MarkdownEditor, Notice, PanelHeader, RevisionRow, Skeleton, UnsavedIndicator, type DocLink } from '@vizier/design'
-import { Enter, stagger } from '../lib/motion'
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
-import { ApiError } from '../api/client'
+import { Badge, Button, DiffView, EmptyState, Eyebrow, FilterTabs, Icon, IconButton, KeyValueList, LoadMore, MarkdownEditor, Notice, PanelHeader, RevisionRow, Skeleton, UnsavedIndicator, type DocLink } from '@vizier/design'
+import { Enter, stagger } from '../../lib/motion'
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { Link, useNavigate, useSearchParams } from 'react-router'
+import { ApiError } from '../../api/client'
 import {
     bundleGraph,
     deleteDoc,
@@ -15,28 +15,43 @@ import {
     type GraphDto,
     type MemoryDoc,
     type MemoryRevisionSummary,
-} from '../api/endpoints/memory'
-import { absoluteTime, relativeTime } from '../lib/format'
-import { linkWikiLinks, relationLink } from '../lib/memoryLinks'
-import { bundleHref, chatFrom, docFromChat, docHref } from '../lib/memoryTree'
-import { authorLabel, diffLines, type RevisionDiff } from '../lib/revisions'
-import { useMobile } from '../lib/useMobile'
-import { ConfirmDialog } from '../screens/shared/ConfirmDialog'
-import { Markdown } from '../screens/shared/Markdown'
-import { PageFrame } from '../screens/shared/PageFrame'
-import { Panes } from '../screens/shared/Panes'
-import { useAgents } from '../stores/agents'
-import { clearDraft, pendingDraft, saveDraft } from '../stores/drafts'
-import { toast } from '../stores/toasts'
+} from '../../api/endpoints/memory'
+import { absoluteTime, relativeTime } from '../../lib/format'
+import { linkWikiLinks, relationLink } from '../../lib/memoryLinks'
+import { bundleHref, chatFrom, docFromChat, docHref } from '../../lib/memoryTree'
+import { authorLabel, diffLines, type RevisionDiff } from '../../lib/revisions'
+import { useMobile } from '../../lib/useMobile'
+import { ConfirmDialog } from '../shared/ConfirmDialog'
+import { Markdown } from '../shared/Markdown'
+import { Panes } from '../shared/Panes'
+import { useAgents } from '../../stores/agents'
+import { clearDraft, pendingDraft, saveDraft } from '../../stores/drafts'
+import { toast } from '../../stores/toasts'
 
 /**
- * One memory document on its own page. Reading it, with what it links and its history beside it;
- * `?edit=1` turns the page into its editor, `?rev=N` shows a past revision.
+ * The band over Memory's main area: a way back, what is open, and its actions. The bundle graph
+ * and an open document share it, so both read the same.
  */
-export default function MemoryDoc() {
-    const { agentId = '', bundle: rawBundle = '', '*': rawPath = '' } = useParams()
-    const bundle = decodeURIComponent(rawBundle)
-    const path = rawPath.split('/').map(decodeURIComponent).join('/').replace(/\.md$/, '')
+export function MemoryStrip({ back, title, meta, mono, actions }: { back?: { label: string; onBack: () => void }; title: ReactNode; meta?: ReactNode; mono?: boolean; actions?: ReactNode }) {
+    return (
+        <div className="flex min-h-56 shrink-0 flex-wrap items-center gap-12 border-b border-border px-24 py-10">
+            <span className="flex min-w-0 flex-1 items-center gap-8">
+                {back && <IconButton className="-ml-8 shrink-0" size="sm" variant="ghost" icon="chevron-left" aria-label={`Back to ${back.label}`} title={`Back to ${back.label}`} onClick={back.onBack} />}
+                <span className="flex min-w-0 flex-col">
+                    <span className={`truncate text-fg ${mono ? 'type-mono-sm' : 'type-body-strong'}`}>{title}</span>
+                    {meta && <span className="truncate type-mono-xs text-faint">{meta}</span>}
+                </span>
+            </span>
+            {actions && <span className="flex flex-wrap items-center gap-8">{actions}</span>}
+        </div>
+    )
+}
+
+/**
+ * One memory document, in Memory's main area where the graph was. Reading it, with what it links
+ * and its history beside it; `?edit=1` turns it into its editor, `?rev=N` shows a past revision.
+ */
+export function MemoryDocument({ agentId, bundle, path }: DocProps) {
     const [params] = useSearchParams()
     const key = `${agentId}/${bundle}/${path}`
     return params.get('edit') ? <EditDoc key={key} agentId={agentId} bundle={bundle} path={path} /> : <ReadDoc key={key} agentId={agentId} bundle={bundle} path={path} />
@@ -154,12 +169,15 @@ function ReadDoc({ agentId, bundle, path }: DocProps) {
     }
 
     const from = chatFrom(agentId, params.get('from'))
-    const back = from ? { href: from, label: 'the conversation' } : { href: bundleHref(agentId, bundle), label: bundle }
+    const back = { label: from ? 'the conversation' : bundle, onBack: () => navigate(from ?? bundleHref(agentId, bundle)) }
     if (missing) {
         return (
-            <PageFrame title={path} meta={`${bundle} / ${path}.md`} back={back}>
-                <EmptyState kind="error" title="This document isn’t there" message={`It may have been moved or deleted. ${from ? 'The conversation' : 'Its bundle'} is one step back.`} />
-            </PageFrame>
+            <div className="flex min-h-0 flex-1 flex-col">
+                <MemoryStrip back={back} title={path} meta={`${bundle} / ${path}.md`} />
+                <div className="grid flex-1 place-items-center p-24">
+                    <EmptyState kind="error" title="This document isn’t there" message={`It may have been moved or deleted. ${from ? 'The conversation' : 'Its bundle'} is one step back.`} />
+                </div>
+            </div>
         )
     }
 
@@ -188,22 +206,22 @@ function ReadDoc({ agentId, bundle, path }: DocProps) {
         )
 
     return (
-        <PageFrame
-            fill
-            back={back}
-            title={doc?.title ?? path}
-            meta={`${bundle} / ${path}.md${current ? ` · rev ${current.seq}` : ''}`}
-            actions={
-                <>
-                    <Button variant="ghost" icon="trash" disabled={!doc} onClick={() => setDeleting(true)}>
-                        Delete
-                    </Button>
-                    <Button variant="primary" icon="pencil" disabled={!doc} onClick={edit}>
-                        Edit
-                    </Button>
-                </>
-            }
-        >
+        <div className="flex min-h-0 flex-1 flex-col">
+            <MemoryStrip
+                back={back}
+                title={doc?.title ?? path}
+                meta={`${bundle} / ${path}.md${current ? ` · rev ${current.seq}` : ''}`}
+                actions={
+                    <>
+                        <Button size="sm" variant="ghost" icon="trash" disabled={!doc} onClick={() => setDeleting(true)}>
+                            Delete
+                        </Button>
+                        <Button size="sm" variant="primary" icon="pencil" disabled={!doc} onClick={edit}>
+                            Edit
+                        </Button>
+                    </>
+                }
+            />
             <Panes
                 paneLabel="About this document"
                 pane={
@@ -324,7 +342,7 @@ function ReadDoc({ agentId, bundle, path }: DocProps) {
                 onConfirm={() => void remove()}
                 onCancel={() => setDeleting(false)}
             />
-        </PageFrame>
+        </div>
     )
 }
 
@@ -373,23 +391,23 @@ function EditDoc({ agentId, bundle, path }: DocProps) {
     }
 
     return (
-        <PageFrame
-            fill
-            back={{ href: back, label: doc?.title ?? path }}
-            title={`Edit ${doc?.title ?? path}`}
-            meta={`${bundle} / ${path}.md · link other documents with [[bundle/document]]`}
-            actions={
-                <>
-                    {dirty && <UnsavedIndicator>Unsaved · draft kept in this browser</UnsavedIndicator>}
-                    <Button variant="ghost" onClick={() => (clearDraft(key), navigate(back))}>
-                        {dirty ? 'Discard' : 'Cancel'}
-                    </Button>
-                    <Button variant="primary" loading={saving} disabled={!dirty} shortcut="Ctrl S" onClick={() => void save()}>
-                        Save
-                    </Button>
-                </>
-            }
-        >
+        <div className="flex min-h-0 flex-1 flex-col">
+            <MemoryStrip
+                back={{ label: doc?.title ?? path, onBack: () => navigate(back) }}
+                title={`Edit ${doc?.title ?? path}`}
+                meta={`${bundle} / ${path}.md · link other documents with [[bundle/document]]`}
+                actions={
+                    <>
+                        {dirty && <UnsavedIndicator>Unsaved · draft kept in this browser</UnsavedIndicator>}
+                        <Button size="sm" variant="ghost" onClick={() => (clearDraft(key), navigate(back))}>
+                            {dirty ? 'Discard' : 'Cancel'}
+                        </Button>
+                        <Button size="sm" variant="primary" loading={saving} disabled={!dirty} shortcut="Ctrl S" onClick={() => void save()}>
+                            Save
+                        </Button>
+                    </>
+                }
+            />
             <div className="flex min-h-0 flex-1 flex-col gap-16 px-16 py-16 sm:px-24">
                 {stale && (
                     <Notice
@@ -410,6 +428,6 @@ function EditDoc({ agentId, bundle, path }: DocProps) {
                     <MarkdownEditor look="compact" mode={mobile ? 'markdown' : undefined} value={text} onChange={edit} onSaveShortcut={() => void save()} className="min-h-[420px] flex-1" />
                 )}
             </div>
-        </PageFrame>
+        </div>
     )
 }

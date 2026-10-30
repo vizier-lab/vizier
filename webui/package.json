@@ -17,6 +17,7 @@
     "@react-router/node": "^7.12.0",
     "@react-three/fiber": "9.8.2",
     "@vizier/design": "file:../design",
+    "croner": "^9.1.0",
     "isbot": "^5",
     "motion": "^14.6.0",
     "nanoid": "^5.1.11",
