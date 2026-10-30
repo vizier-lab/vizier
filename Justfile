@@ -11,6 +11,29 @@ install:
   cd landing && VIZIER_SOURCE=.. node scripts/link-design.mjs && VIZIER_SOURCE=.. npm i
   @echo -e "\n\\e[1;32mDone\\e[0m"
 
+# Check out a branch in the workspace and the same-named branch in each submodule, then pull.
+# A submodule without that branch is left on the commit the workspace pins.
+checkout branch:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  git fetch --all --prune
+  git checkout "{{branch}}"
+  git pull --ff-only || echo "no upstream to pull for {{branch}}"
+  git submodule update --init
+  for sm in $(git submodule --quiet foreach 'echo $sm_path'); do
+    (
+      cd "$sm"
+      git fetch --all --prune --quiet
+      if git show-ref --verify --quiet "refs/heads/{{branch}}" || git show-ref --verify --quiet "refs/remotes/origin/{{branch}}"; then
+        git checkout "{{branch}}"
+        git pull --ff-only || echo "$sm: no upstream to pull for {{branch}}"
+        echo -e "\e[1;32m$sm -> {{branch}}\e[0m"
+      else
+        echo -e "\e[1;33m$sm: no branch {{branch}}, left on the pinned commit\e[0m"
+      fi
+    )
+  done
+
 run:
   @cargo run -- run --config dev.vizier.yaml
 
@@ -65,6 +88,32 @@ catalogue-update:
   python3 -I scripts/catalogue_update.py
 
 # Unit tests for the submodule PR linking/cascade automation.
+# Branch and dirty state of the workspace and every submodule.
+status:
+  @git status -sb
+  @git submodule foreach --quiet 'printf "\n\033[1;34m%s\033[0m\n" "$sm_path"; git status -sb'
+
+# Pull the current branch of the workspace and every submodule (fast-forward only).
+pull:
+  git pull --ff-only
+  git submodule foreach 'git pull --ff-only || true'
+
+test:
+  cargo test
+
+lint:
+  cargo clippy
+
+typecheck:
+  cd webui && npm run typecheck
+
+# Pre-PR gate: clippy, cargo tests and the WebUI typecheck.
+check: lint test typecheck
+
+# Regenerate webui/app/api/schema.d.ts from a running server (default http://localhost:9999, override with VIZIER_URL).
+openapi:
+  node scripts/openapi.mjs
+
 test-scripts:
   node --test scripts/*.test.mjs
 
