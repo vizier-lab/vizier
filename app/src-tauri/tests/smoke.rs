@@ -11,6 +11,7 @@ use std::{
 };
 
 use serde_json::{Value, json};
+use vizier_core::storage::user::UserStorage;
 use vizier_app::{
     desktop,
     engine::{DesktopState, Engine, SettingsPatch},
@@ -99,7 +100,10 @@ async fn first_run_owner_api_chat_and_lock() {
 
     engine.start().await;
     assert_eq!(engine.state(), DesktopState::NeedsOwner);
-    engine.setup_owner("olive", None).await.unwrap();
+    // A password is part of creating the owner.
+    assert_eq!(engine.setup_owner("olive", None).await.unwrap_err().code, "password_required");
+    assert_eq!(engine.setup_owner("olive", Some("short")).await.unwrap_err().code, "password_too_short");
+    engine.setup_owner("olive", Some("owner-pass-1")).await.unwrap();
     assert_eq!(engine.state(), DesktopState::Ready);
     // The binding survives in desktop.json.
     assert_eq!(DesktopSettings::load(cfg.path(), cfg.path()).bindings.len(), 1);
@@ -107,7 +111,7 @@ async fn first_run_owner_api_chat_and_lock() {
     let me = api(&engine, "GET", "/auth/users/me", None).await;
     assert_eq!(me.status, 200);
     assert_eq!(me.body["data"]["username"], "olive");
-    assert_eq!(me.body["data"]["has_password"], false);
+    assert_eq!(me.body["data"]["has_password"], true);
 
     // A second engine on the same workspace is refused with the lock state.
     let other_cfg = tempfile::tempdir().unwrap();
@@ -194,7 +198,12 @@ async fn web_access_needs_a_password_and_keeps_the_login_rules() {
     let cfg = tempfile::tempdir().unwrap();
     let engine = engine_on(ws.path(), cfg.path());
     engine.start().await;
-    engine.setup_owner("olive", None).await.unwrap();
+    engine.setup_owner("olive", Some("owner-pass-1")).await.unwrap();
+    // An owner from an older workspace may have no password: simulate one.
+    {
+        let owner = engine.owner_id().await.expect("bound owner");
+        engine.storage_for_test().await.update_password(&owner, "").await.unwrap();
+    }
 
     let port = free_port();
     let on = SettingsPatch {
@@ -266,7 +275,7 @@ async fn several_system_users_ask_which_to_sign_in_as() {
     let cfg = tempfile::tempdir().unwrap();
     let engine = engine_on(ws.path(), cfg.path());
     engine.start().await;
-    engine.setup_owner("one", None).await.unwrap();
+    engine.setup_owner("one", Some("owner-pass-1")).await.unwrap();
     // A second system user, made through the API as the owner.
     let roles = api(&engine, "GET", "/auth/roles", None).await;
     assert_eq!(roles.status, 200, "{roles:?}");

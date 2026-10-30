@@ -290,10 +290,19 @@ impl Engine {
                 .await
                 .map_err(|e| internal(&e))?,
         };
-        let hash = match password.filter(|p| !p.is_empty()) {
-            Some(p) => vizier_core::auth::password::hash(p).map_err(|e| internal(&e.0))?,
-            None => String::new(),
-        };
+        // The owner can open the app's web access and sign in from a browser, so a password is
+        // part of creating them.
+        let password = password.unwrap_or_default();
+        if password.is_empty() {
+            return Err(CommandError::new("password_required", "a password is required"));
+        }
+        if password.chars().count() < MIN_PASSWORD_LEN {
+            return Err(CommandError::new(
+                "password_too_short",
+                format!("the password needs at least {MIN_PASSWORD_LEN} characters"),
+            ));
+        }
+        let hash = vizier_core::auth::password::hash(password).map_err(|e| internal(&e.0))?;
         let user = storage
             .create_user(username, &hash, &role.role_id)
             .await
@@ -349,7 +358,21 @@ impl Engine {
         self.start().await;
     }
 
-    /// Whether the bound user can sign in from a browser: a password or at least one API key.
+    /// The bound owner's user id, when there is one.
+    #[doc(hidden)]
+    pub async fn owner_id(&self) -> Option<String> {
+        self.inner.running.lock().await.owner.clone()
+    }
+
+    /// The running engine's storage, for tests that need to set up an older workspace's state.
+    #[doc(hidden)]
+    pub async fn storage_for_test(&self) -> Arc<vizier_core::storage::VizierStorage> {
+        let running = self.inner.running.lock().await;
+        running.runtime.as_ref().expect("engine is running").deps().storage.clone()
+    }
+
+    /// Whether the bound user can sign in from a browser: they have a password. (An owner of an
+    /// older workspace may still have none.)
     pub async fn web_access_allowed(&self) -> bool {
         let running = self.inner.running.lock().await;
         let (Some(runtime), Some(owner)) = (running.runtime.as_ref(), running.owner.as_ref()) else {
@@ -357,7 +380,7 @@ impl Engine {
         };
         let storage = &runtime.deps().storage;
         let has_password = matches!(storage.get_user_by_id(owner).await, Ok(Some(u)) if vizier_core::auth::password::has_password(&u));
-        has_password || matches!(storage.list_api_keys(owner).await, Ok(keys) if !keys.is_empty())
+        has_password
     }
 
     /// Applies the settings a person may change; `workspace` and `bindings` are not theirs.
@@ -365,7 +388,7 @@ impl Engine {
         if patch.web_access.enabled && !self.web_access_allowed().await {
             return Err(CommandError::new(
                 "password_required",
-                "set a password or create an API key before turning on web access",
+                "set a password before turning on web access",
             ));
         }
         self.save_settings(|s| {
@@ -404,6 +427,9 @@ impl Engine {
         running.runtime.as_ref().is_some_and(|r| r.stop_subsystem_for_test(name))
     }
 }
+
+/// The same minimum the WebUI's password form uses.
+const MIN_PASSWORD_LEN: usize = 8;
 
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct SettingsPatch {

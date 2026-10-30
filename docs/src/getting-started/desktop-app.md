@@ -25,7 +25,7 @@ The AppImage needs glibc 2.35 or newer (Ubuntu 22.04, Debian 12, Fedora 36 and l
 
 ## First run
 
-The first time you open the app it asks for a name and an optional password for the local owner. There is no login screen afterwards: opening the app is signing in as that owner. The owner has the built-in system role, so everything the server's first user can do, you can do.
+The first time you open the app it asks for a name and a password for the local owner (at least 8 characters). There is no login screen in the app afterwards: opening it is signing in as that owner. The password is for opening Vizier from a browser, if you turn web access on. The owner has the built-in system role, so everything the server's first user can do, you can do.
 
 ## Where your data lives
 
