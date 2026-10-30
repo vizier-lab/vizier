@@ -48,7 +48,7 @@ pub type Result<T> = std::result::Result<T, VizierError>;
 pub mod prelude {
     pub use crate::Result;
     pub use crate::access::Caller;
-    pub use crate::auth::{AuthMethod, Identity, Principal, Role};
+    pub use crate::auth::{AuthMethod, Principal, Role};
     pub use crate::config::VizierConfig;
     pub use crate::error::VizierError;
     pub use crate::runtime::{

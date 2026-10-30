@@ -9,7 +9,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    auth::{AuthMethod, Identity},
+    auth::{AuthMethod, Principal},
     schema::{VizierChannelId, VizierSession},
 };
 
@@ -140,7 +140,7 @@ impl RevisionOrigin {
 
     /// HTTP handlers: the authenticated user is the actor; a JWT bearer token means the WebUI,
     /// an API key means a programmatic caller.
-    pub fn from_user(user: &Identity) -> Self {
+    pub fn from_user(user: &Principal) -> Self {
         let trigger = match user.method {
             AuthMethod::Jwt => RevisionTrigger::WebUi,
             AuthMethod::ApiKey => RevisionTrigger::Api,

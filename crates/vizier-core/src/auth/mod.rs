@@ -31,6 +31,3 @@ pub struct Principal {
     pub permissions: Vec<String>,
     pub method: AuthMethod,
 }
-
-/// The pre-038 name of [`Principal`]; removed at the end of the desktop app work.
-pub type Identity = Principal;

@@ -56,3 +56,36 @@ async fn network_router_never_accepts_a_desktop_identity() {
     assert_eq!(body["data"]["username"], "owner");
     assert_eq!(body["data"]["has_password"], false);
 }
+
+/// T099: with an explicit origin list the CORS layer refuses other origins.
+#[tokio::test]
+async fn cors_allow_list_refuses_other_origins() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut config = VizierConfig::with_workspace(dir.path().to_path_buf());
+    let http = config.channels.http.as_mut().unwrap();
+    http.jwt_secret = "test-secret".into();
+    http.cors_origins = Some(vec!["http://127.0.0.1:9999".into()]);
+    let runtime = VizierRuntime::start(RuntimeOptions { config }).await.unwrap();
+    let http_cfg = runtime.deps().config.channels.http.clone().unwrap();
+
+    let preflight = |origin: &'static str| {
+        let router = vizier_http::router(&runtime, &http_cfg);
+        async move {
+            let res = router
+                .oneshot(
+                    Request::builder()
+                        .method("OPTIONS")
+                        .uri("/api/v1/status")
+                        .header("origin", origin)
+                        .header("access-control-request-method", "GET")
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            res.headers().get("access-control-allow-origin").map(|v| v.to_str().unwrap().to_string())
+        }
+    };
+    assert_eq!(preflight("http://127.0.0.1:9999").await.as_deref(), Some("http://127.0.0.1:9999"));
+    assert_eq!(preflight("http://evil.example").await, None);
+}
