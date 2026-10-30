@@ -1,10 +1,10 @@
-import { Button, Dialog } from '@vizier/design'
+import { Button, Dialog, KeyValueList } from '@vizier/design'
 import type { ArtifactDetail as Detail } from '../../api/endpoints/artifacts'
 import { artifactContentUrl } from '../../api/endpoints/artifacts'
 import { actionLabel, bytesLabel, kindLabel, referenceLabel } from '../../lib/artifacts'
 import { relativeTime } from '../../lib/format'
 
-/** One artifact: preview, metadata, origin, provenance and where it is used. */
+/** One artifact: metadata, origin, provenance and where it is used. */
 export function ArtifactDetail({
     detail,
     open,
@@ -34,26 +34,20 @@ export function ArtifactDetail({
         >
             <div className="flex flex-col gap-16">
                 {!detail.available && (
-                    <p role="status" className="type-ui-para text-failed">
+                    <p role="status" className="type-ui-para text-failed-text">
                         {artifact.name} — artifact unavailable
                     </p>
                 )}
-                <dl className="grid grid-cols-2 gap-x-24 gap-y-8 type-small">
-                    <dt className="text-muted">Kind</dt>
-                    <dd className="text-fg">{kindLabel(artifact.kind)} · {artifact.mime_type}</dd>
-                    <dt className="text-muted">Size</dt>
-                    <dd className="text-fg">{bytesLabel(artifact.size)}</dd>
-                    <dt className="text-muted">Version</dt>
-                    <dd className="text-fg">{artifact.version}</dd>
-                    <dt className="text-muted">Created</dt>
-                    <dd className="text-fg">{relativeTime(Date.parse(artifact.created_at))}</dd>
-                    <dt className="text-muted">Changed</dt>
-                    <dd className="text-fg">{relativeTime(Date.parse(artifact.updated_at))}</dd>
-                    <dt className="text-muted">Origin</dt>
-                    <dd className="min-w-0 truncate text-fg">
-                        {origin.channel ?? 'unknown'}{origin.source_filename ? ` · ${origin.source_filename}` : ''}
-                    </dd>
-                </dl>
+                <KeyValueList
+                    items={[
+                        { label: 'Kind', value: `${kindLabel(artifact.kind)} · ${artifact.mime_type}` },
+                        { label: 'Size', value: bytesLabel(artifact.size) },
+                        { label: 'Version', value: artifact.version },
+                        { label: 'Created', value: relativeTime(artifact.created_at) },
+                        { label: 'Changed', value: relativeTime(artifact.updated_at) },
+                        { label: 'Origin', value: `${origin.channel ?? 'unknown'}${origin.source_filename ? ` · ${origin.source_filename}` : ''}` },
+                    ]}
+                />
 
                 <section aria-labelledby="artifact-provenance">
                     <h3 id="artifact-provenance" className="type-ui-strong text-fg">Provenance</h3>
@@ -61,7 +55,7 @@ export function ArtifactDetail({
                         {events.map((event) => (
                             <li key={event.id} className="type-small text-muted">
                                 <span className="text-fg">{actionLabel(event)}</span> by {event.actor_name} ·{' '}
-                                {relativeTime(Date.parse(event.created_at))}
+                                {relativeTime(event.created_at)}
                                 {event.source_filename ? ` · ${event.source_filename}` : ''}
                             </li>
                         ))}
