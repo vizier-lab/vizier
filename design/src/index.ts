@@ -114,6 +114,7 @@ export * from "./components/ScriptCall";
 export * from "./components/SearchField";
 export * from "./components/SecretField";
 export * from "./components/SecretReveal";
+export * from "./components/Schedule";
 export * from "./components/Segment";
 export * from "./components/Slider";
 export * from "./components/Select";

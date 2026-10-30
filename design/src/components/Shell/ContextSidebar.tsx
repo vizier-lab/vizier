@@ -12,7 +12,7 @@ export type MenuPage = "core" | "channels" | "addons" | "mcp" | "usage" | "secre
 export const ESSENTIALS: { page: EssentialPage; label: string; icon: IconName }[] = [
   { page: "memory", label: "Memory", icon: "memory" },
   { page: "artifacts", label: "Artifacts", icon: "folder" },
-  { page: "tasks", label: "Tasks", icon: "tasks" },
+  { page: "tasks", label: "Schedule", icon: "calendar" },
   { page: "skills", label: "Skills", icon: "skills" },
   { page: "dreams", label: "Dreams", icon: "dreams" },
 ];

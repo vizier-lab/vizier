@@ -68,6 +68,12 @@ function DotMark({ dot, colour }: { dot: Dot; colour: string }) {
   );
 }
 
+/** Just the dot of a state, for chips and rows that carry their words elsewhere. */
+export function StatusDot({ state }: { state: StatusState }) {
+  const s = STATES[state];
+  return <DotMark dot={s.dot} colour={s.dotColour} />;
+}
+
 /** A state dot with its words (D24, widened to task runs, MCP servers and integrations). */
 export function Status({ state, label, detail, font = "mono", dot = true, className, ...rest }: StatusProps) {
   const s = STATES[state];
