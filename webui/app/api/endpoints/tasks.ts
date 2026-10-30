@@ -40,6 +40,8 @@ export interface TaskInput {
 
 const base = (agentId: string) => `/agents/${agentId}/tasks`
 
+/** Every task of the agent, unpaged: the calendar needs them all to place each on its days. */
+export const listAllTasks = (agentId: string, signal?: AbortSignal) => api.get<Task[]>(base(agentId), signal)
 export const getTask = (agentId: string, slug: string) => api.get<Task>(`${base(agentId)}/${slug}`)
 export const createTask = (agentId: string, input: TaskInput) => api.post<Task>(base(agentId), input)
 export const updateTask = (agentId: string, slug: string, input: TaskInput) => api.put<Task>(`${base(agentId)}/${slug}`, input)

@@ -15,7 +15,7 @@ type Props = Omit<PageHeaderProps, 'children'> & {
     /** The body is panes that fill the page and scroll themselves (Chat, Memory, Core): no gutter, no page scroll. */
     fill?: boolean
     /** A sub-page (an editor, one item) goes back to its parent page. */
-    back?: { href: string; label: string }
+    back?: { href: string; label: string; /** Navigation state to hand on, e.g. the way back past it. */ state?: unknown }
 }
 
 /**
@@ -34,6 +34,7 @@ export function PageFrame({ children, width = 'full', fill, back, description, a
                 {back && (
                     <Link
                         to={back.href}
+                        state={back.state}
                         aria-label={`Back to ${back.label}`}
                         title={`Back to ${back.label}`}
                         className="-ml-8 mr-8 grid size-32 shrink-0 place-items-center self-center rounded-md text-muted hover:bg-raised hover:text-fg"
