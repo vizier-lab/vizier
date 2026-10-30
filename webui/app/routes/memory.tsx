@@ -37,10 +37,12 @@ const slugify = (s: string) =>
  * (`/memory/:bundle/:path`) the document takes the graph's place.
  */
 export default function Memory() {
-    const { agentId = '', bundle: rawBundle, '*': rawPath } = useParams()
+    const { agentId = '', '*': splat = '' } = useParams()
     const [params] = useSearchParams()
+    // `/memory/:bundle/:path…`, one splat so the explorer stays mounted between addresses.
+    const [rawBundle, ...rawPath] = splat.split('/').filter(Boolean)
     const bundle = rawBundle ? decodeURIComponent(rawBundle) : undefined
-    const doc = bundle && rawPath ? rawPath.split('/').map(decodeURIComponent).join('/').replace(/\.md$/, '') : undefined
+    const doc = bundle && rawPath.length ? rawPath.map(decodeURIComponent).join('/').replace(/\.md$/, '') : undefined
     // Links from before documents had their own address.
     const legacyDoc = params.get('doc')
     if (bundle && legacyDoc) return <Navigate replace to={docHref(agentId, bundle, legacyDoc)} />
