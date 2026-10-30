@@ -228,7 +228,7 @@ Each task below: (1) add conformance vectors for every route in the group (allow
 - [X] T102 [US4] WebUI: register the route and add the nav item only when `authMode === 'desktop'` (settings navigation component; find with `grep -rn "settings-password" webui/app`); make Settings › Password allow an empty current password when the user has `has_password === false` and the mode is desktop
 - [X] T103 [US4] Run typecheck + vitest + build; commit in `webui` (`feat: add desktop settings and web access`), bump the pin
 - [ ] T104 [US4] Run quickstart §6 (loopback, login, live sync between window and browser, CORS, allow-network with warning, toggle off closes the browser session)
-- [ ] T105 [US4] Confirm the server edition is unchanged: `cors_origins`/`host` absent → identical behaviour; openapi diff and conformance unchanged
+- [X] T105 [US4] Confirm the server edition is unchanged: `cors_origins`/`host` absent → identical behaviour; openapi diff and conformance unchanged
 
 **Checkpoint**: opt-in browser access with the server's login rules.
 
