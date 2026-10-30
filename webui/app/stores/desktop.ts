@@ -22,16 +22,22 @@ export const useDesktop = create<DesktopStore>()((set) => ({
     init: () => {
         if (started || typeof window === 'undefined') return
         started = true
-        void transportReady.then(async () => {
-            const shell = transport.desktop
-            if (!shell) {
-                set({ ready: true })
-                return
-            }
-            set({ desktop: true, ready: true })
-            await shell.onState((state) => set({ state }))
-            await shell.onUpdate((update) => set({ update: update.available ? update : null }))
-            set({ state: await shell.state() })
-        })
+        // A failure to load the desktop transport or to reach the shell must show as an error:
+        // a blank window gives the person nothing to report.
+        const fail = (error: unknown) =>
+            set({ desktop: true, ready: true, state: { state: 'failed', detail: { error: String(error) } } })
+        transportReady
+            .then(async () => {
+                const shell = transport.desktop
+                if (!shell) {
+                    set({ ready: true })
+                    return
+                }
+                set({ desktop: true, ready: true })
+                await shell.onState((state) => set({ state }))
+                await shell.onUpdate((update) => set({ update: update.available ? update : null }))
+                set({ state: await shell.state() })
+            })
+            .catch(fail)
     },
 }))
