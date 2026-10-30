@@ -3,6 +3,9 @@ import { useState, type ReactNode } from 'react'
 import { transport, type DesktopState } from '../../api/transport'
 import { bootstrapView, errorText, failureMessage, lockHolder, ownerCandidates } from '../../lib/desktop'
 
+/** The same minimum as the Settings › Password form. */
+const MIN_PASSWORD = 8
+
 function Frame({ title, description, children }: { title: string; description?: string; children?: ReactNode }) {
     return (
         <main className="flex min-h-dvh items-center justify-center bg-ground p-16">
@@ -50,16 +53,16 @@ function NeedsOwner() {
     const [busy, setBusy] = useState(false)
     const [error, setError] = useState<string>()
     return (
-        <Frame title="Welcome to Vizier" description="Create the owner of this workspace. A password is optional; you can add one later.">
+        <Frame title="Welcome to Vizier" description="Create the owner of this workspace. The password also protects opening Vizier from a browser.">
             <form
                 className="flex flex-col gap-16"
                 onSubmit={async (e) => {
                     e.preventDefault()
-                    if (!username.trim()) return
+                    if (!username.trim() || password.length < MIN_PASSWORD) return
                     setBusy(true)
                     setError(undefined)
                     try {
-                        await transport.desktop!.setupOwner(username.trim(), password || undefined)
+                        await transport.desktop!.setupOwner(username.trim(), password)
                     } catch (err) {
                         setError(errorText(err, 'The owner could not be created.'))
                     } finally {
@@ -69,9 +72,16 @@ function NeedsOwner() {
             >
                 {error && <Notice tone="failed" title="The owner wasn’t created">{error}</Notice>}
                 <TextField label="Name" autoComplete="username" value={username} onChange={(e) => setUsername(e.target.value)} />
-                <TextField label="Password (optional)" type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} />
+                <TextField
+                    label="Password"
+                    type="password"
+                    autoComplete="new-password"
+                    value={password}
+                    helper={password !== '' && password.length < MIN_PASSWORD ? `At least ${MIN_PASSWORD} characters.` : undefined}
+                    onChange={(e) => setPassword(e.target.value)}
+                />
                 <div>
-                    <Button type="submit" loading={busy} disabled={!username.trim()}>
+                    <Button type="submit" loading={busy} disabled={!username.trim() || password.length < MIN_PASSWORD}>
                         Continue
                     </Button>
                 </div>

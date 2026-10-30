@@ -127,7 +127,7 @@ export default function SettingsDesktop() {
                         <Card title="Web access" description="Open Vizier in a browser too. Off by default." aria-label="Web access">
                             {needsPassword && (
                                 <Notice tone="failed" title="Set a password first">
-                                    Web access needs a password or an API key. <Link className="underline" to="/settings/password">Set a password</Link>.
+                                    Web access needs a password. <Link className="underline" to="/settings/password">Set a password</Link>.
                                 </Notice>
                             )}
                             <Row
