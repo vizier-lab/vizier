@@ -5,7 +5,7 @@
   "build": {
     "frontendDist": "../../webui/build/client",
     "devUrl": "http://localhost:5173",
-    "beforeDevCommand": "",
+    "beforeDevCommand": { "script": "npm run dev", "cwd": "../../webui", "wait": false },
     "beforeBuildCommand": ""
   },
   "app": {
