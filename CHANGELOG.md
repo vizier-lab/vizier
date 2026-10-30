@@ -2,6 +2,98 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.14.0-rc.1] - 2026-10-30
+
+### 🚀 Features
+
+- *(office)* Read Word and Excel files with the Office addon (US1)
+- *(office)* Write Word and Excel files from Markdown and sheets (US2)
+- *(office)* Complete US3 seeding, US5 single reader, and documentation
+- *(office)* [**breaking**] Calculate formulas for office_xlsx_read_as_csv
+- Bump design and webui for the new shell
+- Bump design and webui for card side panels
+- Bump webui for the side panel fixes
+- Bump webui for the wider side panels
+- Bump design for the bigger rail and inset
+- Bump design and webui for the agent card description
+- Bump design and webui for the wider sidebar
+- Bump design for the rail divider
+- Bump design and webui for the inline session list
+- Bump design and webui for the reorderable rail
+- Bump webui for Show more
+- Bump design and webui for session search
+- Bump design for the even shell spacing
+- Bump design and webui for agent pictures and the breathing dot
+- Bump design for the pulsing live dot
+- Bump design for the steady live dot
+- Bump design and webui for delete conversation and the Vizier logo
+- Bump design for the rail status dot
+- Bump design for the agent card status dot
+- Bump design and webui after merging their master
+- Bump design and webui; document the popup dismissal convention
+- Bump design and webui for the docked notifications panel
+- Bump design and webui for the Schedule page; document it
+- Bump design and webui for the New item in the agent sidebar
+- Add /btw ephemeral side chat
+
+### 🐛 Bug Fixes
+
+- *(office)* Drop XML-forbidden control characters from Word output
+- *(office)* Calibri and cell padding in generated Word files
+- Bump webui for reaction undo and a steady memory explorer
+- Bump design for the memory graph background
+- Bump design for the agent card without its status dot
+
+### 💼 Other
+
+- Bump design for 8x8 sigils
+
+### 🚜 Refactor
+
+- Use a plain string key instead of PersonKey
+- Extract vizier-core and split the workspace (#131)
+
+### 📚 Documentation
+
+- Renumber office-addon spec from 030 to 032
+- Address PR review on office addon spec
+- Sync office addon plan, quickstart and success criteria
+- Point office addon e2e at the standalone dummyplug server
+- Add office_xlsx_read_as_csv to the office addon spec
+- Sync office addon plan with the CSV tool and formula engine
+- Regenerate office addon tasks for the CSV tool
+- Renumber office-addon spec from 032 to 034
+- Dummyplug is already on this branch after merging master
+- Update scale/scope and fixture paths in office addon documentation
+- *(office)* Record why the static musl build (T050) cannot pass yet
+- *(office)* Align the spec set with the code after the release-gate checklist
+- *(office)* Renumber the spec to 035 and bring tasks.md up to date
+- *(office)* Renumber the spec to 036
+- *(office)* Document calculated formulas, the upgrade and the test fixtures
+- *(spec)* Address /speckit-analyze findings for 033-btw-side-chat
+- *(spec)* Define /btw as one aside with follow-ups, discarded at the end
+- *(spec)* Make /btw public on Discord and limit asides by characters
+- *(spec)* Update 033 tasks for public Discord asides and the character budget
+- Document /btw and add a screenshot of the floating window
+- The WebUI /btw window is throwaway, and drop the screenshot
+- Amend constitution to v1.3.0 (matching submodule branches, conventional PR titles)
+
+### 🧪 Testing
+
+- *(office)* Cover the addon toggle and seeding, reconcile the contract
+- *(office)* Toggling the addon through the service publishes a change
+- *(office)* Read golden files made by other tools
+- *(office)* Keep the test fixtures in a dedicated root folder
+- *(office)* Add the script that writes the fixtures
+
+### ⚙️ Miscellaneous Tasks
+
+- *(office)* Drop the fixture generator script from the repository
+- Update Cargo.lock for 0.13.5
+- Add just checkout, status, pull, test, lint, typecheck, check and openapi
+- Add just push, commit, branch-rm and worktree recipes; checkout creates missing branches
+- Align CLAUDE.md, webui pin and Spec Kit pointer with the merged branch
+- Bump webui and dummyplug pins
 ## [0.13.5] - 2026-10-29
 
 ### 🚀 Features
@@ -12,6 +104,7 @@ All notable changes to this project will be documented in this file.
 
 - Bump version to 0.13.5
 - Pin webui to the rebased artifacts commit
+- Bump version to 0.13.5
 ## [0.13.4] - 2026-10-28
 
 ### 🚀 Features

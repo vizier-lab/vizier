@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "fetched_at": "2026-10-29T07:36:54Z",
+  "fetched_at": "2026-10-30T12:36:48Z",
   "speech": [
     {"id": "assemblyai/assemblyai-tts-1", "name": "AssemblyAI: TTS 1", "voices": ["aai-jane", "aai-alba", "aai-anna", "aai-charles", "aai-eve", "aai-george", "aai-jean", "aai-mary", "aai-michael", "aai-paul", "aai-vera"]},
     {"id": "heygen/heygen-voice-1-turbo", "name": "HeyGen: HeyGen Voice Turbo", "voices": ["nadine", "tabitha", "bram", "gareth", "noelle", "meredith", "sabrina", "lucian", "weston", "vincent"]},
@@ -73,6 +73,7 @@
     {"id": "openai/gpt-4o-transcribe", "name": "OpenAI: GPT-4o Transcribe"}
   ],
   "image": [
+    {"id": "sourceful/riverflow-v2.6-pro", "name": "Sourceful: Riverflow V2.6 Pro", "aspect_ratios": ["1:1", "4:3", "3:4", "3:2", "2:3", "5:4", "4:5", "16:9", "9:16", "21:9", "auto"], "resolutions": ["1K", "2K", "4K"]},
     {"id": "qwen/qwen-image-2.1-turbo", "name": "Qwen: Qwen Image 2.1 Turbo", "aspect_ratios": ["1:1", "1:2", "1:4", "2:1", "2:3", "3:2", "3:4", "4:1", "4:3", "4:5", "5:4", "9:16", "16:9"], "resolutions": ["1K", "2K"]},
     {"id": "qwen/qwen-image-2.1-pro", "name": "Qwen: Qwen Image 2.1 Pro", "aspect_ratios": ["1:1", "1:2", "1:4", "2:1", "2:3", "3:2", "3:4", "4:1", "4:3", "4:5", "5:4", "9:16", "16:9"], "resolutions": ["1K", "2K"]},
     {"id": "krea/k3-edit", "name": "Krea: K3 Edit", "aspect_ratios": ["1:1", "4:3", "3:2", "16:9", "4:5", "2:3", "9:16"], "resolutions": ["1K", "2K"]},
