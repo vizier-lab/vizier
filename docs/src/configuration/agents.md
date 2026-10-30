@@ -139,6 +139,8 @@ The scheduler runs cron and one-time tasks that the agent creates for itself (`s
 | `POST` | `/api/v1/agents/{id}/tasks` | Create |
 | `GET|PUT|DELETE` | `/api/v1/agents/{id}/tasks/{slug}` | Read / update / delete |
 
+The WebUI shows them on the agent's **Schedule** page, as a calendar (a month, or one day) or as a table. The calendar places each task on the days its schedule names, in your timezone; cron expressions are evaluated in UTC, as the scheduler does. The past shows only each task's latest run, since that is what the task list carries. The filter tabs (Active, Last run failed, All) open on Active and apply to both views.
+
 A task's prompt runs as the agent in a dedicated `Task` session; the agent can report results into a WebUI topic with `webui_send_message`, or into Discord/Telegram with the platform tools.
 
 ## Usage

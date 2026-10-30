@@ -67,7 +67,7 @@ Each agent has:
 
 - **Core** — its persistent `CORE.md` identity/operating document (editable in the WebUI)
 - **Memory** — a browsable knowledge graph of markdown concept documents
-- **Tasks** — scheduled cron / one-time tasks
+- **Schedule** — scheduled cron / one-time tasks, as a calendar or a table
 - **Skills** — per-agent skill packages
 - **Dream** — an optional scheduled reflection cycle
 - **Usage** — what each agent spends on models, by activity, model and conversation
