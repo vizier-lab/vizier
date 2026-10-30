@@ -17,9 +17,9 @@ export function PasswordCard({ titled = true }: { titled?: boolean }) {
     const [confirm, setConfirm] = useState('')
     const [busy, setBusy] = useState(false)
     const [error, setError] = useState<string>()
-    // A desktop owner who skipped the password sets one without a current one.
-    const hasPassword = useSession((s) => s.user?.has_password)
-    const noCurrent = transport.authMode === 'desktop' && hasPassword === false
+    // The desktop window is the workspace owner: it sets a new password without the current one,
+    // which is also how a forgotten password is replaced. A browser still has to give it.
+    const noCurrent = transport.authMode === 'desktop'
 
     const short = next !== '' && next.length < MIN
     const mismatch = confirm !== '' && confirm !== next

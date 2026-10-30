@@ -1,7 +1,6 @@
 import { Button, Card, ProfileHeader, Skeleton, TextField } from '@vizier/design'
 import { useEffect, useState } from 'react'
 import { myProfile, saveMyProfile, type Profile } from '../api/endpoints/auth'
-import { PasswordCard } from '../screens/settings/PasswordCard'
 import { SettingsFrame } from '../screens/shared/SettingsFrame'
 import { useSession } from '../stores/session'
 import { toast } from '../stores/toasts'
@@ -18,7 +17,6 @@ const toFields = (p: Profile): Fields => ({
 
 export default function SettingsProfile() {
     const user = useSession((s) => s.user)
-    const canPassword = useSession((s) => s.can('settings:password'))
     const [fields, setFields] = useState<Fields>()
     const [saved, setSaved] = useState<Fields>()
     const [busy, setBusy] = useState(false)
@@ -85,7 +83,6 @@ export default function SettingsProfile() {
                     </div>
                 )}
             </Card>
-            {canPassword && <PasswordCard />}
         </SettingsFrame>
     )
 }
