@@ -96,7 +96,9 @@ jobs:
               fi
             done
           }
-          check vizier-core axum axum-extra tower-http utoipa-axum utoipa-swagger-ui clap inquire termimad daemonize dotenvy opentelemetry-otlp jsonwebtoken argon2 tracing-subscriber
+          # argon2 is allowed in the engine: password hashing is part of the service layer (spec 038),
+          # shared by the server and the desktop app. JWT issuing stays in the HTTP adapter.
+          check vizier-core axum axum-extra tower-http utoipa-axum utoipa-swagger-ui clap inquire termimad daemonize dotenvy opentelemetry-otlp jsonwebtoken tracing-subscriber
           check vizier-http clap inquire termimad daemonize dotenvy opentelemetry-otlp
           exit $fail
       - name: Dependencies unchanged
@@ -137,3 +139,83 @@ jobs:
               sys.exit(1)
           print("no dependency version changes")
           PY
+
+      - name: Native dependencies match the app
+        # FR-023: the desktop app has its own lockfile (app/Cargo.lock); the crates that carry
+        # native code must resolve to the same versions in both, or the app ships something
+        # the server never tested.
+        run: |
+          set -euo pipefail
+          ver() {
+            python3 -I - "$1" <<'PY'
+          import sys, tomllib
+          want = {"fastembed", "ort", "ort-sys", "whisper-rs", "any-tts"}
+          with open(sys.argv[1], "rb") as f:
+              lock = tomllib.load(f)
+          for p in sorted(lock["package"], key=lambda p: (p["name"], p["version"])):
+              if p["name"] in want:
+                  print(p["name"], p["version"])
+          PY
+          }
+          ver Cargo.lock > /tmp/server-native.txt
+          ver app/Cargo.lock > /tmp/app-native.txt
+          diff -u /tmp/server-native.txt /tmp/app-native.txt || { echo "::error::native dependency versions differ between Cargo.lock and app/Cargo.lock"; exit 1; }
+
+  # The desktop app (specs/038-desktop-app-edition). Builds the WebUI because the app embeds it.
+  # Only runs when something the app is built from changes; server-only PRs skip it.
+  app:
+    name: app
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: dorny/paths-filter@v3
+        id: changes
+        with:
+          filters: |
+            app:
+              - 'app/**'
+              - 'crates/**'
+              - 'webui'
+              - 'design'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - '.github/workflows/ci.yml'
+      - uses: dtolnay/rust-toolchain@stable
+        if: steps.changes.outputs.app == 'true'
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        if: steps.changes.outputs.app == 'true'
+        with:
+          workspaces: app -> target
+      - uses: actions/setup-node@v4
+        if: steps.changes.outputs.app == 'true'
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: |
+            design/package-lock.json
+            webui/package-lock.json
+      - name: Install Linux dependencies
+        if: steps.changes.outputs.app == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf \
+            pkg-config libssl-dev python3-dev libclang-dev clang perl make
+      - name: Build the WebUI
+        if: steps.changes.outputs.app == 'true'
+        run: |
+          (cd design && npm ci)
+          cd webui
+          npm ci
+          npm run build
+      - name: Clippy and test
+        if: steps.changes.outputs.app == 'true'
+        working-directory: app
+        env:
+          CI: 'true'
+        run: |
+          cargo clippy --all-targets -- -D warnings
+          cargo test

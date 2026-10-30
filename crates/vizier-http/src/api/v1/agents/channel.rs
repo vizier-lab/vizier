@@ -35,7 +35,8 @@ use vizier_core::{
 };
 use crate::{models::{self, response::{APIResponse, api_response, err_response}}, state::HTTPState};
 
-use super::{platform_of_slug, user_can_show_platform_chats, user_can_view_agent};
+use super::{respond, svc};
+use vizier_core::service::topics;
 use vizier_core::access::Caller;
 use vizier_core::utils::rate_limit::RateLimiter;
 use vizier_core::artifacts::access as ArtifactsAccess;
@@ -43,48 +44,7 @@ use crate::models::page::Page;
 use vizier_core::schema::session_file::SessionFileRecord;
 use vizier_core::storage::session_file::SessionFileStorage;
 
-/// The channel a read-only route means by `channel_id`: a Discord or Telegram conversation by its
-/// slug (`discord__123`, `telegram__-9`, which the conversation picker lists), anything else a
-/// WebUI channel of the caller's own. Routes that write never use this: nobody chats on Discord
-/// through the WebUI.
-fn readable_channel(username: &str, channel_id: &str) -> (VizierChannelId, bool) {
-    if let Some(id) = channel_id
-        .strip_prefix("discord__")
-        .and_then(|id| id.parse::<u64>().ok())
-    {
-        return (VizierChannelId::DiscordChanel(id), true);
-    }
-    if let Some(id) = channel_id
-        .strip_prefix("telegram__")
-        .and_then(|id| id.parse::<i64>().ok())
-    {
-        return (VizierChannelId::TelegramChannel(id), true);
-    }
-    // A blocking subagent's conversation is addressable by its topic, even though it has
-    // no background job row of its own.
-    if channel_id.eq_ignore_ascii_case("SUBAGENT") {
-        return (VizierChannelId::Subagent, false);
-    }
-    (
-        VizierChannelId::HTTP(username.to_string(), channel_id.to_string()),
-        false,
-    )
-}
-
-/// The session a read-only route opens. Discord and Telegram conversations have no topic.
-fn readable_session(
-    agent_id: String,
-    username: &str,
-    channel_id: &str,
-    topic_id: TopicId,
-) -> VizierSession {
-    let (channel, platform) = readable_channel(username, channel_id);
-    VizierSession(
-        agent_id,
-        channel,
-        if platform { None } else { Some(topic_id) },
-    )
-}
+pub use vizier_core::service::topics::{TopicEntry, readable_channel, readable_session};
 
 pub fn channel() -> Router<HTTPState> {
     Router::new()
@@ -119,40 +79,16 @@ pub struct HistoryQuery {
     pub limit: Option<usize>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, utoipa::ToSchema)]
-pub struct TopicEntry {
-    pub topic_id: String,
-    pub title: String,
-    pub agent_id: String,
-    pub channel: String,
-    pub is_thinking: bool,
-    /// Background jobs launched from this topic that are still in flight.
-    pub running_jobs: usize,
-}
-
-impl From<VizierSessionDetail> for TopicEntry {
-    fn from(detail: VizierSessionDetail) -> Self {
-        Self {
-            topic_id: detail.topic.unwrap_or_default(),
-            title: detail.title,
-            agent_id: detail.agent_id,
-            channel: format!("{:?}", detail.channel),
-            is_thinking: detail.is_thinking,
-            running_jobs: 0,
-        }
-    }
+#[derive(Debug, Deserialize)]
+pub(crate) struct WebSocketReactionMessage {
+    pub(crate) reaction: WebSocketReactionPayload,
 }
 
 #[derive(Debug, Deserialize)]
-struct WebSocketReactionMessage {
-    reaction: WebSocketReactionPayload,
-}
-
-#[derive(Debug, Deserialize)]
-struct WebSocketReactionPayload {
-    message_uid: String,
-    emoji: String,
-    action: ReactionAction,
+pub(crate) struct WebSocketReactionPayload {
+    pub(crate) message_uid: String,
+    pub(crate) emoji: String,
+    pub(crate) action: ReactionAction,
 }
 
 #[utoipa::path(
@@ -173,40 +109,22 @@ pub async fn get_topic_history(
     Path((agent_id, channel_id, topic_id)): Path<(String, String, TopicId)>,
     Query(params): Query<HistoryQuery>,
     State(state): State<HTTPState>,
-    Extension(user): Extension<crate::auth::Identity>,
-) -> models::response::Response<Vec<SessionHistory>> {
-    let config = match state.storage.get_agent(&agent_id).await {
-        Ok(Some(config)) => config,
-        Ok(None) => {
-            return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found"));
-        }
-        Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
-    };
-
-    if !user_can_view_agent(&user, &config) {
-        return err_response(StatusCode::FORBIDDEN, "Access denied".into());
-    }
-
-    if let Some(platform) = platform_of_slug(&channel_id) {
-        if !user_can_show_platform_chats(&user, &config, platform) {
-            return err_response(StatusCode::FORBIDDEN, "Access denied".into());
-        }
-    }
-
-    let session = readable_session(agent_id, &user.username, &channel_id, topic_id);
-
-    let response = state
-        .storage
-        .list_session_history(session, params.before, params.before_seq, params.limit)
-        .await;
-
-    // Every entry kind is returned, `AssistantMessage` included: the intermediate narration
-    // an agent writes alongside its tool calls is part of the trail the WebUI renders, and
-    // dropping it here is what used to make it invisible.
-    match response {
-        Ok(history) => api_response(StatusCode::OK, history),
-        Err(_) => err_response(StatusCode::NOT_FOUND, "Not found".into()),
-    }
+    Extension(user): Extension<crate::auth::Principal>,
+) -> axum::response::Response {
+    respond(
+        topics::history(
+            &svc(&state),
+            &user,
+            &agent_id,
+            &channel_id,
+            topic_id,
+            params.before,
+            params.before_seq,
+            params.limit,
+        )
+        .await,
+        StatusCode::OK,
+    )
 }
 
 #[derive(Debug, Deserialize, utoipa::IntoParams)]
@@ -234,45 +152,24 @@ pub async fn list_topic_files(
     Path((agent_id, channel_id, topic_id)): Path<(String, String, TopicId)>,
     Query(params): Query<FilesQuery>,
     State(state): State<HTTPState>,
-    Extension(user): Extension<crate::auth::Identity>,
-) -> models::response::Response<Page<SessionFileRecord>> {
-    let config = match state.storage.get_agent(&agent_id).await {
-        Ok(Some(config)) => config,
-        Ok(None) => {
-            return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found"));
-        }
-        Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
-    };
-    if !user_can_view_agent(&user, &config) {
-        return err_response(StatusCode::FORBIDDEN, "Access denied".into());
-    }
-
-    if let Some(platform) = platform_of_slug(&channel_id) {
-        if !user_can_show_platform_chats(&user, &config, platform) {
-            return err_response(StatusCode::FORBIDDEN, "Access denied".into());
-        }
-    }
-
-    let session = readable_session(agent_id, &user.username, &channel_id, topic_id);
-    let mut files = match state.storage.list_session_files(&session).await {
-        Ok(files) => files,
-        Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
-    };
-    files.sort_by(|a, b| b.added_at.cmp(&a.added_at));
-    let total = files.len();
-    let items = files
-        .into_iter()
-        .skip(params.offset.unwrap_or(0))
-        .take(params.limit.unwrap_or(100).clamp(1, 100))
-        .collect();
-    api_response(
-        StatusCode::OK,
-        Page {
-            items,
-            total,
-            counts: Default::default(),
-        },
+    Extension(user): Extension<crate::auth::Principal>,
+) -> axum::response::Response {
+    let page = topics::list_files(
+        &svc(&state),
+        &user,
+        &agent_id,
+        &channel_id,
+        topic_id,
+        params.offset,
+        params.limit,
     )
+    .await
+    .map(|p| Page {
+        items: p.items,
+        total: p.total,
+        counts: Default::default(),
+    });
+    respond(page, StatusCode::OK)
 }
 
 #[utoipa::path(
@@ -293,37 +190,12 @@ pub async fn list_topic_files(
 pub async fn clear_topic_files(
     Path((agent_id, channel_id, topic_id)): Path<(String, String, TopicId)>,
     State(state): State<HTTPState>,
-    Extension(user): Extension<crate::auth::Identity>,
-) -> models::response::Response<vizier_core::session_files::ClearResult> {
-    let config = match state.storage.get_agent(&agent_id).await {
-        Ok(Some(config)) => config,
-        Ok(None) => {
-            return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found"));
-        }
-        Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
-    };
-    if !user_can_view_agent(&user, &config) {
-        return err_response(StatusCode::FORBIDDEN, "Access denied".into());
-    }
-    if let Some(platform) = platform_of_slug(&channel_id) {
-        if !user_can_show_platform_chats(&user, &config, platform) {
-            return err_response(StatusCode::FORBIDDEN, "Access denied".into());
-        }
-    }
-    let session = readable_session(agent_id, &user.username, &channel_id, topic_id);
-    match state.deps.session_files.clear(&session).await {
-        Ok(result) => api_response(StatusCode::OK, result),
-        Err(vizier_core::session_files::ClearError::TurnActive) => err_response(
-            StatusCode::CONFLICT,
-            "a turn is running or queued in this conversation; wait for it to finish".into(),
-        ),
-        Err(vizier_core::session_files::ClearError::AgentNotFound) => {
-            err_response(StatusCode::NOT_FOUND, "agent not found".into())
-        }
-        Err(vizier_core::session_files::ClearError::Storage(e)) => {
-            err_response(StatusCode::INTERNAL_SERVER_ERROR, e)
-        }
-    }
+    Extension(user): Extension<crate::auth::Principal>,
+) -> axum::response::Response {
+    respond(
+        topics::clear_files(&svc(&state), &user, &agent_id, &channel_id, topic_id).await,
+        StatusCode::OK,
+    )
 }
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
@@ -353,57 +225,22 @@ pub struct PromoteFileRequest {
 pub async fn promote_topic_file(
     Path((agent_id, channel_id, topic_id)): Path<(String, String, TopicId)>,
     State(state): State<HTTPState>,
-    Extension(user): Extension<crate::auth::Identity>,
+    Extension(user): Extension<crate::auth::Principal>,
     axum::Json(body): axum::Json<PromoteFileRequest>,
-) -> models::response::Response<Artifact> {
-    let config = match state.storage.get_agent(&agent_id).await {
-        Ok(Some(config)) => config,
-        Ok(None) => {
-            return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found"));
-        }
-        Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
-    };
-    if !user_can_view_agent(&user, &config) {
-        return err_response(StatusCode::FORBIDDEN, "Access denied".into());
-    }
-    if let Some(platform) = platform_of_slug(&channel_id) {
-        if !user_can_show_platform_chats(&user, &config, platform) {
-            return err_response(StatusCode::FORBIDDEN, "Access denied".into());
-        }
-    }
-    if !ArtifactsAccess::can_manage(&Caller::from(&user), &config) {
-        return err_response(StatusCode::FORBIDDEN, "Access denied".into());
-    }
-
-    let session = readable_session(agent_id.clone(), &user.username, &channel_id, topic_id);
-    let source = vizier_core::artifacts::SourceFile {
-        session,
-        filename: body.filename.clone(),
-    };
-    match state
-        .deps
-        .artifacts
-        .promote(
+) -> axum::response::Response {
+    respond(
+        topics::promote_file(
+            &svc(&state),
+            &user,
             &agent_id,
-            Requester::User(user.user_id.clone()),
-            &source,
+            &channel_id,
+            topic_id,
+            &body.filename,
             body.name.as_deref(),
         )
-        .await
-    {
-        Ok(artifact) => api_response(StatusCode::CREATED, artifact),
-        Err(e) => {
-            let message = e.to_string();
-            let status = if message.contains("already exists") {
-                StatusCode::CONFLICT
-            } else if message.contains("not found") {
-                StatusCode::NOT_FOUND
-            } else {
-                StatusCode::UNPROCESSABLE_ENTITY
-            };
-            err_response(status, message)
-        }
-    }
+        .await,
+        StatusCode::CREATED,
+    )
 }
 
 #[utoipa::path(
@@ -422,56 +259,12 @@ pub async fn promote_topic_file(
 pub async fn list_topics(
     Path((agent_id, channel_id)): Path<(String, String)>,
     State(state): State<HTTPState>,
-    Extension(user): Extension<crate::auth::Identity>,
-) -> models::response::Response<Vec<TopicEntry>> {
-    let config = match state.storage.get_agent(&agent_id).await {
-        Ok(Some(config)) => config,
-        Ok(None) => {
-            return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found"));
-        }
-        Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
-    };
-
-    if !user_can_view_agent(&user, &config) {
-        return err_response(StatusCode::FORBIDDEN, "Access denied".into());
-    }
-
-    let channel = VizierChannelId::HTTP(user.username, channel_id);
-
-    let response = state
-        .storage
-        .get_session_list(agent_id.clone(), Some(channel.clone()))
-        .await;
-
-    // One count query for the whole list; a failure only loses the badge.
-    let running_jobs = state
-        .storage
-        .count_running_background_jobs(agent_id, channel)
-        .await
-        .unwrap_or_else(|e| {
-            tracing::warn!("failed to count running background jobs: {}", e);
-            Default::default()
-        });
-
-    if response.is_err() {
-        return err_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Failed to fetch topics".into(),
-        );
-    }
-
-    let list = response
-        .unwrap()
-        .into_iter()
-        .map(|detail| {
-            let running = running_jobs.get(&detail.topic).copied().unwrap_or(0);
-            let mut entry = TopicEntry::from(detail);
-            entry.running_jobs = running;
-            entry
-        })
-        .collect();
-
-    api_response(StatusCode::OK, list)
+    Extension(user): Extension<crate::auth::Principal>,
+) -> axum::response::Response {
+    respond(
+        topics::list(&svc(&state), &user, &agent_id, &channel_id).await,
+        StatusCode::OK,
+    )
 }
 
 #[utoipa::path(
@@ -491,41 +284,12 @@ pub async fn list_topics(
 pub async fn get_topic_detail(
     Path((agent_id, channel_id, topic_id)): Path<(String, String, TopicId)>,
     State(state): State<HTTPState>,
-    Extension(user): Extension<crate::auth::Identity>,
-) -> models::response::Response<TopicEntry> {
-    let config = match state.storage.get_agent(&agent_id).await {
-        Ok(Some(config)) => config,
-        Ok(None) => {
-            return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found"));
-        }
-        Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
-    };
-
-    if !user_can_view_agent(&user, &config) {
-        return err_response(StatusCode::FORBIDDEN, "Access denied".into());
-    }
-
-    if let Some(platform) = platform_of_slug(&channel_id) {
-        if !user_can_show_platform_chats(&user, &config, platform) {
-            return err_response(StatusCode::FORBIDDEN, "Access denied".into());
-        }
-    }
-
-    let (channel, platform) = readable_channel(&user.username, &channel_id);
-
-    match state
-        .storage
-        .get_session_detail_by_topic(
-            agent_id,
-            channel,
-            if platform { None } else { Some(topic_id) },
-        )
-        .await
-    {
-        Ok(Some(detail)) => api_response(StatusCode::OK, TopicEntry::from(detail)),
-        Ok(None) => err_response(StatusCode::NOT_FOUND, "Topic not found".into()),
-        Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
-    }
+    Extension(user): Extension<crate::auth::Principal>,
+) -> axum::response::Response {
+    respond(
+        topics::detail(&svc(&state), &user, &agent_id, &channel_id, topic_id).await,
+        StatusCode::OK,
+    )
 }
 
 #[utoipa::path(
@@ -544,44 +308,12 @@ pub async fn get_topic_detail(
 pub async fn delete_topic(
     Path((agent_id, channel_id, topic_id)): Path<(String, String, TopicId)>,
     State(state): State<HTTPState>,
-    Extension(user): Extension<crate::auth::Identity>,
-) -> models::response::Response<String> {
-    let config = match state.storage.get_agent(&agent_id).await {
-        Ok(Some(config)) => config,
-        Ok(None) => {
-            return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found"));
-        }
-        Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
-    };
-
-    if !user_can_view_agent(&user, &config) {
-        return err_response(StatusCode::FORBIDDEN, "Access denied".into());
-    }
-
-    let session = VizierSession(
-        agent_id,
-        VizierChannelId::HTTP(user.username, channel_id),
-        Some(topic_id),
-    );
-    if state.deps.session_files.has_active_turn(&session).await {
-        return err_response(
-            StatusCode::CONFLICT,
-            "a turn is running or queued in this conversation; wait for it to finish".into(),
-        );
-    }
-    match state.deps.session_files.delete_conversation(&session).await {
-        Ok(_) => api_response(StatusCode::OK, "Topic deleted".into()),
-        Err(vizier_core::session_files::ClearError::TurnActive) => err_response(
-            StatusCode::CONFLICT,
-            "a turn is running or queued in this conversation; wait for it to finish".into(),
-        ),
-        Err(vizier_core::session_files::ClearError::AgentNotFound) => {
-            err_response(StatusCode::NOT_FOUND, "Topic not found".into())
-        }
-        Err(vizier_core::session_files::ClearError::Storage(e)) => {
-            err_response(StatusCode::INTERNAL_SERVER_ERROR, e)
-        }
-    }
+    Extension(user): Extension<crate::auth::Principal>,
+) -> axum::response::Response {
+    respond(
+        topics::delete(&svc(&state), &user, &agent_id, &channel_id, topic_id).await,
+        StatusCode::OK,
+    )
 }
 
 #[utoipa::path(
@@ -601,38 +333,22 @@ pub async fn chat(
     Path((agent_id, channel_id, topic_id)): Path<(String, String, TopicId)>,
     ws: WebSocketUpgrade,
     State(state): State<HTTPState>,
-    Extension(user): Extension<crate::auth::Identity>,
+    Extension(user): Extension<crate::auth::Principal>,
 ) -> axum::response::Response {
-    let config = match state.storage.get_agent(&agent_id).await {
-        Ok(Some(config)) => config,
-        Ok(None) => {
-            return axum::response::Response::builder()
-                .status(404)
-                .body(axum::body::Body::empty())
-                .unwrap();
-        }
+    let (out_tx, out_rx) = flume::unbounded();
+    let topic = match crate::topic::TopicConnection::open(&state, &user, &agent_id, &channel_id, &topic_id, out_tx).await {
+        Ok(topic) => topic,
         Err(e) => {
-            tracing::error!("failed to get agent: {}", e);
+            if matches!(e, vizier_core::service::ServiceError::Internal(_)) {
+                tracing::error!("failed to open topic: {}", e);
+            }
             return axum::response::Response::builder()
-                .status(500)
+                .status(e.status())
                 .body(axum::body::Body::empty())
                 .unwrap();
         }
     };
 
-    if !user_can_view_agent(&user, &config) {
-        return axum::response::Response::builder()
-            .status(403)
-            .body(axum::body::Body::empty())
-            .unwrap();
-    }
-
-    let transport = state.transport.clone();
-    let session = VizierSession(
-        agent_id,
-        VizierChannelId::HTTP(user.username, channel_id),
-        Some(topic_id),
-    );
     let ws_idle_timeout_secs = state
         .config
         .channels
@@ -641,22 +357,7 @@ pub async fn chat(
         .map(|c| c.ws_idle_timeout_secs)
         .unwrap_or(300);
 
-    let limits = ClientLimits {
-        events: state.client_events.clone(),
-        state_saves: state.client_state_saves.clone(),
-        deferred: state.deferred_client_calls.clone(),
-    };
-    ws.on_upgrade(move |socket| {
-        handle_socket(
-            socket,
-            session,
-            transport,
-            state.storage.clone(),
-            state.config.workspace.clone(),
-            ws_idle_timeout_secs,
-            limits,
-        )
-    })
+    ws.on_upgrade(move |socket| handle_socket(socket, topic, ws_idle_timeout_secs, out_rx))
 }
 
 /// The limits on what a client may send (`specs/019-client-tools` research R15), shared by
@@ -673,7 +374,7 @@ pub struct ClientLimits {
 
 /// Deliver deferred calls to this socket in the background (research R18), so a slow answer
 /// never holds up the socket's own loop.
-fn spawn_delivery(
+pub(crate) fn spawn_delivery(
     storage: &std::sync::Arc<vizier_core::storage::VizierStorage>,
     transport: &VizierTransport,
     session: &VizierSession,
@@ -725,7 +426,7 @@ fn json_len(value: &serde_json::Value) -> usize {
 }
 
 /// A `client_error` frame for this socket only.
-fn client_error(
+pub(crate) fn client_error(
     code: &str,
     call_id: Option<&str>,
     message: impl Into<String>,
@@ -752,7 +453,7 @@ async fn is_client_call_in(
 }
 
 /// A `client_tool_result` (protocol §4): `Err` is the `client_error` frame to send back.
-fn client_tool_result(
+pub(crate) fn client_tool_result(
     connection: &ClientConnection,
     payload: &serde_json::Value,
 ) -> Result<(), serde_json::Value> {
@@ -797,7 +498,7 @@ fn client_tool_result(
 
 /// A `client_call_state` save (protocol §6): stored, then echoed to every socket on the
 /// session. `Err` is the `client_error` frame to send back; the stored state is untouched.
-async fn client_call_state(
+pub(crate) async fn client_call_state(
     storage: &vizier_core::storage::VizierStorage,
     transport: &VizierTransport,
     session: &VizierSession,
@@ -868,7 +569,7 @@ async fn client_call_state(
 
 /// Check a client event (protocol §5) and drop a `source_call_id` that is not a client tool
 /// call in this conversation. `Err` is the `client_error` frame refusing it.
-async fn check_client_event(
+pub(crate) async fn check_client_event(
     storage: &vizier_core::storage::VizierStorage,
     session: &VizierSession,
     limits: &ClientLimits,
@@ -911,7 +612,7 @@ async fn check_client_event(
 
 /// Move a request's checked declarations into its binding to `connection`. Only a request
 /// that starts a chat turn takes client tools; on any other they are dropped unread.
-fn bind_client_tools(
+pub(crate) fn bind_client_tools(
     request: &mut VizierRequest,
     connection: &std::sync::Arc<ClientConnection>,
 ) -> Result<(), serde_json::Value> {
@@ -939,7 +640,7 @@ fn bind_client_tools(
 /// A reaction from this socket, applied through the shared ingest path. The new set reaches
 /// every socket on the session (this one included, as its acknowledgement) through the
 /// session-event broadcast; an `Err` is the message for a `reaction_error` to this socket only.
-async fn webui_reaction(
+pub(crate) async fn webui_reaction(
     storage: &vizier_core::storage::VizierStorage,
     transport: &VizierTransport,
     curr_session: &VizierSession,
@@ -988,63 +689,27 @@ async fn webui_reaction(
 
 pub async fn handle_socket(
     socket: WebSocket,
-    curr_session: VizierSession,
-    transport: VizierTransport,
-    storage: std::sync::Arc<vizier_core::storage::VizierStorage>,
-    workspace: String,
+    mut topic: crate::topic::TopicConnection,
     ws_idle_timeout_secs: u64,
-    limits: ClientLimits,
+    out_rx: flume::Receiver<serde_json::Value>,
 ) {
     let (mut writer, mut reader) = socket.split();
     let idle_timeout = Duration::from_secs(ws_idle_timeout_secs);
 
     let (write_tx, mut write_rx) = mpsc::channel::<Message>(64);
-    // The client tool calls' frames, as JSON values: the engine has no socket types.
-    let (client_tx, mut client_rx) = mpsc::channel::<serde_json::Value>(64);
-
-    // Writer task: handles all outgoing messages
     let write_handle = tokio::spawn(async move {
-        loop {
-            let msg = tokio::select! {
-                Some(msg) = write_rx.recv() => msg,
-                Some(frame) = client_rx.recv() => Message::Text(frame.to_string().into()),
-                else => break,
-            };
+        while let Some(msg) = write_rx.recv().await {
             if writer.send(msg).await.is_err() {
                 break;
             }
         }
     });
 
-    // This socket's end of the client tool calls made to it. Closed when the socket ends,
-    // which fails every call still waiting on it with `client_disconnected`.
-    let connection = ClientConnection::new(client_tx);
-    let send_frame = |frame: serde_json::Value| {
-        let write_tx = write_tx.clone();
-        async move {
-            let _ = write_tx.send(Message::Text(frame.to_string().into())).await;
-        }
-    };
-
-    // Calls deferred while no client was here are this socket's to deliver first.
-    spawn_delivery(
-        &storage,
-        &transport,
-        &curr_session,
-        &connection,
-        &limits.deferred,
-        None,
-    );
-
-    // Background job changes, reactions, and the frames of every turn on this session: the
-    // ones a background report woke and the ones a person started from any socket, this one
-    // included. A turn's frames are published only there, so nothing arrives twice.
-    let mut session_events = transport.subscribe_session_events();
-    let mut session_events_open = true;
+    let outbound = topic.outbound().map(|o| tokio::spawn(o.run()));
 
     let mut ping_interval = tokio::time::interval(Duration::from_secs(30));
     let mut last_activity = tokio::time::Instant::now();
-    let mut idle_deadline = tokio::time::sleep(idle_timeout);
+    let idle_deadline = tokio::time::sleep(idle_timeout);
     tokio::pin!(idle_deadline);
 
     loop {
@@ -1052,174 +717,26 @@ pub async fn handle_socket(
             _ = ping_interval.tick() => {
                 let _ = write_tx.send(Message::Ping(vec![].into())).await;
             }
-            event = session_events.recv(), if session_events_open => {
-                match event {
-                    Ok(ev) if ev.session == curr_session => {
-                        let json = match ev.frame {
-                            SessionFrame::Response(response) => serde_json::to_string(&response).ok(),
-                            SessionFrame::Job(snapshot) => {
-                                Some(serde_json::json!({ "background_job": snapshot }).to_string())
-                            }
-                            SessionFrame::Reactions { history_uid, reactions } => Some(
-                                serde_json::json!({
-                                    "reactions": { "message_uid": history_uid, "reactions": reactions }
-                                })
-                                .to_string(),
-                            ),
-                            // The declaring socket already has the call itself, sent directly.
-                            SessionFrame::ClientToolCall { connection_id, call } => (connection_id
-                                != connection.id)
-                                .then(|| call.wire(false).to_string()),
-                            SessionFrame::ClientCallOutcome { call_id, outcome } => Some(
-                                serde_json::json!({
-                                    "client_tool_outcome": { "call_id": call_id, "outcome": outcome }
-                                })
-                                .to_string(),
-                            ),
-                            SessionFrame::ClientCallDeferred { call_id } => {
-                                spawn_delivery(&storage, &transport, &curr_session, &connection, &limits.deferred, Some(vec![call_id]));
-                                None
-                            }
-                            SessionFrame::HistoryEntry(entry) => {
-                                serde_json::to_string(&serde_json::json!({ "history_entry": entry })).ok()
-                            }
-                            SessionFrame::File(file) => {
-                                Some(serde_json::json!({ "session_file": { "file": file } }).to_string())
-                            }
-                            SessionFrame::Title { title } => {
-                                Some(serde_json::json!({ "session_title": { "title": title } }).to_string())
-                            }
-                            SessionFrame::ClientCallState { call_id, state } => Some(
-                                serde_json::json!({
-                                    "client_call_state": { "call_id": call_id, "state": state }
-                                })
-                                .to_string(),
-                            ),
-                        };
-                        if let Some(json) = json {
-                            let _ = write_tx.send(Message::Text(json.into())).await;
-                        }
+            frame = out_rx.recv_async() => {
+                match frame {
+                    Ok(frame) => {
+                        let _ = write_tx.send(Message::Text(frame.to_string().into())).await;
                     }
-                    Ok(_) => {}
-                    Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
-                        // The client re-reads the job list on reconnect, so a dropped frame
-                        // never leaves the tray wrong for good.
-                        tracing::warn!("websocket for {:?} lagged, {} session event(s) dropped", curr_session, skipped);
-                    }
-                    Err(tokio::sync::broadcast::error::RecvError::Closed) => {
-                        session_events_open = false;
-                    }
+                    Err(_) => break,
                 }
             }
             msg = reader.next() => {
                 match msg {
                     Some(Ok(Message::Text(text))) => {
-                        let text_str = text.to_string();
-                        let frame = serde_json::from_str::<serde_json::Value>(&text_str).ok();
-                        let client_frame = |key: &str| frame.as_ref().and_then(|f| f.get(key)).filter(|p| p.is_object());
-
-                        if let Some(payload) = client_frame("client_tool_result") {
-                            if let Err(error) = client_tool_result(&connection, payload) {
-                                send_frame(error).await;
-                            }
-                        } else if let Some(payload) = client_frame("client_call_state") {
-                            if let Err(error) = client_call_state(&storage, &transport, &curr_session, &limits, payload).await {
-                                send_frame(error).await;
-                            }
-                        } else if let Ok(reaction_msg) = serde_json::from_str::<WebSocketReactionMessage>(&text_str) {
-                            let payload = reaction_msg.reaction;
-                            if let Err(message) = webui_reaction(&storage, &transport, &curr_session, &payload).await {
-                                let frame = serde_json::json!({
-                                    "reaction_error": { "message_uid": payload.message_uid, "message": message }
-                                });
-                                let _ = write_tx.send(Message::Text(frame.to_string().into())).await;
-                            }
-                        } else if let Ok(request) = serde_json::from_str::<VizierRequest>(&text_str) {
-                            let mut request = request.clone();
-                            // A person's message starts a fresh chain; the depth is never
-                            // the client's to set.
-                            request.background_depth = 0;
-
-                            // Refused before anything is sent, so no turn starts (FR-002).
-                            if let Err(error) = bind_client_tools(&mut request, &connection) {
-                                send_frame(error).await;
-                                continue;
-                            }
-                            if let VizierRequestContent::ClientEvent(event) = &mut request.content
-                                && let Err(error) = check_client_event(&storage, &curr_session, &limits, event).await
-                            {
-                                send_frame(error).await;
-                                continue;
-                            }
-                            if request.attachments.iter().any(|attachment| {
-                                matches!(
-                                    attachment.content,
-                                    VizierAttachmentContent::Artifact { .. }
-                                )
-                            }) {
-                                send_frame(client_error(
-                                    "invalid_attachment",
-                                    None,
-                                    "request attachments must be uploads; artifact references are created by the agent",
-                                ))
-                                .await;
-                                continue;
-                            }
-                            for attachment in request.attachments.iter_mut() {
-                                match transport.send_file_resolve(attachment.clone()).await {
-                                    Ok(content) => {
-                                        match transport.send_file_upload(attachment.filename.clone(), content).await {
-                                            Ok(file_record) => {
-                                                attachment.content = VizierAttachmentContent::Local(file_record.url);
-                                            }
-                                            Err(e) => {
-                                                tracing::error!("failed to upload resolved attachment: {}", e);
-                                            }
-                                        }
-                                    }
-                                    Err(e) => {
-                                        tracing::error!("failed to resolve attachment: {}", e);
-                                    }
-                                }
-                            }
-
-                            let (response_tx, response_rx) = flume::unbounded();
-                            let session = curr_session.clone();
-                            if let Err(err) = transport.send_request(session.clone(), request, Some(response_tx)).await {
-                                tracing::error!("failed to send request: {}", err);
-                                continue;
-                            }
-
-                            // The turn's frames go to every socket on the session, not to
-                            // this one: a person who leaves the page mid-turn and comes back
-                            // (or has it open in another tab) still sees the rest of it. This
-                            // socket receives them through `session_events` like the others.
-                            let transport = transport.clone();
-                            tokio::spawn(async move {
-                                while let Ok(response) = response_rx.recv_async().await {
-                                    transport.publish_session_event(SessionEvent {
-                                        session: session.clone(),
-                                        frame: SessionFrame::Response(response),
-                                    });
-                                }
-                            });
-                        } else {
-                            tracing::debug!("unrecognized WebSocket message: {}", &text_str[..text_str.len().min(200)]);
+                        match serde_json::from_str::<serde_json::Value>(&text) {
+                            Ok(frame) => topic.handle_inbound(frame).await,
+                            Err(_) => tracing::debug!("unrecognized WebSocket message: {}", &text[..text.len().min(200)]),
                         }
                     }
                     Some(Ok(Message::Close(_))) => break,
-                    Some(Ok(Message::Pong(_))) => {
-                        last_activity = tokio::time::Instant::now();
-                        idle_deadline.as_mut().reset(last_activity + idle_timeout);
-                    }
+                    Some(Ok(Message::Pong(_))) | Some(Ok(Message::Binary(_))) => {}
                     Some(Ok(Message::Ping(data))) => {
                         let _ = write_tx.send(Message::Pong(data)).await;
-                        last_activity = tokio::time::Instant::now();
-                        idle_deadline.as_mut().reset(last_activity + idle_timeout);
-                    }
-                    Some(Ok(Message::Binary(_))) => {
-                        last_activity = tokio::time::Instant::now();
-                        idle_deadline.as_mut().reset(last_activity + idle_timeout);
                     }
                     Some(Err(e)) => {
                         tracing::warn!("websocket read error: {:?}", e);
@@ -1231,14 +748,17 @@ pub async fn handle_socket(
                 idle_deadline.as_mut().reset(last_activity + idle_timeout);
             }
             _ = &mut idle_deadline => {
-                tracing::warn!("websocket idle timeout for session {:?}", curr_session);
+                tracing::warn!("websocket idle timeout");
                 let _ = write_tx.send(Message::Close(None)).await;
                 break;
             }
         }
     }
 
-    connection.close();
+    topic.close();
+    if let Some(handle) = outbound {
+        handle.abort();
+    }
     drop(write_tx);
     let _ = write_handle.await;
 }

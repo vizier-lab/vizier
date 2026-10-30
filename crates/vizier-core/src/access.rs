@@ -14,8 +14,60 @@ pub struct Caller<'a> {
     pub permissions: &'a [String],
 }
 
-impl<'a> From<&'a crate::auth::Identity> for Caller<'a> {
-    fn from(user: &'a crate::auth::Identity) -> Self {
+use crate::auth::Principal;
+use crate::service::error::ServiceError;
+
+/// May `user` see this agent: system, `all_agents:view`, the owner, or shared to them.
+pub fn can_view_agent(user: &Principal, config: &AgentConfig) -> bool {
+    if user.role.is_system || user.permissions.iter().any(|p| p == "all_agents:view") {
+        return true;
+    }
+    config.owner_id.as_deref() == Some(user.user_id.as_str())
+        || config.shared_to.contains(&user.user_id)
+}
+
+/// May `user` edit this agent: system, `all_agents:edit`, or the owner.
+pub fn can_edit_agent(user: &Principal, config: &AgentConfig) -> bool {
+    if user.role.is_system || user.permissions.iter().any(|p| p == "all_agents:edit") {
+        return true;
+    }
+    config.owner_id.as_deref() == Some(user.user_id.as_str())
+}
+
+/// Whether `user` may read this agent's Discord (`platform` = `"discord"`) or Telegram
+/// (`"telegram"`) conversations.
+pub fn can_show_platform_chats(user: &Principal, config: &AgentConfig, platform: &str) -> bool {
+    let has = |scope: &str| {
+        let wanted = format!("{scope}_agents:show_{platform}_chats");
+        user.permissions.iter().any(|p| *p == wanted)
+    };
+    user.role.is_system
+        || has("all")
+        || (has("owned") && config.owner_id.as_deref() == Some(user.user_id.as_str()))
+}
+
+/// The platform a conversation slug belongs to, if it is a Discord or Telegram one.
+pub fn platform_of_slug(channel: &str) -> Option<&'static str> {
+    if channel.starts_with("discord__") {
+        Some("discord")
+    } else if channel.starts_with("telegram__") {
+        Some("telegram")
+    } else {
+        None
+    }
+}
+
+/// System bypasses; otherwise the principal needs `permission`.
+pub fn require(user: &Principal, permission: &str) -> Result<(), ServiceError> {
+    if user.role.is_system || user.permissions.iter().any(|p| p == permission) {
+        Ok(())
+    } else {
+        Err(ServiceError::Forbidden("Forbidden: insufficient permissions".into()))
+    }
+}
+
+impl<'a> From<&'a crate::auth::Principal> for Caller<'a> {
+    fn from(user: &'a crate::auth::Principal) -> Self {
         Self {
             user_id: &user.user_id,
             is_system: user.role.is_system,
@@ -60,6 +112,38 @@ mod tests {
 
     fn caller<'a>(user_id: &'a str, permissions: &'a [String]) -> Caller<'a> {
         Caller { user_id, is_system: false, permissions }
+    }
+
+
+    fn principal(system: bool, id: &str, perms: &[&str]) -> Principal {
+        Principal {
+            user_id: id.into(),
+            username: id.into(),
+            role: crate::auth::Role {
+                role_id: "r".into(),
+                name: "r".into(),
+                permissions: perms.iter().map(|p| p.to_string()).collect(),
+                is_system: system,
+                created_at: Utc::now(),
+            },
+            permissions: perms.iter().map(|p| p.to_string()).collect(),
+            method: crate::auth::AuthMethod::Jwt,
+        }
+    }
+
+    #[test]
+    fn agent_view_edit_and_require() {
+        let a = agent("alice");
+        assert!(can_view_agent(&principal(true, "x", &[]), &a));
+        assert!(can_view_agent(&principal(false, "x", &["all_agents:view"]), &a));
+        assert!(can_view_agent(&principal(false, "alice", &[]), &a));
+        assert!(!can_view_agent(&principal(false, "bob", &[]), &a));
+        assert!(can_edit_agent(&principal(false, "alice", &[]), &a));
+        assert!(!can_edit_agent(&principal(false, "bob", &["all_agents:view"]), &a));
+        assert!(require(&principal(false, "b", &["p"]), "p").is_ok());
+        assert!(require(&principal(false, "b", &[]), "p").is_err());
+        assert_eq!(platform_of_slug("discord__1"), Some("discord"));
+        assert!(can_show_platform_chats(&principal(false, "alice", &["owned_agents:show_discord_chats"]), &a, "discord"));
     }
 
     #[test]

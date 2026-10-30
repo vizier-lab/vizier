@@ -235,3 +235,43 @@ dummyplug:
 
 dummyplug-test:
   npm --prefix dummyplug test
+
+# Everything the desktop app (app/) needs to build: the system libraries Tauri links against
+# (Linux: webkit2gtk and friends through apt; macOS needs only the Xcode command line tools),
+# the Tauri CLI, and the app workspace's crates.
+install-app:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  echo -e "\n\e[1;34minstalling desktop app dependencies\e[0m\n"
+  case "$(uname -s)" in
+    Linux)
+      if command -v apt-get >/dev/null 2>&1; then
+        pkgs="libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf libssl-dev libxdo-dev build-essential curl wget file"
+        missing=""
+        for p in $pkgs; do dpkg -s "$p" >/dev/null 2>&1 || missing="$missing $p"; done
+        if [ -n "$missing" ]; then
+          echo "installing system packages:$missing"
+          sudo apt-get update
+          sudo apt-get install -y $missing
+        fi
+      else
+        echo "no apt-get here: install webkit2gtk-4.1, gtk3, libayatana-appindicator3, librsvg2 and patchelf with your package manager"
+      fi
+      ;;
+    Darwin)
+      xcode-select -p >/dev/null 2>&1 || xcode-select --install || true
+      ;;
+  esac
+  command -v cargo-tauri >/dev/null 2>&1 || cargo install tauri-cli --version '^2' --locked
+  (cd app && cargo fetch)
+  echo -e "\n\e[1;32mDone\e[0m"
+
+app-dev:
+  cd app && cargo tauri dev
+
+app-build:
+  cd webui && npm run build
+  cd app && cargo tauri build
+
+app-test:
+  cd app && cargo test

@@ -7,6 +7,7 @@
 - [1.1 Installation](./getting-started/installation.md)
 - [1.2 Quick Start](./getting-started/quick-start.md)
 - [1.3 Building from Source](./getting-started/contributing.md)
+- [1.4 Desktop App](./getting-started/desktop-app.md)
 
 # 2. Configuration
 
@@ -26,6 +27,7 @@
 - [2.14 Encryption at Rest](./configuration/encryption.md)
 - [2.15 Artifacts](./configuration/artifacts.md)
 - [2.16 Office Addon](./configuration/office-addon.md)
+- [2.17 Desktop Web Access](./configuration/desktop-web-access.md)
 
 # 3. API Integration
 
@@ -33,3 +35,4 @@
 - [3.2 Client Tools](./api-integration/client-tools.md)
 - [3.3 Generative UI](./api-integration/generative-ui.md)
 - [3.4 Examples](./api-integration/examples.md)
+- [3.5 Building on vizier-core](./api-integration/building-on-vizier-core.md)

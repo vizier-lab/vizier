@@ -33,6 +33,12 @@ pub struct HTTPChannelConfig {
     pub jwt_expiry_hours: u64,
     #[serde(default = "default_ws_idle_timeout_secs")]
     pub ws_idle_timeout_secs: u64,
+    /// Allowed browser origins; `None` allows any (the server's behaviour).
+    #[serde(default)]
+    pub cors_origins: Option<Vec<String>>,
+    /// Address to bind; `None` binds every interface (the server's behaviour).
+    #[serde(default)]
+    pub host: Option<String>,
 }
 
 fn default_jwt_expiry() -> u64 {
@@ -245,6 +251,8 @@ fn default_http_channel() -> HTTPChannelConfig {
         jwt_secret: "${VIZIER_JWT_SECRET}".into(),
         jwt_expiry_hours: 720,
         ws_idle_timeout_secs: 300,
+        cors_origins: None,
+        host: None,
     }
 }
 

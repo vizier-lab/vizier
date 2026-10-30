@@ -36,6 +36,10 @@ vizier run                                     # config-less needs VIZIER_JWT_SE
 
 Open `http://localhost:9999`, create the first user, add a provider key under **Settings → Providers**, and create an agent.
 
+### Desktop app
+
+Prefer a window to a server? Download the desktop app from the [latest release](https://github.com/vizier-lab/vizier/releases/latest): a universal `.dmg` for macOS (11+, Apple Silicon and Intel; unsigned for now, see the [guide](docs/src/getting-started/desktop-app.md) for the **Open Anyway** step) or an `.AppImage` for Linux x86_64 and arm64. It runs the same engine in the app, signs you in automatically, opens no port by default, and updates itself.
+
 ### Docker
 
 ```sh

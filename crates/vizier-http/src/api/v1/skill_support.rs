@@ -1,64 +1,45 @@
-//! What the global and the per-agent skill routes share: the response, its listing rules
-//! (paging, `agent`/`global` filters, `name`/`updated` sorts) and the stale-save check.
+//! What the global and the per-agent skill routes share: the response (in
+//! `vizier_core::service::skills`), its listing rules (paging, `agent`/`global` filters,
+//! `name`/`updated` sorts) and the stale-save response.
 
-use chrono::{DateTime, Utc};
-use serde::Serialize;
-use sha2::{Digest, Sha256};
+use axum::Json;
+use reqwest::StatusCode;
 
-use crate::models::page::{Listing, SortKey, SortOrder};
-use vizier_core::{schema::Skill, skill::SkillManager};
+use crate::models::{
+    page::{Listing, SortKey, SortOrder},
+    response::{APIResponse, Response, api_response, err_response},
+};
+use vizier_core::service::{ServiceError, skills::SkillError};
 
-#[derive(Debug, Serialize, Clone, utoipa::ToSchema)]
-pub struct SkillResponse {
-    pub name: String,
-    pub description: String,
-    pub keywords: Vec<String>,
-    pub version: u32,
-    pub resources: Vec<String>,
-    pub content: String,
-    pub agent_id: Option<String>,
-    /// `agent` or `global`.
-    pub scope: &'static str,
-    /// sha256 (hex) of `content`: send it back as `base_hash` to refuse overwriting a newer save.
-    pub base_hash: String,
-    /// When SKILL.md was last written. Only set by the list routes.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub updated: Option<DateTime<Utc>>,
+pub use vizier_core::service::skills::{SkillResponse, content_hash, is_stale};
+
+/// `409 stale_content`: the skill changed since the editor loaded it; `data` is its current state.
+pub fn stale_content(skill: SkillResponse) -> Response<SkillResponse> {
+    (
+        StatusCode::CONFLICT,
+        Json(APIResponse {
+            status: StatusCode::CONFLICT.as_u16(),
+            message: Some("stale_content".into()),
+            data: Some(skill),
+        }),
+    )
 }
 
-impl From<Skill> for SkillResponse {
-    fn from(skill: Skill) -> Self {
-        Self {
-            base_hash: content_hash(&skill.content),
-            scope: if skill.agent_id.is_some() { "agent" } else { "global" },
-            name: skill.name,
-            description: skill.description,
-            keywords: skill.keywords,
-            version: skill.version,
-            resources: skill.resources,
-            content: skill.content,
-            agent_id: skill.agent_id,
-            updated: None,
-        }
+/// The service's refusal in this API's plain error shape.
+pub fn refuse<T: serde::Serialize + Clone>(e: ServiceError) -> Response<T> {
+    err_response(
+        StatusCode::from_u16(e.status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
+        e.message().to_string(),
+    )
+}
+
+/// A saved skill, or why it was not.
+pub fn saved(result: Result<SkillResponse, SkillError>) -> Response<SkillResponse> {
+    match result {
+        Ok(skill) => api_response(StatusCode::OK, skill),
+        Err(SkillError::Stale(skill)) => stale_content(*skill),
+        Err(SkillError::Service(e)) => refuse(e),
     }
-}
-
-pub fn content_hash(content: &str) -> String {
-    Sha256::digest(content.as_bytes()).iter().map(|b| format!("{b:02x}")).collect()
-}
-
-/// Whether a save based on `base_hash` would overwrite something newer.
-pub fn is_stale(base_hash: Option<&str>, current_content: &str) -> bool {
-    base_hash.is_some_and(|h| h != content_hash(current_content))
-}
-
-/// A skill response with when its SKILL.md was last written, for the list routes.
-pub fn listed(manager: &SkillManager, skill: Skill) -> SkillResponse {
-    let updated = std::fs::metadata(manager.skill_dir(&skill.name).join("SKILL.md"))
-        .and_then(|m| m.modified())
-        .ok()
-        .map(DateTime::<Utc>::from);
-    SkillResponse { updated, ..SkillResponse::from(skill) }
 }
 
 /// Filters `agent` and `global`; sorts `name` and `updated` (newest first).
@@ -92,19 +73,5 @@ impl Listing<SkillResponse> for SkillListing {
 
     fn default_order(&self, sort: &str) -> SortOrder {
         if sort == "updated" { SortOrder::Desc } else { SortOrder::Asc }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_save_based_on_an_older_hash_is_stale() {
-        let h = content_hash("one");
-        assert!(!is_stale(Some(&h), "one"));
-        assert!(is_stale(Some(&h), "two"));
-        assert!(!is_stale(None, "anything"));
-        assert_eq!(h.len(), 64);
     }
 }

@@ -36,3 +36,6 @@ Thumbs.db
 
 
 crates/vizier-http/webui-dist/
+
+# desktop app
+app/target/

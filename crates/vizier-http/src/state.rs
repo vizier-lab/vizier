@@ -7,11 +7,21 @@ use vizier_core::{
     transport::VizierTransport,
 };
 
+/// How `require_auth` establishes who is calling.
+#[derive(Debug, Clone)]
+pub enum AuthMode {
+    /// Credentials on the request: a JWT or an API key.
+    Network,
+    /// The desktop app's in-process dispatcher: every request is this person.
+    Desktop { user_id: String },
+}
+
 #[derive(Clone)]
 pub struct HTTPState {
     pub config: Arc<VizierConfig>,
     pub transport: VizierTransport,
     pub storage: Arc<VizierStorage>,
+    pub auth: AuthMode,
     pub background_jobs: BackgroundJobs,
     /// The provider and model catalogue (spec 015).
     pub catalogue: vizier_core::catalogue::Catalogue,

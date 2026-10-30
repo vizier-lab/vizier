@@ -103,6 +103,8 @@ pub fn onboard(args: OnboardArgs) -> Result<()> {
                 jwt_secret,
                 jwt_expiry_hours: 720,
                 ws_idle_timeout_secs,
+                cors_origins: None,
+                host: None,
             }),
         },
         worker_threads,

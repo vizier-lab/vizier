@@ -155,6 +155,11 @@ impl VizierRuntime {
         &self.deps
     }
 
+    /// The application services: every operation a person can ask of the engine.
+    pub fn services(&self) -> crate::service::Services {
+        crate::service::Services::new(self.deps.clone())
+    }
+
     /// Lifecycle events from now on, after a [`RuntimeEvent::Started`] (which happened
     /// before any receiver could exist).
     pub fn events(&self) -> RuntimeEvents {

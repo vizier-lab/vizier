@@ -95,6 +95,14 @@ jobs:
         # The lockfile records the four workspace crates' versions; nothing else may move.
         run: cargo update --workspace
 
+      - name: Bump the desktop app version
+        # app/ is its own workspace (own lockfile) and ships on the same version number.
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          sed -i '/^\[workspace\.package\]/,/^\[/ s/^version = ".*"/version = "'"$VERSION"'"/' app/Cargo.toml
+          grep -q "^version = \"$VERSION\"$" app/Cargo.toml || (echo "::error::app version not bumped"; exit 1)
+          (cd app && cargo update --workspace)
+
       - name: Refresh model catalogue
         # Offline or a bad response keeps the committed snapshot (a warning, never a failure).
         run: python3 -I scripts/catalogue_update.py --keep-on-failure
@@ -124,7 +132,7 @@ jobs:
 
       - name: Commit version bump
         run: |
-          git add Cargo.toml Cargo.lock CHANGELOG.md crates/vizier-core/assets/catalogue
+          git add Cargo.toml Cargo.lock app/Cargo.toml app/Cargo.lock CHANGELOG.md crates/vizier-core/assets/catalogue
           # A retried release finds the bump already committed by the failed run.
           git diff --cached --quiet || git commit -m "chore: bump version to ${{ steps.version.outputs.version }}"
           git tag -a "v${{ steps.version.outputs.version }}" -m "Release v${{ steps.version.outputs.version }}"
@@ -252,11 +260,155 @@ jobs:
           retention-days: 7
 
   # ====================
+  # Build the desktop app (specs/038-desktop-app-edition)
+  # ====================
+  build-app:
+    name: Build app - ${{ matrix.name }}
+    needs: prepare-release
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macos-universal
+            os: macos-latest
+            args: --target universal-apple-darwin
+            rust_targets: aarch64-apple-darwin,x86_64-apple-darwin
+          - name: linux-amd64
+            os: ubuntu-22.04
+            args: ''
+            rust_targets: ''
+          - name: linux-aarch64
+            os: ubuntu-22.04-arm
+            args: ''
+            rust_targets: ''
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          ref: ${{ inputs.dry_run && github.ref || format('v{0}', needs.prepare-release.outputs.version) }}
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_targets }}
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: app -> target
+          key: app-${{ matrix.name }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: |
+            design/package-lock.json
+            webui/package-lock.json
+
+      - name: Build WebUI
+        run: |
+          (cd design && npm ci)
+          cd webui
+          npm ci
+          npm run build
+
+      - name: Clear node_modules to prevent rebuild during cargo
+        shell: bash
+        run: rm -rf webui/node_modules
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf libgtk-3-dev \
+            pkg-config libssl-dev python3-dev libclang-dev clang perl make
+
+      - name: Install tauri-cli
+        run: cargo install tauri-cli --version '^2' --locked
+
+      - name: Build app
+        working-directory: app
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # macOS signing is passed through only when the secrets exist; without them the build
+          # is unsigned and the release notes say how to open it (research R14, #132).
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        shell: bash
+        run: |
+          for v in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+            [ -n "${!v}" ] || unset "$v"
+          done
+          if [ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ]; then
+            echo "::warning::TAURI_SIGNING_PRIVATE_KEY is not set; update artifacts will not be signed"
+            unset TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+          fi
+          cargo tauri build ${{ matrix.args }}
+
+      - name: Verify architectures
+        shell: bash
+        run: |
+          if [ "${{ runner.os }}" = "macOS" ]; then
+            archs="$(lipo -archs app/target/universal-apple-darwin/release/vizier-app)"
+            echo "lipo: $archs"
+            echo "$archs" | grep -qw x86_64 && echo "$archs" | grep -qw arm64 || { echo "::error::universal binary lacks an architecture: $archs"; exit 1; }
+          else
+            appimage="$(ls app/target/release/bundle/appimage/*.AppImage | head -n1)"
+            info="$(file "$appimage")"
+            echo "$info"
+            if [ "${{ matrix.name }}" = "linux-amd64" ]; then
+              echo "$info" | grep -q 'x86-64' || { echo "::error::not an x86-64 AppImage"; exit 1; }
+            else
+              echo "$info" | grep -q 'ARM aarch64' || { echo "::error::not an arm64 AppImage"; exit 1; }
+            fi
+          fi
+
+      - name: Collect artifacts
+        shell: bash
+        run: |
+          VERSION="${{ needs.prepare-release.outputs.version }}"
+          mkdir -p app-dist
+          if [ "${{ runner.os }}" = "macOS" ]; then
+            B=app/target/universal-apple-darwin/release/bundle
+            cp "$(ls $B/dmg/*.dmg | head -n1)" "app-dist/Vizier_${VERSION}_universal.dmg"
+            cp "$(ls $B/macos/*.app.tar.gz | head -n1)" app-dist/Vizier_universal.app.tar.gz
+            [ -f "$B/macos/$(basename "$(ls $B/macos/*.app.tar.gz | head -n1)").sig" ] && cp "$B/macos/$(basename "$(ls $B/macos/*.app.tar.gz | head -n1)").sig" app-dist/Vizier_universal.app.tar.gz.sig || true
+          else
+            if [ "${{ matrix.name }}" = "linux-amd64" ]; then ARCH=amd64; else ARCH=aarch64; fi
+            B=app/target/release/bundle/appimage
+            SRC="$(ls $B/*.AppImage | head -n1)"
+            cp "$SRC" "app-dist/Vizier_${VERSION}_${ARCH}.AppImage"
+            [ -f "$SRC.sig" ] && cp "$SRC.sig" "app-dist/Vizier_${VERSION}_${ARCH}.AppImage.sig" || true
+          fi
+          cd app-dist
+          for f in *.dmg *.AppImage; do
+            [ -f "$f" ] && shasum -a 256 "$f" > "$f.sha256"
+          done
+          ls -la
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vizier-app-${{ matrix.name }}
+          path: app-dist/*
+          retention-days: 7
+
+  # ====================
   # Create GitHub Release
   # ====================
   create-release:
     name: Create GitHub Release
-    needs: [prepare-release, build]
+    needs: [prepare-release, build, build-app]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -270,8 +422,29 @@ jobs:
       - name: Flatten artifacts
         run: |
           mkdir -p release-assets
-          find artifacts -type f \( -name "*.tar.gz" -o -name "*.zip" -o -name "*.sha256" -o -name "*.exe" \) -exec cp {} release-assets/ \;
+          find artifacts -type f \( -name "*.tar.gz" -o -name "*.zip" -o -name "*.sha256" -o -name "*.exe" -o -name "*.dmg" -o -name "*.AppImage" -o -name "*.sig" \) -exec cp {} release-assets/ \;
           ls -la release-assets/
+
+      - name: Check update signatures
+        # Without the updater key the app cannot update itself; refuse a real release then.
+        if: ${{ !inputs.dry_run }}
+        run: |
+          for f in Vizier_universal.app.tar.gz.sig Vizier_${{ needs.prepare-release.outputs.version }}_amd64.AppImage.sig Vizier_${{ needs.prepare-release.outputs.version }}_aarch64.AppImage.sig; do
+            [ -f "release-assets/$f" ] || { echo "::error::missing $f (is TAURI_SIGNING_PRIVATE_KEY set?)"; exit 1; }
+          done
+
+      - name: Write latest.json
+        env:
+          CHANGELOG: ${{ needs.prepare-release.outputs.changelog }}
+        run: |
+          printf '%s\n' "$CHANGELOG" > /tmp/notes.md
+          node scripts/app-latest-json.mjs \
+            --version "${{ needs.prepare-release.outputs.version }}" \
+            --notes-file /tmp/notes.md \
+            --dir release-assets \
+            --repo "${{ github.repository }}" \
+            --out release-assets/latest.json
+          cat release-assets/latest.json
 
       - name: Create GitHub Release
         if: ${{ !inputs.dry_run }}
@@ -283,6 +456,14 @@ jobs:
             ${{ needs.prepare-release.outputs.changelog }}
 
             ## Installation
+
+            ## Desktop app
+
+            - macOS (Apple Silicon and Intel, 11.0+): `Vizier_${{ needs.prepare-release.outputs.version }}_universal.dmg`
+            - Linux x86_64: `Vizier_${{ needs.prepare-release.outputs.version }}_amd64.AppImage`
+            - Linux arm64: `Vizier_${{ needs.prepare-release.outputs.version }}_aarch64.AppImage`
+
+            The macOS build is not signed or notarized yet (#132). On first launch, open System Settings > Privacy & Security and choose **Open Anyway** next to the Vizier message. On Linux, `chmod +x` the AppImage and run it. Installed apps update themselves.
 
             ### macOS / Linux
             Download the appropriate archive for your platform and extract it to a directory, or use one of the methods below.

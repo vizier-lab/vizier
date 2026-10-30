@@ -18,31 +18,40 @@ pub mod models;
 
 pub mod api;
 pub mod auth;
+pub mod embedded;
+pub mod error;
 mod state;
+pub mod topic;
 #[cfg(test)]
 mod test_support;
 mod webui;
 
 /// The whole HTTP surface (REST API, WebSocket, OpenAPI and Swagger UI, the embedded WebUI)
 /// over a running engine, for a host that serves it itself.
-pub fn router(runtime: &VizierRuntime, _config: &HTTPChannelConfig) -> Router {
-    let deps = runtime.deps().clone();
-    let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods([
-            Method::GET,
-            Method::POST,
-            Method::PUT,
-            Method::PATCH,
-            Method::DELETE,
-            Method::OPTIONS,
-        ])
-        .allow_headers([AUTHORIZATION, ACCEPT, CONTENT_TYPE]);
+pub fn router(runtime: &VizierRuntime, config: &HTTPChannelConfig) -> Router {
+    let state = new_state(runtime, state::AuthMode::Network);
+    let cors = cors_layer(config.cors_origins.as_deref());
 
-    let state = HTTPState {
+    let app = Router::new()
+        .nest("/api", api::api(state.clone()))
+        // webui
+        .route("/", get(webui::index))
+        .route("/{*path}", get(webui::assets))
+        .layer(NormalizePathLayer::trim_trailing_slash())
+        .layer(cors)
+        .layer(DefaultBodyLimit::disable())
+        .with_state(state);
+
+    app.merge(SwaggerUi::new("/swagger").url("/openapi.json", ApiDoc::openapi()))
+}
+
+pub(crate) fn new_state(runtime: &VizierRuntime, auth: state::AuthMode) -> HTTPState {
+    let deps = runtime.deps().clone();
+    HTTPState {
         config: deps.config.clone(),
         storage: deps.storage.clone(),
         transport: deps.transport.clone(),
+        auth,
         background_jobs: deps.background_jobs.clone(),
         catalogue: deps.catalogue.clone(),
         deps,
@@ -59,19 +68,26 @@ pub fn router(runtime: &VizierRuntime, _config: &HTTPChannelConfig) -> Router {
             std::time::Duration::from_secs(60),
         )),
         deferred_client_calls: Default::default(),
-    };
+    }
+}
 
-    let app = Router::new()
-        .nest("/api", api::api(state.clone()))
-        // webui
-        .route("/", get(webui::index))
-        .route("/{*path}", get(webui::assets))
-        .layer(NormalizePathLayer::trim_trailing_slash())
-        .layer(cors)
-        .layer(DefaultBodyLimit::disable())
-        .with_state(state);
-
-    app.merge(SwaggerUi::new("/swagger").url("/openapi.json", ApiDoc::openapi()))
+fn cors_layer(origins: Option<&[String]>) -> CorsLayer {
+    let layer = CorsLayer::new()
+        .allow_methods([
+            Method::GET,
+            Method::POST,
+            Method::PUT,
+            Method::PATCH,
+            Method::DELETE,
+            Method::OPTIONS,
+        ])
+        .allow_headers([AUTHORIZATION, ACCEPT, CONTENT_TYPE]);
+    match origins {
+        None => layer.allow_origin(Any),
+        Some(list) => layer.allow_origin(tower_http::cors::AllowOrigin::list(
+            list.iter().filter_map(|o| o.parse().ok()),
+        )),
+    }
 }
 
 /// Binds `0.0.0.0:{config.port}` and serves [`router`]. The future owns what it needs, so it
@@ -82,7 +98,11 @@ pub fn serve(
 ) -> impl std::future::Future<Output = vizier_core::Result<()>> + Send + 'static {
     let app = router(runtime, &config);
     async move {
-        let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", config.port))
+        let listener = tokio::net::TcpListener::bind(format!(
+            "{}:{}",
+            config.host.as_deref().unwrap_or("0.0.0.0"),
+            config.port
+        ))
             .await
             .map_err(|e| VizierError(e.to_string()))?;
 

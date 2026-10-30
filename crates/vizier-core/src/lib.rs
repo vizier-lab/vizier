@@ -48,7 +48,7 @@ pub type Result<T> = std::result::Result<T, VizierError>;
 pub mod prelude {
     pub use crate::Result;
     pub use crate::access::Caller;
-    pub use crate::auth::{AuthMethod, Identity, Role};
+    pub use crate::auth::{AuthMethod, Principal, Role};
     pub use crate::config::VizierConfig;
     pub use crate::error::VizierError;
     pub use crate::runtime::{
@@ -69,6 +69,7 @@ pub mod config;
 pub mod error;
 pub mod runtime;
 pub mod schema;
+pub mod service;
 pub mod transport;
 
 // Adapter surface: used by the HTTP adapter and the binary, unstable.
@@ -86,16 +87,11 @@ pub mod dependencies;
 pub mod integrations;
 #[doc(hidden)]
 pub mod llm;
-#[doc(hidden)]
-pub mod notifications;
-#[doc(hidden)]
-pub mod provider_keys;
-#[doc(hidden)]
-pub mod provider_migration;
-#[doc(hidden)]
-pub mod scheduler;
-#[doc(hidden)]
-pub mod secrets;
+pub(crate) mod notifications;
+pub(crate) mod provider_keys;
+pub(crate) mod provider_migration;
+pub(crate) mod scheduler;
+pub(crate) mod secrets;
 #[doc(hidden)]
 pub mod session_files;
 #[doc(hidden)]
@@ -106,8 +102,7 @@ pub mod skill;
 pub mod storage;
 #[doc(hidden)]
 pub mod telemetry;
-#[doc(hidden)]
-pub mod usage;
+pub(crate) mod usage;
 #[doc(hidden)]
 pub mod utils;
 

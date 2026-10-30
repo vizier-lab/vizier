@@ -7,8 +7,9 @@ use std::time::{Duration, Instant};
 
 use serde::Serialize;
 
-use crate::state::HTTPState;
-use vizier_core::{
+use crate::dependencies::VizierDependencies;
+
+use crate::{
     config::provider::ProviderId,
     llm::{
         CompletionRequest, DialectKind, LlmError, Message,
@@ -19,7 +20,8 @@ use vizier_core::{
 };
 
 /// Agents per feature using one provider's credentials. Dream and read-image count as chat.
-#[derive(Debug, Clone, Default, Serialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Default, Serialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct UsedBy {
     pub chat: usize,
     pub stt: usize,
@@ -35,7 +37,8 @@ impl UsedBy {
 }
 
 /// An agent that would lose a provider, for the delete warning.
-#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct AffectedAgent {
     pub id: String,
     pub name: String,
@@ -75,8 +78,8 @@ fn features(config: &AgentConfig, provider: &ProviderId) -> Vec<&'static str> {
 }
 
 /// `used_by` for every provider any agent uses, from one scan of the agent configs.
-pub async fn used_by_all(state: &HTTPState) -> HashMap<ProviderId, (UsedBy, Vec<AffectedAgent>)> {
-    let agents = state.storage.list_agents().await.unwrap_or_default();
+pub async fn used_by_all(deps: &VizierDependencies) -> HashMap<ProviderId, (UsedBy, Vec<AffectedAgent>)> {
+    let agents = deps.storage.list_agents().await.unwrap_or_default();
     let mut out: HashMap<ProviderId, (UsedBy, Vec<AffectedAgent>)> = HashMap::new();
     for (agent_id, config) in &agents {
         let mut ids: Vec<ProviderId> = vec![config.provider.clone()];
@@ -125,7 +128,7 @@ static REACHABLE: LazyLock<ReachableCache> = LazyLock::new(Default::default);
 
 /// The last known reachability of a local or custom provider. Never waits: a stale or missing
 /// answer starts a background check and returns what is known now.
-pub fn reachable(state: &HTTPState, id: &ProviderId) -> Option<bool> {
+pub fn reachable(deps: &VizierDependencies, id: &ProviderId) -> Option<bool> {
     let mut cache = REACHABLE.lock();
     let now = Instant::now();
     let previous = cache.get(id).copied();
@@ -138,11 +141,11 @@ pub fn reachable(state: &HTTPState, id: &ProviderId) -> Option<bool> {
     cache.insert(id.clone(), (now, value));
     drop(cache);
 
-    let state = state.clone();
+    let deps = deps.clone();
     let id = id.clone();
     tokio::spawn(async move {
-        let ok = match vizier_core::llm::resolve::resolve(&state.deps, &id, "", &Default::default()).await {
-            Ok(resolved) => check(&state, resolved).await.ok,
+        let ok = match crate::llm::resolve::resolve(&deps, &id, "", &Default::default()).await {
+            Ok(resolved) => check(&deps, resolved).await.ok,
             Err(_) => false,
         };
         REACHABLE.lock().insert(id, (Instant::now(), Some(ok)));
@@ -153,7 +156,8 @@ pub fn reachable(state: &HTTPState, id: &ProviderId) -> Option<bool> {
 // Test -------------------------------------------------------------------------------------------
 
 /// The answer to "Test connection".
-#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct TestResult {
     pub ok: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -192,21 +196,21 @@ impl TestResult {
 
 /// One cheap call: the model listing, or a 1-token completion on the Anthropic dialect, which
 /// is where a key is checked most reliably.
-pub async fn check(state: &HTTPState, mut resolved: ResolvedModel) -> TestResult {
+pub async fn check(deps: &VizierDependencies, mut resolved: ResolvedModel) -> TestResult {
     let no_retry = CompletionRetryConfig {
         max_attempts: 1,
         ..Default::default()
     };
     if resolved.dialect == DialectKind::Anthropic {
         if resolved.model.is_empty() {
-            resolved.model = state
+            resolved.model = deps
                 .catalogue
                 .models(&resolved.provider, false)
                 .last()
                 .map(|m| m.id.clone())
                 .unwrap_or_else(|| "claude-haiku-4-5".into());
         }
-        let model = vizier_core::llm::build(resolved, state.deps.http.clone(), no_retry);
+        let model = crate::llm::build(resolved, deps.http.clone(), no_retry);
         let req = match Message::user_text("ping") {
             Ok(m) => CompletionRequest {
                 messages: vec![m],
@@ -233,8 +237,8 @@ pub async fn check(state: &HTTPState, mut resolved: ResolvedModel) -> TestResult
         let timeout = Duration::from_secs(15);
         return match tokio::time::timeout(
             timeout,
-            vizier_core::llm::bedrock::list_foundation_models(
-                &state.deps.http,
+            crate::llm::bedrock::list_foundation_models(
+                &deps.http,
                 resolved.credential.as_ref(),
                 &resolved.base_url,
                 timeout,
@@ -252,7 +256,7 @@ pub async fn check(state: &HTTPState, mut resolved: ResolvedModel) -> TestResult
             Err(_) => TestResult::failed(LlmError::Timeout),
         };
     }
-    let model = vizier_core::llm::build(resolved, state.deps.http.clone(), no_retry);
+    let model = crate::llm::build(resolved, deps.http.clone(), no_retry);
     match tokio::time::timeout(REACHABLE_TIMEOUT.max(Duration::from_secs(10)), model.list_models())
         .await
     {
@@ -270,25 +274,25 @@ pub async fn check(state: &HTTPState, mut resolved: ResolvedModel) -> TestResult
 /// Resolve `provider` as it would be with `credentials` laid over what is saved, for a test
 /// before saving.
 pub async fn resolve_for_test(
-    state: &HTTPState,
+    deps: &VizierDependencies,
     provider: &ProviderId,
     credentials: Option<ProviderCredentials>,
     custom: Option<&CustomProvider>,
-) -> vizier_core::Result<ResolvedModel> {
-    let env = vizier_core::llm::resolve::provider_env(&state.catalogue, provider);
-    let saved = vizier_core::provider_keys::resolve_credentials(&state.storage, provider, &env)
+) -> crate::Result<ResolvedModel> {
+    let env = crate::llm::resolve::provider_env(&deps.catalogue, provider);
+    let saved = crate::provider_keys::resolve_credentials(&deps.storage, provider, &env)
         .await
         .map(|(c, _)| c);
     let credentials = match (saved, credentials) {
         (Some(saved), Some(new)) => Some(saved.merged_with(&new)),
         (saved, new) => new.or(saved),
     };
-    vizier_core::llm::resolve::resolve_with(
+    crate::llm::resolve::resolve_with(
         &ResolveContext {
-            catalogue: &state.catalogue,
+            catalogue: &deps.catalogue,
             custom,
             credentials,
-            http: state.deps.http.clone(),
+            http: deps.http.clone(),
         },
         provider,
         "",
@@ -297,11 +301,11 @@ pub async fn resolve_for_test(
 }
 
 /// `{new id: legacy name}` recorded by `migrate_provider_ids_v1`.
-pub async fn migrated_from(state: &HTTPState) -> BTreeMap<String, String> {
-    use vizier_core::storage::state::StateStorage;
-    state
+pub async fn migrated_from(deps: &VizierDependencies) -> BTreeMap<String, String> {
+    use crate::storage::state::StateStorage;
+    deps
         .storage
-        .get_state(vizier_core::provider_migration::MAP_KEY.to_string())
+        .get_state(crate::provider_migration::MAP_KEY.to_string())
         .await
         .ok()
         .flatten()
@@ -309,16 +313,85 @@ pub async fn migrated_from(state: &HTTPState) -> BTreeMap<String, String> {
         .unwrap_or_default()
 }
 
+
+/// Restart every agent using `id`, so a changed key or a removed provider takes effect now
+/// rather than at the next restart. An agent that can no longer build shows as `Failed`.
+pub async fn restart_users(deps: &VizierDependencies, id: &ProviderId) {
+    let agents = used_by_all(deps)
+        .await
+        .remove(id)
+        .map(|(_, a)| a)
+        .unwrap_or_default();
+    for agent in agents {
+        let (resp, rx) = tokio::sync::oneshot::channel();
+        let cmd = crate::schema::AgentCommand::Restart {
+            agent_id: agent.id.clone(),
+            resp,
+        };
+        if deps.transport.send_agent_command(cmd).await.is_err() {
+            continue;
+        }
+        if let Ok(crate::schema::AgentCommandResult::Error(e)) = rx.await {
+            tracing::warn!("restarting agent '{}' after a change to '{id}': {e}", agent.id);
+        }
+    }
+}
+
+/// The agents a delete would affect, for the WebUI's warning.
+#[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+pub struct InUse {
+    pub agents: Vec<AffectedAgent>,
+}
+
+/// A `409` naming the agents using `id`, unless the delete is confirmed.
+pub async fn check_in_use(
+    deps: &VizierDependencies,
+    id: &ProviderId,
+    confirm: bool,
+) -> Result<(), crate::service::ServiceError> {
+    if confirm {
+        return Ok(());
+    }
+    let agents = used_by_all(deps)
+        .await
+        .remove(id)
+        .map(|(_, a)| a)
+        .unwrap_or_default();
+    if agents.is_empty() {
+        return Ok(());
+    }
+    let names: Vec<&str> = agents.iter().map(|a| a.name.as_str()).collect();
+    Err(crate::service::ServiceError::Conflict {
+        message: format!(
+            "used by {}; resend with ?confirm=true to delete anyway",
+            names.join(", ")
+        ),
+        code: None,
+        data: serde_json::to_value(InUse { agents }).ok(),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use vizier_core::schema::agent::{EmbeddingConfig, EmbeddingProvider, ImageGenProvider};
+    use crate::schema::agent::{EmbeddingConfig, EmbeddingProvider, ImageGenProvider};
+
+    fn agent_config() -> AgentConfig {
+        serde_json::from_value(serde_json::json!({
+            "name": "a", "owner_id": null, "system_prompt": null, "description": null,
+            "provider": "dummyplug", "model": "dummyplug", "thinking_depth": 1,
+            "tools": {"timeout": "30s"}, "silent_read_initiative_chance": 0.0,
+            "prompt_timeout": "1m", "heartbeat_interval": "1m"
+        }))
+        .unwrap()
+    }
 
     /// One saved Bedrock connection is the chat provider, the embedding provider and the image
     /// provider at once, so a credential change restarts this agent and no other provider's.
     #[test]
     fn bedrock_counts_for_chat_embeddings_and_images_together() {
-        let mut config = crate::test_support::agent_config("a");
+        let mut config = agent_config();
         config.provider = ProviderId::AMAZON_BEDROCK;
         config.model = "amazon.nova-lite-v1:0".into();
         config.embedding = Some(EmbeddingConfig {

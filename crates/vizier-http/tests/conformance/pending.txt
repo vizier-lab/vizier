@@ -1,0 +1,6 @@
+/agents/{agent_id}/channel/{channel_id}/topic/{topic_id}/chat
+/catalogue/logos/{file}
+/catalogue/media-models/{capability}/refresh
+/catalogue/refresh
+/integrations/kinds/{id}/icon
+/providers/custom/test

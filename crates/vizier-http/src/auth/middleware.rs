@@ -5,7 +5,7 @@ use axum::{
     response::Response,
 };
 
-use crate::{auth::{AuthMethod, AuthService, Identity}, state::HTTPState};
+use crate::{auth::{AuthMethod, AuthService, Principal}, state::{AuthMode, HTTPState}};
 use vizier_core::storage::user::{Role, UserStorage};
 
 #[derive(Debug, Clone)]
@@ -75,6 +75,31 @@ pub async fn require_auth(
     mut request: Request,
     next: Next,
 ) -> Result<Response, AuthError> {
+    if let AuthMode::Desktop { user_id } = &state.auth {
+        let (role, permissions) = resolve_user_role(&state, user_id).await?;
+        let user = state
+            .storage
+            .get_user_by_id(user_id)
+            .await
+            .map_err(|_| AuthError::InternalError)?
+            .ok_or(AuthError::InvalidCredentials)?;
+        request.extensions_mut().insert(Principal {
+            user_id: user.user_id,
+            username: user.username,
+            role,
+            permissions,
+            method: AuthMethod::Desktop,
+        });
+        return Ok(next.run(request).await);
+    }
+    if request
+        .extensions()
+        .get::<Principal>()
+        .is_some_and(|p| p.method == AuthMethod::Desktop)
+    {
+        return Err(AuthError::InvalidCredentials);
+    }
+
     // Try to get credentials from Authorization header first
     let credentials_from_header = headers
         .get(AUTHORIZATION)
@@ -124,7 +149,7 @@ pub async fn require_auth(
                 }
             }
 
-            Identity {
+            Principal {
                 user_id: claims.sub,
                 username: claims.username,
                 role,
@@ -151,7 +176,7 @@ pub async fn require_auth(
             // Get the user associated with this API key
             let (role, permissions) = resolve_user_role(&state, &api_key.user_id).await?;
 
-            Identity {
+            Principal {
                 user_id: api_key.user_id,
                 username: String::new(),
                 role,
@@ -182,14 +207,11 @@ pub async fn require_permission(
 ) -> Result<Response, AuthError> {
     let user = request
         .extensions()
-        .get::<Identity>()
+        .get::<Principal>()
         .ok_or(AuthError::InvalidCredentials)?;
 
-    if user.role.is_system || user.permissions.contains(&state.permission) {
-        Ok(next.run(request).await)
-    } else {
-        Err(AuthError::Forbidden)
-    }
+    vizier_core::access::require(user, &state.permission).map_err(|_| AuthError::Forbidden)?;
+    Ok(next.run(request).await)
 }
 
 /// Extract token from query parameter

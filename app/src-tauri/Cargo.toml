@@ -1,0 +1,51 @@
+[package]
+name = "vizier-app"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[features]
+# `shell` is the Tauri glue (window, tray, plugins, commands). Everything else compiles and is
+# tested without it, so `cargo test --no-default-features` needs no webview libraries.
+default = ["shell", "full"]
+full = ["vizier-core/full"]
+shell = [
+  "dep:tauri",
+  "dep:tauri-build",
+  "dep:tauri-plugin-single-instance",
+  "dep:tauri-plugin-dialog",
+  "dep:tauri-plugin-opener",
+  "dep:tauri-plugin-notification",
+  "dep:tauri-plugin-deep-link",
+  "dep:tauri-plugin-updater",
+  "dep:tauri-plugin-process",
+]
+
+[build-dependencies]
+tauri-build = { version = "2", optional = true , features = [] }
+
+[dependencies]
+vizier-core = { path = "../../crates/vizier-core" }
+vizier-http = { path = "../../crates/vizier-http" }
+tauri = { version = "2", features = ["tray-icon"], optional = true }
+tauri-plugin-single-instance = { version = "2", optional = true }
+tauri-plugin-dialog = { version = "2", optional = true }
+tauri-plugin-opener = { version = "2", optional = true }
+tauri-plugin-notification = { version = "2", optional = true }
+tauri-plugin-deep-link = { version = "2", optional = true }
+tauri-plugin-updater = { version = "2", optional = true }
+tauri-plugin-process = { version = "2", optional = true }
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+flume = "0.12"
+axum = { version = "0.8", default-features = false }
+ring = "0.17"
+anyhow = "1"
+
+[dev-dependencies]
+tempfile = "3"
+reqwest = { version = "0.13", features = ["json"] }
+chrono = "0.4"
