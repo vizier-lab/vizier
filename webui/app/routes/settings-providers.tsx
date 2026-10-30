@@ -1,4 +1,4 @@
-import { Button, Dialog, EmptyState, Menu, MenuItem, Presence, ProviderRow, Skeleton, popoverMotion } from '@vizier/design'
+import { Button, Dialog, EmptyState, Menu, MenuItem, Presence, ProviderRow, Skeleton, popoverMotion, useDismiss } from '@vizier/design'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { motion } from 'motion/react'
 import { useNavigate } from 'react-router'
@@ -60,14 +60,9 @@ export default function SettingsProviders() {
     }, [])
     useEffect(() => void load(), [load])
 
-    // Close the ⋯ menu on a click elsewhere.
+    // Close the ⋯ menu on Escape or a click elsewhere.
     const menuRoot = useRef<HTMLDivElement>(null)
-    useEffect(() => {
-        if (!menu) return
-        const close = (e: PointerEvent) => !menuRoot.current?.contains(e.target as Node) && setMenu(null)
-        document.addEventListener('pointerdown', close)
-        return () => document.removeEventListener('pointerdown', close)
-    }, [menu])
+    useDismiss(menu !== null, () => setMenu(null), menuRoot)
 
     const rows: Row[] = useMemo(
         () => [...(connected ?? []).map((provider) => ({ kind: 'catalogue' as const, provider })), ...custom.map((provider) => ({ kind: 'custom' as const, provider }))],

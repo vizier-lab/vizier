@@ -1,4 +1,4 @@
-import { Button, Dialog, EmptyState, FileRow, FileTypeTag, PanelHeader, TextLink } from '@vizier/design'
+import { Dialog, EmptyState, FileRow, FileTypeTag, IconButton, PanelHeader, TextLink } from '@vizier/design'
 import { useState } from 'react'
 import type { SessionFileRecord } from '../../api/frames'
 import { time } from '../../lib/messages'
@@ -73,7 +73,7 @@ export function SessionFilesPanel({
                 level={3}
                 action={
                     files.length > 0 ? (
-                        <Button onClick={() => setConfirmClear(true)}>Clear session files</Button>
+                        <IconButton variant="ghost" size="sm" icon="trash" aria-label="Clear session files" title="Clear session files" onClick={() => setConfirmClear(true)} />
                     ) : undefined
                 }
             />
