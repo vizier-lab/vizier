@@ -15,7 +15,6 @@
 /agents/{agent_id}/channel/{channel_id}/topics
 /agents/{agent_id}/chat
 /agents/{agent_id}/conversations
-/agents/{agent_id}/core/history
 /agents/{agent_id}/dream/cycles
 /agents/{agent_id}/dream/nights
 /agents/{agent_id}/integrations
@@ -23,12 +22,6 @@
 /agents/{agent_id}/integrations/grants
 /agents/{agent_id}/integrations/{integration_id}
 /agents/{agent_id}/integrations/{integration_id}/attachment
-/agents/{agent_id}/memory
-/agents/{agent_id}/memory/attachments/{bundle}/{*path}
-/agents/{agent_id}/memory/bundles
-/agents/{agent_id}/memory/history/{bundle}/{path}
-/agents/{agent_id}/memory/query
-/agents/{agent_id}/memory/{slug}
 /agents/{agent_id}/restart
 /agents/{agent_id}/secrets
 /agents/{agent_id}/secrets/events
