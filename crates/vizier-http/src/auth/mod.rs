@@ -1,12 +1,11 @@
 use anyhow::Result;
-use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
 use base64::Engine;
 use chrono::{Duration, Utc};
 use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, decode, encode};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-pub use vizier_core::auth::{AuthMethod, Identity};
+pub use vizier_core::auth::{AuthMethod, Principal};
 use vizier_core::{config::HTTPChannelConfig, storage::user::Role};
 
 pub mod middleware;
@@ -36,21 +35,12 @@ impl AuthService {
 
     /// Hash a password using Argon2
     pub fn hash_password(&self, password: &str) -> Result<String> {
-        let argon2 = Argon2::default();
-        let password_hash: PasswordHash = argon2
-            .hash_password(password.as_bytes())
-            .map_err(|e| anyhow::anyhow!("Failed to hash password: {}", e))?;
-        Ok(password_hash.to_string())
+        vizier_core::auth::password::hash(password).map_err(|e| anyhow::anyhow!("{}", e.0))
     }
 
     /// Verify a password against a hash
     pub fn verify_password(&self, password: &str, hash: &str) -> Result<bool> {
-        let parsed_hash = PasswordHash::new(hash)
-            .map_err(|e| anyhow::anyhow!("Invalid password hash: {}", e))?;
-        let argon2 = Argon2::default();
-        Ok(argon2
-            .verify_password(password.as_bytes(), &parsed_hash)
-            .is_ok())
+        Ok(vizier_core::auth::password::verify(password, hash))
     }
 
     /// Generate a JWT token

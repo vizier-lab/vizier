@@ -6,7 +6,7 @@ use reqwest::StatusCode;
 
 use crate::{
     api::v1::agents::user_can_view_agent,
-    auth::Identity,
+    auth::Principal,
     models::response::{APIResponse, api_response, err_response},
     state::HTTPState,
 };
@@ -25,7 +25,7 @@ pub fn utils() -> Router<HTTPState> {
 )]
 pub async fn setup_state(
     State(state): State<HTTPState>,
-    Extension(user): Extension<Identity>,
+    Extension(user): Extension<Principal>,
 ) -> (StatusCode, axum::Json<APIResponse<SetupStates>>) {
     let setups = state.deps.setup.snapshot();
     if setups.is_empty() {

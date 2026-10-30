@@ -5,6 +5,8 @@
 //! permission checks ([`crate::access::Caller`]) and revision attribution
 //! ([`crate::schema::revision::RevisionOrigin`]).
 
+pub mod password;
+
 pub use crate::storage::user::Role;
 
 /// How a request was authenticated. Used to attribute document revisions.
@@ -15,14 +17,20 @@ pub enum AuthMethod {
     Jwt,
     /// An API key: a programmatic caller.
     ApiKey,
+    /// The desktop app's in-process caller: the window the person signed in to by opening the app.
+    /// Only the embedded dispatcher can produce it; the network router never accepts it.
+    Desktop,
 }
 
 /// An authenticated person.
 #[derive(Debug, Clone)]
-pub struct Identity {
+pub struct Principal {
     pub user_id: String,
     pub username: String,
     pub role: Role,
     pub permissions: Vec<String>,
     pub method: AuthMethod,
 }
+
+/// The pre-038 name of [`Principal`]; removed at the end of the desktop app work.
+pub type Identity = Principal;

@@ -47,7 +47,7 @@ use skills::agent_skills;
 use task::task;
 
 pub fn user_can_view_agent(
-    user: &crate::auth::Identity,
+    user: &crate::auth::Principal,
     config: &AgentConfig,
 ) -> bool {
     if user.role.is_system || user.permissions.contains(&"all_agents:view".to_string()) {
@@ -68,7 +68,7 @@ pub fn user_can_view_agent(
 /// (`"telegram"`) conversations: `all_agents:show_<platform>_chats` for any agent,
 /// `owned_agents:show_<platform>_chats` for agents they own.
 pub fn user_can_show_platform_chats(
-    user: &crate::auth::Identity,
+    user: &crate::auth::Principal,
     config: &AgentConfig,
     platform: &str,
 ) -> bool {
@@ -93,7 +93,7 @@ pub fn platform_of_slug(channel: &str) -> Option<&'static str> {
 }
 
 fn user_can_edit_agent(
-    user: &crate::auth::Identity,
+    user: &crate::auth::Principal,
     config: &AgentConfig,
 ) -> bool {
     if user.role.is_system || user.permissions.contains(&"all_agents:edit".to_string()) {
@@ -217,7 +217,7 @@ impl Listing<AgentListItem> for AgentListing {
 async fn list_agents(
     State(state): State<HTTPState>,
     Query(query): Query<ListQuery>,
-    Extension(user): Extension<crate::auth::Identity>,
+    Extension(user): Extension<crate::auth::Principal>,
 ) -> models::response::Response<serde_json::Value> {
     let agents = match state.storage.list_agents().await {
         Ok(agents) => agents,
@@ -334,7 +334,7 @@ pub struct AgentDetail {
 async fn agent_detail(
     Path(agent_id): Path<String>,
     State(state): State<HTTPState>,
-    Extension(user): Extension<crate::auth::Identity>,
+    Extension(user): Extension<crate::auth::Principal>,
 ) -> models::response::Response<AgentDetail> {
     match state.storage.get_agent(&agent_id).await {
         Ok(Some(config)) => {
@@ -661,7 +661,7 @@ async fn saved_with_warnings(
 )]
 async fn create_agent(
     State(state): State<HTTPState>,
-    Extension(user): Extension<crate::auth::Identity>,
+    Extension(user): Extension<crate::auth::Principal>,
     Json(body): Json<serde_json::Value>,
 ) -> axum::response::Response {
     use axum::response::IntoResponse;
@@ -673,7 +673,7 @@ async fn create_agent(
 
 async fn create_agent_parsed(
     state: HTTPState,
-    user: crate::auth::Identity,
+    user: crate::auth::Principal,
     body: CreateAgentRequest,
 ) -> models::response::Response<AgentSaved> {
     if let Some(emb) = &body.embedding {
@@ -738,7 +738,7 @@ async fn create_agent_parsed(
 async fn update_agent(
     Path(agent_id): Path<String>,
     State(state): State<HTTPState>,
-    Extension(user): Extension<crate::auth::Identity>,
+    Extension(user): Extension<crate::auth::Principal>,
     Json(body): Json<serde_json::Value>,
 ) -> axum::response::Response {
     use axum::response::IntoResponse;
@@ -753,7 +753,7 @@ async fn update_agent(
 async fn update_agent_parsed(
     agent_id: String,
     state: HTTPState,
-    user: crate::auth::Identity,
+    user: crate::auth::Principal,
     body: CreateAgentRequest,
 ) -> models::response::Response<AgentSaved> {
     if let Some(emb) = &body.embedding {
@@ -835,7 +835,7 @@ async fn delete_agent(
     Path(agent_id): Path<String>,
     Query(query): Query<DeleteAgentQuery>,
     State(state): State<HTTPState>,
-    Extension(user): Extension<crate::auth::Identity>,
+    Extension(user): Extension<crate::auth::Principal>,
 ) -> models::response::Response<String> {
     let can_delete_all =
         user.role.is_system || user.permissions.contains(&"all_agents:delete".to_string());
@@ -899,7 +899,7 @@ async fn delete_agent(
 pub(crate) async fn restart_agent(
     Path(agent_id): Path<String>,
     State(state): State<HTTPState>,
-    Extension(user): Extension<crate::auth::Identity>,
+    Extension(user): Extension<crate::auth::Principal>,
 ) -> models::response::Response<AgentHealthStatus> {
     let config = match state.storage.get_agent(&agent_id).await {
         Ok(Some(config)) => config,
@@ -1162,7 +1162,7 @@ pub struct SharingResponse {
 async fn get_sharing(
     Path(agent_id): Path<String>,
     State(state): State<HTTPState>,
-    Extension(user): Extension<crate::auth::Identity>,
+    Extension(user): Extension<crate::auth::Principal>,
 ) -> models::response::Response<SharingResponse> {
     let config = match state.storage.get_agent(&agent_id).await {
         Ok(Some(config)) => config,
@@ -1206,7 +1206,7 @@ pub struct UpdateSharingRequest {
 async fn update_sharing(
     Path(agent_id): Path<String>,
     State(state): State<HTTPState>,
-    Extension(user): Extension<crate::auth::Identity>,
+    Extension(user): Extension<crate::auth::Principal>,
     Json(body): Json<UpdateSharingRequest>,
 ) -> models::response::Response<SharingResponse> {
     let mut config = match state.storage.get_agent(&agent_id).await {
@@ -1324,7 +1324,7 @@ pub struct ChatResponse {
 async fn agent_chat(
     Path(agent_id): Path<String>,
     State(state): State<HTTPState>,
-    Extension(user): Extension<crate::auth::Identity>,
+    Extension(user): Extension<crate::auth::Principal>,
     Json(body): Json<ChatRequest>,
 ) -> models::response::Response<ChatResponse> {
     let config = match state.storage.get_agent(&agent_id).await {
@@ -1479,7 +1479,7 @@ pub struct BtwResponse {
 async fn agent_btw(
     Path(agent_id): Path<String>,
     State(state): State<HTTPState>,
-    Extension(user): Extension<crate::auth::Identity>,
+    Extension(user): Extension<crate::auth::Principal>,
     Json(body): Json<BtwRequest>,
 ) -> axum::response::Response {
     let config = match state.storage.get_agent(&agent_id).await {

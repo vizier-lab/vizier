@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     api::v1::overview::visible_agents,
-    auth::Identity,
+    auth::Principal,
     models::{
         self,
         response::{APIResponse, api_response, err_response},
@@ -49,7 +49,7 @@ pub struct NotificationQuery {
 }
 
 /// The ids the caller may see, or a logged warning when the inbox cannot be projected.
-async fn visible(state: &HTTPState, user: &Identity) -> Vec<String> {
+async fn visible(state: &HTTPState, user: &Principal) -> Vec<String> {
     visible_agents(state, user)
         .await
         .map(|agents| agents.into_iter().map(|(id, _)| id).collect())
@@ -75,7 +75,7 @@ async fn project(state: &HTTPState) {
 )]
 pub async fn list(
     State(state): State<HTTPState>,
-    Extension(user): Extension<Identity>,
+    Extension(user): Extension<Principal>,
     Query(query): Query<NotificationQuery>,
 ) -> models::response::Response<NotificationPage> {
     let filter = match query.filter.as_deref().map(NotificationFilter::parse) {
@@ -123,7 +123,7 @@ pub async fn list(
 )]
 pub async fn count(
     State(state): State<HTTPState>,
-    Extension(user): Extension<Identity>,
+    Extension(user): Extension<Principal>,
 ) -> models::response::Response<NotificationCounts> {
     project(&state).await;
     let agents = visible(&state, &user).await;
@@ -157,7 +157,7 @@ pub struct NotificationReadRequest {
 )]
 pub async fn set_read(
     State(state): State<HTTPState>,
-    Extension(user): Extension<Identity>,
+    Extension(user): Extension<Principal>,
     Path(id): Path<i64>,
     body: Result<Json<NotificationReadRequest>, JsonRejection>,
 ) -> models::response::Response<NotificationCounts> {
@@ -192,7 +192,7 @@ pub async fn set_read(
 )]
 pub async fn read_all(
     State(state): State<HTTPState>,
-    Extension(user): Extension<Identity>,
+    Extension(user): Extension<Principal>,
 ) -> models::response::Response<NotificationCounts> {
     project(&state).await;
     let agents = visible(&state, &user).await;
@@ -226,7 +226,7 @@ mod tests {
     use super::*;
     use crate::{
         api::v1::agents::user_can_view_agent,
-        auth::{AuthMethod, Identity},
+        auth::{AuthMethod, Principal},
         state::HTTPState,
     };
     use vizier_core::{
@@ -244,6 +244,7 @@ mod tests {
         };
         let deps = vizier_core::dependencies::VizierDependencies::new(config).await.unwrap();
         let state = HTTPState {
+            auth: crate::state::AuthMode::Network,
             config: deps.config.clone(),
             transport: deps.transport.clone(),
             storage: deps.storage.clone(),
@@ -267,8 +268,8 @@ mod tests {
         (state, dir)
     }
 
-    fn user(id: &str, system: bool) -> Identity {
-        Identity {
+    fn user(id: &str, system: bool) -> Principal {
+        Principal {
             user_id: id.into(),
             username: id.into(),
             role: vizier_core::storage::user::Role {

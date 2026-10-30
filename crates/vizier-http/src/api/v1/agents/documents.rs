@@ -60,7 +60,7 @@ fn write_document(path: &str, content: &str) -> Result<(), std::io::Error> {
 pub async fn get_agent_doc(
     Path(agent_id): Path<String>,
     State(state): State<HTTPState>,
-    Extension(user): Extension<crate::auth::Identity>,
+    Extension(user): Extension<crate::auth::Principal>,
 ) -> models::response::Response<DocumentContentResponse> {
     let config = match state.storage.get_agent(&agent_id).await {
         Ok(Some(config)) => config,
@@ -95,7 +95,7 @@ pub async fn get_agent_doc(
 pub async fn update_agent_doc(
     Path(agent_id): Path<String>,
     State(state): State<HTTPState>,
-    Extension(user): Extension<crate::auth::Identity>,
+    Extension(user): Extension<crate::auth::Principal>,
     Json(body): Json<UpdateDocumentRequest>,
 ) -> models::response::Response<DocumentUpdateResponse> {
     let config = match state.storage.get_agent(&agent_id).await {
@@ -129,7 +129,7 @@ pub async fn update_agent_doc(
 pub async fn get_identity_doc(
     Path(agent_id): Path<String>,
     State(state): State<HTTPState>,
-    Extension(user): Extension<crate::auth::Identity>,
+    Extension(user): Extension<crate::auth::Principal>,
 ) -> models::response::Response<DocumentContentResponse> {
     let config = match state.storage.get_agent(&agent_id).await {
         Ok(Some(config)) => config,
@@ -164,7 +164,7 @@ pub async fn get_identity_doc(
 pub async fn update_identity_doc(
     Path(agent_id): Path<String>,
     State(state): State<HTTPState>,
-    Extension(user): Extension<crate::auth::Identity>,
+    Extension(user): Extension<crate::auth::Principal>,
     Json(body): Json<UpdateDocumentRequest>,
 ) -> models::response::Response<DocumentUpdateResponse> {
     let config = match state.storage.get_agent(&agent_id).await {
@@ -198,7 +198,7 @@ pub async fn update_identity_doc(
 pub async fn get_heartbeat_doc(
     Path(agent_id): Path<String>,
     State(state): State<HTTPState>,
-    Extension(user): Extension<crate::auth::Identity>,
+    Extension(user): Extension<crate::auth::Principal>,
 ) -> models::response::Response<DocumentContentResponse> {
     let config = match state.storage.get_agent(&agent_id).await {
         Ok(Some(config)) => config,
@@ -233,7 +233,7 @@ pub async fn get_heartbeat_doc(
 pub async fn update_heartbeat_doc(
     Path(agent_id): Path<String>,
     State(state): State<HTTPState>,
-    Extension(user): Extension<crate::auth::Identity>,
+    Extension(user): Extension<crate::auth::Principal>,
     Json(body): Json<UpdateDocumentRequest>,
 ) -> models::response::Response<DocumentUpdateResponse> {
     let config = match state.storage.get_agent(&agent_id).await {

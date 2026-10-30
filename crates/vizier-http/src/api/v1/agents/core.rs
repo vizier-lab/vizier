@@ -90,7 +90,7 @@ pub enum CoreHistoryResponse {
 pub async fn get_core(
     Path(agent_id): Path<String>,
     State(state): State<HTTPState>,
-    Extension(user): Extension<crate::auth::Identity>,
+    Extension(user): Extension<crate::auth::Principal>,
 ) -> models::response::Response<CoreContentResponse> {
     let config = match state.storage.get_agent(&agent_id).await {
         Ok(Some(config)) => config,
@@ -127,7 +127,7 @@ pub async fn get_core(
 pub async fn update_core(
     Path(agent_id): Path<String>,
     State(state): State<HTTPState>,
-    Extension(user): Extension<crate::auth::Identity>,
+    Extension(user): Extension<crate::auth::Principal>,
     Json(body): Json<UpdateCoreRequest>,
 ) -> models::response::Response<serde_json::Value> {
     let config = match state.storage.get_agent(&agent_id).await {
@@ -181,7 +181,7 @@ async fn latest_seq(state: &HTTPState, agent_id: &str) -> Option<i64> {
 async fn require_viewable_agent(
     state: &HTTPState,
     agent_id: &str,
-    user: &crate::auth::Identity,
+    user: &crate::auth::Principal,
 ) -> Result<(), (StatusCode, String)> {
     let config = match state.storage.get_agent(agent_id).await {
         Ok(Some(config)) => config,
@@ -219,7 +219,7 @@ fn history_error_status(message: &str) -> StatusCode {
 pub async fn get_core_history(
     Path(agent_id): Path<String>,
     State(state): State<HTTPState>,
-    Extension(user): Extension<crate::auth::Identity>,
+    Extension(user): Extension<crate::auth::Principal>,
     Query(q): Query<CoreHistoryQuery>,
 ) -> models::response::Response<CoreHistoryResponse> {
     if let Err((status, message)) = require_viewable_agent(&state, &agent_id, &user).await {
@@ -272,7 +272,7 @@ pub async fn get_core_history(
 pub async fn rollback_core(
     Path(agent_id): Path<String>,
     State(state): State<HTTPState>,
-    Extension(user): Extension<crate::auth::Identity>,
+    Extension(user): Extension<crate::auth::Principal>,
     Json(body): Json<RollbackRequest>,
 ) -> models::response::Response<RollbackResponse> {
     if let Err((status, message)) = require_viewable_agent(&state, &agent_id, &user).await {

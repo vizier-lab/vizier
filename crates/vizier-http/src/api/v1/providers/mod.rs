@@ -537,6 +537,7 @@ mod dummyplug_provider_tests {
         };
         let deps = VizierDependencies::new(config).await.unwrap();
         let state = HTTPState {
+            auth: crate::state::AuthMode::Network,
             config: deps.config.clone(),
             transport: deps.transport.clone(),
             storage: deps.storage.clone(),

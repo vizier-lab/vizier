@@ -7,7 +7,7 @@ use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    auth::{AuthService, Identity},
+    auth::{AuthService, Principal},
     models::{
         self,
         page::{self, ListQuery, Listing, SortKey, SortOrder},
@@ -126,6 +126,8 @@ pub struct CurrentUserResponse {
     pub username: String,
     pub role_name: String,
     pub permissions: Vec<String>,
+    /// Whether the user has a password (the desktop owner may not).
+    pub has_password: bool,
 }
 
 #[derive(Debug, Serialize, Clone, utoipa::ToSchema)]
@@ -242,7 +244,7 @@ pub async fn login(
 
 pub async fn get_current_user(
     State(state): State<HTTPState>,
-    Extension(user): Extension<Identity>,
+    Extension(user): Extension<Principal>,
 ) -> models::response::Response<CurrentUserResponse> {
     let role_name = state
         .storage
@@ -253,6 +255,14 @@ pub async fn get_current_user(
         .map(|r| r.name)
         .unwrap_or_default();
 
+    let has_password = state
+        .storage
+        .get_user_by_id(&user.user_id)
+        .await
+        .ok()
+        .flatten()
+        .is_some_and(|u| vizier_core::auth::password::has_password(&u));
+
     api_response(
         StatusCode::OK,
         CurrentUserResponse {
@@ -260,6 +270,7 @@ pub async fn get_current_user(
             username: user.username.clone(),
             role_name,
             permissions: user.permissions.clone(),
+            has_password,
         },
     )
 }
@@ -276,7 +287,7 @@ pub async fn get_current_user(
 )]
 pub async fn change_password(
     State(state): State<HTTPState>,
-    Extension(user): Extension<Identity>,
+    Extension(user): Extension<Principal>,
     Json(req): Json<ChangePasswordRequest>,
 ) -> models::response::Response<String> {
     let http_config = match &state.config.channels.http {
@@ -356,7 +367,7 @@ pub async fn change_password(
 )]
 pub async fn create_api_key(
     State(state): State<HTTPState>,
-    Extension(user): Extension<Identity>,
+    Extension(user): Extension<Principal>,
     Json(req): Json<CreateApiKeyRequest>,
 ) -> models::response::Response<CreateApiKeyResponse> {
     let http_config = match &state.config.channels.http {
@@ -416,7 +427,7 @@ pub async fn create_api_key(
 )]
 pub async fn list_api_keys(
     State(state): State<HTTPState>,
-    Extension(user): Extension<Identity>,
+    Extension(user): Extension<Principal>,
     Query(query): Query<ListQuery>,
 ) -> models::response::Response<serde_json::Value> {
     let keys = match state.storage.list_api_keys(&user.user_id).await {
@@ -491,7 +502,7 @@ impl Listing<ApiKeyResponse> for ApiKeyListing {
 )]
 pub async fn delete_api_key(
     State(state): State<HTTPState>,
-    Extension(user): Extension<Identity>,
+    Extension(user): Extension<Principal>,
     Path(key_id): Path<String>,
 ) -> models::response::Response<String> {
     // First verify the key belongs to the user
@@ -1302,7 +1313,7 @@ pub async fn delete_user(
 
 pub async fn get_my_profile(
     State(state): State<HTTPState>,
-    Extension(user): Extension<Identity>,
+    Extension(user): Extension<Principal>,
 ) -> models::response::Response<UserProfileResponse> {
     let profile = match state.storage.get_user_profile(&user.user_id).await {
         Ok(profile) => profile,
@@ -1339,7 +1350,7 @@ pub async fn get_my_profile(
 
 pub async fn update_my_profile(
     State(state): State<HTTPState>,
-    Extension(user): Extension<Identity>,
+    Extension(user): Extension<Principal>,
     Json(req): Json<UpdateUserProfileRequest>,
 ) -> models::response::Response<UserProfileResponse> {
     // Get existing profile or create default

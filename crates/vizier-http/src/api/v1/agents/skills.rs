@@ -61,7 +61,7 @@ async fn list_agent_skills(
     Path(agent_id): Path<String>,
     Query(scope): Query<ScopeQuery>,
     Query(query): Query<ListQuery>,
-    Extension(user): Extension<crate::auth::Identity>,
+    Extension(user): Extension<crate::auth::Principal>,
 ) -> Response<serde_json::Value> {
     let config = match state.storage.get_agent(&agent_id).await {
         Ok(Some(config)) => config,
@@ -96,7 +96,7 @@ async fn list_agent_skills(
 async fn list_available_skills(
     State(state): State<HTTPState>,
     Path(agent_id): Path<String>,
-    Extension(user): Extension<crate::auth::Identity>,
+    Extension(user): Extension<crate::auth::Principal>,
 ) -> Response<Vec<AvailableSkill>> {
     let config = match state.storage.get_agent(&agent_id).await {
         Ok(Some(config)) => config,
@@ -127,7 +127,7 @@ async fn list_available_skills(
 async fn create_agent_skill(
     State(state): State<HTTPState>,
     Path(agent_id): Path<String>,
-    Extension(user): Extension<crate::auth::Identity>,
+    Extension(user): Extension<crate::auth::Principal>,
     Json(request): Json<CreateSkillRequest>,
 ) -> Response<SkillResponse> {
     let config = match state.storage.get_agent(&agent_id).await {
@@ -165,7 +165,7 @@ async fn create_agent_skill(
 async fn get_agent_skill(
     State(state): State<HTTPState>,
     Path((agent_id, slug)): Path<(String, String)>,
-    Extension(user): Extension<crate::auth::Identity>,
+    Extension(user): Extension<crate::auth::Principal>,
 ) -> Response<SkillResponse> {
     let config = match state.storage.get_agent(&agent_id).await {
         Ok(Some(config)) => config,
@@ -200,7 +200,7 @@ async fn get_agent_skill(
 async fn update_agent_skill(
     State(state): State<HTTPState>,
     Path((agent_id, slug)): Path<(String, String)>,
-    Extension(user): Extension<crate::auth::Identity>,
+    Extension(user): Extension<crate::auth::Principal>,
     Json(request): Json<UpdateSkillRequest>,
 ) -> Response<SkillResponse> {
     let config = match state.storage.get_agent(&agent_id).await {
@@ -250,7 +250,7 @@ async fn update_agent_skill(
 async fn delete_agent_skill(
     State(state): State<HTTPState>,
     Path((agent_id, slug)): Path<(String, String)>,
-    Extension(user): Extension<crate::auth::Identity>,
+    Extension(user): Extension<crate::auth::Principal>,
 ) -> Response<String> {
     let config = match state.storage.get_agent(&agent_id).await {
         Ok(Some(config)) => config,

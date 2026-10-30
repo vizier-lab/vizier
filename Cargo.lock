@@ -8683,6 +8683,7 @@ dependencies = [
  "any-tts",
  "anyhow",
  "arc-swap",
+ "argon2",
  "async-trait",
  "axum",
  "base64 0.23.1",
@@ -8768,7 +8769,6 @@ name = "vizier-http"
 version = "0.13.5"
 dependencies = [
  "anyhow",
- "argon2",
  "axum",
  "axum-extra",
  "base64 0.23.1",
@@ -8789,6 +8789,7 @@ dependencies = [
  "sha2 0.11.1",
  "tempfile",
  "tokio",
+ "tower",
  "tower-http 0.7.1",
  "tracing",
  "utoipa",

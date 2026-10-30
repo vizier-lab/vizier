@@ -144,6 +144,7 @@ impl RevisionOrigin {
         let trigger = match user.method {
             AuthMethod::Jwt => RevisionTrigger::WebUi,
             AuthMethod::ApiKey => RevisionTrigger::Api,
+            AuthMethod::Desktop => RevisionTrigger::WebUi,
         };
         Self {
             actor: RevisionActor::User {

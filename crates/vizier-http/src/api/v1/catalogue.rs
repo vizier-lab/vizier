@@ -770,6 +770,7 @@ mod tests {
         };
         let deps = vizier_core::dependencies::VizierDependencies::new(config).await.unwrap();
         let state = HTTPState {
+            auth: crate::state::AuthMode::Network,
             config: deps.config.clone(),
             transport: deps.transport.clone(),
             storage: deps.storage.clone(),

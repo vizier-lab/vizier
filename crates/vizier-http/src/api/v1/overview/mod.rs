@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     api::v1::agents::{dream::parse_offset, user_can_view_agent},
-    auth::Identity,
+    auth::Principal,
     models::{
         self,
         response::{APIResponse, api_response, err_response},
@@ -38,7 +38,7 @@ pub fn overview() -> Router<HTTPState> {
 /// The agents `user` can see, in id order.
 pub(crate) async fn visible_agents(
     state: &HTTPState,
-    user: &Identity,
+    user: &Principal,
 ) -> Result<Vec<(String, AgentConfig)>, String> {
     let mut agents: Vec<(String, AgentConfig)> = state
         .storage
@@ -103,7 +103,7 @@ async fn failed_agents(state: &HTTPState) -> std::collections::HashSet<String> {
 )]
 pub async fn overview_counts(
     State(state): State<HTTPState>,
-    Extension(user): Extension<Identity>,
+    Extension(user): Extension<Principal>,
     Query(query): Query<TzQuery>,
 ) -> models::response::Response<Overview> {
     let agents = match visible_agents(&state, &user).await {
@@ -256,7 +256,7 @@ fn arrange(mut agents: Vec<Ranked>, rank: Rank) -> (Vec<ActivityRow>, Option<Act
 )]
 pub async fn activity(
     State(state): State<HTTPState>,
-    Extension(user): Extension<Identity>,
+    Extension(user): Extension<Principal>,
     Query(query): Query<ActivityQuery>,
     Query(tz): Query<TzQuery>,
 ) -> models::response::Response<Activity> {
