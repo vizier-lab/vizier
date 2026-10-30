@@ -164,6 +164,7 @@ export function AgentSidebar({ agentId }: { agentId: string }) {
             active={page && ESSENTIAL.has(page) ? (page as EssentialPage) : undefined}
             hiddenPages={agent && canViewArtifacts(agent) ? undefined : ['artifacts']}
             hrefFor={(p) => `/${agentId}${PAGE_PATH[p]}`}
+            onNew={newConversation}
         >
             <SessionList
                 groups={groups}
