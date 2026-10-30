@@ -6,7 +6,6 @@ pub mod topics;
 pub mod agents;
 pub mod core;
 pub mod memory;
-pub mod documents;
 pub mod tasks;
 pub mod dream;
 pub mod jobs;

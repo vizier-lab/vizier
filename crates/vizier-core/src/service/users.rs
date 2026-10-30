@@ -69,8 +69,10 @@ pub async fn current(services: &Services, principal: &Principal) -> CurrentUser 
     CurrentUser { role_name, has_password }
 }
 
-/// Changes the caller's own password. Needs `settings:password`. A desktop person who never set
-/// one (empty stored hash) may leave `current_password` empty (research R10).
+/// Changes the caller's own password. Needs `settings:password`. The desktop app's window is
+/// already the owner of the workspace and its files, so it may leave `current_password` empty:
+/// that is how a forgotten password is replaced (research R10). Any other caller, a browser
+/// signed in over web access included, must give the current one.
 pub async fn change_password(
     services: &Services,
     principal: &Principal,
@@ -83,10 +85,8 @@ pub async fn change_password(
         Ok(Some(u)) => u,
         _ => return Err(ServiceError::Internal("Failed to get user data".into())),
     };
-    let first_password = principal.method == AuthMethod::Desktop
-        && current_user.password_hash.is_empty()
-        && current_password.is_empty();
-    if !first_password && !password::verify(current_password, &current_user.password_hash) {
+    let desktop_reset = principal.method == AuthMethod::Desktop && current_password.is_empty();
+    if !desktop_reset && !password::verify(current_password, &current_user.password_hash) {
         return Err(ServiceError::Unauthorized("Current password is incorrect".into()));
     }
     let hash = password::hash(new_password).map_err(|e| fail("Failed to process new password", e.0))?;

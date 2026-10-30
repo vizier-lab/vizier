@@ -252,8 +252,34 @@ async fn web_access_needs_a_password_and_keeps_the_login_rules() {
         .unwrap();
     assert_eq!(login.status().as_u16(), 200);
     let token = login.json::<Value>().await.unwrap()["data"]["token"].as_str().unwrap().to_string();
-    let agents = http.get(format!("{base}/agents")).bearer_auth(token).send().await.unwrap();
+    let agents = http.get(format!("{base}/agents")).bearer_auth(&token).send().await.unwrap();
     assert_eq!(agents.status().as_u16(), 200);
+
+    // A browser must give the current password to change it...
+    let browser = http
+        .post(format!("{base}/auth/change-password"))
+        .bearer_auth(&token)
+        .json(&json!({ "current_password": "", "new_password": "stolen session pw" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(browser.status().as_u16(), 401);
+    // ...while the app's own window can replace a forgotten one.
+    let reset = api(
+        &engine,
+        "POST",
+        "/auth/change-password",
+        Some(json!({ "current_password": "", "new_password": "a new password" })),
+    )
+    .await;
+    assert!(reset.status < 300, "{reset:?}");
+    let relogin = http
+        .post(format!("{base}/auth/login"))
+        .json(&json!({ "username": "olive", "password": "a new password" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(relogin.status().as_u16(), 200);
 
     // Turning it off closes the listener.
     engine
