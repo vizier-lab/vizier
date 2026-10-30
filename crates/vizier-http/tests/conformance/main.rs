@@ -26,7 +26,7 @@ struct Person {
 
 mod common;
 mod groups;
-use common::{Vector, v};
+use common::Vector;
 
 fn agent(name: &str, owner: &str) -> AgentConfig {
     serde_json::from_value(json!({

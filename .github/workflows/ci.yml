@@ -96,7 +96,9 @@ jobs:
               fi
             done
           }
-          check vizier-core axum axum-extra tower-http utoipa-axum utoipa-swagger-ui clap inquire termimad daemonize dotenvy opentelemetry-otlp jsonwebtoken argon2 tracing-subscriber
+          # argon2 is allowed in the engine: password hashing is part of the service layer (spec 038),
+          # shared by the server and the desktop app. JWT issuing stays in the HTTP adapter.
+          check vizier-core axum axum-extra tower-http utoipa-axum utoipa-swagger-ui clap inquire termimad daemonize dotenvy opentelemetry-otlp jsonwebtoken tracing-subscriber
           check vizier-http clap inquire termimad daemonize dotenvy opentelemetry-otlp
           exit $fail
       - name: Dependencies unchanged
