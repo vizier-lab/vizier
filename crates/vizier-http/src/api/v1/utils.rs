@@ -5,12 +5,11 @@ use axum::{Extension, Router, extract::State, routing::get};
 use reqwest::StatusCode;
 
 use crate::{
-    api::v1::agents::user_can_view_agent,
     auth::Principal,
-    models::response::{APIResponse, api_response, err_response},
+    models::response::{APIResponse, api_response},
     state::HTTPState,
 };
-use vizier_core::{setup::SetupStates, storage::agent::AgentStorage};
+use vizier_core::setup::SetupStates;
 
 pub fn utils() -> Router<HTTPState> {
     Router::new().route("/setup-state", get(setup_state))
@@ -27,26 +26,8 @@ pub async fn setup_state(
     State(state): State<HTTPState>,
     Extension(user): Extension<Principal>,
 ) -> (StatusCode, axum::Json<APIResponse<SetupStates>>) {
-    let setups = state.deps.setup.snapshot();
-    if setups.is_empty() {
-        return api_response(StatusCode::OK, SetupStates { setups });
+    match vizier_core::service::setup_state::states(&super::auth::services(&state), &user).await {
+        Ok(states) => api_response(StatusCode::OK, states),
+        Err(e) => super::auth::err(e),
     }
-    // Only the agents this person may see: build errors can carry provider details.
-    let agents = match state.storage.list_agents().await {
-        Ok(agents) => agents,
-        Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
-    };
-    let setups = setups
-        .into_iter()
-        .filter(|setup| match agents.iter().find(|(id, _)| *id == setup.agent_id) {
-            Some((_, config)) => user_can_view_agent(&user, config),
-            // Still being created: its owner, and whoever may view every agent.
-            None => {
-                user.role.is_system
-                    || user.permissions.iter().any(|p| p == "all_agents:view")
-                    || setup.owner_id.as_deref() == Some(user.user_id.as_str())
-            }
-        })
-        .collect();
-    api_response(StatusCode::OK, SetupStates { setups })
 }

@@ -43,7 +43,7 @@ fn scrub(value: &mut Value) {
     match value {
         Value::Object(map) => {
             for (k, v) in map.iter_mut() {
-                if k.ends_with("_at") || k == "timestamp" || k == "uid" || k == "seq" || k == "revision_id" {
+                if k.ends_with("_at") || k == "timestamp" || k == "uid" || k == "seq" || k == "revision_id" || k == "role_id" || k == "id" || k == "accounting_since" || k == "hours" {
                     *v = Value::Null;
                 } else {
                     scrub(v);
@@ -82,6 +82,8 @@ async fn desktop_dispatch_matches_the_network_router() {
     let dir = tempfile::tempdir().unwrap();
     let mut config = VizierConfig::with_workspace(dir.path().to_path_buf());
     config.channels.http.as_mut().unwrap().jwt_secret = "conformance-secret".into();
+    // No network from a test: a catalogue read would otherwise refresh from models.dev.
+    config.catalogue.refresh = false;
     let runtime = VizierRuntime::start(RuntimeOptions { config }).await.unwrap();
     let storage = runtime.deps().storage.clone();
     let http_cfg = runtime.deps().config.channels.http.clone().unwrap();

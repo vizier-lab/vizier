@@ -81,21 +81,12 @@ impl AuthService {
     /// Generate a new API key
     /// Returns (raw_key, key_hash) - raw_key is shown once to user
     pub fn generate_api_key(&self) -> (String, String) {
-        let raw_key_bytes: Vec<u8> = rand::random_iter::<u8>().take(32).collect();
-        let raw_key = format!("vk_{}", base64::engine::general_purpose::URL_SAFE.encode(&raw_key_bytes));
-        let key_hash = self.hash_api_key(&raw_key);
-        (raw_key, key_hash)
+        vizier_core::service::api_keys::generate()
     }
 
     /// Hash an API key using SHA-256
     pub fn hash_api_key(&self, api_key: &str) -> String {
-        let mut hasher = Sha256::new();
-        hasher.update(api_key.as_bytes());
-        hasher
-            .finalize()
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect()
+        vizier_core::service::api_keys::hash(api_key)
     }
 }
 

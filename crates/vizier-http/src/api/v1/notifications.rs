@@ -8,12 +8,11 @@ use axum::{
     extract::{Path, Query, State, rejection::JsonRejection},
     routing::{get, post, put},
 };
-use chrono::Utc;
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    api::v1::overview::visible_agents,
+    api::v1::auth,
     auth::Principal,
     models::{
         self,
@@ -22,13 +21,9 @@ use crate::{
     state::HTTPState,
 };
 use vizier_core::{
-    notifications::cursor,
-    schema::{NotificationCounts, NotificationFilter, NotificationItem, NotificationPage},
-    storage::notification::NotificationStorage,
+    schema::{NotificationCounts, NotificationItem, NotificationPage},
+    service::notifications,
 };
-
-const DEFAULT_LIMIT: usize = 20;
-const MAX_LIMIT: usize = 50;
 
 pub fn notifications() -> Router<HTTPState> {
     Router::new()
@@ -48,22 +43,6 @@ pub struct NotificationQuery {
     pub limit: Option<usize>,
 }
 
-/// The ids the caller may see, or a logged warning when the inbox cannot be projected.
-async fn visible(state: &HTTPState, user: &Principal) -> Vec<String> {
-    visible_agents(state, user)
-        .await
-        .map(|agents| agents.into_iter().map(|(id, _)| id).collect())
-        .unwrap_or_default()
-}
-
-/// Bring the channel-reply projection up to date before a read; a failure is logged and the
-/// inbox still answers with what it already has.
-async fn project(state: &HTTPState) {
-    if let Err(e) = state.deps.notifications.project_replies(Utc::now()).await {
-        tracing::warn!("failed to project channel replies into notifications: {e}");
-    }
-}
-
 #[utoipa::path(
     get,
     path = "/notifications",
@@ -78,42 +57,18 @@ pub async fn list(
     Extension(user): Extension<Principal>,
     Query(query): Query<NotificationQuery>,
 ) -> models::response::Response<NotificationPage> {
-    let filter = match query.filter.as_deref().map(NotificationFilter::parse) {
-        Some(Some(filter)) => filter,
-        Some(None) => return err_response(StatusCode::BAD_REQUEST, "unknown filter".into()),
-        None => NotificationFilter::All,
-    };
-    let before = match query.before.as_deref().map(cursor::decode) {
-        Some(Some(cursor)) => Some(cursor),
-        Some(None) => return err_response(StatusCode::BAD_REQUEST, "malformed cursor".into()),
-        None => None,
-    };
-    let limit = query.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT);
-
-    project(&state).await;
-    let agents = visible(&state, &user).await;
-    // One more than a page, to know whether there is another.
-    let mut items = match state
-        .storage
-        .list_notifications(&user.user_id, &agents, filter, before, limit + 1)
-        .await
+    match notifications::list(
+        &auth::services(&state),
+        &user,
+        query.filter.as_deref(),
+        query.before.as_deref(),
+        query.limit,
+    )
+    .await
     {
-        Ok(items) => items,
-        Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
-    };
-    let next = (items.len() > limit).then(|| {
-        items.truncate(limit);
-        cursor::encode(items[limit - 1].at, items[limit - 1].id)
-    });
-    let counts = match state
-        .storage
-        .notification_counts(&user.user_id, &agents)
-        .await
-    {
-        Ok(counts) => counts,
-        Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
-    };
-    api_response(StatusCode::OK, NotificationPage { items, counts, next })
+        Ok(page) => api_response(StatusCode::OK, page),
+        Err(e) => auth::err(e),
+    }
 }
 
 #[utoipa::path(
@@ -125,15 +80,9 @@ pub async fn count(
     State(state): State<HTTPState>,
     Extension(user): Extension<Principal>,
 ) -> models::response::Response<NotificationCounts> {
-    project(&state).await;
-    let agents = visible(&state, &user).await;
-    match state
-        .storage
-        .notification_counts(&user.user_id, &agents)
-        .await
-    {
+    match notifications::count(&auth::services(&state), &user).await {
         Ok(counts) => api_response(StatusCode::OK, counts),
-        Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+        Err(e) => auth::err(e),
     }
 }
 
@@ -165,23 +114,9 @@ pub async fn set_read(
         Ok(Json(NotificationReadRequest { read: Some(read) })) => read,
         _ => return err_response(StatusCode::BAD_REQUEST, "a `read` boolean is required".into()),
     };
-    let agents = visible(&state, &user).await;
-    match state
-        .storage
-        .set_notification_read(&user.user_id, id, read, Utc::now(), &agents)
-        .await
-    {
-        Ok(true) => {}
-        Ok(false) => return err_response(StatusCode::NOT_FOUND, "notification not found".into()),
-        Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
-    }
-    match state
-        .storage
-        .notification_counts(&user.user_id, &agents)
-        .await
-    {
+    match notifications::set_read(&auth::services(&state), &user, id, read).await {
         Ok(counts) => api_response(StatusCode::OK, counts),
-        Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+        Err(e) => auth::err(e),
     }
 }
 
@@ -194,22 +129,9 @@ pub async fn read_all(
     State(state): State<HTTPState>,
     Extension(user): Extension<Principal>,
 ) -> models::response::Response<NotificationCounts> {
-    project(&state).await;
-    let agents = visible(&state, &user).await;
-    if let Err(e) = state
-        .storage
-        .mark_all_notifications_read(&user.user_id, Utc::now(), &agents)
-        .await
-    {
-        return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string());
-    }
-    match state
-        .storage
-        .notification_counts(&user.user_id, &agents)
-        .await
-    {
+    match notifications::read_all(&auth::services(&state), &user).await {
         Ok(counts) => api_response(StatusCode::OK, counts),
-        Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+        Err(e) => auth::err(e),
     }
 }
 
@@ -231,7 +153,7 @@ mod tests {
     };
     use vizier_core::{
         config::VizierConfig,
-        schema::{AgentConfig, NotificationCategory, NotificationDraft, NotificationTone},
+        schema::{AgentConfig, NotificationCategory, NotificationDraft, NotificationFilter, NotificationTone},
         storage::{agent::AgentStorage, notification::NotificationStorage},
     };
     use crate::test_support::agent_config;
