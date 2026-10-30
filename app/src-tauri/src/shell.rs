@@ -79,7 +79,10 @@ async fn api(request: Request<'_>, shell: State<'_, Shell>) -> Result<Value, Ipc
         InvokeBody::Json(value) if value.is_null() => vec![],
         InvokeBody::Json(value) => value.to_string().into_bytes(),
     };
-    let reply = ipc::api(&shell.engine, &method, &path, header("content-type").as_deref(), body).await?;
+    // `invoke` labels a raw body `application/octet-stream` and the browser merges that with a
+    // `content-type` we set, so the WebUI sends the real type in its own header.
+    let content_type = header("x-content-type").or_else(|| header("content-type"));
+    let reply = ipc::api(&shell.engine, &method, &path, content_type.as_deref(), body).await?;
     Ok(json!({ "status": reply.status, "body": reply.body }))
 }
 

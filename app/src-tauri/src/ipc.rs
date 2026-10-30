@@ -41,7 +41,7 @@ pub struct ApiReply {
 }
 
 /// One request through the route table, as the desktop principal. `path` is relative to
-/// `/api/v1` and may carry a query. A non-JSON response is `406` with a null body.
+/// `/api/v1` and may carry a query. A non-JSON success is `406` with a null body; a non-JSON error keeps its status and text.
 pub async fn api(
     engine: &Engine,
     method: &str,
@@ -74,6 +74,12 @@ pub async fn api(
         return Ok(ApiReply { status, body: Value::Null });
     }
     if !is_json {
+        // A refusal from an extractor (bad body, wrong type) is plain text: keep its status and
+        // text so the person sees why, instead of an unrelated 406.
+        if status >= 400 {
+            let message = String::from_utf8_lossy(&bytes).trim().to_string();
+            return Ok(ApiReply { status, body: serde_json::json!({ "status": status, "message": message, "data": null }) });
+        }
         return Ok(ApiReply { status: 406, body: Value::Null });
     }
     let body = serde_json::from_slice(&bytes).map_err(|e| IpcError::other(e.to_string()))?;
