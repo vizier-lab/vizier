@@ -1,0 +1,44 @@
+[package]
+name = "vizier"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "A digital steward for Your Majesty"
+readme = "../../Readme.md"
+keywords = ["ai", "cli", "agent"]
+include = ["/src/**/*", "/Cargo.toml"]
+
+[[bin]]
+name = "vizier"
+path = "src/main.rs"
+
+[dependencies]
+vizier-core = { workspace = true, features = ["full"] }
+vizier-http.workspace = true
+anyhow.workspace = true
+chrono.workspace = true
+clap.workspace = true
+daemonize.workspace = true
+dirs.workspace = true
+dotenvy.workspace = true
+duration-string.workspace = true
+inquire.workspace = true
+nanoid.workspace = true
+opentelemetry.workspace = true
+opentelemetry-otlp.workspace = true
+opentelemetry_sdk.workspace = true
+reqwest.workspace = true
+rustls.workspace = true
+serde_json.workspace = true
+termimad.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-opentelemetry.workspace = true
+tracing-subscriber.workspace = true
+
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/v{ version }/vizier-v{ version }-{ target }.tar.gz"
+pkg-fmt = "tgz"
+bin-dir = "vizier-v{ version }-{ target }/{ bin }"

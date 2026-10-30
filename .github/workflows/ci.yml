@@ -1,0 +1,139 @@
+name: CI
+
+# Per-PR checks (specs/037-core-extraction). Kept small on purpose: none of these builds the
+# WebUI. `vizier-http`'s build script embeds whatever it finds in `webui-dist/index.html` when
+# `webui/` is not checked out, so a one-line stub is enough to compile and test everything.
+# Packaging and the release path are proven by a dry run of `release-and-publish.yml`.
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  # Every rustc warning and clippy's correctness/suspicious lints fail the build. The style,
+  # complexity and perf groups stay warnings: the tree carried ~100 of them before CI existed.
+  CLIPPY_LINTS: -D warnings -A clippy::style -A clippy::complexity -A clippy::perf
+
+jobs:
+  rust:
+    name: rust
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # The dummyplug harness starts the Node server from this one submodule.
+      - run: git submodule update --init dummyplug
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libssl-dev python3-dev libclang-dev clang perl make
+      - name: Stub the WebUI
+        run: |
+          mkdir -p crates/vizier-http/webui-dist
+          echo '<!doctype html><title>vizier</title>' > crates/vizier-http/webui-dist/index.html
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- $CLIPPY_LINTS
+      - name: Test
+        env:
+          CI: 'true'
+        run: cargo test --workspace
+
+  # The engine alone: no optional feature, no web or CLI crate.
+  core-minimal:
+    name: core-minimal
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: git submodule update --init dummyplug
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: core-minimal
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libssl-dev python3-dev libclang-dev clang perl make
+      - name: Test
+        env:
+          CI: 'true'
+        run: cargo test -p vizier-core --no-default-features
+
+  # Reads `cargo metadata` only: no compile.
+  policy:
+    name: policy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Layering
+        # The engine must not declare the web framework, the CLI or the terminal UI, and the
+        # HTTP adapter must not declare the CLI. Direct dependencies only: a third-party crate
+        # may legitimately pull axum or tower-http in transitively (bollard via tonic).
+        run: |
+          set -euo pipefail
+          direct() {
+            cargo metadata --format-version 1 --locked \
+              | jq -r --arg c "$1" '.packages[] | select(.name==$c) | .dependencies[] | select(.kind==null) | .name'
+          }
+          fail=0
+          check() {
+            crate="$1"; shift
+            for banned in "$@"; do
+              if direct "$crate" | grep -qx "$banned"; then
+                echo "::error::$crate depends on $banned, which belongs to a layer above it"
+                fail=1
+              fi
+            done
+          }
+          check vizier-core axum axum-extra tower-http utoipa-axum utoipa-swagger-ui clap inquire termimad daemonize dotenvy opentelemetry-otlp jsonwebtoken argon2 tracing-subscriber
+          check vizier-http clap inquire termimad daemonize dotenvy opentelemetry-otlp
+          exit $fail
+      - name: Dependencies unchanged
+        # FR-019: no dependency version or source may change. The workspace's own crates are
+        # left out; an entry on one side only (a feature made optional) is printed, not failed.
+        run: |
+          set -euo pipefail
+          triples() {
+            cargo metadata --format-version 1 --locked --manifest-path "$1/Cargo.toml" \
+              | jq -r '.packages[] | "\(.name) \(.version) \(.source)"' \
+              | grep -vE '^vizier(-core|-http|-derive)? ' | sort -u
+          }
+          git worktree add ../master origin/master
+          triples ../master > /tmp/master.txt
+          triples . > /tmp/head.txt
+          # A crate name on both sides whose set of (version, source) differs fails; a crate
+          # locked at several versions is compared as a set, not line by line.
+          python3 -I - /tmp/master.txt /tmp/head.txt <<'PY'
+          import sys
+          from collections import defaultdict
+          def load(path):
+              out = defaultdict(set)
+              for line in open(path):
+                  name, rest = line.rstrip("\n").split(" ", 1)
+                  out[name].add(rest)
+              return out
+          base, head = load(sys.argv[1]), load(sys.argv[2])
+          only = sorted(set(base) ^ set(head))
+          if only:
+              print("::notice::crates present on one side only (review):")
+              for n in only:
+                  print(f"  {n}: master={sorted(base.get(n, []))} head={sorted(head.get(n, []))}")
+          changed = [n for n in sorted(set(base) & set(head)) if base[n] != head[n]]
+          if changed:
+              print("::error::resolved dependency versions or sources changed:")
+              for n in changed:
+                  print(f"  {n}: master={sorted(base[n])} head={sorted(head[n])}")
+              sys.exit(1)
+          print("no dependency version changes")
+          PY

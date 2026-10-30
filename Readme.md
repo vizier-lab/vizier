@@ -110,8 +110,8 @@ just docker      # docker-compose down && up -d
 just jaeger      # local Jaeger for traces, UI at http://localhost:16686
 just run-otel    # `just run` exporting traces to it (also dev-otel; jaeger-down to stop)
 
-cargo test       # tests are sparse; most behavior is exercised by running the binary
-cargo clippy
+cargo test --workspace   # tests are sparse; most behavior is exercised by running the binary
+cargo clippy --workspace
 cd webui && npm run typecheck
 cd webui && npm run dev   # the WebUI on http://localhost:5173, proxying /api to a running `just run`
 ```
@@ -176,28 +176,33 @@ git add design && git commit -m "chore: bump design library"
 ### Project structure
 
 ```
-src/
-  cli/              run / shutdown / onboard / skill / agent subcommands
-  config/           .vizier.yaml schema (providers, storage, http channel, shell & MCP types)
-  dependencies.rs   VizierDependencies: opens storage, runs one-time migrations
-  transport.rs      in-process message bus (flume) tying agents, channels, scheduler together
-  agents/           per-agent process loop, model/provider abstraction, tools, hooks, shell (local/docker), MCP, skills runtime
-  channels/         discord (twilight), telegram (teloxide), http (axum: REST, WS, JWT/API-key auth, WebUI static)
-  scheduler/        cron + one-time tasks, dream cycle
-  sandbox/          sandboxed Python engine (monty): run loop, JSON⇄Python values, tool docs
-  storage/          VizierStorage over SQLite; document store + BundleMemoryStore for markdown memory
-  indexer/          sqlite-vec vector index
-  embedding/ tts/ stt/ image_generation/   per-provider adapters
-  skill/            skill packages: manifest, install (registry/git/local)
-  schema/           shared types (agent config, requests/responses, sessions, history)
-  command/          Unix-socket command server (shutdown, health) for the CLI
-webui/              submodule: vizier-lab/webui (React Router v7 + React 19 + Tailwind v4); built output served by the HTTP channel
+crates/
+  vizier-core/      the engine, as a library (no web framework or CLI)
+    src/
+      runtime.rs        VizierRuntime: starts the engine on a workspace, reports instead of exiting
+      config/           .vizier.yaml schema (providers, storage, http channel, shell & MCP types)
+      dependencies.rs   VizierDependencies: opens storage, runs one-time migrations
+      transport.rs      in-process message bus (flume) tying agents, channels, scheduler together
+      agents/           per-agent process loop, model/provider abstraction, tools, hooks, shell (local/docker), MCP, skills runtime
+      channels/         the Discord (twilight) and Telegram (teloxide) readers
+      scheduler/        cron + one-time tasks, dream cycle
+      sandbox/          sandboxed Python engine (monty): run loop, JSON⇄Python values, tool docs
+      storage/          VizierStorage over SQLite; document store + BundleMemoryStore for markdown memory
+      indexer/          sqlite-vec vector index
+      embedding/ tts/ stt/ image_generation/   per-provider adapters
+      skill/            skill packages: manifest, install (registry/git/local)
+      schema/           shared types (agent config, requests/responses, sessions, history)
+    templates/      CORE.md seed for new agents
+    assets/catalogue/   the bundled model catalogue
+    examples/headless.rs   run the engine with no server
+  vizier-http/      axum: REST, WebSocket, JWT/API-key auth, OpenAPI, the embedded WebUI
+  vizier/           the `vizier` binary: run / shutdown / onboard / skill / agent, the command socket
+  vizier-derive/    #[derive(MarkdownDoc)] for frontmatter+body documents
+webui/              submodule: vizier-lab/webui (React Router v7 + React 19 + Tailwind v4); built output embedded by vizier-http
 design/             submodule: vizier-lab/design, the UI library + Storybook catalogue
 landing/            submodule: vizier-lab/landing, the website (landing page, blog, docs)
 legacy/             the previous WebUI, kept for reference; never built or served
-templates/          CORE.md seed for new agents
 skills/             skill registry (installed with `vizier skill install <slug>`)
-vizier-derive/      #[derive(MarkdownDoc)] for frontmatter+body documents
 docs/               documentation source, rendered by landing/ as www.vizier.rs/docs
 specs/              design specs (Spec Kit)
 ```
@@ -206,9 +211,9 @@ specs/              design specs (Spec Kit)
 
 Everything is trait-based — implement the trait and register it in the module constructor:
 
-- **Tool**: implement `VizierTool` in `src/agents/tools/<name>.rs`, add it to `default_toolset` or `user_toolset` in `VizierTools::new()`; add to `DREAM_TOOL_NAMES` if the dream cycle should have it.
-- **Channel**: implement `VizierChannel` in `src/channels/`, spawn it in `VizierChannels::run()`.
-- **Provider**: add a variant to `ProviderVariant` + config struct in `src/config/provider.rs`, resolve credentials in `provider_keys.rs`, build the client in `src/agents/agent/model/`.
+- **Tool**: implement `VizierTool` in `crates/vizier-core/src/agents/tools/<name>.rs`, add it to `default_toolset` or `user_toolset` in `VizierTools::new()`; add to `DREAM_TOOL_NAMES` if the dream cycle should have it.
+- **Channel**: implement `VizierChannel` in `crates/vizier-core/src/channels/` and register its integration kind in `IntegrationKinds::builtin()`.
+- **Provider**: add a variant to `ProviderVariant` + config struct in `crates/vizier-core/src/config/provider.rs`, resolve credentials in `provider_keys.rs`, build the client in `crates/vizier-core/src/agents/agent/model/`.
 - **Storage backend**: implement every `*Storage` trait and `VizierStorageProvider`.
 
 Conventions: `tracing` for logs (never `println!`), `crate::Result` / `VizierError`, conventional commits (`feat:`, `fix:`, …; changelog by `git-cliff`).

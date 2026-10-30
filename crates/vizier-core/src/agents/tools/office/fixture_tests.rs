@@ -1,0 +1,146 @@
+//! Readers against golden files written by other tools (python-docx, openpyxl, xlwt and
+//! hand-written OOXML), not by this crate's own writers.
+
+use super::docx::to_markdown;
+use super::xlsx::{read_csv, read_workbook, Flavour};
+use super::{Cell, Dimensions, SheetRead, WorkbookRead};
+
+/// The sample files in `fixtures/office/` at the repository root (see its README). They are
+/// compiled in, so a missing file fails the build rather than skipping a test.
+macro_rules! fixture {
+    ($name:literal) => {
+        include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/office/", $name)).to_vec()
+    };
+}
+
+fn rows(sheet: &SheetRead) -> &Vec<Vec<Cell>> {
+    sheet.rows.as_ref().unwrap()
+}
+
+fn sheet<'a>(read: &'a WorkbookRead, name: &str) -> &'a SheetRead {
+    read.sheets.iter().find(|s| s.name == name).unwrap()
+}
+
+#[test]
+fn a_word_table_is_a_markdown_pipe_table() {
+    let table = fixture!("table.docx");
+    let md = to_markdown(&table, 100_000).unwrap().markdown;
+    assert!(!md.contains("[table content]"), "{md}");
+    assert!(md.contains("# Quarterly Report"), "{md}");
+    assert!(md.contains("**bold**") && md.contains("*italic*"), "{md}");
+    assert!(md.contains("| Name | Note |\n|---|---|\n| alpha | a\\|b |\n| beta | plain |"), "{md}");
+    assert!(md.contains("[the docs](https://example.com/docs)"), "{md}");
+    assert!(md.contains("Top item") && md.contains("Nested item"), "{md}");
+}
+
+#[test]
+fn an_xlsx_from_another_tool_keeps_its_types() {
+    let mixed = fixture!("mixed.xlsx");
+    let read = read_workbook(&mixed, Flavour::Xlsx, None, None, false, false).unwrap();
+    assert_eq!(read.sheets.len(), 2);
+
+    let types = sheet(&read, "Types");
+    let r = rows(types);
+    assert_eq!(r[0], vec![Cell::Text("Name".into()), Cell::Text("Value".into())]);
+    assert_eq!(r[1][1], Cell::Text("hello".into()));
+    assert_eq!(r[2][1], Cell::number(12.0));
+    assert_eq!(r[3][1], Cell::number(2.5));
+    assert_eq!(r[4][1], Cell::Bool(true));
+    assert_eq!(r[5][1], Cell::Date { date: "2026-11-01".into() });
+    assert_eq!(r[6][1], Cell::Null);
+    assert_eq!(r[7][1], Cell::Error { error: "#DIV/0!".into() });
+    assert_eq!(types.dimensions, Dimensions { rows: 8, cols: 2 });
+
+    let offset = sheet(&read, "Offset");
+    assert_eq!(offset.start.as_deref(), Some("C5"));
+    assert_eq!(offset.used_range.as_deref(), Some("C5:D6"));
+    assert_eq!(rows(offset)[0][0], Cell::Text("x".into()));
+    assert_eq!(rows(offset)[1][1], Cell::number(7.0));
+}
+
+#[test]
+fn a_formula_shows_its_saved_value_and_a_missing_one_is_named() {
+    let formulas = fixture!("formulas.xlsx");
+    let read = read_workbook(&formulas, Flavour::Xlsx, Some("Data"), None, false, false).unwrap();
+    let r = rows(&read.sheets[0]);
+    assert_eq!(r[3][1], Cell::number(42.0));
+    assert_eq!(r[4][1], Cell::Text("big".into()));
+    assert_eq!(r[5][1], Cell::Null);
+    assert_eq!(r[6][1], Cell::Error { error: "#DIV/0!".into() });
+    let note = read.note.unwrap();
+    assert!(note.contains("no saved value") && note.contains("B6"), "{note}");
+    assert!(!note.contains("B4"), "{note}");
+
+    let with = read_workbook(&formulas, Flavour::Xlsx, Some("Data"), None, false, true).unwrap();
+    assert_eq!(
+        rows(&with.sheets[0])[3][1],
+        Cell::Formula { value: Some(Box::new(Cell::number(42.0))), formula: "=SUM(B2:B3)".into() }
+    );
+    assert_eq!(
+        rows(&with.sheets[0])[5][1],
+        Cell::Formula { value: None, formula: "=B2*2".into() }
+    );
+
+    let cross = read_workbook(&formulas, Flavour::Xlsx, Some("Summary"), None, false, false).unwrap();
+    assert_eq!(rows(&cross.sheets[0])[0][1], Cell::number(42.0));
+}
+
+#[test]
+fn csv_lists_the_formula_cells_of_a_real_file() {
+    let formulas = fixture!("formulas.xlsx");
+    let csv = read_csv(&formulas, Flavour::Xlsx, Some("Data"), None, false).unwrap();
+    let s = &csv.sheets[0];
+    assert_eq!(s.formula_cells, vec!["B4", "B5", "B6", "B7"]);
+    assert!(s.csv.contains("sum,=SUM(B2:B3)"), "{}", s.csv);
+}
+
+#[test]
+fn a_legacy_xls_reads_through_the_xls_flavour() {
+    let legacy = fixture!("legacy.xls");
+    let read = read_workbook(&legacy, Flavour::Xls, None, None, false, false).unwrap();
+    let r = rows(&read.sheets[0]);
+    assert_eq!(read.sheets[0].name, "Old");
+    assert_eq!(r[0], vec![Cell::Text("Item".into()), Cell::Text("Qty".into())]);
+    assert_eq!(r[1], vec![Cell::Text("pens".into()), Cell::number(12.0)]);
+    assert_eq!(r[2], vec![Cell::Text("ink".into()), Cell::number(2.5)]);
+}
+
+#[test]
+fn executed_formula_calculates_a_file_from_another_tool() {
+    let formulas = fixture!("formulas.xlsx");
+    let read = read_csv(&formulas, Flavour::Xlsx, Some("Data"), None, true).unwrap();
+    assert_eq!(
+        read.sheets[0].csv,
+        "Item,Amount\na,17\nb,25\nsum,42\nlabel,big\ndouble,34\nbroken,#DIV/0!\n",
+        "B6 had no saved result; it is calculated now"
+    );
+    assert_eq!(read.note, None);
+    // Without the flag the formula text is shown, and the cell with no saved value is not empty.
+    let text = read_csv(&formulas, Flavour::Xlsx, Some("Data"), None, false).unwrap();
+    assert!(text.sheets[0].csv.contains("double,=B2*2"), "{}", text.sheets[0].csv);
+    // A reference to another sheet.
+    let summary = read_csv(&formulas, Flavour::Xlsx, Some("Summary"), None, true).unwrap();
+    assert_eq!(summary.sheets[0].csv, "Total from Data,42\n");
+}
+
+#[test]
+fn executed_formula_keeps_saved_values_when_the_engine_cannot_read_the_file() {
+    // The same sheets without styles and document properties: calamine reads them, the formula
+    // engine refuses them, and the read still succeeds with the saved values and says why.
+    let minimal = fixture!("formulas-minimal.xlsx");
+    let read = read_csv(&minimal, Flavour::Xlsx, Some("Data"), None, true).unwrap();
+    assert_eq!(
+        read.sheets[0].csv,
+        "Item,Amount\na,17\nb,25\nsum,42\nlabel,big\ndouble,\nbroken,#DIV/0!\n"
+    );
+    let note = read.note.unwrap();
+    assert!(note.contains("not calculated") && note.contains("could not read"), "{note}");
+}
+
+#[test]
+fn a_legacy_xls_is_never_calculated() {
+    let legacy = fixture!("legacy.xls");
+    let read = read_csv(&legacy, Flavour::Xls, None, None, true).unwrap();
+    assert!(read.sheets[0].csv.starts_with("Item,Qty\npens,12\nink,2.5\n"), "{}", read.sheets[0].csv);
+    assert!(read.note.unwrap().contains("legacy .xls"));
+}

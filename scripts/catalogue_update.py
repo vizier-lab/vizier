@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Refresh the bundled catalogue seeds in assets/catalogue/.
+"""Refresh the bundled catalogue seeds in crates/vizier-core/assets/catalogue/.
 
 - `api.json` + `meta.json` + `logos/` come from models.dev (spec 015).
 - `openrouter_media.json` comes from OpenRouter's three public media model lists (spec 028).
@@ -34,11 +34,11 @@ MEDIA_URLS = {
     "image": "https://openrouter.ai/api/v1/images/models",
 }
 MEDIA_SCHEMA = 1
-# A defensive cap, matching `src/catalogue/media.rs`.
+# A defensive cap, matching `crates/vizier-core/src/catalogue/media.rs`.
 MEDIA_MAX = 2000
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-OUT_DIR = os.path.join(ROOT, "assets", "catalogue")
+OUT_DIR = os.path.join(ROOT, "crates", "vizier-core", "assets", "catalogue")
 LOGO_DIR = os.path.join(OUT_DIR, "logos")
 
 PROVIDER_FIELDS = ("id", "name", "env", "npm", "api", "doc", "models")
@@ -62,7 +62,7 @@ MODEL_FIELDS = (
 )
 
 # The `npm` hints vizier can speak (research R2). Kept in step with
-# `src/catalogue/data.rs::dialect_for_npm`.
+# `crates/vizier-core/src/catalogue/data.rs::dialect_for_npm`.
 SUPPORTED_NPM = {
     "@ai-sdk/openai-compatible",
     "@openrouter/ai-sdk-provider",
@@ -375,7 +375,7 @@ def update():
         f"catalogue: {len(data)} providers, {model_count} models; "
         f"{len(logos)} logos, {len(no_logo)} without a logo, {len(failed)} failed; "
         f"media: {media_counts}; "
-        f"{size / 1024:.0f} KiB in assets/catalogue"
+        f"{size / 1024:.0f} KiB in crates/vizier-core/assets/catalogue"
     )
 
 

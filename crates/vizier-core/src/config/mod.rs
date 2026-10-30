@@ -1,0 +1,264 @@
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    str::FromStr,
+};
+
+use anyhow::{Context, Result};
+use serde::{Deserialize, Serialize};
+
+pub mod embedding;
+pub mod provider;
+pub mod shell;
+pub mod storage;
+pub mod tools;
+
+use crate::{
+    config::{
+        storage::StorageConfig,
+    },
+    constant,
+};
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ChannelsConfig {
+    pub http: Option<HTTPChannelConfig>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct HTTPChannelConfig {
+    pub port: u32,
+    pub jwt_secret: String,
+    #[serde(default = "default_jwt_expiry")]
+    pub jwt_expiry_hours: u64,
+    #[serde(default = "default_ws_idle_timeout_secs")]
+    pub ws_idle_timeout_secs: u64,
+}
+
+fn default_jwt_expiry() -> u64 {
+    720 // 30 days
+}
+
+fn default_ws_idle_timeout_secs() -> u64 {
+    300 // 5 minutes
+}
+
+/// Passage sizing bounds for the memory chunker (`src/storage/chunk.rs`). Byte-denominated
+/// rather than token-denominated so the chunker stays synchronous and provider-agnostic — no
+/// tokenizer dependency. `target_size` is what the packer aims for, `min_size` is a constraint
+/// that overrides boundary preference, and `max_size` is a hard ceiling except where an
+/// indivisible block is permitted to overflow it (FR-002, FR-003, FR-004, FR-041).
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+pub struct ChunkLimits {
+    #[serde(default = "default_chunk_target_size")]
+    pub target_size: usize,
+    #[serde(default = "default_chunk_min_size")]
+    pub min_size: usize,
+    #[serde(default = "default_chunk_max_size")]
+    pub max_size: usize,
+}
+
+fn default_chunk_target_size() -> usize {
+    1200
+}
+
+fn default_chunk_min_size() -> usize {
+    400
+}
+
+fn default_chunk_max_size() -> usize {
+    2400
+}
+
+impl Default for ChunkLimits {
+    fn default() -> Self {
+        Self {
+            target_size: default_chunk_target_size(),
+            min_size: default_chunk_min_size(),
+            max_size: default_chunk_max_size(),
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct VizierConfig {
+    #[serde(skip)]
+    pub workspace: String,
+    /// Removed in spec 015 (FR-028): providers are configured in Settings › Providers or
+    /// through their environment variables. A leftover section is read only to warn about it.
+    #[serde(default, skip_serializing)]
+    pub providers: Option<serde_yaml::Value>,
+    pub storage: StorageConfig,
+    pub channels: ChannelsConfig,
+    #[serde(default = "default_worker_threads")]
+    pub worker_threads: usize,
+    /// The model catalogue's lazy refresh (spec 015, data-model §10).
+    #[serde(default)]
+    pub catalogue: CatalogueConfig,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct CatalogueConfig {
+    /// Refresh from `url` when someone uses the catalogue and the copy is older than `ttl`.
+    /// Off for air-gapped installs; the bundled snapshot is always complete.
+    #[serde(default = "default_catalogue_refresh")]
+    pub refresh: bool,
+    #[serde(default = "default_catalogue_ttl")]
+    pub ttl: duration_string::DurationString,
+    /// Logos come from the same origin's `/logos/`.
+    #[serde(default = "default_catalogue_url")]
+    pub url: String,
+}
+
+fn default_catalogue_refresh() -> bool {
+    true
+}
+
+fn default_catalogue_ttl() -> duration_string::DurationString {
+    std::time::Duration::from_secs(24 * 3600).into()
+}
+
+fn default_catalogue_url() -> String {
+    "https://models.dev/api.json".into()
+}
+
+impl Default for CatalogueConfig {
+    fn default() -> Self {
+        Self {
+            refresh: default_catalogue_refresh(),
+            ttl: default_catalogue_ttl(),
+            url: default_catalogue_url(),
+        }
+    }
+}
+
+fn default_worker_threads() -> usize {
+    4
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+struct AllConfig {
+    vizier: VizierConfig,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct RunOverrides {
+    pub workspace: Option<PathBuf>,
+    pub port: Option<u32>,
+    pub storage: Option<StorageConfig>,
+    pub workers: Option<usize>,
+    pub ws_idle_timeout: Option<u64>,
+    pub catalogue_refresh: Option<bool>,
+    pub catalogue_ttl: Option<duration_string::DurationString>,
+}
+
+impl VizierConfig {
+    /// Reads a config file. `${ENV}` references in its text are expanded, and its workspace is
+    /// `.vizier` next to the file, created if missing.
+    pub fn from_path(path: &Path) -> Result<Self> {
+        let raw_string = fs::read_to_string(path)
+            .with_context(|| format!("failed to read config file: {}", path.display()))?;
+        let parent_path = if path.parent().map(|p| p.as_os_str().is_empty()).unwrap_or(true) {
+            PathBuf::from_str("./").unwrap()
+        } else {
+            path.parent().unwrap().to_path_buf()
+        };
+
+        let config_string = shellexpand::env(&raw_string)?;
+        let mut config = serde_yaml::from_str::<AllConfig>(&config_string)?;
+
+        let mut ws = parent_path;
+        ws.push(".vizier");
+        let _ = fs::create_dir_all(&ws)?;
+        config.vizier.workspace = ws.to_string_lossy().to_string();
+
+        Ok(config.vizier)
+    }
+
+    /// The built-in defaults on an explicit workspace. Reads nothing from the environment.
+    pub fn with_workspace(workspace: PathBuf) -> Self {
+        Self {
+            workspace: workspace.to_string_lossy().to_string(),
+            ..Default::default()
+        }
+    }
+
+    /// This config with `${ENV}` references expanded in every value, as
+    /// [`VizierConfig::from_path`] expands a file's text.
+    pub fn expand_env(&self) -> Result<Self> {
+        let yaml = serde_yaml::to_string(&AllConfig {
+            vizier: self.clone(),
+        })?;
+        let expanded = shellexpand::env(&yaml)?;
+        Ok(serde_yaml::from_str::<AllConfig>(&expanded)?.vizier)
+    }
+
+    pub fn save(&self, path: std::path::PathBuf, addition: String) -> Result<()> {
+        if let Some(parent_dir) = path.parent() {
+            let _ = std::fs::create_dir_all(parent_dir)?;
+        }
+
+        let _ = fs::write(
+            &path,
+            format!(
+                "{}\n\n{addition}",
+                serde_yaml::to_string(&AllConfig {
+                    vizier: self.clone(),
+                })?
+            ),
+        )?;
+
+        Ok(())
+    }
+
+    pub fn apply_overrides(&mut self, overrides: &RunOverrides) {
+        if let Some(ref w) = overrides.workspace {
+            self.workspace = w.to_string_lossy().to_string();
+            let _ = fs::create_dir_all(w);
+        }
+        if let Some(p) = overrides.port {
+            let http = self.channels.http.get_or_insert_with(default_http_channel);
+            http.port = p;
+        }
+        if let Some(ref s) = overrides.storage {
+            self.storage = s.clone();
+        }
+        if let Some(w) = overrides.workers {
+            self.worker_threads = w;
+        }
+        if let Some(t) = overrides.ws_idle_timeout {
+            let http = self.channels.http.get_or_insert_with(default_http_channel);
+            http.ws_idle_timeout_secs = t;
+        }
+        if let Some(r) = overrides.catalogue_refresh {
+            self.catalogue.refresh = r;
+        }
+        if let Some(t) = overrides.catalogue_ttl {
+            self.catalogue.ttl = t;
+        }
+    }
+}
+
+fn default_http_channel() -> HTTPChannelConfig {
+    HTTPChannelConfig {
+        port: 9999,
+        jwt_secret: "${VIZIER_JWT_SECRET}".into(),
+        jwt_expiry_hours: 720,
+        ws_idle_timeout_secs: 300,
+    }
+}
+
+impl Default for VizierConfig {
+    fn default() -> Self {
+        VizierConfig {
+            workspace: String::new(),
+            storage: StorageConfig::Sqlite,
+            providers: None,
+            channels: ChannelsConfig {
+                http: Some(default_http_channel()),
+            },
+            worker_threads: 4,
+            catalogue: CatalogueConfig::default(),
+        }
+    }
+}

@@ -1,0 +1,119 @@
+[package]
+name = "vizier-core"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "The vizier agent engine: agents, tools, memory and providers, with no web or CLI layer"
+keywords = ["ai", "agent", "llm"]
+categories = ["asynchronous"]
+readme = "README.md"
+# Tests and their fixtures stay in the repository.
+include = [
+  "/src/**/*",
+  "/build.rs",
+  "/Cargo.toml",
+  "/README.md",
+  "/assets/catalogue/**/*",
+  "/templates/**/*",
+  "/examples/**/*",
+]
+
+[package.metadata.docs.rs]
+# The groups that need no native toolchain or network at build time.
+features = ["discord", "telegram", "documents", "utoipa"]
+
+[features]
+# The engine builds and runs an agent turn with none of these (specs/037-core-extraction R9).
+default = []
+discord = ["dep:twilight-gateway", "dep:twilight-http", "dep:twilight-model", "dep:twilight-util"]
+telegram = ["dep:teloxide"]
+media = ["dep:whisper-rs", "dep:any-tts", "dep:symphonia", "dep:symphonia-adapter-opus-rs", "dep:hound"]
+docker-shell = ["dep:bollard", "dep:indicatif"]
+documents = ["dep:pdf-extract", "dep:docx-rs", "dep:calamine", "dep:rust_xlsxwriter", "dep:ironcalc"]
+utoipa = ["dep:utoipa"]
+telemetry = ["dep:opentelemetry", "dep:tracing-opentelemetry"]
+full = ["discord", "telegram", "media", "docker-shell", "documents", "utoipa", "telemetry"]
+
+[dependencies]
+vizier-derive.workspace = true
+any-tts = { workspace = true, optional = true }
+anyhow.workspace = true
+arc-swap.workspace = true
+async-trait.workspace = true
+base64.workspace = true
+bollard = { workspace = true, optional = true }
+bzip2.workspace = true
+calamine = { workspace = true, optional = true }
+chrono.workspace = true
+config.workspace = true
+croner.workspace = true
+docx-rs = { workspace = true, optional = true }
+duration-string.workspace = true
+fastembed.workspace = true
+flate2.workspace = true
+flume.workspace = true
+form_urlencoded.workspace = true
+futures.workspace = true
+glob.workspace = true
+hound = { workspace = true, optional = true }
+html2md.workspace = true
+indicatif = { workspace = true, optional = true }
+ironcalc = { workspace = true, optional = true }
+mime_guess.workspace = true
+monty.workspace = true
+monty-types.workspace = true
+nanoid.workspace = true
+opentelemetry = { workspace = true, optional = true }
+parking_lot.workspace = true
+pdf-extract = { workspace = true, optional = true }
+pulldown-cmark.workspace = true
+rand.workspace = true
+regex.workspace = true
+reqwest.workspace = true
+ring.workspace = true
+rmcp.workspace = true
+rusqlite.workspace = true
+rust-embed.workspace = true
+rust_xlsxwriter = { workspace = true, optional = true }
+schemars.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_urlencoded.workspace = true
+serde_yaml.workspace = true
+sha2.workspace = true
+shellexpand.workspace = true
+similar.workspace = true
+slugify.workspace = true
+sqlite-vec.workspace = true
+strum.workspace = true
+symphonia = { workspace = true, optional = true }
+symphonia-adapter-opus-rs = { workspace = true, optional = true }
+tar.workspace = true
+teloxide = { workspace = true, optional = true }
+tempfile.workspace = true
+text-splitter.workspace = true
+tokio.workspace = true
+tokio-tungstenite.workspace = true
+tracing.workspace = true
+tracing-opentelemetry = { workspace = true, optional = true }
+tungstenite.workspace = true
+twilight-gateway = { workspace = true, optional = true }
+twilight-http = { workspace = true, optional = true }
+twilight-model = { workspace = true, optional = true }
+twilight-util = { workspace = true, optional = true }
+utoipa = { workspace = true, optional = true }
+uuid.workspace = true
+whisper-rs = { workspace = true, optional = true }
+zeroize.workspace = true
+zip.workspace = true
+
+[build-dependencies]
+flate2.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+# The HTTP mocks of the provider transport tests.
+axum.workspace = true
+tokio = { workspace = true, features = ["test-util"] }

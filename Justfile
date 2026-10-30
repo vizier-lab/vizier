@@ -91,7 +91,7 @@ landing-sync:
   @cd landing && VIZIER_SOURCE=.. npm run sync
 
 release:
-  @cargo build --release
+  @cargo build --release -p vizier
 
 catalogue-update:
   python3 -I scripts/catalogue_update.py
@@ -211,10 +211,10 @@ worktree-rm branch:
   echo "removed $dir (branch {{branch}} kept)"
 
 test:
-  cargo test
+  cargo test --workspace
 
 lint:
-  cargo clippy
+  cargo clippy --workspace
 
 typecheck:
   cd webui && npm run typecheck
