@@ -12,7 +12,11 @@ import {
   type SimulationNodeDatum,
 } from "d3-force";
 import { cx } from "../../lib/cx";
+import { FilterTabs } from "../FilterTabs/FilterTabs";
 import { IconButton, IconButtonGroup } from "../IconButton/IconButton";
+import { Slider } from "../Slider/Slider";
+import { SwitchRow } from "../SwitchRow/SwitchRow";
+import { Button } from "../Button/Button";
 
 export type GraphNode = {
   id: string;
@@ -45,7 +49,34 @@ export type MemoryGraphProps = {
   caption?: ReactNode;
   /** Top left: the bundle graph's Largest · Recently changed · Most linked switch. */
   controls?: ReactNode;
+  /** Starting values of the control panel. */
+  defaultSettings?: Partial<GraphSettings>;
 } & Omit<HTMLAttributes<HTMLDivElement>, "onSelect">;
+
+/** How the layout behaves and how the graph is drawn; the control panel edits these. */
+export type GraphSettings = {
+  /** `auto` hides labels too small to read; `all` keeps every label; `none` only the hovered or selected one. */
+  labels: "auto" | "all" | "none";
+  /** Resting length of a link, in graph units. */
+  linkDistance: number;
+  /** How hard stars push each other apart. */
+  repulsion: number;
+  /** How strongly stars are drawn back to the middle. */
+  centerPull: number;
+  /** Scales every star. */
+  nodeSize: number;
+  /** Stop the layout where it is; stars stay put until moved by hand. */
+  frozen: boolean;
+};
+
+export const DEFAULT_GRAPH_SETTINGS: GraphSettings = {
+  labels: "auto",
+  linkDistance: 110,
+  repulsion: 260,
+  centerPull: 0.03,
+  nodeSize: 1,
+  frozen: false,
+};
 
 type SimNode = SimulationNodeDatum & GraphNode;
 type SimLink = SimulationLinkDatum<SimNode> & { dashed?: boolean };
@@ -66,7 +97,7 @@ const MIN_LABEL_PX = 7;
  * in, pan by dragging the background, and zoom with the wheel or the buttons.
  * Hovering a star lights its links; click selects, double-click opens.
  */
-export function MemoryGraph({ nodes, edges, selectedId, onSelect, onOpen, caption, controls, className, ...rest }: MemoryGraphProps) {
+export function MemoryGraph({ nodes, edges, selectedId, onSelect, onOpen, caption, controls, defaultSettings, className, ...rest }: MemoryGraphProps) {
   const box = useRef<HTMLDivElement>(null);
   const svg = useRef<SVGSVGElement>(null);
   const sim = useRef<Simulation<SimNode, SimLink> | null>(null);
@@ -77,6 +108,12 @@ export function MemoryGraph({ nodes, edges, selectedId, onSelect, onOpen, captio
   const [view, setView] = useState<View>({ x: 0, y: 0, k: 1 });
   const [, setTick] = useState(0);
   const [hover, setHover] = useState<string | null>(null);
+  const [settings, setSettings] = useState<GraphSettings>({ ...DEFAULT_GRAPH_SETTINGS, ...defaultSettings });
+  const [panel, setPanel] = useState(false);
+  const set = <K extends keyof GraphSettings>(key: K, value: GraphSettings[K]) => setSettings((s) => ({ ...s, [key]: value }));
+  // The simulation is built once per graph; the live settings are read through here.
+  const live = useRef(settings);
+  live.current = settings;
 
   // Follow the container's size.
   useEffect(() => {
@@ -88,7 +125,7 @@ export function MemoryGraph({ nodes, edges, selectedId, onSelect, onOpen, captio
   }, []);
 
   const max = Math.max(1, ...nodes.map((n) => n.weight));
-  const radius = (n: GraphNode) => 3 + (n.weight / max) * 14;
+  const radius = (n: GraphNode) => (3 + (n.weight / max) * 14) * settings.nodeSize;
 
   // (Re)build the simulation when the graph changes, keeping known positions.
   useEffect(() => {
@@ -108,12 +145,12 @@ export function MemoryGraph({ nodes, edges, selectedId, onSelect, onOpen, captio
     sim.current?.stop();
     let frame = 0;
     const s = forceSimulation<SimNode, SimLink>(next)
-      .force("link", forceLink<SimNode, SimLink>(links).id((d) => d.id).distance(110))
-      .force("charge", forceManyBody().strength(-260))
-      .force("center", forceCenter(w / 2, h / 2).strength(0.05))
+      .force("link", forceLink<SimNode, SimLink>(links).id((d) => d.id).distance(live.current.linkDistance))
+      .force("charge", forceManyBody().strength(-live.current.repulsion))
+      .force("center", forceCenter(w / 2, h / 2).strength(live.current.centerPull + 0.02))
       .force("collide", forceCollide<SimNode>().radius((d) => radius(d) + 18))
-      .force("x", forceX(w / 2).strength(0.03))
-      .force("y", forceY(h / 2).strength(0.03))
+      .force("x", forceX(w / 2).strength(live.current.centerPull))
+      .force("y", forceY(h / 2).strength(live.current.centerPull))
       .alphaDecay(0.02)
       .velocityDecay(0.3)
       .on("tick", () => {
@@ -131,12 +168,28 @@ export function MemoryGraph({ nodes, edges, selectedId, onSelect, onOpen, captio
       s.tick(300);
       setTick((t) => t + 1);
     }
+    if (live.current.frozen) s.stop();
     sim.current = s;
     return () => {
       s.stop();
       cancelAnimationFrame(frame);
     };
   }, [nodes, edges, size.w, size.h]);
+
+  // A changed setting reshapes the running layout instead of rebuilding it.
+  useEffect(() => {
+    const s = sim.current;
+    if (!s) return;
+    (s.force("link") as ReturnType<typeof forceLink<SimNode, SimLink>>).distance(settings.linkDistance);
+    (s.force("charge") as ReturnType<typeof forceManyBody>).strength(-settings.repulsion);
+    (s.force("center") as ReturnType<typeof forceCenter>).strength(settings.centerPull + 0.02);
+    (s.force("x") as ReturnType<typeof forceX>).strength(settings.centerPull);
+    (s.force("y") as ReturnType<typeof forceY>).strength(settings.centerPull);
+    (s.force("collide") as ReturnType<typeof forceCollide<SimNode>>).radius((d) => radius(d) + 18);
+    if (settings.frozen) s.stop();
+    else s.alpha(0.6).restart();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settings]);
 
   const toGraph = (clientX: number, clientY: number) => {
     const r = svg.current!.getBoundingClientRect();
@@ -155,6 +208,14 @@ export function MemoryGraph({ nodes, edges, selectedId, onSelect, onOpen, captio
     const r = svg.current!.getBoundingClientRect();
     zoomAt(view.k * (e.deltaY > 0 ? 0.9 : 1.1), e.clientX - r.left, e.clientY - r.top);
   };
+
+  // Escape closes the panel from anywhere on the page, not only from inside it.
+  useEffect(() => {
+    if (!panel) return;
+    const close = (e: globalThis.KeyboardEvent) => e.key === "Escape" && setPanel(false);
+    window.addEventListener("keydown", close);
+    return () => window.removeEventListener("keydown", close);
+  }, [panel]);
 
   // The wheel must not scroll the page while it zooms the graph.
   useEffect(() => {
@@ -185,7 +246,12 @@ export function MemoryGraph({ nodes, edges, selectedId, onSelect, onOpen, captio
         const p = toGraph(ev.clientX, ev.clientY);
         d.node.fx = p.x;
         d.node.fy = p.y;
-        sim.current?.alpha(0.1).restart();
+        if (live.current.frozen) {
+          // A frozen layout has no ticks to move the star, so place it directly.
+          d.node.x = p.x;
+          d.node.y = p.y;
+          setTick((t) => t + 1);
+        } else sim.current?.alpha(0.1).restart();
       }
     };
     const up = () => {
@@ -218,7 +284,7 @@ export function MemoryGraph({ nodes, edges, selectedId, onSelect, onOpen, captio
   const focus = hover ?? selectedId;
   const near = (e: GraphEdge) => e.from === focus || e.to === focus;
   const neighbours = new Set(edges.filter(near).flatMap((e) => [e.from, e.to]));
-  const labelsReadable = LABEL_SIZE * view.k >= MIN_LABEL_PX;
+  const labelsReadable = settings.labels === "all" || (settings.labels === "auto" && LABEL_SIZE * view.k >= MIN_LABEL_PX);
 
   return (
     <div ref={box} className={cx("relative flex flex-col overflow-hidden rounded-xl bg-ground", className)} {...rest}>
@@ -227,7 +293,41 @@ export function MemoryGraph({ nodes, edges, selectedId, onSelect, onOpen, captio
         <IconButton variant="ghost" icon="zoom-in" aria-label="Zoom in" onClick={() => zoomAt(view.k * 1.3, size.w / 2, size.h / 2)} />
         <IconButton variant="ghost" icon="zoom-out" aria-label="Zoom out" onClick={() => zoomAt(view.k / 1.3, size.w / 2, size.h / 2)} />
         <IconButton variant="ghost" icon="maximize" aria-label="Reset view" onClick={() => setView({ x: 0, y: 0, k: 1 })} />
+        <IconButton variant="ghost" icon="settings" aria-label="Graph settings" aria-expanded={panel} selected={panel} onClick={() => setPanel((p) => !p)} />
       </IconButtonGroup>
+      {panel && (
+        <div
+          role="group"
+          aria-label="Graph settings"
+          className="absolute top-52 right-12 z-10 flex w-264 max-w-[calc(100%-24px)] flex-col gap-14 rounded-lg border border-border-strong bg-surface p-14 shadow-lg"
+        >
+          <div className="-mt-4 -mr-6 flex items-center justify-between gap-8">
+            <span className="type-body-strong text-fg">Graph settings</span>
+            <IconButton variant="ghost" size="sm" icon="close" aria-label="Close graph settings" onClick={() => setPanel(false)} />
+          </div>
+          <div className="flex flex-col gap-6">
+            <span className="type-ui-medium text-soft">Labels</span>
+            <FilterTabs
+              aria-label="Labels"
+              value={settings.labels}
+              onChange={(v) => set("labels", v)}
+              options={[
+                { value: "auto", label: "Auto" },
+                { value: "all", label: "All" },
+                { value: "none", label: "None" },
+              ]}
+            />
+          </div>
+          <Slider label="Star size" min={0.5} max={2} step={0.1} value={settings.nodeSize} display={`${settings.nodeSize.toFixed(1)}×`} onChange={(v) => set("nodeSize", v)} />
+          <Slider label="Link length" min={30} max={300} step={10} value={settings.linkDistance} onChange={(v) => set("linkDistance", v)} />
+          <Slider label="Repulsion" min={50} max={800} step={10} value={settings.repulsion} onChange={(v) => set("repulsion", v)} />
+          <Slider label="Pull to centre" min={0} max={0.2} step={0.01} value={settings.centerPull} display={settings.centerPull.toFixed(2)} onChange={(v) => set("centerPull", v)} />
+          <SwitchRow label="Freeze layout" helper="Stars stay where they are until you move them." checked={settings.frozen} onCheckedChange={(v) => set("frozen", v)} />
+          <Button size="sm" variant="ghost" onClick={() => setSettings({ ...DEFAULT_GRAPH_SETTINGS, ...defaultSettings })}>
+            Reset settings
+          </Button>
+        </div>
+      )}
       <svg
         ref={svg}
         width={size.w}
@@ -237,7 +337,10 @@ export function MemoryGraph({ nodes, edges, selectedId, onSelect, onOpen, captio
         className={cx("h-full w-full touch-none select-none", drag.current?.kind === "pan" ? "cursor-grabbing" : "cursor-grab")}
         onWheel={onWheel}
         onPointerDown={(e) => startDrag(e)}
-        onClick={() => select(null)}
+        onClick={() => {
+          setPanel(false);
+          select(null);
+        }}
       >
         <g transform={`translate(${view.x} ${view.y}) scale(${view.k})`}>
           {edges.map((e, i) => {

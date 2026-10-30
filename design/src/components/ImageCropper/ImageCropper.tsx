@@ -1,6 +1,8 @@
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent, type WheelEvent } from "react";
 import { cx } from "../../lib/cx";
+import { useBackdropDismiss } from "../../lib/dismiss";
 import { Button } from "../Button/Button";
+import { IconButton } from "../IconButton/IconButton";
 
 export type ImageCropperProps = {
   /** The picture to crop: a file the person chose. */
@@ -39,6 +41,7 @@ export function ImageCropper({ file, onCrop, onCancel, outputSize = 512, title =
   const [busy, setBusy] = useState(false);
   const drag = useRef<{ px: number; py: number; x: number; y: number }>(undefined);
   const dialog = useRef<HTMLDialogElement>(null);
+  const backdrop = useBackdropDismiss(onCancel);
 
   useEffect(() => {
     const d = dialog.current;
@@ -109,12 +112,17 @@ export function ImageCropper({ file, onCrop, onCancel, outputSize = 512, title =
         e.preventDefault();
         onCancel();
       }}
+      // The dialog's own box is the panel, so a press on its ::backdrop reports the dialog itself.
+      {...backdrop}
       className="m-auto max-w-full bg-transparent p-0 backdrop:bg-ground/60"
     >
       <div className="flex w-440 max-w-full flex-col gap-16 rounded-xl border border-border-strong bg-surface px-24 py-20 shadow-dialog">
-        <h2 id={titleId} className="type-heading text-fg">
-          {title}
-        </h2>
+        <div className="-mr-8 flex items-start justify-between gap-12">
+          <h2 id={titleId} className="type-heading text-fg">
+            {title}
+          </h2>
+          <IconButton variant="ghost" size="sm" icon="close" aria-label="Close" onClick={onCancel} />
+        </div>
         <div
           role="group"
           tabIndex={0}

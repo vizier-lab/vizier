@@ -41,7 +41,7 @@ const meta = {
     docs: {
       description: {
         component:
-          "Live, like the WebUI's graph: a force layout (d3-force). Drag a star to move it, drag the background to pan, scroll or use the buttons to zoom. Hover lights a star's links; click selects; double-click (or Enter) opens.",
+          "Live, like the WebUI's graph: a force layout (d3-force). Drag a star to move it, drag the background to pan, scroll or use the buttons to zoom. Hover lights a star's links; click selects; double-click (or Enter) opens. The settings button (top right) opens a panel: labels (auto, all, none), star size, link length, repulsion, pull to the centre, and a freeze switch that stops the layout where it is.",
       },
     },
   },

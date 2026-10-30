@@ -1,8 +1,10 @@
 import { useId, useState, type HTMLAttributes, type ReactNode } from "react";
 import { motion } from "motion/react";
 import { cx } from "../../lib/cx";
+import { useBackdropDismiss } from "../../lib/dismiss";
 import { Presence, dialogMotion, scrimMotion, useNativeDialog } from "../../lib/Motion";
 import { Button } from "../Button/Button";
+import { IconButton } from "../IconButton/IconButton";
 import { TextField } from "../TextField/TextField";
 
 export type DialogPanelProps = {
@@ -55,9 +57,13 @@ export function DialogPanel({
       )}
       {...rest}
     >
-      <h2 id={titleId} className="type-heading text-fg">
-        {title}
-      </h2>
+      <div className="-mr-8 flex items-start justify-between gap-12">
+        <h2 id={titleId} className="type-heading text-fg">
+          {title}
+        </h2>
+        {/* Every dialog can be closed from its corner, whatever its body holds. */}
+        <IconButton variant="ghost" size="sm" icon="close" aria-label="Close" onClick={onCancel} />
+      </div>
       {message && <p className="type-ui-para text-muted">{message}</p>}
       {children}
       {confirmWord && (
@@ -96,6 +102,7 @@ export type DialogProps = DialogPanelProps & { open: boolean };
 export function Dialog({ open, onCancel, ...panel }: DialogProps) {
   const titleId = useId();
   const { ref, onExitComplete } = useNativeDialog(open);
+  const backdrop = useBackdropDismiss(onCancel);
   return (
     <dialog
       ref={ref}
@@ -112,7 +119,8 @@ export function Dialog({ open, onCancel, ...panel }: DialogProps) {
       <Presence onExitComplete={onExitComplete}>
         {open && <motion.div key="scrim" aria-hidden {...scrimMotion} className="absolute inset-0 bg-ground/60" />}
         {open && (
-          <motion.div key="panel" {...dialogMotion} className="absolute inset-0 flex overflow-y-auto p-20">
+          // A press on the ground around the panel dismisses it, as Escape does.
+          <motion.div key="panel" {...dialogMotion} {...backdrop} className="absolute inset-0 flex overflow-y-auto p-20">
             <DialogPanel {...panel} titleId={titleId} onCancel={onCancel} className="m-auto" />
           </motion.div>
         )}
@@ -127,6 +135,7 @@ export function Dialog({ open, onCancel, ...panel }: DialogProps) {
  */
 export function Modal({ open, onClose, label, children }: { open: boolean; onClose: () => void; label: string; children: ReactNode }) {
   const { ref, onExitComplete } = useNativeDialog(open);
+  const backdrop = useBackdropDismiss(onClose);
   return (
     <dialog
       ref={ref}
@@ -147,7 +156,7 @@ export function Modal({ open, onClose, label, children }: { open: boolean; onClo
             key="panel"
             {...dialogMotion}
             className="absolute inset-0 flex overflow-y-auto p-20"
-            onClick={(e) => e.target === e.currentTarget && onClose()}
+            {...backdrop}
           >
             <div className="m-auto max-h-[92vh] max-w-[94vw] overflow-visible">{children}</div>
           </motion.div>

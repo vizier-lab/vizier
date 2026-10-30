@@ -1,7 +1,8 @@
-import { useId, useState, type HTMLAttributes, type KeyboardEvent, type ReactNode } from "react";
+import { useId, useRef, useState, type HTMLAttributes, type KeyboardEvent, type ReactNode } from "react";
 import { Icon } from "../../icons/Icon";
 import { cx } from "../../lib/cx";
 import { ContextRing } from "../ContextRing/ContextRing";
+import { useDismiss } from "../../lib/dismiss";
 import { SkillMenu, type SkillMenuItem } from "../SkillMenu/SkillMenu";
 
 export type ComposerProps = {
@@ -69,7 +70,11 @@ export function Composer({
   const disabled = !!disabledReason;
   const slash = /^\/(\S*)$/.exec(value);
   const matches = slash ? skills.filter((s) => s.name.toLowerCase().includes(slash[1].toLowerCase())) : [];
-  const menuOpen = !!slash && skills.length > 0;
+  // Escape or a press elsewhere puts the menu away until the text changes.
+  const [put, setPut] = useState<string | null>(null);
+  const menuOpen = !!slash && skills.length > 0 && put !== value;
+  const menuRoot = useRef<HTMLDivElement>(null);
+  useDismiss(menuOpen, () => setPut(value), menuRoot);
   const hasContent = value.trim().length > 0 || !!attachments || !!voice;
   // While the agent works, typing something turns Stop back into Send: the message queues.
   const canSend = !disabled && hasContent;
@@ -99,7 +104,7 @@ export function Composer({
 
   return (
     <div className={cx("flex flex-col gap-10", className)} {...rest}>
-      <div className="relative">
+      <div ref={menuRoot} className="relative">
         {menuOpen && (
           <SkillMenu
             id={`${id}-skills`}
