@@ -12,6 +12,18 @@
 
 Issue #102 is an epic of nine phases (0–8). This spec covers **phases 0–4**: the guardrails, the extraction of the engine into a publishable library, the removal of the layering inversions that block it, the split into separate packages, and making the library publishable. These are the phases the issue states are shippable with **identical server behaviour**. Phases 5–8 (service layer, WebUI transport seam, Tauri desktop shell, native capabilities) are **out of scope** and get their own specs; this spec only has to leave the engine in a shape they can build on.
 
+### Packages
+
+| Package | Distributed as | Owns | Built by |
+|---|---|---|---|
+| `vizier-core` | crates.io | The engine: agents, tools, storage, providers, scheduler, integrations, channel readers, notifications, message bus, runtime handle and events | this spec |
+| `vizier-http` | crates.io | The HTTP adapter: REST, WebSocket, auth middleware, OpenAPI, embedded WebUI and integration icons | this spec |
+| `vizier` | crates.io (existing name), release archives, Docker image | The CLI/server binary: command socket, daemonising, onboarding; mounts `vizier-http` | this spec |
+| `vizier-derive` | crates.io | Procedural macros, moved unchanged | this spec |
+| `vizier-app` | **GitHub Releases only** | The desktop app: embeds `vizier-core`, and `vizier-http` when web access is on | a later spec (phase 7) |
+
+The desktop app is downloadable **only from the project's GitHub Releases** for now: it is never published to crates.io, and app stores, package managers (Homebrew casks and the like) and in-app auto-update channels outside GitHub Releases are out of scope until decided otherwise.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - The server edition keeps working exactly as before (Priority: P1)
@@ -131,6 +143,7 @@ Identity, caller, permission and revision-origin concepts the engine needs are o
 - **FR-018**: Server behaviour (CLI commands and flags, config schema, environment variables, HTTP/WebSocket API, storage schema and data, channel behaviour, process-exit semantics) MUST be identical before and after, with no user-visible migration.
 - **FR-019**: No dependency version MAY change as part of this work; in particular the embedding and speech-recognition library pins stay exactly as they are, and the diff MUST be reviewable for this.
 - **FR-020**: Project documentation (architecture guide, contributor docs, Docker/Justfile/release paths) MUST be updated to describe the new layout and the one-way dependency rule.
+- **FR-021**: The layout MUST leave room for the desktop app as a separate, never-published build whose release artifacts are attached to GitHub Releases alongside the server's, without changing how the server packages are published.
 
 ### Key Entities
 
