@@ -375,9 +375,9 @@ build that breaks is hidden behind a full build that passes.
 (excluded from the package); `assets/integrations/` → `crates/vizier-http/`. Each crate gets
 `include`, `description`, `keywords`, `readme`, and `[package.metadata.docs.rs]`
 (`vizier-core`: `features = ["discord", "telegram", "documents", "utoipa"]`, i.e. the groups
-that need no native toolchain or network at build time). `publish.yml` publishes in order
-`vizier-derive → vizier-core → vizier-http → vizier`; `release.yml`'s version sed targets
-`[workspace.package] version` and the internal path deps' `version =` requirements.
+that need no native toolchain or network at build time). Publishing order is
+`vizier-derive → vizier-core → vizier-http → vizier`; the workflow changes that implement it,
+and the version bump, are listed step by step in R18.
 `vizier-app` does not exist yet and is never published (spec: GitHub Releases only).
 
 **Rationale**: FR-011, FR-016, FR-017. Current sizes: `assets/catalogue` 5.6 MB raw (JSON +
@@ -401,3 +401,50 @@ script), `design/`, `landing/`, `dummyplug/` untouched. `landing`'s `sync-vizier
 
 **Rationale**: Constitution "Matching submodule branches"; the spec's assumption that the
 WebUI is unchanged.
+
+---
+
+## R18 — Updating the existing GitHub workflows
+
+**Decision**: Put every version string in the root `Cargo.toml`: `[workspace.package] version`
+plus the internal crates in `[workspace.dependencies]`
+(`vizier-derive = { path = "crates/vizier-derive", version = "X" }`, likewise `vizier-core`,
+`vizier-http`), so each member takes `vizier-core.workspace = true`. A release then edits
+**one file**. The changes, step by step:
+
+| Workflow | Step | Today | After the split |
+|---|---|---|---|
+| `release.yml` | Update Cargo.toml versions | `sed` the first `version = ` in `Cargo.toml` and `vizier-derive/Cargo.toml`; `sed` + `grep` `vizier-derive = { path = "vizier-derive", version = … }` | `sed` `[workspace.package] version` and the three internal `{ path = "crates/…", version = "…" }` entries in the root `Cargo.toml` only; the verifying `grep`s check those four lines; no member manifest is edited |
+| `release.yml` | Refresh model catalogue | `scripts/catalogue_update.py` writes `assets/catalogue/` | writes `crates/vizier-core/assets/catalogue/` (`OUT_DIR` in the script, and its docstring); `just catalogue-update` unchanged |
+| `release.yml` | Commit version bump | `git add Cargo.toml vizier-derive/Cargo.toml CHANGELOG.md assets/catalogue` | `git add Cargo.toml Cargo.lock CHANGELOG.md crates/vizier-core/assets/catalogue` (`Cargo.lock` carries the four crates' new versions) |
+| `release.yml` | Build binary | `rm -rf webui/node_modules`, then `cargo build --release --target …` at the root | unchanged commands; they build `crates/vizier` through `default-members`, and `vizier-http`'s build script falls back to the pre-built `webui/build/client` when `node_modules` is absent (R10). Add `-p vizier` anyway, so the intent does not depend on `default-members` |
+| `release.yml` | Package archive | `target/<target>/release/vizier` | unchanged: the workspace keeps one `target/` at the root |
+| `release.yml` | Release notes | "build from source with the `python` feature: `cargo install vizier --features python`" | removed: the feature does not exist (code mode has been always-on since spec 014) |
+| `publish.yml` | Verify version in Cargo.toml | `grep -m1 '^version = ' Cargo.toml` | read `[workspace.package] version` via `cargo metadata --no-deps --format-version 1 \| jq -r '.packages[] \| select(.name=="vizier") \| .version'`, so it no longer depends on line order |
+| `publish.yml` | (new) Stage WebUI | — | after "Build WebUI": `mkdir -p crates/vizier-http/webui-dist && cp -r webui/build/client/. crates/vizier-http/webui-dist/` |
+| `publish.yml` | Verify package | `cargo package --list` at the root (fails on a virtual workspace); `grep -qx 'assets/catalogue/api.json'` | `cargo package -p vizier-core --list` must contain `assets/catalogue/api.json`; `cargo package -p vizier-http --list` must contain `webui-dist/index.html` and `assets/integrations/`; then `cargo package --workspace --allow-dirty` (verifies every crate from its `.crate` against a local overlay) and print each `target/package/*.crate` size, failing above 10 MB |
+| `publish.yml` | Publish | `vizier-derive`, `sleep 30`, `vizier` | `cargo publish --workspace --allow-dirty` (Cargo ≥ 1.90 publishes members in dependency order and waits for each to be indexed); the explicit four-step order `vizier-derive → vizier-core → vizier-http → vizier` is the documented fallback if a partial publish has to be resumed |
+| `publish.yml` | Dry run publish | two `cargo publish --dry-run` calls | `cargo publish --workspace --allow-dirty --dry-run`; the step summary lists all four packages |
+| `publish.yml` | Post-publish summary | `cargo install vizier`, `cargo binstall vizier` | unchanged; add a line for `cargo add vizier-core` |
+| `docker-publish.yml` | — | builds from the release tarballs and `DOCKERHUB.md` | **no change**: no Cargo path is used |
+| `deploy-landing.yml` | — | builds the site from `docs/src/` | **no change**: `docs/` stays at the root |
+| `submodule-prs.yml` | — | submodule pins and PRs | **no change** |
+| `deploy-docs-redirect.yml` | — | static redirect | **no change** |
+| `release-and-publish.yml` | — | calls `release.yml`, `publish.yml`, `docker-publish.yml`, `deploy-landing.yml` | **no change** to the orchestration; it exercises the edited workflows |
+| `ci.yml` (new) | — | — | R15 |
+
+The release workflows run on tags, not PRs, so the phase that breaks them must prove them:
+**phase 3 (the split PR) and phase 4 each require a `release-and-publish.yml` run with
+`dry_run=true`** from the PR branch (all four targets build and archive, the version bump step
+runs against the new manifests, the Docker image builds, `cargo publish --workspace --dry-run`
+passes). Phase 3 also runs `scripts/catalogue_update.py --keep-on-failure` once to check its
+new output path.
+
+**Rationale**: The paths these steps hard-code (`vizier-derive/Cargo.toml`, `assets/catalogue`,
+root `cargo package`) move in phase 3, so phase 3 is where they break; a dry run only at
+phase 4 would let a broken release sit on `master` in between. One file of version strings
+keeps the bump step a single `sed` and makes forgetting a member impossible.
+
+**Alternatives considered**: `cargo-release` or `cargo-workspaces` to bump and publish — a new
+tool in the release path for what four `sed` lines and `cargo publish --workspace` already do
+(Principle I). Per-member version strings — four files to bump, and the grep checks multiply.

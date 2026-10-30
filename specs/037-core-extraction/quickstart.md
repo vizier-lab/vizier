@@ -111,9 +111,27 @@ DOCS_RS=1 cargo doc -p vizier-core --no-deps --features discord,telegram,documen
 cargo public-api -p vizier-core                 # only the stable tier (no __adapter items)
 ```
 
-## 7. Cross targets and release dry run
+## 7. Cross targets and release dry run (required on the phase 3 and phase 4 PRs)
 
 ```sh
 cross build --release --target x86_64-unknown-linux-musl -p vizier
-gh workflow run release-and-publish.yml -f version=<next> -f dry_run=true   # all four targets + docker build pass
+python3 -I scripts/catalogue_update.py --keep-on-failure     # phase 3: writes crates/vizier-core/assets/catalogue
+git status --short crates/vizier-core/assets/catalogue       # changes only there, nothing under ./assets
+gh workflow run release-and-publish.yml --ref 037-core-extraction \
+  -f version=<next> -f dry_run=true
 ```
+
+The dry run must show (research R18):
+
+- "Update Cargo.toml versions" bumps `[workspace.package] version` and the three internal
+  dependency entries in the root `Cargo.toml`, and its verifying `grep`s pass;
+- "Commit version bump" stages `Cargo.toml`, `Cargo.lock`, `CHANGELOG.md` and
+  `crates/vizier-core/assets/catalogue` only;
+- all four targets build and archive as `vizier-v<next>-<target>.tar.gz` with the `vizier`
+  binary at the same path inside;
+- the Docker image builds;
+- `publish.yml`: the version check passes, the package listing contains
+  `assets/catalogue/api.json` (core) and `webui-dist/index.html` (http), every `.crate` is
+  under 10 MB, and `cargo publish --workspace --dry-run` lists `vizier-derive`, `vizier-core`,
+  `vizier-http`, `vizier` (phase 4);
+- the release notes no longer mention a `python` feature.

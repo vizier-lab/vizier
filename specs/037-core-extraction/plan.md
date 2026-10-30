@@ -42,7 +42,7 @@ non-exhaustive, the client channel is transport-neutral, `vizier-http` exposes `
 
 **Constraints**: zero behaviour change for the server except R14; zero dependency version change; each `.crate` < 10 MB compressed; core's normal dependency graph excludes the web framework, CLI and terminal UI crates
 
-**Scale/Scope**: ≈ 111k lines moved; ≈ 16k (`channels/http`) to `vizier-http`, ≈ 0.9k (`cli`, `command`) plus `main.rs`/`telemetry` init to `vizier`; 7 inversions fixed; 34 files get `cfg_attr` for `utoipa`; one new CI workflow; edits to `release.yml`, `publish.yml`, `Justfile`, `Cargo.toml`s, `CLAUDE.md`, `docs/src/`
+**Scale/Scope**: ≈ 111k lines moved; ≈ 16k (`channels/http`) to `vizier-http`, ≈ 0.9k (`cli`, `command`) plus `main.rs`/`telemetry` init to `vizier`; 7 inversions fixed; 34 files get `cfg_attr` for `utoipa`; one new CI workflow; edits to `release.yml` (4 steps + release notes), `publish.yml` (6 steps), `scripts/catalogue_update.py`, `Justfile`, `Cargo.toml`s, `CLAUDE.md`, `docs/src/`
 
 ## Constitution Check
 
@@ -131,7 +131,9 @@ crates/
         ├── command/             # from src/command (unix socket)
         └── logo.rs              # from src/utils/logo.rs
 .github/workflows/ci.yml         # new (R15)
-.github/workflows/{release,publish}.yml   # paths, version bump, publish order (R16)
+.github/workflows/{release,publish}.yml   # step-by-step changes in research R18; docker-publish,
+                                          # deploy-landing, submodule-prs, deploy-docs-redirect unchanged
+scripts/catalogue_update.py               # writes crates/vizier-core/assets/catalogue (R18)
 Justfile                         # paths only; `cargo run -- run` keeps working via default-members
 webui/ design/ landing/ dummyplug/        # submodules, unchanged
 docs/src/                        # contributor + architecture docs for the layout (FR-020)
@@ -156,10 +158,15 @@ files stay at the root.
 5. **PR 5 — `refactor: gate optional engine features`** (phase 2c): R9; CI `core-minimal`
    becomes required.
 6. **PR 6 — `refactor: split the workspace into vizier-core, vizier-http and vizier`**
-   (phase 3): `git mv`, manifests, build scripts, Justfile, release/publish paths, CLAUDE.md
-   architecture section.
-7. **PR 7 — `chore: make vizier-core and vizier-http publishable`** (phase 4): R10 staging,
-   R16 metadata, `examples/headless.rs`, `package` CI job, docs.
+   (phase 3): `git mv`, manifests (all version strings in the root `Cargo.toml`), build
+   scripts, Justfile, `scripts/catalogue_update.py` output path, every `release.yml` and
+   `publish.yml` step in research R18, CLAUDE.md architecture section. **Merge gate**: a
+   `release-and-publish.yml` dry run from the PR branch passes.
+7. **PR 7 — `chore: make vizier-core and vizier-http publishable`** (phase 4): R10 staging
+   (the `publish.yml` stage step), R16 metadata, `cargo package --workspace` and
+   `cargo publish --workspace` in `publish.yml` (R18), `examples/headless.rs`, `package` CI
+   job, docs. **Merge gate**: the release dry run again, now including the publish dry run of
+   all four crates.
 
 Each PR runs the full quickstart; none may change the OpenAPI document, `--help` output or
 resolved dependencies.
