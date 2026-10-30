@@ -2,11 +2,13 @@ import {
     Button,
     EmptyState,
     FilterTabs,
+    IconButton,
     LoadMore,
     Skeleton,
     SlideOver,
     TextLink,
 } from '@vizier/design'
+import { useEffect } from 'react'
 import { useNotifications } from '../../stores/notifications'
 import { useAgents } from '../../stores/agents'
 import { NotificationRow } from './NotificationRow'
@@ -32,12 +34,12 @@ const EMPTY_STATES = {
 }
 
 /**
- * The notification inbox: a right-hand slide-over (full-screen on a phone)
- * over the current screen, so opening it never loses the person's place.
- * Live setup sits above the filters and is deliberately not a read/unread row.
+ * The notification inbox. On a desktop it is docked on the right of the page, which it pushes
+ * left (`NotificationsAside`, given to the shell's `aside` slot); on a phone there is no room to
+ * push, so it is a full-screen slide-over (`NotificationsPanel`). Live setup sits above the
+ * filters and is deliberately not a read/unread row.
  */
-export function NotificationsPanel() {
-    const open = useNotifications((s) => s.open)
+function Inbox() {
     const filter = useNotifications((s) => s.filter)
     const items = useNotifications((s) => s.items)
     const counts = useNotifications((s) => s.counts)
@@ -59,12 +61,7 @@ export function NotificationsPanel() {
     const empty = EMPTY_STATES[filter]
 
     return (
-        <SlideOver
-            open={open}
-            title="Notifications"
-            onClose={closePanel}
-            className="pb-[env(safe-area-inset-bottom)]"
-        >
+        <>
             {active.length > 0 && (
                 <section aria-label="Setting up" className="flex flex-col gap-12">
                     {active.map((setup) => (
@@ -135,6 +132,56 @@ export function NotificationsPanel() {
                     onLoad={() => void loadMore()}
                 />
             )}
+        </>
+    )
+}
+
+/** The phone form: a full-screen slide-over over the current screen. */
+export function NotificationsPanel() {
+    const open = useNotifications((s) => s.open)
+    const closePanel = useNotifications((s) => s.closePanel)
+    return (
+        <SlideOver
+            open={open}
+            title="Notifications"
+            onClose={closePanel}
+            className="pb-[env(safe-area-inset-bottom)]"
+        >
+            <Inbox />
         </SlideOver>
+    )
+}
+
+/**
+ * The desktop form: a bordered panel for the shell's right-hand column. It has its own header
+ * with a visible ×, and Escape closes it; the page beside it stays usable, so a press on the
+ * page does not.
+ */
+export function NotificationsAside() {
+    const closePanel = useNotifications((s) => s.closePanel)
+    useEffect(() => {
+        const key = (e: KeyboardEvent) => e.key === 'Escape' && closePanel()
+        document.addEventListener('keydown', key)
+        return () => document.removeEventListener('keydown', key)
+    }, [closePanel])
+    return (
+        <section
+            aria-label="Notifications"
+            className="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-border bg-surface"
+        >
+            <header className="flex shrink-0 items-center justify-between gap-8 border-b border-border px-20 py-10">
+                <h2 className="type-ui-medium text-fg">Notifications</h2>
+                <IconButton
+                    variant="ghost"
+                    size="sm"
+                    icon="close"
+                    aria-label="Close notifications"
+                    onClick={closePanel}
+                />
+            </header>
+            <div className="flex min-h-0 flex-1 flex-col gap-12 overflow-y-auto p-20">
+                <Inbox />
+            </div>
+        </section>
     )
 }

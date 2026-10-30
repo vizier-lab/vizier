@@ -7,7 +7,7 @@ import { useMobile } from '../lib/useMobile'
 import { useNav } from '../stores/nav'
 import { useAgents } from '../stores/agents'
 import { useNotifications } from '../stores/notifications'
-import { NotificationsPanel } from '../screens/notifications/NotificationsPanel'
+import { NotificationsAside, NotificationsPanel } from '../screens/notifications/NotificationsPanel'
 import { NotificationsBell } from '../screens/shared/NotificationsBell'
 import { NotificationToasts } from '../screens/shared/NotificationToasts'
 import { AgentSidebar } from '../screens/shell/AgentSidebar'
@@ -24,6 +24,7 @@ export default function AppShell() {
     const { can } = useSession()
     const start = useAgents((s) => s.start)
     const mobile = useMobile()
+    const notificationsOpen = useNotifications((s) => s.open)
     const navOpen = useNav((s) => s.open)
     const setNavOpen = useNav((s) => s.setOpen)
     const resetNotifications = useNotifications((s) => s.reset)
@@ -147,10 +148,10 @@ export default function AppShell() {
                 rail={<ShellRail pathname={pathname} view={view} routeAgent={routeAgent} />}
                 sidebar={sidebar}
                 sidebarKey={sidebarKey}
+                aside={notificationsOpen ? <NotificationsAside /> : undefined}
             >
                 {page}
             </ShellFrame>
-            <NotificationsPanel />
             <NotificationToasts />
             <ToastRegion />
         </div>

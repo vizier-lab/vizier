@@ -16,7 +16,7 @@ const PAGE = 20
 const EMPTY: NotificationCounts = { all: 0, unread: 0, read: 0 }
 
 type NotificationStore = {
-    /** Whether the slide-over is showing. */
+    /** Whether the dropdown is showing. */
     open: boolean
     filter: NotificationFilter
     items: NotificationItem[]
