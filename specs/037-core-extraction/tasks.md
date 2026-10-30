@@ -58,13 +58,13 @@ description: "Task list for extracting vizier-core and splitting the workspace (
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete.
 
-- [ ] T011 Create `src/lib.rs` holding every `mod` declaration now in `src/main.rs` (keep `#![allow(unused)]`, `#[macro_use] extern crate tracing;` and `pub type Result<T>`), add `[lib] path = "src/lib.rs"` and `[[bin]] name = "vizier" path = "src/main.rs"` to `Cargo.toml`
-- [ ] T012 Reduce `src/main.rs` to the bootstrap only (dotenvy, filter, telemetry, subscriber, rustls install, `vizier::cli::start()`, exit code), calling into the library as `vizier::…`; move `default_filter` with it unchanged
-- [ ] T013 Make `cli` and `command` `pub` in `src/lib.rs` (they move to the binary crate in T045); everything the binary calls is reachable as `vizier::…`
-- [ ] T014 Visibility pass over `src/lib.rs` per research R3: the stable tier (`config`, `error`, `schema` request/response types, `transport::VizierTransport`) is `pub`; every module that `src/channels/http/` or `src/cli/` imports is `#[doc(hidden)] pub mod`; the rest becomes `pub(crate) mod`. Add the crate-level doc comment explaining the two tiers and that the hidden tier is replaced by the service layer (phase 5 of #102)
-- [ ] T015 Move the harness from `src/e2e_tests.rs` to `tests/dummyplug_e2e.rs` as an integration test against the library's public paths (only `#[doc(hidden)]` items it needs: `dependencies`, `agents`); remove the `mod e2e_tests` line
-- [ ] T016 Fix every warning/error `cargo clippy --all-targets` reports from the visibility change (dead-code now visible as `pub(crate)`, `unreachable_pub`); do not delete migration or legacy code (#82 rule in CLAUDE.md)
-- [ ] T017 Run `scripts/037-baseline-check.sh` and `cargo test`; both pass with zero diff (US1 gate)
+- [X] T011 Create `src/lib.rs` holding every `mod` declaration now in `src/main.rs` (keep `#![allow(unused)]`, `#[macro_use] extern crate tracing;` and `pub type Result<T>`), add `[lib] path = "src/lib.rs"` and `[[bin]] name = "vizier" path = "src/main.rs"` to `Cargo.toml`
+- [X] T012 Reduce `src/main.rs` to the bootstrap only (dotenvy, filter, telemetry, subscriber, rustls install, `vizier::cli::start()`, exit code), calling into the library as `vizier::…`; move `default_filter` with it unchanged
+- [X] T013 Make `cli` and `command` `pub` in `src/lib.rs` (they move to the binary crate in T045); everything the binary calls is reachable as `vizier::…`
+- [X] T014 Visibility pass over `src/lib.rs` per research R3: the stable tier (`config`, `error`, `schema` request/response types, `transport::VizierTransport`) is `pub`; every module that `src/channels/http/` or `src/cli/` imports is `#[doc(hidden)] pub mod`; the rest becomes `pub(crate) mod`. Add the crate-level doc comment explaining the two tiers and that the hidden tier is replaced by the service layer (phase 5 of #102)
+- [X] T015 Move the harness from `src/e2e_tests.rs` to `tests/dummyplug_e2e.rs` as an integration test against the library's public paths (only `#[doc(hidden)]` items it needs: `dependencies`, `agents`); remove the `mod e2e_tests` line
+- [X] T016 Fix every warning/error `cargo clippy --all-targets` reports from the visibility change (dead-code now visible as `pub(crate)`, `unreachable_pub`); do not delete migration or legacy code (#82 rule in CLAUDE.md)
+- [X] T017 Run `scripts/037-baseline-check.sh` and `cargo test`; both pass with zero diff (US1 gate)
 
 **Checkpoint**: Library + thin binary; behaviour identical; harness is an integration test.
 
@@ -288,3 +288,5 @@ Each PR is conventional-commit titled (table above), passes CI, and must show ze
   tasks' "`-D warnings`" means these flags.
 - **T010**: `cargo search` finds neither name and `crates.io/api/v1/crates/vizier-{core,http}`
   returns 404 for both (2026-10-30).
+- **T016**: the only new diagnostics were the three `src/utils/mod.rs` doc examples, which never
+  ran while the crate was a binary; they now import their function and pass as doctests.

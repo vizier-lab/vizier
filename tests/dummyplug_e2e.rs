@@ -1,4 +1,4 @@
-//! The in-process dummyplug harness (`specs/037-core-extraction/` T008, research R11): one
+//! The in-process dummyplug harness (`specs/037-core-extraction/` T008/T015, research R11): one
 //! agent on the `dummyplug` provider in a temp workspace, driven through the transport the way
 //! a channel drives it, checked against `specs/008-dummyplug-provider/contracts/dummyplug-protocol.md`.
 //!
@@ -14,17 +14,16 @@ use std::{
     time::Duration,
 };
 
-use crate::{
+use vizier::{
     agents::VizierAgents,
     config::{VizierConfig, provider::ProviderId},
     dependencies::VizierDependencies,
     schema::{
-        AgentCommand, AgentCommandResult, SessionHistoryContent, VizierChannelId, VizierRequest,
+        AgentCommand, AgentConfig, AgentToolsConfig, AgentCommandResult, SessionHistoryContent, VizierChannelId, VizierRequest,
         VizierRequestContent, VizierResponse, VizierResponseContent, VizierSession,
         provider::{ProviderCredentials, ProviderEntry},
     },
     storage::{history::HistoryStorage, provider::ProviderStorage},
-    tests_support::agent_config,
 };
 
 const TURN_TIMEOUT: Duration = Duration::from_secs(60);
@@ -83,6 +82,44 @@ impl Drop for Dummyplug {
     fn drop(&mut self) {
         let _ = self.child.kill();
         let _ = self.child.wait();
+    }
+}
+
+/// A dummyplug agent with the HTTP API's defaults where they matter: a zero `prompt_timeout`
+/// or tool timeout would time every turn out.
+fn agent_config(id: &str) -> AgentConfig {
+    AgentConfig {
+        name: format!("Agent {id}"),
+        owner_id: None,
+        shared_to: vec![],
+        system_prompt: None,
+        description: None,
+        provider: ProviderId::DUMMYPLUG,
+        model: "dummyplug".into(),
+        thinking_depth: 1,
+        checkpoint_threshold: 0.8,
+        tools: AgentToolsConfig {
+            timeout: Duration::from_secs(30 * 60).into(),
+            ..Default::default()
+        },
+        silent_read_initiative_chance: 0.0,
+        max_tokens: None,
+        context_window: None,
+        include_documents: None,
+        prompt_timeout: Duration::from_secs(60 * 60).into(),
+        documents: vec![],
+        heartbeat_interval: Duration::from_secs(30 * 60).into(),
+        core: None,
+        dream_enabled: false,
+        dream_schedule: None,
+        dream_provider: None,
+        dream_model: None,
+        avatar_url: None,
+        embedding: None,
+        indexer: None,
+        chunking: Default::default(),
+        auto_context: Default::default(),
+        completion_retry: Default::default(),
     }
 }
 
@@ -152,10 +189,7 @@ async fn dummyplug_agent_answers_through_the_transport() {
     let handler_deps = deps.clone();
     let handler = tokio::spawn(async move { handler_deps.run().await });
 
-    // The HTTP API's defaults; `agent_config` leaves both at zero, which times everything out.
-    let mut config = agent_config("plug");
-    config.prompt_timeout = Duration::from_secs(60 * 60).into();
-    config.tools.timeout = Duration::from_secs(30 * 60).into();
+    let config = agent_config("plug");
     let (resp, created) = tokio::sync::oneshot::channel();
     deps.transport
         .send_agent_command(AgentCommand::Create {

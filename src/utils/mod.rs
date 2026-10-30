@@ -22,6 +22,7 @@ pub fn remove_think_tags(text: &str) -> String {
 ///
 /// # Example
 /// ```
+/// # use vizier::utils::build_path;
 /// let path = build_path("/home/user", &["projects", "vizier"]);
 /// // Returns: /home/user/projects/vizier on Unix, \home\user\projects\vizier on Windows
 /// ```
@@ -40,6 +41,7 @@ pub fn build_path(base: &str, components: &[&str]) -> PathBuf {
 ///
 /// # Example
 /// ```
+/// # use vizier::utils::build_glob_path;
 /// let glob_pattern = build_glob_path("/home/user", &["projects", "**", "*.md"]);
 /// // Returns: /home/user/projects/**/*.md (with forward slashes on all platforms)
 /// ```
@@ -57,6 +59,7 @@ pub fn build_glob_path(base: &str, components: &[&str]) -> String {
 ///
 /// # Example
 /// ```
+/// # use vizier::utils::agent_workspace;
 /// let workspace = agent_workspace("/home/user/.vizier", "my_agent");
 /// // Returns: /home/user/.vizier/agents/my_agent
 /// ```

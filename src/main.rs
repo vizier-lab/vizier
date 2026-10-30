@@ -1,55 +1,10 @@
-#![allow(unused)]
-#[macro_use]
-extern crate tracing;
+//! The `vizier` binary: process setup (env file, logging, telemetry export, TLS provider)
+//! around `vizier::cli::start`, and the exit code.
 
 use std::process;
 
-use crate::error::VizierError;
 use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
-
-pub type Result<T> = std::result::Result<T, VizierError>;
-
-mod agents;
-mod artifacts;
-mod catalogue;
-mod channels;
-mod cli;
-mod command;
-mod config;
-mod constant;
-mod dependencies;
-mod embedding;
-mod encryption;
-mod error;
-mod file_manager;
-mod indexer;
-mod integrations;
-mod llm;
-mod notifications;
-mod sandbox;
-mod scheduler;
-mod schema;
-mod secrets;
-mod session_files;
-mod setup;
-
-mod access;
-mod image_generation;
-mod provider_keys;
-mod provider_migration;
-mod skill;
-mod storage;
-mod stt;
-mod telemetry;
-mod transport;
-mod tts;
-mod usage;
-mod utils;
-
-#[cfg(test)]
-mod tests_support;
-#[cfg(test)]
-mod e2e_tests;
+use vizier::{Result, cli, telemetry};
 
 fn main() -> Result<()> {
     dotenvy::dotenv().ok();
