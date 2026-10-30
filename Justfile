@@ -235,3 +235,13 @@ dummyplug:
 
 dummyplug-test:
   npm --prefix dummyplug test
+
+app-dev:
+  cd app && cargo tauri dev
+
+app-build:
+  cd webui && npm run build
+  cd app && cargo tauri build
+
+app-test:
+  cd app && cargo test

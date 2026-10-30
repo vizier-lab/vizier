@@ -1,0 +1,1 @@
+{"main":{"identifier":"main","description":"Main window capabilities","local":true,"windows":["main"],"permissions":["core:default","core:event:default","core:window:allow-set-focus","dialog:allow-open","dialog:allow-save","opener:allow-open-url","notification:default","deep-link:default","updater:default","process:allow-restart","opener:allow-open-path"]}}
