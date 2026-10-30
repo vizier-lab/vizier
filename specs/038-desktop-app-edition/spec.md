@@ -10,7 +10,7 @@
 
 ## Context
 
-Issue #102 splits vizier into a reusable engine and thin shells around it. Phases 0-4 (spec `037-core-extraction`) are merged: the engine is `vizier-core`, the HTTP adapter is `vizier-http`, and the server binary is `vizier`. This feature continues from there with phases 5-8: the **desktop app edition**, a native application that runs the same engine in-process, shows the same interface as the server's web interface, and adds capabilities only a desktop app can offer. The server edition keeps working exactly as it does today.
+Issue #102 splits vizier into a reusable engine and thin shells around it. Phases 0-4 (spec `037-core-extraction`) are merged: the engine is `vizier-core`, the HTTP adapter is `vizier-http`, and the server binary is `vizier`. This feature continues from there with phases 5-7: the service layer, the interface transport and the **desktop app edition**, a native application that runs the same engine in-process, shows the same interface as the server's web interface, and adds desktop conveniences. Phase 8 (native tools for agents, OS keychain) is out of scope and tracked as a separate issue. The server edition keeps working exactly as it does today.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -84,23 +84,7 @@ The person can turn on web access in settings to reach the same vizier from a br
 
 ---
 
-### User Story 5 - Native tools for agents (Priority: P3)
-
-Agents can use abilities of the person's computer that a server cannot offer, such as showing a notification, picking or saving a file with the person's consent, or reading the clipboard, and the person can see and control what is allowed. Credentials can optionally be kept in the operating system's keychain.
-
-**Why this priority**: Differentiates the app, but depends on everything above.
-
-**Independent Test**: Ask an agent to notify the person when something is done; the notification appears. Revoke the permission in settings; the same request is declined.
-
-**Acceptance Scenarios**:
-
-1. **Given** native tools are enabled, **When** an agent calls one, **Then** it works and the call appears in the conversation like any other tool call.
-2. **Given** a native tool is disabled, **When** an agent tries it, **Then** it gets a clear refusal and nothing happens on the machine.
-3. **Given** a headless server turn, background job or scheduled run with no window, **When** it would need a native tool, **Then** the call fails cleanly rather than hanging.
-
----
-
-### User Story 6 - Ship and update the app (Priority: P2)
+### User Story 5 - Ship and update the app (Priority: P2)
 
 Maintainers publish installable macOS and Linux builds from the release process, and installed apps can update themselves. macOS ships as a single download that runs on both Apple Silicon and Intel Macs.
 
@@ -110,8 +94,8 @@ Maintainers publish installable macOS and Linux builds from the release process,
 
 **Acceptance Scenarios**:
 
-1. **Given** a release, **When** the pipeline finishes, **Then** a signed installer exists for each supported platform.
-2. **Given** an installed older version on either Mac architecture, **When** a newer release is published, **Then** the app offers and applies the update.
+1. **Given** a release, **When** the pipeline finishes, **Then** the GitHub release holds one macOS download (both Mac architectures) and a Linux AppImage for each of x86_64 and arm64.
+2. **Given** an installed older version on either Mac architecture or either Linux architecture, **When** a newer release is published, **Then** the app offers and applies the update.
 3. **Given** the server edition's release artifacts, **When** the app is released, **Then** the server's packages, container image and install script are unaffected.
 
 ---
@@ -151,13 +135,11 @@ Maintainers publish installable macOS and Linux builds from the release process,
 - **FR-017**: Web access MUST be off by default; enabling it MUST require the desktop account to have a password or API key, and MUST NOT create credentials silently.
 - **FR-018**: When web access is on, every network request MUST authenticate through the normal sign-in, including requests from the same machine, and the desktop identity MUST be rejected on the network.
 - **FR-019**: Exposing web access beyond the local machine MUST require an explicit switch with a visible warning, and cross-origin access MUST be limited to the origins the app actually serves.
-- **FR-020**: Agents MUST be able to use native capabilities (at minimum notifications and file pick/save with consent) as tools, individually switchable by the person, and unavailable tools MUST fail cleanly in server, background and scheduled contexts.
-- **FR-021**: The app MUST support keeping credentials in the operating-system keychain as an optional alternative to the encrypted store.
-- **FR-022**: If the engine or any of its subsystems stops, the app MUST show the failure and offer restart; it MUST NOT exit silently or show a blank window.
-- **FR-023**: The release process MUST produce installable, signed builds for macOS and Linux, with macOS delivered as one download covering Apple Silicon and Intel (macOS 11 or later), and installed apps MUST be able to update themselves.
-- **FR-024**: The server edition's behavior, packages, container image and install paths MUST remain unchanged, and the app MUST NOT add desktop-toolkit requirements to the server's build or test runs.
-- **FR-025**: This work MUST NOT change the pinned embedding and speech dependency versions.
-- **FR-026**: The documentation MUST describe installing the app, the security boundary (operating-system account equals workspace boundary), web access, and how third-party interfaces can build on the engine.
+- **FR-020**: If the engine or any of its subsystems stops, the app MUST show the failure and offer restart; it MUST NOT exit silently or show a blank window.
+- **FR-021**: The release process MUST publish the app on the project's GitHub Releases, and nowhere else for now, as: one signed and notarized macOS download covering Apple Silicon and Intel (macOS 11 or later), and a Linux AppImage for each of x86_64 and arm64. Installed apps MUST be able to update themselves from those releases.
+- **FR-022**: The server edition's behavior, packages, container image and install paths MUST remain unchanged, and the app MUST NOT add desktop-toolkit requirements to the server's build or test runs.
+- **FR-023**: This work MUST NOT change the pinned embedding and speech dependency versions.
+- **FR-024**: The documentation MUST describe installing the app, the security boundary (operating-system account equals workspace boundary), web access, and how third-party interfaces can build on the engine.
 
 ### Key Entities
 
@@ -165,7 +147,6 @@ Maintainers publish installable macOS and Linux builds from the release process,
 - **Desktop workspace**: The folder holding agents, memory, history and the single-engine lock for one operating-system user.
 - **Caller / identity**: Who is acting (desktop owner, signed-in browser user, API key, system), carrying the permissions every action is checked against.
 - **Event stream**: The live feed of turn frames, job changes, reactions and notifications that the window and optional network listener both subscribe to.
-- **Native capability**: An ability of the person's computer offered to agents as a tool, with a per-capability on/off setting.
 - **Web access setting**: Off by default; holds whether the network listener is on, whether it is local-only or exposed, and its port.
 
 ## Success Criteria *(mandatory)*
@@ -179,17 +160,19 @@ Maintainers publish installable macOS and Linux builds from the release process,
 - **SC-005**: A reply starts appearing in the window within 1 second of the model producing its first output, matching the server's web interface.
 - **SC-006**: Relaunching the app after a forced quit resumes or marks every interrupted turn, with zero lost conversations.
 - **SC-007**: A single macOS download installs and launches on both Apple Silicon and Intel Macs running macOS 11 or later.
-- **SC-008**: An installed app updates to a newer release on both Mac architectures and on Linux in a release rehearsal.
+- **SC-008**: An installed app updates to a newer release on both Mac architectures and both Linux architectures in a release rehearsal.
 - **SC-009**: Server-edition tests, packaging and release dry run pass unchanged, and a server build needs no desktop toolkit installed.
 - **SC-010**: No network request carrying desktop identity is ever accepted, confirmed by an automated check.
 
 ## Assumptions
 
 - Supported platforms for this release are macOS 11+ and Linux; Windows is deferred (per issue #102).
-- The service layer (phase 5) is part of this feature's delivery as the enabling step: permission checks move to one shared place before the app's commands are built, so the app never reimplements them.
+- The service layer (phase 5) is part of this feature's delivery (confirmed by the maintainer) as the enabling step: permission checks move to one shared place before the app's commands are built, so the app never reimplements them.
 - The app is local-first. Connecting the app window to a remote vizier is out of scope but must not be made harder.
 - One desktop owner is bound per workspace; an app lock (PIN/biometric) and multi-user sharing of one workspace are follow-ups.
 - Web access over the network uses plain HTTP; the exposed mode is documented as trusted-network only until encryption is added.
+- Other Linux formats (`.deb`, `.rpm`, Flatpak) and package managers (Homebrew, Flathub) are not provided for now; the app is distributed only through GitHub Releases.
+- Native tools for agents (phase 8: agent-callable native capabilities, OS keychain secret store) are a separate issue, not part of this feature.
 - Retiring local speech models (#101) and upgrading the embedding library are separate projects.
 - The web interface is the single frontend; the app adds only a transport layer under it.
 - The model catalogue stays inside the engine for now.
