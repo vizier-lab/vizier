@@ -287,7 +287,7 @@ export function MemoryGraph({ nodes, edges, selectedId, onSelect, onOpen, captio
   const labelsReadable = settings.labels === "all" || (settings.labels === "auto" && LABEL_SIZE * view.k >= MIN_LABEL_PX);
 
   return (
-    <div ref={box} className={cx("relative flex flex-col overflow-hidden rounded-xl bg-ground", className)} {...rest}>
+    <div ref={box} className={cx("relative flex flex-col overflow-hidden rounded-xl", className)} {...rest}>
       {controls && <div className="absolute top-12 left-12 z-10">{controls}</div>}
       <IconButtonGroup aria-label="Zoom" className="absolute top-12 right-12 z-10">
         <IconButton variant="ghost" icon="zoom-in" aria-label="Zoom in" onClick={() => zoomAt(view.k * 1.3, size.w / 2, size.h / 2)} />
