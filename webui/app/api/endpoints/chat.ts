@@ -1,4 +1,5 @@
-import { api, paged, type Page } from '../client'
+import { api, paged, request, type Page } from '../client'
+import type { components } from '../schema'
 import type { BackgroundJobSnapshot, ChatMessage, SessionFileRecord, Topic } from '../frames'
 
 /** The channel every WebUI conversation lives on. */
@@ -45,3 +46,10 @@ export function chatSocketUrl(agentId: string, topicId: string, token: string): 
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
     return `${proto}//${location.host}/api/v1/agents/${agentId}/channel/${CHANNEL}/topic/${encodeURIComponent(topicId)}/chat?token=${encodeURIComponent(token)}`
 }
+
+export type SideChatRequest = components['schemas']['BtwRequest']
+export type SideChatResponse = components['schemas']['BtwResponse']
+
+/** Asks one off-the-record question beside a conversation. Nothing is saved except usage. */
+export const askSideChat = (agentId: string, body: SideChatRequest, signal?: AbortSignal) =>
+    request<SideChatResponse>('POST', `/agents/${agentId}/btw`, body, { signal })

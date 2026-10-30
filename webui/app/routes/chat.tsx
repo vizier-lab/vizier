@@ -6,7 +6,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { motion, useReducedMotion } from 'motion/react'
 import { useNavigate, useParams } from 'react-router'
 import { agentState, getAgent } from '../api/endpoints/agents'
-import { cancelJob, listTopics, restartAgent } from '../api/endpoints/chat'
+import { CHANNEL, cancelJob, listTopics, restartAgent } from '../api/endpoints/chat'
 import type { Topic, Turn } from '../api/frames'
 import type { ClientCallView } from '../api/frames'
 import { emptyTopic } from '../lib/frames'
@@ -17,6 +17,7 @@ import { AgentStateBanner } from '../screens/chat/AgentStateBanner'
 import { BackgroundJobsPanel } from '../screens/chat/BackgroundJobsPanel'
 import { renderClientCalls } from '../screens/chat/ClientCalls'
 import { Composer } from '../screens/chat/Composer'
+import { SideChatPanel } from '../screens/chat/SideChatPanel'
 import { ErrorNotice } from '../screens/chat/ErrorNotice'
 import { MessageList } from '../screens/chat/MessageList'
 import { recalledFrom } from '../lib/recall'
@@ -86,6 +87,10 @@ export default function Chat() {
         return () => ro.disconnect()
     }, [])
     const [sheet, setSheet] = useState(false)
+    // `/btw` panel. The id changes per invocation, so a second /btw while it is open starts fresh.
+    const [sideChat, setSideChat] = useState<{ open: boolean; id: string; question?: string }>({ open: false, id: '' })
+    // A side chat belongs to the conversation it was opened on.
+    useEffect(() => setSideChat((s) => (s.open ? { ...s, open: false } : s)), [agentId, topicId])
 
     // No topic in the URL: the one this person last had open, else the latest, else a fresh one.
     useEffect(() => {
@@ -385,6 +390,9 @@ export default function Chat() {
                         }
                         onCommand={(c) => command(agentId, topicId ?? '', c)}
                         onStop={() => command(agentId, topicId ?? '', 'abort')}
+                        onSideChat={(question) =>
+                            setSideChat({ open: true, id: nanoid(), question })
+                        }
                     />
                     </div>
                 </div>
@@ -408,6 +416,19 @@ export default function Chat() {
                 </Presence>
                 </div>
             </div>
+
+            <SideChatPanel
+                key={sideChat.id}
+                open={sideChat.open}
+                onClose={() => setSideChat((s) => ({ ...s, open: false }))}
+                agentId={agentId}
+                agentName={agentName}
+                modelName={modelName}
+                channelId={CHANNEL}
+                topicId={topicId ?? ''}
+                question={sideChat.question}
+            />
+
             <DeleteConversation
                 agentId={agentId}
                 target={deleting}

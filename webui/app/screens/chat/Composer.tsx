@@ -26,6 +26,7 @@ const BUILTIN: SkillMenuItem[] = [
     },
     { name: 'abort', description: 'Stop what the agent is doing' },
     { name: 'skills', description: "List this agent's skills" },
+    { name: 'btw', description: 'Ask a side question that is never saved' },
 ]
 
 type Pending = {
@@ -54,6 +55,8 @@ type Props = {
     onSendAudio: (attachment: VizierAttachment) => void
     onCommand: (command: 'abort' | 'checkpoint' | 'lobotomy') => void
     onStop: () => void
+    /** `/btw <question>`: opens the side chat window, which asks `question` at once. */
+    onSideChat?: (question: string) => void
 }
 
 let pendingId = 1
@@ -71,6 +74,7 @@ export function Composer({
     onSendAudio,
     onCommand,
     onStop,
+    onSideChat,
 }: Props) {
     const mobile = useMobile()
     const [value, setValue] = useState('')
@@ -160,6 +164,26 @@ export function Composer({
 
     const send = async () => {
         const text = value.trim()
+        // Before the command regex and before anything is uploaded or sent: a side chat is never saved.
+        const btw = /^\/btw(?:\s+([\s\S]*))?$/.exec(text)
+        if (btw) {
+            // A throwaway question has no box of its own to type in: without one, leave `/btw`
+            // in the composer so the question can be finished here.
+            const question = btw[1]?.trim()
+            if (!question) return
+            onSideChat?.(question)
+            setValue('')
+            return
+        }
+        // Enter in the slash menu completes the name and calls this with what was typed so far:
+        // `/b` is the menu's to complete (a second Enter then runs it), never a message.
+        const partial = /^\/(\S*)$/.exec(text)?.[1]?.toLowerCase()
+        if (
+            partial !== undefined &&
+            !skills.some((s) => s.name.toLowerCase() === partial) &&
+            skills.some((s) => s.name.toLowerCase().includes(partial))
+        )
+            return
         const command = /^\/(checkpoint|lobotomy|abort)$/.exec(text)?.[1] as
             'abort' | 'checkpoint' | 'lobotomy' | undefined
         if (command) {
