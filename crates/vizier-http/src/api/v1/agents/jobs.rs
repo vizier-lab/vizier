@@ -1,7 +1,5 @@
 //! Background jobs launched from a WebUI topic (`specs/012-background-subagent-results/
-//! contracts/http-api.md`). Authorization follows the topic routes: the session is always
-//! built from the caller's own username, and a job is visible only when it was launched
-//! from that very session — any other id is a 404, so a caller cannot tell it exists.
+//! contracts/http-api.md`). The rules live in `vizier_core::service::jobs`.
 
 use axum::{
     Extension, Json, Router,
@@ -11,14 +9,6 @@ use axum::{
 use reqwest::StatusCode;
 use serde::Deserialize;
 
-use vizier_core::{
-    agents::background::{CancelOutcome, CancelScope},
-    schema::{
-        BackgroundJob, BackgroundJobSnapshot, Canceller, SessionHistory, SessionHistoryContent,
-        TopicId, VizierChannelId, VizierSession,
-    },
-    storage::{agent::AgentStorage, background_job::BackgroundJobStorage, history::HistoryStorage},
-};
 use crate::{
     auth::Principal,
     models::{
@@ -27,8 +17,12 @@ use crate::{
     },
     state::HTTPState,
 };
+use vizier_core::{
+    schema::{BackgroundJobSnapshot, SessionHistory, TopicId},
+    service::{ServiceError, Services, jobs},
+};
 
-use super::{channel::HistoryQuery, user_can_view_agent};
+use super::channel::HistoryQuery;
 
 pub fn jobs() -> Router<HTTPState> {
     Router::new()
@@ -49,47 +43,15 @@ pub struct CancelJobBody {
     pub reason: Option<String>,
 }
 
-/// The caller's own topic session, after the same agent check as the topic routes.
-async fn topic_session<T: serde::Serialize + Clone>(
-    state: &HTTPState,
-    user: Principal,
-    agent_id: String,
-    channel_id: String,
-    topic_id: TopicId,
-) -> Result<VizierSession, models::response::Response<T>> {
-    let config = match state.storage.get_agent(&agent_id).await {
-        Ok(Some(config)) => config,
-        Ok(None) => {
-            return Err(err_response(
-                StatusCode::NOT_FOUND,
-                format!("agent {agent_id} not found"),
-            ));
-        }
-        Err(e) => return Err(err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
-    };
-
-    if !user_can_view_agent(&user, &config) {
-        return Err(err_response(StatusCode::FORBIDDEN, "Access denied".into()));
-    }
-
-    Ok(VizierSession(
-        agent_id,
-        VizierChannelId::HTTP(user.username, channel_id),
-        Some(topic_id),
-    ))
+fn services(state: &HTTPState) -> Services {
+    Services::new(state.deps.clone())
 }
 
-/// A job launched from `session`, or `None` for any other id.
-async fn owned_job(
-    state: &HTTPState,
-    session: &VizierSession,
-    job_id: &str,
-) -> anyhow::Result<Option<BackgroundJob>> {
-    Ok(state
-        .storage
-        .get_background_job(job_id)
-        .await?
-        .filter(|job| &job.origin == session))
+fn fail<T: serde::Serialize + Clone>(e: ServiceError) -> models::response::Response<T> {
+    err_response(
+        StatusCode::from_u16(e.status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
+        e.message().to_string(),
+    )
 }
 
 #[utoipa::path(
@@ -110,17 +72,9 @@ pub async fn list_jobs(
     State(state): State<HTTPState>,
     Extension(user): Extension<Principal>,
 ) -> models::response::Response<Vec<BackgroundJobSnapshot>> {
-    let session = match topic_session(&state, user, agent_id, channel_id, topic_id).await {
-        Ok(session) => session,
-        Err(response) => return response,
-    };
-
-    match state.storage.list_running_background_jobs(session).await {
-        Ok(jobs) => api_response(
-            StatusCode::OK,
-            jobs.iter().map(BackgroundJobSnapshot::from).collect(),
-        ),
-        Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    match jobs::list(&services(&state), &user, &agent_id, &channel_id, &topic_id).await {
+        Ok(jobs) => api_response(StatusCode::OK, jobs),
+        Err(e) => fail(e),
     }
 }
 
@@ -143,15 +97,9 @@ pub async fn get_job(
     State(state): State<HTTPState>,
     Extension(user): Extension<Principal>,
 ) -> models::response::Response<BackgroundJobSnapshot> {
-    let session = match topic_session(&state, user, agent_id, channel_id, topic_id).await {
-        Ok(session) => session,
-        Err(response) => return response,
-    };
-
-    match owned_job(&state, &session, &job_id).await {
-        Ok(Some(job)) => api_response(StatusCode::OK, BackgroundJobSnapshot::from(&job)),
-        Ok(None) => err_response(StatusCode::NOT_FOUND, "Job not found".into()),
-        Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    match jobs::get(&services(&state), &user, &agent_id, &channel_id, &topic_id, &job_id).await {
+        Ok(job) => api_response(StatusCode::OK, job),
+        Err(e) => fail(e),
     }
 }
 
@@ -177,46 +125,11 @@ pub async fn cancel_job(
     Extension(user): Extension<Principal>,
     body: Option<Json<CancelJobBody>>,
 ) -> models::response::Response<BackgroundJobSnapshot> {
-    let username = user.username.clone();
-    let session = match topic_session(&state, user, agent_id, channel_id, topic_id).await {
-        Ok(session) => session,
-        Err(response) => return response,
-    };
-    let reason = body
-        .and_then(|Json(body)| body.reason)
-        .filter(|reason| !reason.trim().is_empty());
-
-    let outcome = state
-        .background_jobs
-        .cancel(
-            &job_id,
-            Canceller::Person(username),
-            reason,
-            CancelScope::Origin(session.clone()),
-        )
-        .await;
-
-    match outcome {
-        Ok(CancelOutcome::Cancelled { job, .. }) => {
-            // Recorded for the person, not the agent: `Command` entries never reach the
-            // model, so the cancel does not wake it.
-            if let Err(e) = state
-                .storage
-                .save_session_history(
-                    session,
-                    SessionHistoryContent::Command(format!("cancelled background job {}", job.id)),
-                )
-                .await
-            {
-                tracing::warn!("failed to record the cancel of {}: {}", job.id, e);
-            }
-            api_response(StatusCode::OK, BackgroundJobSnapshot::from(&job))
-        }
-        Ok(CancelOutcome::AlreadyFinished(job)) => {
-            api_response(StatusCode::CONFLICT, BackgroundJobSnapshot::from(&job))
-        }
-        Ok(CancelOutcome::NotFound) => err_response(StatusCode::NOT_FOUND, "Job not found".into()),
-        Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, e.0),
+    let reason = body.and_then(|Json(body)| body.reason);
+    match jobs::cancel(&services(&state), &user, &agent_id, &channel_id, &topic_id, &job_id, reason).await {
+        Ok(jobs::CancelResult::Cancelled(job)) => api_response(StatusCode::OK, job),
+        Ok(jobs::CancelResult::AlreadyFinished(job)) => api_response(StatusCode::CONFLICT, job),
+        Err(e) => fail(e),
     }
 }
 
@@ -248,27 +161,21 @@ pub async fn get_piece_history(
     State(state): State<HTTPState>,
     Extension(user): Extension<Principal>,
 ) -> models::response::Response<Vec<SessionHistory>> {
-    let session = match topic_session(&state, user, agent_id, channel_id, topic_id).await {
-        Ok(session) => session,
-        Err(response) => return response,
-    };
-
-    let job = match owned_job(&state, &session, &job_id).await {
-        Ok(Some(job)) => job,
-        Ok(None) => return err_response(StatusCode::NOT_FOUND, "Job not found".into()),
-        Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
-    };
-    // The piece's session comes from the stored row, never from the caller.
-    let Some(piece) = job.pieces.into_iter().find(|piece| piece.ordinal == ordinal) else {
-        return err_response(StatusCode::NOT_FOUND, "Piece not found".into());
-    };
-
-    match state
-        .storage
-        .list_session_history(piece.session, params.before, params.before_seq, params.limit)
-        .await
+    match jobs::piece_history(
+        &services(&state),
+        &user,
+        &agent_id,
+        &channel_id,
+        &topic_id,
+        &job_id,
+        ordinal,
+        params.before,
+        params.before_seq,
+        params.limit,
+    )
+    .await
     {
         Ok(history) => api_response(StatusCode::OK, history),
-        Err(_) => err_response(StatusCode::NOT_FOUND, "Not found".into()),
+        Err(e) => fail(e),
     }
 }
