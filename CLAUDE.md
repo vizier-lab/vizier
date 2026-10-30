@@ -239,6 +239,11 @@ The website is the submodule `vizier-lab/landing`, an Astro 7 + Starlight site s
 
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
-shell commands, and other important information, read the current plan:
-`specs/036-office-addon/plan.md`
+shell commands, and other important information, read the plan of the
+feature being worked on: `specs/<feature>/plan.md`, where `<feature>` is the
+`specs/` folder the current branch's work belongs to. Spec Kit names its
+branches after that folder (`033-btw-side-chat`), and a local
+`.specify/feature.json` (untracked) names it too; on a branch with no spec
+folder there is no current plan. This text is the same on every branch, so
+leave it as is rather than pointing it at one feature.
 <!-- SPECKIT END -->
