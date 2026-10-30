@@ -2,7 +2,6 @@
 // follows the link rules; a link to a conversation file downloads it. An address the rules refuse
 // is drawn as plain text, so a markdown link in a `Text` cannot smuggle a scheme in.
 import type { ReactNode } from 'react'
-import { getToken } from '../../../api/client'
 import type { SessionFileRecord } from '../../../api/frames'
 import { fileUrl } from '../media'
 import { hostToDisclose, parseHref } from '../links'
@@ -24,7 +23,7 @@ export function SafeLink({ href, label }: { href: string; label: ReactNode }) {
 /** A link that downloads a file of the conversation. */
 export function FileLink({ file, label }: { file: SessionFileRecord; label: ReactNode }) {
     return (
-        <a href={fileUrl(file, getToken())} download={file.filename} rel="noopener noreferrer" referrerPolicy="no-referrer" className="text-fg underline underline-offset-2">
+        <a href={fileUrl(file)} download={file.filename} rel="noopener noreferrer" referrerPolicy="no-referrer" className="text-fg underline underline-offset-2">
             {label}
         </a>
     )

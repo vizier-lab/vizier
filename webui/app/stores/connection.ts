@@ -1,7 +1,6 @@
 import { create } from 'zustand'
-import { chatSocketUrl } from '../api/endpoints/chat'
-import { getToken } from '../api/client'
-import { TopicSocket, type ConnectionState } from '../api/socket'
+import { CHANNEL } from '../api/endpoints/chat'
+import { openTopic, type ConnectionState, type TopicHandle } from '../api/socket'
 import { declaredClientTools } from '../lib/clientTools'
 
 /** The key of a topic's state: agent and topic (the WebUI has one channel). */
@@ -22,7 +21,7 @@ type ConnectionStore = {
     retry: (agentId: string, topicId: string) => void
 }
 
-const sockets = new Map<string, TopicSocket>()
+const sockets = new Map<string, TopicHandle>()
 
 /** A request carries the tools this client offers; commands, reactions and results don't. */
 function withClientTools(frame: object): object {
@@ -42,15 +41,10 @@ export const useConnection = create<ConnectionStore>()((set) => ({
         const setState = (s: ConnectionState) => set((cur) => ({ state: { ...cur.state, [key]: s } }))
         sockets.set(
             key,
-            new TopicSocket({
-                url: () => {
-                    const token = getToken()
-                    return token ? chatSocketUrl(agentId, topicId, token) : null
-                },
-                onFrame: handlers.onFrame,
-                onOpen: handlers.onOpen,
-                onState: setState,
-            })
+            openTopic(
+                { agentId, channelId: CHANNEL, topicId },
+                { onFrame: handlers.onFrame, onOpen: handlers.onOpen, onState: setState }
+            )
         )
     },
 

@@ -1,6 +1,6 @@
 import { FilePreview, FilterTabs, Modal, Table, TableRow } from '@vizier/design'
 import { useEffect, useMemo, useState } from 'react'
-import { getToken } from '../../api/client'
+import { transport } from '../../api/transport'
 import { Markdown } from './Markdown'
 
 /** How much of a text file the preview reads. */
@@ -12,7 +12,7 @@ export type PreviewFile = {
     name: string
     mimeType: string
     size: number
-    /** Absolute path of the bytes, fetched with the session's bearer token. */
+    /** Path of the bytes under the API, fetched through the transport. */
     url: string
     /** "4 KB · sent by Archivist": shown under the name. */
     meta?: string
@@ -49,7 +49,7 @@ export function parseCsv(text: string): string[][] {
 type Loaded = { text: string; partial: boolean; status: number }
 
 async function readText(file: PreviewFile): Promise<Loaded> {
-    const res = await fetch(url(file), { headers: { Authorization: `Bearer ${getToken()}`, Range: `bytes=0-${PREVIEW_BYTES - 1}` } })
+    const res = await transport.fetchFile(url(file), { range: [0, PREVIEW_BYTES - 1] })
     return { text: await res.text(), partial: res.status === 206 && file.size > PREVIEW_BYTES, status: res.status }
 }
 
@@ -81,7 +81,7 @@ export function FilePreviewModal({ files, index, onIndex, onClose }: Props) {
         let revoke: string | null = null
         let alive = true
         if (type === 'image' || type === 'pdf') {
-            fetch(url(file), { headers: { Authorization: `Bearer ${getToken()}` } })
+            transport.fetchFile(url(file))
                 .then((r) => {
                     if (!r.ok) throw new Error(String(r.status))
                     return r.blob()
@@ -124,15 +124,7 @@ export function FilePreviewModal({ files, index, onIndex, onClose }: Props) {
         })
     }, [rows, sort])
 
-    const download = async () => {
-        const res = await fetch(url(file), { headers: { Authorization: `Bearer ${getToken()}` } })
-        const href = URL.createObjectURL(await res.blob())
-        const a = document.createElement('a')
-        a.href = href
-        a.download = file.name
-        a.click()
-        URL.revokeObjectURL(href)
-    }
+    const download = () => transport.saveFile(url(file), file.name)
 
     const note = loaded?.partial ? `showing the first ${Math.round(PREVIEW_BYTES / 1024)} KB` : null
 
@@ -162,7 +154,7 @@ export function FilePreviewModal({ files, index, onIndex, onClose }: Props) {
             onPrevious={index > 0 ? () => onIndex(index - 1) : undefined}
             onNext={index < files.length - 1 ? () => onIndex(index + 1) : undefined}
             onDownload={() => void download()}
-            onOpenInTab={() => window.open(url(file) + `?token=${getToken()}`, '_blank', 'noopener')}
+            onOpenInTab={() => void transport.openFile(url(file), file.name)}
             onClose={onClose}
         >
             {failed ? (
