@@ -2,25 +2,24 @@
 //! connected with a saved key, and keys found in the environment are shown alongside.
 
 use axum::{
-    Router,
+    Extension, Json, Router,
     extract::{Path, Query, State},
     routing::{get, post},
 };
 use reqwest::StatusCode;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
-use vizier_core::{
-    catalogue::{ProviderOrigin, builtin::CredentialField, data::ProviderKind},
-    config::provider::ProviderId,
-    schema::{ProviderCredentials, ProviderEntry},
-    storage::provider::ProviderStorage,
+use crate::{
+    auth::Principal,
+    models::{self, response::{APIResponse, api_response, err_response}},
+    state::HTTPState,
 };
-use crate::{models::{self, response::{APIResponse, api_response, err_response}}, state::HTTPState};
+use vizier_core::service::{ServiceError, providers as service};
 
 pub mod custom;
-pub mod usage;
 
-use usage::{AffectedAgent, TestResult, UsedBy};
+pub use service::{ProviderResponse, UpsertProviderRequest};
+pub use vizier_core::service::usage::{self, InUse};
 
 pub fn providers() -> Router<HTTPState> {
     Router::new()
@@ -35,89 +34,25 @@ pub fn providers() -> Router<HTTPState> {
         .route("/{id}/test", post(test_provider))
 }
 
-/// A connected provider: saved credentials or a key in the environment, never the secrets.
-#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
-pub struct ProviderResponse {
-    pub id: ProviderId,
-    /// The same id, under the field name pre-015 clients read.
-    pub variant: ProviderId,
-    pub name: String,
-    pub origin: ProviderOrigin,
-    pub kind: ProviderKind,
-    pub logo: Option<String>,
-    pub model_count: usize,
-    pub fields: Vec<CredentialField>,
-    /// `saved`, `env:NAME`, or `null` for a local provider on its default address.
-    pub source: Option<String>,
-    pub has_api_key: bool,
-    pub endpoint: Option<String>,
-    pub base_url: Option<String>,
-    pub has_access_token: bool,
-    pub account_id: Option<String>,
-    /// AWS Bedrock: the access key id is an identifier, not a secret.
-    pub access_key_id: Option<String>,
-    /// Never the value itself.
-    pub has_secret_access_key: bool,
-    pub has_session_token: bool,
-    /// AWS region, safe to show.
-    pub region: Option<String>,
-    /// The pre-015 name this provider's saved row was migrated from.
-    pub migrated_from: Option<String>,
-    pub used_by: UsedBy,
-    /// Local and custom providers only; checked in the background.
-    pub reachable: Option<bool>,
+/// A service error in the API's envelope. A `409` that names the agents using a provider keeps
+/// them in `data`, for the WebUI's warning.
+pub(crate) fn fail<T: serde::Serialize + Clone>(e: ServiceError) -> models::response::Response<T> {
+    crate::api::v1::auth::err(e)
 }
 
-fn set(v: &Option<String>) -> bool {
-    v.as_deref().is_some_and(|s| !s.is_empty())
-}
-
-async fn connected(state: &HTTPState) -> Vec<ProviderResponse> {
-    let summaries = crate::api::v1::catalogue::provider_summaries(state).await;
-    let mut used = usage::used_by_all(state).await;
-    let migrated = usage::migrated_from(state).await;
-    let mut out = vec![];
-    for p in summaries {
-        if p.origin == ProviderOrigin::Custom {
-            continue;
-        }
-        let used_by = used.remove(&p.id).map(|(u, _)| u).unwrap_or_default();
-        let local = p.kind == ProviderKind::Local;
-        // A local provider on its default address has no source, but is listed once used.
-        let listed = p.id == ProviderId::DUMMYPLUG || p.connection.source.is_some() || (local && used_by.total() > 0);
-        if !listed {
-            continue;
-        }
-        let env = vizier_core::llm::resolve::provider_env(&state.catalogue, &p.id);
-        let creds = vizier_core::provider_keys::resolve_credentials(&state.storage, &p.id, &env)
-            .await
-            .map(|(c, _)| c)
-            .unwrap_or_default();
-        out.push(ProviderResponse {
-            variant: p.id.clone(),
-            migrated_from: migrated.get(p.id.as_str()).cloned(),
-            reachable: local.then(|| usage::reachable(state, &p.id)).flatten(),
-            name: p.name,
-            origin: p.origin,
-            kind: p.kind,
-            logo: p.logo,
-            model_count: p.model_count,
-            fields: p.fields,
-            source: p.connection.source,
-            has_api_key: set(&creds.api_key),
-            endpoint: creds.endpoint,
-            base_url: creds.base_url.or(p.endpoint),
-            has_access_token: set(&creds.access_token),
-            account_id: creds.account_id,
-            access_key_id: creds.access_key_id.filter(|v| !v.is_empty()),
-            has_secret_access_key: set(&creds.secret_access_key),
-            has_session_token: set(&creds.session_token),
-            region: creds.region.filter(|v| !v.is_empty()),
-            used_by,
-            id: p.id,
-        });
+/// Like [`fail`], for the responses whose `data` is free-form JSON.
+pub(crate) fn fail_data(e: ServiceError) -> models::response::Response<serde_json::Value> {
+    if let ServiceError::Conflict { message, data: Some(data), .. } = &e {
+        return (
+            StatusCode::CONFLICT,
+            Json(APIResponse {
+                status: StatusCode::CONFLICT.as_u16(),
+                message: Some(message.clone()),
+                data: Some(data.clone()),
+            }),
+        );
     }
-    out
+    crate::api::v1::auth::err(e)
 }
 
 #[utoipa::path(
@@ -129,9 +64,12 @@ async fn connected(state: &HTTPState) -> Vec<ProviderResponse> {
 )]
 pub(crate) async fn list_providers(
     State(state): State<HTTPState>,
+    Extension(user): Extension<Principal>,
 ) -> models::response::Response<Vec<ProviderResponse>> {
-    vizier_core::catalogue::refresh::maybe_refresh(&state.deps);
-    api_response(StatusCode::OK, connected(&state).await)
+    match service::list(&state.deps, &user).await {
+        Ok(providers) => api_response(StatusCode::OK, providers),
+        Err(e) => fail(e),
+    }
 }
 
 #[utoipa::path(
@@ -148,159 +86,12 @@ pub(crate) async fn list_providers(
 pub(crate) async fn get_provider(
     Path(id): Path<String>,
     State(state): State<HTTPState>,
+    Extension(user): Extension<Principal>,
 ) -> models::response::Response<ProviderResponse> {
-    let Ok(id) = ProviderId::parse(&id) else {
-        return err_response(StatusCode::BAD_REQUEST, "invalid provider id".into());
-    };
-    match connected(&state).await.into_iter().find(|p| p.id == id) {
-        Some(p) => api_response(StatusCode::OK, p),
-        None => err_response(StatusCode::NOT_FOUND, "provider not found".into()),
+    match service::get(&state.deps, &user, &id).await {
+        Ok(p) => api_response(StatusCode::OK, p),
+        Err(e) => fail(e),
     }
-}
-
-/// Credentials to save. An omitted field keeps the stored value; an empty string clears it.
-#[derive(Debug, Default, Deserialize, utoipa::ToSchema)]
-#[serde(deny_unknown_fields)]
-pub struct UpsertProviderRequest {
-    pub api_key: Option<String>,
-    pub endpoint: Option<String>,
-    pub base_url: Option<String>,
-    pub access_token: Option<String>,
-    pub account_id: Option<String>,
-    /// AWS Bedrock access key id.
-    pub access_key_id: Option<String>,
-    /// AWS Bedrock secret access key (write-only after saving).
-    pub secret_access_key: Option<String>,
-    /// AWS Bedrock temporary-credential session token (write-only after saving).
-    pub session_token: Option<String>,
-    /// AWS region.
-    pub region: Option<String>,
-}
-
-impl UpsertProviderRequest {
-    /// The fields present in the body.
-    fn sent(&self) -> Vec<CredentialField> {
-        use CredentialField::*;
-        [
-            (ApiKey, &self.api_key),
-            (Endpoint, &self.endpoint),
-            (BaseUrl, &self.base_url),
-            (AccessToken, &self.access_token),
-            (AccountId, &self.account_id),
-            (AccessKeyId, &self.access_key_id),
-            (SecretAccessKey, &self.secret_access_key),
-            (SessionToken, &self.session_token),
-            (Region, &self.region),
-        ]
-        .into_iter()
-        .filter(|(_, v)| v.is_some())
-        .map(|(f, _)| f)
-        .collect()
-    }
-
-    fn into_credentials(self) -> ProviderCredentials {
-        ProviderCredentials {
-            api_key: self.api_key,
-            endpoint: self.endpoint,
-            base_url: self.base_url,
-            access_token: self.access_token,
-            account_id: self.account_id,
-            access_key_id: self.access_key_id,
-            secret_access_key: self.secret_access_key,
-            session_token: self.session_token,
-            region: self.region,
-        }
-    }
-}
-
-/// Apply `update` over `stored`: `None` keeps, `""` clears, a value replaces.
-fn apply(stored: Option<String>, update: Option<String>) -> Option<String> {
-    match update {
-        None => stored,
-        Some(v) if v.is_empty() => None,
-        Some(v) => Some(v),
-    }
-}
-
-fn field_name(f: CredentialField) -> &'static str {
-    match f {
-        CredentialField::ApiKey => "api_key",
-        CredentialField::Endpoint => "endpoint",
-        CredentialField::BaseUrl => "base_url",
-        CredentialField::AccessToken => "access_token",
-        CredentialField::AccountId => "account_id",
-        CredentialField::AccessKeyId => "access_key_id",
-        CredentialField::SecretAccessKey => "secret_access_key",
-        CredentialField::SessionToken => "session_token",
-        CredentialField::Region => "region",
-    }
-}
-
-/// A Bedrock save must not leave exactly one half of the signing pair behind (FR-005). Clearing
-/// everything disconnects, and setting the region (or a session token) before the pair is fine.
-fn check_bedrock_pair(
-    id: &ProviderId,
-    creds: &ProviderCredentials,
-) -> Result<(), (StatusCode, String)> {
-    if *id != ProviderId::AMAZON_BEDROCK {
-        return Ok(());
-    }
-    if let Some(region) = creds.region.as_deref().filter(|r| !r.is_empty())
-        && !vizier_core::llm::bedrock::valid_region(region)
-    {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            format!("invalid AWS region {region:?}: use a form like us-east-1"),
-        ));
-    }
-    let has = |v: &Option<String>| v.as_deref().is_some_and(|s| !s.is_empty());
-    match (has(&creds.access_key_id), has(&creds.secret_access_key)) {
-        (true, false) => Err((
-            StatusCode::BAD_REQUEST,
-            "the secret access key is missing: set it too, or clear the access key ID".into(),
-        )),
-        (false, true) => Err((
-            StatusCode::BAD_REQUEST,
-            "the access key ID is missing: set it too, or clear the secret access key".into(),
-        )),
-        _ => Ok(()),
-    }
-}
-
-/// The provider's connect fields, or why credentials can't be saved for it.
-fn check_fields(
-    state: &HTTPState,
-    id: &ProviderId,
-    sent: &[CredentialField],
-    custom: &[vizier_core::schema::CustomProvider],
-) -> Result<(), (StatusCode, String)> {
-    let Some(listing) = state.catalogue.providers(custom).into_iter().find(|p| p.id == *id) else {
-        return Err((
-            StatusCode::NOT_FOUND,
-            format!("provider \"{id}\" is not available"),
-        ));
-    };
-    if listing.origin == ProviderOrigin::Custom {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            format!("\"{id}\" is a custom provider; edit it under /providers/custom/{id}"),
-        ));
-    }
-    for f in sent {
-        if listing.fields.contains(f) {
-            continue;
-        }
-        let message = if *f == CredentialField::BaseUrl {
-            // FR-027: a cloud provider's address comes from the catalogue.
-            format!(
-                "\"{id}\" does not take a base_url; to use another address, add a custom provider"
-            )
-        } else {
-            format!("\"{id}\" does not use {}", field_name(*f))
-        };
-        return Err((StatusCode::BAD_REQUEST, message));
-    }
-    Ok(())
 }
 
 #[utoipa::path(
@@ -318,50 +109,13 @@ fn check_fields(
 pub(crate) async fn upsert_provider(
     Path(id): Path<String>,
     State(state): State<HTTPState>,
+    Extension(user): Extension<Principal>,
     axum::Json(body): axum::Json<UpsertProviderRequest>,
 ) -> models::response::Response<ProviderResponse> {
-    use vizier_core::storage::provider::CustomProviderStorage;
-    let Ok(id) = ProviderId::parse(&id) else {
-        return err_response(StatusCode::BAD_REQUEST, "invalid provider id".into());
-    };
-    let custom = state.storage.list_custom_providers().await.unwrap_or_default();
-    if let Err((status, message)) = check_fields(&state, &id, &body.sent(), &custom) {
-        return err_response(status, message);
-    }
-
-    let stored = match state.storage.get_provider(&id).await {
-        Ok(entry) => entry.map(|e| e.credentials).unwrap_or_default(),
-        Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
-    };
-    let entry = ProviderEntry {
-        id: id.clone(),
-        credentials: ProviderCredentials {
-            api_key: apply(stored.api_key, body.api_key),
-            endpoint: apply(stored.endpoint, body.endpoint),
-            base_url: apply(stored.base_url, body.base_url),
-            access_token: apply(stored.access_token, body.access_token),
-            account_id: apply(stored.account_id, body.account_id),
-            access_key_id: apply(stored.access_key_id, body.access_key_id),
-            secret_access_key: apply(stored.secret_access_key, body.secret_access_key),
-            session_token: apply(stored.session_token, body.session_token),
-            region: apply(stored.region, body.region),
-        },
-    };
-    if let Err((status, message)) = check_bedrock_pair(&id, &entry.credentials) {
-        return err_response(status, message);
-    }
-    let saved = if entry.credentials.is_empty() {
-        state.storage.delete_provider(&id).await
-    } else {
-        state.storage.upsert_provider(&entry).await
-    };
-    if let Err(e) = saved {
-        return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string());
-    }
-    restart_users(&state, &id).await;
-    match connected(&state).await.into_iter().find(|p| p.id == id) {
-        Some(p) => api_response(StatusCode::OK, p),
-        None => err_response(StatusCode::OK, "saved; no credentials remain".into()),
+    match service::upsert(&state.deps, &user, &id, body).await {
+        Ok(Some(p)) => api_response(StatusCode::OK, p),
+        Ok(None) => err_response(StatusCode::OK, "saved; no credentials remain".into()),
+        Err(e) => fail(e),
     }
 }
 
@@ -370,66 +124,6 @@ pub struct DeleteQuery {
     /// Delete even though agents use the provider.
     #[serde(default)]
     pub confirm: bool,
-}
-
-/// The agents a delete would affect, for the WebUI's warning.
-#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
-pub struct InUse {
-    pub agents: Vec<AffectedAgent>,
-}
-
-/// `409` with the agents using `id`, unless the delete is confirmed.
-pub(crate) async fn in_use(
-    state: &HTTPState,
-    id: &ProviderId,
-    confirm: bool,
-) -> Option<models::response::Response<serde_json::Value>> {
-    if confirm {
-        return None;
-    }
-    let agents = usage::used_by_all(state)
-        .await
-        .remove(id)
-        .map(|(_, a)| a)
-        .unwrap_or_default();
-    if agents.is_empty() {
-        return None;
-    }
-    let names: Vec<&str> = agents.iter().map(|a| a.name.as_str()).collect();
-    Some((
-        StatusCode::CONFLICT,
-        axum::Json(APIResponse {
-            status: StatusCode::CONFLICT.as_u16(),
-            message: Some(format!(
-                "used by {}; resend with ?confirm=true to delete anyway",
-                names.join(", ")
-            )),
-            data: serde_json::to_value(InUse { agents }).ok(),
-        }),
-    ))
-}
-
-/// Restart every agent using `id`, so a changed key or a removed provider takes effect now
-/// rather than at the next restart. An agent that can no longer build shows as `Failed`.
-pub(crate) async fn restart_users(state: &HTTPState, id: &ProviderId) {
-    let agents = usage::used_by_all(state)
-        .await
-        .remove(id)
-        .map(|(_, a)| a)
-        .unwrap_or_default();
-    for agent in agents {
-        let (resp, rx) = tokio::sync::oneshot::channel();
-        let cmd = vizier_core::schema::AgentCommand::Restart {
-            agent_id: agent.id.clone(),
-            resp,
-        };
-        if state.transport.send_agent_command(cmd).await.is_err() {
-            continue;
-        }
-        if let Ok(vizier_core::schema::AgentCommandResult::Error(e)) = rx.await {
-            tracing::warn!("restarting agent '{}' after a change to '{id}': {e}", agent.id);
-        }
-    }
 }
 
 #[utoipa::path(
@@ -448,27 +142,11 @@ pub(crate) async fn delete_provider(
     Path(id): Path<String>,
     Query(query): Query<DeleteQuery>,
     State(state): State<HTTPState>,
+    Extension(user): Extension<Principal>,
 ) -> models::response::Response<serde_json::Value> {
-    let Ok(id) = ProviderId::parse(&id) else {
-        return err_response(StatusCode::BAD_REQUEST, "invalid provider id".into());
-    };
-    if let Some(conflict) = in_use(&state, &id, query.confirm).await {
-        return conflict;
-    }
-    if let Err(e) = state.storage.delete_provider(&id).await {
-        return err_response(StatusCode::BAD_REQUEST, e.to_string());
-    }
-    restart_users(&state, &id).await;
-    let env = vizier_core::llm::resolve::provider_env(&state.catalogue, &id);
-    match vizier_core::provider_keys::credentials_from_env(&id, &env) {
-        Some((_, origin)) => api_response(
-            StatusCode::OK,
-            serde_json::Value::String(format!(
-                "deleted the saved credentials; the {} environment variable still connects this provider and can't be deleted here",
-                origin.label().trim_start_matches("env:")
-            )),
-        ),
-        None => api_response(StatusCode::OK, "deleted".into()),
+    match service::delete(&state.deps, &user, &id, query.confirm).await {
+        Ok(message) => api_response(StatusCode::OK, serde_json::Value::String(message)),
+        Err(e) => fail_data(e),
     }
 }
 
@@ -478,56 +156,46 @@ pub(crate) async fn delete_provider(
     params(("id" = String, Path, description = "Provider id")),
     request_body(content = UpsertProviderRequest, description = "Optional credentials to try before saving"),
     responses(
-        (status = 200, description = "`ok` says whether the provider answered", body = APIResponse<TestResult>)
+        (status = 200, description = "`ok` says whether the provider answered", body = APIResponse<usage::TestResult>)
     )
 )]
 pub(crate) async fn test_provider(
     Path(id): Path<String>,
     State(state): State<HTTPState>,
+    Extension(user): Extension<Principal>,
     body: axum::body::Bytes,
-) -> models::response::Response<TestResult> {
-    use vizier_core::storage::provider::CustomProviderStorage;
-    let Ok(id) = ProviderId::parse(&id) else {
-        return err_response(StatusCode::BAD_REQUEST, "invalid provider id".into());
-    };
-    // The body is optional: nothing (or `null`) tests what is saved.
-    let body: UpsertProviderRequest = if body.iter().all(u8::is_ascii_whitespace) {
-        UpsertProviderRequest::default()
-    } else {
-        match serde_json::from_slice::<Option<UpsertProviderRequest>>(&body) {
-            Ok(b) => b.unwrap_or_default(),
-            Err(e) => return err_response(StatusCode::BAD_REQUEST, e.to_string()),
-        }
-    };
-    let custom = state.storage.get_custom_provider(&id).await.ok().flatten();
-    if custom.is_none() {
-        let all = state.storage.list_custom_providers().await.unwrap_or_default();
-        if let Err((status, message)) = check_fields(&state, &id, &body.sent(), &all) {
-            return err_response(status, message);
-        }
-    }
-    let credentials = Some(body.into_credentials()).filter(|c| !c.is_empty());
-    match usage::resolve_for_test(&state, &id, credentials, custom.as_ref()).await {
-        Ok(resolved) => api_response(StatusCode::OK, usage::check(&state, resolved).await),
-        Err(e) => api_response(
-            StatusCode::OK,
-            TestResult {
-                ok: false,
-                model_count: None,
-                status: None,
-                error: Some(e.to_string()),
-            },
-        ),
+) -> models::response::Response<usage::TestResult> {
+    match service::test(&state.deps, &user, &id, &body).await {
+        Ok(result) => api_response(StatusCode::OK, result),
+        Err(e) => fail(e),
     }
 }
 
 #[cfg(test)]
 mod dummyplug_provider_tests {
     use super::*;
+    use vizier_core::catalogue::builtin::CredentialField;
+    use vizier_core::config::provider::ProviderId;
     use vizier_core::{
         config::VizierConfig, dependencies::VizierDependencies, storage::provider::ProviderStorage,
     };
     use std::sync::Arc;
+
+    fn principal() -> Principal {
+        Principal {
+            user_id: "root".into(),
+            username: "root".into(),
+            role: vizier_core::auth::Role {
+                role_id: "r".into(),
+                name: "system".into(),
+                permissions: vec![],
+                is_system: true,
+                created_at: chrono::Utc::now(),
+            },
+            permissions: vec![],
+            method: crate::auth::AuthMethod::Jwt,
+        }
+    }
 
     async fn state() -> (HTTPState, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
@@ -564,7 +232,7 @@ mod dummyplug_provider_tests {
     #[tokio::test]
     async fn get_lists_the_default_and_put_edits_dummyplug_base_url() {
         let (state, _dir) = state().await;
-        let initial = connected(&state)
+        let initial = service::connected(&state.deps)
             .await
             .into_iter()
             .find(|provider| provider.id == ProviderId::DUMMYPLUG)
@@ -575,6 +243,7 @@ mod dummyplug_provider_tests {
         let put = upsert_provider(
             Path("dummyplug".into()),
             State(state.clone()),
+            Extension(principal()),
             axum::Json(UpsertProviderRequest {
                 base_url: Some("http://127.0.0.1:19998/v1".into()),
                 ..Default::default()
@@ -584,7 +253,8 @@ mod dummyplug_provider_tests {
         assert_eq!(put.0, StatusCode::OK);
         assert_eq!(put.1.0.data.as_ref().unwrap().base_url.as_deref(), Some("http://127.0.0.1:19998/v1"));
 
-        let get = get_provider(Path("dummyplug".into()), State(state.clone())).await;
+        let get = get_provider(Path("dummyplug".into()), State(state.clone()),
+            Extension(principal())).await;
         assert_eq!(get.0, StatusCode::OK);
         assert_eq!(get.1.0.data.as_ref().unwrap().base_url.as_deref(), Some("http://127.0.0.1:19998/v1"));
 
@@ -598,6 +268,7 @@ mod dummyplug_provider_tests {
         let put = upsert_provider(
             Path("dummyplug".into()),
             State(state),
+            Extension(principal()),
             axum::Json(UpsertProviderRequest {
                 api_key: Some("not-used".into()),
                 ..Default::default()
@@ -624,6 +295,7 @@ mod dummyplug_provider_tests {
         let put = upsert_provider(
             Path("amazon-bedrock".into()),
             State(state.clone()),
+            Extension(principal()),
             axum::Json(body(Some("AKIAEXAMPLE"), None, Some("us-east-1"))),
         )
         .await;
@@ -639,6 +311,7 @@ mod dummyplug_provider_tests {
         let put = upsert_provider(
             Path("amazon-bedrock".into()),
             State(state.clone()),
+            Extension(principal()),
             axum::Json(body(Some("AKIAEXAMPLE"), Some("secret"), Some("not-a-region"))),
         )
         .await;
@@ -653,6 +326,7 @@ mod dummyplug_provider_tests {
         let put = upsert_provider(
             Path("amazon-bedrock".into()),
             State(state.clone()),
+            Extension(principal()),
             axum::Json(body(Some("AKIAEXAMPLE"), Some("secret-access"), Some("us-east-1"))),
         )
         .await;
@@ -696,7 +370,8 @@ mod dummyplug_provider_tests {
         assert!(!raw.contains("secret-access"), "{raw}");
         assert!(raw.contains("AKIAEXAMPLE"), "the identifier stays readable: {raw}");
 
-        let get = get_provider(Path("amazon-bedrock".into()), State(state.clone())).await;
+        let get = get_provider(Path("amazon-bedrock".into()), State(state.clone()),
+            Extension(principal())).await;
         let json = serde_json::to_value(get.1.0.data.unwrap()).unwrap();
         assert!(json.get("secret_access_key").is_none());
         assert!(!json.to_string().contains("secret-access"), "{json}");
@@ -706,6 +381,7 @@ mod dummyplug_provider_tests {
         let put = upsert_provider(
             Path("amazon-bedrock".into()),
             State(state.clone()),
+            Extension(principal()),
             axum::Json(UpsertProviderRequest {
                 api_key: Some("bearer".into()),
                 ..Default::default()
@@ -723,6 +399,7 @@ mod dummyplug_provider_tests {
         let put = upsert_provider(
             Path("amazon-bedrock".into()),
             State(state.clone()),
+            Extension(principal()),
             axum::Json(UpsertProviderRequest {
                 base_url: Some("https://elsewhere.example".into()),
                 ..Default::default()
@@ -741,11 +418,13 @@ mod dummyplug_provider_tests {
             Path("amazon-bedrock".into()),
             Query(DeleteQuery { confirm: true }),
             State(state.clone()),
+            Extension(principal()),
         )
         .await;
         assert_eq!(deleted.0, StatusCode::OK);
         assert!(state.storage.get_provider(&ProviderId::AMAZON_BEDROCK).await.unwrap().is_none());
-        let get = get_provider(Path("amazon-bedrock".into()), State(state)).await;
+        let get = get_provider(Path("amazon-bedrock".into()), State(state),
+            Extension(principal())).await;
         assert_eq!(get.0, StatusCode::NOT_FOUND);
     }
 }
