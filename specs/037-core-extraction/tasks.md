@@ -184,7 +184,7 @@ description: "Task list for extracting vizier-core and splitting the workspace (
 - [X] T066 [P] [US4] Write `crates/vizier-core/README.md`: what the engine is, the feature table (research R9), the headless example as the quick start (`cargo add vizier-core`, `examples/headless.rs`), the stable vs hidden tier note, pre-1.0 versioning
 - [X] T067 [P] [US4] Write `crates/vizier-http/README.md`: `serve`/`router`, the WebUI embedding and how a source build finds `webui/` (R10)
 - [X] T068 [US4] Document the stable tier in `crates/vizier-core/src/lib.rs` (crate docs with the contracts/vizier-core-api.md example as a doctest marked `no_run`), add a `prelude` module re-exporting exactly the items in research R3, and `#[doc(hidden)]` the remaining `VizierTransport` methods (everything except `send_request`, `send_agent_command`, `subscribe_session_events`)
-- [ ] T069 [US4] Run quickstart §6: stage WebUI, `cargo package --workspace --allow-dirty`, sizes < 10 MB, `DOCS_RS=1 cargo doc -p vizier-core --no-deps --features discord,telegram,documents,utoipa`, `cargo public-api -p vizier-core` shows only stable-tier items; save the `cargo public-api` output as `crates/vizier-core/public-api.txt` for future diffs
+- [X] T069 [US4] Run quickstart §6: stage WebUI, `cargo package --workspace --allow-dirty`, sizes < 10 MB, `DOCS_RS=1 cargo doc -p vizier-core --no-deps --features discord,telegram,documents,utoipa`, `cargo public-api -p vizier-core` shows only stable-tier items; save the `cargo public-api` output as `crates/vizier-core/public-api.txt` for future diffs
 - [X] T070 [US4] Add the `package` job to `.github/workflows/ci.yml`: build WebUI, stage it, `cargo package --workspace --allow-dirty`, size report, `DOCS_RS=1 cargo doc -p vizier-core --no-deps`, `cargo public-api -p vizier-core` diffed against `crates/vizier-core/public-api.txt` (a change requires updating the file in the same PR), and a `cargo semver-checks -p vizier-core` step that is skipped until the first `vizier-core` release exists
 - [ ] T071 [US4] Re-run the release dry run (T058 command) and confirm the publish step lists `vizier-derive`, `vizier-core`, `vizier-http`, `vizier`; this is the PR 7 merge gate
 
@@ -362,3 +362,7 @@ Each PR is conventional-commit titled (table above), passes CI, and must show ze
 - **T058/T071 not run**: the release dry run (`gh workflow run release-and-publish.yml --ref
   037-core-extraction -f dry_run=true`) needs the branch pushed and starts GitHub Actions
   runs, so it waits for a go-ahead.
+- **T069 done**: `crates/vizier-core/public-api.txt` (cargo-public-api 0.52.0, `--simplified`) lists
+  only `access auth config error prelude runtime schema transport`; none of the hidden modules
+  appear. CI installs a fresh nightly, so a rustdoc-JSON format change there could make the diff
+  fail for reasons unrelated to the API: regenerate the file with the same command if that happens.
