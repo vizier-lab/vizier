@@ -1,7 +1,3 @@
-/agents/{agent_id}/artifacts
-/agents/{agent_id}/artifacts/activity
-/agents/{agent_id}/artifacts/{artifact_id}
-/agents/{agent_id}/artifacts/{artifact_id}/content
 /agents/{agent_id}/btw
 /agents/{agent_id}/channel/{channel_id}/topic/{topic_id}
 /agents/{agent_id}/channel/{channel_id}/topic/{topic_id}/chat
@@ -18,11 +14,6 @@
 /agents/{agent_id}/core/history
 /agents/{agent_id}/dream/cycles
 /agents/{agent_id}/dream/nights
-/agents/{agent_id}/integrations
-/agents/{agent_id}/integrations/events
-/agents/{agent_id}/integrations/grants
-/agents/{agent_id}/integrations/{integration_id}
-/agents/{agent_id}/integrations/{integration_id}/attachment
 /agents/{agent_id}/memory
 /agents/{agent_id}/memory/attachments/{bundle}/{*path}
 /agents/{agent_id}/memory/bundles
@@ -30,9 +21,6 @@
 /agents/{agent_id}/memory/query
 /agents/{agent_id}/memory/{slug}
 /agents/{agent_id}/restart
-/agents/{agent_id}/secrets
-/agents/{agent_id}/secrets/events
-/agents/{agent_id}/secrets/{name}
 /agents/{agent_id}/tasks
 /agents/{agent_id}/tasks/{slug}
 /agents/{agent_id}/tasks/{slug}/runs
@@ -51,11 +39,7 @@
 /catalogue/providers/{id}/models
 /catalogue/providers/{id}/models/{model}
 /catalogue/refresh
-/files/upload
-/files/{file_id}
-/integrations/kinds
 /integrations/kinds/{id}/icon
-/integrations/{id}
 /notifications
 /notifications/count
 /notifications/read-all

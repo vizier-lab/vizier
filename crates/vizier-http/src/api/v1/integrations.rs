@@ -1,8 +1,7 @@
 //! Integration-level routes (`specs/016-integrations-section/contracts/http-api.md`): edit and
 //! delete an integration independent of any agent, and the kinds catalogue. The agent-scoped
-//! routes the pages use are in `agents/integrations.rs`; both share the helpers here.
-
-use std::collections::HashMap;
+//! routes the pages use are in `agents/integrations.rs`; both share the response helpers here.
+//! The rules and views are in `vizier_core::service::integrations`.
 
 use rust_embed::RustEmbed;
 
@@ -23,20 +22,17 @@ use crate::{
     state::HTTPState,
 };
 use vizier_core::{
-    integrations::{
-        access::{Caller, integration_access},
-        kind::{IntegrationKind, KindField},
-        service::{self, Actor, IntegrationPatch, ServiceError},
-    },
-    schema::{AgentConfig, AgentId, Integration, IntegrationFamily, Requester},
-    storage::{
-        agent::AgentStorage,
-        integration::{IntegrationConflict, IntegrationStorage},
-        user::UserStorage,
-    },
+    integrations::service::IntegrationPatch,
+    schema::IntegrationFamily,
+    service::{ServiceError, Services, integrations as service},
 };
 
-use super::agents::user_can_view_agent;
+pub use service::{IntegrationDeleted, IntegrationDetail, IntegrationSaved, IntegrationView, KindView};
+
+/// The service layer over this server's engine.
+pub(crate) fn svc(state: &HTTPState) -> Services {
+    Services::new(state.deps.clone())
+}
 
 #[derive(RustEmbed)]
 #[folder = "assets/integrations/"]
@@ -94,136 +90,38 @@ pub(crate) fn plain(status: StatusCode, message: impl Into<String>) -> Response 
     fail(status, message, serde_json::json!({ "error": code }))
 }
 
-/// A storage error as a response: a rule conflict is `409` with its code and the integration
-/// already holding what was asked for, anything else `500`.
-pub(crate) fn storage_error(e: anyhow::Error) -> Response {
-    match e.downcast_ref::<IntegrationConflict>() {
-        Some(conflict) => {
-            let (id, name) = conflict.conflicting();
-            fail(
-                StatusCode::CONFLICT,
-                conflict.to_string(),
-                serde_json::json!({
-                    "error": conflict.code(),
-                    "integration": { "id": id, "name": name },
-                }),
-            )
-        }
-        None => plain(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
-    }
-}
-
-/// A service refusal as a response: 404/403/422, a rule conflict `409` with its code and the
-/// integration already holding what was asked for, anything else `500`.
-pub(crate) fn service_error(e: ServiceError) -> Response {
+/// A service refusal as this API's response: `data` carries `{"error": code, ...details}`.
+/// A rule conflict keeps the integration already holding what was asked for in its `data`;
+/// `required` is what a `403` lists as the permissions that would have allowed it.
+pub(crate) fn failure(e: ServiceError, required: Option<serde_json::Value>) -> Response {
+    let status = StatusCode::from_u16(e.status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
     match e {
-        ServiceError::NotFound => plain(StatusCode::NOT_FOUND, "integration not found"),
-        ServiceError::Forbidden(message) => fail(
-            StatusCode::FORBIDDEN,
+        ServiceError::Conflict { message, data: Some(data), .. } => fail(status, message, data),
+        ServiceError::Gone { code, message } => fail(status, message, serde_json::json!({ "error": code })),
+        ServiceError::Forbidden(message) if required.is_some() => fail(
+            status,
             message,
-            serde_json::json!({
-                "error": "forbidden",
-                "required": [
-                    vizier_core::integrations::access::MANAGE_ALL,
-                    format!("{} (own agents)", vizier_core::integrations::access::MANAGE_OWNED),
-                ],
-            }),
+            serde_json::json!({ "error": "forbidden", "required": required }),
         ),
-        ServiceError::Invalid(message) => plain(StatusCode::UNPROCESSABLE_ENTITY, message),
-        ServiceError::Conflict(conflict) => storage_error(conflict.into()),
-        ServiceError::Storage(e) => storage_error(e),
+        other => plain(status, other.message().to_string()),
     }
 }
 
-/// An integration as every response shows it: settings redacted by its kind.
-#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
-pub struct IntegrationView {
-    pub id: String,
-    pub kind: String,
-    pub family: IntegrationFamily,
-    pub name: String,
-    pub enabled: bool,
-    /// Who made it: `{"user": …}` or `{"agent": …}`. Informational only.
-    pub creator: Option<Requester>,
-    /// The agent's name, or the username.
-    pub creator_name: Option<String>,
-    #[schema(value_type = Object)]
-    pub settings: serde_json::Value,
-    /// Required settings that are missing; the integration contributes nothing until set.
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub missing: Vec<String>,
+/// The permissions that manage an agent's integrations, for a `403`'s `required`.
+pub(crate) fn integrations_required() -> serde_json::Value {
+    serde_json::json!([
+        service::MANAGE_ALL,
+        format!("{} (own agents)", service::MANAGE_OWNED),
+    ])
 }
 
-/// Who a `Requester` is, as a person reads it: the agent's name, or the username.
-pub(crate) fn requester_name(
-    requester: &Requester,
-    agents: &HashMap<AgentId, AgentConfig>,
-    users: &HashMap<String, String>,
-) -> String {
-    match requester {
-        Requester::User(id) => users.get(id).cloned().unwrap_or_else(|| id.clone()),
-        Requester::Agent(id) => agents.get(id).map(|a| a.name.clone()).unwrap_or_else(|| id.clone()),
-    }
-}
-
-/// Usernames by user id.
-pub(crate) async fn usernames(state: &HTTPState) -> HashMap<String, String> {
-    state
-        .storage
-        .list_users()
-        .await
-        .unwrap_or_default()
-        .into_iter()
-        .map(|user| (user.user_id, user.username))
-        .collect()
-}
-
-pub(crate) fn view(
-    kind: Option<&dyn IntegrationKind>,
-    integration: &Integration,
-    agents: &HashMap<AgentId, AgentConfig>,
-    users: &HashMap<String, String>,
-) -> IntegrationView {
-    IntegrationView {
-        id: integration.id.clone(),
-        kind: integration.kind.clone(),
-        family: integration.family,
-        name: integration.name.clone(),
-        enabled: integration.enabled,
-        creator: integration.creator.clone(),
-        creator_name: integration.creator.as_ref().map(|creator| requester_name(creator, agents, users)),
-        // An unknown kind's settings could hold anything; show none of them.
-        settings: kind
-            .map(|k| k.redact(&integration.settings))
-            .unwrap_or(serde_json::json!({})),
-        missing: kind.map(|k| k.missing(&integration.settings)).unwrap_or_default(),
-    }
-}
-
-/// Every stored agent, by id.
-pub(crate) async fn agents_by_id(state: &HTTPState) -> HashMap<AgentId, AgentConfig> {
-    state.storage.list_agents().await.unwrap_or_default().into_iter().collect()
+fn fail_integrations(e: ServiceError) -> Response {
+    failure(e, Some(integrations_required()))
 }
 
 // ---------------------------------------------------------------------------------------------
 // Integration-level routes
 // ---------------------------------------------------------------------------------------------
-
-#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
-pub struct IntegrationDetail {
-    #[serde(flatten)]
-    pub integration: IntegrationView,
-    /// The agents it is attached to that the caller can view.
-    pub agents: Vec<AgentId>,
-}
-
-async fn load(state: &HTTPState, id: &str) -> Result<Integration, Response> {
-    match state.storage.get_integration(id).await {
-        Ok(Some(integration)) => Ok(integration),
-        Ok(None) => Err(plain(StatusCode::NOT_FOUND, "integration not found")),
-        Err(e) => Err(storage_error(e)),
-    }
-}
 
 #[utoipa::path(
     get,
@@ -239,32 +137,10 @@ pub async fn get_integration(
     Extension(user): Extension<Principal>,
     Path(id): Path<String>,
 ) -> Response {
-    let integration = match load(&state, &id).await {
-        Ok(i) => i,
-        Err(r) => return r,
-    };
-    let caller = Caller::from(&user);
-    let agents = agents_by_id(&state).await;
-    if !integration_access(caller, &integration, &agents, |a| user_can_view_agent(&user, a)).see {
-        return plain(StatusCode::NOT_FOUND, "integration not found");
+    match service::get(&svc(&state), &user, &id).await {
+        Ok(detail) => ok(StatusCode::OK, detail),
+        Err(e) => fail_integrations(e),
     }
-    let kind = state.deps.integration_kinds.get(&integration.kind);
-    let visible = integration
-        .agents
-        .iter()
-        .filter(|a| {
-            caller.manages_all()
-                || agents.get(*a).is_some_and(|config| user_can_view_agent(&user, config))
-        })
-        .cloned()
-        .collect();
-    ok(
-        StatusCode::OK,
-        IntegrationDetail {
-            integration: view(kind.as_deref(), &integration, &agents, &usernames(&state).await),
-            agents: visible,
-        },
-    )
 }
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
@@ -273,13 +149,6 @@ pub struct UpdateIntegration {
     #[schema(value_type = Option<Object>)]
     pub settings: Option<serde_json::Value>,
     pub enabled: Option<bool>,
-}
-
-#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
-pub struct IntegrationSaved {
-    #[serde(flatten)]
-    pub integration: IntegrationView,
-    pub affected_agents: Vec<AgentId>,
 }
 
 #[utoipa::path(
@@ -300,22 +169,10 @@ pub async fn update_integration(
     Path(id): Path<String>,
     Json(body): Json<UpdateIntegration>,
 ) -> Response {
-    let actor = Actor::Person(Caller::from(&user));
     let patch = IntegrationPatch { name: body.name, settings: body.settings, enabled: body.enabled };
-    let can_view = |a: &AgentConfig| user_can_view_agent(&user, a);
-    match service::update(&state.deps, &actor, &id, patch, &can_view).await {
-        Ok((integration, affected)) => {
-            let kind = state.deps.integration_kinds.get(&integration.kind);
-            let agents = agents_by_id(&state).await;
-            ok(
-                StatusCode::OK,
-                IntegrationSaved {
-                    integration: view(kind.as_deref(), &integration, &agents, &usernames(&state).await),
-                    affected_agents: affected,
-                },
-            )
-        }
-        Err(e) => service_error(e),
+    match service::update(&svc(&state), &user, &id, patch).await {
+        Ok(saved) => ok(StatusCode::OK, saved),
+        Err(e) => fail_integrations(e),
     }
 }
 
@@ -323,11 +180,6 @@ pub async fn update_integration(
 pub struct DeleteQuery {
     #[serde(default)]
     pub confirm: bool,
-}
-
-#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
-pub struct IntegrationDeleted {
-    pub affected_agents: Vec<AgentId>,
 }
 
 #[utoipa::path(
@@ -345,51 +197,15 @@ pub async fn delete_integration(
     Path(id): Path<String>,
     Query(query): Query<DeleteQuery>,
 ) -> Response {
-    let integration = match load(&state, &id).await {
-        Ok(i) => i,
-        Err(r) => return r,
-    };
-    let agents = agents_by_id(&state).await;
-    let access = integration_access(Caller::from(&user), &integration, &agents, |a| {
-        user_can_view_agent(&user, a)
-    });
-    if !access.see {
-        return plain(StatusCode::NOT_FOUND, "integration not found");
-    }
-    if !access.edit {
-        return service_error(ServiceError::Forbidden("you may not delete this integration".into()));
-    }
-    if !integration.agents.is_empty() && !query.confirm {
-        return fail(
-            StatusCode::CONFLICT,
-            format!(
-                "in use by {} agent(s); resend with ?confirm=true to delete anyway",
-                integration.agents.len()
-            ),
-            serde_json::json!({ "error": "attached", "agents": integration.agents }),
-        );
-    }
-    let actor = Actor::Person(Caller::from(&user));
-    let can_view = |a: &AgentConfig| user_can_view_agent(&user, a);
-    match service::delete(&state.deps, &actor, &id, None, &can_view).await {
-        Ok(affected) => ok(StatusCode::OK, IntegrationDeleted { affected_agents: affected }),
-        Err(e) => service_error(e),
+    match service::delete(&svc(&state), &user, &id, query.confirm).await {
+        Ok(deleted) => ok(StatusCode::OK, deleted),
+        Err(e) => fail_integrations(e),
     }
 }
 
 // ---------------------------------------------------------------------------------------------
 // Catalogue
 // ---------------------------------------------------------------------------------------------
-
-#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
-pub struct KindView {
-    pub id: &'static str,
-    pub family: IntegrationFamily,
-    pub name: &'static str,
-    pub description: &'static str,
-    pub icon: &'static str,
-    pub fields: Vec<KindField>,
-}
 
 #[derive(Debug, Default, Deserialize, utoipa::IntoParams)]
 pub struct FamilyQuery {
@@ -403,24 +219,7 @@ pub struct FamilyQuery {
     responses((status = 200, description = "The built-in kinds", body = APIResponse<Vec<KindView>>))
 )]
 pub async fn list_kinds(State(state): State<HTTPState>, Query(query): Query<FamilyQuery>) -> Response {
-    let kinds: Vec<KindView> = state
-        .deps
-        .integration_kinds
-        .by_family(query.family)
-        .iter()
-        .map(|kind| {
-            let listing = kind.listing();
-            KindView {
-                id: kind.id(),
-                family: kind.family(),
-                name: listing.name,
-                description: listing.description,
-                icon: listing.icon,
-                fields: listing.fields,
-            }
-        })
-        .collect();
-    ok(StatusCode::OK, kinds)
+    ok(StatusCode::OK, service::kinds(&svc(&state), query.family))
 }
 
 #[utoipa::path(
@@ -433,10 +232,10 @@ pub async fn list_kinds(State(state): State<HTTPState>, Query(query): Query<Fami
     )
 )]
 pub async fn kind_icon(State(state): State<HTTPState>, Path(id): Path<String>) -> Response {
-    let Some(kind) = state.deps.integration_kinds.get(&id) else {
+    let Some(icon) = service::kind_icon(&svc(&state), &id) else {
         return StatusCode::NOT_FOUND.into_response();
     };
-    match Icons::get(&format!("{}.svg", kind.listing().icon)) {
+    match Icons::get(&format!("{}.svg", icon)) {
         Some(file) => {
             let mut response = (StatusCode::OK, file.data.into_owned()).into_response();
             let headers = response.headers_mut();
@@ -463,5 +262,18 @@ mod tests {
             let icon = Icons::get(&format!("{}.svg", kind.listing().icon));
             assert!(icon.is_some_and(|f| f.data.starts_with(b"<svg")), "{}", kind.id());
         }
+    }
+
+    #[test]
+    fn a_conflict_keeps_its_code_and_the_holder_and_a_gone_its_code() {
+        let conflict = ServiceError::Conflict {
+            message: "taken".into(),
+            code: Some("token_in_use".into()),
+            data: Some(serde_json::json!({ "error": "token_in_use", "integration": { "id": "i", "name": "n" } })),
+        };
+        assert_eq!(failure(conflict, None).status(), StatusCode::CONFLICT);
+        let gone = ServiceError::Gone { code: "attach_removed".into(), message: "m".into() };
+        assert_eq!(failure(gone, None).status(), StatusCode::GONE);
+        assert_eq!(failure(ServiceError::Forbidden("no".into()), None).status(), StatusCode::FORBIDDEN);
     }
 }
