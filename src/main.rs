@@ -4,7 +4,7 @@
 use std::process;
 
 use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
-use vizier::{Result, cli, telemetry};
+use vizier::{Result, cli, cli::telemetry_init::Telemetry};
 
 fn main() -> Result<()> {
     dotenvy::dotenv().ok();
@@ -13,7 +13,7 @@ fn main() -> Result<()> {
         Ok(_) => EnvFilter::from_default_env(),
         Err(_) => default_filter(),
     };
-    let (telemetry, telemetry_error) = match telemetry::Telemetry::init() {
+    let (telemetry, telemetry_error) = match Telemetry::init() {
         Ok(t) => (t, None),
         Err(e) => (None, Some(e)),
     };

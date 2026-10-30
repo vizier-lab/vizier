@@ -18,7 +18,7 @@ pub struct ShutdownArgs {
 }
 
 pub fn shutdown(args: ShutdownArgs) -> Result<()> {
-    let config = VizierConfig::load(args.config.clone())?;
+    let config = super::config_resolve::resolve(args.config.clone())?;
 
     let sock_path = PathBuf::from(&config.workspace)
         .join(".runtime")

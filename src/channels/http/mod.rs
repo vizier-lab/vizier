@@ -10,9 +10,8 @@ use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
 use crate::{
-    channels::{VizierChannel, http::state::HTTPState},
-    config::HTTPChannelConfig,
-    dependencies::VizierDependencies,
+    channels::http::state::HTTPState, config::HTTPChannelConfig, error::VizierError,
+    runtime::VizierRuntime,
 };
 
 pub mod models;
@@ -22,75 +21,73 @@ pub mod auth;
 mod state;
 mod webui;
 
-pub struct HTTPChannel {
+/// The whole HTTP surface (REST API, WebSocket, OpenAPI and Swagger UI, the embedded WebUI)
+/// over a running engine, for a host that serves it itself.
+pub fn router(runtime: &VizierRuntime, _config: &HTTPChannelConfig) -> Router {
+    let deps = runtime.deps().clone();
+    let cors = CorsLayer::new()
+        .allow_origin(Any)
+        .allow_methods([
+            Method::GET,
+            Method::POST,
+            Method::PUT,
+            Method::PATCH,
+            Method::DELETE,
+            Method::OPTIONS,
+        ])
+        .allow_headers([AUTHORIZATION, ACCEPT, CONTENT_TYPE]);
+
+    let state = HTTPState {
+        config: deps.config.clone(),
+        storage: deps.storage.clone(),
+        transport: deps.transport.clone(),
+        background_jobs: deps.background_jobs.clone(),
+        catalogue: deps.catalogue.clone(),
+        deps,
+        client_events: std::sync::Arc::new(crate::utils::rate_limit::RateLimiter::new(
+            10,
+            std::time::Duration::from_secs(60),
+        )),
+        client_state_saves: std::sync::Arc::new(crate::utils::rate_limit::RateLimiter::new(
+            2,
+            std::time::Duration::from_secs(1),
+        )),
+        visit_throttle: std::sync::Arc::new(crate::utils::rate_limit::RateLimiter::new(
+            1,
+            std::time::Duration::from_secs(60),
+        )),
+        deferred_client_calls: Default::default(),
+    };
+
+    let app = Router::new()
+        .nest("/api", api::api(state.clone()))
+        // webui
+        .route("/", get(webui::index))
+        .route("/{*path}", get(webui::assets))
+        .layer(NormalizePathLayer::trim_trailing_slash())
+        .layer(cors)
+        .layer(DefaultBodyLimit::disable())
+        .with_state(state);
+
+    app.merge(SwaggerUi::new("/swagger").url("/openapi.json", ApiDoc::openapi()))
+}
+
+/// Binds `0.0.0.0:{config.port}` and serves [`router`]. The future owns what it needs, so it
+/// can be spawned; it resolves only if the listener can't be bound or the server stops.
+pub fn serve(
+    runtime: &VizierRuntime,
     config: HTTPChannelConfig,
-    deps: VizierDependencies,
-}
-
-impl HTTPChannel {
-    pub fn new(config: HTTPChannelConfig, deps: VizierDependencies) -> Result<Self> {
-        Ok(Self { config, deps })
-    }
-}
-
-#[async_trait::async_trait]
-impl VizierChannel for HTTPChannel {
-    async fn run(&self) -> Result<()> {
-        let cors = CorsLayer::new()
-            .allow_origin(Any)
-            .allow_methods([
-                Method::GET,
-                Method::POST,
-                Method::PUT,
-                Method::PATCH,
-                Method::DELETE,
-                Method::OPTIONS,
-            ])
-            .allow_headers([AUTHORIZATION, ACCEPT, CONTENT_TYPE]);
-
-        let state = HTTPState {
-            config: self.deps.config.clone(),
-            storage: self.deps.storage.clone(),
-            transport: self.deps.transport.clone(),
-            background_jobs: self.deps.background_jobs.clone(),
-            catalogue: self.deps.catalogue.clone(),
-            deps: self.deps.clone(),
-            client_events: std::sync::Arc::new(crate::utils::rate_limit::RateLimiter::new(
-                10,
-                std::time::Duration::from_secs(60),
-            )),
-            client_state_saves: std::sync::Arc::new(crate::utils::rate_limit::RateLimiter::new(
-                2,
-                std::time::Duration::from_secs(1),
-            )),
-            visit_throttle: std::sync::Arc::new(crate::utils::rate_limit::RateLimiter::new(
-                1,
-                std::time::Duration::from_secs(60),
-            )),
-            deferred_client_calls: Default::default(),
-        };
-
-        let mut app = Router::new()
-            .nest("/api", api::api(state.clone()))
-            // webui
-            .route("/", get(webui::index))
-            .route("/{*path}", get(webui::assets))
-            .layer(NormalizePathLayer::trim_trailing_slash())
-            .layer(cors)
-            .layer(DefaultBodyLimit::disable())
-            .with_state(state);
-
-        app = app.merge(SwaggerUi::new("/swagger").url("/openapi.json", ApiDoc::openapi()));
-
-        let listener =
-            tokio::net::TcpListener::bind(format!("0.0.0.0:{}", self.config.port)).await?;
+) -> impl std::future::Future<Output = crate::Result<()>> + Send + 'static {
+    let app = router(runtime, &config);
+    async move {
+        let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", config.port))
+            .await
+            .map_err(|e| VizierError(e.to_string()))?;
 
         let server = axum::serve(listener, app);
-        tracing::info!("http listening on port {}", self.config.port);
+        tracing::info!("http listening on port {}", config.port);
 
-        server.await?;
-
-        Ok(())
+        server.await.map_err(|e| VizierError(e.to_string()))
     }
 }
 

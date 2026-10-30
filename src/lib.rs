@@ -2,8 +2,9 @@
 //!
 //! The crate has two tiers of public items:
 //!
-//! - **Stable**: [`auth`], [`config`], [`error`], [`schema`] (the request/response types a host sends and
-//!   reads), [`transport::VizierTransport`] and [`access`]. These are documented and checked
+//! - **Stable**: [`runtime::VizierRuntime`] and its options, events and health, [`auth`],
+//!   [`config`], [`error`], [`schema`] (the request/response types a host sends and reads),
+//!   [`transport::VizierTransport`] and [`access`]. These are documented and checked
 //!   for breaking changes.
 //! - **Adapter surface** (`#[doc(hidden)]`): the modules the HTTP adapter and the command-line
 //!   binary reach into today (`dependencies`, `storage`, `agents`, …). They are public only so
@@ -25,6 +26,7 @@ pub mod access;
 pub mod auth;
 pub mod config;
 pub mod error;
+pub mod runtime;
 pub mod schema;
 pub mod transport;
 

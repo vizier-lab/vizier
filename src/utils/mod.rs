@@ -3,7 +3,6 @@ use std::path::PathBuf;
 
 pub mod discord;
 pub mod json_schema;
-pub mod logo;
 pub mod markdown;
 pub mod ollama;
 pub mod rate_limit;

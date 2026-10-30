@@ -33,7 +33,7 @@ pub fn agent(args: AgentArgs) -> Result<()> {
 }
 
 fn ps(config_path: Option<std::path::PathBuf>) -> Result<()> {
-    let config = VizierConfig::load(config_path)?;
+    let config = super::config_resolve::resolve(config_path)?;
 
     let sock_path = PathBuf::from(&config.workspace)
         .join(".runtime")

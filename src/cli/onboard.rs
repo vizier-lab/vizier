@@ -14,7 +14,7 @@ pub struct OnboardArgs {
 }
 
 pub fn onboard(args: OnboardArgs) -> Result<()> {
-    crate::utils::logo::print_logo();
+    super::logo::print_logo();
 
     let d = "\x1b[2m";
     let r = "\x1b[0m";

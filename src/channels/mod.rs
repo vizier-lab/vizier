@@ -2,11 +2,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 
-use crate::{
-    channels::{connections::ChannelConnections, http::HTTPChannel},
-    config::HTTPChannelConfig,
-    dependencies::VizierDependencies,
-};
+use crate::{channels::connections::ChannelConnections, dependencies::VizierDependencies};
 
 pub mod commands;
 pub mod connections;
@@ -39,36 +35,31 @@ pub trait VizierChannel {
     }
 }
 
-pub struct VizierChannels {
-    http_config: Option<HTTPChannelConfig>,
-    deps: VizierDependencies,
+/// Every channel connection's reader (Discord, Telegram), reconciled against storage at start
+/// and on every channel change. The HTTP server is not one of them: its host starts it.
+pub struct ChannelReaders {
+    connections: Arc<ChannelConnections>,
 }
 
-impl VizierChannels {
-    pub fn new(http_config: Option<HTTPChannelConfig>, deps: VizierDependencies) -> Result<Self> {
-        Ok(Self { http_config, deps })
+impl ChannelReaders {
+    pub fn new(deps: VizierDependencies) -> Self {
+        Self {
+            connections: Arc::new(ChannelConnections::new(deps)),
+        }
     }
 
-    /// Starts every channel connection's reader, then runs the HTTP channel, returning only
-    /// if it stops, so that `run_server` sees it stop (#51). Without one configured this never
-    /// returns.
-    pub async fn run(&mut self) -> Result<()> {
-        let connections = Arc::new(ChannelConnections::new(self.deps.clone()));
-        connections.reconcile().await;
-        let watcher = tokio::spawn(connections.clone().watch());
+    /// Starts the readers and keeps them in step with storage. Never returns while healthy:
+    /// a subsystem that returns is a stop (#51).
+    pub async fn run(&self) -> Result<()> {
+        self.connections.reconcile().await;
+        self.connections.clone().watch().await;
+        Err(anyhow::anyhow!("the channel watcher stopped"))
+    }
 
-        let result = match &self.http_config {
-            None => futures::future::pending::<Result<()>>().await,
-            Some(http_config) => match HTTPChannel::new(http_config.clone(), self.deps.clone()) {
-                Ok(http) => http.run().await.map_err(Into::into),
-                Err(e) => Err(e),
-            },
-        };
-
-        watcher.abort();
-        connections.shutdown_all().await;
-        result?;
-        Err(anyhow::anyhow!("the http server stopped"))
+    /// Stops every reader. Aborting [`ChannelReaders::run`] doesn't: each reader runs in a task
+    /// of its own.
+    pub async fn shutdown(&self) {
+        self.connections.shutdown_all().await;
     }
 }
 

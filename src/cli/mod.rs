@@ -3,10 +3,14 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 
 mod agent;
+pub mod config_resolve;
+mod logo;
 mod onboard;
 mod run;
+mod server;
 mod shutdown;
 mod skill;
+pub mod telemetry_init;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about=None)]

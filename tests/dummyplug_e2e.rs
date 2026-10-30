@@ -1,6 +1,6 @@
 //! The in-process dummyplug harness (`specs/037-core-extraction/` T008/T015, research R11): one
 //! agent on the `dummyplug` provider in a temp workspace, driven through the transport the way
-//! a channel drives it, checked against `specs/008-dummyplug-provider/contracts/dummyplug-protocol.md`.
+//! a channel drives it, through `VizierRuntime` only (T033), checked against `specs/008-dummyplug-provider/contracts/dummyplug-protocol.md`.
 //!
 //! `dummyplug` is the Node server in the `dummyplug` submodule, reached over HTTP like any
 //! OpenAI-compatible provider. The harness starts it on a free port and points the provider's
@@ -15,15 +15,15 @@ use std::{
 };
 
 use vizier::{
-    agents::VizierAgents,
     config::{VizierConfig, provider::ProviderId},
-    dependencies::VizierDependencies,
+    runtime::{RuntimeEvent, RuntimeExit, RuntimeOptions, SubsystemState, VizierRuntime},
     schema::{
         AgentCommand, AgentConfig, AgentToolsConfig, AgentCommandResult, SessionHistoryContent, VizierChannelId, VizierRequest,
         VizierRequestContent, VizierResponse, VizierResponseContent, VizierSession,
         provider::{ProviderCredentials, ProviderEntry},
     },
     storage::{history::HistoryStorage, provider::ProviderStorage},
+    transport::VizierTransport,
 };
 
 const TURN_TIMEOUT: Duration = Duration::from_secs(60);
@@ -124,7 +124,7 @@ fn agent_config(id: &str) -> AgentConfig {
 }
 
 /// The text of a turn's final message, or the error it ended with.
-async fn chat(deps: &VizierDependencies, session: &VizierSession, text: &str) -> String {
+async fn chat(transport: &VizierTransport, session: &VizierSession, text: &str) -> String {
     let (tx, rx) = flume::unbounded::<VizierResponse>();
     let request = VizierRequest {
         timestamp: chrono::Utc::now(),
@@ -133,7 +133,7 @@ async fn chat(deps: &VizierDependencies, session: &VizierSession, text: &str) ->
         metadata: serde_json::json!({}),
         ..Default::default()
     };
-    deps.transport
+    transport
         .send_request(session.clone(), request, Some(tx))
         .await
         .expect("send the request");
@@ -161,19 +161,25 @@ fn json_block(reply: &str) -> serde_json::Value {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn dummyplug_agent_answers_through_the_transport() {
+async fn dummyplug_agent_answers_through_the_runtime() {
     let Some(dummyplug) = Dummyplug::start() else {
         return;
     };
     dummyplug.ready().await;
 
     let dir = tempfile::tempdir().unwrap();
-    let config = VizierConfig {
-        workspace: dir.path().to_string_lossy().to_string(),
-        ..Default::default()
-    };
-    let deps = VizierDependencies::new(config).await.unwrap();
-    deps.storage
+    let config = VizierConfig::with_workspace(dir.path().to_path_buf());
+    let mut runtime = VizierRuntime::start(RuntimeOptions {
+        config: config.clone(),
+    })
+    .await
+    .unwrap();
+    let mut events = runtime.events();
+    // Pointing the provider at this server is a person's job (Settings › Providers); the
+    // harness writes the row directly.
+    runtime
+        .deps()
+        .storage
         .upsert_provider(&ProviderEntry {
             id: ProviderId::DUMMYPLUG,
             credentials: ProviderCredentials {
@@ -184,17 +190,12 @@ async fn dummyplug_agent_answers_through_the_transport() {
         .await
         .unwrap();
 
-    let mut agents = VizierAgents::new(deps.clone()).await.unwrap();
-    let manager = tokio::spawn(async move { agents.run().await });
-    let handler_deps = deps.clone();
-    let handler = tokio::spawn(async move { handler_deps.run().await });
-
-    let config = agent_config("plug");
     let (resp, created) = tokio::sync::oneshot::channel();
-    deps.transport
+    runtime
+        .transport()
         .send_agent_command(AgentCommand::Create {
             agent_id: "plug".into(),
-            config,
+            config: agent_config("plug"),
             resp,
         })
         .await
@@ -209,24 +210,26 @@ async fn dummyplug_agent_answers_through_the_transport() {
         VizierChannelId::HTTP("e2e".into(), "harness".into()),
         Some("first".into()),
     );
+    let transport = runtime.transport();
 
     // §1: the sandbox tools, and only those (code mode).
-    let tools = chat(&deps, &session, "tools").await;
+    let tools = chat(transport, &session, "tools").await;
     for name in ["think", "execute_python", "list_tool_functions", "describe_tool_function"] {
         assert!(tools.contains(&format!("`{name}`")), "`tools` lists {name}: {tools}");
     }
 
     // §2: a sample request for a tool, accepted by §3 once its code is filled in.
-    let sample = chat(&deps, &session, "execute_python").await;
+    let sample = chat(transport, &session, "execute_python").await;
     let mut request = json_block(&sample);
     assert_eq!(request["tool"], "execute_python", "{sample}");
     request["arguments"]["code"] = "6 * 7".into();
 
     // §3 + §4: the tool runs through the real loop and its result is echoed.
-    let result = chat(&deps, &session, &request.to_string()).await;
+    let result = chat(transport, &session, &request.to_string()).await;
     assert!(result.starts_with("**Tool result** (`execute_python`)"), "{result}");
     assert!(result.contains("42"), "{result}");
-    let history = deps
+    let history = runtime
+        .deps()
         .storage
         .list_session_history(session.clone(), None, None, None)
         .await
@@ -249,9 +252,52 @@ async fn dummyplug_agent_answers_through_the_transport() {
     );
 
     // §6: the per-request context block the agent received.
-    let context = chat(&deps, &session, "context").await;
+    let context = chat(transport, &session, "context").await;
     assert!(context.starts_with("# Context"), "{context}");
 
-    manager.abort();
-    handler.abort();
+    // One engine per workspace: a second start is refused while this one runs (R14).
+    let second = VizierRuntime::start(RuntimeOptions { config }).await;
+    let error = second.err().expect("a second runtime on the same workspace is refused");
+    assert!(error.to_string().contains("already in use"), "{error}");
+
+    // A subsystem that stops is reported, and the process keeps running (SC-008).
+    assert!(runtime.stop_subsystem_for_test("scheduler"));
+    let exit = tokio::time::timeout(TURN_TIMEOUT, runtime.wait()).await.unwrap();
+    assert_eq!(
+        exit,
+        RuntimeExit::SubsystemStopped {
+            name: "scheduler",
+            outcome: "it returned".into()
+        }
+    );
+    let stopped = loop {
+        match events.recv().await.unwrap() {
+            RuntimeEvent::SubsystemStopped { name, .. } => break name,
+            _ => continue,
+        }
+    };
+    assert_eq!(stopped, "scheduler");
+    let health = runtime.health().await;
+    assert!(health.subsystems.iter().any(|(name, state)| *name == "scheduler"
+        && matches!(state, SubsystemState::Stopped { .. })));
+    assert!(health.subsystems.iter().any(|(name, state)| *name == "agent manager"
+        && *state == SubsystemState::Running));
+    assert!(health.agents.iter().any(|a| a.agent_id == "plug"), "{:?}", health.agents);
+
+    runtime.shutdown().await.unwrap();
+    // The workspace is free again once the runtime is gone.
+    let config = VizierConfig::with_workspace(dir.path().to_path_buf());
+    VizierRuntime::start(RuntimeOptions { config })
+        .await
+        .unwrap()
+        .shutdown()
+        .await
+        .unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_runtime_needs_an_explicit_workspace() {
+    let config = VizierConfig::with_workspace("".into());
+    let error = VizierRuntime::start(RuntimeOptions { config }).await.err();
+    assert!(error.expect("refused").to_string().contains("workspace"));
 }

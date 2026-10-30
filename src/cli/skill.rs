@@ -40,7 +40,7 @@ pub enum SkillCommand {
 use clap::Args;
 
 pub fn skill(args: SkillArgs) -> Result<()> {
-    let config = VizierConfig::load(None)?;
+    let config = super::config_resolve::resolve(None)?;
     let workspace = &config.workspace;
 
     match args.command {

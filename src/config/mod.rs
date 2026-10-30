@@ -1,4 +1,8 @@
-use std::{env::current_dir, fs, path::PathBuf, str::FromStr};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    str::FromStr,
+};
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -149,47 +153,44 @@ pub struct RunOverrides {
 }
 
 impl VizierConfig {
-    pub fn load(path: Option<std::path::PathBuf>) -> Result<Self> {
-        let resolved_path: Option<PathBuf> = match path {
-            Some(p) => Some(p),
-            None => std::env::var("VIZIER_CONFIG")
-                .ok()
-                .map(PathBuf::from)
-                .or_else(default_config_candidate),
-        };
-
-        let config_from_file = resolved_path.is_some();
-        let (raw_string, parent_path) = if let Some(p) = resolved_path {
-            let s = fs::read_to_string(&p)
-                .with_context(|| format!("failed to read config file: {}", p.display()))?;
-            let parent = if p.parent().map(|p| p.as_os_str().is_empty()).unwrap_or(true) {
-                PathBuf::from_str("./").unwrap()
-            } else {
-                p.parent().unwrap().to_path_buf()
-            };
-            (s, parent)
+    /// Reads a config file. `${ENV}` references in its text are expanded, and its workspace is
+    /// `.vizier` next to the file, created if missing.
+    pub fn from_path(path: &Path) -> Result<Self> {
+        let raw_string = fs::read_to_string(path)
+            .with_context(|| format!("failed to read config file: {}", path.display()))?;
+        let parent_path = if path.parent().map(|p| p.as_os_str().is_empty()).unwrap_or(true) {
+            PathBuf::from_str("./").unwrap()
         } else {
-            tracing::info!("no config file found, using built-in defaults");
-            let yaml = serde_yaml::to_string(&AllConfig {
-                vizier: Self::default(),
-            })?;
-            (yaml, current_dir().unwrap())
+            path.parent().unwrap().to_path_buf()
         };
 
         let config_string = shellexpand::env(&raw_string)?;
         let mut config = serde_yaml::from_str::<AllConfig>(&config_string)?;
 
-        let workspace = if config_from_file {
-            let mut ws = parent_path.clone();
-            ws.push(".vizier");
-            let _ = fs::create_dir_all(&ws)?;
-            ws.to_string_lossy().to_string()
-        } else {
-            resolve_default_workspace()?
-        };
-        config.vizier.workspace = workspace;
+        let mut ws = parent_path;
+        ws.push(".vizier");
+        let _ = fs::create_dir_all(&ws)?;
+        config.vizier.workspace = ws.to_string_lossy().to_string();
 
         Ok(config.vizier)
+    }
+
+    /// The built-in defaults on an explicit workspace. Reads nothing from the environment.
+    pub fn with_workspace(workspace: PathBuf) -> Self {
+        Self {
+            workspace: workspace.to_string_lossy().to_string(),
+            ..Default::default()
+        }
+    }
+
+    /// This config with `${ENV}` references expanded in every value, as
+    /// [`VizierConfig::from_path`] expands a file's text.
+    pub fn expand_env(&self) -> Result<Self> {
+        let yaml = serde_yaml::to_string(&AllConfig {
+            vizier: self.clone(),
+        })?;
+        let expanded = shellexpand::env(&yaml)?;
+        Ok(serde_yaml::from_str::<AllConfig>(&expanded)?.vizier)
     }
 
     pub fn save(&self, path: std::path::PathBuf, addition: String) -> Result<()> {
@@ -245,26 +246,6 @@ fn default_http_channel() -> HTTPChannelConfig {
         jwt_expiry_hours: 720,
         ws_idle_timeout_secs: 300,
     }
-}
-
-fn default_config_candidate() -> Option<PathBuf> {
-    let candidate = current_dir().ok()?.join(constant::DEFAULT_CONFIG_PATH);
-    if candidate.exists() {
-        Some(candidate)
-    } else {
-        None
-    }
-}
-
-fn resolve_default_workspace() -> Result<String> {
-    let data_dir = std::env::var("VIZIER_DATA_DIR")
-        .ok()
-        .map(PathBuf::from)
-        .or_else(|| dirs::home_dir().map(|h| h.join(".vizier")))
-        .context("could not determine workspace: VIZIER_DATA_DIR unset and $HOME unknown")?;
-    fs::create_dir_all(&data_dir)
-        .with_context(|| format!("failed to create workspace at {}", data_dir.display()))?;
-    Ok(data_dir.to_string_lossy().to_string())
 }
 
 impl Default for VizierConfig {

@@ -1,19 +1,11 @@
-use std::{collections::HashMap, fs, path::PathBuf};
+use std::{fs, path::PathBuf};
 
 use anyhow::Result;
 use clap::{Args, ValueEnum};
 use daemonize::Daemonize;
-use tokio::task::JoinSet;
 
-use crate::{
-    agents::VizierAgents, channels::VizierChannels, command::VizierCommandServer,
-    config::{
-        storage::StorageConfig,
-        RunOverrides, VizierConfig,
-    },
-    dependencies::VizierDependencies,
-    scheduler::VizierScheduler,
-};
+use super::server::run_server;
+use crate::config::{RunOverrides, storage::StorageConfig};
 
 /// `filesystem` is intentionally not a valid value here (research.md §10, FR-025) — sqlite is
 /// the sole runtime backend now. An operator still passing `--storage filesystem` gets clap's
@@ -101,90 +93,10 @@ pub struct RunArgs {
     catalogue_ttl: Option<duration_string::DurationString>,
 }
 
-pub fn run_server(config: VizierConfig) -> Result<()> {
-    let mut builder = tokio::runtime::Builder::new_multi_thread();
-    builder.worker_threads(config.worker_threads);
-
-    let runtime = builder.enable_all().build()?;
-
-    runtime.block_on(async move {
-        let deps = VizierDependencies::new(config.clone()).await?;
-        let exit_transport = deps.clone().transport;
-        let exit_signal = exit_transport.exit_signal();
-
-        let mut subsystems = Subsystems::default();
-
-        // Agents first: `VizierAgents::new` registers every agent's request channel, so the
-        // scheduler's immediate first tick queues a due task instead of losing it (#26).
-        let mut agents = VizierAgents::new(deps.clone()).await?;
-        // After the agents re-sent their pending turns, so a recovered job finds them running.
-        deps.background_jobs.recover().await;
-        subsystems.spawn("agent manager", async move { agents.run().await });
-
-        let mut scheduler = VizierScheduler::new(deps.clone()).await?;
-        subsystems.spawn("scheduler", async move { scheduler.run().await });
-
-        let mut channels = VizierChannels::new(config.channels.http.clone(), deps.clone())?;
-        subsystems.spawn("http channel", async move { channels.run().await });
-
-        let commands = VizierCommandServer::new(deps.clone())?;
-        subsystems.spawn("command server", async move { commands.run().await });
-
-        let transport = deps.clone();
-        subsystems.spawn("command handler", async move { transport.run().await });
-
-        tracing::info!("vizier is running!");
-
-        // Every subsystem runs for the life of the process, so one that stops, for whatever
-        // reason, leaves vizier half-working. Exit instead, and let whatever runs vizier
-        // (Docker's restart policy, systemd) start it again whole (#51).
-        tokio::select! {
-            _ = exit_signal => {
-                subsystems.set.abort_all();
-                std::process::exit(0);
-            }
-            (name, outcome) = subsystems.next_stopped() => {
-                tracing::error!("{name} stopped ({outcome}); exiting so vizier can be restarted");
-                std::process::exit(1);
-            }
-        }
-    })
-}
-
-/// The long-lived tasks the server is made of, by name.
-#[derive(Default)]
-struct Subsystems {
-    set: JoinSet<Result<()>>,
-    names: HashMap<tokio::task::Id, &'static str>,
-}
-
-impl Subsystems {
-    fn spawn(
-        &mut self,
-        name: &'static str,
-        task: impl std::future::Future<Output = Result<()>> + Send + 'static,
-    ) {
-        let id = self.set.spawn(task).id();
-        self.names.insert(id, name);
-    }
-
-    /// The first subsystem to stop, and how.
-    async fn next_stopped(&mut self) -> (&'static str, String) {
-        let (id, outcome) = match self.set.join_next_with_id().await {
-            Some(Ok((id, Ok(())))) => (id, "it returned".to_string()),
-            Some(Ok((id, Err(e)))) => (id, format!("{e:#}")),
-            Some(Err(e)) if e.is_panic() => (e.id(), "it panicked".to_string()),
-            Some(Err(e)) => (e.id(), e.to_string()),
-            None => return std::future::pending().await,
-        };
-        (self.names.get(&id).copied().unwrap_or("a subsystem"), outcome)
-    }
-}
-
 pub fn run(args: RunArgs) -> Result<()> {
-    crate::utils::logo::print_logo();
+    super::logo::print_logo();
 
-    let mut config = VizierConfig::load(args.config.clone())?;
+    let mut config = super::config_resolve::resolve(args.config.clone())?;
 
     let workspace_override = args.data_dir.clone().or(args.workspace.clone());
     let overrides = RunOverrides {
