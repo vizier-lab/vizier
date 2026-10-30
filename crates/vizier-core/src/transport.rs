@@ -138,11 +138,13 @@ pub struct VizierTransport {
 }
 
 impl VizierTransport {
+    #[doc(hidden)]
     /// A transport that journals durable requests in `storage`.
     pub fn durable(storage: crate::storage::VizierStorage) -> Self {
         Self { journal: Some(JournalHandle(storage)), ..Self::new() }
     }
 
+    #[doc(hidden)]
     pub fn new() -> Self {
         let command_request_channel = Arc::new(flume::unbounded());
         let command_response_channel = Arc::new(flume::unbounded());
@@ -166,6 +168,7 @@ impl VizierTransport {
         }
     }
 
+    #[doc(hidden)]
     /// Publish to every subscriber of the session-event broadcast. Having no subscribers is
     /// the normal case for most sessions, not an error.
     pub fn publish_session_event(&self, ev: SessionEvent) {
@@ -176,22 +179,26 @@ impl VizierTransport {
         self.session_events.subscribe()
     }
 
+    #[doc(hidden)]
     /// Announce a committed integration write (contracts/runtime.md). Subscribers re-read
     /// storage, so a lost event costs nothing once the next one, or a `Lagged`, arrives.
     pub fn publish_integration_change(&self, ev: IntegrationChanged) {
         let _ = self.integration_events.send(ev);
     }
 
+    #[doc(hidden)]
     pub fn subscribe_integration_changes(
         &self,
     ) -> tokio::sync::broadcast::Receiver<IntegrationChanged> {
         self.integration_events.subscribe()
     }
 
+    #[doc(hidden)]
     pub async fn is_agent_registered(&self, agent_id: &AgentId) -> bool {
         self.agent_channels.read().await.contains_key(agent_id)
     }
 
+    #[doc(hidden)]
     pub async fn register_agent(
         &self,
         agent_id: AgentId,
@@ -202,11 +209,13 @@ impl VizierTransport {
         rx
     }
 
+    #[doc(hidden)]
     pub async fn unregister_agent(&self, agent_id: &AgentId) {
         let mut channels = self.agent_channels.write().await;
         channels.remove(agent_id);
     }
 
+    #[doc(hidden)]
     pub async fn register_memory_op(&self, agent_id: AgentId) -> flume::Receiver<MemoryOpEnvelope> {
         let (tx, rx) = flume::unbounded();
         let mut channels = self.memory_op_channels.write().await;
@@ -214,11 +223,13 @@ impl VizierTransport {
         rx
     }
 
+    #[doc(hidden)]
     pub async fn unregister_memory_op(&self, agent_id: &AgentId) {
         let mut channels = self.memory_op_channels.write().await;
         channels.remove(agent_id);
     }
 
+    #[doc(hidden)]
     pub async fn send_memory_op(
         &self,
         agent_id: &AgentId,
@@ -271,6 +282,7 @@ impl VizierTransport {
         sent
     }
 
+    #[doc(hidden)]
     /// Sends an envelope as it is, without journaling it again: a request recovered at
     /// startup, or handed on to the next instance of an agent.
     pub async fn resend(&self, envelope: VizierRequestEnvelope) -> Result<()> {
@@ -282,6 +294,7 @@ impl VizierTransport {
         Ok(())
     }
 
+    #[doc(hidden)]
     /// How the turn running in `session` ends, for work that outlived a restart and has no
     /// response channel of its own to read: the first terminal reply stored after `since`, or
     /// else the first one published. A channel that closes reads as a restart.
@@ -324,6 +337,7 @@ impl VizierTransport {
         }
     }
 
+    #[doc(hidden)]
     /// A response sender that republishes every frame onto the session-event broadcast, for a
     /// turn nobody is waiting on (a woken report, a recovered request).
     pub fn broadcast_sender(&self, session: VizierSession) -> flume::Sender<VizierResponse> {
@@ -340,18 +354,22 @@ impl VizierTransport {
         tx
     }
 
+    #[doc(hidden)]
     pub async fn send_command_request(&self, req: CommandRequest) -> Result<()> {
         Ok(self.command_request_channel.0.send_async(req).await?)
     }
 
+    #[doc(hidden)]
     pub async fn recv_command_request(&self) -> Result<CommandRequest> {
         Ok(self.command_request_channel.1.recv_async().await?)
     }
 
+    #[doc(hidden)]
     pub async fn send_command_response(&self, req: CommandResponse) -> Result<()> {
         Ok(self.command_response_channel.0.send_async(req).await?)
     }
 
+    #[doc(hidden)]
     pub async fn recv_command_response(&self) -> Result<CommandResponse> {
         Ok(self.command_response_channel.1.recv_async().await?)
     }
@@ -360,26 +378,32 @@ impl VizierTransport {
         Ok(self.agent_command_channel.0.send_async(cmd).await?)
     }
 
+    #[doc(hidden)]
     pub async fn recv_agent_command(&self) -> Result<AgentCommand> {
         Ok(self.agent_command_channel.1.recv_async().await?)
     }
 
+    #[doc(hidden)]
     pub async fn send_dream_command(&self, cmd: DreamCommand) -> Result<()> {
         Ok(self.dream_command_channel.0.send_async(cmd).await?)
     }
 
+    #[doc(hidden)]
     pub async fn recv_dream_command(&self) -> Result<DreamCommand> {
         Ok(self.dream_command_channel.1.recv_async().await?)
     }
 
+    #[doc(hidden)]
     pub async fn send_file_command(&self, cmd: FileCommand) -> Result<()> {
         Ok(self.file_command_channel.0.send_async(cmd).await?)
     }
 
+    #[doc(hidden)]
     pub async fn recv_file_command(&self) -> Result<FileCommand> {
         Ok(self.file_command_channel.1.recv_async().await?)
     }
 
+    #[doc(hidden)]
     pub async fn send_file_upload(
         &self,
         filename: String,
@@ -395,6 +419,7 @@ impl VizierTransport {
         rx.await?
     }
 
+    #[doc(hidden)]
     pub async fn send_file_resolve(
         &self,
         attachment: VizierAttachment,
@@ -408,10 +433,12 @@ impl VizierTransport {
         rx.await?
     }
 
+    #[doc(hidden)]
     pub async fn exit_signal(&self) -> Result<bool> {
         Ok(self.exit_channel.1.recv_async().await?)
     }
 
+    #[doc(hidden)]
     /// Every agent's health from the agent manager, or an error if it doesn't answer within
     /// `HEALTH_TIMEOUT`: a monitor gets an answer rather than a hang (#51).
     pub async fn agent_health(&self) -> Result<Vec<AgentHealthStatus>> {
@@ -425,6 +452,7 @@ impl VizierTransport {
         }
     }
 
+    #[doc(hidden)]
     /// Answer commands from the command socket until the process stops.
     pub async fn run(&self) -> Result<()> {
         let req_rx = self.command_request_channel.1.clone();

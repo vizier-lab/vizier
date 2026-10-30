@@ -8,6 +8,16 @@ repository.workspace = true
 description = "The HTTP, WebSocket and embedded WebUI adapter for the vizier engine"
 keywords = ["ai", "agent", "http"]
 categories = ["web-programming::http-server"]
+readme = "README.md"
+include = [
+  "/src/**/*",
+  "/build.rs",
+  "/Cargo.toml",
+  "/README.md",
+  "/assets/integrations/**/*",
+  # The built WebUI, staged by the publish workflow (gitignored).
+  "/webui-dist/**/*",
+]
 
 [dependencies]
 vizier-core = { workspace = true, features = ["utoipa"] }

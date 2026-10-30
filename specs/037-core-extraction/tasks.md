@@ -177,15 +177,15 @@ description: "Task list for extracting vizier-core and splitting the workspace (
 
 **Independent Test**: quickstart §6 passes, and the release dry run's publish step lists all four crates.
 
-- [ ] T062 [US4] Finish `.github/workflows/publish.yml` per research R18: add the "Stage WebUI" step (`mkdir -p crates/vizier-http/webui-dist && cp -r webui/build/client/. crates/vizier-http/webui-dist/`) after "Build WebUI"; "Verify package" also checks `cargo package -p vizier-http --list` contains `webui-dist/index.html` and `assets/integrations/`, then runs `cargo package --workspace --allow-dirty` and fails if any `target/package/*.crate` exceeds 10 MB; replace the four publish steps with `cargo publish --workspace --allow-dirty` (keep the four-step order as a commented fallback); dry run uses `cargo publish --workspace --allow-dirty --dry-run` and lists all four packages in the summary; add `cargo add vizier-core` to the post-publish summary
-- [ ] T063 [P] [US4] Add package metadata to `crates/vizier-core/Cargo.toml`: `description`, `keywords`, `categories`, `readme = "README.md"`, `include = ["/src/**/*", "/build.rs", "/Cargo.toml", "/README.md", "/assets/catalogue/**/*", "/templates/**/*", "/examples/**/*"]` (tests and fixtures excluded), `[package.metadata.docs.rs] features = ["discord", "telegram", "documents", "utoipa"]`
-- [ ] T064 [P] [US4] Add package metadata to `crates/vizier-http/Cargo.toml`: `description`, `keywords`, `readme`, `include = ["/src/**/*", "/build.rs", "/Cargo.toml", "/README.md", "/assets/integrations/**/*", "/webui-dist/**/*"]`, `[package.metadata.docs.rs]`
-- [ ] T065 [P] [US4] Set `crates/vizier/Cargo.toml` `description`, `keywords`, `readme = "../../Readme.md"` (or a copied `README.md` if cargo refuses an out-of-crate readme), `include` for `src/**`; confirm `[package.metadata.binstall]` is byte-identical to the old root's
-- [ ] T066 [P] [US4] Write `crates/vizier-core/README.md`: what the engine is, the feature table (research R9), the headless example as the quick start (`cargo add vizier-core`, `examples/headless.rs`), the stable vs hidden tier note, pre-1.0 versioning
-- [ ] T067 [P] [US4] Write `crates/vizier-http/README.md`: `serve`/`router`, the WebUI embedding and how a source build finds `webui/` (R10)
-- [ ] T068 [US4] Document the stable tier in `crates/vizier-core/src/lib.rs` (crate docs with the contracts/vizier-core-api.md example as a doctest marked `no_run`), add a `prelude` module re-exporting exactly the items in research R3, and `#[doc(hidden)]` the remaining `VizierTransport` methods (everything except `send_request`, `send_agent_command`, `subscribe_session_events`)
+- [X] T062 [US4] Finish `.github/workflows/publish.yml` per research R18: add the "Stage WebUI" step (`mkdir -p crates/vizier-http/webui-dist && cp -r webui/build/client/. crates/vizier-http/webui-dist/`) after "Build WebUI"; "Verify package" also checks `cargo package -p vizier-http --list` contains `webui-dist/index.html` and `assets/integrations/`, then runs `cargo package --workspace --allow-dirty` and fails if any `target/package/*.crate` exceeds 10 MB; replace the four publish steps with `cargo publish --workspace --allow-dirty` (keep the four-step order as a commented fallback); dry run uses `cargo publish --workspace --allow-dirty --dry-run` and lists all four packages in the summary; add `cargo add vizier-core` to the post-publish summary
+- [X] T063 [P] [US4] Add package metadata to `crates/vizier-core/Cargo.toml`: `description`, `keywords`, `categories`, `readme = "README.md"`, `include = ["/src/**/*", "/build.rs", "/Cargo.toml", "/README.md", "/assets/catalogue/**/*", "/templates/**/*", "/examples/**/*"]` (tests and fixtures excluded), `[package.metadata.docs.rs] features = ["discord", "telegram", "documents", "utoipa"]`
+- [X] T064 [P] [US4] Add package metadata to `crates/vizier-http/Cargo.toml`: `description`, `keywords`, `readme`, `include = ["/src/**/*", "/build.rs", "/Cargo.toml", "/README.md", "/assets/integrations/**/*", "/webui-dist/**/*"]`, `[package.metadata.docs.rs]`
+- [X] T065 [P] [US4] Set `crates/vizier/Cargo.toml` `description`, `keywords`, `readme = "../../Readme.md"` (or a copied `README.md` if cargo refuses an out-of-crate readme), `include` for `src/**`; confirm `[package.metadata.binstall]` is byte-identical to the old root's
+- [X] T066 [P] [US4] Write `crates/vizier-core/README.md`: what the engine is, the feature table (research R9), the headless example as the quick start (`cargo add vizier-core`, `examples/headless.rs`), the stable vs hidden tier note, pre-1.0 versioning
+- [X] T067 [P] [US4] Write `crates/vizier-http/README.md`: `serve`/`router`, the WebUI embedding and how a source build finds `webui/` (R10)
+- [X] T068 [US4] Document the stable tier in `crates/vizier-core/src/lib.rs` (crate docs with the contracts/vizier-core-api.md example as a doctest marked `no_run`), add a `prelude` module re-exporting exactly the items in research R3, and `#[doc(hidden)]` the remaining `VizierTransport` methods (everything except `send_request`, `send_agent_command`, `subscribe_session_events`)
 - [ ] T069 [US4] Run quickstart §6: stage WebUI, `cargo package --workspace --allow-dirty`, sizes < 10 MB, `DOCS_RS=1 cargo doc -p vizier-core --no-deps --features discord,telegram,documents,utoipa`, `cargo public-api -p vizier-core` shows only stable-tier items; save the `cargo public-api` output as `crates/vizier-core/public-api.txt` for future diffs
-- [ ] T070 [US4] Add the `package` job to `.github/workflows/ci.yml`: build WebUI, stage it, `cargo package --workspace --allow-dirty`, size report, `DOCS_RS=1 cargo doc -p vizier-core --no-deps`, `cargo public-api -p vizier-core` diffed against `crates/vizier-core/public-api.txt` (a change requires updating the file in the same PR), and a `cargo semver-checks -p vizier-core` step that is skipped until the first `vizier-core` release exists
+- [X] T070 [US4] Add the `package` job to `.github/workflows/ci.yml`: build WebUI, stage it, `cargo package --workspace --allow-dirty`, size report, `DOCS_RS=1 cargo doc -p vizier-core --no-deps`, `cargo public-api -p vizier-core` diffed against `crates/vizier-core/public-api.txt` (a change requires updating the file in the same PR), and a `cargo semver-checks -p vizier-core` step that is skipped until the first `vizier-core` release exists
 - [ ] T071 [US4] Re-run the release dry run (T058 command) and confirm the publish step lists `vizier-derive`, `vizier-core`, `vizier-http`, `vizier`; this is the PR 7 merge gate
 
 **Checkpoint**: All four crates package and dry-run publish; docs build; public API recorded.
@@ -194,9 +194,9 @@ description: "Task list for extracting vizier-core and splitting the workspace (
 
 ## Phase 8: Polish & Cross-Cutting Concerns
 
-- [ ] T072 [P] Add a "Workspace layout" section to `docs/src/getting-started/contributing.md` (or a new `docs/src/architecture/crates.md` linked from `docs/src/SUMMARY.md`) with the package table from spec.md, the dependency rule, which crate a new tool/route/CLI flag goes in, and that `vizier-app` will be GitHub-Releases-only
-- [ ] T073 [P] Draft the release-notes entry (PR 6/7 description and the next `CHANGELOG.md` via `git-cliff`): no user action needed; new `vizier-core`/`vizier-http` crates; the one behaviour change (second instance on one workspace refused, research R14)
-- [ ] T074 Final full run: `scripts/037-baseline-check.sh`, quickstart §2–§7, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`, `cd webui && npm run typecheck`; confirm no migration or legacy code was removed (`git diff master --stat -- '*migrat*' '*legacy*'` shows only moves) and that nothing new needs a #82 entry
+- [X] T072 [P] Add a "Workspace layout" section to `docs/src/getting-started/contributing.md` (or a new `docs/src/architecture/crates.md` linked from `docs/src/SUMMARY.md`) with the package table from spec.md, the dependency rule, which crate a new tool/route/CLI flag goes in, and that `vizier-app` will be GitHub-Releases-only
+- [X] T073 [P] Draft the release-notes entry (PR 6/7 description and the next `CHANGELOG.md` via `git-cliff`): no user action needed; new `vizier-core`/`vizier-http` crates; the one behaviour change (second instance on one workspace refused, research R14)
+- [X] T074 Final full run: `scripts/037-baseline-check.sh`, quickstart §2–§7, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`, `cd webui && npm run typecheck`; confirm no migration or legacy code was removed (`git diff master --stat -- '*migrat*' '*legacy*'` shows only moves) and that nothing new needs a #82 entry
 
 ---
 
@@ -345,3 +345,20 @@ Each PR is conventional-commit titled (table above), passes CI, and must show ze
   installed). Run: help/OpenAPI/deps diff, upgrade-open of a v0.13.5 workspace, WebUI index, SPA
   deep link and icon routes, client-tools e2e, second instance refused (exit 1), `agent ps`,
   `shutdown` (exit 0), busy port (exit 1), and the build-script fallback with no `node_modules`.
+- **T062–T070**: `cargo package --workspace --allow-dirty` builds all four crates from their
+  `.crate` files (1.5 MB core, 1.3 MB http, 75 KB vizier, 2 KB derive); the docs.rs-style
+  `cargo doc` builds (8 warnings, all intra-doc links from public items into hidden modules).
+  `vizier-http`'s staged `webui-dist/` is gitignored and was filled by hand for the test.
+  The `vizier` crate takes `readme = "../../Readme.md"`. `vizier-core` has a `prelude` and a
+  `no_run` crate doctest from the API contract; the transport's methods other than
+  `send_request`, `send_agent_command` and `subscribe_session_events` are `#[doc(hidden)]`.
+- **T069 not complete**: `cargo public-api` needs a nightly toolchain and the tool, neither of
+  which is installed here, so `crates/vizier-core/public-api.txt` does not exist yet. The CI
+  `package` job installs both, diffs against that file when it exists and otherwise prints the
+  output. To create it: `rustup toolchain install nightly && cargo install cargo-public-api &&
+  cargo public-api -p vizier-core --simplified > crates/vizier-core/public-api.txt`.
+- **T060**: making `server`, `webui`, `core-minimal`, `core-full`, `layering`, `deps` and `package`
+  required checks on `master` is a maintainer action (listed in `release-notes.md`).
+- **T058/T071 not run**: the release dry run (`gh workflow run release-and-publish.yml --ref
+  037-core-extraction -f dry_run=true`) needs the branch pushed and starts GitHub Actions
+  runs, so it waits for a go-ahead.

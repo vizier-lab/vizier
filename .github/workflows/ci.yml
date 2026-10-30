@@ -191,3 +191,64 @@ jobs:
               sys.exit(1)
           print("no dependency version changes")
           PY
+
+  package:
+    name: package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: package
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: |
+            design/package-lock.json
+            webui/package-lock.json
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libssl-dev python3-dev libclang-dev clang perl make
+      - name: Build WebUI
+        run: |
+          (cd design && npm ci)
+          (cd webui && npm ci && npm run build)
+          rm -rf webui/node_modules
+      - name: Stage WebUI
+        run: |
+          mkdir -p crates/vizier-http/webui-dist
+          cp -r webui/build/client/. crates/vizier-http/webui-dist/
+      - name: Package every crate
+        # Each crate is built from its own .crate file against a local overlay of the others.
+        run: |
+          cargo package --workspace --allow-dirty
+          for crate in target/package/*.crate; do
+            size=$(stat -c %s "$crate")
+            echo "$crate: $size bytes"
+            [ "$size" -le 10485760 ] || (echo "::error::$crate exceeds crates.io's 10 MB limit"; exit 1)
+          done
+      - name: Build the docs as docs.rs does
+        env:
+          DOCS_RS: '1'
+        run: cargo doc -p vizier-core --no-deps --features discord,telegram,documents,utoipa
+      - name: Public API of vizier-core
+        # The stable tier only: #[doc(hidden)] items are not in rustdoc JSON. A change to the API
+        # has to update crates/vizier-core/public-api.txt in the same pull request.
+        run: |
+          rustup toolchain install nightly --profile minimal
+          cargo install cargo-public-api --locked
+          cargo public-api -p vizier-core --simplified > /tmp/public-api.txt
+          if [ -f crates/vizier-core/public-api.txt ]; then
+            diff -u crates/vizier-core/public-api.txt /tmp/public-api.txt \
+              || (echo "::error::vizier-core's public API changed; update crates/vizier-core/public-api.txt"; exit 1)
+          else
+            echo "::notice::no crates/vizier-core/public-api.txt yet; add this output:"
+            cat /tmp/public-api.txt
+          fi
+      # cargo-semver-checks compares against the last published vizier-core, which does not
+      # exist before the first release of these crates: add it to this job after that release.

@@ -8,6 +8,21 @@ repository.workspace = true
 description = "The vizier agent engine: agents, tools, memory and providers, with no web or CLI layer"
 keywords = ["ai", "agent", "llm"]
 categories = ["asynchronous"]
+readme = "README.md"
+# Tests and their fixtures stay in the repository.
+include = [
+  "/src/**/*",
+  "/build.rs",
+  "/Cargo.toml",
+  "/README.md",
+  "/assets/catalogue/**/*",
+  "/templates/**/*",
+  "/examples/**/*",
+]
+
+[package.metadata.docs.rs]
+# The groups that need no native toolchain or network at build time.
+features = ["discord", "telegram", "documents", "utoipa"]
 
 [features]
 # The engine builds and runs an agent turn with none of these (specs/037-core-extraction R9).

@@ -8,6 +8,7 @@ repository.workspace = true
 description = "A digital steward for Your Majesty"
 readme = "../../Readme.md"
 keywords = ["ai", "cli", "agent"]
+include = ["/src/**/*", "/Cargo.toml"]
 
 [[bin]]
 name = "vizier"
