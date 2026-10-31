@@ -15,7 +15,7 @@ Make the Tauri desktop app (`app/`, spec 038) build, run, install, update and be
 
 ## Technical Context
 
-**Language/Version**: Rust 2024 (stable toolchain, as in CI); WebUI TypeScript/React (unchanged); Node.js 22 for builds; PowerShell 5.1+ for the Windows dev setup script.
+**Language/Version**: Rust 2024 (stable toolchain, as in CI); WebUI TypeScript/React (unchanged); Node.js 22 for builds; PowerShell 5.1+ (the `just` Windows shell and the agent's local shell on Windows).
 
 **Primary Dependencies**: existing only — Tauri 2 (+ `tauri-plugin-updater`, `-single-instance`, `-deep-link`, `-notification`, `-dialog`, `-opener`, `-process`), `vizier-core` `full` feature group (`whisper-rs`, `any-tts`, `bollard`, `fastembed`/`ort`, `rusqlite` bundled, `sqlite-vec`, `ring`/aws-lc). **No new crates.** New build-time needs on Windows: MSVC build tools, CMake, LLVM/libclang (for `whisper-rs` bindgen), WebView2 runtime, NSIS (fetched by `tauri-cli`).
 
@@ -31,7 +31,7 @@ Make the Tauri desktop app (`app/`, spec 038) build, run, install, update and be
 
 **Constraints**: server edition, its tarballs, `Cross.toml`, Docker images and the `build` matrix untouched (FR-002, SC-004). Unsigned installer (tracked with #132). No admin rights required to install. Existing user data survives upgrade and uninstall.
 
-**Scale/Scope**: ~1 new CI leg ×2 workflows, 1 manifest key, 1 bundle target, 1 setup script, ~4 `just` recipes, 2–3 small `cfg` sites in `vizier-core`, 2 doc pages.
+**Scale/Scope**: ~1 new CI leg ×2 workflows, 1 manifest key, 1 bundle target, ~4 `just` recipes, 2–3 small `cfg` sites in `vizier-core`, 2 doc pages.
 
 ## Constitution Check
 
@@ -43,7 +43,7 @@ Make the Tauri desktop app (`app/`, spec 038) build, run, install, update and be
 | II. Trait-based extensibility | PASS | Per-OS shell behaviour lives inside the one `LocalShell` `ShellProvider` impl (a single `cfg` there), not scattered in call sites. Skill-resource interpreter selection stays in its one function. |
 | III. Self-contained runtime | PASS (note) | The app runs with zero external services. The installer needs the WebView2 runtime; Windows 11 ships it, and on Windows 10 the NSIS installer fetches Evergreen's bootstrapper at install time. That is install-time, not runtime, and is documented. |
 | IV. Portability by default | PASS — this feature *is* the principle | Platform behaviour goes through existing abstractions (`dirs`/Tauri path API, `ShellProvider`, `DocumentStore`). The `Cross.toml` server targets are not touched. |
-| V. Unified errors & observability | PASS | New Windows-only failure messages use `VizierError`/`tracing`. The PowerShell setup script's terminal output is user-facing CLI output. |
+| V. Unified errors & observability | PASS | New Windows-only failure messages use `VizierError`/`tracing`.  |
 | Conventional commits / PR titles | Applies | `feat(app): windows support`, `ci: …`, `chore(just): …`, `doc: …`. |
 | Matching submodule branches via `just` | Applies | Touches the workspace only (`app/`, `crates/`, `.github/`, `justfile`, `scripts/`, `docs/`). `just checkout 039-windows-app-support` is still run so submodule branches exist; no submodule commits expected. |
 | Manual verification of build-pipeline changes | Applies | The workflow is exercised with `release.yml` `dry_run` and the installer is installed on a real Windows machine. |
@@ -78,7 +78,7 @@ app/src-tauri/
 └── src/{shell.rs,web_access.rs}    # Windows audit: deep-link/single-instance args, key file note
 
 crates/vizier-core/src/
-├── agents/shell/local/mod.rs       # per-OS shell invocation inside LocalShell
+├── agents/shell/local/mod.rs       # per-OS shell inside LocalShell: sh -c / PowerShell (UTF-8)
 ├── agents/tools/skill/execute_skill_resource.rs   # .sh on Windows → clear error; interpreter names
 ├── storage/…document store, artifacts, session_files   # Windows-invalid names / reserved names audit (shared validation only if a gap is found)
 └── encryption/key.rs               # already cfg(not(unix)); confirm behaviour and message
@@ -90,9 +90,9 @@ crates/vizier-core/src/
 scripts/
 ├── app-latest-json.mjs             # + windows-x86_64 entry
 ├── app-latest-json.test.mjs        # updated
-└── install-app.ps1                 # Windows prerequisite check + dependency install
 
-justfile                            # set windows-shell; [unix]/[windows] install-app; working-directory for app-*
+justfile                            # set windows-shell; [unix]/[windows] install-app (project deps only); working-directory for app-*
+README.md                           # Windows download + Windows development prerequisites (winget commands)
 docs/src/getting-started/{desktop-app.md,contributing.md}
 ```
 
