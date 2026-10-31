@@ -381,6 +381,25 @@ impl SessionStorage for SqliteStorage {
             rusqlite::params![agent_id, channel.to_slug(), topic],
         )?;
 
+        // Its messages go with it: the history rows, and the reactions and platform links
+        // keyed by their uid. Deleted explicitly, like the pieces above, since the cascades
+        // only fire with `PRAGMA foreign_keys` on. A topic-less session is stored as NULL.
+        let history_of_session = "SELECT uid FROM session_history WHERE agent_id = ?1 AND channel = ?2 \
+             AND (topic = ?3 OR (?3 = '' AND topic IS NULL))";
+        conn.execute(
+            &format!("DELETE FROM message_reaction WHERE history_uid IN ({history_of_session})"),
+            rusqlite::params![agent_id, channel.to_slug(), topic],
+        )?;
+        conn.execute(
+            &format!("DELETE FROM platform_message_link WHERE history_uid IN ({history_of_session})"),
+            rusqlite::params![agent_id, channel.to_slug(), topic],
+        )?;
+        conn.execute(
+            "DELETE FROM session_history WHERE agent_id = ?1 AND channel = ?2 \
+             AND (topic = ?3 OR (?3 = '' AND topic IS NULL))",
+            rusqlite::params![agent_id, channel.to_slug(), topic],
+        )?;
+
         // Its transient session-file records and message artifact references go with it; the
         // upload blobs are removed by `SessionFiles` after this commit (`specs/035-add-artifacts`).
         let session_slug = format!("{}__{}__{}", agent_id, channel.to_slug(), topic);
@@ -458,6 +477,47 @@ mod tests {
                 rusqlite::params![format!("{agent}#{}#{topic}", channel.to_slug()), agent, channel.to_slug(), topic, serde_json::to_string(&detail).unwrap()],
             )
             .unwrap();
+    }
+
+    #[tokio::test]
+    async fn deleting_a_session_deletes_its_messages_and_nothing_else() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = Connection::open_in_memory().unwrap();
+        SqliteStorage::init_schema(&conn).unwrap();
+        let s = SqliteStorage::new(
+            Arc::new(Mutex::new(conn)),
+            Arc::new(LocalDocumentStore::new(dir.path().to_path_buf())),
+        );
+        let mut n = 0;
+        let web = "http__ana__vizier-webui";
+        let channel = VizierChannelId::HTTP("ana".into(), "vizier-webui".into());
+        say(&s, &mut n, "a", web, Some("t1"), 1, "doomed");
+        say(&s, &mut n, "a", web, Some("t2"), 2, "kept topic");
+        say(&s, &mut n, "a", "discord__1", None, 3, "kept channel");
+        title(&s, "a", channel.clone(), "t1", "doomed");
+        {
+            let conn = s.conn.lock();
+            conn.execute(
+                "INSERT INTO message_reaction (history_uid, reactor_id, emoji, added_at) VALUES ('1', 'u', 'x', 0)",
+                [],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO platform_message_link (agent_id, platform, chat_id, message_id, history_uid) \
+                 VALUES ('a', 'discord', 'c', 'm', '1')",
+                [],
+            )
+            .unwrap();
+        }
+
+        s.delete_session("a".into(), channel, "t1".into()).await.unwrap();
+
+        let count = |sql: &str| -> i64 { s.conn.lock().query_row(sql, [], |r| r.get(0)).unwrap() };
+        assert_eq!(count("SELECT COUNT(*) FROM session_history WHERE topic = 't1'"), 0);
+        assert_eq!(count("SELECT COUNT(*) FROM session_history"), 2);
+        assert_eq!(count("SELECT COUNT(*) FROM message_reaction"), 0);
+        assert_eq!(count("SELECT COUNT(*) FROM platform_message_link"), 0);
+        assert_eq!(count("SELECT COUNT(*) FROM session_detail"), 0);
     }
 
     #[tokio::test]
