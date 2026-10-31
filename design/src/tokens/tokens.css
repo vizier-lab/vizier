@@ -38,6 +38,7 @@
 
   --vz-live: #059669; /* state/live */
   --vz-live-text: #046c4e; /* state/live-text */
+  --vz-live-bg: #ecf8f2; /* state/live-bg */
   --vz-rank: #5b7be8; /* state/rank */
   --vz-rank-text: #3651c4; /* state/rank-text */
   --vz-rank-bg: #e6ebfb; /* state/rank-bg */
@@ -128,6 +129,7 @@
 
     --vz-live: #10b981; /* state/live */
     --vz-live-text: #10b981; /* state/live-text */
+    --vz-live-bg: #0f2a21; /* state/live-bg */
     --vz-rank: #5b7be8; /* state/rank */
     --vz-rank-text: #9db1f5; /* state/rank-text */
     --vz-rank-bg: #1e2540; /* state/rank-bg */
@@ -180,6 +182,7 @@
 
   --vz-live: #10b981; /* state/live */
   --vz-live-text: #10b981; /* state/live-text */
+  --vz-live-bg: #0f2a21; /* state/live-bg */
   --vz-rank: #5b7be8; /* state/rank */
   --vz-rank-text: #9db1f5; /* state/rank-text */
   --vz-rank-bg: #1e2540; /* state/rank-bg */

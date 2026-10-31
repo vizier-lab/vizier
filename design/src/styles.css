@@ -48,6 +48,7 @@
   --color-failed: var(--vz-failed);
   --color-failed-text: var(--vz-failed-text);
   --color-failed-bg: var(--vz-failed-bg);
+  --color-live-bg: var(--vz-live-bg);
   --color-failed-line: var(--vz-failed-line);
   --color-retrying: var(--vz-retrying);
   --color-retrying-bg: var(--vz-retrying-bg);

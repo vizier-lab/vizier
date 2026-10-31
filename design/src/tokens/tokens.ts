@@ -46,6 +46,7 @@ export const colorTokens: ColorToken[] = [
   { name: "state/failed", cssVar: "--vz-failed", tw: "failed", group: "state", description: "Ember: failed agents and readers, destructive actions" },
   { name: "state/failed-text", cssVar: "--vz-failed-text", tw: "failed-text", group: "state", description: "Ember text on notices and badges" },
   { name: "state/failed-bg", cssVar: "--vz-failed-bg", tw: "failed-bg", group: "state", description: "Ember notice ground" },
+  { name: "state/live-bg", cssVar: "--vz-live-bg", tw: "live-bg", group: "state", description: "Added-line ground" },
   { name: "state/failed-line", cssVar: "--vz-failed-line", tw: "failed-line", group: "state", description: "Ember notice and destructive-button edge" },
   { name: "state/retrying", cssVar: "--vz-retrying", tw: "retrying", group: "state", description: "Amber: retrying with backoff, limits" },
   { name: "state/retrying-bg", cssVar: "--vz-retrying-bg", tw: "retrying-bg", group: "state", description: "Amber notice ground" },

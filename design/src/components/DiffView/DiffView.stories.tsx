@@ -25,3 +25,23 @@ type Story = StoryObj<typeof meta>;
 
 /** Core's History panel. */
 export const Default: Story = {};
+
+/** A source diff: hunk headers, line numbers and tinted add/remove rows (the project Changes dialog). */
+export const Code: Story = {
+  args: {
+    variant: "code",
+    title: "webui/app/routes/chat.tsx",
+    restoreLabel: undefined,
+    onRestore: undefined,
+    lines: [
+      { kind: "hunk", text: "@@ -112,6 +112,7 @@ export function ChatRoute()" },
+      { kind: "ctx", text: "const { project } = useProject()", oldNo: 112, newNo: 112 },
+      { kind: "ctx", text: "const mode = useChatMode(topic)", oldNo: 113, newNo: 113 },
+      { kind: "del", text: "const changes = useGitStatus()", oldNo: 114 },
+      { kind: "add", text: "const changes = useGitStatus(project)", newNo: 114 },
+      { kind: "add", text: "const [detail, setDetail] = useState<string | null>(null)", newNo: 115 },
+      { kind: "ctx", text: "const trail = useTrail(topic)", oldNo: 115, newNo: 116 },
+    ],
+  },
+  decorators: [(Story) => <div className="w-760">{Story()}</div>],
+};
