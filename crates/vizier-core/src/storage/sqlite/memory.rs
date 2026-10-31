@@ -124,6 +124,10 @@ impl MemoryStorage for SqliteStorage {
             .await
     }
 
+    async fn reset_agent_passages(&self, agent_id: &str) -> Result<()> {
+        self.bundle_store().reset_passages(agent_id).await
+    }
+
     async fn get_all_agent_memory(
         &self,
         agent_id: String,

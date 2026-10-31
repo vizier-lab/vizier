@@ -10,11 +10,17 @@ pub struct LocalShell {
 }
 
 impl LocalShell {
-    pub async fn new(config: LocalShellConfig) -> Result<Self> {
-        Ok(Self {
+    /// Build from saved settings without touching the filesystem: an addon contributes its tool
+    /// synchronously, and a local shell has nothing to prepare (the addons redesign).
+    pub fn from_config(config: LocalShellConfig) -> Self {
+        Self {
             workdir: PathBuf::from(config.path),
             env: config.env,
-        })
+        }
+    }
+
+    pub async fn new(config: LocalShellConfig) -> Result<Self> {
+        Ok(Self::from_config(config))
     }
 }
 

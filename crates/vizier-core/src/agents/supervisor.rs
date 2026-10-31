@@ -30,6 +30,7 @@ use crate::schema::{
 };
 use crate::storage::memory::MemoryStorage;
 use crate::storage::provider::ProviderStorage;
+use crate::storage::state::StateStorage;
 use crate::transport::VizierRequestEnvelope;
 
 const RESTART_BASE: Duration = Duration::from_secs(2);
@@ -162,7 +163,59 @@ async fn build_indexer(
             .await?,
     );
     let sqlite_idx = SqliteIndexer::new(conn, embedder).await?;
+    note_index_dimension(
+        deps,
+        agent_id,
+        sqlite_idx.dimension(),
+        sqlite_idx.keeps_legacy_table(),
+    )
+    .await;
     Ok(Some(VizierIndexer::build(sqlite_idx)))
+}
+
+/// The width this agent's memories were last embedded at. A different one means it now writes to
+/// another `vec0` table (one per dimension), where none of its passages exist yet — so its stored
+/// passage coordinates are dropped and this start reindexes the corpus, which is what
+/// `reconcile_agent_passages` does for a document with no rows.
+async fn note_index_dimension(
+    deps: &VizierDependencies,
+    agent_id: &AgentId,
+    dim: usize,
+    legacy_table: bool,
+) {
+    let key = format!("memory.index_dimension.{agent_id}");
+    let last = match deps.storage.get_state(key.clone()).await {
+        Ok(Some(value)) => value.as_u64(),
+        Ok(None) => None,
+        Err(e) => {
+            tracing::warn!(agent_id, "could not read the memory index dimension: {e}");
+            return;
+        }
+    };
+    if last == Some(dim as u64) {
+        return;
+    }
+    // A first record on the original table is an upgrade: its vectors are already where it looks,
+    // so nothing is dropped. Any other first record may have left vectors in another width's table,
+    // and a new agent simply has no rows to drop.
+    let fresh_on_legacy = last.is_none() && legacy_table;
+    if !fresh_on_legacy
+        && let Err(e) = deps.storage.reset_agent_passages(agent_id).await
+    {
+        tracing::warn!(
+            agent_id,
+            "could not reset memory passages after an embedding change; semantic search stays \
+             empty until the next start: {e}"
+        );
+        return;
+    }
+    if let Err(e) = deps
+        .storage
+        .save_state(key, serde_json::json!(dim))
+        .await
+    {
+        tracing::warn!(agent_id, "could not record the memory index dimension: {e}");
+    }
 }
 
 /// The supervisor's view of its agent, read by `HealthCheck`.

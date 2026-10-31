@@ -35,6 +35,12 @@ pub trait DocumentIndexer {
         threshold: f64,
     ) -> Result<Vec<DocumentIndex>>;
     async fn delete_index(&self, context: String, path: String) -> Result<()>;
+
+    /// The vector width this indexer writes, when it has a fixed one (a `vec0` table does, the
+    /// no-op indexer does not).
+    fn dimension(&self) -> Option<usize> {
+        None
+    }
 }
 
 impl VizierIndexer {
@@ -83,5 +89,10 @@ impl VizierIndexer {
 
     pub async fn delete_index(&self, context: String, path: String) -> Result<()> {
         self.0.delete_index(context, path).await
+    }
+
+    /// The vector width in use, when the indexer has a fixed one.
+    pub fn dimension(&self) -> Option<usize> {
+        self.0.dimension()
     }
 }

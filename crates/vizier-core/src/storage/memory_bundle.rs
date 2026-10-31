@@ -941,10 +941,20 @@ impl BundleMemoryStore {
         Ok((converted, failed))
     }
 
+    /// Drop every passage coordinate of one agent, so the next reconcile treats its whole corpus as
+    /// unconverted and indexes it again. Called when the embedding model's vector width changes and
+    /// the agent's vectors move to another table.
+    pub async fn reset_passages(&self, agent_id: &str) -> Result<()> {
+        self.conn.lock().execute(
+            "DELETE FROM memory_passage WHERE agent_id = ?1",
+            [agent_id],
+        )?;
+        Ok(())
+    }
+
     /// `reconcile_passages` across every bundle the agent has. This is what the per-agent
     /// conversion task at spawn calls (FR-038).
-    pub async fn reconcile_all_passages(
-        &self,
+    pub async fn reconcile_all_passages(        &self,
         agent_id: &str,
         limits: &ChunkLimits,
         indexer: &VizierIndexer,
@@ -3908,9 +3918,46 @@ mod tests {
         assert_ne!(hash, "stale", "the rebuilt rows carry the real hash");
     }
 
+    /// A different embedding width moves the agent to another index table, where none of its
+    /// passages exist; forgetting the coordinates makes the next reconcile rebuild them.
+    #[tokio::test]
+    async fn resetting_passages_makes_the_next_reconcile_reindex_the_corpus() {
+        let (store, _dir, indexer, _recorder) = setup_recording();
+        write_at(&store, &indexer, "note", &long_body(4)).await;
+        assert!(!passage_rows(&store, "note").is_empty());
+
+        store.reset_passages("a1").await.unwrap();
+        assert!(passage_rows(&store, "note").is_empty(), "coordinates dropped");
+
+        let (converted, failed) = store
+            .reconcile_all_passages("a1", &limits(), &indexer)
+            .await
+            .unwrap();
+        assert_eq!((converted, failed), (1, 0), "the corpus is indexed again");
+        assert!(!passage_rows(&store, "note").is_empty());
+
+        // Another agent's passages are untouched.
+        write_at(&store, &indexer, "other", &long_body(2)).await;
+        {
+            let conn = store.conn.lock();
+            conn.execute("UPDATE memory_passage SET agent_id = 'a2' WHERE path = 'other'", [])
+                .unwrap();
+        }
+        store.reset_passages("a1").await.unwrap();
+        let kept: i64 = store
+            .conn
+            .lock()
+            .query_row(
+                "SELECT COUNT(*) FROM memory_passage WHERE agent_id = 'a2'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(kept > 0, "one agent's reset leaves another's rows alone");
+    }
+
     #[test]
-    fn an_indexer_key_round_trips_with_and_without_an_ordinal() {
-        assert_eq!(
+    fn an_indexer_key_round_trips_with_and_without_an_ordinal() {        assert_eq!(
             BundleMemoryStore::parse_indexer_key("a1/work/ops/deploys#3"),
             Some(("a1".into(), "work".into(), "ops/deploys".into(), Some(3))),
             "a nested path keeps its slashes and gives up its ordinal"

@@ -10,12 +10,16 @@ use crate::{
     schema::DocumentIndex,
 };
 
-/// The dimension declared by an existing `document_index` table, if there is one.
-fn declared_dimension(conn: &Connection) -> Result<Option<usize>> {
+/// The table the first embedding model in a workspace used, kept by name so an existing install
+/// keeps its vectors.
+const LEGACY_TABLE: &str = "document_index";
+
+/// The dimension declared by an existing table, if there is one.
+fn declared_dimension(conn: &Connection, table: &str) -> Result<Option<usize>> {
     let ddl: Option<String> = conn
         .query_row(
-            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'document_index'",
-            [],
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?1",
+            [table],
             |row| row.get(0),
         )
         .optional()?;
@@ -33,11 +37,24 @@ fn declared_dimension(conn: &Connection) -> Result<Option<usize>> {
     Ok(Some(ddl[start..end].trim().parse()?))
 }
 
-/// A different embedding model can return vectors of another size. Writing them into an index
-/// built for the old size would silently corrupt recall, so the mismatch is refused with both
-/// sizes and the fix (FR-023).
-fn check_dimension(conn: &Connection, model_dim: usize) -> Result<()> {
-    if let Some(index_dim) = declared_dimension(conn)?
+/// The table vectors of `model_dim` are written to: the original `document_index` when it is that
+/// wide already (an existing install keeps its index), and one table per other width after that.
+///
+/// A `vec0` table fixes its width, so two agents whose embedding models differ cannot share one.
+/// They used to refuse to start instead; each width gets its own table, so a workspace can host
+/// models of any sizes side by side, and a model change reindexes (supervisor).
+fn table_for(conn: &Connection, model_dim: usize) -> Result<String> {
+    Ok(match declared_dimension(conn, LEGACY_TABLE)? {
+        Some(index_dim) if index_dim == model_dim => LEGACY_TABLE.to_string(),
+        _ => format!("{LEGACY_TABLE}_d{model_dim}"),
+    })
+}
+
+/// Writing vectors of the wrong size would silently corrupt recall, so a table of another width is
+/// refused with both sizes and the fix (FR-023). With `table_for` this can only happen to a table
+/// someone created outside vizier.
+fn check_dimension(conn: &Connection, table: &str, model_dim: usize) -> Result<()> {
+    if let Some(index_dim) = declared_dimension(conn, table)?
         && index_dim != model_dim
     {
         return Err(anyhow::anyhow!(
@@ -52,6 +69,9 @@ fn check_dimension(conn: &Connection, model_dim: usize) -> Result<()> {
 pub struct SqliteIndexer {
     conn: Arc<Mutex<Connection>>,
     embedder: Arc<crate::embedding::VizierEmbedder>,
+    /// The `vec0` table this agent's model writes to, one per vector width.
+    table: String,
+    dimension: usize,
 }
 
 impl SqliteIndexer {
@@ -62,20 +82,38 @@ impl SqliteIndexer {
         let test_embedding = embedder.embed_text("test").await?;
         let dim = test_embedding.len();
 
-        {
+        let table = {
             let conn = conn.lock();
-            check_dimension(&conn, dim)?;
+            let table = table_for(&conn, dim)?;
+            check_dimension(&conn, &table, dim)?;
             conn.execute_batch(&format!(
-                "CREATE VIRTUAL TABLE IF NOT EXISTS document_index USING vec0(
+                "CREATE VIRTUAL TABLE IF NOT EXISTS {table} USING vec0(
                     embedding float[{}] distance_metric=cosine,
                     context TEXT,
                     path TEXT
                 )",
                 dim
             ))?;
-        }
+            table
+        };
 
-        Ok(Self { conn, embedder })
+        Ok(Self {
+            conn,
+            embedder,
+            table,
+            dimension: dim,
+        })
+    }
+
+    /// The vector width this indexer writes.
+    pub fn dimension(&self) -> usize {
+        self.dimension
+    }
+
+    /// True when this width is the workspace's original `document_index` table, the one an install
+    /// upgrading from the single-index layout already has its vectors in.
+    pub fn keeps_legacy_table(&self) -> bool {
+        self.table == LEGACY_TABLE
     }
 
     fn embedding_to_bytes(embedding: &[f64]) -> Vec<u8> {
@@ -108,11 +146,14 @@ impl DocumentIndexer for SqliteIndexer {
 
         let conn = self.conn.lock();
         conn.execute(
-            "DELETE FROM document_index WHERE context = ?1 AND path = ?2",
+            &format!("DELETE FROM {} WHERE context = ?1 AND path = ?2", self.table),
             rusqlite::params![context, path],
         )?;
         conn.execute(
-            "INSERT INTO document_index (embedding, context, path) VALUES (?1, ?2, ?3)",
+            &format!(
+                "INSERT INTO {} (embedding, context, path) VALUES (?1, ?2, ?3)",
+                self.table
+            ),
             rusqlite::params![embedding_bytes, context, path],
         )?;
 
@@ -144,11 +185,14 @@ impl DocumentIndexer for SqliteIndexer {
         for ((path, _), embedding) in entries.iter().zip(embeddings.iter()) {
             let bytes = Self::embedding_to_bytes(embedding);
             tx.execute(
-                "DELETE FROM document_index WHERE context = ?1 AND path = ?2",
+                &format!("DELETE FROM {} WHERE context = ?1 AND path = ?2", self.table),
                 rusqlite::params![context, path],
             )?;
             tx.execute(
-                "INSERT INTO document_index (embedding, context, path) VALUES (?1, ?2, ?3)",
+                &format!(
+                    "INSERT INTO {} (embedding, context, path) VALUES (?1, ?2, ?3)",
+                    self.table
+                ),
                 rusqlite::params![bytes, context, path],
             )?;
         }
@@ -177,9 +221,10 @@ impl DocumentIndexer for SqliteIndexer {
         let query_bytes = Self::embedding_to_bytes(&query_embedding);
 
         let conn = self.conn.lock();
-        let mut stmt = conn.prepare(
-            "SELECT path, context, distance FROM document_index WHERE embedding MATCH ?1 AND context = ?2 ORDER BY distance LIMIT ?3",
-        )?;
+        let mut stmt = conn.prepare(&format!(
+            "SELECT path, context, distance FROM {} WHERE embedding MATCH ?1 AND context = ?2 ORDER BY distance LIMIT ?3",
+            self.table
+        ))?;
 
         let results: Vec<DocumentIndex> = stmt
             .query_map(
@@ -212,10 +257,14 @@ impl DocumentIndexer for SqliteIndexer {
     async fn delete_index(&self, context: String, path: String) -> Result<()> {
         let conn = self.conn.lock();
         conn.execute(
-            "DELETE FROM document_index WHERE context = ?1 AND path = ?2",
+            &format!("DELETE FROM {} WHERE context = ?1 AND path = ?2", self.table),
             rusqlite::params![context, path],
         )?;
         Ok(())
+    }
+
+    fn dimension(&self) -> Option<usize> {
+        Some(self.dimension)
     }
 }
 
@@ -223,17 +272,24 @@ impl DocumentIndexer for SqliteIndexer {
 mod tests {
     use super::*;
 
+    fn connection(dir: &tempfile::TempDir) -> Connection {
+        crate::storage::sqlite::SqliteStorage::open_connection(dir.path().to_str().unwrap())
+            .unwrap()
+    }
+
     #[test]
-    fn a_pre_existing_index_dimension_must_match_the_model() {
+    fn a_fresh_workspace_names_the_index_by_dimension() {
         let dir = tempfile::tempdir().unwrap();
-        let conn = crate::storage::sqlite::SqliteStorage::open_connection(
-            dir.path().to_str().unwrap(),
-        )
-        .unwrap();
+        let conn = connection(&dir);
 
-        // No table yet: the probe's dimension creates it, as before.
-        check_dimension(&conn, 1024).unwrap();
+        assert_eq!(table_for(&conn, 384).unwrap(), "document_index_d384");
+        assert_eq!(table_for(&conn, 768).unwrap(), "document_index_d768");
+    }
 
+    #[test]
+    fn an_existing_index_is_reused_for_its_own_dimension_and_keeps_its_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = connection(&dir);
         conn.execute_batch(
             "CREATE VIRTUAL TABLE document_index USING vec0(
                 embedding float[768] distance_metric=cosine,
@@ -242,11 +298,34 @@ mod tests {
             )",
         )
         .unwrap();
-        assert_eq!(declared_dimension(&conn).unwrap(), Some(768));
-        let err = check_dimension(&conn, 1024).unwrap_err().to_string();
+
+        // The install that already has vectors keeps them.
+        assert_eq!(table_for(&conn, 768).unwrap(), "document_index");
+        assert_eq!(declared_dimension(&conn, "document_index").unwrap(), Some(768));
+        // Another model gets a table of its own rather than a refusal.
+        assert_eq!(table_for(&conn, 1024).unwrap(), "document_index_d1024");
+        assert_eq!(table_for(&conn, 384).unwrap(), "document_index_d384");
+    }
+
+    #[test]
+    fn a_table_of_another_width_is_still_refused_for_that_width() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = connection(&dir);
+        conn.execute_batch(
+            "CREATE VIRTUAL TABLE document_index_d1024 USING vec0(
+                embedding float[768] distance_metric=cosine,
+                context TEXT,
+                path TEXT
+            )",
+        )
+        .unwrap();
+
+        let err = check_dimension(&conn, "document_index_d1024", 1024)
+            .unwrap_err()
+            .to_string();
         assert!(err.contains("768"), "{err}");
         assert!(err.contains("1024"), "{err}");
         assert!(err.contains("reindexed"), "{err}");
-        check_dimension(&conn, 768).unwrap();
+        check_dimension(&conn, "document_index_d1024", 768).unwrap();
     }
 }

@@ -124,6 +124,50 @@ fn desktop_state(shell: State<'_, Shell>) -> Value {
     shell.engine.state().to_json()
 }
 
+/// Paint the window frame in the app shell's colour, so the title bar reads as part of the rail
+/// rather than a separate slab above it. The WebUI calls this whenever its theme changes; the
+/// Windows 10 caption (which ignores `DWMWA_CAPTION_COLOR`) still gets dark mode.
+#[tauri::command]
+#[allow(unused_variables)]
+fn desktop_theme(appearance: String, window: tauri::WebviewWindow) -> Result<(), String> {
+    #[cfg(windows)]
+    paint_caption(&window, appearance != "light").map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[cfg(windows)]
+fn paint_caption(window: &tauri::WebviewWindow, dark: bool) -> tauri::Result<()> {    use windows::Win32::Graphics::Dwm::{
+        DWMWA_BORDER_COLOR, DWMWA_CAPTION_COLOR, DWMWA_USE_IMMERSIVE_DARK_MODE,
+        DwmSetWindowAttribute,
+    };
+    let hwnd = window.hwnd()?;
+    // COLORREF is 0x00BBGGRR — the shell's own `--vz-shell` (#0B0B0C dark, #F1F1F3 light).
+    let color: u32 = if dark { 0x000C_0B0B } else { 0x00F3_F1F1 };
+    let immersive: i32 = i32::from(dark);
+    // Unsupported attributes (a Windows 10 caption) return an error that is safe to ignore.
+    unsafe {
+        let _ = DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_USE_IMMERSIVE_DARK_MODE,
+            &immersive as *const _ as *const _,
+            4,
+        );
+        let _ = DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_CAPTION_COLOR,
+            &color as *const _ as *const _,
+            4,
+        );
+        let _ = DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_BORDER_COLOR,
+            &color as *const _ as *const _,
+            4,
+        );
+    }
+    Ok(())
+}
+
 #[tauri::command]
 async fn desktop_setup_owner(username: String, password: Option<String>, shell: State<'_, Shell>) -> Result<(), CommandError> {
     shell.engine.setup_owner(&username, password.as_deref()).await
@@ -282,14 +326,14 @@ pub fn run() {
     #[cfg(debug_assertions)]
     let handler: Box<dyn Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Sync> = Box::new(tauri::generate_handler![
         api, topic_open, topic_send, topic_close, desktop_state, desktop_setup_owner,
-        desktop_choose_owner, desktop_open_workspace, runtime_restart, desktop_settings_get,
+        desktop_choose_owner, desktop_open_workspace, runtime_restart, desktop_theme, desktop_settings_get,
         desktop_settings_set, desktop_ready, save_file, open_file, notify, update_check,
         update_install, runtime_debug_stop_scheduler
     ]);
     #[cfg(not(debug_assertions))]
     let handler: Box<dyn Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Sync> = Box::new(tauri::generate_handler![
         api, topic_open, topic_send, topic_close, desktop_state, desktop_setup_owner,
-        desktop_choose_owner, desktop_open_workspace, runtime_restart, desktop_settings_get,
+        desktop_choose_owner, desktop_open_workspace, runtime_restart, desktop_theme, desktop_settings_get,
         desktop_settings_set, desktop_ready, save_file, open_file, notify, update_check,
         update_install
     ]);
@@ -336,7 +380,7 @@ pub fn run() {
             // The main window is built here, not in tauri.conf.json, to guard navigation (FR-013).
             let guard = handle.clone();
             let dev_url = app.config().build.dev_url.as_ref().map(|u| u.to_string());
-            WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
+            let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
                 .title("Vizier")
                 .inner_size(1280.0, 800.0)
                 .min_inner_size(900.0, 600.0)
@@ -351,6 +395,9 @@ pub fn run() {
                     false
                 })
                 .build()?;
+            // The default look is the dark shell; the WebUI repaints this if its theme is light.
+            #[cfg(windows)]
+            let _ = paint_caption(&window, true);
 
             // Tray: Open / Quit; a left click shows the window.
             let open = MenuItem::with_id(app, "open", "Open Vizier", true, None::<&str>)?;

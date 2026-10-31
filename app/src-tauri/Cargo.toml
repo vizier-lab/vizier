@@ -19,6 +19,7 @@ shell = [
   "dep:tauri-plugin-deep-link",
   "dep:tauri-plugin-updater",
   "dep:tauri-plugin-process",
+  "dep:windows",
 ]
 
 [build-dependencies]
@@ -44,6 +45,10 @@ flume = "0.12"
 axum = { version = "0.8", default-features = false }
 ring = "0.17"
 anyhow = "1"
+
+# The title bar is painted with the app shell's colour (only the window frame needs this).
+[target."cfg(windows)".dependencies]
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Graphics_Dwm"], optional = true }
 
 [dev-dependencies]
 tempfile = "3"
