@@ -12,7 +12,10 @@ fn main() {
     let packaged = Path::new("webui-dist");
 
     if checkout.join("node_modules").exists() {
-        let status = Command::new("npm")
+        // On Windows npm is a `.cmd` shim, which `Command` does not find under the bare name.
+        // `cfg!` here describes the machine running this script, which is the one running npm.
+        let npm = if cfg!(windows) { "npm.cmd" } else { "npm" };
+        let status = Command::new(npm)
             .args(["run", "build"])
             .current_dir(checkout)
             .status()

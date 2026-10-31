@@ -1,0 +1,6 @@
+# Windows: one C runtime for every native piece. `esaxx-rs` (through fastembed's tokenizers) hard-codes
+# the static CRT (`/MT`) while whisper.cpp, onnxruntime and Rust itself use the dynamic one (`/MD`),
+# and the linker refuses to mix them (LNK2038). `cc` appends `CXXFLAGS` after the flags a build script
+# sets, so the last `/MD` wins and the whole app links against the dynamic CRT.
+[env]
+CXXFLAGS_x86_64_pc_windows_msvc = "/MD"

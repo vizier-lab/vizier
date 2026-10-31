@@ -30,7 +30,13 @@ impl VizierTool for ShellExec {
     }
 
     fn description(&self) -> String {
-        "run a a CLI command on a workspace directory".into()
+        // A local shell on a Windows host runs PowerShell; everywhere else (and in a Docker shell) it is `sh`.
+        if cfg!(windows) {
+            "run a CLI command on a workspace directory (a local shell here is PowerShell, so write PowerShell syntax; a Docker shell is sh)"
+                .into()
+        } else {
+            "run a CLI command on a workspace directory".into()
+        }
     }
 
     async fn call(&self, args: Self::Input, _ctx: &ToolContext) -> Result<Self::Output, VizierError> {

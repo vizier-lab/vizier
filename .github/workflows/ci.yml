@@ -164,9 +164,16 @@ jobs:
   # The desktop app (specs/038-desktop-app-edition). Builds the WebUI because the app embeds it.
   # Only runs when something the app is built from changes; server-only PRs skip it.
   app:
-    name: app
-    runs-on: ubuntu-22.04
+    name: app (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-latest]
     steps:
+      - name: Allow long paths
+        if: runner.os == 'Windows'
+        run: git config --global core.longpaths true
       - uses: actions/checkout@v4
         with:
           submodules: recursive
@@ -198,14 +205,19 @@ jobs:
           cache-dependency-path: |
             design/package-lock.json
             webui/package-lock.json
+      - name: Point bindgen at LLVM
+        if: steps.changes.outputs.app == 'true' && runner.os == 'Windows'
+        shell: bash
+        run: echo "LIBCLANG_PATH=C:\\Program Files\\LLVM\\bin" >> "$GITHUB_ENV"
       - name: Install Linux dependencies
-        if: steps.changes.outputs.app == 'true'
+        if: steps.changes.outputs.app == 'true' && runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf \
             pkg-config libssl-dev python3-dev libclang-dev clang perl make
       - name: Build the WebUI
         if: steps.changes.outputs.app == 'true'
+        shell: bash
         run: |
           (cd design && npm ci)
           cd webui
@@ -214,6 +226,7 @@ jobs:
       - name: Clippy and test
         if: steps.changes.outputs.app == 'true'
         working-directory: app
+        shell: bash
         env:
           CI: 'true'
         run: |

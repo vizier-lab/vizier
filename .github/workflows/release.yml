@@ -282,7 +282,15 @@ jobs:
             os: ubuntu-22.04-arm
             args: ''
             rust_targets: ''
+          - name: windows-x64
+            os: windows-latest
+            args: ''
+            rust_targets: ''
     steps:
+      - name: Allow long paths
+        if: runner.os == 'Windows'
+        run: git config --global core.longpaths true
+
       - name: Checkout
         uses: actions/checkout@v4
         with:
@@ -293,6 +301,11 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.rust_targets }}
+
+      - name: Point bindgen at LLVM
+        if: runner.os == 'Windows'
+        shell: bash
+        run: echo "LIBCLANG_PATH=C:\\Program Files\\LLVM\\bin" >> "$GITHUB_ENV"
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
@@ -310,6 +323,7 @@ jobs:
             webui/package-lock.json
 
       - name: Build WebUI
+        shell: bash
         run: |
           (cd design && npm ci)
           cd webui
@@ -362,6 +376,11 @@ jobs:
             archs="$(lipo -archs app/target/universal-apple-darwin/release/vizier-app)"
             echo "lipo: $archs"
             echo "$archs" | grep -qw x86_64 && echo "$archs" | grep -qw arm64 || { echo "::error::universal binary lacks an architecture: $archs"; exit 1; }
+          elif [ "${{ runner.os }}" = "Windows" ]; then
+            setup="$(ls app/target/release/bundle/nsis/*-setup.exe | head -n1)"
+            info="$(file "$setup")"
+            echo "$info"
+            echo "$info" | grep -q 'PE32+ executable' && echo "$info" | grep -q 'x86-64' || { echo "::error::not an x86-64 Windows installer"; exit 1; }
           else
             appimage="$(ls app/target/release/bundle/appimage/*.AppImage | head -n1)"
             info="$(file "$appimage")"
@@ -383,6 +402,10 @@ jobs:
             cp "$(ls $B/dmg/*.dmg | head -n1)" "app-dist/Vizier_${VERSION}_universal.dmg"
             cp "$(ls $B/macos/*.app.tar.gz | head -n1)" app-dist/Vizier_universal.app.tar.gz
             [ -f "$B/macos/$(basename "$(ls $B/macos/*.app.tar.gz | head -n1)").sig" ] && cp "$B/macos/$(basename "$(ls $B/macos/*.app.tar.gz | head -n1)").sig" app-dist/Vizier_universal.app.tar.gz.sig || true
+          elif [ "${{ runner.os }}" = "Windows" ]; then
+            SRC="$(ls app/target/release/bundle/nsis/*-setup.exe | head -n1)"
+            cp "$SRC" "app-dist/Vizier_${VERSION}_x64-setup.exe"
+            [ -f "$SRC.sig" ] && cp "$SRC.sig" "app-dist/Vizier_${VERSION}_x64-setup.exe.sig" || true
           else
             if [ "${{ matrix.name }}" = "linux-amd64" ]; then ARCH=amd64; else ARCH=aarch64; fi
             B=app/target/release/bundle/appimage
@@ -391,8 +414,9 @@ jobs:
             [ -f "$SRC.sig" ] && cp "$SRC.sig" "app-dist/Vizier_${VERSION}_${ARCH}.AppImage.sig" || true
           fi
           cd app-dist
-          for f in *.dmg *.AppImage; do
-            [ -f "$f" ] && shasum -a 256 "$f" > "$f.sha256"
+          for f in *.dmg *.AppImage *.exe; do
+            [ -f "$f" ] || continue
+            if command -v shasum >/dev/null 2>&1; then shasum -a 256 "$f" > "$f.sha256"; else sha256sum "$f" > "$f.sha256"; fi
           done
           ls -la
 
@@ -429,7 +453,7 @@ jobs:
         # Without the updater key the app cannot update itself; refuse a real release then.
         if: ${{ !inputs.dry_run }}
         run: |
-          for f in Vizier_universal.app.tar.gz.sig Vizier_${{ needs.prepare-release.outputs.version }}_amd64.AppImage.sig Vizier_${{ needs.prepare-release.outputs.version }}_aarch64.AppImage.sig; do
+          for f in Vizier_universal.app.tar.gz.sig Vizier_${{ needs.prepare-release.outputs.version }}_amd64.AppImage.sig Vizier_${{ needs.prepare-release.outputs.version }}_aarch64.AppImage.sig Vizier_${{ needs.prepare-release.outputs.version }}_x64-setup.exe.sig; do
             [ -f "release-assets/$f" ] || { echo "::error::missing $f (is TAURI_SIGNING_PRIVATE_KEY set?)"; exit 1; }
           done
 
@@ -462,8 +486,9 @@ jobs:
             - macOS (Apple Silicon and Intel, 11.0+): `Vizier_${{ needs.prepare-release.outputs.version }}_universal.dmg`
             - Linux x86_64: `Vizier_${{ needs.prepare-release.outputs.version }}_amd64.AppImage`
             - Linux arm64: `Vizier_${{ needs.prepare-release.outputs.version }}_aarch64.AppImage`
+            - Windows 10/11 x64: `Vizier_${{ needs.prepare-release.outputs.version }}_x64-setup.exe`
 
-            The macOS build is not signed or notarized yet (#132). On first launch, open System Settings > Privacy & Security and choose **Open Anyway** next to the Vizier message. On Linux, `chmod +x` the AppImage and run it. Installed apps update themselves.
+            The Windows installer is not code-signed yet: if SmartScreen warns, choose **More info** then **Run anyway**. The macOS build is not signed or notarized yet (#132). On first launch, open System Settings > Privacy & Security and choose **Open Anyway** next to the Vizier message. On Linux, `chmod +x` the AppImage and run it. Installed apps update themselves.
 
             ### macOS / Linux
             Download the appropriate archive for your platform and extract it to a directory, or use one of the methods below.

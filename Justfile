@@ -1,3 +1,5 @@
+set windows-shell := ["powershell.exe", "-NoLogo", "-NoProfile", "-Command"]
+
 install:
   @cargo install cargo-watch
   @echo -e "\\e[1;32minstalling core dependencies\\e[0m\n"
@@ -239,6 +241,7 @@ dummyplug-test:
 # Everything the desktop app (app/) needs to build: the system libraries Tauri links against
 # (Linux: webkit2gtk and friends through apt; macOS needs only the Xcode command line tools),
 # the Tauri CLI, and the app workspace's crates.
+[unix]
 install-app:
   #!/usr/bin/env bash
   set -euo pipefail
@@ -266,12 +269,24 @@ install-app:
   (cd app && cargo fetch)
   echo -e "\n\e[1;32mDone\e[0m"
 
+# Windows: the app's project dependencies only. The system prerequisites (MSVC Build Tools, CMake, LLVM,
+# WebView2) are installed by hand, see the README.
+[windows]
+install-app:
+  if (-not (Get-Command cargo-tauri -ErrorAction SilentlyContinue)) { cargo install tauri-cli --version '^2' --locked }
+  cd app; cargo fetch
+  git submodule update --init
+  cd design; npm ci
+  cd webui; npm ci
+
+[working-directory: 'app']
 app-dev:
-  cd app && cargo tauri dev
+  cargo tauri dev
 
 app-build:
-  cd webui && npm run build
-  cd app && cargo tauri build
+  npm --prefix webui run build
+  cd app; cargo tauri build
 
+[working-directory: 'app']
 app-test:
-  cd app && cargo test
+  cargo test

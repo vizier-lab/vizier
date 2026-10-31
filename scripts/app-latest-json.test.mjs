@@ -6,6 +6,7 @@ const sigs = {
   'Vizier_universal.app.tar.gz.sig': 'MAC',
   'Vizier_1.2.3_amd64.AppImage.sig': 'AMD',
   'Vizier_1.2.3_aarch64.AppImage.sig': 'ARM',
+  'Vizier_1.2.3_x64-setup.exe.sig': 'WIN',
 };
 
 test('manifest maps both macOS architectures to the universal payload', () => {
@@ -23,5 +24,6 @@ test('manifest maps both macOS architectures to the universal payload', () => {
   assert.deepEqual(m.platforms['darwin-x86_64'], m.platforms['darwin-aarch64']);
   assert.deepEqual(m.platforms['linux-x86_64'], { url: `${base}/Vizier_1.2.3_amd64.AppImage`, signature: 'AMD' });
   assert.deepEqual(m.platforms['linux-aarch64'], { url: `${base}/Vizier_1.2.3_aarch64.AppImage`, signature: 'ARM' });
-  assert.deepEqual(Object.keys(m.platforms).sort(), ['darwin-aarch64', 'darwin-x86_64', 'linux-aarch64', 'linux-x86_64']);
+  assert.deepEqual(m.platforms['windows-x86_64'], { url: `${base}/Vizier_1.2.3_x64-setup.exe`, signature: 'WIN' });
+  assert.deepEqual(Object.keys(m.platforms).sort(), ['darwin-aarch64', 'darwin-x86_64', 'linux-aarch64', 'linux-x86_64', 'windows-x86_64']);
 });
