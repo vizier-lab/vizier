@@ -47,6 +47,9 @@ the `dummyplug` test model running (`cd dummyplug && npm start`).
 The desktop app planned in [#102](https://github.com/vizier-lab/vizier/issues/102) will be
 distributed through GitHub Releases only; it is not a crate on crates.io.
 
+For quick iteration, run matching tests in one crate with
+`just test-focus vizier-http dummyplug_provider_tests`. Run the full checks below before a PR.
+
 Check your change the way CI does:
 
 ```sh

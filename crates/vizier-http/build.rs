@@ -45,12 +45,14 @@ fn main() {
         panic!("cannot stage {} into {}: {e}", source.display(), dest.display())
     });
 
-    // Rebuild if frontend files change
     println!("cargo:rerun-if-changed=../../webui/app");
     println!("cargo:rerun-if-changed=../../webui/package.json");
-    println!("cargo:rerun-if-changed=../../webui/build/client");
     println!("cargo:rerun-if-changed=../../design/src");
-    println!("cargo:rerun-if-changed=webui-dist");
+    if source == packaged {
+        println!("cargo:rerun-if-changed=webui-dist");
+    } else if !checkout.join("node_modules").exists() {
+        println!("cargo:rerun-if-changed=../../webui/build/client");
+    }
 }
 
 fn copy_dir(from: &Path, to: &Path) -> std::io::Result<()> {
