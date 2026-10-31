@@ -5,20 +5,16 @@ use crate::agents::tools::{ToolCategory, ToolContext, VizierTool};
 use crate::dependencies::VizierDependencies;
 use crate::error::VizierError;
 use crate::schema::AgentId;
-use crate::skill::SkillManager;
+
+use super::scopes;
 
 pub struct ListSkills {
-    global_manager: SkillManager,
-    agent_manager: SkillManager,
+    workspace: String,
 }
 
 impl ListSkills {
-    pub fn new(agent_id: AgentId, deps: VizierDependencies) -> Self {
-        let workspace = deps.config.workspace.clone();
-        Self {
-            global_manager: SkillManager::new(&workspace),
-            agent_manager: SkillManager::for_agent(&workspace, &agent_id),
-        }
+    pub fn new(_agent_id: AgentId, deps: VizierDependencies) -> Self {
+        Self { workspace: deps.config.workspace.clone() }
     }
 }
 
@@ -32,12 +28,23 @@ pub struct ListSkillsArgs {
 pub struct SkillInfo {
     pub name: String,
     pub description: String,
+    /// `project`, `agent` or `global`.
+    pub scope: String,
+    /// The skill's folder: relative to the project root for a project skill, else its slug.
+    pub folder: String,
+}
+
+#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
+pub struct ListSkillsOutput {
+    pub skills: Vec<SkillInfo>,
+    /// Skill folders that could not be read, each already logged. Empty is the normal case.
+    pub unreadable: Vec<String>,
 }
 
 #[async_trait::async_trait]
 impl VizierTool for ListSkills {
     type Input = ListSkillsArgs;
-    type Output = Vec<SkillInfo>;
+    type Output = ListSkillsOutput;
 
     fn category() -> Option<ToolCategory> {
         Some(ToolCategory::Skills)
@@ -48,45 +55,43 @@ impl VizierTool for ListSkills {
     }
 
     fn description(&self) -> String {
-        "list available skills (name + short description), optionally filtered by keyword. \
+        "list available skills (name + short description), optionally filtered by keyword. A skill \
+         of this project appears first, then the agent's own and the global ones, each slug once. \
          Use get_skill_details for full metadata, or use_skill to load a skill's instructions."
             .into()
     }
 
-    async fn call(&self, args: Self::Input, _ctx: &ToolContext) -> Result<Self::Output, VizierError> {
-        let mut skills = self
-            .global_manager
-            .list_skills()
-            .map_err(|e| VizierError(e.to_string()))?;
+    async fn call(&self, args: Self::Input, ctx: &ToolContext) -> Result<Self::Output, VizierError> {
+        let found = scopes(ctx, &self.workspace).discover();
+        let keyword = args.keyword.map(|keyword| keyword.to_lowercase());
 
-        for agent_skill in self
-            .agent_manager
-            .list_skills()
-            .map_err(|e| VizierError(e.to_string()))?
-        {
-            if !skills.iter().any(|s| s.name == agent_skill.name) {
-                skills.push(agent_skill);
-            }
-        }
-
-        let filtered: Vec<SkillInfo> = skills
-            .iter()
-            .filter(|skill| {
-                if let Some(ref keyword) = args.keyword {
-                    let keyword_lower = keyword.to_lowercase();
-                    skill.keywords.iter().any(|k| k.to_lowercase().contains(&keyword_lower))
-                        || skill.name.to_lowercase().contains(&keyword_lower)
-                        || skill.description.to_lowercase().contains(&keyword_lower)
-                } else {
-                    true
+        let skills = found
+            .skills
+            .into_iter()
+            .filter(|scoped| match &keyword {
+                Some(keyword) => {
+                    let skill = &scoped.skill;
+                    skill.keywords.iter().any(|k| k.to_lowercase().contains(keyword))
+                        || skill.name.to_lowercase().contains(keyword)
+                        || skill.description.to_lowercase().contains(keyword)
                 }
+                None => true,
             })
-            .map(|skill| SkillInfo {
-                name: skill.name.clone(),
-                description: skill.description.clone(),
+            .map(|scoped| SkillInfo {
+                scope: scoped.scope.label().to_string(),
+                folder: scoped.folder(),
+                name: scoped.skill.name.clone(),
+                description: scoped.skill.description.clone(),
             })
             .collect();
 
-        Ok(filtered)
+        Ok(ListSkillsOutput {
+            skills,
+            unreadable: found
+                .skipped
+                .into_iter()
+                .map(|skipped| format!("{}: {}", skipped.folder, skipped.reason))
+                .collect(),
+        })
     }
 }

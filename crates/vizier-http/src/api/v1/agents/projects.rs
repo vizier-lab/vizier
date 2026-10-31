@@ -24,9 +24,9 @@ use crate::{
 
 pub use vizier_core::service::projects::{
     CreateProjectSessionResponse, CreateWorktreeRequest, CreateWorktreeResponse, FileSuggestion,
-    OpenProjectRequest, ProjectDetail, ProjectRemoved, ProjectSession, ProjectSummary,
-    SetModeRequest, SetModeResponse, SwitchBranchRequest, UpdateProjectRequest, WorktreeDeleted,
-    WorktreeDetail, WorktreeSummary,
+    OpenProjectRequest, ProjectDetail, ProjectRemoved, ProjectSession, ProjectSkillRow,
+    ProjectSummary, SetModeRequest, SetModeResponse, SwitchBranchRequest, UpdateProjectRequest,
+    WorktreeDeleted, WorktreeDetail, WorktreeSummary,
 };
 
 pub fn projects() -> Router<HTTPState> {
@@ -45,6 +45,7 @@ pub fn projects() -> Router<HTTPState> {
             put(set_mode),
         )
         .route("/{project_id}/files", get(files))
+        .route("/{project_id}/skills", get(skills))
         .route("/{project_id}/git", get(git_summary))
         .route("/{project_id}/git/changes", get(git_changes))
         .route("/{project_id}/git/diff", get(git_diff))
@@ -323,6 +324,39 @@ pub async fn files(
             query.limit.unwrap_or(20),
         )
         .await,
+        StatusCode::OK,
+    )
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct SkillsQuery {
+    #[serde(default)]
+    pub topic: Option<String>,
+}
+
+#[utoipa::path(
+    get,
+    path = "/agents/{agent_id}/projects/{project_id}/skills",
+    params(
+        ("agent_id" = String, Path, description = "Agent ID"),
+        ("project_id" = String, Path, description = "Project ID"),
+        ("topic" = Option<String>, Query, description = "The chat, so a worktree offers its own branch's skills")
+    ),
+    responses(
+        (status = 200, description = "The skills this chat's folder carries, one per slug", body = APIResponse<Vec<ProjectSkillRow>>),
+        (status = 403, description = "The caller may not use this project"),
+        (status = 404, description = "Agent or project not found, or removed"),
+        (status = 409, description = "`project_unavailable`")
+    )
+)]
+pub async fn skills(
+    State(state): State<HTTPState>,
+    Extension(user): Extension<Principal>,
+    Path((agent_id, project_id)): Path<(String, String)>,
+    Query(query): Query<SkillsQuery>,
+) -> Response {
+    respond(
+        service::skills(&svc(&state), &user, &agent_id, &project_id, query.topic.as_deref()).await,
         StatusCode::OK,
     )
 }

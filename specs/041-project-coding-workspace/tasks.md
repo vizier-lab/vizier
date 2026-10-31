@@ -234,6 +234,41 @@ description: "Task list for 041 Project Coding Workspace"
 - [ ] T094 Open the deferred follow-up issues: agent-created worktrees; GitHub `#123` references without the gh CLI; merging/rebasing a worktree from the UI; a per-project worktree setup command and copy-files list
 - [X] T095 Commit across repos in order design → webui → vizier with `just commit "<conventional message>"`, bump the submodule pins, and push with `just push` when the person asks
 
+## Phase 10: Project skills (FR-035–FR-043)
+
+Contract: [contracts/project-skills.md](./contracts/project-skills.md). Design: [plan.md](./plan.md) §7.
+
+### Schema
+
+- [X] T096 [P] In `crates/vizier-core/src/schema/storage.rs` make `Skill::author` optional (`#[serde(default)]`), replace `version: u32` with a `SkillVersion` enum (`#[serde(untagged)] Number(u32) | Text(String)`, `Default = Number(1)`, `Display`, `leading_number()` for `SkillMeta::installed_version`), and add `user-invocable` (default `true`), `disable-model-invocation` (default `false`) and `argument-hint` (option).
+- [X] T097 [P] Update the five `Skill { … }` literals (`skill/invocation.rs`, `agents/tools/skill/mod.rs`, `service/skills.rs`, `agents/agent/system_prompt/context.rs`, `channels/commands.rs`) and the `SkillMeta` writers in `skill/install.rs` for the new fields.
+- [X] T098 Add fixtures under `crates/vizier-core/src/skill/fixtures/`: verbatim copies of `.agents/skills/speckit-plan/SKILL.md` (no `author`, both flags) and `.agents/skills/impeccable/SKILL.md` (`version: 4.7.0`, 589-byte description); a test asserts both parse, the flags land, and every `SKILL.md` under `.agents/skills` loads.
+
+### Scope resolution
+
+- [X] T099 Add `SkillScope { Global, Agent(AgentId), Project(PathBuf) }` and `SkillManager::for_project(root)` in `crates/vizier-core/src/skill/mod.rs`; `.agents/skills` before `.claude/skills`, deduped by slug.
+- [X] T100 Make `SkillManager::list_skills` return what it could not read (count + slugs) with one `tracing::warn!` each, and surface that count from `list_skills` and `ServiceError`-free callers (FR-039).
+- [X] T101 Add `skill::scopes::for_turn(workspace, agent_id, Option<&ProjectTurnContext>) -> Vec<SkillManager>` (project → agent → global) and rewire `use_skill`, `list_skills`, `get_skill_details`, `read_skill_resource` to build from `ToolContext` per call instead of `new()`.
+- [X] T102 `use_skill` returns content plus the skill's folder (relative to the project root) and its resources, with the two how-to lines (contract §3); workspace scopes keep today's content-only output.
+- [X] T103 Bound and confine resources: cap the listing at 200 files / 256 KiB with binaries and `.git`, `node_modules`, `.venv`, `target` skipped, apply `validate_resource_path` on read, and refuse a binary read with `binary_resource: …`.
+- [X] T104 Refuse `execute_skill_resource` in a project chat (`project_skill_resource: …`), and outside one give it a cwd and a timeout.
+
+### Invocation, prompt, hooks
+
+- [X] T105 Make `skill::invocation::{resolve, available}` take the scope list, so `/speckit-plan` resolves project → agent → global and `/skills` lists all three; check `channels/commands.rs` still builds Discord/Telegram menus from the workspace scopes only.
+- [X] T106 Add `## Project Skills` to `agents/agent/system_prompt/project.rs` per contract §5 (name, argument hint, 400-char description, flags, 40-entry cap), and the two hook sentences of contract §6.
+- [X] T107 Extend `the_project_section_is_stable_across_volatile_changes` and add cases for a `disable-model-invocation` skill being absent and a non-user-invocable one being marked.
+
+### Verification and docs
+
+- [X] T108 Invariant tests: a project skill is unreachable from an ordinary chat and from another project; `/skills` in a project chat lists each slug once; `../` and absolute resource paths are refused; the count and byte caps hold.
+- [ ] T109 Run quickstart §9 against a dummyplug agent on a fixture project folder; record the outcome.
+- [X] T110 Docs: a "Project skills" section in `docs/src/configuration/skills.md` (roots, precedence, flags, resource bounds, hooks policy, why no index), a cross-link from `projects.md`, and a line in `CLAUDE.md`'s Projects section.
+- [ ] T111 Open the follow-up issue for executing harness hooks (event set, manifest readers, runner with cwd/timeout/output cap, inject-vs-deny, consent, no double-fire on a resumed durable turn, Build-only in a Plan chat, redacted output, never in a `btw` side chat).
+
+- [X] T112 Composer: `listProjectSkills` in `webui/app/api/endpoints/projects.ts`, merged into the slash menu for project chats (`Composer.tsx`), skipping `user_invocable: false` and letting a project skill win a slug; fetch keyed on `project.id`/`topicId` so a worktree follows its branch.
+- [X] T113 Conformance vectors for `GET …/skills` and `GET …/skills?topic=…` in `crates/vizier-http/tests/conformance/groups/projects.rs`; `pending.txt` unchanged.
+
 ---
 
 ## Dependencies & Execution Order

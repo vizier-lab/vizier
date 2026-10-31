@@ -41,7 +41,7 @@ impl From<Skill> for SkillResponse {
             name: skill.name,
             description: skill.description,
             keywords: skill.keywords,
-            version: skill.version,
+            version: skill.version.leading_number(),
             resources: skill.resources,
             content: skill.content,
             agent_id: skill.agent_id,
@@ -154,8 +154,11 @@ fn create_in(manager: &SkillManager, agent_id: Option<String>, request: CreateSk
         description: request.description,
         content: request.content,
         keywords: request.keywords,
-        version: 1,
+        version: Default::default(),
         resources: Vec::new(),
+        user_invocable: true,
+        disable_model_invocation: false,
+        argument_hint: None,
     };
     manager.save_skill(&skill).map_err(|_| failed("Failed to save skill"))?;
     Ok(SkillResponse::from(skill))
@@ -178,7 +181,7 @@ fn update_in(manager: &SkillManager, slug: &str, request: UpdateSkill) -> Result
     if let Some(keywords) = request.keywords {
         skill.keywords = keywords;
     }
-    skill.version += 1;
+    skill.version = skill.version.bumped();
     manager.save_skill(&skill).map_err(|_| failed("Failed to save skill"))?;
     Ok(SkillResponse::from(skill))
 }

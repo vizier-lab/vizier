@@ -247,6 +247,9 @@ pub struct MemoryPassageResult {
 pub struct Skill {
     pub name: String,
     pub agent_id: Option<AgentId>,
+    /// Who wrote it. Optional: the Agent Skills ecosystem does not require the field, and none of
+    /// the spec-kit or impeccable skills carry it (`specs/041-project-coding-workspace` FR-038).
+    #[serde(default)]
     pub author: String,
     pub description: String,
     #[markdown(content)]
@@ -254,11 +257,76 @@ pub struct Skill {
     #[serde(default)]
     pub keywords: Vec<String>,
     #[serde(default = "default_version")]
-    pub version: u32,
+    pub version: SkillVersion,
     #[serde(default)]
     pub resources: Vec<String>,
+    /// Whether a person may run this skill by name (`/<slug>`). Absent means yes, which is the
+    /// Agent Skills default and what every workspace skill relied on before the field existed.
+    #[serde(rename = "user-invocable", default = "default_true")]
+    pub user_invocable: bool,
+    /// Set when the skill must not be offered to the model: it is prose for a person to run, not
+    /// something the agent should pick up on its own.
+    #[serde(rename = "disable-model-invocation", default)]
+    pub disable_model_invocation: bool,
+    /// A short usage line the person sees, e.g. `[shape · audit] [target]`.
+    #[serde(rename = "argument-hint", default, skip_serializing_if = "Option::is_none")]
+    pub argument_hint: Option<String>,
 }
 
-fn default_version() -> u32 {
-    1
+fn default_version() -> SkillVersion {
+    SkillVersion::Number(1)
+}
+
+fn default_true() -> bool {
+    true
+}
+
+/// A skill's `version`, which the ecosystem writes both ways: Vizier and spec-kit write a number,
+/// impeccable writes `4.7.0`. Whichever was read is written back, so a save never rewrites a
+/// project's file into a shape it did not have.
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[serde(untagged)]
+pub enum SkillVersion {
+    Number(u32),
+    Text(String),
+}
+
+impl Default for SkillVersion {
+    fn default() -> Self {
+        Self::Number(1)
+    }
+}
+
+impl SkillVersion {
+    /// The leading number, for the places that only track "was this installed": `4.7.0` is 4,
+    /// `12` is 12, and anything unparsable is 1. `SkillMeta::installed_version` is written but
+    /// never compared, so nothing depends on it being exact.
+    pub fn leading_number(&self) -> u32 {
+        match self {
+            Self::Number(n) => *n,
+            Self::Text(text) => text
+                .split(|c: char| !c.is_ascii_digit())
+                .find(|part| !part.is_empty())
+                .and_then(|part| part.parse().ok())
+                .unwrap_or(1),
+        }
+    }
+
+    /// The next version after an edit. A numeric version counts up; a text version (`4.7.0`) is
+    /// left as it is, because "next" has no meaning in a shape Vizier did not write.
+    pub fn bumped(&self) -> Self {
+        match self {
+            Self::Number(n) => Self::Number(n.saturating_add(1)),
+            Self::Text(_) => self.clone(),
+        }
+    }
+}
+
+impl std::fmt::Display for SkillVersion {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Number(n) => write!(f, "{n}"),
+            Self::Text(text) => write!(f, "{text}"),
+        }
+    }
 }

@@ -629,6 +629,59 @@ pub async fn file_suggestions(
         .collect())
 }
 
+/// One skill a project chat can run, as the composer's `/` menu lists it.
+#[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+pub struct ProjectSkillRow {
+    pub name: String,
+    pub description: String,
+    /// `project`. Every row here is one, and saying so keeps the shape the same if a later route
+    /// merges the workspace scopes in.
+    pub scope: String,
+    /// Whether a person may run it by name; a `false` one is prose for the agent, not a command.
+    pub user_invocable: bool,
+    /// The usage line the skill declares, e.g. `[audit|critique] [target]`.
+    pub argument_hint: Option<String>,
+    /// Its folder relative to the chat's folder, which is what `use_skill` reports.
+    pub folder: String,
+}
+
+/// The skills a project chat carries in its own folder (`specs/041-project-coding-workspace`
+/// FR-035), read from the folder the chat works in — its worktree's own checkout when it is bound
+/// to one, so a branch's skills are the ones offered. One entry per slug, `.agents` winning a
+/// `.claude` it duplicates.
+pub async fn skills(
+    s: &Services,
+    who: &Principal,
+    agent_id: &str,
+    project_id: &str,
+    topic: Option<&str>,
+) -> Result<Vec<ProjectSkillRow>, ServiceError> {
+    let project = project_for_read(s, who, agent_id, project_id).await?;
+    let cwd = chat_cwd(s, &project, topic).await?;
+    if !cwd.is_dir() {
+        return Err(ServiceError::Conflict {
+            message: "the project folder is missing".into(),
+            code: Some("project_unavailable".into()),
+            data: None,
+        });
+    }
+
+    let found = crate::skill::scopes::SkillScopes::project(&cwd).discover();
+    Ok(found
+        .skills
+        .into_iter()
+        .map(|scoped| ProjectSkillRow {
+            scope: scoped.scope.label().to_string(),
+            folder: scoped.folder(),
+            user_invocable: scoped.skill.user_invocable,
+            argument_hint: scoped.skill.argument_hint.clone(),
+            name: scoped.skill.name,
+            description: scoped.skill.description,
+        })
+        .collect())
+}
+
 // ---------------------------------------------------------------------------------------------
 // Git (`specs/041-project-coding-workspace` contracts/http-api.md §4)
 // ---------------------------------------------------------------------------------------------
@@ -1300,6 +1353,86 @@ mod tests {
         let sessions = sessions(&services, &who, "dp-a", &first.project.id).await.unwrap();
         assert_eq!(sessions[0].topic, created.topic);
         assert_eq!(sessions[0].title, NEW_SESSION_TITLE);
+    }
+
+    fn write_skill(root: &std::path::Path, slug: &str, description: &str) {
+        let dir = root.join(".agents/skills").join(slug);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("SKILL.md"),
+            format!("---\nname: {slug}\ndescription: {description}\n---\n\nbody\n"),
+        )
+        .unwrap();
+    }
+
+    /// The composer's `/` menu reads this: the chat's own folder, which is the worktree when the
+    /// chat is bound to one, so a branch's skills are the ones offered (FR-035).
+    #[tokio::test]
+    async fn a_chats_skills_come_from_its_own_folder() {
+        let (services, who, _dir) = setup().await;
+        let root = folder();
+        write_skill(root.path(), "root-only", "the project root");
+        let opened = open(&services, &who, AuthMethod::Desktop, "dp-a", request(&root))
+            .await
+            .unwrap();
+        let project_id = opened.project.id.clone();
+
+        let listed = skills(&services, &who, "dp-a", &project_id, None).await.unwrap();
+        let names: Vec<String> = listed.iter().map(|row| row.name.clone()).collect();
+        assert_eq!(names, ["root-only"]);
+        assert!(listed[0].user_invocable, "the default is invocable");
+        assert_eq!(listed[0].scope, "project");
+
+        // A worktree of the same project carries its own branch's skills, not the root's.
+        let worktree_dir = root.path().join(".vizier/dp-a/fix");
+        std::fs::create_dir_all(&worktree_dir).unwrap();
+        write_skill(&worktree_dir, "branch-only", "the worktree");
+        let detail = crate::schema::VizierSessionDetail {
+            agent_id: "dp-a".into(),
+            channel: VizierChannelId::Project("alice".into(), project_id.clone()),
+            topic: Some("t1".into()),
+            title: "fix".into(),
+            is_thinking: false,
+        };
+        let worktree = crate::schema::Worktree {
+            id: "w1".into(),
+            project_id: project_id.clone(),
+            agent_id: "dp-a".into(),
+            owner_id: who.user_id.clone(),
+            owner_name: "alice".into(),
+            topic: "t1".into(),
+            name: "fix".into(),
+            branch: "fix".into(),
+            base_ref: "master".into(),
+            path: worktree_dir.clone(),
+            created_at: 0,
+        };
+        services
+            .deps()
+            .storage
+            .insert_worktree(&worktree, detail)
+            .await
+            .unwrap();
+
+        let in_worktree = skills(&services, &who, "dp-a", &project_id, Some("t1")).await.unwrap();
+        let names: Vec<String> = in_worktree.iter().map(|row| row.name.clone()).collect();
+        assert_eq!(names, ["branch-only"], "the worktree's checkout, not the project root");
+    }
+
+    #[tokio::test]
+    async fn a_missing_folder_is_a_conflict_not_an_empty_list() {
+        let (services, who, _dir) = setup().await;
+        let root = folder();
+        let opened = open(&services, &who, AuthMethod::Desktop, "dp-a", request(&root))
+            .await
+            .unwrap();
+        let path = std::fs::canonicalize(root.path()).unwrap();
+        drop(root);
+        assert!(!path.is_dir());
+        let err = skills(&services, &who, "dp-a", &opened.project.id, None)
+            .await
+            .unwrap_err();
+        assert_eq!(err.code(), Some("project_unavailable"));
     }
 
     #[tokio::test]

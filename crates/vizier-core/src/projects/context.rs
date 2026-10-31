@@ -170,6 +170,18 @@ pub async fn for_turn(
     }))
 }
 
+/// The folder a turn's project skills come from: the same resolution as [`for_turn`], reduced to
+/// the one thing the skill scopes need. `None` for every turn that is not a project chat — the
+/// check happens before any storage read, so an ordinary conversation pays nothing.
+pub async fn skills_cwd(
+    deps: &VizierDependencies,
+    session: &VizierSession,
+    request: &VizierRequest,
+) -> Option<PathBuf> {
+    let project = for_turn(deps, session, request).await?;
+    project.available.then(|| project.cwd.clone())
+}
+
 #[cfg(test)]
 mod tests {
     use chrono::Utc;

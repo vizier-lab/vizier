@@ -155,3 +155,44 @@ Written next to `SKILL.md` on install so `update` knows where it came from:
 ## Writing good skills
 
 Install `skill-maker` and ask your agent to use it — it contains the house style for descriptions, keywords, and resource layout so that recommendations fire when they should.
+
+## Project skills
+
+A third scope lives in the **project folder** itself, in the layout the Agent Skills ecosystem already writes, so a repository that carries skills for other coding agents works here unchanged:
+
+| Root (inside the project) | Read when |
+|---|---|
+| `.agents/skills/<slug>/SKILL.md` | first |
+| `.claude/skills/<slug>/SKILL.md` | second, for a slug `.agents` does not have |
+
+A project skill is available in a [project chat](projects.md) and in a subagent piece launched from one, and nowhere else: an ordinary conversation, a task, a dream and another project's chat all resolve no project scope.
+
+- **Precedence**: project → agent → global, and `.agents` before `.claude` inside a project. A slug appears once, so a skill installed in both folders (`this repository` has all 15 in both) is one line in `/skills`, not two.
+- **Read where it lies, never indexed.** Project skills are not embedded and never recommended by similarity: they are listed in the project chat's system prompt (`## Project Skills`) and read from disk each time one is loaded, so a branch switch shows up on the next turn and one project's skills can never surface in another.
+- **Never written by a tool.** `create_skill`, `update_skill` and `delete_skill` stay in the workspace; an agent cannot edit a repository through a skill tool.
+- **Scripts run through the shell.** `execute_skill_resource` is refused in a project chat; run a skill's scripts with `workspace_shell`, which stays inside the project folder, needs Build mode, and is timed and capped.
+- **In the composer.** Typing `/` in a project chat offers the project's skills alongside the workspace ones (the project copy wins a slug), read from the chat's own folder — its worktree when it is bound to one, so the menu follows the branch. A skill with `user-invocable: false` is left out of the menu (it cannot be run by name) but is still in the prompt. They are never on the **Skills** page, which stays workspace-scoped.
+
+### Frontmatter
+
+Everything Vizier writes, plus what the ecosystem writes:
+
+| Field | Type | Default | Note |
+|---|---|---|---|
+| `name` | string | — | The folder name wins. |
+| `description` | string | — | Listed in `/skills` and in the project prompt, cut at 400 characters there. |
+| `author` | string | `""` | Optional: most ecosystem skills omit it. |
+| `version` | number or string | `1` | `4.7.0` is accepted and written back unchanged. |
+| `keywords` | array | `[]` | Workspace scopes only; not indexed for a project. |
+| `user-invocable` | bool | `true` | `false` hides it from `/name` (the agent can still load it). |
+| `disable-model-invocation` | bool | `false` | `true` keeps it out of the prompt entirely. |
+| `argument-hint` | string | — | Shown after the name, e.g. `[audit|critique] [target]`. |
+
+Unknown keys (`metadata:`, `compatibility:`, `license:`, …) are ignored. A folder whose `SKILL.md` is missing or unparsable is reported — one log line and a count in `/skills` — rather than quietly disappearing.
+
+### Hooks
+
+Two different things are called hooks, and neither needs anything from Vizier:
+
+- **Extension hooks** (`.specify/extensions.yml` and friends) are **instructions inside a skill's body**, not automation: the agent reads the file and, in Build mode, runs the command with `workspace_shell`. Nothing enforces them, so the project prompt tells the agent to announce a commit before making one and to say when a hook was skipped for lack of a shell.
+- **Harness hooks** (`.claude/settings.local.json`, `.codex/hooks.json`, `.cursor/hooks.json`, `.github/hooks/*.json`, `.gemini/settings.json`) are run by those tools, not by Vizier, which never reads them: an agent will not report that a design detector ran. Skills that depend on one usually document a manual path (for example `impeccable context`, then `impeccable detect`); run that through `workspace_shell` in Build mode.

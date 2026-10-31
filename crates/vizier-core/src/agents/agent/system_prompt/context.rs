@@ -260,8 +260,11 @@ mod tests {
             description: format!("{name} description"),
             content: format!("{name} instructions"),
             keywords: vec![],
-            version: 1,
+            version: Default::default(),
             resources: vec!["template.md".into()],
+            user_invocable: true,
+            disable_model_invocation: false,
+            argument_hint: None,
         }
     }
 

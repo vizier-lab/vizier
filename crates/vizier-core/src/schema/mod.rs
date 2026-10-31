@@ -84,7 +84,7 @@ pub use session_file::SessionFileRecord;
 pub use storage::{
     BundleSummary, DEFAULT_BUNDLE, DocumentIndex, ImportReport, Memory, MemoryAttachment,
     MemoryAttachmentView, MemoryFrontMatter, MemoryGraph, MemoryGraphEdge, MemoryGraphNode,
-    MemoryPassageResult, MemoryQueryParams, PaginatedMemory, Skill, SkillFrontMatter,
+    MemoryPassageResult, MemoryQueryParams, PaginatedMemory, Skill, SkillFrontMatter, SkillVersion,
     default_bundle,
 };
 pub use task::{Requester, Task, TaskFrontMatter, TaskRun, TaskRunState, TaskSchedule};

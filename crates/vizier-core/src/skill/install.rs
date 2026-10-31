@@ -131,7 +131,7 @@ fn install_from_registry(
         source: SkillSource::Registry,
         registry_url: Some(registry_url.to_string()),
         slug: Some(slug.to_string()),
-        installed_version: frontmatter.version,
+        installed_version: frontmatter.version.leading_number(),
         installed_at: Utc::now(),
     };
     manager.save_meta(slug, &meta)?;
@@ -182,7 +182,7 @@ fn install_from_git(
         let version = if skill_md.exists() {
             let (frontmatter, _) = crate::utils::markdown::read_markdown::<crate::schema::SkillFrontMatter>(skill_md)
                 .map_err(|e| crate::VizierError(format!("Failed to read SKILL.md: {}", e)))?;
-            frontmatter.version
+            frontmatter.version.leading_number()
         } else {
             1
         };
@@ -218,7 +218,7 @@ fn install_from_git(
                     let version = if skill_md.exists() {
                         let (frontmatter, _) = crate::utils::markdown::read_markdown::<crate::schema::SkillFrontMatter>(skill_md)
                             .map_err(|e| crate::VizierError(format!("Failed to read SKILL.md: {}", e)))?;
-                        frontmatter.version
+                        frontmatter.version.leading_number()
                     } else {
                         1
                     };
@@ -274,7 +274,7 @@ fn install_from_local(
             source: SkillSource::Local,
             registry_url: None,
             slug: Some(slug.to_string()),
-            installed_version: frontmatter.version,
+            installed_version: frontmatter.version.leading_number(),
             installed_at: Utc::now(),
         };
         manager.save_meta(slug, &meta)?;
@@ -303,7 +303,7 @@ fn install_from_local(
                     source: SkillSource::Local,
                     registry_url: None,
                     slug: Some(slug.to_string()),
-                    installed_version: frontmatter.version,
+                    installed_version: frontmatter.version.leading_number(),
                     installed_at: Utc::now(),
                 };
                 manager.save_meta(slug, &meta)?;

@@ -222,11 +222,24 @@ Project chats are recognised as project chats everywhere: usage reports list the
 
 - **FR-034**: The git interface, mentions and worktree creation MUST be available to whoever may use the project, from the desktop app and from a browser with web access, under the existing project permissions; switching the main folder's branch and deleting another person's worktree chat MUST require managing the project.
 
+**Project skills**
+
+- **FR-035**: A project chat MUST offer the skills found in its own folder, in the Agent Skills layout (`<root>/skills/<slug>/SKILL.md`), for the roots `.agents` and `.claude`, with `.agents` winning any slug both carry.
+- **FR-036**: A project skill MUST resolve for a project chat and for a subagent piece launched from one, and MUST NOT be reachable from an ordinary conversation, a scheduled task, a dream, or another project's chat.
+- **FR-037**: A project skill MUST be read from the folder on every use, never copied into the workspace, never written to by a tool, and never embedded for recommendation.
+- **FR-038**: `SKILL.md` frontmatter MUST accept the fields the Agent Skills ecosystem writes: `author` optional, `version` as a string or a number, `user-invocable`, `disable-model-invocation` and `argument-hint`. Unknown fields MUST be ignored, never a reason to drop the skill.
+- **FR-039**: A skill folder that cannot be read MUST be reported — logged, and counted in the listing — never silently omitted.
+- **FR-040**: A project chat's system prompt MUST list its project's skills with name, argument hint and a bounded description, leaving out the ones marked `disable-model-invocation`, marking the ones not user-invocable, and capping the list at 40 entries with a count of the rest.
+- **FR-041**: Loading a project skill MUST return its content, its folder and its resources, and MUST say how to read a resource and how to run a resource script in the project folder. A resource path MUST be relative and stay inside the skill's folder, and a resource listing MUST be bounded in count and size.
+- **FR-042**: `execute_skill_resource` MUST be refused in a project chat: resource scripts run on the host, and in a project that belongs to `workspace_shell`, which is Build-only, timed and bounded.
+- **FR-043**: The hooks a skill describes in `.specify/extensions.yml` are instructions the agent MAY follow, not automation Vizier runs; the prompt MUST say so and an agent MUST announce a commit before making one. Harness hook manifests are never executed and the agent MUST NOT claim otherwise.
+
 ### Key Entities
 
 - **Project chat**: a conversation belonging to one project and one person, optionally bound to one worktree; carries its mode (Plan or Build).
 - **Worktree**: an isolated checkout of the project's repository on its own branch, belonging to one project and created by one person; has a name, branch, starting branch, location, creation time, and an availability state. One-to-one with a project chat.
 - **Mention**: a reference in a sent message to a file or folder in the chat's folder, resolved to contents when the turn starts.
+- **Project skill**: a skill package living in the project's own folder (`.agents/skills/<slug>/` or `.claude/skills/<slug>/`), read where it lies, never copied into the workspace, never indexed; carries the Agent Skills frontmatter including `user-invocable` and `disable-model-invocation`.
 - **Change**: an uncommitted difference in a chat's folder (path, kind, added and removed lines, diff), always read live, never stored.
 
 ## Success Criteria *(mandatory)*
