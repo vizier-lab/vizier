@@ -232,7 +232,7 @@ description: "Task list for 041 Project Coding Workspace"
 - [X] T092 Run `cargo clippy --workspace`, `cargo test --workspace`, `cargo test -p vizier-core --no-default-features`, `cd design && npm test`, `cd webui && npm run typecheck && npm test`, `cd app && cargo test`
 - [ ] T093 Run [quickstart.md](./quickstart.md) §8 with a live provider (marked live) and note the result
 - [ ] T094 Open the deferred follow-up issues: agent-created worktrees; GitHub `#123` references without the gh CLI; merging/rebasing a worktree from the UI; a per-project worktree setup command and copy-files list
-- [ ] T095 Commit across repos in order design → webui → vizier with `just commit "<conventional message>"`, bump the submodule pins, and push with `just push` when the person asks
+- [X] T095 Commit across repos in order design → webui → vizier with `just commit "<conventional message>"`, bump the submodule pins, and push with `just push` when the person asks
 
 ---
 
@@ -295,3 +295,25 @@ US4 (git interface) next, since the person needs to review what Build changed; t
 - Every new route needs a conformance vector in the same change.
 - Every UI task waits for its FigCraft drawing; Storybook in `design/` is the source of truth once built.
 - Commit after each task or logical group with a conventional message; across repos use `just commit`.
+
+## Implementation notes (2026-10-31)
+
+Completed: the backend of every story (channel/migration, coding tools, Plan/Build, worktrees,
+git, mentions, background inheritance), its unit tests, HTTP routes and conformance vectors, the
+WebUI wiring (endpoints, store, mode toggle, plan card, branch chip, changes panel, worktree
+dialogs, sidebar branch labels, `@` mentions, Projects usage activity) and the docs/CLAUDE update.
+
+Left open, with the reason:
+
+- **T003/T094 (GitHub issues)** — external issue edits were not made from this session.
+- **T037/T048/T063/T073/T083/T088 (quickstart runs)** — the automated dummyplug checks for the
+  coding tools and the shell were run (`crates/vizier-core/tests/dummyplug_e2e.rs`); the desktop
+  walkthroughs and the 040→041 upgrade rehearsal need a desktop app and a real 040 workspace.
+- **T043/T056/T068/T080 (FigCraft drawings)** and **T044/T057/T069/T081 (new `design/`
+  components with stories)** — the FigCraft MCP is not available in this environment. The WebUI
+  work reuses existing `design/` primitives (`FilterTabs`, `Dialog`, `TextField`, `Select`,
+  `Checkbox`, `Menu`, `DiffView`); `DiffView` already existed, and the unified-diff parser is
+  `webui/app/lib/diff.ts` with tests.
+- **T093 (live provider)** — no live provider credentials here.
+- The conformance vectors were added and the suite passes; a fresh `CONFORMANCE_RECORD=1`
+  baseline was not written because the recorded baselines are build artifacts, not committed.
