@@ -69,9 +69,50 @@ impl LocalDocumentStore {
             if segment == ".." || segment == "." {
                 return Err(anyhow!("invalid path segment '{segment}' in '{path}'"));
             }
+            // On Windows `\` is a separator and `C:` a drive, so `..\x` or `C:\x` would escape the
+            // root even with the check above, and a reserved name would open a device.
+            if cfg!(windows) && let Some(why) = windows_segment_problem(segment) {
+                return Err(anyhow!("invalid path segment '{segment}' in '{path}': {why}"));
+            }
             full.push(segment);
         }
         Ok(full)
+    }
+}
+
+/// Why `segment` cannot be one file or directory name on Windows, if it cannot. Pure so it is
+/// tested on every OS; `LocalDocumentStore::resolve` applies it only where it matters.
+fn windows_segment_problem(segment: &str) -> Option<&'static str> {
+    if segment.chars().any(|c| c.is_control() || "<>:\"\\|?*".contains(c)) {
+        return Some("contains a character Windows does not allow in names");
+    }
+    if segment.ends_with('.') || segment.ends_with(' ') {
+        return Some("ends with a dot or a space");
+    }
+    let stem = segment.split('.').next().unwrap_or(segment).to_ascii_lowercase();
+    let reserved = matches!(stem.as_str(), "con" | "prn" | "aux" | "nul")
+        || ["com", "lpt"]
+            .iter()
+            .any(|p| stem.strip_prefix(p).is_some_and(|n| matches!(n, "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9")));
+    reserved.then_some("is a reserved device name on Windows")
+}
+
+#[cfg(test)]
+mod windows_name_tests {
+    use super::windows_segment_problem;
+
+    #[test]
+    fn rejects_what_windows_cannot_name_or_would_escape_with() {
+        for bad in ["a:b", "..\\x", "C:", "a|b", "a?", "con", "NUL.txt", "com1", "lpt9.md", "x.", "x ", "a\u{1}b"] {
+            assert!(windows_segment_problem(bad).is_some(), "{bad:?} should be refused");
+        }
+    }
+
+    #[test]
+    fn accepts_ordinary_names() {
+        for ok in ["notes.md", "index.md", "my-bundle", "コンテキスト.md", "console", "com10", "a b.md"] {
+            assert!(windows_segment_problem(ok).is_none(), "{ok:?} should be fine");
+        }
     }
 }
 

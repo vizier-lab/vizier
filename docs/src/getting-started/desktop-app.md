@@ -11,6 +11,9 @@ Every [GitHub release](https://github.com/vizier-lab/vizier/releases/latest) car
 | macOS 11+ (Apple Silicon and Intel) | `Vizier_<version>_universal.dmg` |
 | Linux x86_64 | `Vizier_<version>_amd64.AppImage` |
 | Linux arm64 | `Vizier_<version>_aarch64.AppImage` |
+| Windows 10/11 x64 | `Vizier_<version>_x64-setup.exe` |
+
+**Windows.** Run the installer. It installs for your user without asking for administrator rights, adds a Start menu entry, and installs the WebView2 runtime if your PC lacks it (Windows 11 has it). The installer is not code-signed yet, so SmartScreen may warn: choose **More info**, then **Run anyway**. Windows on ARM runs the x64 build under emulation. Uninstalling removes the app but keeps your workspace. To build it yourself, see [Building from Source](contributing.md#developing-the-desktop-app-on-windows).
 
 **macOS.** The build is not signed or notarized yet. Open the `.dmg`, drag Vizier to Applications and open it once. macOS will refuse; open **System Settings → Privacy & Security** and choose **Open Anyway** next to the Vizier message. This is only needed the first time.
 
@@ -29,7 +32,7 @@ The first time you open the app it asks for a name and a password for the local 
 
 ## Where your data lives
 
-Your workspace is a folder, by default inside the app's data directory (`~/Library/Application Support/rs.vizier.app/workspace` on macOS, `~/.local/share/rs.vizier.app/workspace` on Linux). It has the same layout as a server workspace. **Settings → Desktop** shows the current folder and lets you open another one.
+Your workspace is a folder, by default inside the app's data directory (`~/Library/Application Support/rs.vizier.app/workspace` on macOS, `~/.local/share/rs.vizier.app/workspace` on Linux, `%APPDATA%\rs.vizier.app\workspace` on Windows). It has the same layout as a server workspace. **Settings → Desktop** shows the current folder and lets you open another one.
 
 ## Opening an existing workspace
 

@@ -21,6 +21,36 @@ just landing     # the website on http://localhost:4321 (docs + design from this
 
 If you cloned without `--recurse-submodules`, run `git submodule update --init --recursive`. A `cargo build` with no `webui/node_modules/` and no pre-built `webui/build/client/` stops with a message saying so.
 
+## Developing the desktop app on Windows
+
+Only the desktop app (`app/`) is supported on Windows; the server is Linux, macOS and Docker. The `just` recipes `install-app`, `app-dev`, `app-build` and `app-test` run from PowerShell, no WSL needed. They need [just](https://github.com/casey/just) 1.38 or newer (the `[working-directory]` recipe attribute).
+
+Install the system prerequisites once. `just` does not install or check them:
+
+```powershell
+# C++ compiler and Windows SDK (Rust's MSVC target needs them); may show an admin prompt
+winget install --id Microsoft.VisualStudio.2022.BuildTools --override "--passive --wait --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"
+winget install --id Kitware.CMake      # builds whisper.cpp
+winget install --id LLVM.LLVM          # libclang, for bindgen
+[Environment]::SetEnvironmentVariable('LIBCLANG_PATH', 'C:\Program Files\LLVM\bin', 'User')
+winget install --id Rustlang.Rustup    # then: rustup default stable-x86_64-pc-windows-msvc
+winget install --id OpenJS.NodeJS      # Node 22 or newer
+winget install --id Casey.Just
+```
+
+Open a new terminal afterwards so `PATH` and `LIBCLANG_PATH` are picked up. The WebView2 runtime is part of Windows 11; on Windows 10 install the [Evergreen runtime](https://developer.microsoft.com/microsoft-edge/webview2/).
+
+```powershell
+git clone --recurse-submodules https://github.com/vizier-lab/vizier.git
+cd vizier
+just install-app   # tauri-cli, cargo fetch, submodules, npm ci in design/ and webui/
+just app-dev       # the app in a window with hot reload
+just app-build     # the installer: app\target\release\bundle\nsis\Vizier_<version>_x64-setup.exe
+just app-test
+```
+
+Troubleshooting: `could not find libclang` means `LIBCLANG_PATH` is unset in this terminal; a path-too-long error means `git config --global core.longpaths true` is needed; the first build compiles a large dependency tree and takes a while. If Windows blocks the build scripts (error 4551, "An Application Control policy has blocked this file"), Smart App Control is on: turn it off in Windows Security → App & browser control.
+
 ## Workspace layout
 
 The Rust code is a Cargo workspace of four crates under `crates/`. A bare `cargo build` or
