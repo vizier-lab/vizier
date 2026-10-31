@@ -115,7 +115,9 @@ impl SessionStorage for SqliteStorage {
         // Per channel: topics by when they began.
         let mut channels: BTreeMap<String, Vec<(i64, i64, String)>> = BTreeMap::new();
         for (channel, topic, first, last) in spans {
-            if is_non_user_channel(&channel) {
+            if is_non_user_channel(&channel)
+                || crate::projects::channel::project_of_slug(&channel).is_some()
+            {
                 continue;
             }
             channels

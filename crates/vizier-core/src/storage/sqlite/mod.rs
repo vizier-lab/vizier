@@ -23,6 +23,7 @@ mod media_catalogue;
 mod memory;
 pub(crate) mod memory_revision;
 mod notification;
+mod project;
 mod provider;
 mod reaction;
 mod scratch;
@@ -420,6 +421,7 @@ impl SqliteStorage {
         init_secret_schema(conn)?;
         init_media_catalogue_schema(conn)?;
         init_notification_schema(conn)?;
+        project::init_project_schema(conn)?;
 
         Ok(())
     }

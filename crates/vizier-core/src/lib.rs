@@ -88,6 +88,8 @@ pub mod integrations;
 #[doc(hidden)]
 pub mod llm;
 pub(crate) mod notifications;
+#[doc(hidden)]
+pub mod projects;
 pub(crate) mod provider_keys;
 pub(crate) mod provider_migration;
 pub(crate) mod scheduler;

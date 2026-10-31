@@ -46,6 +46,7 @@ tokio = { version = "1.49.0", features = [
   "signal",
   "net",
   "sync",
+  "process",
 ] }
 uuid = { version = "1.21.0", features = ["serde", "v4"] }
 duration-string = { version = "0.5.3", features = ["serde"] }
@@ -116,6 +117,7 @@ opentelemetry = { version = "0.33" }
 opentelemetry_sdk = { version = "0.33" }
 tracing-opentelemetry = { version = "0.34" }
 opentelemetry-otlp = { version = "0.33", default-features = false, features = ["trace", "metrics", "http-proto", "reqwest-blocking-client"] }
+libc = "0.2"
 # The workspace's own crates. One version for all four, bumped in this file only.
 vizier-derive = { path = "crates/vizier-derive", version = "0.14.0-rc.1" }
 vizier-core = { path = "crates/vizier-core", version = "0.14.0-rc.1" }

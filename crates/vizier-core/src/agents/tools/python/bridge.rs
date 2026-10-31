@@ -12,7 +12,8 @@ use crate::{
     agents::{
         hook::VizierSessionHook,
         tools::{
-            CatalogueEntry, ToolContext, ToolRouter, ToolTarget, retired_hint, turn_catalogue,
+            CatalogueEntry, ToolContext, ToolRouter, ToolTarget, VizierToolDyn,
+            retired_hint, tool_output_to_response, turn_catalogue,
         },
     },
     agents::tools::python::docs_tools::entry_doc,
@@ -66,12 +67,9 @@ impl RouterBridge {
     /// the client instead of the router, inside the same hooks and timeout.
     /// The call id is a client call's history uid, `None` for every other call.
     async fn dispatch(&self, tool: String, arguments: String) -> (Option<String>, Result<serde_json::Value, String>) {
-        let client = match self.entry(&tool).await.map(|entry| &entry.target) {
-            Some(ToolTarget::Client { .. }) => self.ctx.client.clone(),
-            _ => None,
-        };
+        let target = self.entry(&tool).await.map(|entry| entry.target.clone());
         let call_id = std::sync::Mutex::new(None);
-        let result = self.dispatch_to(tool, arguments, client, &call_id).await;
+        let result = self.dispatch_to(tool, arguments, target, &call_id).await;
         (call_id.into_inner().unwrap_or_default(), result)
     }
 
@@ -79,7 +77,7 @@ impl RouterBridge {
         &self,
         tool: String,
         arguments: String,
-        client: Option<std::sync::Arc<crate::agents::client::ClientTools>>,
+        target: Option<ToolTarget>,
         call_id: &std::sync::Mutex<Option<String>>,
     ) -> Result<serde_json::Value, String> {
         let (mut tool, mut arguments) = (tool, arguments);
@@ -91,8 +89,11 @@ impl RouterBridge {
         }
 
         let call = async {
-            match &client {
-                Some(client) => {
+            match &target {
+                Some(ToolTarget::Client { .. }) => {
+                    let Some(client) = self.ctx.client.clone() else {
+                        return Err(anyhow::anyhow!("{tool} is no longer offered by this client"));
+                    };
                     let arguments = serde_json::from_str(&arguments).map_err(anyhow::Error::from)?;
                     let (id, result) = client.call(&tool, arguments, Some(&self.ctx.secret_redactor)).await;
                     if let Ok(mut slot) = call_id.lock() {
@@ -100,7 +101,17 @@ impl RouterBridge {
                     }
                     result
                 }
-                None => self.router.call(tool.clone(), arguments, &self.ctx).await,
+                // The project shell lives only in this turn's catalogue, not in the router's.
+                Some(ToolTarget::Project) => {
+                    let output = <crate::projects::shell::WorkspaceShell as VizierToolDyn>::tool_call(
+                        &crate::projects::shell::WorkspaceShell,
+                        arguments,
+                        &self.ctx,
+                    )
+                    .await?;
+                    tool_output_to_response(&output)
+                }
+                _ => self.router.call(tool.clone(), arguments, &self.ctx).await,
             }
         };
         let mut cancelled = self.cancelled.subscribe();

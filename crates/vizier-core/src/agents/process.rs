@@ -557,8 +557,9 @@ async fn refresh_session_detail(
         }
     };
 
-    // Titled already, by generation or by someone renaming it.
-    if existing.title != slug_title {
+    // Titled already, by generation or by someone renaming it. A project session created empty
+    // carries the placeholder until its first request.
+    if existing.title != slug_title && existing.title != crate::schema::NEW_SESSION_TITLE {
         return;
     }
     let Some(_claim) = TitlingClaim::take(&titling, &session) else {
@@ -586,6 +587,7 @@ async fn refresh_session_detail(
         deadline: None,
         dream_sources: vec![],
         secret_redactor: Arc::new(crate::secrets::SecretRedactor::default()),
+        project: None,
     };
     let Ok((title, _, _, _)) = agent
         .prompt(
@@ -1046,6 +1048,8 @@ async fn run_checkpoint(
         deadline: None,
         dream_sources: vec![],
         secret_redactor: Arc::new(crate::secrets::SecretRedactor::default()),
+        // The handover is a summary, not a project turn; the rebuilt prompt gets the section.
+        project: None,
     };
 
     // Generate handover

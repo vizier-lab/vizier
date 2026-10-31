@@ -19,6 +19,8 @@ pub const AVAILABLE_PERMISSIONS: &[&str] = &[
     "owned_agents:view_artifacts",
     "all_agents:manage_artifacts",
     "owned_agents:manage_artifacts",
+    "all_agents:projects",
+    "owned_agents:projects",
     "all_agents:show_discord_chats",
     "owned_agents:show_discord_chats",
     "all_agents:show_telegram_chats",
@@ -163,6 +165,14 @@ mod tests {
             .unwrap()
             .with_timezone(&Utc)
             + chrono::Duration::minutes(minutes)
+    }
+
+    /// The permission catalogue is the single list roles, the system role and the WebUI read;
+    /// adding a project permission is a catalogue change, not a migration (spec 040 FR-019).
+    #[test]
+    fn the_project_permissions_are_pinned() {
+        assert!(AVAILABLE_PERMISSIONS.contains(&"all_agents:projects"));
+        assert!(AVAILABLE_PERMISSIONS.contains(&"owned_agents:projects"));
     }
 
     #[test]
