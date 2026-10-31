@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.14.0-rc.3] - 2026-10-31
+
+### ⚙️ Miscellaneous Tasks
+
+- Set the updater public key
+- Set the updater public key (#141)
 ## [0.14.0-rc.2] - 2026-10-31
 
 ### 🚀 Features
@@ -61,6 +67,7 @@ All notable changes to this project will be documented in this file.
 - Bump webui
 - Bump design and webui to their merged master
 - Bump design and webui pins for the plan/build switch
+- Bump version to 0.14.0-rc.2
 ## [0.14.0-rc.1] - 2026-10-30
 
 ### 🚀 Features
