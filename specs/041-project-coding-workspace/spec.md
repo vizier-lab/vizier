@@ -158,7 +158,7 @@ Project chats are recognised as project chats everywhere: usage reports list the
 - A worktree's tools see build tools or file watchers in the main folder reacting to `.vizier/` contents: documented as a known limitation (see Assumptions).
 - The project is removed (soft removal, 040) while it has worktrees: the worktree folders stay on disk and the removal confirmation says so.
 - The person sends `@` text that matches nothing: it is sent as plain text, not a mention.
-- Plan mode and a background job launched in Build mode: the job's pieces keep the tools of the turn that launched them.
+- A background job launched from a project chat: its pieces run in their own conversations and get no coding tools, whatever the chat's mode; the report it wakes in the project chat uses the chat's saved mode.
 
 ## Requirements *(mandatory)*
 
