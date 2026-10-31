@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "fetched_at": "2026-10-31T17:24:05Z",
+  "fetched_at": "2026-10-31T18:44:02Z",
   "speech": [
     {"id": "assemblyai/assemblyai-tts-1", "name": "AssemblyAI: TTS 1", "voices": ["aai-antonioluis", "aai-audrey", "aai-carrie", "aai-constanza", "aai-donatien", "aai-ernest", "aai-ewald", "aai-gunther", "aai-hailey", "aai-jorg", "aai-kyla", "aai-magdalena", "aai-malvina", "aai-nancy", "aai-oriol", "aai-peter", "aai-sara", "aai-steven", "aai-titus", "aai-troy"]},
     {"id": "heygen/heygen-voice-1-turbo", "name": "HeyGen: HeyGen Voice Turbo", "voices": ["nadine", "tabitha", "bram", "gareth", "noelle", "meredith", "sabrina", "lucian", "weston", "vincent"]},
