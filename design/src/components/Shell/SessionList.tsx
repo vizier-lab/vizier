@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { AnimatePresence, LayoutGroup, motion } from "motion/react";
 import { Icon } from "../../icons/Icon";
 import { cx } from "../../lib/cx";
+import { IconButton } from "../IconButton";
 import { motionDurations, motionEases } from "../../tokens/tokens";
 
 export type SessionItem = {
@@ -67,34 +68,20 @@ export function SessionList({ groups, onNew, newLabel = "New session", onDelete,
   return (
     <section aria-label="Sessions" className={cx("flex min-h-0 flex-1 flex-col pt-8", className)}>
       <header className="flex h-24 shrink-0 items-center justify-between px-10">
-        <h2 className="type-ui-medium text-faint">Sessions</h2>
+        <h2 className="type-mono-xs text-faint">Sessions</h2>
         <span className="flex items-center gap-4">
         {search && (
-          <button
-            type="button"
+          <IconButton
+            size="sm"
+            variant="ghost"
+            icon="search"
             aria-label="Search sessions"
             title="Search sessions"
             aria-pressed={open}
             onClick={() => (open ? close() : setOpened(true))}
-            className={cx(
-              "grid size-24 place-items-center rounded-md transition-colors hover:bg-raised hover:text-fg",
-              open ? "bg-raised text-fg" : "bg-surface text-muted",
-            )}
-          >
-            <Icon name="search" size={12} />
-          </button>
+          />
         )}
-        {onNew && (
-          <button
-            type="button"
-            aria-label={newLabel}
-            title={newLabel}
-            onClick={onNew}
-            className="grid size-24 place-items-center rounded-md bg-surface text-muted transition-colors hover:bg-raised hover:text-fg"
-          >
-            <Icon name="plus" size={12} />
-          </button>
-        )}
+        {onNew && <IconButton size="sm" variant="ghost" icon="plus" aria-label={newLabel} title={newLabel} onClick={onNew} />}
         </span>
       </header>
       <AnimatePresence initial={false}>

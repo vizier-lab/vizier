@@ -3,7 +3,7 @@ import { cx } from "../../lib/cx";
 import { Segment, SegmentGroupId } from "../Segment/Segment";
 
 export type FilterTabsProps<V extends string> = {
-  options: { value: V; label: ReactNode; count?: ReactNode }[];
+  options: { value: V; label: ReactNode; count?: ReactNode; tone?: "live" | "solid" }[];
   value: V;
   onChange: (value: V) => void;
   "aria-label": string;
@@ -19,7 +19,7 @@ export function FilterTabs<V extends string>({ options, value, onChange, classNa
     <SegmentGroupId.Provider value={id}>
       <div role="group" className={cx("inline-flex rounded-md border border-border-strong bg-surface p-2", className)} {...rest}>
         {options.map((o) => (
-          <Segment key={o.value} selected={o.value === value} count={o.count} onClick={() => onChange(o.value)}>
+          <Segment key={o.value} selected={o.value === value} count={o.count} tone={o.tone} onClick={() => onChange(o.value)}>
             {o.label}
           </Segment>
         ))}
