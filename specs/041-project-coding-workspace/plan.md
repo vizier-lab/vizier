@@ -127,7 +127,8 @@ crates/vizier-core/
     │   ├── tools/python/bridge.rs    # ToolTarget::Project → projects::tools::call
     │   ├── tools/python/docs_tools.rs# output schema via registry
     │   ├── agent/mod.rs              # mentions into context_md; project context per turn
-    │   ├── agent/system_prompt/project.rs # mode, cwd, branch lines
+    │   ├── agent/system_prompt/project.rs # stable per chat: project, cwd, worktree, two-mode paragraph
+    │   ├── agent/system_prompt/context.rs # ## Project state (mode, branch, shell, availability) per message
     │   └── process.rs                # web_user() for chat_reply; mentions metadata
     ├── usage/mod.rs                  # project activity/place
     └── notifications/mod.rs          # href from the variant
@@ -181,7 +182,10 @@ pub static REGISTRY: &[ProjectToolSpec] = &[ /* read_file, list_files, …, work
 whose folder is a repository. `turn_catalogue` appends `offered(ctx)`; `RouterBridge` refuses a
 `ToolTarget::Project` name not in `offered(ctx)` before calling it, so a script cannot reach a
 Build tool from Plan by name. `turn_categories` adds `coding` whenever `ctx.project` is set
-(both modes, so `SANDBOX.md` stays stable within a chat). The mode is read once per turn
+(both modes, so `SANDBOX.md` stays stable within a chat). The `## Project` system-prompt section
+is byte-identical for the life of a chat; the mode, branch, shell state and folder availability
+are told with each message in a `## Project state` section of `context_md`, so switching mode or
+branch never invalidates the prompt cache for the history (R17). The mode is read once per turn
 (`context::for_session`), so a switch applies next turn and a resumed or woken turn reads the
 saved mode. Contracts: [contracts/coding-tools.md](./contracts/coding-tools.md).
 
