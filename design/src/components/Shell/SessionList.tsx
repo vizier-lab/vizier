@@ -15,6 +15,8 @@ export type SessionItem = {
   active?: boolean;
   /** Shows a delete button on hover and focus. */
   deletable?: boolean;
+  /** Shows a rename button on hover and focus. */
+  renamable?: boolean;
 };
 
 export type SessionGroup = { label: string; items: SessionItem[] };
@@ -26,6 +28,8 @@ export type SessionListProps = {
   newLabel?: string;
   /** Called with the item's key when its delete button is pressed. The caller confirms and removes it. */
   onDelete?: (key: string) => void;
+  /** Called with the item's key and the new title when a rename is committed (Enter). The caller saves it. */
+  onRename?: (key: string, title: string) => void | Promise<void>;
   /** A search over the conversations. The field opens from the header and stays open while it holds text. */
   search?: { value: string; onChange: (value: string) => void; placeholder?: string };
   /** What to say when the list is empty; the search's "nothing matched" goes here. */
@@ -42,7 +46,14 @@ const EASE = { duration: motionDurations.base, ease: motionEases.standard };
  * groups. A new one slides in at the top, a removed one folds away, and the lit row slides to the
  * conversation you open.
  */
-export function SessionList({ groups, onNew, newLabel = "New session", onDelete, search, empty, showAll, className }: SessionListProps) {
+export function SessionList({ groups, onNew, newLabel = "New session", onDelete, onRename, search, empty, showAll, className }: SessionListProps) {
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
+  const commit = async (key: string, current: string) => {
+    const title = draft.trim();
+    setRenaming(null);
+    if (title && title !== current) await onRename?.(key, title);
+  };
   const [opened, setOpened] = useState(false);
   const open = opened || !!search?.value;
   const input = useRef<HTMLInputElement>(null);
@@ -129,6 +140,21 @@ export function SessionList({ groups, onNew, newLabel = "New session", onDelete,
                       exit={{ opacity: 0, height: 0, transition: { ...EASE, duration: motionDurations.fast } }}
                       className="group/row relative overflow-hidden"
                     >
+                      {renaming === s.key ? (
+                        <input
+                          autoFocus
+                          aria-label="Session name"
+                          value={draft}
+                          maxLength={120}
+                          onChange={(e) => setDraft(e.target.value)}
+                          onBlur={() => setRenaming(null)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") void commit(s.key, s.title);
+                            if (e.key === "Escape") setRenaming(null);
+                          }}
+                          className="h-30 w-full rounded-lg border border-border-hover bg-surface px-10 type-ui text-fg outline-none"
+                        />
+                      ) : (
                       <a
                         href={s.href}
                         aria-current={s.active ? "page" : undefined}
@@ -151,13 +177,32 @@ export function SessionList({ groups, onNew, newLabel = "New session", onDelete,
                           className={cx(
                             "relative shrink-0 type-mono-xs transition-opacity",
                             s.live ? "text-live-text" : "text-faint",
-                            onDelete && s.deletable && "group-hover/row:opacity-0 group-focus-within/row:opacity-0",
+                            ((onDelete && s.deletable) || (onRename && s.renamable)) &&
+                              "group-hover/row:opacity-0 group-focus-within/row:opacity-0",
                           )}
                         >
                           {s.time}
                         </span>
                       </a>
-                      {onDelete && s.deletable && (
+                      )}
+                      {onRename && s.renamable && renaming !== s.key && (
+                        <button
+                          type="button"
+                          aria-label={`Rename ${s.title}`}
+                          title="Rename conversation"
+                          onClick={() => {
+                            setDraft(s.title);
+                            setRenaming(s.key);
+                          }}
+                          className={cx(
+                            "absolute top-1/2 grid size-24 -translate-y-1/2 place-items-center rounded-md text-faint opacity-0 transition-[opacity,color,background-color] hover:bg-raised hover:text-fg focus-visible:opacity-100 group-hover/row:opacity-100 group-focus-within/row:opacity-100",
+                            onDelete && s.deletable ? "right-30" : "right-6",
+                          )}
+                        >
+                          <Icon name="pencil" size={13} />
+                        </button>
+                      )}
+                      {onDelete && s.deletable && renaming !== s.key && (
                         <button
                           type="button"
                           aria-label={`Delete ${s.title}`}

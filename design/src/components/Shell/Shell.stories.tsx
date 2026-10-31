@@ -40,7 +40,58 @@ const SESSIONS: SessionGroup[] = [
   { label: "This week", items: [{ key: "e", title: "memory-cleanup", time: "Tue", href: "#e" }] },
 ];
 
-function Demo({ view }: { view: "home" | "agent" | "settings" }) {
+const PROJECTS = [
+  {
+    name: "vizier",
+    folder: "vizier",
+    available: true,
+    shell: true,
+    sessions: [
+      { title: "Investigate the parser", live: true },
+      { title: "Release notes", live: false },
+    ],
+  },
+  { name: "design", folder: "design", available: false, shell: false, sessions: [] },
+];
+
+/** The Projects section a person sees above Sessions (spec 040): rows, folder, availability, sessions. */
+function ProjectsAboveSessions() {
+  return (
+    <section aria-label="Projects" className="flex flex-col gap-8">
+      <div className="flex items-center justify-between gap-8 px-8">
+        <span className="type-mono-xs text-faint">Projects</span>
+        <span className="type-mono-xs text-muted">Open a Project</span>
+      </div>
+      <div className="flex flex-col gap-10">
+        {PROJECTS.map((project) => (
+          <div key={project.name} className="flex flex-col gap-4">
+            <div className="flex items-center gap-6 px-8">
+              <span className="type-small text-fg">{project.name}</span>
+              {!project.available && <span className="type-mono-xs text-failed">unavailable</span>}
+              {!project.shell && <span className="type-mono-xs text-faint">shell off</span>}
+              <span className="ml-auto type-mono-xs text-faint">{project.sessions.length}</span>
+            </div>
+            <span className="px-8 type-mono-xs text-faint">{project.folder}</span>
+            <div className="flex flex-col gap-2 pl-16">
+              {project.sessions.length === 0 ? (
+                <p className="type-small text-faint">No sessions yet.</p>
+              ) : (
+                project.sessions.map((session) => (
+                  <span key={session.title} className="flex items-center gap-6 px-6 py-4 type-small text-muted">
+                    {session.live && <span aria-label="Running" className="size-6 rounded-pill bg-live" />}
+                    {session.title}
+                  </span>
+                ))
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function Demo({ view, projects = false }: { view: "home" | "agent" | "settings"; projects?: boolean }) {
   const [theme, setTheme] = useState(0);
   const rail = (
     <Rail
@@ -69,6 +120,7 @@ function Demo({ view }: { view: "home" | "agent" | "settings" }) {
           />
         }
       >
+        {projects && <ProjectsAboveSessions />}
         <SessionList groups={SESSIONS} onNew={() => {}} showAll={{ label: "Show all 63", onSelect: () => {} }} />
       </ContextSidebar>
     ) : view === "settings" ? (
@@ -84,3 +136,7 @@ function Demo({ view }: { view: "home" | "agent" | "settings" }) {
 export const Home: Story = { args: { rail: null, children: null }, render: () => <Demo view="home" /> };
 export const AgentPage: Story = { args: { rail: null, children: null }, render: () => <Demo view="agent" /> };
 export const Settings: Story = { args: { rail: null, children: null }, render: () => <Demo view="settings" /> };
+export const ProjectsAboveSessionsStory: Story = {
+  args: { rail: null, children: null },
+  render: () => <Demo view="agent" projects />,
+};
