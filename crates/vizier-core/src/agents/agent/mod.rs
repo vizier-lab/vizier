@@ -21,6 +21,7 @@ use crate::{
                 boot::boot_md,
                 context::{context_md, with_context},
                 init_workspace,
+                project::project_md,
                 reactions::reaction_digest,
                 sandbox::sandbox_md,
                 scheduled_run::scheduled_run_md,
@@ -449,6 +450,7 @@ impl VizierAgent {
         &self,
         categories: &[CategorySummary],
         session: &VizierSession,
+        project: Option<&crate::projects::context::ProjectTurnContext>,
     ) -> Vec<Message> {
         init_workspace(self.workspace.clone());
 
@@ -484,6 +486,12 @@ impl VizierAgent {
         }
 
         res.push(Message::system(self.core.clone()));
+
+        // After CORE and before configured documents (FR-015/FR-016): project identity is
+        // stable across a project session's turns, and no other session kind gets it.
+        if let Some(project) = project {
+            res.push(Message::system(project_md(project)));
+        }
 
         for document in &self.config.documents {
             res.push(Message::system(document.clone()));
@@ -704,6 +712,9 @@ impl VizierAgent {
             }
             _ => None,
         };
+        // The project belongs to this turn only: resolved once, shared by the prompt prefix and
+        // the workspace shell. Every non-project session resolves to `None`.
+        let project = crate::projects::context::for_session(&self.deps, &session).await;
         let ctx = ToolContext {
             loaded_images: Default::default(),
             recalled: Default::default(),
@@ -715,10 +726,15 @@ impl VizierAgent {
             client,
             dream_sources: vec![],
             secret_redactor: Arc::new(crate::secrets::SecretRedactor::default()),
+            project: project.clone(),
         };
 
         let mut history = self
-            .prepare_system_prompts(&turn_categories(&tools.categories, &ctx), &session)
+            .prepare_system_prompts(
+                &turn_categories(&tools.categories, &ctx),
+                &session,
+                project.as_deref(),
+            )
             .await;
 
         // Inject checkpoint handover as system context
@@ -1531,8 +1547,12 @@ impl VizierAgent {
 
         history.clear();
         history.extend(
-            self.prepare_system_prompts(&turn_categories(&tools.categories, ctx), &ctx.session)
-                .await,
+            self.prepare_system_prompts(
+                &turn_categories(&tools.categories, ctx),
+                &ctx.session,
+                ctx.project.as_deref(),
+            )
+            .await,
         );
         if let Some(ref msg) = handover {
             history.push(Message::system(format!(
@@ -1679,9 +1699,9 @@ impl VizierAgent {
             .dream_tools(self.config.name.clone(), deps.storage.clone())
             .await?;
 
-        // Prepare system prompts (same as chat)
+        // Prepare system prompts (same as chat). A dream never resolves project context (FR-014).
         let mut history = self
-            .prepare_system_prompts(&snapshot.categories, &session)
+            .prepare_system_prompts(&snapshot.categories, &session, None)
             .await;
 
         // Extend with session history
@@ -1738,6 +1758,7 @@ impl VizierAgent {
                     deadline: None,
                     dream_sources,
                     secret_redactor: Arc::new(crate::secrets::SecretRedactor::default()),
+                    project: None,
                 },
             )
             .await?;

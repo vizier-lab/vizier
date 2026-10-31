@@ -40,6 +40,7 @@ async fn topic_session(
     if !can_view_agent(who, &config) {
         return Err(ServiceError::Forbidden("Access denied".into()));
     }
+    super::topics::authorize_project_channel(s, who, &config, agent_id, channel_id).await?;
 
     Ok(VizierSession(
         agent_id.to_string(),

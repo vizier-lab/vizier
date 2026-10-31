@@ -172,6 +172,27 @@ The WebUI's notification inbox replaces the old Home "Since you were away" feed.
 
 HTTP is `/api/v1/notifications` (list with `filter`+`before`+`limit`, `/count`, `PUT /{id}/read`, `POST /read-all`), all under `require_auth`. The WebUI has one Zustand store (`stores/notifications.ts`, 15 s count poll while visible), pure merge/filter helpers (`lib/notifications.ts`) and a dropdown (`screens/notifications/NotificationsPanel.tsx`, a design `Floating` + `useDismiss` like the agent card's menu, rendered by the bell itself and anchored to it). The bell lives at the right end of every page header (`screens/shared/NotificationsBell.tsx`, mounted by the shared `PageFrame`/`SettingsFrame`, Home's header, the chat header and the mobile top bar), so a store `openPanel` needs a mounted bell to show anything: a count badge and a separate busy dot are `design` `IconButton` props. Each row is a bordered card with a 34px `Sigil`; its read toggle is an eye beside the time (closed = unread, open = read, always visible), an unread card is outlined in the live emerald and a hidden word says so. A `chat_reply` for the conversation on screen is auto-marked read with no toast or badge change (`isViewing` + `viewing` on the store, set from the pathname); the dropdown closes on Escape, an outside press or its ×, and the chat details panel starts collapsed. A new arrival while the panel is closed raises a timed `Toast` (design `Toast`'s `onSelect`; one toast per burst) pushed from `screens/shared/NotificationToasts.tsx`, which the 15 s poll detects by id above `lastSeenId`. The panel is reached from no route and adds no sidebar item. The panel is not a route; opening marks nothing read, selecting a row marks it read and navigates. Home's `AwayFeed` and the `/api/v1/overview/feed` endpoint are **removed** — a deliberate breaking change; the unused visit tracking (`record_visit`, `last_seen_at`, `previous_visit_at`) stays for #82.
 
+### Projects (`specs/040-projects-mode/`)
+
+A **project** mounts one host folder to exactly one agent (`project` table behind `ProjectStorage`;
+`crates/vizier-core/src/projects/`). A project session is an ordinary HTTP session whose channel id is
+`project__<project_id>`; `projects::channel` owns the prefix and parsing, and `projects::access` is the
+only permission matrix (`all_agents:projects`, `owned_agents:projects`; management is the project owner
+or the all-agents permission; creation requires a desktop principal). `service/projects.rs` owns the
+DTOs, folder validation (canonical, must exist, never the app workspace or inside it) and soft removal
+(refused with `turn_active` while a turn is pending); the routes are `/agents/{id}/projects…`
+(`crates/vizier-http/src/api/v1/agents/projects.rs`). `projects::context::for_session` resolves the folder,
+availability, shell switch and bounded `AGENTS.md`/`CLAUDE.md` once per turn and re-reads the owner's
+current permission; `chat_turn`, side chat and checkpoint rebuilds pass it to the system prompt
+(`agents/agent/system_prompt/project.rs`) and to `ToolContext.project`. The per-turn `workspace_shell`
+tool (`projects/shell.rs`, `ToolTarget::Project`, dispatched by `RouterBridge`) runs through
+`LocalShell::run` with exit/stderr/duration, a 64 KiB cap, a 120 s default (600 s max) timeout and a
+process-tree kill (`agents/shell/process_tree.rs`). Project sessions are excluded from
+`conversation_rows` and `kind_of`, so they never appear in the regular Sessions list, search or picker;
+notifications link to `/<agent>/projects/<id>/chat/<topic>`. The WebUI adds `ProjectsSection` above
+Sessions, project routes under `/:agentId/projects/:projectId`, a desktop folder picker
+(`desktop_pick_folder`) and a host-execution notice for browsers.
+
 ### Storage (`crates/vizier-core/src/storage/`)
 
 `VizierStorageProvider` is a supertrait composing every storage concern (`IntegrationStorage`, `MemoryStorage`, `TaskStorage`, `TaskRunStorage`, `HistoryStorage`, `SessionStorage`, `StateStorage`, `UserStorage`, `AgentStorage`, `ProviderStorage`, `CustomProviderStorage`, `CatalogueCacheStorage`, `GlobalConfigStorage`, `DreamJournalStorage`, `DreamStorage`, `SessionFileStorage`, `BackgroundJobStorage`, `UsageStorage`, `NotificationStorage`). Provider tables: `provider_config` holds one `ProviderCredentials` JSON per `ProviderId`, `custom_provider` the operator-defined providers, `catalogue_snapshot`/`catalogue_logo` the refreshed catalogue and logos. `VizierStorage` type-erases the concrete backend (`storage/sqlite` — the sole `VizierStorageProvider` implementation) behind `Arc<Box<dyn VizierStorageProvider>>` and hand-forwards every trait method. **Adding a storage backend** means implementing every one of those traits for the new type, then `impl VizierStorageProvider for it`. The old `storage/fs` (`FileSystemStorage`) backend has been removed as a runtime option; its non-memory trait impls survive only as a read source for the one-time `migrate_filesystem_backend_to_sqlite` startup migration in `dependencies.rs`, for deployments upgrading from a pre-existing `--storage filesystem` install.

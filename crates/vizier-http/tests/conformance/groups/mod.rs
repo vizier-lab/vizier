@@ -10,6 +10,7 @@ mod auth;
 mod core;
 mod memory;
 mod misc;
+mod projects;
 mod providers;
 mod tasks;
 mod topics;
@@ -33,6 +34,7 @@ pub fn all() -> Vec<Vector> {
     all.extend(core::vectors());
     all.extend(memory::vectors());
     all.extend(misc::vectors());
+    all.extend(projects::vectors());
     all.extend(providers::vectors());
     all.extend(tasks::vectors());
     all.extend(topics::vectors());

@@ -18,6 +18,7 @@ pub mod users;
 pub mod roles;
 pub mod api_keys;
 pub mod profile;
+pub mod projects;
 pub mod setup;
 pub mod providers;
 pub mod custom_providers;

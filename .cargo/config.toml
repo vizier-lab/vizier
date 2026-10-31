@@ -1,3 +1,9 @@
+# Windows: one C runtime for every native piece, as `app/.cargo/config.toml` explains. Needed here
+# too because the workspace's test binaries link fastembed's `esaxx-rs` (static CRT) beside
+# whisper.cpp and onnxruntime (dynamic CRT); without it `cargo test` fails with LNK2038.
+[env]
+CXXFLAGS_x86_64_pc_windows_msvc = "/MD"
+
 [target.x86_64-apple-darwin]
 rustflags = ["-C", "link-arg=-undefined", "-C", "link-arg=dynamic_lookup"]
 
