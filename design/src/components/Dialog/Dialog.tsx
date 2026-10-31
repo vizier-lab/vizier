@@ -18,6 +18,10 @@ export type DialogPanelProps = {
   /** Empty: a content dialog whose children carry their own buttons, so no actions row. */
   confirmLabel: ReactNode;
   confirmIcon?: React.ComponentProps<typeof Button>["icon"];
+  /** The confirm can't be used yet (a name still empty, facts still loading). */
+  confirmDisabled?: boolean;
+  /** The confirmed work is running: the confirm shows the dot loader and blocks a second press. */
+  confirmLoading?: boolean;
   cancelLabel?: ReactNode;
   onConfirm: () => void;
   onCancel: () => void;
@@ -36,6 +40,8 @@ export function DialogPanel({
   confirmWord,
   confirmLabel,
   confirmIcon,
+  confirmDisabled,
+  confirmLoading,
   cancelLabel = "Cancel",
   onConfirm,
   onCancel,
@@ -83,7 +89,13 @@ export function DialogPanel({
       {confirmLabel && (
         <div className="flex justify-end gap-10 pt-4">
           <Button onClick={onCancel}>{cancelLabel}</Button>
-          <Button variant={tone === "danger" ? "destructive" : "primary"} icon={confirmIcon} disabled={!ready} onClick={onConfirm}>
+          <Button
+            variant={tone === "danger" ? "destructive" : "primary"}
+            icon={confirmIcon}
+            loading={confirmLoading}
+            disabled={!ready || confirmDisabled}
+            onClick={onConfirm}
+          >
             {confirmLabel}
           </Button>
         </div>

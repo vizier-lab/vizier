@@ -4,6 +4,19 @@ import { cx } from "../../lib/cx";
 import { ContextRing } from "../ContextRing/ContextRing";
 import { useDismiss } from "../../lib/dismiss";
 import { SkillMenu, type SkillMenuItem } from "../SkillMenu/SkillMenu";
+import { MentionMenu, type MentionMenuItem } from "../MentionMenu/MentionMenu";
+
+/** A trigger menu the host drives while the person types after "@" (files of a project chat). */
+export type ComposerSuggest = {
+  /** The list's heading: "Files". */
+  label: string;
+  /** What was typed after the trigger, for highlighting and the empty state. */
+  query: string;
+  items: MentionMenuItem[];
+  onPick: (item: MentionMenuItem) => void;
+  /** Escape: the host puts the menu away until the text changes. */
+  onDismiss: () => void;
+};
 
 export type ComposerProps = {
   agentName: string;
@@ -32,6 +45,8 @@ export type ComposerProps = {
   overlay?: ReactNode;
   /** The agent's skills, for the slash menu. */
   skills?: SkillMenuItem[];
+  /** The "@" menu, when the host has a token to complete. The composer owns its keys, like the slash menu's. */
+  suggest?: ComposerSuggest | null;
   /** The context meter beside Send. */
   context?: { used: number; window: number; detail?: string };
   /** Mobile shows the count as text instead of the ring: "21k / 200k". */
@@ -60,6 +75,7 @@ export function Composer({
   below,
   overlay,
   skills = [],
+  suggest = null,
   context,
   tokenText,
   className,
@@ -75,12 +91,37 @@ export function Composer({
   const menuOpen = !!slash && skills.length > 0 && put !== value;
   const menuRoot = useRef<HTMLDivElement>(null);
   useDismiss(menuOpen, () => setPut(value), menuRoot);
+  const suggestOpen = !!suggest && !disabled;
+  const [suggestActive, setSuggestActive] = useState(0);
+  const suggestCount = suggest?.items.length ?? 0;
+  const suggestIndex = Math.min(suggestActive, Math.max(0, suggestCount - 1));
+  const listId = suggestOpen ? `${id}-mentions` : `${id}-skills`;
   const hasContent = value.trim().length > 0 || !!attachments || !!voice;
   // While the agent works, typing something turns Stop back into Send: the message queues.
   const canSend = !disabled && hasContent;
   const showStop = busy && !hasContent;
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (suggest && suggestOpen) {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        suggest.onDismiss();
+        return;
+      }
+      if (suggestCount) {
+        if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+          e.preventDefault();
+          setSuggestActive((a) => (Math.min(a, suggestCount - 1) + (e.key === "ArrowDown" ? 1 : suggestCount - 1)) % suggestCount);
+          return;
+        }
+        // Tab and Enter both complete the mention; Enter never sends while the list is open.
+        if (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey)) {
+          e.preventDefault();
+          suggest.onPick(suggest.items[suggestIndex]);
+          return;
+        }
+      }
+    }
     if (menuOpen && matches.length) {
       if (e.key === "ArrowDown" || e.key === "ArrowUp") {
         e.preventDefault();
@@ -105,7 +146,18 @@ export function Composer({
   return (
     <div className={cx("flex flex-col gap-10", className)} {...rest}>
       <div ref={menuRoot} className="relative">
-        {menuOpen && (
+        {suggestOpen && suggest && (
+          <MentionMenu
+            id={`${id}-mentions`}
+            label={suggest.label}
+            items={suggest.items}
+            query={suggest.query}
+            active={suggestIndex}
+            onPick={suggest.onPick}
+            className="absolute inset-x-0 bottom-full mb-8"
+          />
+        )}
+        {menuOpen && !suggestOpen && (
           <SkillMenu
             id={`${id}-skills`}
             items={matches}
@@ -130,14 +182,17 @@ export function Composer({
               onChange={(e) => {
                 onValueChange(e.target.value);
                 setActive(0);
+                setSuggestActive(0);
               }}
               onKeyDown={onKeyDown}
               placeholder={disabledReason ?? (recording ? "" : `Message ${agentName} — type / for skills`)}
               aria-label={`Message ${agentName}`}
-              role={menuOpen ? "combobox" : undefined}
-              aria-expanded={menuOpen || undefined}
-              aria-controls={menuOpen ? `${id}-skills` : undefined}
-              aria-activedescendant={menuOpen && matches.length ? `${id}-skills-${active}` : undefined}
+              role={menuOpen || suggestOpen ? "combobox" : undefined}
+              aria-expanded={menuOpen || suggestOpen || undefined}
+              aria-controls={menuOpen || suggestOpen ? listId : undefined}
+              aria-activedescendant={
+                suggestOpen ? (suggestCount ? `${listId}-${suggestIndex}` : undefined) : menuOpen && matches.length ? `${listId}-${active}` : undefined
+              }
               className="field-sizing-content max-h-240 min-h-24 w-full resize-none bg-transparent type-body text-fg caret-live outline-none placeholder:text-faint disabled:cursor-not-allowed"
             />
           )}
