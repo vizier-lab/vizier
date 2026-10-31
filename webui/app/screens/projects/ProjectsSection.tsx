@@ -1,7 +1,7 @@
-import { Button, Icon } from '@vizier/design'
+import { Button, Icon, IconButton } from '@vizier/design'
 import { useEffect, useState } from 'react'
 import { transport } from '../../api/transport'
-import { canManageProject, canUseProjects } from '../../lib/access'
+import { canUseProjects } from '../../lib/access'
 import { useAgents } from '../../stores/agents'
 import { projectKey, useProjects } from '../../stores/projects'
 import { OpenProjectDialog } from './OpenProjectDialog'
@@ -49,9 +49,14 @@ export function ProjectsSection({ agentId }: { agentId: string }) {
             <div className="flex items-center justify-between gap-8">
                 <span className="type-mono-xs text-faint">Projects</span>
                 {transport.authMode === 'desktop' && (
-                    <Button size="sm" variant="ghost" icon="folder" onClick={() => setCreating(true)}>
-                        Open a Project
-                    </Button>
+                    <IconButton
+                        size="sm"
+                        variant="ghost"
+                        icon="plus"
+                        aria-label="Open a project"
+                        title="Open a project"
+                        onClick={() => setCreating(true)}
+                    />
                 )}
             </div>
             <div className="flex flex-col gap-8">
@@ -62,7 +67,6 @@ export function ProjectsSection({ agentId }: { agentId: string }) {
                         project={project}
                         sessions={sessions[projectKey(agentId, project.id)] ?? []}
                         expanded={!!expanded[project.id]}
-                        canManage={canManageProject(project)}
                         onToggle={() =>
                             setExpanded((cur) => ({ ...cur, [project.id]: !cur[project.id] }))
                         }

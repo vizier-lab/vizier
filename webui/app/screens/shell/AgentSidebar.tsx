@@ -13,6 +13,8 @@ import { nanoid } from 'nanoid'
 import { useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router'
 import { agentState } from '../../api/endpoints/agents'
+import { renameTopic } from '../../api/endpoints/chat'
+import { toast } from '../../stores/toasts'
 import { DeleteConversation, type DeleteTarget } from '../chat/DeleteConversation'
 import { canManageSecrets, canViewArtifacts } from '../../lib/access'
 import { conversationHref, conversationTitle, sidebarSections, sidebarTime } from '../../lib/conversations'
@@ -79,6 +81,7 @@ export function AgentSidebar({ agentId }: { agentId: string }) {
                     active: isCurrent(c),
                     // Only the WebUI's own conversations: Discord and Telegram ones belong to those platforms.
                     deletable: c.kind === 'webui',
+                    renamable: c.kind === 'webui',
                 })),
             })),
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -181,6 +184,16 @@ export function AgentSidebar({ agentId }: { agentId: string }) {
                 onDelete={(key) => {
                     const c = items.find((i) => `${i.channel}#${i.latest_topic}` === key)
                     if (c) setDeleting({ topic: c.latest_topic, title: conversationTitle(c.title, c.latest_topic) })
+                }}
+                onRename={async (key, title) => {
+                    const c = items.find((i) => `${i.channel}#${i.latest_topic}` === key)
+                    if (!c) return
+                    try {
+                        await renameTopic(agentId, c.latest_topic, title)
+                        setListVersion((v) => v + 1)
+                    } catch (e) {
+                        toast.error("Couldn't rename the conversation", e instanceof Error ? e.message : undefined)
+                    }
                 }}
                 search={{ value: sessionQuery, onChange: setSessionQuery }}
                 empty={sessionSearch ? 'No conversation matched.' : undefined}

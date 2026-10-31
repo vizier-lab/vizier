@@ -52,7 +52,6 @@ describe('the Projects section', () => {
                         { topic: 't1', title: 'Investigate the parser', is_thinking: false, last_activity: 1 },
                     ]}
                     expanded
-                    canManage
                     onToggle={() => {}}
                 />
             </MemoryRouter>
@@ -67,7 +66,6 @@ describe('the Projects section', () => {
                     project={{ ...project, session_count: 0 }}
                     sessions={[]}
                     expanded
-                    canManage
                     onToggle={() => {}}
                 />
             </MemoryRouter>

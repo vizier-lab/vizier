@@ -59,6 +59,13 @@ export const topicFiles = (
 export const deleteTopic = (agentId: string, topicId: string, channel: string = CHANNEL) =>
     api.delete(base(agentId, topicId, channel))
 
+export const renameTopic = (
+    agentId: string,
+    topicId: string,
+    title: string,
+    channel: string = CHANNEL
+) => api.patch<Topic>(base(agentId, topicId, channel), { title })
+
 export const restartAgent = (agentId: string) => api.post(`/agents/${agentId}/restart`)
 
 export type SideChatRequest = components['schemas']['BtwRequest']

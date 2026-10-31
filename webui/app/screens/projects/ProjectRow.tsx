@@ -1,14 +1,16 @@
-import { Button, Icon, IconButton, Notice, TextField } from '@vizier/design'
+import { Icon, IconButton, Notice } from '@vizier/design'
 import { useState } from 'react'
 import { useLocation, useNavigate } from 'react-router'
+import { renameTopic } from '../../api/endpoints/chat'
 import {
     createProjectSession,
-    updateProject,
+    projectChannel,
     type Project,
     type ProjectSessionRow,
 } from '../../api/endpoints/projects'
 import { useProjects } from '../../stores/projects'
 import { toast } from '../../stores/toasts'
+import { DeleteConversation, type DeleteTarget } from '../chat/DeleteConversation'
 import { RemoveProjectDialog } from './RemoveProjectDialog'
 
 /** The last component of a folder path, for the sidebar's one-line folder hint. */
@@ -22,15 +24,15 @@ type Props = {
     project: Project
     sessions: ProjectSessionRow[]
     expanded: boolean
-    canManage: boolean
     onToggle: () => void
 }
 
 /**
- * One project above Sessions (FR-005): its name, folder, availability and session count, and
- * — expanded — the caller's sessions plus new-session, rename, shell switch and remove.
+ * One project above Sessions (FR-005): its folder name, availability and session count, and
+ * — expanded — the caller's sessions, searchable, each with rename and delete on hover like the
+ * main Sessions list.
  */
-export function ProjectRow({ agentId, project, sessions, expanded, canManage, onToggle }: Props) {
+export function ProjectRow({ agentId, project, sessions, expanded, onToggle }: Props) {
     const navigate = useNavigate()
     const { pathname } = useLocation()
     const activeTopic = pathname.startsWith(`/${agentId}/projects/${project.id}/chat/`)
@@ -39,10 +41,26 @@ export function ProjectRow({ agentId, project, sessions, expanded, canManage, on
     const insertSession = useProjects((s) => s.insertSession)
     const loadSessions = useProjects((s) => s.loadSessions)
     const refresh = useProjects((s) => s.refresh)
-    const [renaming, setRenaming] = useState(false)
-    const [name, setName] = useState(project.name)
     const [busy, setBusy] = useState(false)
+    const [query, setQuery] = useState('')
+    const [searching, setSearching] = useState(false)
     const [removing, setRemoving] = useState(false)
+    const folder = folderName(project.folder)
+    // Like the Sessions list: the field opens from the header and stays open while it holds text.
+    const searchOpen = searching || !!query
+    const closeSearch = () => {
+        setQuery('')
+        setSearching(false)
+    }
+    const [renamingTopic, setRenamingTopic] = useState<string | null>(null)
+    const [draft, setDraft] = useState('')
+    const [deleting, setDeleting] = useState<DeleteTarget | null>(null)
+
+    const shown = query.trim()
+        ? sessions.filter((s) =>
+              (s.title || 'New session').toLowerCase().includes(query.trim().toLowerCase())
+          )
+        : sessions
 
     const start = async () => {
         setBusy(true)
@@ -62,31 +80,19 @@ export function ProjectRow({ agentId, project, sessions, expanded, canManage, on
         }
     }
 
-    const rename = async () => {
-        const trimmed = name.trim()
-        if (trimmed.length < 1 || trimmed.length > 120) {
+    const rename = async (topic: string) => {
+        const title = draft.trim()
+        if (title.length < 1 || title.length > 120) {
             toast.error('The name must be 1–120 characters')
             return
         }
         setBusy(true)
         try {
-            await updateProject(agentId, project.id, { name: trimmed })
-            setRenaming(false)
-            await refresh(agentId)
+            await renameTopic(agentId, topic, title, projectChannel(project.id))
+            setRenamingTopic(null)
+            await loadSessions(agentId, project.id)
         } catch (e) {
-            toast.error("Couldn't rename the project", e instanceof Error ? e.message : undefined)
-        } finally {
-            setBusy(false)
-        }
-    }
-
-    const toggleShell = async () => {
-        setBusy(true)
-        try {
-            await updateProject(agentId, project.id, { shell_enabled: !project.shell_enabled })
-            await refresh(agentId)
-        } catch (e) {
-            toast.error("Couldn't change the shell switch", e instanceof Error ? e.message : undefined)
+            toast.error("Couldn't rename the session", e instanceof Error ? e.message : undefined)
         } finally {
             setBusy(false)
         }
@@ -94,37 +100,57 @@ export function ProjectRow({ agentId, project, sessions, expanded, canManage, on
 
     return (
         <div className="flex flex-col gap-4">
-            <div className="flex items-center gap-6">
+            <div className="group/row flex items-center gap-6">
                 <IconButton
                     size="sm"
                     variant="ghost"
                     icon={expanded ? 'chevron-down' : 'chevron-right'}
-                    aria-label={expanded ? `Collapse ${project.name}` : `Expand ${project.name}`}
+                    aria-label={expanded ? `Collapse ${folder}` : `Expand ${folder}`}
                     aria-expanded={expanded}
                     onClick={onToggle}
                 />
                 <button
                     type="button"
-                    className="flex min-w-0 flex-1 flex-col items-start gap-1 text-left"
+                    className="flex min-w-0 flex-1 items-center gap-6 text-left"
+                    title={project.folder}
                     onClick={onToggle}
                 >
-                    <span className="flex w-full items-center gap-6">
-                        <span className="truncate type-small text-fg">{project.name}</span>
-                        {!project.available && (
-                            <Icon name="alert" size={12} tone="failed" aria-label="Folder unavailable" />
-                        )}
-                        {!project.shell_enabled && (
-                            <Icon name="lock" size={12} tone="faint" aria-label="Workspace shell off" />
-                        )}
-                    </span>
-                    <span className="truncate type-mono-xs text-faint">{folderName(project.folder)}</span>
+                    <span className="truncate type-small text-fg">{folder}</span>
+                    {!project.available && (
+                        <Icon name="alert" size={12} tone="failed" aria-label="Folder unavailable" />
+                    )}
                 </button>
-                <span className="type-mono-xs text-faint">{project.session_count}</span>
+                <span className="relative flex w-28 shrink-0 items-center justify-end">
+                    <span className="type-mono-xs text-faint transition-opacity group-hover/row:opacity-0 group-focus-within/row:opacity-0">
+                        {project.session_count}
+                    </span>
+                    <span className="absolute inset-y-0 right-0 flex items-center opacity-0 transition-opacity group-hover/row:opacity-100 group-focus-within/row:opacity-100">
+                        <IconButton
+                            size="sm"
+                            variant="ghost"
+                            icon="trash"
+                            aria-label={`Remove ${folder}`}
+                            title="Remove project"
+                            onClick={() => setRemoving(true)}
+                        />
+                    </span>
+                </span>
+                {expanded && sessions.length > 0 && (
+                    <IconButton
+                        size="sm"
+                        variant="ghost"
+                        icon="search"
+                        aria-label="Search sessions"
+                        title="Search sessions"
+                        aria-pressed={searchOpen}
+                        onClick={() => (searchOpen ? closeSearch() : setSearching(true))}
+                    />
+                )}
                 <IconButton
                     size="sm"
                     variant="ghost"
                     icon="plus"
-                    aria-label={`New session in ${project.name}`}
+                    aria-label={`New session in ${folder}`}
                     disabled={busy}
                     onClick={() => void start()}
                 />
@@ -140,78 +166,108 @@ export function ProjectRow({ agentId, project, sessions, expanded, canManage, on
                     {sessions.length === 0 ? (
                         <p className="type-small text-faint">No sessions yet. New session starts one.</p>
                     ) : (
-                        sessions.map((session) => (
-                            <button
-                                key={session.topic}
-                                type="button"
-                                className={`flex min-w-0 items-center gap-6 rounded-md px-6 py-4 text-left hover:bg-raised ${activeTopic === session.topic ? 'bg-raised' : ''}`}
-                                onClick={() =>
-                                    navigate(`/${agentId}/projects/${project.id}/chat/${session.topic}`)
-                                }
-                            >
-                                {session.is_thinking && (
-                                    <span
-                                        aria-label="Running"
-                                        className="size-6 shrink-0 rounded-pill bg-live"
+                        <>
+                            {searchOpen && (
+                                <label className="mb-4 flex h-30 items-center gap-8 rounded-lg border border-border bg-surface px-10 focus-within:border-border-hover">
+                                    <Icon name="search" size={13} tone="faint" />
+                                    <input
+                                        autoFocus={searching}
+                                        value={query}
+                                        onChange={(e) => setQuery(e.target.value)}
+                                        onKeyDown={(e) => e.key === 'Escape' && closeSearch()}
+                                        placeholder="Search sessions"
+                                        aria-label={`Search sessions in ${folder}`}
+                                        className="min-w-0 flex-1 bg-transparent type-small text-fg outline-none placeholder:text-faint"
                                     />
-                                )}
-                                <span className="truncate type-small text-muted">
-                                    {session.title || 'New session'}
-                                </span>
-                            </button>
-                        ))
-                    )}
-
-                    {renaming ? (
-                        <div className="flex items-end gap-6 pt-4">
-                            <TextField
-                                label="Name"
-                                value={name}
-                                onChange={(e) => setName(e.target.value)}
-                                className="min-w-0 flex-1"
-                            />
-                            <Button size="sm" loading={busy} onClick={() => void rename()}>
-                                Save
-                            </Button>
-                            <Button size="sm" onClick={() => setRenaming(false)} disabled={busy}>
-                                Cancel
-                            </Button>
-                        </div>
-                    ) : (
-                        canManage && (
-                            <div className="flex flex-wrap items-center gap-4 pt-4">
-                                <Button
-                                    size="sm"
-                                    onClick={() => {
-                                        setName(project.name)
-                                        setRenaming(true)
-                                    }}
-                                >
-                                    Rename
-                                </Button>
-                                <Button size="sm" disabled={busy} onClick={() => void toggleShell()}>
-                                    {project.shell_enabled ? 'Turn shell off' : 'Turn shell on'}
-                                </Button>
-                                <Button size="sm" variant="destructive" onClick={() => setRemoving(true)}>
-                                    Remove
-                                </Button>
-                                <button
-                                    type="button"
-                                    className="type-mono-xs text-faint underline"
-                                    onClick={() => void loadSessions(agentId, project.id)}
-                                >
-                                    Refresh sessions
-                                </button>
-                            </div>
-                        )
+                                </label>
+                            )}
+                            {shown.length === 0 && (
+                                <p className="px-6 type-small text-faint">No session matched.</p>
+                            )}
+                            {shown.map((session) => {
+                                const title = session.title || 'New session'
+                                const href = `/${agentId}/projects/${project.id}/chat/${session.topic}`
+                                if (renamingTopic === session.topic) {
+                                    return (
+                                        <input
+                                            key={session.topic}
+                                            autoFocus
+                                            aria-label="Session name"
+                                            value={draft}
+                                            disabled={busy}
+                                            maxLength={120}
+                                            onChange={(e) => setDraft(e.target.value)}
+                                            onBlur={() => !busy && setRenamingTopic(null)}
+                                            onKeyDown={(e) => {
+                                                if (e.key === 'Enter') void rename(session.topic)
+                                                if (e.key === 'Escape') setRenamingTopic(null)
+                                            }}
+                                            className="rounded-md border border-border bg-surface px-6 py-4 type-small text-fg outline-none focus:border-border-hover"
+                                        />
+                                    )
+                                }
+                                return (
+                                    <div
+                                        key={session.topic}
+                                        className={`group/row relative flex items-center rounded-md hover:bg-raised ${activeTopic === session.topic ? 'bg-raised' : ''}`}
+                                    >
+                                        <button
+                                            type="button"
+                                            className="flex min-w-0 flex-1 items-center gap-6 px-6 py-4 text-left"
+                                            onClick={() => navigate(href)}
+                                        >
+                                            {session.is_thinking && (
+                                                <span
+                                                    aria-label="Running"
+                                                    className="size-6 shrink-0 rounded-pill bg-live"
+                                                />
+                                            )}
+                                            <span className="truncate type-small text-muted">{title}</span>
+                                        </button>
+                                        <span className="absolute inset-y-0 right-2 flex items-center bg-raised opacity-0 transition-opacity group-hover/row:opacity-100 group-focus-within/row:opacity-100">
+                                            <IconButton
+                                                size="sm"
+                                                variant="ghost"
+                                                icon="pencil"
+                                                aria-label={`Rename ${title}`}
+                                                title="Rename session"
+                                                onClick={() => {
+                                                    setDraft(session.title || '')
+                                                    setRenamingTopic(session.topic)
+                                                }}
+                                            />
+                                            <IconButton
+                                                size="sm"
+                                                variant="ghost"
+                                                icon="trash"
+                                                aria-label={`Delete ${title}`}
+                                                title="Delete conversation"
+                                                onClick={() => setDeleting({ topic: session.topic, title })}
+                                            />
+                                        </span>
+                                    </div>
+                                )
+                            })}
+                        </>
                     )}
                 </div>
             )}
 
             <RemoveProjectDialog
                 agentId={agentId}
-                project={removing ? { id: project.id, name: project.name } : null}
+                project={removing ? { id: project.id, name: folder } : null}
                 onClose={() => setRemoving(false)}
+            />
+            <DeleteConversation
+                agentId={agentId}
+                channel={projectChannel(project.id)}
+                target={deleting}
+                onClose={() => setDeleting(null)}
+                onDeleted={(topic) => {
+                    void loadSessions(agentId, project.id)
+                    void refresh(agentId)
+                    if (activeTopic === topic) navigate(`/${agentId}/chat`)
+                }}
             />
         </div>
     )
