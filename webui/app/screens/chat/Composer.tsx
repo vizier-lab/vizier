@@ -17,6 +17,7 @@ import {
     type ProjectSkill,
 } from '../../api/endpoints/projects'
 import { insertMention, mentionQuery, pickedMentions } from '../../lib/mentions'
+import { skillDescription } from '../../lib/skillDescription'
 import { abbreviate } from '../../lib/format'
 import { useMobile } from '../../lib/useMobile'
 import { toast } from '../../stores/toasts'
@@ -203,7 +204,11 @@ export function Composer({
                     .filter((s) =>
                         seen.has(s.name) ? false : (seen.add(s.name), true)
                     )
-                    .map((s) => ({ name: s.name, description: s.description }))
+                    // A catalogue paragraph, drawn on one line beside the name.
+                    .map((s) => ({
+                        name: s.name,
+                        description: skillDescription(s.description),
+                    }))
                 setSkills([...BUILTIN, ...skills])
             }
         )
