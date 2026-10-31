@@ -158,7 +158,8 @@ Project chats are recognised as project chats everywhere: usage reports list the
 - A worktree's tools see build tools or file watchers in the main folder reacting to `.vizier/` contents: documented as a known limitation (see Assumptions).
 - The project is removed (soft removal, 040) while it has worktrees: the worktree folders stay on disk and the removal confirmation says so.
 - The person sends `@` text that matches nothing: it is sent as plain text, not a mention.
-- A background job launched from a project chat: its pieces run in their own conversations and get no coding tools, whatever the chat's mode; the report it wakes in the project chat uses the chat's saved mode.
+- Subagents launched from a project chat (in the background or blocking): each piece works in the same folder (the worktree, for a worktree chat) with the coding tools of the launching turn's mode; a piece never gets `propose_plan`, and two pieces editing the same file are kept apart by the stale-read refusal. The report a background job wakes in the project chat uses the chat's saved mode.
+- Work delegated to a different agent, scheduled tasks and dreams get no coding tools: a project belongs to one agent.
 
 ## Requirements *(mandatory)*
 
@@ -172,7 +173,8 @@ Project chats are recognised as project chats everywhere: usage reports list the
 - **FR-004**: An edit MUST be refused when its text is absent, when it matches more than once without the replace-all option, or when the file changed on disk since the agent last read it in that chat; a refused edit MUST leave the file unchanged.
 - **FR-005**: Listing and searching MUST skip files the project's ignore rules exclude, and, in the main folder, the `.vizier/` folder.
 - **FR-006**: Every file tool MUST refuse a path that resolves outside the chat's folder, including through `..` or symbolic links.
-- **FR-007**: The file tools and the workspace shell MUST be in one tool category named `coding`; the workspace shell MUST no longer be in the shell category. The tools MUST remain available only in project chats, never in ordinary conversations, scheduled tasks, dreams or subagent pieces that do not belong to a project chat.
+- **FR-007**: The file tools and the workspace shell MUST be in one tool category named `coding`; the workspace shell MUST no longer be in the shell category. The tools MUST remain available only in project chats and in subagent pieces launched from one, never in ordinary conversations, scheduled tasks, dreams, or work delegated to another agent.
+- **FR-007a**: A subagent piece launched from a project chat MUST work in that chat's folder (its worktree, when it has one) with the coding tools of the launching turn's mode, minus `propose_plan`, and MUST keep them if the piece resumes after a restart. The project owner's permission MUST be re-checked when the piece starts.
 - **FR-008**: Read-only git tools (status, diff, recent history) MUST be offered in the `coding` category when the chat's folder is in a git repository and git is available.
 
 **Plan and Build modes**
