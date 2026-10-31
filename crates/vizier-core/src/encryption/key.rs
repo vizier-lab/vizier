@@ -214,7 +214,14 @@ fn write_key_file(path: &Path, key: &[u8; KEY_LEN]) -> Result<()> {
         std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
             .map_err(|e| write_error(path, &e))?;
     }
-    #[cfg(not(unix))]
+    // Windows has no file mode; a file in the user's profile (where the desktop app keeps its
+    // workspace) is readable only by that user through the directory's ACL.
+    #[cfg(windows)]
+    tracing::info!(
+        path = %path.display(),
+        "the encryption key file is protected by the permissions of its directory; keep the workspace inside your user profile"
+    );
+    #[cfg(not(any(unix, windows)))]
     tracing::warn!(
         path = %path.display(),
         "this platform cannot restrict the encryption key file to its owner; protect the workspace directory instead"

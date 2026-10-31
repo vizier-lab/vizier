@@ -70,6 +70,12 @@ impl VizierTool for ExecuteSkillResource {
             .and_then(|e| e.to_str())
             .unwrap_or("");
 
+        if cfg!(windows) && matches!(extension, "sh" | "bash") {
+            return Err(VizierError(
+                "shell scripts (.sh) cannot run on Windows; use a .py or .js resource instead".into(),
+            ));
+        }
+
         let (program, mut cmd_args) = match extension {
             "sh" | "bash" => ("sh", vec![script_path.to_str().unwrap().to_string()]),
             "py" | "python" => ("python", vec![script_path.to_str().unwrap().to_string()]),

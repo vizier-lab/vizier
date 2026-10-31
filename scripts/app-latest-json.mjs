@@ -13,6 +13,7 @@ export function buildManifest({ version, notes, pubDate, repo, readSig }) {
   const mac = 'Vizier_universal.app.tar.gz';
   const amd = `Vizier_${version}_amd64.AppImage`;
   const arm = `Vizier_${version}_aarch64.AppImage`;
+  const win = `Vizier_${version}_x64-setup.exe`;
   const entry = (file) => ({ url: `${base}/${file}`, signature: readSig(`${file}.sig`) });
   return {
     version,
@@ -23,6 +24,7 @@ export function buildManifest({ version, notes, pubDate, repo, readSig }) {
       'darwin-x86_64': entry(mac),
       'linux-x86_64': entry(amd),
       'linux-aarch64': entry(arm),
+      'windows-x86_64': entry(win),
     },
   };
 }

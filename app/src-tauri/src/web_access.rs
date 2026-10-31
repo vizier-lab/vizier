@@ -61,6 +61,7 @@ pub fn ensure_key(workspace: &Path) -> Result<Vec<u8>, String> {
     let mut key = vec![0u8; 32];
     ring::rand::SystemRandom::new().fill(&mut key).map_err(|_| "cannot generate a key".to_string())?;
     std::fs::write(&path, &key).map_err(|e| format!("cannot write {}: {e}", path.display()))?;
+    // Unix narrows the file to its owner; on Windows the workspace's profile directory already does.
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;

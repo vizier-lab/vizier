@@ -38,7 +38,7 @@ Open `http://localhost:9999`, create the first user, add a provider key under **
 
 ### Desktop app
 
-Prefer a window to a server? Download the desktop app from the [latest release](https://github.com/vizier-lab/vizier/releases/latest): a universal `.dmg` for macOS (11+, Apple Silicon and Intel; unsigned for now, see the [guide](docs/src/getting-started/desktop-app.md) for the **Open Anyway** step) or an `.AppImage` for Linux x86_64 and arm64. It runs the same engine in the app, signs you in automatically, opens no port by default, and updates itself.
+Prefer a window to a server? Download the desktop app from the [latest release](https://github.com/vizier-lab/vizier/releases/latest): a universal `.dmg` for macOS (11+, Apple Silicon and Intel; unsigned for now, see the [guide](docs/src/getting-started/desktop-app.md) for the **Open Anyway** step) an `.AppImage` for Linux x86_64 and arm64, or a `-setup.exe` installer for Windows 10/11 x64 (unsigned for now, so SmartScreen may ask you to choose **Run anyway**). It runs the same engine in the app, signs you in automatically, opens no port by default, and updates itself.
 
 ### Docker
 
@@ -119,6 +119,22 @@ cargo clippy --workspace
 cd webui && npm run typecheck
 cd webui && npm run dev   # the WebUI on http://localhost:5173, proxying /api to a running `just run`
 ```
+
+### Windows (desktop app only)
+
+The desktop app builds on Windows from PowerShell; the server is Linux, macOS and Docker. Install the prerequisites once (`just` installs none of them), then use the app recipes:
+
+```powershell
+winget install --id Microsoft.VisualStudio.2022.BuildTools --override "--passive --wait --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"
+winget install --id Kitware.CMake
+winget install --id LLVM.LLVM
+[Environment]::SetEnvironmentVariable('LIBCLANG_PATH', 'C:\Program Files\LLVM\bin', 'User')
+winget install --id Rustlang.Rustup   # then: rustup default stable-x86_64-pc-windows-msvc
+winget install --id OpenJS.NodeJS     # Node 22+
+winget install --id Casey.Just        # just 1.38+
+```
+
+Open a new terminal, then `just install-app`, `just app-dev`, `just app-build` (installer in `app\target\release\bundle\nsis\`) and `just app-test`. WebView2 ships with Windows 11. More in [Building from Source](docs/src/getting-started/contributing.md#developing-the-desktop-app-on-windows).
 
 ### Try the dummyplug integration locally
 
