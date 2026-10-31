@@ -142,6 +142,7 @@ Project chats are recognised as project chats everywhere: usage reports list the
 3. **Given** a project chat reply while the person is elsewhere, **When** the notification is shown, **Then** it links to that project chat.
 4. **Given** a project chat, **When** the regular Sessions list, search or picker is shown, **Then** it is not listed.
 5. **Given** a person's project chat, **When** another person without access to that project looks for it, **Then** it is not visible to them.
+6. **Given** project and worktree chats with activity since the last dream, **When** the agent's dream cycle runs, **Then** it reflects on them like any other person's conversation, and the dream itself is offered no coding tools and does not act in the project folder.
 
 ### Edge Cases
 
@@ -187,6 +188,7 @@ Project chats are recognised as project chats everywhere: usage reports list the
 - **FR-014**: Project chats MUST be a distinct kind of conversation, recognised as such by session listings, usage accounting, notifications, the dream cycle and access checks, without relying on the conversation's name.
 - **FR-015**: Project chats created before this change MUST be carried over at startup with their history, files, pending turns, background jobs, usage and notifications intact.
 - **FR-016**: Usage MUST report project chat activity as its own activity.
+- **FR-016a**: Project and worktree chats MUST be among the conversations the dream cycle reflects on, as they are before this change; the dream cycle MUST NOT be offered the coding tools or act in a project folder.
 
 **Mentions**
 
@@ -244,7 +246,6 @@ Project chats are recognised as project chats everywhere: usage reports list the
 - The `.vizier/` location inside the project is accepted with its known side effect: build tools or file watchers running in the main folder (for example a hot-reload watcher) may react to changes inside worktrees. Making the location configurable is out of scope.
 - A fresh worktree contains only tracked files (no submodules, dependencies or untracked local files). Preparing it is left to the agent in Build mode, guided by the project's own instructions file; a per-project setup command is deferred to a separate issue.
 - Per-call approval (ask before acting) is out of scope and will be provided by the guardrails work (#119); Plan mode is the only gate this specification adds.
-- Project chats stay excluded from the dream cycle, as in 040.
 - Only people create worktrees; agent-created worktrees are deferred to a separate issue.
 - GitHub pull request and issue references (`#123`), and merging or rebasing a worktree from the UI, are deferred to separate issues.
 - Committing is done by the agent through the workspace shell in Build mode or by the person outside Vizier; there is no commit UI in this specification.
