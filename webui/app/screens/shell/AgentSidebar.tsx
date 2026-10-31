@@ -18,6 +18,7 @@ import { toast } from '../../stores/toasts'
 import { DeleteConversation, type DeleteTarget } from '../chat/DeleteConversation'
 import { canManageSecrets, canViewArtifacts } from '../../lib/access'
 import { conversationHref, conversationTitle, sidebarSections, sidebarTime } from '../../lib/conversations'
+import { assetSrc } from '../../lib/fileUrls'
 import { relativeTime } from '../../lib/format'
 import { withNewAgent } from '../agents/NewAgentDialog'
 import { ProjectsSection } from '../projects/ProjectsSection'
@@ -118,7 +119,7 @@ export function AgentSidebar({ agentId }: { agentId: string }) {
                         trigger={
                             <SidebarAgent
                                 agentId={agentId}
-                                imageSrc={agent?.avatar_url || undefined}
+                                imageSrc={assetSrc(agent?.avatar_url)}
                                 name={agent?.name ?? agentId}
                                 state={state}
                                 active={!!page && !ESSENTIAL.has(page) && page !== 'chat'}

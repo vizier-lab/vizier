@@ -1,7 +1,7 @@
-import { transport } from '../api/transport'
 import { useEffect, useState } from 'react'
 import { allProviders, providerModels, type ModelSummary, type ProviderSummary } from '../api/endpoints/catalogue'
 import { allModels } from '../api/endpoints/providers'
+import { assetSrc } from './fileUrls'
 
 type Listener = () => void
 
@@ -71,8 +71,7 @@ export function useCatalogueProviders() {
 }
 
 /** The props ProviderLogo / ProviderTile / ProviderRow take for a catalogue entry's logo. */
-/** Server-relative logo paths only resolve over HTTP; the desktop window serves them through the asset scheme. */
 export const logoOf = (p?: { logo?: string | null; logo_full_color?: boolean }) => ({
-    src: p?.logo ? (transport.authMode === 'desktop' ? transport.assetUrl(p.logo) : p.logo) : undefined,
+    src: assetSrc(p?.logo),
     fullColor: p?.logo_full_color,
 })

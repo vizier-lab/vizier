@@ -6,6 +6,7 @@ import { ApiError } from '../api/client'
 import { deleteAgent, getAgent, getSharing, updateAgent, updateSharing, type AgentDetail } from '../api/endpoints/agents'
 import { listUsers, type UserSummary } from '../api/endpoints/auth'
 import { fromDetail, problems, toInput, type AgentForm } from '../lib/agentForm'
+import { assetSrc } from '../lib/fileUrls'
 import { uploadFile } from '../lib/upload'
 import { ModelsFields } from '../screens/agents/ModelsFields'
 import { ConfirmDialog } from '../screens/shared/ConfirmDialog'
@@ -114,7 +115,7 @@ export default function AgentConfig() {
     const identity = (
         <Card title="Identity">
             <div className="flex gap-24">
-                <SigilPicker agentId={form.agentId} imageSrc={form.avatarUrl || undefined} onUpload={setPicture} onReset={() => set({ avatarUrl: '' })} />
+                <SigilPicker agentId={form.agentId} imageSrc={assetSrc(form.avatarUrl)} onUpload={setPicture} onReset={() => set({ avatarUrl: '' })} />
                 <div className="flex min-w-0 flex-1 flex-col gap-16">
                     <div className="grid grid-cols-1 gap-16 sm:grid-cols-2">
                         <TextField label="Name" value={form.name} invalid={!!errors.name} helper={errors.name} onChange={(e) => set({ name: e.target.value })} />

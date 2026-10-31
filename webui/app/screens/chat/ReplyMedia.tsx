@@ -2,6 +2,8 @@ import { AudioPlayer, FilePeek, ImageGallery, VideoPlayer } from '@vizier/design
 import { useRef, useState } from 'react'
 import type { SessionFileRecord, VizierAttachment } from '../../api/frames'
 import { artifactContentUrl } from '../../api/endpoints/artifacts'
+import { relativeToApi, transport } from '../../api/transport'
+import { assetPath } from '../../lib/fileUrls'
 import { FilePreviewDialog } from './FilePreviewDialog'
 
 const EXT = (name: string) => name.split('.').pop()?.toLowerCase() ?? ''
@@ -20,7 +22,10 @@ export function attachmentUrl(a: VizierAttachment): string | null {
         if (c.artifact.available === false) return null
         return artifactContentUrl(c.artifact.agent_id, c.artifact.artifact_id)
     }
-    return c.local ?? c.url ?? null
+    // An upload's `local` is a path on the engine, which only the transport knows how to address;
+    // a `url` is somebody else's, and is loaded as it is.
+    if (c.local) return assetPath(c.local)
+    return c.url ?? null
 }
 
 /** A synthetic record, so an attachment opens in the same preview as a session file. */
@@ -36,6 +41,13 @@ function asRecord(a: VizierAttachment, url: string): SessionFileRecord {
         file_id: url.split('/').pop() ?? '',
         added_at: '',
     }
+}
+
+/** A file downloads through the transport when it is ours; a remote one opens where it lives. */
+function download(a: VizierAttachment, src: string) {
+    const local = (a.content as { local?: string }).local
+    if (local) return void transport.saveFile(relativeToApi(local), a.filename)
+    window.open(src, '_blank', 'noopener')
 }
 
 export function Audio({ src, transcript }: { src: string; transcript?: string }) {
@@ -129,7 +141,7 @@ export function ReplyMedia({ attachments, transcript }: { attachments: VizierAtt
                         action={
                             previewable
                                 ? { label: 'Open', onClick: () => setOpen(items.indexOf(items.find((x) => x.url === url)!)) }
-                                : { label: 'Download', onClick: () => window.open(url, '_blank', 'noopener') }
+                                : { label: 'Download', onClick: () => download(a, url) }
                         }
                     />
                 )

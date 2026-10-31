@@ -6,6 +6,7 @@ import { agentState } from '../../api/endpoints/agents'
 import { useAgents } from '../../stores/agents'
 import { useNotifications } from '../../stores/notifications'
 import { useSession } from '../../stores/session'
+import { assetSrc } from '../../lib/fileUrls'
 import { read, write } from '../../lib/remember'
 import { newAgentOpen, withNewAgent } from '../agents/NewAgentDialog'
 import type { ShellView } from './pages'
@@ -30,7 +31,7 @@ export function ShellRail({ pathname, view, routeAgent }: { pathname: string; vi
     const tiles = arranged(
         agents.map((a) => ({
             agentId: a.agent_id,
-            imageSrc: a.avatar_url || undefined,
+            imageSrc: assetSrc(a.avatar_url),
             name: a.name,
             state: agentState(health[a.agent_id]),
             href: `/${a.agent_id}/chat`,
