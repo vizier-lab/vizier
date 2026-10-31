@@ -1,13 +1,8 @@
-import { DiffView, EmptyState, MiddleTruncate, Notice, PanelHeader } from '@vizier/design'
+import { EmptyState, MiddleTruncate, PanelHeader } from '@vizier/design'
 import { useEffect, useState, type ReactNode } from 'react'
-import {
-    getGitChanges,
-    getGitDiff,
-    type GitChange,
-    type GitFileDiff,
-} from '../../api/endpoints/projects'
-import { parseUnifiedDiff } from '../../lib/diff'
+import { getGitChanges, type GitChange } from '../../api/endpoints/projects'
 import { projectKey, useProjects } from '../../stores/projects'
+import { ChangesDialog, SIGN } from './ChangesDialog'
 
 type Props = {
     agentId: string
@@ -19,21 +14,11 @@ type Props = {
     branchAction?: ReactNode
 }
 
-const SIGN: Record<GitChange['kind'], { letter: string; label: string; tone: string }> = {
-    modified: { letter: 'M', label: 'Modified', tone: 'text-muted' },
-    added: { letter: 'A', label: 'Added', tone: 'text-live-text' },
-    deleted: { letter: 'D', label: 'Deleted', tone: 'text-failed-text' },
-    renamed: { letter: 'R', label: 'Renamed', tone: 'text-muted' },
-    untracked: { letter: '?', label: 'Untracked', tone: 'text-faint' },
-    conflicted: { letter: '!', label: 'Conflicted', tone: 'text-failed-text' },
-}
-
-/** Uncommitted changes and per-file diffs, in the chat's details panel (spec 041 US4). */
+/** Uncommitted changes in the chat's details panel; a file opens its diff in a dialog (spec 041 US4). */
 export function ChangesPanel({ agentId, projectId, topicId, refreshKey, branchAction }: Props) {
     const summary = useProjects((s) => s.git[`${projectKey(agentId, projectId)}/${topicId}`])
     const [changes, setChanges] = useState<GitChange[]>([])
     const [selected, setSelected] = useState<string | null>(null)
-    const [diff, setDiff] = useState<GitFileDiff | null>(null)
 
     useEffect(() => {
         if (!summary?.available) return
@@ -49,16 +34,6 @@ export function ChangesPanel({ agentId, projectId, topicId, refreshKey, branchAc
             alive = false
         }
     }, [agentId, projectId, topicId, summary?.available, refreshKey])
-
-    useEffect(() => {
-        if (!selected) {
-            setDiff(null)
-            return
-        }
-        getGitDiff(agentId, projectId, selected, topicId)
-            .then(setDiff)
-            .catch(() => setDiff(null))
-    }, [agentId, projectId, topicId, selected])
 
     if (!summary?.available) return null
 
@@ -81,15 +56,14 @@ export function ChangesPanel({ agentId, projectId, topicId, refreshKey, branchAc
                 <ul className="flex flex-col gap-2">
                     {changes.map((change) => {
                         const sign = SIGN[change.kind]
-                        const open = selected === change.path
                         return (
                             <li key={change.path}>
                                 <button
                                     type="button"
-                                    aria-expanded={open}
+                                    aria-haspopup="dialog"
                                     title={sign.label}
-                                    onClick={() => setSelected(open ? null : change.path)}
-                                    className={`flex w-full items-center gap-8 rounded-sm px-6 py-4 text-left hover:bg-raised ${open ? 'bg-raised' : ''}`}
+                                    onClick={() => setSelected(change.path)}
+                                    className="flex w-full items-center gap-8 rounded-sm px-6 py-4 text-left hover:bg-raised"
                                 >
                                     <span
                                         aria-label={sign.label}
@@ -109,16 +83,14 @@ export function ChangesPanel({ agentId, projectId, topicId, refreshKey, branchAc
                     })}
                 </ul>
             )}
-            {diff && (
-                <div className="max-h-420 overflow-auto">
-                    {diff.binary ? (
-                        <Notice compact>Binary file; no text diff.</Notice>
-                    ) : (
-                        <DiffView title={diff.path} lines={parseUnifiedDiff(diff.diff)} />
-                    )}
-                    {diff.truncated && <Notice compact>The diff was cut off.</Notice>}
-                </div>
-            )}
+            <ChangesDialog
+                agentId={agentId}
+                projectId={projectId}
+                topicId={topicId}
+                changes={changes}
+                path={selected}
+                onPath={setSelected}
+            />
         </section>
     )
 }

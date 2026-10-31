@@ -10,7 +10,7 @@ it('names who made a save', () => {
     expect(authorLabel({ type: 'system' }, { type: 'baseline' })).toBe('first version')
 })
 
-it('maps a diff to the library lines, with a gap between hunks', () => {
+it('maps a diff to the library lines, a header per hunk and the numbers kept', () => {
     const diff: RevisionDiff = {
         from_seq: 1, to_seq: 2, additions: 1, deletions: 1,
         hunks: [
@@ -21,5 +21,6 @@ it('maps a diff to the library lines, with a gap between hunks', () => {
             { old_start: 9, old_lines: 1, new_start: 9, new_lines: 1, lines: [{ op: 'insert', old_line: null, new_line: 9, text: 'c' }] },
         ],
     }
-    expect(diffLines(diff).map((l) => l.kind)).toEqual(['ctx', 'del', 'ctx', 'add'])
+    expect(diffLines(diff).map((l) => l.kind)).toEqual(['hunk', 'ctx', 'del', 'hunk', 'add'])
+    expect(diffLines(diff)[2]).toMatchObject({ oldNo: 2, text: 'b' })
 })

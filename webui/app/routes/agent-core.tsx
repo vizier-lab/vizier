@@ -199,7 +199,7 @@ export default function AgentCore() {
 
                 {view === 'changes' ? (
                     diff ? (
-                        <DiffView title={`rev ${diff.from_seq} → ${diff.to_seq}`} lines={diffLines(diff)} />
+                        <DiffView variant="code" title={`rev ${diff.from_seq} → ${diff.to_seq}`} lines={diffLines(diff)} />
                     ) : shown === null && core ? (
                         <EmptyState kind="empty" icon="history" title="No revisions yet" message="Each save is kept here, so you can see what changed." />
                     ) : (

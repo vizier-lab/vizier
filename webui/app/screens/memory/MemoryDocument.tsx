@@ -317,7 +317,7 @@ function ReadDoc({ agentId, bundle, path }: DocProps) {
                     </div>
                 )}
                 {view === 'changes' ? (
-                    diff ? <DiffView title={`rev ${diff.from_seq} → ${diff.to_seq}`} lines={diffLines(diff)} /> : <Skeleton lines={8} />
+                    diff ? <DiffView variant="code" title={`rev ${diff.from_seq} → ${diff.to_seq}`} lines={diffLines(diff)} /> : <Skeleton lines={8} />
                 ) : text === null ? (
                     <Skeleton lines={12} />
                 ) : (

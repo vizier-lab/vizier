@@ -1,3 +1,5 @@
+import type { DiffLine } from '@vizier/design'
+
 // How revision history is shown: who made a save, and a diff as the library draws it.
 
 export type RevisionActor = { type: 'agent' } | { type: 'user'; user_id: string; username: string } | { type: 'system' }
@@ -40,14 +42,19 @@ export function authorLabel(actor: RevisionActor, trigger: RevisionTrigger, agen
     return `${who} · ${VIA[trigger.type] ?? trigger.type}`
 }
 
-/** A diff's lines in the library's shape, hunks separated by a context-free gap line. */
-export function diffLines(diff: RevisionDiff): { kind: 'add' | 'del' | 'ctx'; text: string }[] {
-    const out: { kind: 'add' | 'del' | 'ctx'; text: string }[] = []
-    diff.hunks.forEach((h, i) => {
-        if (i > 0) out.push({ kind: 'ctx', text: '…' })
+/** A diff's lines in the library's shape: each hunk opens with its range, and lines keep their numbers. */
+export function diffLines(diff: RevisionDiff): DiffLine[] {
+    const out: DiffLine[] = []
+    for (const h of diff.hunks) {
+        out.push({ kind: 'hunk', text: `@@ -${h.old_start},${h.old_lines} +${h.new_start},${h.new_lines} @@` })
         for (const l of h.lines) {
-            out.push({ kind: l.op === 'insert' ? 'add' : l.op === 'delete' ? 'del' : 'ctx', text: l.text })
+            out.push({
+                kind: l.op === 'insert' ? 'add' : l.op === 'delete' ? 'del' : 'ctx',
+                text: l.text,
+                oldNo: l.old_line ?? undefined,
+                newNo: l.new_line ?? undefined,
+            })
         }
-    })
+    }
     return out
 }
