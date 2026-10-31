@@ -1,6 +1,7 @@
 import { renderToString } from 'react-dom/server'
 import { MemoryRouter } from 'react-router'
 import { beforeEach, describe, expect, it } from 'vitest'
+import { NO_PROJECTS, useProjects } from '../../stores/projects'
 import { useSession } from '../../stores/session'
 import { ProjectRow } from './ProjectRow'
 import { projectsSectionVisible } from './ProjectsSection'
@@ -71,5 +72,47 @@ describe('the Projects section', () => {
             </MemoryRouter>
         )
         expect(empty).toContain('No sessions yet')
+    })
+
+    it('gives an agent whose projects have not loaded one stable empty list', () => {
+        // A selector that returned a fresh [] each call made React see a new snapshot every
+        // time and loop until the app went blank.
+        const select = (state: ReturnType<typeof useProjects.getState>) =>
+            state.byAgent['not-loaded'] ?? NO_PROJECTS
+        const state = useProjects.getState()
+        expect(select(state)).toBe(select(state))
+    })
+
+    it('marks a worktree chat with its branch once, not twice', () => {
+        useSession.setState({ user: person(['all_agents:projects']) })
+        const html = renderToString(
+            <MemoryRouter>
+                <ProjectRow
+                    agentId="dp-a"
+                    project={project}
+                    sessions={[
+                        {
+                            topic: 't2',
+                            title: 'fix-ps',
+                            is_thinking: false,
+                            last_activity: 1,
+                            worktree: { id: 'w1', name: 'fix-ps', branch: 'fix-ps', available: true },
+                        },
+                        {
+                            topic: 't3',
+                            title: 'Try the parser',
+                            is_thinking: false,
+                            last_activity: 2,
+                            worktree: { id: 'w2', name: 'try', branch: 'try-parser', available: true },
+                        },
+                    ]}
+                    expanded
+                    onToggle={() => {}}
+                />
+            </MemoryRouter>
+        )
+        // Same name as its branch: the title says it. A different branch is shown beside the title.
+        expect(html.match(/>fix-ps</g)?.length).toBe(1)
+        expect(html).toContain('>try-parser<')
     })
 })

@@ -21,10 +21,14 @@ export function DeleteWorktreeDialog({ agentId, projectId, worktree, onClose, on
     const refreshWorktrees = useProjects((s) => s.refreshWorktrees)
     const [detail, setDetail] = useState<WorktreeDetail | null>(null)
     const [deleteBranch, setDeleteBranch] = useState(false)
+    const [busy, setBusy] = useState(false)
+    // Changes that appeared while the dialog was open: the form turns destructive.
+    const [forced, setForced] = useState(false)
 
     useEffect(() => {
         if (!worktree) {
             setDetail(null)
+            setForced(false)
             return
         }
         getWorktree(agentId, projectId, worktree.id)
@@ -36,16 +40,21 @@ export function DeleteWorktreeDialog({ agentId, projectId, worktree, onClose, on
     }, [agentId, projectId, worktree])
 
     if (!worktree) return null
-    const dirty = !!detail && detail.changed + detail.untracked > 0
+    const dirty = forced || (!!detail && detail.changed + detail.untracked > 0)
+    const lost = detail ? detail.changed + detail.untracked : 0
     const message = !detail
         ? undefined
         : !detail.available
           ? 'Its folder is already gone; deleting removes the chat and anything git still knows.'
           : dirty
-            ? `${detail.changed} changed and ${detail.untracked} untracked file${detail.changed + detail.untracked === 1 ? '' : 's'} will be lost.`
-            : 'The folder is clean.'
+            ? lost > 0
+                ? `${lost} file${lost === 1 ? '' : 's'} with uncommitted work will be lost (${detail.changed} changed, ${detail.untracked} untracked).`
+                : 'The folder now has changes that will be lost.'
+            : 'The folder is clean, so nothing is lost.'
 
     const remove = async () => {
+        if (busy) return
+        setBusy(true)
         try {
             await deleteWorktree(agentId, projectId, worktree.id, {
                 force: !!dirty,
@@ -55,10 +64,16 @@ export function DeleteWorktreeDialog({ agentId, projectId, worktree, onClose, on
             onClose()
             onDeleted(worktree.topic)
         } catch (error) {
-            toast.error(
-                "Couldn't delete the worktree",
-                error instanceof Error ? error.message : undefined
-            )
+            const text = error instanceof Error ? error.message : ''
+            // Something changed in the folder since the counts were read: say so, and ask again.
+            if (/worktree_dirty|uncommitted|changes/i.test(text) && !dirty) {
+                setForced(true)
+                getWorktree(agentId, projectId, worktree.id).then(setDetail).catch(() => {})
+            } else {
+                toast.error("Couldn't delete the worktree", text || undefined)
+            }
+        } finally {
+            setBusy(false)
         }
     }
 
@@ -68,16 +83,27 @@ export function DeleteWorktreeDialog({ agentId, projectId, worktree, onClose, on
             tone={dirty ? 'danger' : 'default'}
             title={`Delete ${detail?.name ?? worktree.name}?`}
             message={message}
-            confirmLabel={dirty ? 'Delete and lose changes' : 'Delete'}
+            confirmLabel={busy ? 'Deleting…' : dirty ? 'Delete and lose changes' : 'Delete'}
             confirmIcon="trash"
+            confirmDisabled={!detail}
+            confirmLoading={busy}
             onConfirm={() => void remove()}
             onCancel={onClose}
         >
             <Checkbox
                 checked={deleteBranch}
                 onChange={(e) => setDeleteBranch(e.target.checked)}
-                label="Also delete the branch"
+                label={
+                    detail
+                        ? `Also delete the branch ${detail.branch}`
+                        : 'Also delete the branch'
+                }
             />
+            {detail && deleteBranch && !detail.branch_merged && (
+                <p className="type-small text-failed-text">
+                    This branch isn't merged into {detail.base_ref}; its commits will be lost.
+                </p>
+            )}
         </Dialog>
     )
 }

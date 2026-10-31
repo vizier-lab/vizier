@@ -1,9 +1,10 @@
 import { Icon, IconButton, Notice } from '@vizier/design'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router'
 import { renameTopic } from '../../api/endpoints/chat'
 import {
     createProjectSession,
+    getGitSummary,
     projectChannel,
     type Project,
     type ProjectSessionRow,
@@ -58,6 +59,18 @@ export function ProjectRow({ agentId, project, sessions, expanded, onToggle }: P
     const [draft, setDraft] = useState('')
     const [deleting, setDeleting] = useState<DeleteTarget | null>(null)
     const [creatingWorktree, setCreatingWorktree] = useState(false)
+    // A worktree needs a git repository: ask once when the project is opened in the sidebar.
+    const [isRepo, setIsRepo] = useState(false)
+    useEffect(() => {
+        if (!expanded || !project.available) return
+        let alive = true
+        getGitSummary(agentId, project.id)
+            .then((summary) => alive && setIsRepo(!!summary?.available))
+            .catch(() => alive && setIsRepo(false))
+        return () => {
+            alive = false
+        }
+    }, [expanded, agentId, project.id, project.available])
 
     const shown = query.trim()
         ? sessions.filter((s) =>
@@ -144,15 +157,17 @@ export function ProjectRow({ agentId, project, sessions, expanded, onToggle }: P
                         onClick={() => (searchOpen ? closeSearch() : setSearching(true))}
                     />
                 )}
-                <IconButton
-                    size="sm"
-                    variant="ghost"
-                    icon="list-tree"
-                    aria-label={`New worktree in ${folder}`}
-                    title="New worktree"
-                    disabled={busy}
-                    onClick={() => setCreatingWorktree(true)}
-                />
+                {isRepo && (
+                    <IconButton
+                        size="sm"
+                        variant="ghost"
+                        icon="git-fork"
+                        aria-label={`New worktree in ${folder}`}
+                        title="New worktree"
+                        disabled={busy}
+                        onClick={() => setCreatingWorktree(true)}
+                    />
+                )}
                 <IconButton
                     size="sm"
                     variant="ghost"
@@ -229,21 +244,31 @@ export function ProjectRow({ agentId, project, sessions, expanded, onToggle }: P
                                                     className="size-6 shrink-0 rounded-pill bg-live"
                                                 />
                                             )}
-                                            <span className="truncate type-small text-muted">{title}</span>
                                             {session.worktree && (
                                                 <span
-                                                    className="flex shrink-0 items-center gap-4 type-mono-xs text-faint"
+                                                    className="shrink-0"
                                                     title={
                                                         session.worktree.available
                                                             ? `Worktree on ${session.worktree.branch}`
                                                             : 'Worktree folder unavailable'
                                                     }
                                                 >
-                                                    <Icon name="history" size={10} tone="faint" />
+                                                    <Icon
+                                                        name="git-fork"
+                                                        size={12}
+                                                        tone={session.worktree.available ? 'faint' : 'failed'}
+                                                        aria-label={
+                                                            session.worktree.available
+                                                                ? 'Worktree'
+                                                                : 'Worktree unavailable'
+                                                        }
+                                                    />
+                                                </span>
+                                            )}
+                                            <span className="truncate type-small text-muted">{title}</span>
+                                            {session.worktree && session.worktree.branch !== title && (
+                                                <span className="shrink-0 truncate type-mono-xs text-faint">
                                                     {session.worktree.branch}
-                                                    {!session.worktree.available && (
-                                                        <Icon name="alert" size={10} tone="failed" aria-label="Worktree unavailable" />
-                                                    )}
                                                 </span>
                                             )}
                                         </button>

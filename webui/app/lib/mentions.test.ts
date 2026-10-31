@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { insertMention, isCurrent, mentionQuery, pickedMentions } from './mentions'
+import { insertMention, isCurrent, mentionQuery, mentionsAsCode, pickedMentions } from './mentions'
 
 describe('mentions', () => {
     it('finds the token being typed only at the end', () => {
@@ -24,5 +24,17 @@ describe('mentions', () => {
     it('drops a stale response', () => {
         expect(isCurrent(3, 4)).toBe(false)
         expect(isCurrent(4, 4)).toBe(true)
+    })
+
+    it('draws recorded mentions as inline code, and nothing else', () => {
+        expect(mentionsAsCode('explain @src/my_file_name.rs, please', ['src/my_file_name.rs'])).toBe(
+            'explain `@src/my_file_name.rs`, please'
+        )
+        expect(mentionsAsCode('see @a/b.rs and @a/b.rs.bak', ['a/b.rs', 'a/b.rs.bak'])).toBe(
+            'see `@a/b.rs` and `@a/b.rs.bak`'
+        )
+        // Not recorded: left as typed.
+        expect(mentionsAsCode('mail me @home', ['src/main.rs'])).toBe('mail me @home')
+        expect(mentionsAsCode('no mentions', undefined)).toBe('no mentions')
     })
 })

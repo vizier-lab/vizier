@@ -27,3 +27,18 @@ export function insertMention(value: string, start: number, path: string): strin
 export function isCurrent(requestId: number, latest: number): boolean {
     return requestId === latest
 }
+
+/**
+ * A sent message with its mentions drawn as inline code: a path's underscores and asterisks
+ * must not become Markdown emphasis, and the mono chip tells a mention from prose. Only the
+ * mentions the request recorded (`metadata.mentions`) are wrapped, longest first so one path
+ * that contains another is not cut.
+ */
+export function mentionsAsCode(text: string, mentions: readonly string[] | undefined): string {
+    if (!mentions?.length) return text
+    const escaped = [...new Set(mentions)]
+        .sort((a, b) => b.length - a.length)
+        .map((path) => path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    const pattern = new RegExp(`(^|\\s)@(${escaped.join('|')})(?=$|[\\s.,;:!?)])`, 'g')
+    return text.replace(pattern, (_all, lead: string, path: string) => `${lead}\`@${path}\``)
+}

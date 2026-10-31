@@ -45,6 +45,9 @@ function mergeSession(list: ProjectSessionRow[], session: ProjectSessionRow): Pr
     return [session, ...list.filter((s) => s.topic !== session.topic)]
 }
 
+/** One shared empty list: a selector that returns a fresh `[]` makes React see a new snapshot every call. */
+export const NO_PROJECTS: Project[] = []
+
 export const useProjects = create<ProjectsStore>()((set, get) => ({
     byAgent: {},
     loaded: {},

@@ -3,8 +3,6 @@ import {
     Composer as LibraryComposer,
     DropZone,
     FilterTabs,
-    Menu,
-    MenuItem,
     Switch,
     VoiceRecorder,
     type SkillMenuItem,
@@ -68,7 +66,7 @@ type Props = {
     /** `/btw <question>`: opens the side chat window, which asks `question` at once. */
     onSideChat?: (question: string) => void
     /** The project chat this composer is in (spec 041): its saved mode and id. */
-    project?: { id: string; mode: ProjectMode }
+    project?: { id: string; mode: ProjectMode; shell?: boolean }
     onModeChange?: (mode: ProjectMode) => void
     topicId?: string
 }
@@ -110,6 +108,8 @@ export function Composer({
     const [modeNote, setModeNote] = useState(false)
     const [picked, setPicked] = useState<string[]>([])
     const [suggestions, setSuggestions] = useState<{ at: number; items: FileSuggestion[] } | null>(null)
+    // Escape puts the menu away until the text changes.
+    const [dismissedAt, setDismissedAt] = useState<string | null>(null)
     const suggestionRequest = useRef(0)
 
     // `@` suggestions, debounced 120 ms. A stale response is dropped by request id.
@@ -121,7 +121,7 @@ export function Composer({
         }
         const id = ++suggestionRequest.current
         const timer = setTimeout(() => {
-            suggestProjectFiles(project.id, agentId, token.query, topicId)
+            suggestProjectFiles(agentId, project.id, token.query, topicId)
                 .then((items) => {
                     if (suggestionRequest.current === id)
                         setSuggestions({ at: token.start, items: items ?? [] })
@@ -357,22 +357,19 @@ export function Composer({
                 if (files.length) add(files)
             }}
         >
-            {suggestions && suggestions.items.length > 0 && (
-                <div className="absolute inset-x-0 bottom-full z-20 mb-8 px-24">
-                    <Menu aria-label="Mention a file" className="max-h-280 overflow-y-auto">
-                        {suggestions.items.map((item) => (
-                            <MenuItem
-                                key={item.path}
-                                icon={item.kind === 'dir' ? 'folder' : 'file'}
-                                label={item.path}
-                                onClick={() => pick(item.path)}
-                            />
-                        ))}
-                    </Menu>
-                </div>
-            )}
             <LibraryComposer
                 agentName={agentName}
+                suggest={
+                    project && suggestions && dismissedAt !== value
+                        ? {
+                              label: 'Files',
+                              query: mentionQuery(value)?.query ?? '',
+                              items: suggestions.items,
+                              onPick: (item) => pick(item.path),
+                              onDismiss: () => setDismissedAt(value),
+                          }
+                        : null
+                }
                 value={value}
                 onValueChange={setValue}
                 onSend={() =>
@@ -446,7 +443,9 @@ export function Composer({
                                     <span className="type-small text-faint">
                                         {mode === 'plan'
                                             ? "Read-only: can look, can't change anything"
-                                            : 'Can edit files and run commands'}
+                                            : project.shell === false
+                                              ? 'Can edit files; commands are off'
+                                              : 'Can edit files and run commands'}
                                         {modeNote ? ' · applies to the next message' : ''}
                                     </span>
                                 </div>
