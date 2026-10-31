@@ -3,7 +3,7 @@ import { DeleteWorktreeDialog } from '../screens/projects/DeleteWorktreeDialog'
 import { FadeRule, SIDE_PANEL_WIDTH, SideCard } from '../screens/shared/SideCard'
 import { IconButton, JobsPill, Notice, Presence, SlideOver, motionDurations, motionEases } from '@vizier/design'
 import { nanoid } from 'nanoid'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { motion, useReducedMotion } from 'motion/react'
 import { useNavigate, useParams } from 'react-router'
 import { agentState, getAgent } from '../api/endpoints/agents'
@@ -126,6 +126,8 @@ export default function Chat() {
         write(PANEL_KEY, open)
         setPanel(open)
     }
+    // Stable, so the panel's Escape listener is not re-bound on every render.
+    const closeSideChat = useCallback(() => setSideChat((s) => (s.open ? { ...s, open: false } : s)), [])
     const composerBox = useRef<HTMLDivElement>(null)
     const [composerHeight, setComposerHeight] = useState(120)
     // A person who asked for less movement gets the panel, not the choreography.
@@ -498,6 +500,17 @@ export default function Chat() {
                 >
                     <div aria-hidden className="absolute inset-0 bg-gradient-to-t from-panel via-panel/80 to-transparent" />
                     <div className="pointer-events-auto relative mx-auto w-full max-w-4xl px-24 pt-24 pb-16">
+                    <SideChatPanel
+                        key={sideChat.id}
+                        open={sideChat.open}
+                        onClose={closeSideChat}
+                        agentId={agentId}
+                        agentName={agentName}
+                        modelName={modelName}
+                        channelId={channel}
+                        topicId={topicId ?? ''}
+                        question={sideChat.question}
+                    />
                     <HostExecutionNotice className="mb-8" />
                     <Composer
                         agentId={agentId}
@@ -578,18 +591,6 @@ export default function Chat() {
                 </Presence>
                 </div>
             </div>
-
-            <SideChatPanel
-                key={sideChat.id}
-                open={sideChat.open}
-                onClose={() => setSideChat((s) => ({ ...s, open: false }))}
-                agentId={agentId}
-                agentName={agentName}
-                modelName={modelName}
-                channelId={channel}
-                topicId={topicId ?? ''}
-                question={sideChat.question}
-            />
 
             {chatWorktree && projectId && topicId ? (
                 <DeleteWorktreeDialog
