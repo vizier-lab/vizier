@@ -25,6 +25,8 @@ vizier:
 
 Credentials are resolved in this order: the saved entry, then the catalogue's environment variable, then the environment variable Vizier read before the catalogue existed (see the table below). Saving or removing a provider's credentials restarts the agents that use it, so the change takes effect immediately. Saved API keys and access tokens are encrypted at rest; the workspace key is separate from the database and must be backed up — see [Encryption at Rest](./encryption.md).
 
+In the agent model picker, local servers such as Ollama and llama.cpp are marked connected only when a base URL is saved or supplied by their environment variable. A built-in default address alone does not mean a server is running; use **Test** to check reachability.
+
 A cloud provider's address always comes from the catalogue; to point at another address (a proxy, a self-hosted server) add a **custom provider**.
 
 > **YAML `providers` is gone.** Earlier versions seeded providers from a `providers:` section in `.vizier.yaml`. It is now ignored; Vizier logs a warning naming the environment variable to set instead. Credentials saved by earlier versions were migrated automatically on upgrade.
@@ -49,6 +51,8 @@ API: `GET|POST /api/v1/providers/custom`, `PUT|DELETE /api/v1/providers/custom/{
 | `voyageai` | `api_key` | `VOYAGE_API_KEY` | Embeddings only |
 | `hyperbolic` | `api_key` | `HYPERBOLIC_API_KEY` | TTS and image generation |
 | `dummyplug` | `base_url` | `DUMMYPLUG_URL` | Local test server; default `http://127.0.0.1:9998/v1` |
+
+`dummyplug` is a testing provider, not a connected provider by default. It appears in Settings → Providers only when an agent uses it, a base URL has been saved, or `DUMMYPLUG_URL` is set. Deleting a saved base URL removes its row unless an agent still uses it or the environment variable still supplies a connection. The sample Compose setup does not set `DUMMYPLUG_URL`; enable its `dummyplug` profile and set the URL explicitly when testing.
 
 Every other provider comes from the catalogue.
 
