@@ -2,12 +2,21 @@ import {
     Attachment,
     Composer as LibraryComposer,
     DropZone,
+    FilterTabs,
+    Menu,
+    MenuItem,
     Switch,
     VoiceRecorder,
     type SkillMenuItem,
 } from '@vizier/design'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../../api/client'
+import {
+    suggestProjectFiles,
+    type FileSuggestion,
+    type ProjectMode,
+} from '../../api/endpoints/projects'
+import { insertMention, mentionQuery, pickedMentions } from '../../lib/mentions'
 import { abbreviate } from '../../lib/format'
 import { useMobile } from '../../lib/useMobile'
 import { toast } from '../../stores/toasts'
@@ -50,13 +59,18 @@ type Props = {
     onSend: (
         text: string,
         attachments: VizierAttachment[],
-        spoken: boolean
+        spoken: boolean,
+        mentions?: string[]
     ) => void
     onSendAudio: (attachment: VizierAttachment) => void
     onCommand: (command: 'abort' | 'checkpoint' | 'lobotomy') => void
     onStop: () => void
     /** `/btw <question>`: opens the side chat window, which asks `question` at once. */
     onSideChat?: (question: string) => void
+    /** The project chat this composer is in (spec 041): its saved mode and id. */
+    project?: { id: string; mode: ProjectMode }
+    onModeChange?: (mode: ProjectMode) => void
+    topicId?: string
 }
 
 let pendingId = 1
@@ -75,6 +89,9 @@ export function Composer({
     onCommand,
     onStop,
     onSideChat,
+    project,
+    onModeChange,
+    topicId,
 }: Props) {
     const mobile = useMobile()
     const [value, setValue] = useState('')
@@ -87,6 +104,43 @@ export function Composer({
         blob?: Blob
     } | null>(null)
     const [spoken, setSpoken] = useState(false)
+    // Plan/Build belongs to the chat, not to the composer's text; a switch applies next turn.
+    const [mode, setMode] = useState<ProjectMode>(project?.mode ?? 'plan')
+    useEffect(() => setMode(project?.mode ?? 'plan'), [project?.mode])
+    const [modeNote, setModeNote] = useState(false)
+    const [picked, setPicked] = useState<string[]>([])
+    const [suggestions, setSuggestions] = useState<{ at: number; items: FileSuggestion[] } | null>(null)
+    const suggestionRequest = useRef(0)
+
+    // `@` suggestions, debounced 120 ms. A stale response is dropped by request id.
+    useEffect(() => {
+        const token = mentionQuery(value)
+        if (!project || !token) {
+            setSuggestions(null)
+            return
+        }
+        const id = ++suggestionRequest.current
+        const timer = setTimeout(() => {
+            suggestProjectFiles(project.id, agentId, token.query, topicId)
+                .then((items) => {
+                    if (suggestionRequest.current === id)
+                        setSuggestions({ at: token.start, items: items ?? [] })
+                })
+                .catch(() => {
+                    if (suggestionRequest.current === id) setSuggestions(null)
+                })
+        }, 120)
+        return () => clearTimeout(timer)
+    }, [value, project, agentId, topicId])
+
+    const pick = (path: string) => {
+        const token = mentionQuery(value)
+        if (!token) return
+        setValue(insertMention(value, token.start, path))
+        setPicked((all) => (all.includes(path) ? all : [...all, path]))
+        setSuggestions(null)
+        input.current?.focus()
+    }
     // A spoken reply needs the agent's Text-to-Speech; without it there is no switch to keep on.
     useEffect(() => {
         if (!ttsEnabled) setSpoken(false)
@@ -197,8 +251,10 @@ export function Composer({
             const uploaded = await Promise.all(
                 ready.map((p) => uploadFile(p.file))
             )
-            onSend(text, uploaded, spoken)
+            onSend(text, uploaded, spoken, pickedMentions(text, picked))
             setValue('')
+            setPicked([])
+            setSuggestions(null)
             setPending([])
         } catch (e) {
             toast.error(
@@ -301,6 +357,20 @@ export function Composer({
                 if (files.length) add(files)
             }}
         >
+            {suggestions && suggestions.items.length > 0 && (
+                <div className="absolute inset-x-0 bottom-full z-20 mb-8 px-24">
+                    <Menu aria-label="Mention a file" className="max-h-280 overflow-y-auto">
+                        {suggestions.items.map((item) => (
+                            <MenuItem
+                                key={item.path}
+                                icon={item.kind === 'dir' ? 'folder' : 'file'}
+                                label={item.path}
+                                onClick={() => pick(item.path)}
+                            />
+                        ))}
+                    </Menu>
+                </div>
+            )}
             <LibraryComposer
                 agentName={agentName}
                 value={value}
@@ -355,15 +425,43 @@ export function Composer({
                     />
                 }
                 below={
-                    ttsEnabled && (
-                        <label className="flex items-center gap-8 type-small text-muted">
-                            <Switch
-                                checked={spoken}
-                                onCheckedChange={setSpoken}
-                                aria-label="Ask for a spoken reply"
-                            />
-                            Ask for a spoken reply
-                        </label>
+                    (project || ttsEnabled) && (
+                        <div className="flex flex-wrap items-center gap-12">
+                            {project && (
+                                <div className="flex items-center gap-8">
+                                    <FilterTabs<ProjectMode>
+                                        aria-label="Plan or Build"
+                                        value={mode}
+                                        onChange={(next) => {
+                                            if (next === mode) return
+                                            setMode(next)
+                                            setModeNote(busy)
+                                            onModeChange?.(next)
+                                        }}
+                                        options={[
+                                            { value: 'plan', label: 'Plan' },
+                                            { value: 'build', label: 'Build' },
+                                        ]}
+                                    />
+                                    <span className="type-small text-faint">
+                                        {mode === 'plan'
+                                            ? "Read-only: can look, can't change anything"
+                                            : 'Can edit files and run commands'}
+                                        {modeNote ? ' · applies to the next message' : ''}
+                                    </span>
+                                </div>
+                            )}
+                            {ttsEnabled && (
+                                <label className="flex items-center gap-8 type-small text-muted">
+                                    <Switch
+                                        checked={spoken}
+                                        onCheckedChange={setSpoken}
+                                        aria-label="Ask for a spoken reply"
+                                    />
+                                    Ask for a spoken reply
+                                </label>
+                            )}
+                        </div>
                     )
                 }
                 attachments={

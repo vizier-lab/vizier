@@ -14,6 +14,8 @@ import { emptyTopic } from '../lib/frames'
 import { greeting } from '../lib/greetings'
 import { requestText } from '../lib/messages'
 import { ConversationHeader } from '../screens/chat/ConversationHeader'
+import { BranchChip } from '../screens/chat/BranchChip'
+import { ChangesPanel } from '../screens/chat/ChangesPanel'
 import { AgentStateBanner } from '../screens/chat/AgentStateBanner'
 import { BackgroundJobsPanel } from '../screens/chat/BackgroundJobsPanel'
 import { renderClientCalls } from '../screens/chat/ClientCalls'
@@ -31,7 +33,7 @@ import { useMobile } from '../lib/useMobile'
 import { useAgents } from '../stores/agents'
 import { topicKey, useConnection } from '../stores/connection'
 import { useSession } from '../stores/session'
-import { useProjects } from '../stores/projects'
+import { projectKey, useProjects } from '../stores/projects'
 import { toast } from '../stores/toasts'
 import { canManageArtifacts, canUseProjects } from '../lib/access'
 import { useTurns } from '../stores/turns'
@@ -53,9 +55,23 @@ export default function Chat() {
     const agentProjects = useProjects((s) => s.byAgent[agentId] ?? [])
     const refreshProjects = useProjects((s) => s.refresh)
     const insertSession = useProjects((s) => s.insertSession)
+    const loadProjectSessions = useProjects((s) => s.loadSessions)
+    const setProjectMode = useProjects((s) => s.setMode)
+    const refreshGit = useProjects((s) => s.refreshGit)
+    const projectMode = useProjects((s) =>
+        projectId && topicId
+            ? (s.sessions[projectKey(agentId, projectId)] ?? []).find((x) => x.topic === topicId)?.mode
+            : undefined
+    )
     useEffect(() => {
         if (projectId && !project) void refreshProjects(agentId)
     }, [agentId, projectId, project, refreshProjects])
+    // The chat's saved mode and git header come from the project endpoints, per chat.
+    useEffect(() => {
+        if (!projectId) return
+        void loadProjectSessions(agentId, projectId)
+        if (topicId) void refreshGit(agentId, projectId, topicId)
+    }, [agentId, projectId, topicId, loadProjectSessions, refreshGit])
     const agents = useAgents((s) => s.agents)
     const health = useAgents((s) => s.health[agentId])
     const setup = useAgents((s) => s.setups[agentId])
@@ -149,6 +165,11 @@ export default function Chat() {
     const key = topicKey(agentId, topicId ?? '')
     const opening = useMemo(() => greeting(), [key])
     const state = useTurns((s) => s.topics[key]) ?? EMPTY
+    // A finished turn may have changed files, so the header's count is re-read with it.
+    useEffect(() => {
+        if (projectId && topicId && state.phase === 'idle') void refreshGit(agentId, projectId, topicId)
+    }, [projectId, topicId, state.phase, refreshGit])
+
     const meta = useTurns((s) => s.meta[key])
     const connection = useConnection((s) => s.state[key]) ?? 'connecting'
     const {
@@ -261,6 +282,17 @@ export default function Chat() {
                 onJumpToStart={() => {}}
             />
             <FadeRule />
+            {projectId && topicId && (
+                <>
+                    <ChangesPanel
+                        agentId={agentId}
+                        projectId={projectId}
+                        topicId={topicId}
+                        refreshKey={`${state.phase}:${state.entries.length}`}
+                    />
+                    <FadeRule />
+                </>
+            )}
             <SessionFilesPanel
                 files={state.files}
                 agentId={agentId}
@@ -319,6 +351,13 @@ export default function Chat() {
                         .map((t) => t.topic_id)}
                     trailing={
                         <>
+                            {projectId && topicId && (
+                                <BranchChip
+                                    agentId={agentId}
+                                    projectId={projectId}
+                                    topicId={topicId}
+                                />
+                            )}
                             <JobsPill
                                 count={runningJobs}
                                 onClick={() => togglePanel(true)}
@@ -382,6 +421,22 @@ export default function Chat() {
                     onReact={(uid, emoji, action) =>
                         react(agentId, topicId ?? '', uid, emoji, action)
                     }
+                    onBuildPlan={() => {
+                        if (!projectId || !topicId) return
+                        void setProjectMode(agentId, projectId, topicId, 'build')
+                            .then(() => send(agentId, topicId, 'Build the plan.'))
+                            .catch((error) =>
+                                toast.error(
+                                    "Couldn't switch to Build",
+                                    error instanceof Error ? error.message : undefined
+                                )
+                            )
+                    }}
+                    onKeepPlanning={() =>
+                        composerBox.current
+                            ?.querySelector<HTMLElement>('textarea, input')
+                            ?.focus()
+                    }
                     clientCalls={(turn: Turn, running) =>
                         renderClientCalls(turn, running, clientContext)
                     }
@@ -421,6 +476,22 @@ export default function Chat() {
                     <Composer
                         agentId={agentId}
                         agentName={agentName}
+                        project={
+                            projectId
+                                ? { id: projectId, mode: projectMode ?? 'plan' }
+                                : undefined
+                        }
+                        topicId={topicId}
+                        onModeChange={(mode) => {
+                            if (!projectId || !topicId) return
+                            void setProjectMode(agentId, projectId, topicId, mode).catch(
+                                (error) =>
+                                    toast.error(
+                                        "Couldn't change the mode",
+                                        error instanceof Error ? error.message : undefined
+                                    )
+                            )
+                        }}
                         sttEnabled={voice?.stt ?? false}
                         ttsEnabled={voice?.tts ?? false}
                         busy={state.phase !== 'idle'}
@@ -436,13 +507,14 @@ export default function Chat() {
                                 ? { ...state.context, detail: modelName }
                                 : null
                         }
-                        onSend={(text, attachments, spoken) =>
+                        onSend={(text, attachments, spoken, mentions) =>
                             send(
                                 agentId,
                                 topicId ?? '',
                                 text,
                                 attachments,
-                                spoken
+                                spoken,
+                                mentions
                             )
                         }
                         onSendAudio={(attachment) =>

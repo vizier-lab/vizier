@@ -29,7 +29,14 @@ type TurnStore = {
     /** Opens a topic: history, files and jobs, then the socket. Safe to call again. */
     open: (agentId: string, topicId: string, channel?: string) => Promise<void>
     close: (agentId: string, topicId: string) => void
-    send: (agentId: string, topicId: string, text: string, attachments?: object[], spoken?: boolean) => void
+    send: (
+        agentId: string,
+        topicId: string,
+        text: string,
+        attachments?: object[],
+        spoken?: boolean,
+        mentions?: string[]
+    ) => void
     sendAudio: (agentId: string, topicId: string, attachment: object) => void
     clientEvent: (agentId: string, topicId: string, text: string, data?: unknown, sourceCallId?: string) => void
     saveClientState: (agentId: string, topicId: string, callId: string, state: unknown) => void
@@ -47,7 +54,12 @@ const channels = new Map<string, string>()
 const channelOf = (agentId: string, topicId: string) =>
     channels.get(topicKey(agentId, topicId)) ?? CHANNEL
 
-function request(content: VizierRequestContent, attachments?: object[], spoken?: boolean) {
+function request(
+    content: VizierRequestContent,
+    attachments?: object[],
+    spoken?: boolean,
+    mentions?: string[]
+) {
     return {
         timestamp: new Date().toISOString(),
         user: useSession.getState().user?.username ?? '',
@@ -55,6 +67,7 @@ function request(content: VizierRequestContent, attachments?: object[], spoken?:
         metadata: null,
         ...(attachments?.length ? { attachments } : {}),
         ...(spoken ? { expect_audio_reply: true } : {}),
+        ...(mentions?.length ? { mentions } : {}),
     }
 }
 
@@ -189,7 +202,7 @@ export const useTurns = create<TurnStore>()((set, get) => {
             })
         },
 
-        send: (agentId, topicId, text, attachments, spoken) => {
+        send: (agentId, topicId, text, attachments, spoken, mentions) => {
             const key = topicKey(agentId, topicId)
             const state = get().topics[key] ?? emptyTopic()
             const id = String(nextId++)
@@ -197,7 +210,7 @@ export const useTurns = create<TurnStore>()((set, get) => {
                 dispatch(agentId, topicId, { type: 'send', id, text, attachments: attachments as never, spoken })
                 return
             }
-            const sent = useConnection.getState().send(agentId, topicId, request({ chat: text }, attachments, spoken))
+            const sent = useConnection.getState().send(agentId, topicId, request({ chat: text }, attachments, spoken, mentions))
             if (sent) dispatch(agentId, topicId, { type: 'send', id, text, attachments: attachments as never, now: new Date().toISOString() })
         },
 

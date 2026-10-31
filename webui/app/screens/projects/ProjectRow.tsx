@@ -12,6 +12,8 @@ import { useProjects } from '../../stores/projects'
 import { toast } from '../../stores/toasts'
 import { DeleteConversation, type DeleteTarget } from '../chat/DeleteConversation'
 import { RemoveProjectDialog } from './RemoveProjectDialog'
+import { WorktreeDialog } from './WorktreeDialog'
+import { DeleteWorktreeDialog } from './DeleteWorktreeDialog'
 
 /** The last component of a folder path, for the sidebar's one-line folder hint. */
 export function folderName(folder: string) {
@@ -55,6 +57,7 @@ export function ProjectRow({ agentId, project, sessions, expanded, onToggle }: P
     const [renamingTopic, setRenamingTopic] = useState<string | null>(null)
     const [draft, setDraft] = useState('')
     const [deleting, setDeleting] = useState<DeleteTarget | null>(null)
+    const [creatingWorktree, setCreatingWorktree] = useState(false)
 
     const shown = query.trim()
         ? sessions.filter((s) =>
@@ -144,6 +147,15 @@ export function ProjectRow({ agentId, project, sessions, expanded, onToggle }: P
                 <IconButton
                     size="sm"
                     variant="ghost"
+                    icon="list-tree"
+                    aria-label={`New worktree in ${folder}`}
+                    title="New worktree"
+                    disabled={busy}
+                    onClick={() => setCreatingWorktree(true)}
+                />
+                <IconButton
+                    size="sm"
+                    variant="ghost"
                     icon="plus"
                     aria-label={`New session in ${folder}`}
                     disabled={busy}
@@ -218,6 +230,22 @@ export function ProjectRow({ agentId, project, sessions, expanded, onToggle }: P
                                                 />
                                             )}
                                             <span className="truncate type-small text-muted">{title}</span>
+                                            {session.worktree && (
+                                                <span
+                                                    className="flex shrink-0 items-center gap-4 type-mono-xs text-faint"
+                                                    title={
+                                                        session.worktree.available
+                                                            ? `Worktree on ${session.worktree.branch}`
+                                                            : 'Worktree folder unavailable'
+                                                    }
+                                                >
+                                                    <Icon name="history" size={10} tone="faint" />
+                                                    {session.worktree.branch}
+                                                    {!session.worktree.available && (
+                                                        <Icon name="alert" size={10} tone="failed" aria-label="Worktree unavailable" />
+                                                    )}
+                                                </span>
+                                            )}
                                         </button>
                                         <span className="absolute inset-y-0 right-2 flex items-center bg-raised opacity-0 transition-opacity group-hover/row:opacity-100 group-focus-within/row:opacity-100">
                                             <IconButton
@@ -253,17 +281,42 @@ export function ProjectRow({ agentId, project, sessions, expanded, onToggle }: P
                 project={removing ? { id: project.id, name: folder } : null}
                 onClose={() => setRemoving(false)}
             />
-            <DeleteConversation
+            <WorktreeDialog
                 agentId={agentId}
-                channel={projectChannel(project.id)}
-                target={deleting}
-                onClose={() => setDeleting(null)}
-                onDeleted={(topic) => {
-                    void loadSessions(agentId, project.id)
-                    void refresh(agentId)
-                    if (activeTopic === topic) navigate(`/${agentId}/chat`)
-                }}
+                projectId={project.id}
+                open={creatingWorktree}
+                onClose={() => setCreatingWorktree(false)}
             />
+            {deleting && sessions.find((s) => s.topic === deleting.topic)?.worktree ? (
+                <DeleteWorktreeDialog
+                    agentId={agentId}
+                    projectId={project.id}
+                    worktree={{
+                        id: sessions.find((s) => s.topic === deleting.topic)!.worktree!.id,
+                        name: sessions.find((s) => s.topic === deleting.topic)!.worktree!.name,
+                        topic: deleting.topic,
+                    }}
+                    onClose={() => setDeleting(null)}
+                    onDeleted={(topic) => {
+                        setDeleting(null)
+                        void loadSessions(agentId, project.id)
+                        void refresh(agentId)
+                        if (activeTopic === topic) navigate(`/${agentId}/chat`)
+                    }}
+                />
+            ) : (
+                <DeleteConversation
+                    agentId={agentId}
+                    channel={projectChannel(project.id)}
+                    target={deleting}
+                    onClose={() => setDeleting(null)}
+                    onDeleted={(topic) => {
+                        void loadSessions(agentId, project.id)
+                        void refresh(agentId)
+                        if (activeTopic === topic) navigate(`/${agentId}/chat`)
+                    }}
+                />
+            )}
         </div>
     )
 }

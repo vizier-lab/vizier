@@ -36,6 +36,8 @@ import { Markdown } from '../shared/Markdown'
 import { ReplyMedia } from './ReplyMedia'
 import { Reactions } from './Reactions'
 import { Trail } from './Trail'
+import { planActionsVisible, planOf } from '../../lib/plans'
+import { PlanCard } from './client/PlanCard'
 
 type Props = {
     state: TopicState
@@ -56,6 +58,9 @@ type Props = {
     error?: ReactNode
     /** Client tool calls a turn made, drawn inside its reply (T056). */
     clientCalls?: (turn: Turn, running: boolean) => ReactNode
+    /** A plan card's Build this plan action (spec 041 US2). */
+    onBuildPlan?: (plan: { title: string; steps: string[] }) => void
+    onKeepPlanning?: () => void
     /** How many passages the turn recalled, for its trail summary. */
     recalledFor?: (turn: Turn) => number
     /** A Discord or Telegram conversation: people's messages carry their own names, not "You". */
@@ -68,7 +73,7 @@ function stopTime(entry: ChatMessage | undefined) {
     return entry?.timestamp ? time(entry.timestamp) : ''
 }
 
-export function MessageList({ state, agent, greeting, hasOlder, bottomInset = 0, insetRight = 0, loadingOlder, onLoadOlder, onReact, error, clientCalls, recalledFor, byPlatformName, emptyAction }: Props) {
+export function MessageList({ state, agent, greeting, hasOlder, bottomInset = 0, insetRight = 0, loadingOlder, onLoadOlder, onReact, error, clientCalls, recalledFor, byPlatformName, emptyAction, onBuildPlan, onKeepPlanning }: Props) {
     const { entries } = state
     const turns = useMemo(() => groupHistory(entries), [entries])
     const prices = usePrices()
@@ -130,6 +135,19 @@ export function MessageList({ state, agent, greeting, hasOlder, bottomInset = 0,
                         </div>
                     </AgentReply>
                 )}
+                {(() => {
+                    const plan = planOf(turn)
+                    if (!plan) return null
+                    const newest = turns[turns.length - 1]?.key ?? null
+                    return (
+                        <PlanCard
+                            plan={plan}
+                            actionable={planActionsVisible(turn.key, newest)}
+                            onBuild={() => onBuildPlan?.(plan)}
+                            onKeepPlanning={() => onKeepPlanning?.()}
+                        />
+                    )
+                })()}
                 {outcome?.content.Response?.resumed && <StoppedNote>Picked up where it left off after vizier restarted.</StoppedNote>}
             </div>
         )
