@@ -33,5 +33,6 @@
 
 - Git, the `coding` category name and the `.vizier/<agent-id>/<name>` location are named on purpose: they are part of what the person asked for and what they see, not implementation choices.
 - FR-014/FR-015 (a distinct kind of conversation, carried over at startup) describe observable behaviour; how the conversation is keyed and migrated is left to the plan. The migration is backward-compat code and needs a #82 entry when implemented.
+- Project chats are in the dream cycle (FR-016a); before this change they were included only because they looked like ordinary WebUI chats, so the new conversation kind must keep them in explicitly.
 - Exact size limits (file reads, mentions, search results) are deferred to planning, following the existing workspace shell's bounded-output style.
 - Deferred to separate issues after this spec: agent-created worktrees, GitHub `#123` references without the gh CLI, merging/rebasing a worktree from the UI, a per-project worktree setup command and copy-files list.
