@@ -212,6 +212,9 @@ worktree-rm branch:
   git worktree prune
   echo "removed $dir (branch {{branch}} kept)"
 
+test-focus package filter:
+  cargo test -p '{{package}}' '{{filter}}'
+
 test:
   cargo test --workspace
 
