@@ -37,7 +37,7 @@ script can catch them as `ValueError`/`RuntimeError` and a model can read them.
   `tool_not_offered: <name> is not available in <mode> mode` (or `… while the shell is off`), before
   any work. This holds for scripts that call by name.
 - An unavailable folder (`cwd` missing) offers no `coding` tools; the category line is still
-  listed, and the project section of the system prompt says the folder is unavailable.
+  listed, and the message's `## Project state` says the folder is unavailable (§4).
 
 ## 2. Common rules
 
@@ -154,14 +154,44 @@ Input: `{ n?: int 1–50 = 10, path?: string }` — `{ commits: [{ hash, author,
 Unchanged from 040 except: category `coding`; `workdir` is resolved against `cwd` with the shared
 path rules; offered only in Build with the shell switch on.
 
-## 4. System prompt (project section)
+## 4. What the agent is told, and where
 
-Adds, after the folder line:
+The system prompt must stay **byte-identical for the life of a chat**, so a mode switch, a branch
+switch, the shell switch or the folder going missing never invalidates the provider's prompt
+cache for the whole history. Everything that can change between two turns of one chat goes into
+the per-message context block (`context_md`, which `with_context` wraps around the message and
+which already carries the time).
 
-- `Mode: Plan — you can read the project but not change it. Finish with propose_plan.` or
-  `Mode: Build — you can change files and run commands.` (or `… change files; commands are off.`)
-- `Working folder: <cwd display path>` and, for a worktree, `Worktree <name> on branch <branch>`.
-- `Git branch: <branch>` when known.
+**System prompt, `## Project` section** (`system_prompt/project.rs`; stable per chat):
 
-The section is per turn (it already is in 040); the category list in `SANDBOX.md` is unchanged
-by mode.
+- `You are working in the project "<name>"` and the working folder (`cwd` display path); for a
+  worktree chat, `in its worktree "<name>"` (a chat's worktree never changes).
+- One fixed paragraph: this chat has a Plan mode (read and search only; finish with
+  `propose_plan`) and a Build mode (change files; run commands when the shell is on); the current
+  mode, branch and shell state are given with each message under `## Project state`; follow it.
+- `## Project Instructions` (`AGENTS.md`/`CLAUDE.md` from `cwd`), as 040.
+- The 040 lines about the shell being on/off and the folder being unavailable are **removed** from
+  this section (they move to the context block below).
+
+For a subagent piece the paragraph says it was started from a project chat and has no
+`propose_plan`.
+
+**Context block, `## Project state` section** (`system_prompt/context.rs`; per message, only when
+the turn has a project):
+
+```text
+## Project state
+Mode: Plan — you can read and search the project but not change it. Finish with propose_plan.
+Branch: 041-coding (3 files changed)
+```
+
+- Mode line, one of: `Plan — …` (above); `Build — you can change files and run commands.`;
+  `Build — you can change files; commands are off for this project.`
+- `Branch: <branch>` (or `detached at <short hash>`), with the changed-file count when known;
+  omitted without git.
+- `Folder unavailable — the folder is missing, so project tools are off until it is restored.`
+  replaces the other lines when `cwd` is not a directory.
+- Order: after `## Time`, before invoked skills, reactions, recalled memory and
+  `## Mentioned files`.
+
+The category list in `SANDBOX.md` is unchanged by mode (`coding` is listed in both).

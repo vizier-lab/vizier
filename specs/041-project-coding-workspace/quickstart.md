@@ -116,6 +116,13 @@ Shell: `workspace_shell(command='git status --short')` runs; turn the project's 
 and, next turn, `workspace_shell` is `tool_not_offered … while the shell is off` while `edit_file`
 still works (US2-6).
 
+What the agent is told (R17): send `context` in Plan, switch to Build, send `context` again.
+Expected: the echoed context shows `## Project state` with `Mode: Plan …` then `Mode: Build …` and
+the current branch. Turn the shell switch off: the next `context` shows `commands are off`. To
+confirm the system prompt did not change, run this block under `just jaeger` + `just run-otel`
+(content capture on) and compare the system messages of the three turns' `chat {model}` spans:
+they are identical. The unit test in T027 pins the same property.
+
 Mode switch mid-turn (FR-013): start `workspace_shell(command='sleep 10')`, switch to Plan while it
 runs. Expected: the call completes; next turn `workspace_shell` is not offered.
 

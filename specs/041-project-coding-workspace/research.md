@@ -198,8 +198,8 @@ reading by explicit path never consults ignore rules.
 its reply text is the step's own text, and the WebUI draws the call from the `execute_python`
 report (the invocation record carries `name` and `arguments`). Choosing **Build this plan** sets
 the mode to `build` and then sends a chat message ("Build the plan.") in the same chat. The
-system prompt's project section states the mode, the folder the agent is in (worktree or main)
-and, in Plan, that it should finish with `propose_plan`.
+current mode, branch and shell state are told to the agent with each message, in a
+`## Project state` section of `context_md`, never in the system prompt (R17).
 
 **Rationale**: reuses turn-ending tools rather than inventing a plan message type; Plan has no
 write path at all, which is what SC-003 checks.
@@ -343,3 +343,24 @@ switching the main folder's branch and deleting another person's worktree chat. 
 also re-checked on the project's availability. Creation of a *project* stays desktop-only (040);
 creating a worktree inside an existing project works from the browser too, since it touches only
 an already-trusted folder.
+
+## R17. Volatile project state goes in the per-message context, not the system prompt
+
+**Decision**: the `## Project` system-prompt section holds only what is fixed for the life of a
+chat (project, working folder, worktree name, a fixed paragraph explaining both modes, the
+instruction document). The mode, the branch (with its changed-file count), the shell switch and
+folder availability go into a `## Project state` section of `context_md`, which `with_context`
+wraps around the turn's message and which already varies per message (`## Time`). The 040 shell
+and availability lines move out of the system prompt with them. Contract:
+[contracts/coding-tools.md](./contracts/coding-tools.md) §4.
+
+**Rationale**: the project section is a system message placed after CORE
+(`agents/agent/mod.rs`, `Message::system(project_md(..))`), so any change to it invalidates the
+provider's prompt cache for everything after it — the whole history — on the next turn. Mode and
+branch switches are routine during coding, so the cost would recur. On the per-message block,
+only the newest message changes. It is also where an instruction like "you cannot edit now" is
+most visible: next to the request, every turn, with no stale copy earlier in the prompt.
+
+**Alternatives considered**: keeping the mode in the system prompt (rejected: a cache miss on
+every switch, and the 040 shell line already has this cost); appending a system message only
+when the mode changes (rejected: two contradicting mode statements in one prompt).
