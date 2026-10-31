@@ -1,1 +1,1 @@
-export { Composer, type ComposerProps } from "./Composer";
+export { Composer, type ComposerProps, type ComposerSuggest } from "./Composer";

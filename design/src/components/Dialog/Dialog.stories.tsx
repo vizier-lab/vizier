@@ -35,6 +35,16 @@ export const Danger: Story = {
   },
 };
 
+/** The confirm waits for something (a name typed, facts still loading). */
+export const ConfirmDisabled: Story = {
+  args: { title: "New worktree", message: "A separate checkout on its own branch.", confirmLabel: "Create worktree", confirmIcon: "plus", confirmDisabled: true },
+};
+
+/** The confirmed work is running: the confirm shows the loader and can't be pressed twice. */
+export const ConfirmLoading: Story = {
+  args: { title: "New worktree", message: "A separate checkout on its own branch.", confirmLabel: "Creating…", confirmLoading: true },
+};
+
 /** The real modal: opens over a scrim, traps focus, Esc cancels. */
 export const Modal: Story = {
   render: function Render(args) {

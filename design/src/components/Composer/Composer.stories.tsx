@@ -95,3 +95,22 @@ export const AgentUnavailable: Story = { args: { disabledReason: "Archivist can'
 
 /** Mobile: the token count as text. */
 export const MobileTokens: Story = { args: { context: undefined, tokenText: "21k / 200k" }, decorators: [(Story) => <div className="w-375">{Story()}</div>] };
+
+/** A project chat: typing "@" opens the file menu; ↑↓ move, Tab or Enter mention, Esc closes. */
+export const MentioningAFile: Story = {
+  args: {
+    value: "Make ps match @agent",
+    suggest: {
+      label: "Files",
+      query: "agent",
+      items: [
+        { path: "crates/vizier/src/cli/agent.rs", kind: "file" },
+        { path: "crates/vizier-core/src/agents/mod.rs", kind: "file" },
+        { path: "crates/vizier-core/src/agents/", kind: "dir" },
+      ],
+      onPick: () => {},
+      onDismiss: () => {},
+    },
+  },
+  decorators: [(Story) => <div className="flex h-240 items-end">{Story()}</div>],
+};
