@@ -49,6 +49,8 @@ The issue traced history saving and journaling. Reading `agent_process` found th
 
 ## R4. Sharing the host conversation's session queue (confirms the issue, with a cost)
 
+> **Superseded.** Project chats run long coding turns, so the wait became a complaint. `agent_process` now spawns every `Btw` into its own `JoinSet` (`side_chats`) before the busy check: it never queues, reads the history saved so far (not the running turn's unsaved steps), is not stopped by `/abort`, and ends with the instance (its sender then sees `AgentUnavailable`). The text below records the original decision.
+
 **Decision**: the side chat is sent on the host conversation's `VizierSession`, so it queues behind a running turn and messages queue behind it.
 
 **Rationale**: the issue decided this and verified that `session_queues`/`session_is_busy` and scratch-on-idle are in-memory and durability-blind. It also means the side chat always sees the conversation's latest finished reply, and `/abort` stops it with everything else.

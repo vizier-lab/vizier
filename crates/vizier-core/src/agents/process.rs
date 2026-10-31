@@ -129,6 +129,7 @@ pub async fn agent_process(
     let mut turns = SessionTurns::default();
     let mut thinking_handles = HashMap::<VizierSession, Arc<JoinHandle<()>>>::new();
     let mut detail_tasks = JoinSet::new();
+    let mut side_chats = JoinSet::new();
 
     let mut session_queues = HashMap::<VizierSession, SessionQueue>::new();
     let titling = TitlingSessions::default();
@@ -171,6 +172,22 @@ pub async fn agent_process(
                         titling.clone(),
                         deps.transport.clone(),
                     ));
+                }
+
+                // A side chat answers beside the conversation, never in its queue: a long turn
+                // (a coding turn in a project chat) would otherwise hold it until it timed out.
+                // It reads the history saved so far and leaves the running turn alone. Dropping
+                // this set with the loop ends an unfinished one, so its sender sees the channel
+                // close and reports the agent unavailable.
+                if request.content.is_side_chat() {
+                    side_chats.spawn(run_btw(
+                        agent.clone(),
+                        deps.storage.clone(),
+                        session,
+                        request,
+                        response_tx,
+                    ));
+                    continue;
                 }
 
                 // Handle abort command
@@ -302,6 +319,7 @@ pub async fn agent_process(
                 }
             }
             Some(_) = detail_tasks.join_next(), if !detail_tasks.is_empty() => {}
+            Some(_) = side_chats.join_next(), if !side_chats.is_empty() => {}
         }
     }
 
