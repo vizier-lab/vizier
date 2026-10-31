@@ -12,6 +12,10 @@ on:
         required: false
         type: boolean
         default: false
+      only:
+        description: 'Dry runs only: build one desktop target (macos-universal, linux-amd64, linux-aarch64, windows-x64); empty builds all'
+        required: false
+        type: string
 
 jobs:
   # ====================
@@ -23,6 +27,7 @@ jobs:
     with:
       version: ${{ inputs.version }}
       dry_run: ${{ inputs.dry_run }}
+      only: ${{ inputs.only }}
     secrets: inherit
 
   # ====================

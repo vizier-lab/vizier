@@ -12,6 +12,10 @@ on:
         required: false
         type: boolean
         default: false
+      only:
+        description: 'Dry runs only: build one desktop target (macos-universal, linux-amd64, linux-aarch64, windows-x64); empty builds all'
+        required: false
+        type: string
   workflow_call:
     inputs:
       version:
@@ -23,6 +27,10 @@ on:
         required: false
         type: boolean
         default: false
+      only:
+        description: 'Dry runs only: build one desktop target; empty builds all'
+        required: false
+        type: string
     outputs:
       version:
         description: 'Released version'
@@ -45,6 +53,7 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
       changelog: ${{ steps.changelog.outputs.changelog }}
+      app-matrix: ${{ steps.apptargets.outputs.matrix }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -73,6 +82,32 @@ jobs:
             exit 1
           fi
           echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Select the desktop targets
+        id: apptargets
+        # `only` builds a single desktop target, so a retry of one failing leg does not also pay for
+        # the other three (macOS universal alone takes ~56 minutes). It is refused outside a dry run:
+        # a real release must ship every target. A job-level `if` cannot narrow the matrix itself
+        # (GitHub evaluates jobs.<id>.if before applying the matrix), so it is narrowed here.
+        run: |
+          # One line on purpose: a multi-line value needs the `key<<EOF` form in $GITHUB_OUTPUT.
+          targets='[{"name":"macos-universal","os":"macos-latest","args":"--target universal-apple-darwin","rust_targets":"aarch64-apple-darwin,x86_64-apple-darwin"},{"name":"linux-amd64","os":"ubuntu-22.04","args":"","rust_targets":""},{"name":"linux-aarch64","os":"ubuntu-22.04-arm","args":"","rust_targets":""},{"name":"windows-x64","os":"windows-latest","args":"","rust_targets":""}]'
+          only="${{ inputs.only }}"
+          if [ -n "$only" ] && [ "${{ inputs.dry_run }}" = "false" ]; then
+            echo "::error::only is for dry runs; a release builds every desktop target"
+            exit 1
+          fi
+          if [ -n "$only" ]; then
+            targets="$(printf '%s' "$targets" | jq -c --arg only "$only" 'map(select(.name == $only))')"
+            count="$(printf '%s' "$targets" | jq 'length')"
+            # Compared as a string: an empty jq result must fail, not trip `[ -eq ]`.
+            if [ "$count" != "1" ]; then
+              echo "::error::unknown desktop target '$only' (macos-universal, linux-amd64, linux-aarch64, windows-x64)"
+              exit 1
+            fi
+          fi
+          echo "matrix={\"include\":$targets}" >> "$GITHUB_OUTPUT"
+          echo "$targets"
 
       - name: Update Cargo.toml versions
         # Every version lives in the root Cargo.toml: the workspace version, and the
@@ -268,24 +303,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - name: macos-universal
-            os: macos-latest
-            args: --target universal-apple-darwin
-            rust_targets: aarch64-apple-darwin,x86_64-apple-darwin
-          - name: linux-amd64
-            os: ubuntu-22.04
-            args: ''
-            rust_targets: ''
-          - name: linux-aarch64
-            os: ubuntu-22.04-arm
-            args: ''
-            rust_targets: ''
-          - name: windows-x64
-            os: windows-latest
-            args: ''
-            rust_targets: ''
+      # Defined in prepare-release (the same four targets) so the `only` input can narrow it.
+      matrix: ${{ fromJSON(needs.prepare-release.outputs.app-matrix) }}
     steps:
       - name: Allow long paths
         if: runner.os == 'Windows'
@@ -307,11 +326,27 @@ jobs:
         shell: bash
         run: echo "LIBCLANG_PATH=C:\\Program Files\\LLVM\\bin" >> "$GITHUB_ENV"
 
+      # Defender inspects every object file cargo writes. Excluding the tree and the toolchains is
+      # the standard win on windows-latest, and a no-op where policy forbids the call.
+      - name: Exclude the build tree from Defender
+        if: runner.os == 'Windows'
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          foreach ($dir in @("$env:GITHUB_WORKSPACE", "$env:USERPROFILE\.cargo", "$env:USERPROFILE\.rustup")) {
+            Add-MpPreference -ExclusionPath $dir -ErrorAction SilentlyContinue
+          }
+
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: app -> target
           key: app-${{ matrix.name }}
+          # A failed leg would otherwise throw its whole target directory away: the Windows leg
+          # burned 33 minutes twice without ever saving a cache. The workspace crates are part of
+          # it too, which the default leaves out.
+          cache-on-failure: true
+          cache-workspace-crates: true
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -342,8 +377,11 @@ jobs:
             libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf libgtk-3-dev \
             pkg-config libssl-dev python3-dev libclang-dev clang perl make
 
+      # The CLI only drives the bundler, so take its npm package: it ships prebuilt binaries and
+      # installs in seconds, where `cargo install` recompiled it on every leg of every run
+      # (~4-10 minutes each, measured on 0.14.0-rc.3).
       - name: Install tauri-cli
-        run: cargo install tauri-cli --version '^2' --locked
+        run: npm install --global @tauri-apps/cli@2
 
       - name: Build app
         working-directory: app
@@ -367,7 +405,7 @@ jobs:
             echo "::warning::TAURI_SIGNING_PRIVATE_KEY is not set; update artifacts will not be signed"
             unset TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD
           fi
-          cargo tauri build ${{ matrix.args }}
+          tauri build ${{ matrix.args }}
 
       - name: Verify architectures
         shell: bash
@@ -377,10 +415,21 @@ jobs:
             echo "lipo: $archs"
             echo "$archs" | grep -qw x86_64 && echo "$archs" | grep -qw arm64 || { echo "::error::universal binary lacks an architecture: $archs"; exit 1; }
           elif [ "${{ runner.os }}" = "Windows" ]; then
-            setup="$(ls app/target/release/bundle/nsis/*-setup.exe | head -n1)"
-            info="$(file "$setup")"
+            # `file` only sees the NSIS bootstrap, and that is always 32-bit: Tauri's installer.nsi
+            # stages its plugins from `x86-unicode` and never asks NSIS for a 64-bit stub, so
+            # "PE32 executable ... Intel i386" is normal for an x64 installer and says nothing
+            # about what it installs. Check the payload instead. This leg passes no --target, so
+            # the binary sits in app/target/release, named after the crate like the macOS check.
+            binary="app/target/release/vizier-app.exe"
+            [ -f "$binary" ] || { echo "::error::$binary not found"; exit 1; }
+            info="$(file "$binary")"
             echo "$info"
-            echo "$info" | grep -q 'PE32+ executable' && echo "$info" | grep -q 'x86-64' || { echo "::error::not an x86-64 Windows installer"; exit 1; }
+            echo "$info" | grep -q 'PE32+ executable' && echo "$info" | grep -q 'x86-64' \
+              || { echo "::error::$binary is not an x86-64 Windows image: $info"; exit 1; }
+            # The installer's name carries the architecture the bundler picked from that target.
+            setup="$(ls app/target/release/bundle/nsis/*_x64-setup.exe 2>/dev/null | head -n1)"
+            [ -n "$setup" ] || { echo "::error::no x64 NSIS installer under app/target/release/bundle/nsis"; exit 1; }
+            echo "installer: $setup"
           else
             appimage="$(ls app/target/release/bundle/appimage/*.AppImage | head -n1)"
             info="$(file "$appimage")"

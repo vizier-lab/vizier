@@ -70,13 +70,20 @@ No `NEEDS CLARIFICATION` remained in the spec; the items below are the design de
 
 - **Decisions** (all in the `build-app` job and `create-release`):
   - Matrix entry `name: windows-x64`, `os: windows-latest`, `args: ''`, `rust_targets: ''`.
-  - Skip "Install Linux dependencies" (already `runner.os == 'Linux'`); `cargo install tauri-cli` stays (slow but cached by `rust-cache`; swap for a prebuilt install later if too slow).
-  - "Verify architectures": a Windows branch asserts the NSIS setup exe exists and is a PE32+ x86-64 image; "Collect artifacts": copy `bundle/nsis/*-setup.exe` and `.sig` to `Vizier_${VERSION}_x64-setup.exe(.sig)`; checksums via `sha256sum` on Windows (Git Bash) rather than `shasum`.
+  - Skip "Install Linux dependencies" (already `runner.os == 'Linux'`).
+  - "Verify architectures": a Windows branch checks the compiled payload (`app/target/release/vizier-app.exe` is a PE32+ x86-64 image) and that the bundler produced a `*-x64-setup.exe`. **Not** a `file` check on the setup exe: that reports the NSIS bootstrap, which is always 32-bit ("PE32 executable ... Intel i386, Nullsoft Installer self-extracting archive"), so asserting PE32+ there fails every Windows release — it cost the 0.14.0-rc.3 run 44 minutes and a bogus red build. "Collect artifacts": copy `bundle/nsis/*-setup.exe` and `.sig` to `Vizier_${VERSION}_x64-setup.exe(.sig)`; checksums via `sha256sum` on Windows (Git Bash) rather than `shasum`.
   - "Check update signatures": add the Windows `.sig` to the required list for real releases.
   - `latest.json`: add `windows-x86_64`.
   - Release body: list the Windows download and the SmartScreen note (More info → Run anyway).
   - `fail-fast: false` is already set, but `create-release` `needs: build-app`, so a failed Windows leg already blocks publishing (FR-008) — no change needed there.
 - **CI**: `ci.yml` `app` job becomes a matrix of `ubuntu-22.04` and `windows-latest`; Linux-specific apt step guarded by `runner.os`.
+- **Build time** (measured on `0.14.0-rc.3`, run 41224332947, per-step timings):
+  - Windows leg 44.6 min = 9.8 "Install tauri-cli" + 32.6 "Build app"; macOS universal 56.3 = 7.8 + 45.6; linux-amd64 33.3 = 6.8 + 24.5; linux-aarch64 21.2 = 4.3 + 15.3.
+  - `cargo install tauri-cli` recompiled ~200 crates on every leg of every run. Replaced with `npm install --global @tauri-apps/cli@2` (prebuilt binaries), called as `tauri build` — the "swap for a prebuilt install later" above.
+  - `Swatinem/rust-cache` now sets `cache-on-failure: true` and `cache-workspace-crates: true`. The defaults threw the target directory away whenever a leg failed: Windows measured 33.1 min and 32.6 min on two consecutive attempts, i.e. never a cache hit.
+  - A Windows-only step adds Defender exclusions for the workspace and both Rust toolchain directories (`continue-on-error`; a no-op where policy forbids the call).
+  - A new `only` input (dispatch and `workflow_call`) narrows the desktop matrix, computed in `prepare-release`; it is refused unless `dry_run`, so a release always builds every target. A job-level `if` cannot do this: GitHub evaluates `jobs.<id>.if` before applying the matrix.
+  - Next lever, needs a product decision: `app/Cargo.toml` pulls `vizier-core/full`, which includes `media` (whisper-rs builds whisper.cpp with cmake), `discord`, `telegram`, `docker-shell`, `documents`, `utoipa` and `telemetry`. Nothing in `app/src-tauri/src` uses them directly. Measure a narrower set with `cargo build --timings`.
 
 ## R11. Unsigned installer
 
