@@ -549,6 +549,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/agents/{agent_id}/projects": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list"];
+        put?: never;
+        post: operations["open"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agent_id}/projects/{project_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["detail"];
+        put?: never;
+        post?: never;
+        delete: operations["remove"];
+        options?: never;
+        head?: never;
+        patch: operations["update"];
+        trace?: never;
+    };
+    "/agents/{agent_id}/projects/{project_id}/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["sessions"];
+        put?: never;
+        post: operations["create_session"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/agents/{agent_id}/restart": {
         parameters: {
             query?: never;
@@ -1325,10 +1373,7 @@ export interface components {
             status: number;
         };
         APIResponse_AgentSaved: {
-            /**
-             * @description A saved agent, with anything about its model worth knowing (contract `http-api.md` §
-             *     Agents).
-             */
+            /** @description A saved agent, with anything about its model worth knowing. */
             data?: components["schemas"]["AgentSummary"] & {
                 warnings: components["schemas"]["AgentWarning"][];
             };
@@ -1575,6 +1620,16 @@ export interface components {
                 relations: string[];
                 tags: string[];
                 title: string;
+            };
+            message?: string | null;
+            /** Format: int32 */
+            status: number;
+        };
+        APIResponse_CreateProjectSessionResponse: {
+            data?: {
+                channel_id: string;
+                title: string;
+                topic: string;
             };
             message?: string | null;
             /** Format: int32 */
@@ -1875,6 +1930,46 @@ export interface components {
                 memories: components["schemas"]["MemorySummary"][];
                 offset: number;
                 total: number;
+            };
+            message?: string | null;
+            /** Format: int32 */
+            status: number;
+        };
+        APIResponse_ProjectDetail: {
+            data?: components["schemas"]["ProjectSummary"] & {
+                instructions_present: boolean;
+                instructions_truncated: boolean;
+            };
+            message?: string | null;
+            /** Format: int32 */
+            status: number;
+        };
+        APIResponse_ProjectRemoved: {
+            data?: {
+                removed: boolean;
+            };
+            message?: string | null;
+            /** Format: int32 */
+            status: number;
+        };
+        APIResponse_ProjectSummary: {
+            data?: {
+                agent_id: components["schemas"]["String"];
+                available: boolean;
+                /**
+                 * Format: int64
+                 * @description Unix milliseconds.
+                 */
+                created_at: number;
+                /** @description The canonical folder, with Windows' `\\?\` prefix stripped for display. */
+                folder: string;
+                id: string;
+                is_owner: boolean;
+                name: string;
+                owner_id: string;
+                /** @description Sessions in the project across every owner (the sidebar's project row). */
+                session_count: number;
+                shell_enabled: boolean;
             };
             message?: string | null;
             /** Format: int32 */
@@ -2288,6 +2383,44 @@ export interface components {
             /** Format: int32 */
             status: number;
         };
+        APIResponse_Vec_ProjectSession: {
+            data?: {
+                is_thinking: boolean;
+                /**
+                 * Format: int64
+                 * @description Unix milliseconds; `null` for a brand-new empty session.
+                 */
+                last_activity?: number | null;
+                title: string;
+                topic: string;
+            }[];
+            message?: string | null;
+            /** Format: int32 */
+            status: number;
+        };
+        APIResponse_Vec_ProjectSummary: {
+            data?: {
+                agent_id: components["schemas"]["String"];
+                available: boolean;
+                /**
+                 * Format: int64
+                 * @description Unix milliseconds.
+                 */
+                created_at: number;
+                /** @description The canonical folder, with Windows' `\\?\` prefix stripped for display. */
+                folder: string;
+                id: string;
+                is_owner: boolean;
+                name: string;
+                owner_id: string;
+                /** @description Sessions in the project across every owner (the sidebar's project row). */
+                session_count: number;
+                shell_enabled: boolean;
+            }[];
+            message?: string | null;
+            /** Format: int32 */
+            status: number;
+        };
         APIResponse_Vec_ProviderResponse: {
             data?: {
                 /** @description AWS Bedrock: the access key id is an identifier, not a secret. */
@@ -2525,10 +2658,7 @@ export interface components {
          * @enum {string}
          */
         AgentRunState: "starting" | "running" | "failed" | "stopped";
-        /**
-         * @description A saved agent, with anything about its model worth knowing (contract `http-api.md` §
-         *     Agents).
-         */
+        /** @description A saved agent, with anything about its model worth knowing. */
         AgentSaved: components["schemas"]["AgentSummary"] & {
             warnings: components["schemas"]["AgentWarning"][];
         };
@@ -3056,6 +3186,11 @@ export interface components {
             relations: string[];
             tags: string[];
             title: string;
+        };
+        CreateProjectSessionResponse: {
+            channel_id: string;
+            title: string;
+            topic: string;
         };
         CreateTaskRequest: {
             instruction: string;
@@ -3752,6 +3887,10 @@ export interface components {
          * @enum {string}
          */
         NotificationTone: "default" | "failed" | "success";
+        OpenProjectRequest: {
+            /** @description The folder to mount. Its final component becomes the project name. */
+            folder: string;
+        };
         Overview: {
             /**
              * Format: date-time
@@ -3800,6 +3939,41 @@ export interface components {
         } | {
             /** Format: int64 */
             telegram: number;
+        };
+        ProjectDetail: components["schemas"]["ProjectSummary"] & {
+            instructions_present: boolean;
+            instructions_truncated: boolean;
+        };
+        ProjectRemoved: {
+            removed: boolean;
+        };
+        ProjectSession: {
+            is_thinking: boolean;
+            /**
+             * Format: int64
+             * @description Unix milliseconds; `null` for a brand-new empty session.
+             */
+            last_activity?: number | null;
+            title: string;
+            topic: string;
+        };
+        ProjectSummary: {
+            agent_id: components["schemas"]["String"];
+            available: boolean;
+            /**
+             * Format: int64
+             * @description Unix milliseconds.
+             */
+            created_at: number;
+            /** @description The canonical folder, with Windows' `\\?\` prefix stripped for display. */
+            folder: string;
+            id: string;
+            is_owner: boolean;
+            name: string;
+            owner_id: string;
+            /** @description Sessions in the project across every owner (the sidebar's project row). */
+            session_count: number;
+            shell_enabled: boolean;
         };
         PromoteFileRequest: {
             filename: string;
@@ -4378,6 +4552,11 @@ export interface components {
             path: string;
             relations: string[];
             tags: string[];
+        };
+        UpdateProjectRequest: {
+            /** @description Trimmed, 1–120 characters. */
+            name?: string | null;
+            shell_enabled?: boolean | null;
         };
         UploadRequest: {
             /** @description Base64-encoded file content */
@@ -6698,6 +6877,313 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["APIResponse_String"];
                 };
+            };
+        };
+    };
+    list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Agent ID */
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The agent's open projects, newest first */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_Vec_ProjectSummary"];
+                };
+            };
+            /** @description The caller may not use this agent's projects */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Agent not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    open: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Agent ID */
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OpenProjectRequest"];
+            };
+        };
+        responses: {
+            /** @description Existing project reused or restored */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_ProjectSummary"];
+                };
+            };
+            /** @description Project created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_ProjectSummary"];
+                };
+            };
+            /** @description Missing permission, or not a desktop principal (`desktop_only`) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Agent not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description `invalid_folder` or `workspace_folder` */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    detail: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Agent ID */
+                agent_id: string;
+                /** @description Project ID */
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Project detail; the instruction text is never returned */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_ProjectDetail"];
+                };
+            };
+            /** @description The caller may not use this agent's projects */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Agent or project not found, or removed */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    remove: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Agent ID */
+                agent_id: string;
+                /** @description Project ID */
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Soft-removed; no file or history row was deleted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_ProjectRemoved"];
+                };
+            };
+            /** @description Not the project owner or a whole-workspace project manager */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Agent or project not found, or removed */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description A turn is running or queued in the project (`turn_active`) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Agent ID */
+                agent_id: string;
+                /** @description Project ID */
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateProjectRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated project */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_ProjectSummary"];
+                };
+            };
+            /** @description Not the project owner or a whole-workspace project manager */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Agent or project not found, or removed */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description `invalid_name` or an empty update */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    sessions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Agent ID */
+                agent_id: string;
+                /** @description Project ID */
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller's sessions, newest activity first, empty last */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_Vec_ProjectSession"];
+                };
+            };
+            /** @description The caller may not use this agent's projects */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Agent or project not found, or removed */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    create_session: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Agent ID */
+                agent_id: string;
+                /** @description Project ID */
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description An empty session titled New session */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_CreateProjectSessionResponse"];
+                };
+            };
+            /** @description The caller may not use this agent's projects */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Agent or project not found, or removed */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

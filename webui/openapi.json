@@ -3325,6 +3325,341 @@
         }
       }
     },
+    "/agents/{agent_id}/projects": {
+      "get": {
+        "tags": [
+          "api::v1::agents::projects"
+        ],
+        "operationId": "list",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "Agent ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The agent's open projects, newest first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_Vec_ProjectSummary"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller may not use this agent's projects"
+          },
+          "404": {
+            "description": "Agent not found"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "api::v1::agents::projects"
+        ],
+        "operationId": "open",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "Agent ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OpenProjectRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Existing project reused or restored",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_ProjectSummary"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Project created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_ProjectSummary"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Missing permission, or not a desktop principal (`desktop_only`)"
+          },
+          "404": {
+            "description": "Agent not found"
+          },
+          "422": {
+            "description": "`invalid_folder` or `workspace_folder`"
+          }
+        }
+      }
+    },
+    "/agents/{agent_id}/projects/{project_id}": {
+      "get": {
+        "tags": [
+          "api::v1::agents::projects"
+        ],
+        "operationId": "detail",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "Agent ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "project_id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Project detail; the instruction text is never returned",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_ProjectDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller may not use this agent's projects"
+          },
+          "404": {
+            "description": "Agent or project not found, or removed"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "api::v1::agents::projects"
+        ],
+        "operationId": "remove",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "Agent ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "project_id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Soft-removed; no file or history row was deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_ProjectRemoved"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not the project owner or a whole-workspace project manager"
+          },
+          "404": {
+            "description": "Agent or project not found, or removed"
+          },
+          "409": {
+            "description": "A turn is running or queued in the project (`turn_active`)"
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "api::v1::agents::projects"
+        ],
+        "operationId": "update",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "Agent ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "project_id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateProjectRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Updated project",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_ProjectSummary"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not the project owner or a whole-workspace project manager"
+          },
+          "404": {
+            "description": "Agent or project not found, or removed"
+          },
+          "422": {
+            "description": "`invalid_name` or an empty update"
+          }
+        }
+      }
+    },
+    "/agents/{agent_id}/projects/{project_id}/sessions": {
+      "get": {
+        "tags": [
+          "api::v1::agents::projects"
+        ],
+        "operationId": "sessions",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "Agent ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "project_id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The caller's sessions, newest activity first, empty last",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_Vec_ProjectSession"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller may not use this agent's projects"
+          },
+          "404": {
+            "description": "Agent or project not found, or removed"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "api::v1::agents::projects"
+        ],
+        "operationId": "create_session",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "Agent ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "project_id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "An empty session titled New session",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_CreateProjectSessionResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller may not use this agent's projects"
+          },
+          "404": {
+            "description": "Agent or project not found, or removed"
+          }
+        }
+      }
+    },
     "/agents/{agent_id}/restart": {
       "post": {
         "tags": [
@@ -6531,7 +6866,7 @@
                 }
               }
             ],
-            "description": "A saved agent, with anything about its model worth knowing (contract `http-api.md` §\nAgents)."
+            "description": "A saved agent, with anything about its model worth knowing."
           },
           "message": {
             "type": [
@@ -7493,6 +7828,44 @@
                 }
               },
               "title": {
+                "type": "string"
+              }
+            }
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "APIResponse_CreateProjectSessionResponse": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "topic",
+              "title",
+              "channel_id"
+            ],
+            "properties": {
+              "channel_id": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "topic": {
                 "type": "string"
               }
             }
@@ -8629,6 +9002,148 @@
               "total": {
                 "type": "integer",
                 "minimum": 0
+              }
+            }
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "APIResponse_ProjectDetail": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "data": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ProjectSummary"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "instructions_present",
+                  "instructions_truncated"
+                ],
+                "properties": {
+                  "instructions_present": {
+                    "type": "boolean"
+                  },
+                  "instructions_truncated": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            ]
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "APIResponse_ProjectRemoved": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "removed"
+            ],
+            "properties": {
+              "removed": {
+                "type": "boolean"
+              }
+            }
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "APIResponse_ProjectSummary": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "id",
+              "agent_id",
+              "name",
+              "folder",
+              "available",
+              "shell_enabled",
+              "owner_id",
+              "is_owner",
+              "session_count",
+              "created_at"
+            ],
+            "properties": {
+              "agent_id": {
+                "$ref": "#/components/schemas/String"
+              },
+              "available": {
+                "type": "boolean"
+              },
+              "created_at": {
+                "type": "integer",
+                "format": "int64",
+                "description": "Unix milliseconds."
+              },
+              "folder": {
+                "type": "string",
+                "description": "The canonical folder, with Windows' `\\\\?\\` prefix stripped for display."
+              },
+              "id": {
+                "type": "string"
+              },
+              "is_owner": {
+                "type": "boolean"
+              },
+              "name": {
+                "type": "string"
+              },
+              "owner_id": {
+                "type": "string"
+              },
+              "session_count": {
+                "type": "integer",
+                "description": "Sessions in the project across every owner (the sidebar's project row).",
+                "minimum": 0
+              },
+              "shell_enabled": {
+                "type": "boolean"
               }
             }
           },
@@ -10238,6 +10753,129 @@
           }
         }
       },
+      "APIResponse_Vec_ProjectSession": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "topic",
+                "title",
+                "is_thinking"
+              ],
+              "properties": {
+                "is_thinking": {
+                  "type": "boolean"
+                },
+                "last_activity": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "int64",
+                  "description": "Unix milliseconds; `null` for a brand-new empty session."
+                },
+                "title": {
+                  "type": "string"
+                },
+                "topic": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "APIResponse_Vec_ProjectSummary": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "agent_id",
+                "name",
+                "folder",
+                "available",
+                "shell_enabled",
+                "owner_id",
+                "is_owner",
+                "session_count",
+                "created_at"
+              ],
+              "properties": {
+                "agent_id": {
+                  "$ref": "#/components/schemas/String"
+                },
+                "available": {
+                  "type": "boolean"
+                },
+                "created_at": {
+                  "type": "integer",
+                  "format": "int64",
+                  "description": "Unix milliseconds."
+                },
+                "folder": {
+                  "type": "string",
+                  "description": "The canonical folder, with Windows' `\\\\?\\` prefix stripped for display."
+                },
+                "id": {
+                  "type": "string"
+                },
+                "is_owner": {
+                  "type": "boolean"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "owner_id": {
+                  "type": "string"
+                },
+                "session_count": {
+                  "type": "integer",
+                  "description": "Sessions in the project across every owner (the sidebar's project row).",
+                  "minimum": 0
+                },
+                "shell_enabled": {
+                  "type": "boolean"
+                }
+              }
+            }
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
       "APIResponse_Vec_ProviderResponse": {
         "type": "object",
         "required": [
@@ -11197,7 +11835,7 @@
             }
           }
         ],
-        "description": "A saved agent, with anything about its model worth knowing (contract `http-api.md` §\nAgents)."
+        "description": "A saved agent, with anything about its model worth knowing."
       },
       "AgentSummary": {
         "type": "object",
@@ -13211,6 +13849,25 @@
             }
           },
           "title": {
+            "type": "string"
+          }
+        }
+      },
+      "CreateProjectSessionResponse": {
+        "type": "object",
+        "required": [
+          "topic",
+          "title",
+          "channel_id"
+        ],
+        "properties": {
+          "channel_id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "topic": {
             "type": "string"
           }
         }
@@ -15652,6 +16309,18 @@
           "success"
         ]
       },
+      "OpenProjectRequest": {
+        "type": "object",
+        "required": [
+          "folder"
+        ],
+        "properties": {
+          "folder": {
+            "type": "string",
+            "description": "The folder to mount. Its final component becomes the project name."
+          }
+        }
+      },
       "Overview": {
         "type": "object",
         "required": [
@@ -15829,6 +16498,118 @@
             }
           }
         ]
+      },
+      "ProjectDetail": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ProjectSummary"
+          },
+          {
+            "type": "object",
+            "required": [
+              "instructions_present",
+              "instructions_truncated"
+            ],
+            "properties": {
+              "instructions_present": {
+                "type": "boolean"
+              },
+              "instructions_truncated": {
+                "type": "boolean"
+              }
+            }
+          }
+        ]
+      },
+      "ProjectRemoved": {
+        "type": "object",
+        "required": [
+          "removed"
+        ],
+        "properties": {
+          "removed": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ProjectSession": {
+        "type": "object",
+        "required": [
+          "topic",
+          "title",
+          "is_thinking"
+        ],
+        "properties": {
+          "is_thinking": {
+            "type": "boolean"
+          },
+          "last_activity": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Unix milliseconds; `null` for a brand-new empty session."
+          },
+          "title": {
+            "type": "string"
+          },
+          "topic": {
+            "type": "string"
+          }
+        }
+      },
+      "ProjectSummary": {
+        "type": "object",
+        "required": [
+          "id",
+          "agent_id",
+          "name",
+          "folder",
+          "available",
+          "shell_enabled",
+          "owner_id",
+          "is_owner",
+          "session_count",
+          "created_at"
+        ],
+        "properties": {
+          "agent_id": {
+            "$ref": "#/components/schemas/String"
+          },
+          "available": {
+            "type": "boolean"
+          },
+          "created_at": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Unix milliseconds."
+          },
+          "folder": {
+            "type": "string",
+            "description": "The canonical folder, with Windows' `\\\\?\\` prefix stripped for display."
+          },
+          "id": {
+            "type": "string"
+          },
+          "is_owner": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "owner_id": {
+            "type": "string"
+          },
+          "session_count": {
+            "type": "integer",
+            "description": "Sessions in the project across every owner (the sidebar's project row).",
+            "minimum": 0
+          },
+          "shell_enabled": {
+            "type": "boolean"
+          }
+        }
       },
       "PromoteFileRequest": {
         "type": "object",
@@ -17781,6 +18562,24 @@
             "items": {
               "type": "string"
             }
+          }
+        }
+      },
+      "UpdateProjectRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Trimmed, 1–120 characters."
+          },
+          "shell_enabled": {
+            "type": [
+              "boolean",
+              "null"
+            ]
           }
         }
       },

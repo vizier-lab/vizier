@@ -14,7 +14,7 @@ type Handlers = {
 type ConnectionStore = {
     state: Record<string, ConnectionState>
     /** Opens the socket for a topic, or does nothing if it is already open. */
-    open: (agentId: string, topicId: string, handlers: Handlers) => void
+    open: (agentId: string, topicId: string, handlers: Handlers, channel?: string) => void
     close: (agentId: string, topicId: string) => void
     /** Sends a frame, adding this client's tool declarations to a request. */
     send: (agentId: string, topicId: string, frame: object) => boolean
@@ -35,14 +35,14 @@ function withClientTools(frame: object): object {
 export const useConnection = create<ConnectionStore>()((set) => ({
     state: {},
 
-    open: (agentId, topicId, handlers) => {
+    open: (agentId, topicId, handlers, channel = CHANNEL) => {
         const key = topicKey(agentId, topicId)
         if (sockets.has(key)) return
         const setState = (s: ConnectionState) => set((cur) => ({ state: { ...cur.state, [key]: s } }))
         sockets.set(
             key,
             openTopic(
-                { agentId, channelId: CHANNEL, topicId },
+                { agentId, channelId: channel, topicId },
                 { onFrame: handlers.onFrame, onOpen: handlers.onOpen, onState: setState }
             )
         )

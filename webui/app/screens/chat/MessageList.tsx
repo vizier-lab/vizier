@@ -60,13 +60,15 @@ type Props = {
     recalledFor?: (turn: Turn) => number
     /** A Discord or Telegram conversation: people's messages carry their own names, not "You". */
     byPlatformName?: boolean
+    /** Shown under the greeting of an empty conversation, e.g. "Open a Project" on desktop. */
+    emptyAction?: ReactNode
 }
 
 function stopTime(entry: ChatMessage | undefined) {
     return entry?.timestamp ? time(entry.timestamp) : ''
 }
 
-export function MessageList({ state, agent, greeting, hasOlder, bottomInset = 0, insetRight = 0, loadingOlder, onLoadOlder, onReact, error, clientCalls, recalledFor, byPlatformName }: Props) {
+export function MessageList({ state, agent, greeting, hasOlder, bottomInset = 0, insetRight = 0, loadingOlder, onLoadOlder, onReact, error, clientCalls, recalledFor, byPlatformName, emptyAction }: Props) {
     const { entries } = state
     const turns = useMemo(() => groupHistory(entries), [entries])
     const prices = usePrices()
@@ -264,7 +266,14 @@ export function MessageList({ state, agent, greeting, hasOlder, bottomInset = 0,
             >
                 <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-20">
                     {hasOlder && <LoadMore look="auto" label="Load older" loading={loadingOlder} onLoad={onLoadOlder} />}
-                    {items.length === 0 && !running ? <ChatGreeting className="my-auto" agentId={agent.id} name={agent.name} live={agent.live} greeting={greeting} meta="Nothing sent yet" /> : items}
+                    {items.length === 0 && !running ? (
+                        <div className="my-auto flex flex-col items-center gap-20">
+                            <ChatGreeting agentId={agent.id} name={agent.name} live={agent.live} greeting={greeting} meta="Nothing sent yet" />
+                            {emptyAction}
+                        </div>
+                    ) : (
+                        items
+                    )}
                 </div>
             </div>
             <Presence>

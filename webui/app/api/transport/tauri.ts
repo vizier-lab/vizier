@@ -31,6 +31,7 @@ export const tauriShell: DesktopShell = {
     setupOwner: (username, password) => invoke('desktop_setup_owner', { username, password }),
     chooseOwner: (userId) => invoke('desktop_choose_owner', { userId }),
     openWorkspace: (path) => invoke('desktop_open_workspace', { path }),
+    pickFolder: () => invoke<string | null>('desktop_pick_folder'),
     restart: () => invoke('runtime_restart'),
     settingsGet: () => invoke('desktop_settings_get'),
     settingsSet: (settings) => invoke('desktop_settings_set', { patch: settings }),
@@ -116,5 +117,6 @@ export const tauri: Transport = {
     async notify({ title, body, href }) {
         await invoke('notify', { title, body, href }).catch(() => sendNotification({ title, body }))
     },
+    pickFolder: () => tauriShell.pickFolder(),
     desktop: tauriShell,
 }

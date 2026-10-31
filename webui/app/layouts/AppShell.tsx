@@ -45,7 +45,7 @@ export default function AppShell() {
     // Choosing a page closes the drawer.
     useEffect(() => setNavOpen(false), [pathname, setNavOpen])
     // A chat brings its own top bar, which has the topic and the agent's status.
-    const ownsTopBar = /^\/[^/]+\/chat(\/|$)/.test(pathname)
+    const ownsTopBar = /^\/[^/]+\/(?:projects\/[^/]+\/)?chat(\/|$)/.test(pathname)
 
     const routeAgent =
         params.agentId && params.agentId !== 'settings' && params.agentId !== 'agents'

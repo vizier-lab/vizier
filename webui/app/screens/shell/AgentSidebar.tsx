@@ -18,6 +18,7 @@ import { canManageSecrets, canViewArtifacts } from '../../lib/access'
 import { conversationHref, conversationTitle, sidebarSections, sidebarTime } from '../../lib/conversations'
 import { relativeTime } from '../../lib/format'
 import { withNewAgent } from '../agents/NewAgentDialog'
+import { ProjectsSection } from '../projects/ProjectsSection'
 import { useAgents } from '../../stores/agents'
 import { topicKey } from '../../stores/connection'
 import { useSession } from '../../stores/session'
@@ -173,6 +174,7 @@ export function AgentSidebar({ agentId }: { agentId: string }) {
             hrefFor={(p) => `/${agentId}${PAGE_PATH[p]}`}
             onNew={newConversation}
         >
+            <ProjectsSection agentId={agentId} />
             <SessionList
                 groups={groups}
                 onNew={newConversation}
