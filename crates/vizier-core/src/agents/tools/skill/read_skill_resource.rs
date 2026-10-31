@@ -1,25 +1,19 @@
-use std::sync::Arc;
-
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
 use crate::agents::tools::{ToolCategory, ToolContext, VizierTool};
 use crate::dependencies::VizierDependencies;
 use crate::error::VizierError;
-use crate::skill::SkillManager;
+
+use super::scopes;
 
 pub struct ReadSkillResource {
-    global_manager: SkillManager,
-    agent_manager: Option<SkillManager>,
+    workspace: String,
 }
 
 impl ReadSkillResource {
-    pub fn new(agent_id: Option<String>, deps: VizierDependencies) -> Self {
-        let workspace = deps.config.workspace.clone();
-        Self {
-            global_manager: SkillManager::new(&workspace),
-            agent_manager: agent_id.map(|id| SkillManager::for_agent(&workspace, &id)),
-        }
+    pub fn new(_agent_id: Option<String>, deps: VizierDependencies) -> Self {
+        Self { workspace: deps.config.workspace.clone() }
     }
 }
 
@@ -46,28 +40,21 @@ impl VizierTool for ReadSkillResource {
     }
 
     fn description(&self) -> String {
-        "read a resource file from a skill folder (templates, references, scripts, etc.)".into()
+        "read a resource file from a skill folder (templates, references, scripts, etc.). The path \
+         is relative to the skill's folder and may not leave it; a binary file is refused."
+            .into()
     }
 
-    async fn call(&self, args: Self::Input, _ctx: &ToolContext) -> Result<Self::Output, VizierError> {
-        // Try agent skill first, then global
-        if let Some(ref agent_manager) = self.agent_manager {
-            if let Some(content) = agent_manager.read_resource(&args.slug, &args.path)
-                .map_err(|e| VizierError(e.to_string()))?
-            {
-                return Ok(content);
-            }
+    async fn call(&self, args: Self::Input, ctx: &ToolContext) -> Result<Self::Output, VizierError> {
+        let Some(scoped) = scopes(ctx, &self.workspace).find(&args.slug) else {
+            return Err(VizierError(format!("Skill '{}' not found", args.slug)));
+        };
+        match scoped.read_resource(&args.path)? {
+            Some(content) => Ok(content),
+            None => Err(VizierError(format!(
+                "Resource '{}' not found in skill '{}'",
+                args.path, args.slug
+            ))),
         }
-
-        if let Some(content) = self.global_manager.read_resource(&args.slug, &args.path)
-            .map_err(|e| VizierError(e.to_string()))?
-        {
-            return Ok(content);
-        }
-
-        Err(VizierError(format!(
-            "Resource '{}' not found in skill '{}'",
-            args.path, args.slug
-        )))
     }
 }

@@ -293,3 +293,18 @@ app-build:
 [working-directory: 'app']
 app-test:
   cargo test
+
+# Build the desktop app as a standalone binary with the WebUI compiled in: no Vite dev server and
+# no file watcher, so nothing restarts under you. Start it with `just app-run`.
+app-debug:
+  npm --prefix webui run build
+  cd app; cargo tauri build --debug --no-bundle
+
+# Run the binary `just app-debug` produced. Run `just app-debug` again to see new code.
+[unix]
+app-run:
+  app/target/debug/vizier-app
+
+[windows]
+app-run:
+  app\target\debug\vizier-app.exe

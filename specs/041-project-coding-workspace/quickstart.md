@@ -201,3 +201,30 @@ stage reads the project chat's history; the dream's tool list has no `coding` ca
 With a real model, in Plan: "rename greet to hello". Expected: the agent reads and greps, then
 calls `propose_plan` rather than editing; after **Build this plan**, it uses `read_file` +
 `edit_file`, not shell `sed`/heredocs.
+
+## 9. Project skills (FR-035–FR-043)
+
+Fixtures: a project folder with `.agents/skills/plan-demo/SKILL.md` (`user-invocable: true`,
+`argument-hint: "[topic]"`) and one resource `resources/checklist.md`; the same slug also under
+`.claude/skills/plan-demo/` with a different description; and `.claude/skills/private/SKILL.md` with
+`disable-model-invocation: true`.
+
+1. Open the folder as a project, on the `dummyplug` provider. Send `context`. Expected: a
+   `## Project Skills` section listing `plan-demo` once, with its `(takes: [topic])` hint, the
+   `.agents` description (not the `.claude` one), and no `private`.
+2. Send `/skills`. Expected: `plan-demo` appears **once**, alongside the workspace skills; no
+   duplicate from the two roots.
+3. Send `/plan-demo add a step`. Expected: the turn's `# Context` has an `## Invoked Skill` section
+   with the body; history's `metadata.invoked_skill` is `plan-demo`.
+4. Send `tools`, then `skills`, then `read_skill_resource(slug="plan-demo",
+   path="resources/checklist.md")`. Expected: the resource text. Then the same call with
+   `path="../SKILL.md"` → refused (a path may not leave the skill folder).
+5. Send `execute_skill_resource(slug="plan-demo", path="run.sh")` in the project chat. Expected:
+   `project_skill_resource: … workspace_shell …`.
+6. Open the same agent in an ordinary WebUI chat and send `/plan-demo`. Expected: "No skill named
+   \"plan-demo\"", and its `# Context` has no `## Project Skills`.
+7. Hooks, prose only: send `/speckit-plan` in Build mode with the shell on, against a folder holding
+   `.specify/extensions.yml` with one mandatory `before_plan` hook. Expected: the agent says what it
+   is about to stage and commit **before** running it. Repeat in Plan mode: expected a statement
+   that the hook was skipped for lack of a shell, not a pretend commit. Because this is prose, this
+   step is the only acceptance test there is — read the reply, do not look for a recorded event.

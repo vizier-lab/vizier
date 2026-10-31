@@ -134,6 +134,15 @@ document is harmless. The file is re-read every turn, so edits apply without a r
 instruction text is never returned by the API — only whether it exists and whether it was
 truncated.
 
+## Project skills
+
+The folder's own skills, in `.agents/skills/<slug>/` (then `.claude/skills`), are available to the
+chat and listed in a `## Project Skills` section of its system prompt. They are read where they lie,
+never copied into the workspace and never indexed, so a branch switch shows up on the next turn.
+`/skills` lists them with the workspace ones, each slug once, and typing `/` in the composer offers
+them too, read from the chat's worktree when it is bound to one. [Skills](skills.md#project-skills)
+has the frontmatter, the precedence and what happens to a skill's scripts and hooks.
+
 ## Permissions
 
 | Permission | Meaning |

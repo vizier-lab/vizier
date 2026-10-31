@@ -227,6 +227,50 @@ Designed in FigCraft first (mode toggle, plan card, changes panel with diff, bra
 worktree dialog and delete confirmation, sidebar grouping, mention menu), built in `design/`
 with stories, then used in `webui/`. Surfaces and behaviour: [contracts/ui.md](./contracts/ui.md).
 
+### 7. Project skills (FR-035–FR-043)
+
+The skills a *project folder* carries, for the Agent Skills layout the ecosystem already writes
+(`.agents/skills/<slug>/SKILL.md`, and `.claude/skills` as the older home). They are a **third
+scope** beside the two Vizier has, and the only one that is not in the workspace:
+
+| Scope | Root | Whose |
+|---|---|---|
+| Global | `<workspace>/skills` | every agent |
+| Agent | `<workspace>/agents/<id>/skills` | one agent |
+| **Project** | `<cwd>/.agents/skills`, then `<cwd>/.claude/skills` | one project chat (and its pieces) |
+
+- **Resolved per turn, not per agent.** `SkillManager` gains `for_project(root)` and one
+  `scopes_for_turn(workspace, agent_id, ctx.project)` returns project → agent → global. The
+  project root is the turn's `cwd` only: a worktree is a full checkout and carries the skills of
+  its own branch, so there is no root-plus-worktree precedence to reason about. Inside a root,
+  `.agents` wins a slug both it and `.claude` carry.
+- **The tools resolve scopes per call.** `use_skill`, `list_skills`, `get_skill_details` and
+  `read_skill_resource` build fixed `SkillManager`s in `new()` today; that is exactly why they
+  cannot see a project. They take the scopes off `ToolContext` instead (agent id from
+  `ctx.session`, project from `ctx.project`). `create_skill`, `update_skill` and `delete_skill`
+  stay workspace-scoped, so no tool can write into a repository.
+- **No index.** Project skills are never embedded: `recommend_skills` runs before a turn's
+  project is resolved, the vector table is one workspace-wide table with no session identity,
+  and a project's skills change under git. They are listed deterministically in the system
+  prompt, like `AGENTS.md`, and read from disk on each use, so a branch switch is reflected on
+  the next turn and one project's skills can never be recommended in another.
+- **Frontmatter widened, not narrowed.** `author` becomes optional, `version` accepts a string
+  (`4.7.0`) or a number, and `user-invocable`, `disable-model-invocation` and `argument-hint`
+  are read. Serde already ignores unknown keys (`metadata:`, `compatibility:`, `license:`), and
+  nothing rewrites a project's `SKILL.md`, so no catch-all field is needed.
+- **Resources bounded and confined.** A resource path is relative, validated by the existing
+  `validate_resource_path`, and the listing is capped in count and bytes with binaries skipped.
+  `execute_skill_resource` is refused in a project chat: its `std::process::Command` has no cwd,
+  no timeout and no mode gate, while `workspace_shell` has all three.
+- **Hooks are the skill's prose, not machinery.** `.specify/extensions.yml` entries are
+  instructions the agent may follow with `read_file` and `workspace_shell`; nothing guarantees
+  them and nothing reports on them, so the prompt says so and requires the agent to announce a
+  commit before making one. Harness hook manifests (`.claude/settings.local.json`,
+  `.codex/hooks.json`, `.cursor/hooks.json`, `.github/hooks/*.json`, `.gemini/settings.json`)
+  are never read; executing them is a follow-up, not part of this.
+
+Contract: [contracts/project-skills.md](./contracts/project-skills.md).
+
 ## Complexity Tracking
 
 | Violation | Why Needed | Simpler Alternative Rejected Because |

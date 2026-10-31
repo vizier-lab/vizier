@@ -95,7 +95,7 @@ pub fn same_name(a: &str, b: &str) -> bool {
     a.len() == b.len() && a.chars().map(fold).eq(b.chars().map(fold))
 }
 
-fn is_reserved(name: &str) -> bool {
+pub fn is_reserved(name: &str) -> bool {
     RESERVED.iter().any(|reserved| reserved.eq_ignore_ascii_case(name))
 }
 
@@ -194,8 +194,11 @@ mod tests {
                     description: format!("{scope} {name}"),
                     content: format!("{scope} content"),
                     keywords: vec![],
-                    version: 1,
+                    version: Default::default(),
                     resources: vec![],
+                    user_invocable: true,
+                    disable_model_invocation: false,
+                    argument_hint: None,
                 })
                 .unwrap();
         }

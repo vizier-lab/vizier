@@ -32,6 +32,8 @@ pub fn vectors() -> Vec<Vector> {
             Some(json!({ "mode": "build" })),
         ),
         v("GET", "/agents/agent-a/projects/p3xY9aQ2mZ/files?q=age", None),
+        v("GET", "/agents/agent-a/projects/p3xY9aQ2mZ/skills", None),
+        v("GET", "/agents/agent-a/projects/p3xY9aQ2mZ/skills?topic=t1", None),
         v("GET", "/agents/agent-a/projects/p3xY9aQ2mZ/git", None),
         v("GET", "/agents/agent-a/projects/p3xY9aQ2mZ/git/changes", None),
         v("GET", "/agents/agent-a/projects/p3xY9aQ2mZ/git/diff?path=src%2Flib.rs", None),

@@ -13,6 +13,16 @@ use crate::indexer::VizierIndexer;
 use crate::schema::{AgentId, Skill};
 use crate::skill::SkillManager;
 
+use crate::skill::scopes::SkillScopes;
+
+/// The skill scopes of this turn: the project's own skills when the chat is in a project, then the
+/// agent's, then the global ones. Resolved per call, never in `new()`, because a tool is built once
+/// per agent and a project is per conversation.
+pub(crate) fn scopes(ctx: &ToolContext, workspace: &str) -> SkillScopes {
+    let cwd = ctx.project.as_ref().map(|project| project.cwd.as_path());
+    SkillScopes::for_turn(workspace, &ctx.session.0, cwd)
+}
+
 pub mod delete_skill;
 pub mod execute_skill_resource;
 pub mod get_skill_details;
@@ -29,26 +39,9 @@ pub use read_skill_resource::ReadSkillResource;
 pub use update_skill::UpdateSkill;
 pub use use_skill::UseSkill;
 
-fn validate_resource_path(path: &str) -> Result<(), VizierError> {
-    if path.is_empty() {
-        return Err(VizierError("resource path cannot be empty".into()));
-    }
-    if path.starts_with('/') {
-        return Err(VizierError(
-            "resource path must be relative (no leading /)".into(),
-        ));
-    }
-    for component in Path::new(path).components() {
-        if matches!(component, std::path::Component::ParentDir) {
-            return Err(VizierError("resource path must not contain '..'".into()));
-        }
-    }
-    Ok(())
-}
-
 fn write_resource_files(skill_dir: &Path, resources: &[SkillResource]) -> Result<(), VizierError> {
     for resource in resources {
-        validate_resource_path(&resource.path)?;
+        crate::skill::validate_resource_path(&resource.path)?;
         let file_path = skill_dir.join(&resource.path);
         if let Some(parent) = file_path.parent() {
             std::fs::create_dir_all(parent)
@@ -134,8 +127,11 @@ impl VizierTool for CreateSkill {
             name: slug.clone(),
             content: args.instruction,
             keywords: args.keywords,
-            version: 1,
+            version: Default::default(),
             resources: resource_paths,
+            user_invocable: true,
+            disable_model_invocation: false,
+            argument_hint: None,
         };
 
         self.1

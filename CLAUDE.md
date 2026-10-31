@@ -235,6 +235,19 @@ Project sessions are excluded from `conversation_rows` and `kind_of`; notificati
 `/<agent>/projects/<id>/chat/<topic>`; usage reports `UsageActivity::Project` (label **Projects**,
 place `project:<slug>:<topic>`, link to the project chat). History, files and the chat socket use the
 existing channel routes with the project `channel_id`.
+
+**Project skills** (FR-035–FR-043) are the third skill scope: `crates/vizier-core/src/skill/scopes.rs`
+(`SkillScopes::for_turn(workspace, agent_id, cwd)` → project `.agents/skills` then `.claude/skills`,
+agent, global; one entry per slug; `ScopedSkill` carries its folder and a bounded, confined
+`resources()`). It is the **only scope outside the workspace**, so it is read where it lies and
+**never indexed** — `recommend_skills` runs before a turn's project is resolved and the vector table
+has no session identity. The four reading tools (`use_skill`, `list_skills`, `get_skill_details`,
+`read_skill_resource`) resolve scopes from `ToolContext` per call, never in `new()`; the writing
+tools stay workspace-scoped; `execute_skill_resource` refuses in a project chat (use
+`workspace_shell`). The prompt lists them in `## Project Skills` (`system_prompt/project.rs`), and
+`/name` resolution in `agents/process.rs` passes the same scopes. `SkillManager::scan` reports a
+folder it cannot read instead of dropping it, and `Skill::author` is optional while `version` is a
+`SkillVersion` (number or string) so ecosystem `SKILL.md` files parse.
 ### Storage (`crates/vizier-core/src/storage/`)
 
 `VizierStorageProvider` is a supertrait composing every storage concern (`IntegrationStorage`, `MemoryStorage`, `TaskStorage`, `TaskRunStorage`, `HistoryStorage`, `SessionStorage`, `StateStorage`, `UserStorage`, `AgentStorage`, `ProviderStorage`, `CustomProviderStorage`, `CatalogueCacheStorage`, `GlobalConfigStorage`, `DreamJournalStorage`, `DreamStorage`, `SessionFileStorage`, `BackgroundJobStorage`, `UsageStorage`, `NotificationStorage`). Provider tables: `provider_config` holds one `ProviderCredentials` JSON per `ProviderId`, `custom_provider` the operator-defined providers, `catalogue_snapshot`/`catalogue_logo` the refreshed catalogue and logos. `VizierStorage` type-erases the concrete backend (`storage/sqlite` — the sole `VizierStorageProvider` implementation) behind `Arc<Box<dyn VizierStorageProvider>>` and hand-forwards every trait method. **Adding a storage backend** means implementing every one of those traits for the new type, then `impl VizierStorageProvider for it`. The old `storage/fs` (`FileSystemStorage`) backend has been removed as a runtime option; its non-memory trait impls survive only as a read source for the one-time `migrate_filesystem_backend_to_sqlite` startup migration in `dependencies.rs`, for deployments upgrading from a pre-existing `--storage filesystem` install.
