@@ -120,20 +120,15 @@ export function ProjectRow({ agentId, project, sessions, expanded, onToggle }: P
                         <Icon name="alert" size={12} tone="failed" aria-label="Folder unavailable" />
                     )}
                 </button>
-                <span className="relative flex w-28 shrink-0 items-center justify-end">
-                    <span className="type-mono-xs text-faint transition-opacity group-hover/row:opacity-0 group-focus-within/row:opacity-0">
-                        {project.session_count}
-                    </span>
-                    <span className="absolute inset-y-0 right-0 flex items-center opacity-0 transition-opacity group-hover/row:opacity-100 group-focus-within/row:opacity-100">
-                        <IconButton
-                            size="sm"
-                            variant="ghost"
-                            icon="trash"
-                            aria-label={`Remove ${folder}`}
-                            title="Remove project"
-                            onClick={() => setRemoving(true)}
-                        />
-                    </span>
+                <span className="flex shrink-0 items-center opacity-0 transition-opacity group-hover/row:opacity-100 group-focus-within/row:opacity-100">
+                    <IconButton
+                        size="sm"
+                        variant="ghost"
+                        icon="trash"
+                        aria-label={`Remove ${folder}`}
+                        title="Remove project"
+                        onClick={() => setRemoving(true)}
+                    />
                 </span>
                 {expanded && sessions.length > 0 && (
                     <IconButton
