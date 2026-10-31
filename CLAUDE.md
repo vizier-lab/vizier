@@ -36,7 +36,7 @@ just app-dev      # the desktop app with hot reload (cd app && cargo tauri dev)
 just app-build    # build the WebUI, then the desktop bundles (cd app && cargo tauri build)
 just app-test     # cd app && cargo test
 just catalogue-update  # refresh crates/vizier-core/assets/catalogue/ (models.dev seed + logos) — needs network
-just test-scripts  # node --test for scripts/*.mjs (the submodule PR automation)
+just test-scripts  # node --test for scripts/*.mjs
 just jaeger       # local Jaeger in Docker (UI :16686, OTLP :4318); jaeger-down removes it
 just run-otel     # just run, exporting traces to that Jaeger with content capture on (dev-otel: hot reload)
 just docker       # docker-compose down && docker-compose up -d
@@ -250,7 +250,7 @@ Each agent's persistent "self" document is `CORE.md`, stored in storage (not the
 
 ## WebUI (`webui/`)
 
-The WebUI is the submodule `vizier-lab/webui` (spec 024), built on the `design/` submodule (`vizier-lab/design`, spec 022): React components on hand-written tokens, with a Storybook catalogue that is the source of truth for the design. A change to a component is made in `design/` first, then used in `webui/`, then vizier's pins are bumped (commit order: design → webui → vizier). Comment `/cascade-merge` on a vizier PR to merge all three in that order: `scripts/submodule-prs.mjs` (driven by `.github/workflows/submodule-prs.yml`) merges the linked submodule PRs, bumps the gitlinks to what landed, and merges the vizier PR — see `docs/src/getting-started/contributing.md`. The previous WebUI is in `legacy/` for reference only; don't edit it.
+The WebUI is the submodule `vizier-lab/webui` (spec 024), built on the `design/` submodule (`vizier-lab/design`, spec 022): React components on hand-written tokens, with a Storybook catalogue that is the source of truth for the design. A change to a component is made in `design/` first, then used in `webui/`, then vizier's pins are bumped (commit order: design → webui → vizier). The previous WebUI is in `legacy/` for reference only; don't edit it.
 
 **Dismissal convention (modals and popups)**: every modal, slide-over, popover, menu or floating panel must have a visible way to close it, and must close on Escape and on a press outside it. `Dialog`/`Modal`/`SlideOver` (design) already do all three: `Dialog` always draws a × in its header (content dialogs with `confirmLabel=""` have no other button), and backdrop presses go through `useBackdropDismiss` (the press must *start* on the backdrop, so dragging a text selection out of a field doesn't close it). Non-modal popups use `useDismiss(open, onDismiss, ref)` (Escape + outside press); don't hand-roll a `pointerdown` listener. A new popup that skips any of the three is a bug.
 

@@ -110,51 +110,6 @@ cd webui && npm run dev     # the WebUI on http://localhost:5173, proxying /api 
 
 A change that needs a new or changed component is made in `design/` first. Commit it there, then commit the screen in `webui/`, then commit vizier with both submodule pins bumped.
 
-## Linking submodule pull requests
-
-A vizier PR that bumps `webui/` or `design/` usually has a PR open in those repositories. Link them and one command merges everything in dependency order.
-
-Any of these links a PR; all are collected:
-
-- a `Submodule-PRs:` block in the vizier PR body (explicit, and the only way to link a submodule this PR does not pin):
-
-  ```
-  Submodule-PRs: vizier-lab/design#12, vizier-lab/webui#34
-  ```
-
-  A list under the header works too.
-- the same branch name in `design/` or `webui/`, when the PR changes that submodule's gitlink (the usual convention: one branch name across all three repositories)
-- a submodule PR whose head commit is the commit the vizier PR pins
-
-A **Submodule PRs** comment stays up to date on the vizier PR, and a `submodule-prs` commit status reports whether the linked PRs are usable — add it as a required check if it should gate merges.
-
-### Merging: `/cascade-merge`
-
-Comment `/cascade-merge` on the vizier PR (owners, members and collaborators). It:
-
-1. preflights every linked PR — open, not a draft, targeting the default branch, mergeable, required checks green — before touching anything;
-2. merges them in dependency order, `design` then `webui`;
-3. bumps the gitlinks in the vizier PR branch to the commits that landed, and pushes that commit;
-4. waits for the vizier PR's checks, then merges it.
-
-`/cascade-merge --dry-run` reports the plan and merges nothing. A failure during preflight merges nothing; a failure after a submodule PR merged leaves that merge in place — fix the cause and comment `/cascade-merge` again, the already-merged PRs are skipped.
-
-The order is deliberate: a vizier gitlink must name a commit on the submodule's default branch. Merging the vizier PR first would pin a commit that lives only on the submodule PR's branch, and a squash merge never makes it an ancestor of `master`, so a later `git submodule update` could not fetch it.
-
-### Setup
-
-Cross-repository work needs a token that can merge PRs in `vizier-lab/design` and `vizier-lab/webui`: add a repository secret `SUBMODULE_TOKEN` (a fine-grained PAT or GitHub App token with **Contents** and **Pull requests** read/write on both repositories). Without it, only the linking comment works, using `GITHUB_TOKEN`.
-
-Optional repository variables:
-
-| Variable | Default | What it does |
-| --- | --- | --- |
-| `CASCADE_MERGE_METHOD` | `squash` | `squash`, `merge` or `rebase` for both the submodule and vizier PRs |
-| `CASCADE_DELETE_BRANCH` | `true` | Delete each PR's branch after merging |
-| `CASCADE_CHECK_TIMEOUT_SECS` | `1200` | How long to wait for checks before giving up |
-
-The detection and planning logic is unit-tested: `just test-scripts` (or `node --test scripts/*.test.mjs`).
-
 ## Test fixtures
 
 Sample files that tests read (for now the Office addon's Word and Excel files) live in a dedicated folder at the repository root, `fixtures/<feature>/`, with a `README.md` saying what each file is and, when a script writes them, how to run it. Commit them: tests compile them in, so a missing file fails the build instead of skipping a test. See `fixtures/office/` and [the Office addon](../configuration/office-addon.md).
