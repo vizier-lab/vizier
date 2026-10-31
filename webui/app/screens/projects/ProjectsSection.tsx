@@ -45,7 +45,7 @@ export function ProjectsSection({ agentId }: { agentId: string }) {
     if (!allowed || projects.length === 0) return null
 
     return (
-        <section aria-label="Projects" className="flex flex-col gap-8">
+        <section aria-label="Projects" className="flex flex-col gap-8 px-10">
             <div className="flex items-center justify-between gap-8">
                 <span className="type-mono-xs text-faint">Projects</span>
                 {transport.authMode === 'desktop' && (
