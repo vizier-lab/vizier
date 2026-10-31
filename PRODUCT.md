@@ -41,7 +41,7 @@ Vizier foregrounds four things together:
 ## Capabilities and Constraints
 
 - WebUI routes today: home, chat, onboarding, login, agent creation and settings, agent CORE, agent dream, memory, skills, tasks, usage, and integrations (channels, addons, MCP) under settings.
-- Stack: React Router v7, React 19, TypeScript, Tailwind v4, Zustand-style stores, Recharts, highlight.js, MDX editor. The built WebUI is embedded in and served by the Rust binary, so the frontend ships with each release and cannot rely on a separate host or CDN at runtime.
+- Stack: React Router v7, React 19, TypeScript, Tailwind v4, Zustand-style stores, Recharts, MDX editor. The built WebUI is embedded in and served by the Rust binary, so the frontend ships with each release and cannot rely on a separate host or CDN at runtime.
 - Multi-user: JWT plus API keys, roles with granular permissions, agent ownership and sharing. Integration access depends on permissions (`all_agents` vs `owned_agents`), never on who created the integration.
 - Providers come from the models.dev catalogue (29+ including Ollama, llama.cpp, OpenAI, Anthropic, Google, OpenRouter, ChatGPT OAuth, GitHub Copilot), plus operator-defined OpenAI-compatible or Anthropic-protocol custom providers. Cost is shown as an estimate.
 - Terminology to keep: agent, CORE.md, memory bundle, passage, dream cycle, skill, task / task run, session / topic, integration (channel, addon, MCP server), grant, checkpoint, background job, code mode.
