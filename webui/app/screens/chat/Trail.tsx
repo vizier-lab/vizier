@@ -7,8 +7,8 @@ import {
     Thought,
     TrailCall,
 } from '@vizier/design'
-import { useEffect, useState } from 'react'
-import { thinkingWord } from '../../lib/thinkingWords'
+import { useState } from 'react'
+import { useThinkingWord } from '../../lib/thinkingWords'
 import type { ExecutionReport, TrailEvent } from '../../api/frames'
 import { duration } from '../../lib/format'
 import { trailSummary } from '../../lib/trail'
@@ -16,9 +16,6 @@ import { useMobile } from '../../lib/useMobile'
 
 /** Past this many steps a trail shows its newest and folds the rest behind a toggle. */
 const VISIBLE = 8
-
-/** How long each thinking line stays before the next. */
-const WORD_MS = 10_000
 
 function counts(trail: TrailEvent[], recalled: number): string {
     const python = trail.filter((e) => e.kind === 'python').length
@@ -179,16 +176,8 @@ export function Trail({
     agentName,
 }: Props) {
     const [all, setAll] = useState(false)
-    const [word, setWord] = useState(() => thinkingWord())
-    // The line changes every few seconds while the turn works.
-    useEffect(() => {
-        if (!live) return
-        const timer = setInterval(
-            () => setWord((w) => thinkingWord(w)),
-            WORD_MS
-        )
-        return () => clearInterval(timer)
-    }, [live])
+    // The line says what the agent is doing, and changes while the turn works.
+    const word = useThinkingWord(live)
     const mobile = useMobile()
     if (trail.length === 0 && !live) return null
     const hidden = !all && trail.length > VISIBLE ? trail.length - VISIBLE : 0

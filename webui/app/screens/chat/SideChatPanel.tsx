@@ -1,8 +1,9 @@
-import { AgentHeader, AgentReply, Button, IconButton } from '@vizier/design'
+import { AgentHeader, AgentReply, Button, IconButton, Thinking } from '@vizier/design'
 import { useEffect, useReducer, useRef } from 'react'
 import { ApiError } from '../../api/client'
 import { askSideChat } from '../../api/endpoints/chat'
 import { initialSideChat, mapAskError, refusal, sideChatReducer } from '../../lib/sideChat'
+import { useThinkingWord } from '../../lib/thinkingWords'
 import { Markdown } from '../shared/Markdown'
 
 type Props = {
@@ -42,6 +43,9 @@ export function SideChatPanel({
     const turn = state.turns[0]
     // A question the server would refuse is said so, without a request.
     const problem = question?.trim() ? refusal(question) : null
+    // Waiting on the answer: the line says what the agent is doing, and changes as it waits.
+    const waiting = open && !problem && turn?.answer == null && !turn?.error
+    const word = useThinkingWord(waiting)
 
     const run = (text: string) => {
         controller.current?.abort()
@@ -134,9 +138,7 @@ export function SideChatPanel({
                             <span />
                         </AgentReply>
                     ) : (
-                        <p className="text-sm text-muted" aria-busy="true">
-                            Thinking…
-                        </p>
+                        <Thinking>{`${agentName} is ${word}`}</Thinking>
                     )}
                 </div>
             </div>
