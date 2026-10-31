@@ -10,9 +10,11 @@ import {
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../../api/client'
 import {
+    listProjectSkills,
     suggestProjectFiles,
     type FileSuggestion,
     type ProjectMode,
+    type ProjectSkill,
 } from '../../api/endpoints/projects'
 import { insertMention, mentionQuery, pickedMentions } from '../../lib/mentions'
 import { abbreviate } from '../../lib/format'
@@ -176,29 +178,39 @@ export function Composer({
 
     useEffect(() => {
         let alive = true
-        Promise.allSettled([
-            api.get<{ name: string; description: string }[]>(
-                `/agents/${agentId}/skills`
-            ),
-            api.get<{ name: string; description: string }[]>('/skills'),
-        ]).then(([mine, global]) => {
-            if (!alive) return
-            const list = [
-                ...(mine.status === 'fulfilled' ? (mine.value ?? []) : []),
-                ...(global.status === 'fulfilled' ? (global.value ?? []) : []),
-            ]
-            const seen = new Set<string>()
-            const skills = list
-                .filter((s) =>
-                    seen.has(s.name) ? false : (seen.add(s.name), true)
-                )
-                .map((s) => ({ name: s.name, description: s.description }))
-            setSkills([...BUILTIN, ...skills])
-        })
+        // A project chat also offers the skills its own folder carries (spec 041 FR-035), read from
+        // the worktree when the chat is bound to one — so the menu follows the branch. The project
+        // copy wins a slug, exactly as `use_skill` resolves it.
+        const mine = api.get<{ name: string; description: string }[]>(
+            `/agents/${agentId}/skills`
+        )
+        const global = api.get<{ name: string; description: string }[]>('/skills')
+        const projectSkills = project
+            ? listProjectSkills(agentId, project.id, topicId)
+            : Promise.resolve([] as ProjectSkill[])
+        Promise.allSettled([mine, global, projectSkills]).then(
+            ([mineRes, globalRes, projectRes]) => {
+                if (!alive) return
+                const list = [
+                    ...(projectRes.status === 'fulfilled'
+                        ? (projectRes.value ?? []).filter((s) => s.user_invocable)
+                        : []),
+                    ...(mineRes.status === 'fulfilled' ? (mineRes.value ?? []) : []),
+                    ...(globalRes.status === 'fulfilled' ? (globalRes.value ?? []) : []),
+                ]
+                const seen = new Set<string>()
+                const skills = list
+                    .filter((s) =>
+                        seen.has(s.name) ? false : (seen.add(s.name), true)
+                    )
+                    .map((s) => ({ name: s.name, description: s.description }))
+                setSkills([...BUILTIN, ...skills])
+            }
+        )
         return () => {
             alive = false
         }
-    }, [agentId])
+    }, [agentId, project?.id, topicId])
 
     const add = useCallback((files: File[]) => {
         setPending((p) => [

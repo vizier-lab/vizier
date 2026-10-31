@@ -193,10 +193,17 @@ export function reduce(state: TopicState, action: Action): TopicState {
                     // A step of a turn nobody here started (a woken report, another tab) makes
                     // the topic busy.
                     const busy = state.phase === 'idle' && !frame.entry.content.Response && !frame.entry.content.Checkpoint && !frame.entry.content.Command
-                    // A stored request replaces the stand-in drawn for it when it was sent.
-                    const base = frame.entry.content.Request
-                        ? state.entries.filter((e) => !(isLive(e) && e.content.Request && coveredByStored(e, [frame.entry])))
-                        : state.entries
+                    // A stored request replaces the stand-in drawn for it when it was sent, in the
+                    // stand-in's place: appended, it would land after the steps already shown.
+                    const standIn = frame.entry.content.Request
+                        ? state.entries.findIndex((e) => isLive(e) && e.content.Request && coveredByStored(e, [frame.entry]))
+                        : -1
+                    const base =
+                        standIn >= 0 && !state.entries.some((e) => e.uid === frame.entry.uid)
+                            ? state.entries.map((e, i) => (i === standIn ? frame.entry : e))
+                            : frame.entry.content.Request
+                              ? state.entries.filter((e) => !(isLive(e) && e.content.Request && coveredByStored(e, [frame.entry])))
+                              : state.entries
                     return {
                         ...state,
                         phase: busy ? 'working' : state.phase,

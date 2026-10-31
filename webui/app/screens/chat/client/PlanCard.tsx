@@ -1,4 +1,5 @@
 import { PlanCard as LibraryPlanCard } from '@vizier/design'
+import { Markdown } from '../../shared/Markdown'
 import type { Plan } from '../../../lib/plans'
 
 type Props = {
@@ -15,8 +16,10 @@ export function PlanCard({ plan, actionable, building, onBuild }: Props) {
     return (
         <LibraryPlanCard
             title={plan.title}
-            summary={plan.summary}
-            steps={plan.steps}
+            summary={plan.summary ? <Markdown size="document">{plan.summary}</Markdown> : undefined}
+            steps={plan.steps.map((step) => (
+                <Markdown key={step} size="document">{step}</Markdown>
+            ))}
             building={building}
             onBuild={actionable ? onBuild : undefined}
         />

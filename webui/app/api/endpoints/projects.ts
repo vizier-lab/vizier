@@ -153,6 +153,23 @@ export const suggestProjectFiles = (
     )
 }
 
+export type ProjectSkill = {
+    name: string
+    description: string
+    scope: string
+    user_invocable: boolean
+    argument_hint: string | null
+    folder: string
+}
+
+/** The skills this project chat's folder carries, for the composer's `/` menu (spec 041 FR-035). */
+export const listProjectSkills = (agentId: string, projectId: string, topic?: string) => {
+    const suffix = topic ? `?topic=${encodeURIComponent(topic)}` : ''
+    return api.get<ProjectSkill[]>(
+        `${base(agentId)}/${encodeURIComponent(projectId)}/skills${suffix}`
+    )
+}
+
 const gitBase = (agentId: string, projectId: string) =>
     `${base(agentId)}/${encodeURIComponent(projectId)}/git`
 

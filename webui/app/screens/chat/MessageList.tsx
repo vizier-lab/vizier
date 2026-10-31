@@ -116,6 +116,19 @@ export function MessageList({ state, agent, greeting, hasOlder, bottomInset = 0,
         const price = stats?.provider && stats.model ? prices.prices[`${stats.provider}/${stats.model}`] : undefined
         return (
             <div key={`reply-${turn.key}`} className="flex flex-col gap-8">
+                {(() => {
+                    const plan = planOf(turn)
+                    if (!plan) return null
+                    const newest = turns[turns.length - 1]?.key ?? null
+                    return (
+                        <PlanCard
+                            plan={plan}
+                            actionable={planActionsVisible(turn.key, newest)}
+                            building={buildingPlan}
+                            onBuild={() => onBuildPlan?.(plan)}
+                        />
+                    )
+                })()}
                 {(text != null || attachments.length > 0) && (
                     <AgentReply
                         stats={stats ? statsLine(stats, price) : undefined}
@@ -137,19 +150,6 @@ export function MessageList({ state, agent, greeting, hasOlder, bottomInset = 0,
                         </div>
                     </AgentReply>
                 )}
-                {(() => {
-                    const plan = planOf(turn)
-                    if (!plan) return null
-                    const newest = turns[turns.length - 1]?.key ?? null
-                    return (
-                        <PlanCard
-                            plan={plan}
-                            actionable={planActionsVisible(turn.key, newest)}
-                            building={buildingPlan}
-                            onBuild={() => onBuildPlan?.(plan)}
-                        />
-                    )
-                })()}
                 {outcome?.content.Response?.resumed && <StoppedNote>Picked up where it left off after vizier restarted.</StoppedNote>}
             </div>
         )
@@ -278,8 +278,8 @@ export function MessageList({ state, agent, greeting, hasOlder, bottomInset = 0,
         <div className="relative flex min-h-0 flex-1 flex-col">
             <div
                 ref={scroller}
-                className="flex min-h-0 flex-1 flex-col overflow-y-auto px-24 pt-24 transition-[padding] duration-[var(--vz-duration-slow)]"
-                style={{ paddingBottom: bottomInset + 16, paddingRight: 24 + insetRight }}
+                className="flex min-h-0 flex-1 flex-col overflow-y-auto px-24 pt-24"
+                style={{ paddingRight: 24 + insetRight }}
                 onScroll={(e) => {
                     const el = e.currentTarget
                     setPinned(el.scrollHeight - el.scrollTop - el.clientHeight < 48)
@@ -296,6 +296,9 @@ export function MessageList({ state, agent, greeting, hasOlder, bottomInset = 0,
                         items
                     )}
                 </div>
+                {/* Room for the composer floating over the list. A spacer, not padding-bottom: WebKit
+                    leaves a flex scroll container's end padding out of what can be scrolled to. */}
+                <div aria-hidden className="shrink-0 transition-[height] duration-[var(--vz-duration-slow)]" style={{ height: bottomInset + 16 }} />
             </div>
             <Presence>
                 {!pinned && (
