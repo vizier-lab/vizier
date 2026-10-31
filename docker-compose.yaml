@@ -38,7 +38,6 @@ services:
       VIZIER_DATA_DIR: /data
       VIZIER_PORT: "9999"
       VIZIER_STORAGE: sqlite
-      DUMMYPLUG_URL: ${DUMMYPLUG_URL:-http://dummyplug:9998/v1}
       VIZIER_WORKERS: "4"
       VIZIER_JWT_SECRET: ${VIZIER_JWT_SECRET:?set VIZIER_JWT_SECRET, e.g. in .env}
       # Spans are emitted at info level, so keep vizier at info or lower.

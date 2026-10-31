@@ -230,16 +230,12 @@ mod dummyplug_provider_tests {
     }
 
     #[tokio::test]
-    async fn get_lists_the_default_and_put_edits_dummyplug_base_url() {
+    async fn dummyplug_is_listed_only_while_saved_and_delete_removes_it() {
         let (state, _dir) = state().await;
-        let initial = service::connected(&state.deps)
-            .await
-            .into_iter()
-            .find(|provider| provider.id == ProviderId::DUMMYPLUG)
-            .expect("dummyplug is listed by default");
-        assert_eq!(initial.base_url.as_deref(), Some("http://127.0.0.1:9998/v1"));
-        assert_eq!(initial.fields, vec![CredentialField::BaseUrl]);
-
+        assert!(
+            !service::connected(&state.deps).await.iter().any(|p| p.id == ProviderId::DUMMYPLUG),
+            "the built-in test model alone is not a connected provider"
+        );
         let put = upsert_provider(
             Path("dummyplug".into()),
             State(state.clone()),
@@ -251,15 +247,50 @@ mod dummyplug_provider_tests {
         )
         .await;
         assert_eq!(put.0, StatusCode::OK);
+        assert_eq!(put.1.0.data.as_ref().unwrap().fields, vec![CredentialField::BaseUrl]);
         assert_eq!(put.1.0.data.as_ref().unwrap().base_url.as_deref(), Some("http://127.0.0.1:19998/v1"));
-
         let get = get_provider(Path("dummyplug".into()), State(state.clone()),
             Extension(principal())).await;
         assert_eq!(get.0, StatusCode::OK);
-        assert_eq!(get.1.0.data.as_ref().unwrap().base_url.as_deref(), Some("http://127.0.0.1:19998/v1"));
-
         let saved = state.storage.get_provider(&ProviderId::DUMMYPLUG).await.unwrap().unwrap();
         assert_eq!(saved.credentials.base_url.as_deref(), Some("http://127.0.0.1:19998/v1"));
+        let deleted = delete_provider(
+            Path("dummyplug".into()),
+            Query(DeleteQuery { confirm: false }),
+            State(state.clone()),
+            Extension(principal()),
+        )
+        .await;
+        assert_eq!(deleted.0, StatusCode::OK);
+        assert!(!service::connected(&state.deps).await.iter().any(|p| p.id == ProviderId::DUMMYPLUG));
+        assert_eq!(get_provider(Path("dummyplug".into()), State(state), Extension(principal())).await.0, StatusCode::NOT_FOUND);
+    }
+
+
+    #[tokio::test]
+    async fn unconfigured_local_providers_are_not_connected_in_agent_picker() {
+        let (state, _dir) = state().await;
+        let summaries = vizier_core::service::catalogue::provider_summaries(&state.deps).await;
+        for id in [ProviderId::OLLAMA, ProviderId::LLAMA_CPP] {
+            let provider = summaries.iter().find(|p| p.id == id).unwrap();
+            assert_eq!(provider.connection.source, None);
+            assert_eq!(provider.connection.status, "missing");
+        }
+        let put = upsert_provider(
+            Path("ollama".into()),
+            State(state.clone()),
+            Extension(principal()),
+            axum::Json(UpsertProviderRequest {
+                base_url: Some("http://127.0.0.1:11434".into()),
+                ..Default::default()
+            }),
+        )
+        .await;
+        assert_eq!(put.0, StatusCode::OK);
+        let summaries = vizier_core::service::catalogue::provider_summaries(&state.deps).await;
+        let ollama = summaries.iter().find(|p| p.id == ProviderId::OLLAMA).unwrap();
+        assert_eq!(ollama.connection.source.as_deref(), Some("saved"));
+        assert_eq!(ollama.connection.status, "connected");
     }
 
     #[tokio::test]

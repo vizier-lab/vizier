@@ -65,8 +65,9 @@ pub async fn connected(deps: &VizierDependencies) -> Vec<ProviderResponse> {
         }
         let used_by = used.remove(&p.id).map(|(u, _)| u).unwrap_or_default();
         let local = p.kind == ProviderKind::Local;
-        // A local provider on its default address has no source, but is listed once used.
-        let listed = p.id == ProviderId::DUMMYPLUG || p.connection.source.is_some() || (local && used_by.total() > 0);
+        // Built-in local providers need a saved URL, an environment URL, or an
+        // agent using the default address to appear in the connected list.
+        let listed = p.connection.source.is_some() || (local && used_by.total() > 0);
         if !listed {
             continue;
         }
