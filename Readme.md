@@ -114,6 +114,9 @@ just docker      # docker-compose down && up -d
 just jaeger      # local Jaeger for traces, UI at http://localhost:16686
 just run-otel    # `just run` exporting traces to it (also dev-otel; jaeger-down to stop)
 
+just test-focus vizier-http dummyplug_provider_tests
+just check
+
 cargo test --workspace   # tests are sparse; most behavior is exercised by running the binary
 cargo clippy --workspace
 cd webui && npm run typecheck
