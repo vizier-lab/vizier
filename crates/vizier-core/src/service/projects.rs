@@ -1061,7 +1061,9 @@ pub async fn create_worktree(
         .await
         .map_err(git_refusal)?;
     let topic: TopicId = nanoid::nanoid!(PROJECT_ID_LEN);
-    let path_text = path.to_string_lossy().into_owned();
+    // Git cannot create directories from a Windows verbatim path (`\\?\C:\…`) once it has
+    // normalised the separators, so the argument carries the plain form.
+    let path_text = channel::program_path(&path);
     git.run_write(&["worktree", "add", "-b", &branch, &path_text, base])
         .await
         .map_err(git_refusal)?;
@@ -1224,7 +1226,7 @@ pub async fn delete_worktree(
                 });
             }
         }
-        let path = worktree.path.to_string_lossy().into_owned();
+        let path = channel::program_path(&worktree.path);
         let args: Vec<&str> = if force {
             vec!["worktree", "remove", "--force", &path]
         } else {

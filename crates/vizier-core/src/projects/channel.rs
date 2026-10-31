@@ -29,7 +29,7 @@ pub fn is_project_channel(channel_id: &str) -> bool {
 }
 
 /// A path as people should read it: the canonical form with Windows' `\\?\` verbatim prefix
-/// removed for display only. Comparison always uses the canonical path.
+/// removed. Comparison always uses the canonical path.
 pub fn display_path(path: &Path) -> String {
     let text = path.to_string_lossy().into_owned();
     #[cfg(windows)]
@@ -43,6 +43,13 @@ pub fn display_path(path: &Path) -> String {
         }
     }
     text
+}
+
+/// A path as an external program must receive it as an argument: [`display_path`], because git
+/// normalises separators to `/` and a `\\?\C:/…` verbatim path is then not a valid Win32 path,
+/// so `git worktree add` fails with "could not create leading directories …: Invalid argument".
+pub fn program_path(path: &Path) -> String {
+    display_path(path)
 }
 
 /// The canonical absolute form of an existing folder, or `None` when it is not a directory.
@@ -94,11 +101,14 @@ mod tests {
     }
 
     #[test]
-    fn windows_verbatim_prefixes_are_stripped_for_display() {
+    fn windows_verbatim_prefixes_are_stripped() {
         let path = std::path::Path::new(r"\\?\C:\Users\alice\project");
         #[cfg(windows)]
-        assert_eq!(display_path(path), r"C:\Users\alice\project");
+        let expected = r"C:\Users\alice\project";
         #[cfg(not(windows))]
-        assert_eq!(display_path(path), path.to_string_lossy());
+        let expected = path.to_string_lossy();
+        // Displayed to people, and handed to git, which cannot use a verbatim path as an argument.
+        assert_eq!(display_path(path), expected);
+        assert_eq!(program_path(path), expected);
     }
 }
