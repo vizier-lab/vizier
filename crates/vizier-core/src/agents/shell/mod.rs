@@ -12,6 +12,10 @@ use crate::{
 #[cfg(feature = "docker-shell")]
 pub mod docker;
 pub mod local;
+pub mod outcome;
+pub mod process_tree;
+
+pub use outcome::{ShellCommand, ShellOutcome};
 
 #[async_trait::async_trait]
 pub trait ShellProvider {

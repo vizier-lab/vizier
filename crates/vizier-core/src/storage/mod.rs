@@ -23,6 +23,7 @@ use crate::{
         media_catalogue::{MediaCatalogueSnapshotRow, MediaCatalogueStorage},
         memory::MemoryStorage,
         notification::NotificationStorage,
+        project::ProjectStorage,
         provider::{CustomProviderStorage, ProviderStorage},
         reaction::ReactionStorage,
         scratch::ScratchStorage,
@@ -55,6 +56,7 @@ pub mod media_catalogue;
 pub mod memory;
 pub mod memory_bundle;
 pub mod notification;
+pub mod project;
 pub mod provider;
 pub mod reaction;
 pub mod rerank;
@@ -99,7 +101,8 @@ where
         + ScratchStorage
         + TurnStorage
         + SecretStorage
-        + NotificationStorage,
+        + NotificationStorage
+        + ProjectStorage,
 {
 }
 

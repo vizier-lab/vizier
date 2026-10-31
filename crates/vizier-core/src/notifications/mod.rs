@@ -230,7 +230,7 @@ impl Notifications {
         history_uid: &str,
         at: DateTime<Utc>,
     ) {
-        let VizierChannelId::HTTP(username, _) = &session.1 else {
+        let VizierChannelId::HTTP(username, channel_id) = &session.1 else {
             return;
         };
         let audience = self
@@ -243,9 +243,13 @@ impl Notifications {
         let Some(audience) = audience else {
             return;
         };
-        let href = match &session.2 {
-            Some(topic) => format!("/{}/chat/{}", session.0, topic),
-            None => text::chat_href(&session.0),
+        let href = match (&session.2, crate::projects::channel::project_id(channel_id)) {
+            // A project reply opens its project route, not the ordinary chat route.
+            (Some(topic), Some(project_id)) => {
+                format!("/{}/projects/{}/chat/{}", session.0, project_id, topic)
+            }
+            (Some(topic), None) => format!("/{}/chat/{}", session.0, topic),
+            (None, _) => text::chat_href(&session.0),
         };
         let mut draft = draft(
             format!("chat:{history_uid}"),
@@ -573,6 +577,25 @@ mod tests {
                 rusqlite::params![id, username, serde_json::to_string(&user).unwrap()],
             )
             .unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_project_reply_links_to_its_project_route() {
+        let (n, conn, _d) = setup();
+        agent(&conn, "a");
+        user(&conn, "u-ana", "ana");
+        let session = VizierSession(
+            "a".into(),
+            VizierChannelId::HTTP("ana".into(), "project__p3xY9aQ2mZ".into()),
+            Some("topic-1".into()),
+        );
+        n.chat_replied(&session, "h-project", Utc::now()).await;
+        let mine = n
+            .storage
+            .list_notifications("u-ana", &["a".into()], NotificationFilter::All, None, 10)
+            .await
+            .unwrap();
+        assert_eq!(mine[0].href, "/a/projects/p3xY9aQ2mZ/chat/topic-1");
     }
 
     #[tokio::test]

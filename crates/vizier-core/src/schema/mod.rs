@@ -9,6 +9,7 @@ mod history;
 pub mod integration;
 pub mod metrics;
 pub mod notification;
+pub mod project;
 pub mod provider;
 mod request;
 mod response;
@@ -55,6 +56,10 @@ pub use integration::{
 pub use notification::{
     NotificationCategory, NotificationCounts, NotificationDraft, NotificationFilter,
     NotificationItem, NotificationPage, NotificationTone, ReplyBatch,
+};
+pub use project::{
+    DEFAULT_COMMAND_TIMEOUT, INSTRUCTIONS_CAP_BYTES, MAX_COMMAND_TIMEOUT, NEW_SESSION_TITLE,
+    OUTPUT_CAP_BYTES, PROJECT_ID_LEN, Project, ProjectSessionRow,
 };
 pub use provider::{
     CustomModel, CustomProtocol, CustomProvider, ProviderCredentials, ProviderEntry,

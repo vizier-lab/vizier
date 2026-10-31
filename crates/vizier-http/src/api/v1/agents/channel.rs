@@ -66,7 +66,15 @@ pub fn channel() -> Router<HTTPState> {
             "/{channel_id}/topic/{topic_id}/detail",
             get(get_topic_detail),
         )
-        .route("/{channel_id}/topic/{topic_id}", delete(delete_topic))
+        .route(
+            "/{channel_id}/topic/{topic_id}",
+            delete(delete_topic).patch(rename_topic),
+        )
+}
+
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub struct RenameTopicRequest {
+    pub title: String,
 }
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
@@ -288,6 +296,33 @@ pub async fn get_topic_detail(
 ) -> axum::response::Response {
     respond(
         topics::detail(&svc(&state), &user, &agent_id, &channel_id, topic_id).await,
+        StatusCode::OK,
+    )
+}
+
+#[utoipa::path(
+    patch,
+    path = "/agents/{agent_id}/channel/{channel_id}/topic/{topic_id}",
+    params(
+        ("agent_id" = String, Path, description = "Agent ID"),
+        ("channel_id" = String, Path, description = "Channel ID"),
+        ("topic_id" = String, Path, description = "Topic ID")
+    ),
+    request_body = RenameTopicRequest,
+    responses(
+        (status = 200, description = "Topic renamed", body = APIResponse<TopicEntry>),
+        (status = 400, description = "The title is empty or too long", body = APIResponse<String>),
+        (status = 404, description = "Agent or topic not found", body = APIResponse<String>)
+    )
+)]
+pub async fn rename_topic(
+    Path((agent_id, channel_id, topic_id)): Path<(String, String, TopicId)>,
+    State(state): State<HTTPState>,
+    Extension(user): Extension<crate::auth::Principal>,
+    axum::Json(body): axum::Json<RenameTopicRequest>,
+) -> axum::response::Response {
+    respond(
+        topics::rename(&svc(&state), &user, &agent_id, &channel_id, topic_id, &body.title).await,
         StatusCode::OK,
     )
 }

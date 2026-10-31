@@ -1,4 +1,5 @@
 /agents/{agent_id}/channel/{channel_id}/topic/{topic_id}/chat
+/agents/{agent_id}/projects
 /catalogue/logos/{file}
 /catalogue/media-models/{capability}/refresh
 /catalogue/refresh

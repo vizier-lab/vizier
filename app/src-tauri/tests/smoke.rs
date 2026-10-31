@@ -295,6 +295,87 @@ async fn web_access_needs_a_password_and_keeps_the_login_rules() {
     engine.shutdown().await;
 }
 
+/// Spec 040 FR-021: project creation works through the embedded desktop dispatcher and is
+/// refused over the network with `403 desktop_only`, even for the workspace owner.
+#[tokio::test(flavor = "multi_thread")]
+async fn desktop_project_creation_is_refused_over_the_network() {
+    let ws = tempfile::tempdir().unwrap();
+    let cfg = tempfile::tempdir().unwrap();
+    let engine = engine_on(ws.path(), cfg.path());
+    engine.start().await;
+    engine.setup_owner("olive", Some("owner-pass-1")).await.unwrap();
+    let created = api(
+        &engine,
+        "POST",
+        "/agents",
+        Some(json!({ "agent_id": "dp-a", "name": "A", "provider": "dummyplug", "model": "dummyplug" })),
+    )
+    .await;
+    assert!(created.status < 300, "{created:?}");
+
+    let folder = tempfile::tempdir().unwrap();
+    let folder_path = folder.path().to_string_lossy().into_owned();
+    let desktop = api(
+        &engine,
+        "POST",
+        "/agents/dp-a/projects",
+        Some(json!({ "folder": folder_path })),
+    )
+    .await;
+    assert_eq!(desktop.status, 201, "{desktop:?}");
+    let project_id = desktop.body["data"]["id"].as_str().unwrap().to_string();
+
+    let port = free_port();
+    engine
+        .settings_set(SettingsPatch {
+            close_to_tray: true,
+            web_access: WebAccess { enabled: true, allow_network: false, port },
+            updates: Updates { check_on_start: false },
+        })
+        .await
+        .expect("web access");
+    let base = format!("http://127.0.0.1:{port}/api/v1");
+    let http = reqwest::Client::new();
+    for _ in 0..50 {
+        if http.get(format!("{base}/ping")).send().await.is_ok() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    let login = http
+        .post(format!("{base}/auth/login"))
+        .json(&json!({ "username": "olive", "password": "owner-pass-1" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(login.status().as_u16(), 200);
+    let token = login.json::<Value>().await.unwrap()["data"]["token"].as_str().unwrap().to_string();
+
+    let refused = http
+        .post(format!("{base}/agents/dp-a/projects"))
+        .bearer_auth(&token)
+        .json(&json!({ "folder": folder_path }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(refused.status().as_u16(), 403);
+    let body: Value = refused.json().await.unwrap();
+    assert_eq!(body["data"]["error"], "desktop_only", "{body}");
+
+    // The project the desktop app opened is visible to the browser, read-only.
+    let listed = http
+        .get(format!("{base}/agents/dp-a/projects"))
+        .bearer_auth(&token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(listed.status().as_u16(), 200);
+    let body: Value = listed.json().await.unwrap();
+    assert_eq!(body["data"][0]["id"], project_id);
+
+    engine.shutdown().await;
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn several_system_users_ask_which_to_sign_in_as() {
     let ws = tempfile::tempdir().unwrap();

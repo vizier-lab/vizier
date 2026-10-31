@@ -31,6 +31,10 @@ pub enum ConversationKind {
 /// Which kind of conversation a channel slug is, and whether the person may open it: a WebUI
 /// conversation is only ever its owner's.
 fn kind_of(channel: &str, username: &str) -> Option<ConversationKind> {
+    // Project sessions are listed by their project, never by the regular session list (FR-006).
+    if crate::projects::channel::project_of_slug(channel).is_some() {
+        return None;
+    }
     if channel.starts_with("discord__") {
         Some(ConversationKind::Discord)
     } else if channel.starts_with("telegram__") {
@@ -240,6 +244,17 @@ mod tests {
         assert_eq!(kind_of("discord__1", "ana"), Some(ConversationKind::Discord));
         assert_eq!(kind_of("telegram__-9", "ana"), Some(ConversationKind::Telegram));
         assert_eq!(kind_of("task__x__1", "ana"), None);
+    }
+
+    #[test]
+    fn a_project_session_is_not_a_regular_conversation() {
+        assert_eq!(
+            kind_of("http__ana__project__p3xY9aQ2mZ", "ana"),
+            None,
+            "a project session must not appear in the picker, counts or search"
+        );
+        // An ordinary WebUI channel is unchanged.
+        assert_eq!(kind_of("http__ana__vizier-webui", "ana"), Some(ConversationKind::Webui));
     }
 
     #[test]

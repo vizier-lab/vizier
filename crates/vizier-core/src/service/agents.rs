@@ -834,6 +834,8 @@ pub async fn chat(
     if !can_view_agent(who, &config) {
         return Err(ServiceError::Forbidden("Access denied".into()));
     }
+    // A REST chat naming a project channel goes through the same matrix as its socket.
+    super::topics::authorize_project_channel(s, who, &config, agent_id, &body.channel_id).await?;
 
     let transport = deps.transport.clone();
     let session = VizierSession(
@@ -947,6 +949,7 @@ pub async fn btw(
     if !can_view_agent(who, &config) {
         return Err(ServiceError::Forbidden("Access denied".into()));
     }
+    super::topics::authorize_project_channel(s, who, &config, agent_id, &body.channel_id).await?;
 
     let session = VizierSession(
         agent_id.to_string(),
