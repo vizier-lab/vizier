@@ -141,6 +141,7 @@ export function ProjectRow({ agentId, project, sessions, expanded, onToggle }: P
                         size="sm"
                         variant="ghost"
                         icon="trash"
+                        className="enabled:hover:text-failed! enabled:active:text-failed!"
                         aria-label={`Remove ${folder}`}
                         title="Remove project"
                         onClick={() => setRemoving(true)}
@@ -288,6 +289,7 @@ export function ProjectRow({ agentId, project, sessions, expanded, onToggle }: P
                                                 size="sm"
                                                 variant="ghost"
                                                 icon="trash"
+                                                className="enabled:hover:text-failed! enabled:active:text-failed!"
                                                 aria-label={`Delete ${title}`}
                                                 title="Delete conversation"
                                                 onClick={() => setDeleting({ topic: session.topic, title })}

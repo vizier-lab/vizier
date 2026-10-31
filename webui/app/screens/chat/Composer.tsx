@@ -441,15 +441,16 @@ export function Composer({
                                     <FilterTabs<ProjectMode>
                                         aria-label="Plan or Build"
                                         value={mode}
-                                        onChange={(next) => {
-                                            if (next === mode) return
+                                        onChange={() => {
+                                            // Either half toggles: pressing the active one flips to the other.
+                                            const next: ProjectMode = mode === 'plan' ? 'build' : 'plan'
                                             setMode(next)
                                             setModeNote(busy)
                                             onModeChange?.(next)
                                         }}
                                         options={[
-                                            { value: 'plan', label: 'Plan' },
-                                            { value: 'build', label: 'Build' },
+                                            { value: 'plan', label: 'Plan', tone: 'solid' },
+                                            { value: 'build', label: 'Build', tone: 'live' },
                                         ]}
                                     />
                                     <span className="type-small text-faint">
