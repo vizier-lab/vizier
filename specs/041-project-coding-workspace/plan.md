@@ -17,6 +17,9 @@ project chat into a coding workspace:
 2. **Plan/Build mode** per chat, stored in a new `project_chat` table, read once when a turn
    starts into `ProjectTurnContext.mode`; the registry offers only `Read` tools in Plan, and
    `Write`/`Command` tools in Build (commands only when the project's shell switch is on).
+   The mode is server state, so every client and every resumed or woken turn sees the same one.
+   Subagent pieces launched from a project chat inherit its folder and the launching turn's mode
+   through `VizierRequest.project_scope` (R11).
 3. **A dedicated channel kind**, `VizierChannelId::Project(user, project_id)`, replacing the 040
    `HTTP(user, "project__<id>")` shape, with a one-time startup migration of every stored slug
    and serialised channel. The URL a client uses (`channel_id = project__<id>`) is unchanged.
@@ -93,7 +96,7 @@ crates/vizier-core/
     │   └── project.rs                # ProjectMode, Worktree, ProjectChat value types
     ├── projects/
     │   ├── channel.rs                # wire prefix only; slug parsing moves to the migration
-    │   ├── context.rs                # ProjectTurnContext: cwd, mode, worktree, git
+    │   ├── context.rs                # for_turn(): Project chats and scoped subagent pieces; cwd, mode, worktree, git
     │   ├── path.rs                   # NEW: resolve() confinement for all project paths
     │   ├── ledger.rs                 # NEW: stale-read ledger (session, path) → sha256
     │   ├── mentions.rs               # NEW: resolve @mentions into a context section
@@ -117,7 +120,9 @@ crates/vizier-core/
     │   └── sqlite/project.rs  session.rs  mod.rs   # tables; drop project_of_slug filters
     ├── projects/migrate.rs           # NEW: migrate_project_channels (old slug parsing lives here only)
     ├── dependencies.rs               # call the migration beside migrate_task_requester; hold the ledger
+    ├── schema/request.rs             # VizierRequest.project_scope, .mentions
     ├── agents/
+    │   ├── background/mod.rs         # dispatch_piece copies ctx.project into project_scope
     │   ├── tools/mod.rs              # ToolCategory::Coding; turn_catalogue/categories via registry
     │   ├── tools/python/bridge.rs    # ToolTarget::Project → projects::tools::call
     │   ├── tools/python/docs_tools.rs# output schema via registry

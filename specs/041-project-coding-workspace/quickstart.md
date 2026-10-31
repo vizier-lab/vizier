@@ -119,6 +119,19 @@ still works (US2-6).
 Mode switch mid-turn (FR-013): start `workspace_shell(command='sleep 10')`, switch to Plan while it
 runs. Expected: the call completes; next turn `workspace_shell` is not offered.
 
+Subagents inherit (FR-007a). In the Build chat:
+
+```json
+{"tool":"execute_python","arguments":{"code":"print(parallel_subagents(tasks=[{'prompt':'{\"tool\":\"execute_python\",\"arguments\":{\"code\":\"print(read_file(path=\\'src/main.rs\\'))\"}}'}]))"}}
+```
+
+Expected: the piece's answer contains the numbered contents of `src/main.rs`. Repeat with a piece
+that calls `write_file(path='from-piece.txt', content='x')`: the file appears in the chat's
+folder. Switch the chat to Plan, repeat the write piece: it fails `tool_not_offered`. A piece
+calling `propose_plan` fails `tool_not_offered`. Launch `background_subagents` with a long
+`workspace_shell(command='sleep 20')` piece, restart Vizier mid-piece: the resumed piece still has
+the coding tools. A `delegate_agent` to `dp-b` gets no `coding` category.
+
 ## 4. Git interface (US4)
 
 With the edits above uncommitted:

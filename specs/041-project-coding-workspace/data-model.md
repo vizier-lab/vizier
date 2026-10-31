@@ -125,6 +125,10 @@ sidebar needs one call.
   Set only from a project chat's socket frame; ignored for any other channel.
 - The request's history entry stores `metadata.mentions` (the list as sent). The resolved
   contents are never stored (FR-019).
+- `VizierRequest.project_scope: Option<ProjectScope { project_id, owner, topic, mode }>` —
+  `#[serde(default, skip_serializing_if = "Option::is_none")]`, set only by
+  `BackgroundJobs::dispatch_piece` from the launching turn's `ProjectTurnContext`; persisted with
+  the durable `session_turn` row so a resumed piece keeps it (FR-007a, R11).
 
 ## 7. Stale-read ledger (in memory)
 

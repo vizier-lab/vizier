@@ -209,13 +209,52 @@ work from a resumed turn with no socket); a read-only shell allowlist in Plan (r
 allowlisted command line is a bypass waiting to happen; the git read tools cover planning's
 needs).
 
-## R11. Background work and other contexts
+## R11. Subagents inherit the project; other contexts do not
 
-**Decision**: unchanged from 040: `ToolContext.project` is set only for a turn whose session is a
-`Project` chat. Subagent pieces, delegated agents, tasks and dreams run in their own sessions and
-get **no** coding tools, whatever mode launched them. A `BackgroundReport` woken into a project
-chat is a turn of that chat, so it gets the chat's saved mode. The spec edge case that said
-pieces "keep the tools of the turn that launched them" is corrected in the spec to match.
+**Decision**: a subagent piece launched from a project chat carries the project with its request:
+
+```rust
+/// The project a subagent piece works in, copied from the launching turn (FR-007a).
+pub struct ProjectScope {
+    pub project_id: String,
+    pub owner: String,          // the launching chat's username
+    pub topic: String,          // the launching chat's topic: resolves its worktree
+    pub mode: ProjectMode,      // the launching turn's mode, fixed for the piece
+}
+// VizierRequest
+#[serde(default, skip_serializing_if = "Option::is_none")]
+pub project_scope: Option<ProjectScope>,
+```
+
+- `BackgroundJobs::dispatch_piece` takes `ctx.project` and sets `project_scope` on the piece's
+  request; this covers `background_subagents` and `parallel_subagents` (both dispatch through it).
+  It is serialised, so a durable background piece resumed after a restart keeps it.
+- `projects::context::for_turn(deps, session, request)` replaces `for_session`: a `Project`
+  session resolves as before (mode from `project_chat`); a `Subagent` session with
+  `project_scope` resolves the same project, the scope's topic's worktree as `cwd`, the scope's
+  mode, and re-checks that `owner` may still use the project (a revoked or removed project gives
+  the piece no project). Any other session ignores the field.
+- Pieces never get `propose_plan` (`Access::Plan` is filtered out when the session is not a
+  `Project` chat): a piece reports to its launcher, it does not end a person's planning turn.
+- Mode is the launching turn's, not the chat's current one: a Plan turn's pieces are read-only
+  even if the person switches to Build while they run, matching "a mode change applies from the
+  next turn".
+- The stale-read ledger is per session, so each piece reads before it edits, and two pieces
+  editing one file cannot overwrite each other unseen.
+- Not inherited: `delegate_agent`/`consult_agent` (another agent; a project belongs to one agent),
+  scheduled tasks, dreams. A `BackgroundReport` woken into the project chat is a turn of that
+  chat and uses its saved mode.
+- `dispatch_piece` is the only producer of `project_scope`; clients cannot send it (the socket
+  never deserialises a `VizierRequest` from a client).
+
+**Rationale**: splitting work across subagents is most useful exactly in coding (search one area
+each, edit separate files); without the tools a piece can only reason about text it was handed.
+Carrying the scope on the request (like `background_depth`) instead of on the `Subagent` channel
+keeps subagent sessions as they are.
+
+**Alternatives considered**: a `Subagent(project)` channel variant (rejected: changes every
+subagent slug for one optional field); re-reading the chat's saved mode for the piece (rejected:
+a switch mid-turn would change a running piece's powers).
 
 ## R12. Git runner and parsing
 

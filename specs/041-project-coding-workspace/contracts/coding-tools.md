@@ -2,9 +2,14 @@
 
 **Feature**: `041-project-coding-workspace` (FR-001–FR-013, FR-028)
 
-All tools are reached from `execute_python` like every other tool (code mode). They exist only in
-a turn whose session is a `Project` chat; they are listed under category `coding`; they are never
-in `BaseTools`, `DREAM_TOOL_NAMES` or any non-project `ToolContext`.
+All tools are reached from `execute_python` like every other tool (code mode). They exist in a
+turn whose session is a `Project` chat, and in a subagent piece launched from one (FR-007a); they
+are listed under category `coding`; they are never in `BaseTools`, `DREAM_TOOL_NAMES`, a task, a
+dream, or another agent's delegated turn.
+
+**Subagent pieces** inherit the launching turn's folder (`cwd`, including its worktree) and mode,
+fixed for the piece's life, with one difference from the table below: `propose_plan` is never
+offered to a piece.
 
 Refusals are tool errors whose message starts with a stable code and a colon (as 040's shell), so a
 script can catch them as `ValueError`/`RuntimeError` and a model can read them.
