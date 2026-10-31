@@ -4,14 +4,13 @@ import { cx } from "../../lib/cx";
 import { NavItem } from "../NavItem/NavItem";
 import { NavSection } from "../NavSection/NavSection";
 
-export type SettingsPage = "profile" | "password" | "api-keys" | "providers" | "users" | "roles";
+export type SettingsPage = "profile" | "api-keys" | "providers" | "users" | "roles";
 
 const GROUPS: { label: string; pages: { page: SettingsPage; label: string; icon: IconName }[] }[] = [
   {
     label: "Account",
     pages: [
       { page: "profile", label: "Profile", icon: "user" },
-      { page: "password", label: "Password", icon: "lock" },
       { page: "api-keys", label: "API keys", icon: "key" },
     ],
   },
