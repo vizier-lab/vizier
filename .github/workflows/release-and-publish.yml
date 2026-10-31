@@ -17,6 +17,14 @@ on:
         required: false
         type: string
 
+# Two dispatches used to run side by side: on 2026-10-31 that produced four identical
+# "bump version to 0.14.0-rc.3" commits and a tag one run created while another still had it
+# checked out. Queue the second dispatch instead of cancelling the first - a release that is
+# interrupted half-way is exactly what leaves a stale tag behind.
+concurrency:
+  group: release-and-publish
+  cancel-in-progress: false
+
 jobs:
   # ====================
   # Step 1: Release & Build
@@ -129,7 +137,11 @@ jobs:
     name: Cleanup on Failure
     needs: [release, publish]
     runs-on: ubuntu-latest
-    if: ${{ failure() && !inputs.dry_run }}
+    # Only a failed *release* is worth undoing. When `publish` is what failed, crates.io already
+    # holds some of the four crates and cargo refuses to upload them twice, so the tag is the
+    # only way back: publish.yml checks out `ref: v<version>`. Deleting it there made a partial
+    # publish unrecoverable.
+    if: ${{ always() && !inputs.dry_run && needs.release.result == 'failure' }}
     permissions:
       contents: write
     steps:

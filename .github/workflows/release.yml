@@ -167,10 +167,25 @@ jobs:
 
       - name: Commit version bump
         run: |
+          VERSION="${{ steps.version.outputs.version }}"
           git add Cargo.toml Cargo.lock app/Cargo.toml app/Cargo.lock CHANGELOG.md crates/vizier-core/assets/catalogue
           # A retried release finds the bump already committed by the failed run.
-          git diff --cached --quiet || git commit -m "chore: bump version to ${{ steps.version.outputs.version }}"
-          git tag -a "v${{ steps.version.outputs.version }}" -m "Release v${{ steps.version.outputs.version }}"
+          git diff --cached --quiet || git commit -m "chore: bump version to $VERSION"
+          # `git tag -a` is fatal when the tag exists, and a cancelled run leaves its tag behind
+          # because cleanup-failure never runs for a cancel: that is how run 41222344078 died on
+          # the tag run 41222267784 had already pushed. Reuse the tag when it points at this
+          # commit, refuse when it does not (deleting it is a decision, not a silent repair).
+          if git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null; then
+            tag_sha="$(git rev-list -n1 "refs/tags/v$VERSION")"
+            head_sha="$(git rev-parse HEAD)"
+            if [ "$tag_sha" != "$head_sha" ]; then
+              echo "::error::tag v$VERSION already exists at $tag_sha, not at HEAD ($head_sha); delete it with 'git push origin :refs/tags/v$VERSION' or release a different version"
+              exit 1
+            fi
+            echo "Tag v$VERSION already exists at HEAD; reusing it."
+          else
+            git tag -a "v$VERSION" -m "Release v$VERSION"
+          fi
 
       - name: Push changes
         if: ${{ !inputs.dry_run }}
@@ -486,6 +501,13 @@ jobs:
     permissions:
       contents: write
     steps:
+      # This job needs the tree, not only the artifacts: `Write latest.json` runs
+      # scripts/app-latest-json.mjs, and without a checkout node died with MODULE_NOT_FOUND
+      # (run 41230821842). The checkout stays first because it cleans untracked files, which
+      # would otherwise delete the artifacts downloaded next.
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
