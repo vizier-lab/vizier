@@ -8,6 +8,8 @@ export type FloatingProps = {
   align?: "start" | "end";
   /** Match the anchor's width at least (a Select's list), or size to its content. */
   matchWidth?: boolean;
+  /** A fixed width, or `anchor` for exactly the trigger's width (a menu the size of its card). */
+  width?: number | "anchor";
   children: ReactNode;
   className?: string;
   style?: CSSProperties;
@@ -23,7 +25,7 @@ const MARGIN = 8;
  * their children (overflow) no longer cut a Select or Picker off.
  */
 export const Floating = forwardRef<HTMLDivElement, FloatingProps>(function Floating(
-  { anchor, align = "start", matchWidth, children, className, style },
+  { anchor, align = "start", matchWidth, width, children, className, style },
   forwarded,
 ) {
   const own = useRef<HTMLDivElement | null>(null);
@@ -48,6 +50,7 @@ export const Floating = forwardRef<HTMLDivElement, FloatingProps>(function Float
         position: "fixed",
         top,
         left,
+        width: width === "anchor" ? r.width : width,
         minWidth: matchWidth ? r.width : undefined,
         maxHeight: Math.max(160, (up ? above : below) - GAP),
         visibility: "visible",
@@ -64,7 +67,7 @@ export const Floating = forwardRef<HTMLDivElement, FloatingProps>(function Float
       window.removeEventListener("scroll", place, true);
       ro.disconnect();
     };
-  }, [anchor, align, matchWidth]);
+  }, [anchor, align, matchWidth, width]);
 
   return createPortal(
     <div

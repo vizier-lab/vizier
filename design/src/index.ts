@@ -15,6 +15,7 @@ export { useDismiss, useBackdropDismiss } from "./lib/dismiss";
 
 // Components
 export * from "./components/ActionBar";
+export * from "./components/AddonTile";
 export * from "./components/ActivityGrid";
 export * from "./components/ActivityItem";
 export * from "./components/ActivityTrail";

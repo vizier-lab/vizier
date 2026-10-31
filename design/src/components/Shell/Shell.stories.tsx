@@ -24,6 +24,8 @@ const AGENTS = [
   { agentId: "scout", name: "Scout", state: "live", href: "#scout" },
   { agentId: "quill", name: "Quill", state: "stopped", href: "#quill" },
   { agentId: "ledger", name: "Ledger", state: "retrying", href: "#ledger" },
+  // Still being created: a busy tile, not yet a link.
+  { agentId: "newcomer", name: "Newcomer", state: "starting", href: "#newcomer", pending: true },
 ] as const;
 
 const SESSIONS: SessionGroup[] = [

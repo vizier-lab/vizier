@@ -3,7 +3,7 @@ import { cx } from "../../lib/cx";
 import { integrationBrands } from "./brands";
 
 export type IntegrationLogoProps = {
-  /** Integration kind id: "discord", "telegram", "brave_search", "mcp". */
+  /** Integration kind id: "discord", "telegram", "brave_search", "office", "shell", "http", "mcp". */
   kind: string;
   /** Box size in px: 28 in lists, 44 on cards. */
   size?: number;

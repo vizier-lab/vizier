@@ -76,14 +76,14 @@ export function AgentMenu({
       {cloneElement(trigger, { "aria-expanded": open, "aria-haspopup": "menu", onClick: () => setOpen(!open) })}
       <Presence>
         {open && (
-          <Floating anchor={root} ref={floating}>
+          <Floating anchor={root} ref={floating} width="anchor">
             <motion.div
               style={{ transformOrigin: "top left" }}
               initial={{ opacity: 0, scale: 0.97, y: -4 }}
               animate={{ opacity: 1, scale: 1, y: 0, transition: { duration: motionDurations.base, ease: motionEases.arrive } }}
               exit={{ opacity: 0, scale: 0.98, transition: { duration: motionDurations.fast, ease: motionEases.standard } }}
             >
-              <Menu aria-label="Agent pages" className="w-256">
+              <Menu aria-label="Agent pages" className="w-full">
                 {groups.map((g, i) => (
                   <div key={g.label} role="group" aria-label={g.label} className="flex flex-col">
                     <div aria-hidden className={cx("px-8 pb-2 type-label uppercase text-faint", i === 0 ? "pt-6" : "pt-10")}>

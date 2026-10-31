@@ -17,6 +17,8 @@ export type RailAgent = {
   href: string;
   /** The agent's own picture, when it has one. */
   imageSrc?: string;
+  /** Being created: the tile is busy, not yet a link, and shows a scrim with a spinner. */
+  pending?: boolean;
 };
 
 export type RailProps = {
@@ -151,20 +153,36 @@ export function Rail({
   // A drop is not a click: the link under the pointer must not open.
   const dragged = useRef(false);
   const byId = new Map(agents.map((a) => [a.agentId, a]));
-  const tile = (a: RailAgent) => (
-    <RailLink
-      label={a.name}
-      href={a.href}
-      active={a.agentId === activeAgentId}
-      marker={marker}
-      className="rounded-md hover:opacity-90"
-      onClick={(e) => dragged.current && e.preventDefault()}
-    >
-      <Sigil size="rail" agentId={a.agentId} image={a.imageSrc} live={a.state === "live" || a.state === "running"} />
-      {/* The pattern's own signal dot is too small to read at this size, so the state sits in the corner. */}
-      <StatusDot state={a.state} />
-    </RailLink>
-  );
+  const tile = (a: RailAgent) =>
+    a.pending ? (
+      // Not a link yet: there is nowhere to go until the agent exists. The scrim keeps its sigil
+      // visible (it is already drawn from the id) while the spinner says the work is still running.
+      <RailTip label={`Creating ${a.name}`}>
+        <div
+          aria-busy="true"
+          aria-label={`Creating ${a.name}`}
+          className={cx(TILE, "rounded-md border border-dashed border-border-strong")}
+        >
+          <Sigil size="rail" agentId={a.agentId} image={a.imageSrc} />
+          <span aria-hidden className="absolute inset-0 grid place-items-center rounded-md bg-shell/70">
+            <span className="size-24 animate-spin rounded-pill border-[3px] border-border-strong border-t-live motion-reduce:animate-none" />
+          </span>
+        </div>
+      </RailTip>
+    ) : (
+      <RailLink
+        label={a.name}
+        href={a.href}
+        active={a.agentId === activeAgentId}
+        marker={marker}
+        className="rounded-md hover:opacity-90"
+        onClick={(e) => dragged.current && e.preventDefault()}
+      >
+        <Sigil size="rail" agentId={a.agentId} image={a.imageSrc} live={a.state === "live" || a.state === "running"} />
+        {/* The pattern's own signal dot is too small to read at this size, so the state sits in the corner. */}
+        <StatusDot state={a.state} />
+      </RailLink>
+    );
   return (
     <nav aria-label="Agents" className={cx("flex h-full w-66 shrink-0 flex-col items-center gap-10 bg-shell pt-16 pb-14", className)} {...rest}>
       <RailLink label="Home" href={homeHref} active={homeActive} marker={marker} className={cx("rounded-lg", homeActive ? "bg-surface" : "hover:bg-surface")}>
@@ -176,22 +194,29 @@ export function Rail({
           <Reorder.Group axis="y" values={order} onReorder={setOrder} className="m-0 flex list-none flex-col items-center gap-10 p-0">
             {order.map((id) => {
               const a = byId.get(id);
-              return (
-                a && (
-                  <Reorder.Item
-                    key={id}
-                    value={id}
-                    className="relative cursor-grab active:cursor-grabbing"
-                    whileDrag={{ scale: 1.08, zIndex: 5 }}
-                    onDragStart={() => (dragged.current = true)}
-                    onDragEnd={() => {
-                      onReorder(order);
-                      setTimeout(() => (dragged.current = false), 0);
-                    }}
-                  >
+              if (!a) return null;
+              // A tile that is still being created is not dragged: it has no place in the order yet.
+              if (a.pending) {
+                return (
+                  <li key={id} className="relative">
                     {tile(a)}
-                  </Reorder.Item>
-                )
+                  </li>
+                );
+              }
+              return (
+                <Reorder.Item
+                  key={id}
+                  value={id}
+                  className="relative cursor-grab active:cursor-grabbing"
+                  whileDrag={{ scale: 1.08, zIndex: 5 }}
+                  onDragStart={() => (dragged.current = true)}
+                  onDragEnd={() => {
+                    onReorder(order);
+                    setTimeout(() => (dragged.current = false), 0);
+                  }}
+                >
+                  {tile(a)}
+                </Reorder.Item>
               );
             })}
           </Reorder.Group>

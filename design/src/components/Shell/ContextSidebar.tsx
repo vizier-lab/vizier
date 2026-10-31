@@ -32,7 +32,7 @@ export const MENU_GROUPS: { label: string; pages: { page: MenuPage; label: strin
     pages: [
       { page: "usage", label: "Usage", icon: "usage" },
       { page: "secrets", label: "Secrets", icon: "key" },
-      { page: "config", label: "Config", icon: "agent" },
+      { page: "config", label: "Config", icon: "settings" },
     ],
   },
 ];
