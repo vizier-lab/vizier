@@ -35,4 +35,4 @@
 - Scope is deliberately limited to the foundation: no git integration, diff review, file editor, per-session worktrees, terminal UI or sandboxing.
 - Project creation is desktop-only; web access covers existing projects and is gated by the `projects` permission.
 - Scheduled tasks and subagents do not inherit project context in this foundation; only a background report waking in a project session does.
-- Project sessions are personal to one person while the project itself is shared across agents and permitted users.
+- Projects are scoped to one agent; sessions are personal to one person. Opening the same folder from another agent creates a separate project.

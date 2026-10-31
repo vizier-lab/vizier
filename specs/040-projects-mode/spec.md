@@ -68,7 +68,7 @@ A person is away from their desk. They open the web interface, sign in, and — 
 
 **Acceptance Scenarios**:
 
-1. **Given** a person with the `projects` permission and web access enabled, **When** they open the web interface, **Then** the Projects section is visible and lists existing projects.
+1. **Given** a person with the `projects` permission and web access enabled, **When** they open the web interface, **Then** the Projects section is visible and lists the existing projects for the agents they can view.
 2. **Given** such a person, **When** they open an existing project session and run a command, **Then** the command runs on the host and its result appears in the browser.
 3. **Given** the web interface, **When** the person looks for a way to add a project, **Then** none is offered and any attempt to create one is refused.
 4. **Given** a person without the `projects` permission, **When** they use the web interface, **Then** they see no Projects section and cannot reach a project by direct address.
@@ -100,10 +100,11 @@ In a project session the agent knows which folder it is working in and reads the
 - No projects: the Projects section is hidden; the desktop empty conversation offers Open a Project; the web interface offers nothing.
 - The folder was moved, renamed or deleted: the project is shown as unavailable, its history remains readable, and commands are refused until the folder is available again. Re-opening the same path restores the project; a folder moved to a new path is a new project, because relinking is out of scope for this foundation.
 - The chosen folder is the application's own data folder: it is refused, because the agent could damage the application's data.
-- The same folder is opened twice: the existing project is reused; no duplicate appears.
+- The same folder is opened twice for the same agent: the existing project is reused; no duplicate appears.
 - Two projects have the same name: both are allowed; they are distinguished by their folders.
 - A project is removed while a turn is running: removal is refused until the turn ends.
-- A project is removed with no turn running: it and its sessions disappear from every sidebar, but its history is kept and no file in the folder is deleted. Re-opening the same folder restores the sessions.
+- A project is removed with no turn running: it and its sessions disappear from the sidebar, but its history is kept and no file in the folder is deleted. Re-opening the same folder in the same agent restores the sessions.
+- The same folder is opened from a second agent: a separate project is created for that agent. The first project's sessions do not move or become visible there.
 - The workspace shell is turned off for a project: the agent has no project shell at all; it is not offered a tool that is guaranteed to fail.
 - A command runs longer than its limit: it and its child processes are stopped, and the agent receives the partial output with a clear timeout result.
 - A command writes a very large amount of output: the result is capped and marked as truncated.
@@ -125,9 +126,9 @@ In a project session the agent knows which folder it is working in and reads the
 
 - **FR-001**: The desktop app MUST let a person open a project by choosing a local folder, and MUST verify that the folder exists and is a directory.
 - **FR-002**: Opening a project MUST show, before the first command can run, that commands run with the person's operating-system account, that there is no sandbox, and that only trusted folders should be opened.
-- **FR-003**: A folder MUST have at most one project per workspace; opening the same folder again MUST reuse the existing project rather than create a duplicate.
-- **FR-004**: Projects MUST persist across app restarts and MUST be available to any agent the person can view. A session inside a project MUST belong to one agent and one person.
-- **FR-005**: The sidebar MUST show a Projects section above Sessions, listing each project and that person's sessions for the current agent; the section MUST be hidden when there are no projects.
+- **FR-003**: A folder MUST have at most one project per agent; opening the same folder again for the same agent MUST reuse the existing project rather than create a duplicate. Opening the same folder for a different agent creates a separate project for that agent.
+- **FR-004**: Each project MUST belong to exactly one agent and MUST persist across app restarts. A person who can view that agent and holds the project permission can use it. A session inside a project MUST belong to that agent and one person.
+- **FR-005**: The sidebar MUST show a Projects section above Sessions, listing the agent's projects and that person's sessions in each; the section MUST be hidden when the agent has no projects.
 - **FR-006**: Project sessions MUST NOT appear in the regular Sessions list.
 - **FR-007**: A project MUST support multiple independent sessions, each with its own history and files; switching between them MUST not mix their content.
 - **FR-008**: A person MUST be able to start a new session in a project from the project row and from a project with no sessions.
@@ -142,12 +143,12 @@ In a project session the agent knows which folder it is working in and reads the
 - **FR-017**: Each project MUST have a switch that turns the workspace shell on or off. When off, the agent MUST NOT be offered the project shell.
 - **FR-018**: A `projects` permission MUST gate the Projects section, the project list, opening project sessions, starting project turns and the workspace shell. Without it, every project access MUST be refused and nothing project-related may be shown.
 - **FR-019**: The desktop workspace owner MUST hold the `projects` permission by default. It MUST be grantable through roles, and a revocation MUST affect new turns immediately.
-- **FR-020**: A person with the `projects` permission and web access MUST be able to list existing projects, open their sessions, start a new session, chat and run the workspace shell from the web interface.
+- **FR-020**: A person with the `projects` permission and web access MUST be able to list existing projects for the agents they can view, open their sessions, start a new session, chat and run the workspace shell from the web interface.
 - **FR-021**: Creating a project MUST require the desktop app. The web interface MUST NOT offer creation, and a direct creation attempt over the web MUST be refused.
 - **FR-022**: Renaming a project, removing it and changing its shell switch MUST be limited to the project's owner or a person with the whole-workspace project permission.
 - **FR-023**: A project session reached through web access MUST visibly indicate that commands run on the host machine.
 - **FR-024**: Project sessions MUST belong to one person. Another permitted person MAY see the project, but MUST NOT see or continue that person's sessions.
-- **FR-025**: Removing a project MUST hide it and its sessions from every sidebar, MUST NOT delete any file in the folder, and MUST keep the history so that re-opening the same folder restores the sessions.
+- **FR-025**: Removing a project MUST hide it and its sessions from the agent's sidebar, MUST NOT delete any file in the folder, and MUST keep the history so that re-opening the same folder in the same agent restores the sessions.
 - **FR-026**: If a project's folder is missing or unreadable, the project MUST be shown as unavailable, its history MUST remain readable, commands MUST be refused, and re-opening the same folder MUST restore normal operation.
 - **FR-027**: Two sessions of one project MAY run commands at the same time; the system MUST NOT serialise them or make one wait for the other. The interface MUST show which sessions are running.
 - **FR-028**: The application's own data workspace MUST be refused as a project folder.
@@ -156,7 +157,7 @@ In a project session the agent knows which folder it is working in and reads the
 
 ### Key Entities
 
-- **Project**: A folder on the host machine that an agent may work in. It has a name, a folder path, a shell switch, an owner, a created time and a removed state. It is shared across agents; the person who created it is recorded.
+- **Project**: A folder on the host machine that one agent may work in. It has a name, a folder path, the agent it belongs to, a shell switch, an owner, a created time and a removed state. The person who created it is recorded.
 - **Project session**: A conversation with one agent inside one project, owned by one person. It has its own history and files, and can run the workspace shell.
 - **Project instructions**: An optional document inside the project folder that guides the agent in that project.
 - **Project permission**: A role permission that allows a person to see and use projects. It is available in a whole-workspace scope and an owned-agents scope, like the other agent permissions.
@@ -172,7 +173,7 @@ In a project session the agent knows which folder it is working in and reads the
 - **SC-003**: A project with three sessions lists all three, switching preserves each session's content, and 0 project sessions appear in the regular Sessions list.
 - **SC-004**: A person without the `projects` permission sees no Projects section and 100% of their project access attempts are refused.
 - **SC-005**: A remote user with the permission can open an existing project and receive a shell result in under 3 minutes; 100% of web creation attempts are refused.
-- **SC-006**: Removing a project deletes 0 files from its folder, and re-opening the same folder restores its prior sessions in 100% of tested cases.
+- **SC-006**: Removing a project deletes 0 files from its folder, and re-opening the same folder in the same agent restores its prior sessions in 100% of tested cases.
 - **SC-007**: A project turn started before the person navigates away completes with shell access in 100% of tested cases; no test requires the chat to remain open.
 - **SC-008**: Two sessions running commands in one project both complete without waiting on each other; measured wall-clock time is not the sum of the two commands.
 - **SC-009**: 100% of remote project sessions display the host-execution indicator.
@@ -183,7 +184,7 @@ In a project session the agent knows which folder it is working in and reads the
 
 - Project hosting is a desktop-app capability. Remote access is through the desktop app's opt-in web interface; a standalone server installation is not a project host in this foundation.
 - The workspace has one desktop owner. The owner holds every permission, including `projects`; other people receive it through their roles.
-- Projects are shared across agents, while sessions are personal and per agent. Two people in the same project do not share a session.
+- Projects are scoped to one agent. Sessions are personal. Opening the same folder from another agent creates a separate project for that agent, and two people in the same project do not share a session.
 - A project folder is an ordinary local folder on the host. Cloud drives, network shares and remote mount protocols are not special-cased.
 - Commands run with the host user's operating-system account and are not sandboxed. The trust disclosure is the safeguard.
 - A sensible command limit, output cap and instruction-document size bound are configuration defaults; the exact values are implementation choices.
