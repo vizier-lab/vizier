@@ -60,7 +60,7 @@ export type Action =
     | { type: 'busy'; thinking: boolean }
     | { type: 'send'; id: string; text: string; attachments?: VizierAttachment[]; spoken?: boolean; now?: string }
     | { type: 'dequeue'; now?: string }
-    | { type: 'abort' }
+    | { type: 'abort'; now?: string }
     | { type: 'files'; files: SessionFileRecord[] }
     | { type: 'jobs'; jobs: BackgroundJobSnapshot[] }
 
@@ -247,26 +247,22 @@ export function reduce(state: TopicState, action: Action): TopicState {
         case 'history': {
             // What the server stored replaces the stand-ins drawn while the turn ran, and
             // keeps its own order: a page of older entries goes above what is held, the
-            // newest page replaces its own span of it.
+            // newest page replaces its own span of it, in place.
             const stored = action.entries
-            const held = state.entries.filter((e) => !isLive(e))
-            const keptLive = state.entries.filter(
-                (e) => isLive(e) && !stored.some((s) => s.uid === e.uid) && !coveredByStored(e, stored)
-            )
-            let merged: ChatMessage[]
             if (action.position === 'older') {
+                const held = state.entries.filter((e) => !isLive(e))
                 const have = new Set(held.map((e) => e.uid))
-                merged = [...stored.filter((e) => !have.has(e.uid)), ...held]
-            } else {
-                const first = held.findIndex((e) => stored.some((s) => s.uid === e.uid))
-                const before = first < 0 ? held : held.slice(0, first)
-                const inStored = new Set(stored.map((e) => e.uid))
-                // Pushed after the page was read: not in it yet, so kept after it.
-                const newer = first < 0 ? [] : held.slice(first).filter((e) => !inStored.has(e.uid) && !stored.some((s) => s.uid === e.uid))
-                merged = [...before, ...stored, ...newer]
+                const keptLive = state.entries.filter(
+                    (e) => isLive(e) && !stored.some((s) => s.uid === e.uid) && !coveredByStored(e, stored)
+                )
+                const merged = [...stored.filter((e) => !have.has(e.uid)), ...held]
+                return { ...state, entries: keptLive.length ? [...merged, ...keptLive] : merged }
             }
-            const context = state.context ?? (action.position === 'older' ? null : contextOfHistory(stored))
-            return { ...state, context, entries: keptLive.length ? [...merged, ...keptLive] : merged }
+            return {
+                ...state,
+                context: state.context ?? contextOfHistory(stored),
+                entries: mergePage(state.entries, stored),
+            }
         }
 
         case 'busy':
@@ -302,8 +298,15 @@ export function reduce(state: TopicState, action: Action): TopicState {
             }
         }
 
-        case 'abort':
-            return { ...idle(state), queued: [], stopped: true }
+        case 'abort': {
+            // The server records the abort as a `Command` entry, and `groupHistory` ends the
+            // turn at it: that is where the turn's trail renders. Drawn here the moment it is
+            // pressed, so a message sent straight after lands below the trail it ended rather
+            // than above it (a reload used to be what put it right).
+            const now = action.now ?? new Date(0).toISOString()
+            const entry = live(state, `abort-${now}`, now, { Command: 'abort' })
+            return { ...idle(state), queued: [], stopped: true, entries: mergeEntries(state.entries, [entry]) }
+        }
 
         case 'files':
             return { ...state, files: action.files }
@@ -316,10 +319,11 @@ export function reduce(state: TopicState, action: Action): TopicState {
 /** How far apart a stand-in request and its stored entry can be stamped: the client stamps both within moments, and two real messages are never this close. */
 const STAND_IN_WINDOW_MS = 2_000
 
-const stampedNear = (a: string, b: string) => Math.abs(Date.parse(a) - Date.parse(b)) < STAND_IN_WINDOW_MS
+const stampedNear = (a?: string, b?: string) =>
+    Math.abs(Date.parse(a ?? '') - Date.parse(b ?? '')) < STAND_IN_WINDOW_MS
 
 /**
- * A stand-in request/reply is covered once the stored history holds an entry of its kind after it.
+ * A stand-in request/reply/abort is covered once the stored history holds an entry of its kind.
  * A request is matched by content when the person typed it, and by when it was made otherwise: a
  * voice message or a generative-UI event is stored as something other than the `chat` text drawn
  * for it, and a stand-in left uncovered ends up below the reply it started.
@@ -338,7 +342,60 @@ function coveredByStored(entry: ChatMessage, stored: ChatMessage[]): boolean {
         const ts = entry.content.Response.timestamp
         return stored.some((s) => s.content.Response && s.content.Response.timestamp === ts)
     }
+    if (entry.content.Command !== undefined) {
+        // The person's abort is drawn the moment it is pressed; the server stores a `Command`
+        // entry of its own a moment later, and that one replaces the drawn copy.
+        return stored.some(
+            (s) => s.content.Command === entry.content.Command && stampedNear(s.timestamp, entry.timestamp)
+        )
+    }
     return entry.content.Checkpoint !== undefined && stored.some((s) => s.content.Checkpoint !== undefined)
+}
+
+/**
+ * The newest stored page laid over what is held, in the order the person already sees.
+ *
+ * The page can predate what is held: a read started when one turn ended can land after the
+ * next turn's reply, and laying it over the entries — rather than placing the page before a
+ * slice of them and appending the rest — is what keeps that reply below the message it
+ * answers. An entry the page carries takes the page's copy where it stands; a stand-in the
+ * page covers gives way to it in place; a stand-in it does not cover stays where it is; and an
+ * entry nothing holds yet is placed beside the nearest entry of the page that is held, so a
+ * `Request` the page brings lands above its own steps instead of after them.
+ */
+function mergePage(current: ChatMessage[], stored: ChatMessage[]): ChatMessage[] {
+    const byUid = new Map(stored.map((entry) => [entry.uid, entry]))
+    const out: ChatMessage[] = []
+    const shows = (uid: string) => out.some((entry) => entry.uid === uid)
+
+    for (const entry of current) {
+        const fresh = byUid.get(entry.uid)
+        if (fresh) {
+            out.push(fresh)
+            continue
+        }
+        if (isLive(entry)) {
+            const cover = stored.find((s) => coveredByStored(entry, [s]))
+            if (cover) {
+                if (!shows(cover.uid)) out.push(cover)
+                continue
+            }
+        }
+        out.push(entry)
+    }
+
+    for (let at = 0; at < stored.length; at += 1) {
+        const entry = stored[at]
+        if (shows(entry.uid)) continue
+        // Beside the nearest entry of the page that is here: after the one before it, or
+        // before the one after it. A page sharing nothing with what is held goes after it all.
+        const preceding = stored.slice(0, at).reverse().find((s) => shows(s.uid))
+        const anchor = preceding ?? stored.slice(at + 1).find((s) => shows(s.uid))
+        const found = anchor ? out.findIndex((e) => e.uid === anchor.uid) : -1
+        out.splice(found < 0 ? out.length : preceding ? found + 1 : found, 0, entry)
+    }
+
+    return out
 }
 
 /** The next queued message to send, once the topic is idle. */

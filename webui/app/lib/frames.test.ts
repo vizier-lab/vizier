@@ -70,7 +70,71 @@ describe('turn state machine', () => {
     })
 })
 
+describe('abort boundary', () => {
+    // The server stores the abort as a `Command` entry, which is where `groupHistory` ends the
+    // turn and where its trail renders. Live, nothing carried it, so the trail was drawn at the
+    // end of the list — below the message sent next, where only a reload put it right.
+    it('draws the abort where it happened, above the message sent next', () => {
+        let s = run(start(), { type: 'send', id: '1', text: 'one', now: '2026-10-23T10:00:00.000Z' })
+        s = run(s, frame({ kind: 'history_entry', entry: call('c1', 'k1') }))
+        s = run(s, { type: 'abort', now: '2026-10-23T10:00:05.000Z' })
+        s = run(s, { type: 'send', id: '2', text: 'two', now: '2026-10-23T10:00:07.000Z' })
+
+        expect(s.entries.map((e) => e.content.Command ?? e.uid)).toEqual(['live-req-1', 'c1', 'abort', 'live-req-2'])
+        const turns = groupHistory(s.entries)
+        expect(turns).toHaveLength(2)
+        // The stopped turn keeps its work, and the trail is drawn at the abort: above the next message.
+        expect(turns[0].trail).toHaveLength(1)
+        expect(turns[0].aborted).toBe(true)
+        expect(turns[0].anchorUid).toBe(s.entries[2].uid)
+        expect(turns[1].request?.uid).toBe('live-req-2')
+        expect(openTurn(turns)?.key).toBe(turns[1].key)
+    })
+
+    it('draws no second abort once the stored command arrives', () => {
+        const at = '2026-10-23T10:00:00.000Z'
+        let s = run(start(), { type: 'send', id: '1', text: 'one', now: at })
+        s = run(s, { type: 'abort', now: '2026-10-23T10:00:05.000Z' })
+        s = run(s, {
+            type: 'history',
+            entries: [
+                entry('r1', { Request: { timestamp: at, user: 'me', content: { chat: 'one' } } }),
+                entry('cmd1', { Command: 'abort' }, '2026-10-23T10:00:05.010Z'),
+            ],
+        })
+        expect(s.entries.map((e) => e.uid)).toEqual(['r1', 'cmd1'])
+    })
+})
+
 describe('history and reopening', () => {
+    // A read started when one turn ended can land after the next turn's reply. The page it
+    // brings predates that reply, and must not be used to put the reply above its message.
+    it('keeps a reply below its message when an earlier page read lands late', () => {
+        const at = '2026-10-23T10:00:00.000Z'
+        let s = run(
+            start(),
+            { type: 'send', id: '1', text: 'one', now: at },
+            response({ message: { content: 'first' } }, { history_uid: 'a1', timestamp: '2026-10-23T10:00:09Z' }),
+            { type: 'send', id: '2', text: 'two', now: '2026-10-23T10:00:20.000Z' },
+            response({ message: { content: 'second' } }, { history_uid: 'a2', timestamp: '2026-10-23T10:00:29Z' })
+        )
+        s = run(s, {
+            type: 'history',
+            entries: [
+                entry('r1', { Request: { timestamp: at, user: 'me', content: { chat: 'one' } } }),
+                entry('a1', {
+                    Response: { timestamp: '2026-10-23T10:00:09Z', content: { message: { content: 'first' } } },
+                }),
+            ],
+        })
+
+        expect(s.entries.map((e) => e.uid)).toEqual(['r1', 'a1', 'live-req-2', 'a2'])
+        const turns = groupHistory(s.entries)
+        expect(turns).toHaveLength(2)
+        expect(turns[1].request?.uid).toBe('live-req-2')
+        expect(turns[1].outcome?.uid).toBe('a2')
+    })
+
     it('shows a turn in progress after a reopen, with no duplicate steps', () => {
         // The page loads history that already holds the request and one step...
         let s = run(start(), { type: 'history', entries: [request(), call('c1', 'k1')] }, { type: 'busy', thinking: true })

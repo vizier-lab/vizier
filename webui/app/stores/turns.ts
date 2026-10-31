@@ -248,7 +248,9 @@ export const useTurns = create<TurnStore>()((set, get) => {
 
         command: (agentId, topicId, command) => {
             useConnection.getState().send(agentId, topicId, request({ command }))
-            if (command === 'abort') dispatch(agentId, topicId, { type: 'abort' })
+            // The abort is drawn where it happened, so a message sent next lands below the
+            // trail it ended, without waiting for a reload to put it there.
+            if (command === 'abort') dispatch(agentId, topicId, { type: 'abort', now: new Date().toISOString() })
         },
 
         loadOlder: async (agentId, topicId) => {
