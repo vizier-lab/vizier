@@ -10,6 +10,7 @@ import { useNotifications } from '../stores/notifications'
 import { NotificationsAside, NotificationsPanel } from '../screens/notifications/NotificationsPanel'
 import { NotificationsBell } from '../screens/shared/NotificationsBell'
 import { NotificationToasts } from '../screens/shared/NotificationToasts'
+import { NewAgentDialog, withNewAgent } from '../screens/agents/NewAgentDialog'
 import { SettingsSidebar } from '../screens/settings/SettingsSidebar'
 import { AgentSidebar } from '../screens/shell/AgentSidebar'
 import { viewOf } from '../screens/shell/pages'
@@ -19,7 +20,7 @@ import { ToastRegion } from './ToastRegion'
 
 export default function AppShell() {
     const navigate = useNavigate()
-    const { pathname } = useLocation()
+    const { pathname, search } = useLocation()
     const params = useParams()
     const matches = useMatches()
     const { can } = useSession()
@@ -117,7 +118,7 @@ export default function AppShell() {
                                     <IconButton
                                         icon="plus"
                                         aria-label="New agent"
-                                        onClick={() => navigate('/agents/new')}
+                                        onClick={() => navigate(withNewAgent(`${pathname}${search}`))}
                                     />
                                 )}
                                 <NotificationsBell />
@@ -139,6 +140,7 @@ export default function AppShell() {
                 <NotificationsPanel />
                 <NotificationToasts />
                 <ToastRegion />
+                <NewAgentDialog />
             </div>
         )
     }
@@ -155,6 +157,7 @@ export default function AppShell() {
             </ShellFrame>
             <NotificationToasts />
             <ToastRegion />
+            <NewAgentDialog />
         </div>
     )
 }

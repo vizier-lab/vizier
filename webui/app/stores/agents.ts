@@ -14,8 +14,13 @@ const SAMPLES = 5
 
 export type SetupSample = { at: number; progress: number }
 
+/** An agent whose creation is still running on the server: shown in the rail, busy, until it lands. */
+export type CreatingAgent = { agentId: string; name: string }
+
 type AgentStore = {
     agents: Agent[]
+    /** Creations in flight, newest last. Cleared one at a time as each finishes. */
+    creating: CreatingAgent[]
     health: Record<string, AgentHealth>
     setups: Record<string, SetupState>
     /** The last few progress samples per starting agent, for the ETA (research R15). */
@@ -24,6 +29,10 @@ type AgentStore = {
     refresh: () => Promise<void>
     refreshHealth: () => Promise<void>
     refreshSetups: () => Promise<void>
+    /** Show an agent that is being created, before the server has it. */
+    startCreating: (agent: CreatingAgent) => void
+    /** The creation finished, one way or another: drop the busy tile. */
+    finishCreating: (agentId: string) => void
     /** Polls while the tab is visible; returns a stop function. */
     start: () => () => void
 }
@@ -59,6 +68,7 @@ export function eta(samples: SetupSample[] | undefined): number | null {
 
 export const useAgents = create<AgentStore>()((set, get) => ({
     agents: [],
+    creating: [],
     health: {},
     setups: {},
     samples: {},
@@ -106,6 +116,14 @@ export const useAgents = create<AgentStore>()((set, get) => ({
             /* ignore */
         }
     },
+
+    startCreating: (agent) =>
+        set((s) => ({
+            creating: [...s.creating.filter((c) => c.agentId !== agent.agentId), agent],
+        })),
+
+    finishCreating: (agentId) =>
+        set((s) => ({ creating: s.creating.filter((c) => c.agentId !== agentId) })),
 
     start: () => {
         const { refresh, refreshHealth, refreshSetups } = get()

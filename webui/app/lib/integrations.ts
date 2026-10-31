@@ -3,7 +3,7 @@ import type { IntegrationEvent, IntegrationItem, IntegrationState } from '../api
 /** Built-in tool categories and addon ids: an MCP server named like one gets `_mcp` after it. */
 const TAKEN_CATEGORIES = new Set([
     'memory', 'identity', 'scheduling', 'agents', 'skills', 'files', 'scratchpad', 'web', 'audio', 'media',
-    'discord', 'telegram', 'webui', 'shell', 'integrations', 'brave_search',
+    'discord', 'telegram', 'webui', 'shell', 'http', 'office', 'integrations', 'brave_search',
 ])
 
 /** The category an MCP server's tools are listed under. */
@@ -74,5 +74,17 @@ export const ADDON_TOOLS: Record<string, { name: string; description: string }[]
     brave_search: [
         { name: 'brave_search_web', description: 'Search the web.' },
         { name: 'brave_search_news', description: 'Search recent news.' },
+    ],
+    http: [
+        { name: 'fetch', description: 'Read a webpage as text.' },
+        { name: 'http_client', description: 'Call an HTTP API with any method.' },
+    ],
+    shell: [{ name: 'shell_exec', description: 'Run a command in the working directory.' }],
+    office: [
+        { name: 'office_docx_read_as_md', description: 'Read a Word document as Markdown.' },
+        { name: 'office_xlsx_read_as_cells', description: 'Read an Excel workbook as typed cells.' },
+        { name: 'office_xlsx_read_as_csv', description: 'Read a sheet as CSV text.' },
+        { name: 'office_docx_write_from_md', description: 'Write a Word document from Markdown.' },
+        { name: 'office_xlsx_write_from_sheets', description: 'Write an Excel workbook from sheets.' },
     ],
 }

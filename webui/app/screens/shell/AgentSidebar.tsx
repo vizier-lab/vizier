@@ -17,6 +17,7 @@ import { DeleteConversation, type DeleteTarget } from '../chat/DeleteConversatio
 import { canManageSecrets, canViewArtifacts } from '../../lib/access'
 import { conversationHref, conversationTitle, sidebarSections, sidebarTime } from '../../lib/conversations'
 import { relativeTime } from '../../lib/format'
+import { withNewAgent } from '../agents/NewAgentDialog'
 import { useAgents } from '../../stores/agents'
 import { topicKey } from '../../stores/connection'
 import { useSession } from '../../stores/session'
@@ -152,7 +153,13 @@ export function AgentSidebar({ agentId }: { agentId: string }) {
                         onSelect={(a) => navigate(`/${a.agent_id}/chat`)}
                         footer={
                             can('all_agents:create') ? (
-                                <PickerAction icon="plus" onClick={() => navigate('/agents/new')}>
+                                <PickerAction
+                                    icon="plus"
+                                    onClick={() => {
+                                        const q = search.toString()
+                                        navigate(withNewAgent(q ? `${pathname}?${q}` : pathname))
+                                    }}
+                                >
                                     Create agent
                                 </PickerAction>
                             ) : undefined

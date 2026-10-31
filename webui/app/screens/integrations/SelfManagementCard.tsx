@@ -5,7 +5,7 @@ import { toast } from '../../stores/toasts'
 
 const FAMILIES: { key: IntegrationFamily; label: string; note?: string }[] = [
     { key: 'mcp', label: 'MCP servers', note: 'Includes local servers, which run commands on the vizier host.' },
-    { key: 'addon', label: 'Addons' },
+    { key: 'addon', label: 'Addons', note: 'Can add, replace or remove the tools it uses, such as web search or a shell.' },
     { key: 'channel', label: 'Channels', note: 'Can add, replace tokens on or delete its Discord and Telegram bots, including the one it is talking on.' },
 ]
 

@@ -1,4 +1,5 @@
-import type { AgentDetail, AgentInput, ShellConfig } from '../api/endpoints/agents'
+import type { AgentDetail, AgentInput } from '../api/endpoints/agents'
+import type { ModelSummary } from '../api/endpoints/catalogue'
 
 /** What the New agent wizard and Config edit: one flat object, converted to the request on save. */
 export type AgentForm = {
@@ -24,8 +25,6 @@ export type AgentForm = {
     silentReadPercent: string
     embeddingProvider: string
     embeddingModel: string
-    fetch: boolean
-    httpClient: boolean
     tts: boolean
     ttsProvider: string
     /** Empty means the provider's default. */
@@ -48,14 +47,6 @@ export type AgentForm = {
     imageGenModel: string
     /** Such as `1024x1024`; empty means the provider's default. */
     imageGenSize: string
-    shell: boolean
-    shellKind: 'local' | 'docker'
-    shellPath: string
-    dockerSource: 'pull' | 'dockerfile'
-    dockerImage: string
-    dockerfilePath: string
-    containerName: string
-    shellEnv: string
 }
 
 export const TTS_PROVIDERS = ['openai', 'openrouter', 'elevenlabs', 'xai', 'hyperbolic', 'kokoro']
@@ -124,6 +115,44 @@ export const EMBEDDING_PROVIDERS = ['local', 'openrouter', 'ollama', 'openai', '
 export const EMBEDDING_DEFAULT_MODELS: Record<string, string> = {
     bedrock: 'amazon.titan-embed-text-v2:0',
 }
+/** What a local index uses when no model is named (the server's own default). */
+export const LOCAL_EMBEDDING_DEFAULT = 'all_mini_lml6_v2'
+/**
+ * The fastembed models a local index can use, with the server's own tier for each: mirrors
+ * `LOCAL_EMBEDDING_MODELS` in `crates/vizier-core/src/config/embedding.rs`, in its order.
+ */
+export const LOCAL_EMBEDDING_MODELS = ([
+    ['all_mini_lml6_v2', 'lightweight'],
+    ['all_mini_lml6_v2q', 'lightweight'],
+    ['all_mini_lml12_v2', 'performance'],
+    ['all_mini_lml12_v2q', 'balanced'],
+    ['bge_base_env15', 'balanced'],
+    ['bge_base_env15q', 'balanced'],
+    ['bge_large_env15', 'performance'],
+    ['bge_large_env15q', 'balanced'],
+    ['bge_small_env15', 'lightweight'],
+    ['bge_small_env15q', 'lightweight'],
+    ['nomic_embed_text_v1', 'balanced'],
+    ['nomic_embed_text_v15', 'balanced'],
+    ['nomic_embed_text_v15q', 'balanced'],
+    ['paraphrase_ml_mini_lml12_v2', 'lightweight'],
+    ['paraphrase_ml_mini_lml12_v2q', 'lightweight'],
+    ['paraphrase_ml_mpnet_base_v2', 'balanced'],
+    ['bge_small_zh_v15', 'lightweight'],
+    ['bge_large_zh_v15', 'performance'],
+    ['modernbert_embed_large', 'performance'],
+    ['multilingual_e5_small', 'lightweight'],
+    ['multilingual_e5_base', 'balanced'],
+    ['multilingual_e5_large', 'performance'],
+    ['mxbai_embed_large_v1', 'performance'],
+    ['mxbai_embed_large_v1q', 'balanced'],
+    ['gte_base_env15', 'balanced'],
+    ['gte_base_env15q', 'balanced'],
+    ['gte_large_env15', 'performance'],
+    ['gte_large_env15q', 'balanced'],
+    ['clip_vit_b32', 'balanced'],
+    ['jina_embeddings_v2_base_code', 'balanced'],
+] as const).map(([value, tier]) => ({ value, label: `${value} · ${tier}` }))
 
 export const emptyForm = (): AgentForm => ({
     agentId: '',
@@ -146,8 +175,6 @@ export const emptyForm = (): AgentForm => ({
     silentReadPercent: '0',
     embeddingProvider: 'local',
     embeddingModel: '',
-    fetch: false,
-    httpClient: false,
     tts: false,
     ttsProvider: 'kokoro',
     ttsModel: '',
@@ -165,14 +192,6 @@ export const emptyForm = (): AgentForm => ({
     imageGenProvider: 'openai',
     imageGenModel: '',
     imageGenSize: '',
-    shell: false,
-    shellKind: 'local',
-    shellPath: '',
-    dockerSource: 'pull',
-    dockerImage: 'ubuntu:latest',
-    dockerfilePath: '',
-    containerName: 'vizier',
-    shellEnv: '',
 })
 
 /** "Meeting Notes" → "meeting-notes": the agent id a name suggests. */
@@ -188,23 +207,35 @@ export function slugOf(name: string): string {
 
 export const AGENT_ID = /^[a-z0-9][a-z0-9_-]*$/
 
-/** `KEY=value` lines to a map; blank lines and `#` comments are skipped. */
-export function parseEnv(text: string): Record<string, string> | null {
-    const env: Record<string, string> = {}
-    for (const raw of text.split('\n')) {
-        const line = raw.trim()
-        if (!line || line.startsWith('#')) continue
-        const at = line.indexOf('=')
-        if (at < 1) continue
-        env[line.slice(0, at).trim()] = line.slice(at + 1).trim()
+/**
+ * The catalogue's own limits for a model, as the Context window and Max output fields hold them.
+ * A model the catalogue doesn't know (a typed id) has none, so both come back empty.
+ */
+export function modelLimits(info?: ModelSummary): { contextWindow: string; maxTokens: string } {
+    const context = info?.limit.input ?? info?.limit.context
+    return {
+        contextWindow: context ? String(context) : '',
+        maxTokens: info?.limit.output ? String(info.limit.output) : '',
     }
-    return Object.keys(env).length ? env : null
 }
 
-export const formatEnv = (env?: Record<string, string> | null) =>
-    Object.entries(env ?? {})
-        .map(([k, v]) => `${k}=${v}`)
-        .join('\n')
+/**
+ * What Context window and Max output become when a model is chosen: that model's own numbers, except
+ * where a field holds a value someone typed, which stays as it is. `auto` is what the previous choice
+ * wrote, so "still holding what we filled in" is told apart from "chosen on purpose".
+ */
+export function refilledLimits(
+    current: Pick<AgentForm, 'contextWindow' | 'maxTokens'>,
+    auto: { contextWindow: string; maxTokens: string },
+    info?: ModelSummary
+): Pick<AgentForm, 'contextWindow' | 'maxTokens'> {
+    const limits = modelLimits(info)
+    const patch = { contextWindow: current.contextWindow, maxTokens: current.maxTokens }
+    for (const key of ['contextWindow', 'maxTokens'] as const) {
+        if (!current[key] || current[key] === auto[key]) patch[key] = limits[key]
+    }
+    return patch
+}
 
 const num = (s: string): number | null => {
     const n = Number(s)
@@ -212,7 +243,7 @@ const num = (s: string): number | null => {
 }
 
 /** The first thing wrong with the fields a step needs, or nothing. */
-export function problems(f: AgentForm, step: 'config' | 'prompt' | 'tools' | 'all', editing = false): Record<string, string> {
+export function problems(f: AgentForm, step: 'config' | 'models' | 'prompt' | 'addons' | 'all', editing = false): Record<string, string> {
     const out: Record<string, string> = {}
     if (step === 'config' || step === 'all') {
         if (!f.name.trim()) out.name = 'Give the agent a name.'
@@ -220,36 +251,21 @@ export function problems(f: AgentForm, step: 'config' | 'prompt' | 'tools' | 'al
             if (!f.agentId) out.agentId = 'An id is needed.'
             else if (!AGENT_ID.test(f.agentId)) out.agentId = 'Lowercase letters, numbers, - and _.'
         }
+    }
+    if (step === 'models' || step === 'all') {
         if (!f.provider) out.provider = 'Choose a provider.'
         if (!f.model.trim()) out.model = 'Choose a model.'
         for (const key of ['contextWindow', 'maxTokens'] as const) {
             if (f[key].trim() !== '' && (num(f[key]) ?? -1) <= 0) out[key] = 'A positive number, or empty.'
         }
-    }
-    if (step === 'tools' || step === 'all') {
-        if (f.shell && f.shellKind === 'local' && !f.shellPath.trim()) out.shellPath = 'Where the shell starts.'
-        if (f.shell && f.shellKind === 'docker' && f.dockerSource === 'pull' && !f.dockerImage.trim()) out.dockerImage = 'An image to pull.'
-        if (f.shell && f.shellKind === 'docker' && f.dockerSource === 'dockerfile' && !f.dockerfilePath.trim()) out.dockerfilePath = 'Path to the Dockerfile.'
         if (f.tts && f.ttsSpeed.trim() !== '' && (num(f.ttsSpeed) ?? -1) <= 0) out.ttsSpeed = 'A positive number, or empty.'
+        if (f.dreamEnabled && !f.dreamSchedule.trim()) out.dreamSchedule = 'A cron expression is needed when dreams are on.'
         if (f.readImage && f.visionOwn && (!f.visionProvider || !f.visionModel)) out.vision = 'Choose a vision model.'
+        // The memory index's model sits in Models too, and only Bedrock and the built-in local index
+        // have a documented default.
+        if (f.embeddingProvider !== 'local' && f.embeddingProvider !== 'bedrock' && !f.embeddingModel.trim()) out.embeddingModel = 'Name the embedding model.'
     }
-    if (step === 'all' && f.embeddingProvider !== 'local' && f.embeddingProvider !== 'bedrock' && !f.embeddingModel.trim()) out.embeddingModel = 'Name the embedding model.'
     return out
-}
-
-export function shellOf(f: AgentForm): ShellConfig | null {
-    if (!f.shell) return null
-    const env = parseEnv(f.shellEnv)
-    if (f.shellKind === 'local') return { environment: 'local', path: f.shellPath.trim(), env }
-    return {
-        environment: 'docker',
-        image:
-            f.dockerSource === 'pull'
-                ? { source: 'pull', name: f.dockerImage.trim() }
-                : { source: 'dockerfile', path: f.dockerfilePath.trim(), name: f.dockerImage.trim() || f.containerName.trim() },
-        container_name: f.containerName.trim() || 'vizier',
-        env,
-    }
 }
 
 /**
@@ -277,8 +293,10 @@ export function toInput(f: AgentForm, base?: AgentDetail): AgentInput {
         prompt_timeout: f.promptTimeout.trim() || '10m',
         dream_enabled: f.dreamEnabled,
         dream_schedule: f.dreamEnabled ? f.dreamSchedule.trim() || null : (base?.dream_schedule ?? null),
-        dream_provider: f.dreamEnabled && f.dreamProvider ? f.dreamProvider : null,
-        dream_model: f.dreamEnabled && f.dreamModel ? f.dreamModel : null,
+        // The dream model is kept even while dreams are off, so choosing one in Models sticks. One
+        // that is the language model is sent as none, so it keeps following it when that changes.
+        dream_provider: ownDreamModel(f) ? f.dreamProvider || null : null,
+        dream_model: ownDreamModel(f) ? f.dreamModel || null : null,
         avatar_url: f.avatarUrl || null,
         silent_read_initiative_chance: (num(f.silentReadPercent) ?? 0) / 100,
         // The server wants a model with a provider; none means its own default (and Bedrock's
@@ -289,9 +307,6 @@ export function toInput(f: AgentForm, base?: AgentDetail): AgentInput {
                 : null,
         indexer: base?.indexer ?? undefined,
         tools: {
-            shell: shellOf(f),
-            fetch: f.fetch,
-            http_client: f.httpClient,
             timeout: f.toolsTimeout.trim() || '30m',
             tts: f.tts,
             tts_settings: f.tts
@@ -321,10 +336,17 @@ export function toInput(f: AgentForm, base?: AgentDetail): AgentInput {
     }
 }
 
+/**
+ * True when the dream cycle has a model of its own. The form defaults it to the language model, and
+ * that pair is sent as "none" so it keeps following the language model instead of freezing on it.
+ */
+function ownDreamModel(f: AgentForm): boolean {
+    return f.dreamProvider !== f.provider || f.dreamModel !== f.model
+}
+
 const str = (v: unknown, fallback = '') => (typeof v === 'string' ? v : fallback)
 
 export function fromDetail(d: AgentDetail): AgentForm {
-    const shell = d.shell
     return {
         ...emptyForm(),
         agentId: d.agent_id,
@@ -347,8 +369,6 @@ export function fromDetail(d: AgentDetail): AgentForm {
         silentReadPercent: String(Math.round(d.silent_read_initiative_chance * 100)),
         embeddingProvider: d.embedding?.provider ?? 'local',
         embeddingModel: d.embedding?.model ?? '',
-        fetch: d.fetch,
-        httpClient: d.http_client,
         tts: d.tts,
         ttsProvider: str(d.tts_settings?.provider, 'kokoro'),
         ttsModel: str(d.tts_settings?.model),
@@ -366,13 +386,5 @@ export function fromDetail(d: AgentDetail): AgentForm {
         imageGenProvider: str(d.image_gen_settings?.provider, 'openai'),
         imageGenModel: str(d.image_gen_settings?.model),
         imageGenSize: str(d.image_gen_settings?.size),
-        shell: !!shell,
-        shellKind: shell?.environment ?? 'local',
-        shellPath: shell?.environment === 'local' ? shell.path : '',
-        dockerSource: shell?.environment === 'docker' ? shell.image.source : 'pull',
-        dockerImage: shell?.environment === 'docker' ? (shell.image.source === 'pull' ? shell.image.name : shell.image.name) : 'ubuntu:latest',
-        dockerfilePath: shell?.environment === 'docker' && shell.image.source === 'dockerfile' ? shell.image.path : '',
-        containerName: shell?.environment === 'docker' ? shell.container_name : 'vizier',
-        shellEnv: formatEnv(shell?.env),
     }
 }

@@ -28,20 +28,24 @@ async function token(page: Page): Promise<string> {
 
 /** Creates an agent on the offline dummyplug provider through the API. */
 export async function createPlugAgent(page: Page, id: string) {
+    const headers = { Authorization: `Bearer ${await token(page)}` }
     const res = await page.request.post('/api/v1/agents', {
-        headers: { Authorization: `Bearer ${await token(page)}` },
+        headers,
         data: {
             agent_id: id,
             name: id,
             description: 'e2e dummyplug agent',
             provider: 'dummyplug',
             model: 'dummyplug',
-            // A local shell, so HOLD(n) can keep a turn open.
-            tools: { shell: { environment: 'local', path: process.env.VIZIER_SHELL_DIR ?? '/tmp' } },
         },
     })
     // 400 when the agent already exists: reused across runs.
     expect(res.ok() || res.status() === 400 || res.status() === 409).toBeTruthy()
+    // A local shell addon, so HOLD(n) can keep a turn open (the addons redesign: shell is an addon now).
+    await page.request.post(`/api/v1/agents/${id}/integrations`, {
+        headers,
+        data: { kind: 'shell', name: 'Shell', settings: { path: process.env.VIZIER_SHELL_DIR ?? '/tmp' } },
+    })
 }
 
 /** Types into the chat composer and sends. */

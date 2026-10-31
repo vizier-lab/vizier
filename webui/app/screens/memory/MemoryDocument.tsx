@@ -224,6 +224,7 @@ function ReadDoc({ agentId, bundle, path }: DocProps) {
             />
             <Panes
                 paneLabel="About this document"
+                stackAt={1536}
                 pane={
                     <>
                         {doc ? (

@@ -1,23 +1,37 @@
-import { Button, Callout, Dialog, EmptyState, IntegrationCard, IntegrationLogo, PanelHeader, SearchField, SecretField, Skeleton, SwitchRow, TextField, ToolList } from '@vizier/design'
+import { AddonTile, Button, Callout, EmptyState, PanelHeader, SearchField, Skeleton, Status, Switch } from '@vizier/design'
 import { useEffect, useMemo, useState } from 'react'
 import { useParams } from 'react-router'
-import { ApiError } from '../api/client'
-import { createIntegration, integrationKinds, removeIntegration, updateIntegration, type IntegrationItem, type Kind, type KindField } from '../api/endpoints/integrations'
-import { ADDON_TOOLS, cardState, stateDetail } from '../lib/integrations'
+import {
+    createIntegration,
+    integrationKinds,
+    removeIntegration,
+    updateIntegration,
+    type IntegrationItem,
+    type Kind,
+} from '../api/endpoints/integrations'
+import { PERMISSIONS, useCan } from '../lib/access'
+import { cardState, stateDetail } from '../lib/integrations'
 import { useIntegrationList } from '../lib/useIntegrationList'
 import { ActivityCard } from '../screens/integrations/ActivityCard'
+import { AddonDialog } from '../screens/integrations/AddonForm'
+import { SelfManagementCard } from '../screens/integrations/SelfManagementCard'
 import { ConfirmDialog } from '../screens/shared/ConfirmDialog'
 import { PageFrame } from '../screens/shared/PageFrame'
 import { Panes } from '../screens/shared/Panes'
 import { toast } from '../stores/toasts'
 
+/** Addons are tools, so the Shell addon keeps the permission that guarded the old switch. */
+const needsPermission = (kind: string) => kind === 'shell'
+
 export default function IntegrationsAddons() {
     const { agentId = '' } = useParams()
     const { data, error, reload, version } = useIntegrationList(agentId, 'addon')
+    const canShell = useCan(PERMISSIONS.shellConfig)
     const [kinds, setKinds] = useState<Kind[]>()
     const [query, setQuery] = useState('')
     const [installing, setInstalling] = useState<Kind | null>(null)
-    const [replacing, setReplacing] = useState<{ item: IntegrationItem; field: KindField } | null>(null)
+    const [adding, setAdding] = useState<string>()
+    const [managing, setManaging] = useState<IntegrationItem | null>(null)
     const [removing, setRemoving] = useState<IntegrationItem | null>(null)
 
     useEffect(() => {
@@ -27,6 +41,7 @@ export default function IntegrationsAddons() {
     const q = query.trim().toLowerCase()
     const matches = (name: string, description: string) => !q || name.toLowerCase().includes(q) || description.toLowerCase().includes(q)
     const kindOf = (id: string) => kinds?.find((k) => k.id === id)
+    const allowed = (kind: string) => !needsPermission(kind) || canShell
     const installed = (data?.items ?? []).filter((i) => matches(kindOf(i.kind)?.name ?? i.name, kindOf(i.kind)?.description ?? ''))
     const available = useMemo(
         () => (kinds ?? []).filter((k) => !data?.items.some((i) => i.kind === k.id) && matches(k.name, k.description)),
@@ -46,71 +61,108 @@ export default function IntegrationsAddons() {
         <PageFrame
             fill
             title="Addons"
-            meta="Extra tools for this agent · each addon’s tools are named after it"
+            meta="Tools this agent can use, installed like apps"
             actions={<SearchField aria-label="Search addons" placeholder="Search addons" value={query} onValueChange={setQuery} className="w-full sm:w-260" />}
         >
-            <Panes paneLabel="Activity" pane={<ActivityCard agentId={agentId} version={version} />}>
+            <Panes
+                paneLabel="Activity"
+                pane={
+                    <div className="flex flex-col gap-24">
+                        <ActivityCard agentId={agentId} version={version} />
+                        <SelfManagementCard agentId={agentId} />
+                    </div>
+                }
+            >
                 {error ? (
                     <EmptyState kind="error" title="Couldn’t load addons" message={error.message} />
                 ) : !data || !kinds ? (
-                    <Skeleton className="h-120" />
+                    <div className="grid grid-cols-1 gap-12 md:grid-cols-2 2xl:grid-cols-3">
+                        <Skeleton className="h-156" />
+                        <Skeleton className="h-156" />
+                        <Skeleton className="h-156" />
+                    </div>
                 ) : (
-                    <>
-                        {installed.map((item) => {
-                            const kind = kindOf(item.kind)
-                            const state = cardState(item.status, item.enabled)
-                            const detail = stateDetail(item.status)
-                            const secrets = (kind?.fields ?? []).filter((f) => f.type === 'secret')
-                            const flags = (kind?.fields ?? []).filter((f) => f.type === 'bool')
-                            return (
-                                <IntegrationCard
-                                    key={item.id}
-                                    kind={item.kind}
-                                    name={kind?.name ?? item.name}
-                                    handle={kind?.description}
-                                    state={state}
-                                    enabled={item.enabled}
-                                    onEnabledChange={(enabled) => void change(updateIntegration(item.id, { enabled }), 'Couldn’t change the addon')}
-                                    failure={state === 'failed' && detail ? { title: 'This addon is not working', message: detail } : undefined}
-                                    actions={
-                                        item.can_edit && (
-                                            <Button variant="destructive" icon="trash" onClick={() => setRemoving(item)}>
-                                                {item.legacy_linked ? 'Unlink' : 'Remove'}
-                                            </Button>
+                    <div className="flex flex-col gap-32">
+                        {installed.length > 0 && (
+                            <section aria-label="Installed" className="flex flex-col gap-12">
+                                <PanelHeader title="Installed" meta={`${installed.length} on this agent`} level={2} />
+                                <div className="grid grid-cols-1 gap-12 md:grid-cols-2 2xl:grid-cols-3">
+                                    {installed.map((item) => {
+                                        const kind = kindOf(item.kind)
+                                        const state = cardState(item.status, item.enabled)
+                                        const detail = stateDetail(item.status)
+                                        const blocked = !allowed(item.kind)
+                                        return (
+                                            <AddonTile
+                                                key={item.id}
+                                                kind={item.kind}
+                                                name={kind?.name ?? item.name}
+                                                description={kind?.description ?? 'An addon on this agent.'}
+                                                badge={
+                                                    <span className="ml-auto flex shrink-0 items-center gap-6">
+                                                        <Status state={state} label={state === 'reading' ? 'Active' : undefined} font="sans" />
+                                                    </span>
+                                                }
+                                            >
+                                                {state === 'failed' && detail && <p className="mr-auto type-small text-failed-text">{detail}</p>}
+                                                <span className="flex items-center gap-8 type-ui text-muted">
+                                                    <Switch
+                                                        checked={item.enabled}
+                                                        disabled={!item.can_edit}
+                                                        aria-label={`${kind?.name ?? item.name} enabled`}
+                                                        onCheckedChange={(enabled) => void change(updateIntegration(item.id, { enabled }), 'Couldn’t change the addon')}
+                                                    />
+                                                    {item.enabled ? 'On' : 'Off'}
+                                                </span>
+                                                {item.can_edit && (
+                                                    <Button
+                                                        size="sm"
+                                                        variant="ghost"
+                                                        icon="settings"
+                                                        disabled={blocked}
+                                                        onClick={() => setManaging(item)}
+                                                    >
+                                                        Manage
+                                                    </Button>
+                                                )}
+                                            </AddonTile>
                                         )
-                                    }
-                                >
-                                    {secrets.map((f) => (
-                                        <SecretField key={f.key} label={f.label} masked={String(item.settings[f.key] ?? '')} onReplace={() => setReplacing({ item, field: f })} />
-                                    ))}
-                                    {flags.map((f) => (
-                                        <SwitchRow
-                                            key={f.key}
-                                            label={f.label}
-                                            checked={Boolean(item.settings[f.key] ?? f.default)}
-                                            disabled={!item.can_edit}
-                                            onCheckedChange={(v) => void change(updateIntegration(item.id, { settings: { ...item.settings, [f.key]: v } }), 'Couldn’t change the setting')}
-                                        />
-                                    ))}
-                                    {ADDON_TOOLS[item.kind] && <ToolList tools={ADDON_TOOLS[item.kind]} />}
-                                </IntegrationCard>
-                            )
-                        })}
+                                    })}
+                                </div>
+                            </section>
+                        )}
 
                         {available.length > 0 && (
                             <section aria-label="Available" className="flex flex-col gap-12">
-                                <PanelHeader title="Available" meta={`${available.length}`} level={2} />
-                                {/* Laid out like an installed addon's header, so installing it changes nothing but the controls. */}
-                                {available.map((k) => (
-                                    <div key={k.id} className="flex items-center gap-14 rounded-xl border border-border bg-surface px-20 py-20">
-                                        <IntegrationLogo kind={k.id} size={44} />
-                                        <div className="flex min-w-0 flex-1 flex-col gap-2">
-                                            <h3 className="type-heading text-fg">{k.name}</h3>
-                                            <p className="type-small text-muted">{k.description}</p>
-                                        </div>
-                                        {data.can_manage && <Button onClick={() => setInstalling(k)}>Install</Button>}
-                                    </div>
-                                ))}
+                                <PanelHeader title="Available" meta={`${available.length} to add`} level={2} />
+                                <div className="grid grid-cols-1 gap-12 md:grid-cols-2 2xl:grid-cols-3">
+                                    {available.map((k) => {
+                                        const blocked = !allowed(k.id)
+                                        return (
+                                            <AddonTile key={k.id} kind={k.id} name={k.name} description={k.description}>
+                                                <span className="type-small text-faint">
+                                                    {blocked ? 'Needs the shell permission' : k.fields.some((f) => f.required) ? 'Needs setup' : 'Ready to add'}
+                                                </span>
+                                                {data.can_manage && (
+                                            <Button
+                                                size="sm"
+                                                icon="plus"
+                                                disabled={blocked}
+                                                loading={adding === k.id}
+                                                onClick={() => {
+                                                    // Nothing to ask: add it on the spot. Anything with settings opens its form.
+                                                    if (k.fields.length > 0) return setInstalling(k)
+                                                    setAdding(k.id)
+                                                    void change(createIntegration(agentId, { kind: k.id, name: k.name, settings: {} }), 'Couldn’t add the addon').finally(() => setAdding(undefined))
+                                                }}
+                                            >
+                                                Add
+                                            </Button>
+                                        )}
+                                            </AddonTile>
+                                        )
+                                    })}
+                                </div>
                             </section>
                         )}
 
@@ -119,40 +171,44 @@ export default function IntegrationsAddons() {
                         {available.length === 0 && (
                             <Callout title="That’s every addon in this version.">New addons ship with Vizier releases. For anything else, connect an MCP server.</Callout>
                         )}
-                    </>
+                    </div>
                 )}
-
             </Panes>
 
-            <InstallDialog
+            <AddonDialog
                 kind={installing}
+                mode="install"
                 onClose={() => setInstalling(null)}
-                onInstall={async (kind, settings) => {
-                    await createIntegration(agentId, { kind: kind.id, name: kind.id, settings })
+                onSave={async (kind, settings) => {
+                    await createIntegration(agentId, { kind: kind.id, name: kind.name, settings })
                     setInstalling(null)
                     await reload()
                 }}
             />
 
-            <Dialog open={replacing !== null} title={`Replace ${replacing?.field.label.toLowerCase() ?? 'secret'}`} confirmLabel="" onConfirm={() => {}} onCancel={() => setReplacing(null)}>
-                {replacing && (
-                    <ReplaceSecret
-                        field={replacing.field}
-                        onCancel={() => setReplacing(null)}
-                        onSave={async (value) => {
-                            await updateIntegration(replacing.item.id, { settings: { ...replacing.item.settings, [replacing.field.key]: value } })
-                            setReplacing(null)
-                            await reload()
-                        }}
-                    />
-                )}
-            </Dialog>
+            <AddonDialog
+                kind={managing ? kindOf(managing.kind) ?? null : null}
+                mode="manage"
+                item={managing ?? undefined}
+                onClose={() => setManaging(null)}
+                onRemove={() => {
+                    const target = managing
+                    setManaging(null)
+                    if (target) setRemoving(target)
+                }}
+                onSave={async (_kind, settings) => {
+                    if (!managing) return
+                    await updateIntegration(managing.id, { settings })
+                    setManaging(null)
+                    await reload()
+                }}
+            />
 
             <ConfirmDialog
                 open={removing !== null}
-                title={`${removing?.legacy_linked ? 'Unlink' : 'Remove'} ${kindOf(removing?.kind ?? '')?.name ?? 'addon'}?`}
-                message="The agent loses its tools from the next turn."
-                confirmLabel={removing?.legacy_linked ? 'Unlink' : 'Remove addon'}
+                title={`Remove ${kindOf(removing?.kind ?? '')?.name ?? 'addon'}?`}
+                message="The agent loses its tools from the next turn. Its settings are forgotten."
+                confirmLabel="Remove addon"
                 onConfirm={() => {
                     const target = removing
                     setRemoving(null)
@@ -161,86 +217,5 @@ export default function IntegrationsAddons() {
                 onCancel={() => setRemoving(null)}
             />
         </PageFrame>
-    )
-}
-
-function ReplaceSecret({ field, onCancel, onSave }: { field: KindField; onCancel: () => void; onSave: (value: string) => Promise<void> }) {
-    const [value, setValue] = useState('')
-    const [busy, setBusy] = useState(false)
-    const [problem, setProblem] = useState<string>()
-    return (
-        <form
-            className="flex flex-col gap-16"
-            onSubmit={async (e) => {
-                e.preventDefault()
-                setBusy(true)
-                try {
-                    await onSave(value.trim())
-                } catch (err) {
-                    setProblem(err instanceof Error ? err.message : 'It could not be saved.')
-                } finally {
-                    setBusy(false)
-                }
-            }}
-        >
-            <TextField label={`New ${field.label.toLowerCase()}`} mono type="password" autoComplete="off" value={value} invalid={!!problem} helper={problem} onChange={(e) => setValue(e.target.value)} autoFocus />
-            <div className="flex justify-end gap-8">
-                <Button type="button" variant="ghost" onClick={onCancel}>Cancel</Button>
-                <Button type="submit" variant="primary" loading={busy} disabled={!value.trim()}>Save</Button>
-            </div>
-        </form>
-    )
-}
-
-function InstallDialog({ kind, onClose, onInstall }: { kind: Kind | null; onClose: () => void; onInstall: (kind: Kind, settings: Record<string, unknown>) => Promise<void> }) {
-    return (
-        <Dialog open={kind !== null} title={`Install ${kind?.name ?? 'addon'}`} confirmLabel="" onConfirm={() => {}} onCancel={onClose}>
-            {kind && <InstallForm key={kind.id} kind={kind} onClose={onClose} onInstall={onInstall} />}
-        </Dialog>
-    )
-}
-
-function InstallForm({ kind, onClose, onInstall }: { kind: Kind; onClose: () => void; onInstall: (kind: Kind, settings: Record<string, unknown>) => Promise<void> }) {
-    const [values, setValues] = useState<Record<string, unknown>>(() => Object.fromEntries(kind.fields.filter((f) => f.default !== undefined).map((f) => [f.key, f.default])))
-    const [busy, setBusy] = useState(false)
-    const [problem, setProblem] = useState<string>()
-    const ready = kind.fields.every((f) => !f.required || String(values[f.key] ?? '').trim() !== '')
-    return (
-        <form
-            className="flex flex-col gap-16"
-            onSubmit={async (e) => {
-                e.preventDefault()
-                setBusy(true)
-                setProblem(undefined)
-                try {
-                    await onInstall(kind, values)
-                } catch (err) {
-                    setProblem(err instanceof ApiError || err instanceof Error ? err.message : 'It could not be installed.')
-                } finally {
-                    setBusy(false)
-                }
-            }}
-        >
-            {kind.fields.map((f) =>
-                f.type === 'bool' ? (
-                    <SwitchRow key={f.key} label={f.label} checked={Boolean(values[f.key])} onCheckedChange={(v) => setValues((s) => ({ ...s, [f.key]: v }))} />
-                ) : (
-                    <TextField
-                        key={f.key}
-                        label={f.label}
-                        mono={f.type === 'secret'}
-                        type={f.type === 'secret' ? 'password' : 'text'}
-                        autoComplete="off"
-                        value={String(values[f.key] ?? '')}
-                        onChange={(e) => setValues((s) => ({ ...s, [f.key]: e.target.value }))}
-                    />
-                )
-            )}
-            {problem && <p className="type-small text-failed-text">{problem}</p>}
-            <div className="flex justify-end gap-8">
-                <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
-                <Button type="submit" variant="primary" loading={busy} disabled={!ready}>Install</Button>
-            </div>
-        </form>
     )
 }

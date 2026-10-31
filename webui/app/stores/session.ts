@@ -23,6 +23,7 @@ export function applyTheme(theme: Theme) {
         if (theme === 'system') el.removeAttribute('data-theme')
         else el.setAttribute('data-theme', theme)
     }
+    paintWindow(theme)
     // The court changes light in one breath: the old and new grounds cross-fade
     // instead of snapping. Browsers without the API, and people who asked for
     // less movement, get the change straight away. So does the desktop window: a view transition
@@ -39,6 +40,30 @@ export function applyTheme(theme: Theme) {
         return
     }
     start.call(document, apply)
+}
+
+/**
+ * The desktop window's frame (its title bar) is native chrome drawn by the OS, so it does not
+ * follow `data-theme` on its own: the shell is told which appearance to paint it in. The
+ * transport is loaded lazily on the desktop, which is why this waits for it.
+ */
+function paintWindow(theme: Theme) {
+    if (transport.authMode !== 'desktop') return
+    void transportReady
+        .then(() => {
+            const dark = theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+            return transport.desktop?.theme(dark ? 'dark' : 'light')
+        })
+        .catch(() => {
+            /* a window that cannot be painted keeps its system frame */
+        })
+}
+
+// With the theme following the system, the frame follows it too as the system switches.
+if (typeof window !== 'undefined') {
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+        if (readTheme() === 'system') applyTheme('system')
+    })
 }
 
 type SessionStore = {

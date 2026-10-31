@@ -1,4 +1,4 @@
-import { Button, Dialog, EmptyState, FileTree, FilterTabs, ListItem, MemoryGraph, SearchField, Skeleton, TextField, type FileTreeNode } from '@vizier/design'
+import { Button, Dialog, EmptyState, FileTree, FilterTabs, ListItem, MemoryGraph, SearchField, Skeleton, SlideOver, TextField, type FileTreeNode } from '@vizier/design'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router'
 import {
@@ -18,7 +18,7 @@ import {
 import { count, relativeTime } from '../lib/format'
 import { bundleStars, neighbourhood, toView } from '../lib/memoryGraph'
 import { bundleHref, bundleNode, docHref, docId, type LoadedDocs } from '../lib/memoryTree'
-import { useMobile } from '../lib/useMobile'
+import { useMobile, useBelow } from '../lib/useMobile'
 import { MemoryDocument, MemoryStrip } from '../screens/memory/MemoryDocument'
 import { ConfirmDialog } from '../screens/shared/ConfirmDialog'
 import { PageFrame } from '../screens/shared/PageFrame'
@@ -60,6 +60,7 @@ function Explorer({ agentId, bundle, doc }: { agentId: string; bundle?: string; 
     const [results, setResults] = useState<Passage[] | null>(null)
     const [creating, setCreating] = useState<'bundle' | 'memory' | null>(null)
     const [deleting, setDeleting] = useState<string | null>(null)
+    const [explorerOpen, setExplorerOpen] = useState(false)
     const importer = useRef<HTMLInputElement>(null)
 
     const loadBundles = useCallback(async () => {
@@ -169,6 +170,26 @@ function Explorer({ agentId, bundle, doc }: { agentId: string; bundle?: string; 
     const totalDocs = bundles?.reduce((n, b) => n + b.concept_count, 0) ?? 0
     const open = bundles?.find((b) => b.name === bundle)
     const nothing = bundles !== null && bundles.length === 0
+    // A narrow window: the explorer becomes a slide-over so the document keeps a readable measure.
+    const drawer = useBelow(1280) && !mobile
+    // Choosing a document, a bundle, a search hit or a new memory moves the address; the drawer
+    // closes with it.
+    useEffect(() => setExplorerOpen(false), [bundle, doc])
+
+    const content =
+        bundle && doc ? (
+            <MemoryDocument agentId={agentId} bundle={bundle} path={doc} />
+        ) : mobile ? null : (
+            <GraphArea
+                agentId={agentId}
+                bundles={bundles ?? []}
+                open={open}
+                onFocus={(name) => navigate(name ? bundleHref(agentId, name) : `/${agentId}/memory`, { replace: true })}
+                onOpenDoc={(b, path) => navigate(docHref(agentId, b, path))}
+                onExport={(name) => void doExport(name)}
+                onDelete={setDeleting}
+            />
+        )
 
     const explorer = (
         <>
@@ -218,6 +239,11 @@ function Explorer({ agentId, bundle, doc }: { agentId: string; bundle?: string; 
             actions={
                 <>
                     <input ref={importer} type="file" accept=".zip" hidden onChange={(e) => e.target.files?.[0] && void doImport(e.target.files[0])} />
+                    {drawer && (
+                        <Button variant="secondary" icon="layers" onClick={() => setExplorerOpen(true)}>
+                            Bundles
+                        </Button>
+                    )}
                     <Button variant="secondary" icon="upload" onClick={() => importer.current?.click()}>
                         Import
                     </Button>
@@ -247,23 +273,17 @@ function Explorer({ agentId, bundle, doc }: { agentId: string; bundle?: string; 
             ) : bundle && doc && mobile ? (
                 // A phone has room for one: the document, with its way back to the explorer.
                 <MemoryDocument agentId={agentId} bundle={bundle} path={doc} />
+            ) : drawer ? (
+                // A narrow window keeps two: the document (or graph), and the explorer in a slide-over.
+                <>
+                    {content}
+                    <SlideOver open={explorerOpen} title="Bundles" side="left" onClose={() => setExplorerOpen(false)}>
+                        {explorer}
+                    </SlideOver>
+                </>
             ) : (
                 <Panes side="left" paneWidth={320} paneLabel="Explorer" pane={explorer} bare phoneOrder="pane-first">
-                    {bundle && doc ? (
-                        <MemoryDocument agentId={agentId} bundle={bundle} path={doc} />
-                    ) : (
-                        !mobile && (
-                            <GraphArea
-                                agentId={agentId}
-                                bundles={bundles ?? []}
-                                open={open}
-                                onFocus={(name) => navigate(name ? bundleHref(agentId, name) : `/${agentId}/memory`, { replace: true })}
-                                onOpenDoc={(b, path) => navigate(docHref(agentId, b, path))}
-                                onExport={(name) => void doExport(name)}
-                                onDelete={setDeleting}
-                            />
-                        )
-                    )}
+                    {content}
                 </Panes>
             )}
 

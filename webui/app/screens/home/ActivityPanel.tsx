@@ -81,7 +81,7 @@ export function ActivityPanel({ compact }: { compact?: boolean }) {
                         variant="primary"
                         size="sm"
                         icon="plus"
-                        onClick={() => navigate('/agents/new')}
+                        onClick={() => navigate('/?new=1')}
                     >
                         New agent
                     </Button>

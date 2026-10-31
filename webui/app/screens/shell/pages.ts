@@ -25,7 +25,7 @@ export function pageOf(pathname: string): AgentPage | undefined {
     return (Object.entries(PAGE_PATH) as [AgentPage, string][]).find(([, p]) => rest === p || rest.startsWith(p + '/'))?.[0]
 }
 
-/** The shell has three shapes: no column (Home, New agent), the agent's column, or Settings'. */
+/** The shell has three shapes: no column (Home and the New agent modal), the agent's column, or Settings'. */
 export type ShellView = 'bare' | 'agent' | 'settings'
 
 export function viewOf(pathname: string, routeAgent: string | undefined): ShellView {

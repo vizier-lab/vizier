@@ -111,7 +111,7 @@ function FirstRun({ hasProvider }: { hasProvider: boolean }) {
                     description="Give it a name, a model and the tools it may use."
                     action={
                         can('all_agents:create') && (
-                            <Button variant={hasProvider ? 'primary' : 'secondary'} onClick={() => navigate('/agents/new')}>
+                            <Button variant={hasProvider ? 'primary' : 'secondary'} onClick={() => navigate('/?new=1')}>
                                 Create agent
                             </Button>
                         )
@@ -187,7 +187,7 @@ export default function Home() {
                         actions={
                             <div className="flex items-center gap-10">
                                 {canCreate && (
-                                    <Button variant="primary" icon="plus" onClick={() => navigate('/agents/new')}>
+                                    <Button variant="primary" icon="plus" onClick={() => navigate('/?new=1')}>
                                         New agent
                                     </Button>
                                 )}

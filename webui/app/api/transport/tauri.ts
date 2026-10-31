@@ -34,6 +34,7 @@ export const tauriShell: DesktopShell = {
     restart: () => invoke('runtime_restart'),
     settingsGet: () => invoke('desktop_settings_get'),
     settingsSet: (settings) => invoke('desktop_settings_set', { patch: settings }),
+    theme: (appearance) => invoke('desktop_theme', { appearance }),
     onUpdate: (fn) => listen<UpdateInfo>('desktop://update', (e) => fn(e.payload)),
     updateCheck: () => invoke('update_check'),
     updateInstall: () => invoke('update_install'),

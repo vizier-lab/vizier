@@ -57,6 +57,8 @@ export interface DesktopShell {
     restart(): Promise<void>
     settingsGet(): Promise<DesktopSettings>
     settingsSet(settings: DesktopSettings): Promise<DesktopSettings>
+    /** Paint the window frame (the title bar) in this appearance's shell colour. */
+    theme(appearance: 'dark' | 'light'): Promise<void>
     updateCheck(): Promise<UpdateInfo>
     onUpdate(fn: (u: UpdateInfo) => void): Promise<() => void>
     updateInstall(): Promise<void>

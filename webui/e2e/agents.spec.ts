@@ -16,36 +16,40 @@ test.describe('Agents (quickstart §7 steps 4–6)', () => {
         await login(page)
     })
 
-    test('New agent: four steps, nothing saved until Create, then Config rebuild warning and typed-ID delete', async ({ page }) => {
+    test('New agent: five steps in a modal, nothing saved until Create, then Config rebuild warning and typed-ID delete', async ({ page }) => {
         const name = unique('wizard')
         await page.goto('/agents/new')
+        const dialog = page.getByRole('dialog')
 
-        // Config
-        await page.getByLabel('Name', { exact: true }).fill(name)
-        await expect(page.getByLabel('Agent ID')).toHaveValue(name)
-        await page.getByRole('button', { name: /Provider/ }).click()
+        // Identity
+        await dialog.getByLabel('Name', { exact: true }).fill(name)
+        await expect(dialog.getByLabel('Agent ID')).toHaveValue(name)
+        await dialog.getByRole('button', { name: 'Continue' }).click()
+
+        // Models
+        await dialog.getByRole('button', { name: /Provider/ }).click()
         await page.getByRole('option', { name: /dummyplug/i }).click()
-        await expect(page.getByRole('button', { name: /^Model/ })).toBeVisible()
-        await page.getByRole('button', { name: /^Model/ }).click()
+        await expect(dialog.getByRole('button', { name: /^Model/ })).toBeVisible()
+        await dialog.getByRole('button', { name: /^Model/ }).click()
         await page.getByRole('option').first().click()
-        await page.getByRole('button', { name: 'Continue' }).click()
+        await dialog.getByRole('button', { name: 'Continue' }).click()
 
-        // System prompt
-        await expect(page).toHaveURL(/step=prompt/)
-        await page.getByLabel('System prompt').fill('You are a test agent.')
-        await page.getByRole('button', { name: 'Continue' }).click()
+        // Addons: skippable
+        await dialog.getByRole('button', { name: 'Skip' }).click()
 
-        // Tools
-        await expect(page).toHaveURL(/step=tools/)
-        await expect(page.getByText('Always on')).toBeVisible()
-        await page.getByRole('button', { name: 'Continue' }).click()
+        // Prompt: skippable, but this one is filled
+        await dialog.getByLabel('System prompt').fill('You are a test agent.')
+        await dialog.getByRole('button', { name: 'Continue' }).click()
 
         // Review: the preview, and still nothing saved
-        await expect(page).toHaveURL(/step=review/)
-        await expect(page.getByText(/nothing is saved until you create it/i)).toBeVisible()
+        await expect(dialog.getByText(/nothing is saved until you create it/i)).toBeVisible()
         expect(await agentExists(page, name)).toBe(false)
 
-        await page.getByRole('button', { name: 'Create agent' }).click()
+        await dialog.getByRole('button', { name: 'Create agent' }).click()
+        // The dialog closes at once: the agent's tile in the rail is busy until the server has it.
+        await expect(dialog).toBeHidden()
+        await expect(page.getByText(`${name} created`)).toBeVisible()
+        await page.getByRole('navigation', { name: 'Agents' }).getByRole('link', { name }).click()
         await expect(page).toHaveURL(new RegExp(`/${name}/chat`))
         expect(await agentExists(page, name)).toBe(true)
 

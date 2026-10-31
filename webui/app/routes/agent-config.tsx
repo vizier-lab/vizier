@@ -1,15 +1,13 @@
-import { Button, Card, Dialog, EmptyState, Notice, Select, ShareList, SigilPicker, Skeleton, Tab, TabList, TextField, ToggleSection, UnsavedIndicator, ImageCropper, MarkdownEditor, motionDurations, motionEases } from '@vizier/design'
+import { Button, Card, Dialog, EmptyState, Notice, ShareList, SigilPicker, Skeleton, Tab, TabList, TextField, UnsavedIndicator, ImageCropper, MarkdownEditor, motionDurations, motionEases } from '@vizier/design'
 import { motion } from 'motion/react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router'
 import { ApiError } from '../api/client'
 import { deleteAgent, getAgent, getSharing, updateAgent, updateSharing, type AgentDetail } from '../api/endpoints/agents'
 import { listUsers, type UserSummary } from '../api/endpoints/auth'
-import { EMBEDDING_DEFAULT_MODELS, EMBEDDING_PROVIDERS, fromDetail, problems, toInput, type AgentForm } from '../lib/agentForm'
+import { fromDetail, problems, toInput, type AgentForm } from '../lib/agentForm'
 import { uploadFile } from '../lib/upload'
-import { ModelSelect } from '../screens/agents/ModelSelect'
-import { ToolsFields } from '../screens/agents/ToolsFields'
-import { SelfManagementCard } from '../screens/integrations/SelfManagementCard'
+import { ModelsFields } from '../screens/agents/ModelsFields'
 import { ConfirmDialog } from '../screens/shared/ConfirmDialog'
 import { PageFrame } from '../screens/shared/PageFrame'
 import { TwoColumn } from '../screens/shared/TwoColumn'
@@ -18,8 +16,8 @@ import { toast } from '../stores/toasts'
 
 const TABS = [
     { key: 'config', label: 'Config' },
+    { key: 'models', label: 'Models' },
     { key: 'prompt', label: 'System Prompt' },
-    { key: 'tools', label: 'Tools' },
     { key: 'sharing', label: 'Sharing' },
     { key: 'danger', label: 'Danger Zone' },
 ] as const
@@ -128,19 +126,6 @@ export default function AgentConfig() {
         </Card>
     )
 
-    const model = (
-        <Card title="Model" description="From the models.dev catalogue and your custom providers.">
-            <div className="flex flex-col gap-16">
-                <ModelSelect provider={form.provider} model={form.model} onChange={(c) => set({ provider: c.provider, model: c.model })} />
-                <div className="grid grid-cols-1 gap-16 sm:grid-cols-3">
-                    <TextField label="Context window" mono suffix="tokens" inputMode="numeric" value={form.contextWindow} invalid={!!errors.contextWindow} helper={errors.contextWindow ?? 'Empty uses the model’s own.'} onChange={(e) => set({ contextWindow: e.target.value })} />
-                    <TextField label="Max output" mono suffix="tokens" inputMode="numeric" value={form.maxTokens} invalid={!!errors.maxTokens} helper={errors.maxTokens ?? 'Empty uses the model’s own.'} onChange={(e) => set({ maxTokens: e.target.value })} />
-                    <TextField label="Thinking depth" mono suffix="steps" inputMode="numeric" value={form.thinkingDepth} helper="Most tool rounds in one turn." onChange={(e) => set({ thinkingDepth: e.target.value })} />
-                </div>
-            </div>
-        </Card>
-    )
-
     const behaviour = (
         <Card title="Behaviour">
             <div className="flex flex-col gap-16">
@@ -149,23 +134,7 @@ export default function AgentConfig() {
                     <TextField label="Tool timeout" mono value={form.toolsTimeout} helper="One tool call." onChange={(e) => set({ toolsTimeout: e.target.value })} />
                     <TextField label="Checkpoint threshold" mono suffix="%" inputMode="numeric" value={form.checkpointPercent} helper="Hand over to a fresh context at this share of the window." onChange={(e) => set({ checkpointPercent: e.target.value })} />
                 </div>
-                <ToggleSection title="Dreams" description="Reflect and tidy memory on a schedule." checked={form.dreamEnabled} onCheckedChange={(dreamEnabled) => set({ dreamEnabled })}>
-                    <div className="flex flex-col gap-16">
-                        <TextField label="Dream schedule" mono value={form.dreamSchedule} helper="A cron expression, e.g. 0 3 * * *." onChange={(e) => set({ dreamSchedule: e.target.value })} />
-                        <ModelSelect providerLabel="Dream provider" modelLabel="Dream model" provider={form.dreamProvider || form.provider} model={form.dreamModel || form.model} onChange={(c) => set({ dreamProvider: c.provider, dreamModel: c.model })} />
-                    </div>
-                </ToggleSection>
                 <TextField label="Silent read chance" mono suffix="%" inputMode="numeric" value={form.silentReadPercent} helper="How often it joins a group conversation on Discord and Telegram unprompted." onChange={(e) => set({ silentReadPercent: e.target.value })} />
-            </div>
-        </Card>
-    )
-
-    const memoryIndex = (
-        <Card title="Memory index" description="Embeddings for passage search.">
-            <div className="flex flex-col gap-16">
-                <Select label="Indexer" options={[{ value: 'sqlite', label: 'SQLite (vector store)' }]} value="sqlite" onChange={() => {}} disabled />
-                <Select label="Embedding provider" options={EMBEDDING_PROVIDERS.map((p) => ({ value: p, label: p }))} value={form.embeddingProvider} onChange={(embeddingProvider) => set({ embeddingProvider })} />
-                <TextField label="Embedding model" mono value={form.embeddingModel} invalid={!!errors.embeddingModel} placeholder={EMBEDDING_DEFAULT_MODELS[form.embeddingProvider]} helper={errors.embeddingModel ?? (form.embeddingProvider === 'local' ? 'Empty uses the built-in model.' : form.embeddingProvider === 'bedrock' ? 'Empty uses Titan Text Embeddings V2.' : 'Changing it re-indexes memory when the agent starts.')} onChange={(e) => set({ embeddingModel: e.target.value })} />
             </div>
         </Card>
     )
@@ -237,29 +206,20 @@ export default function AgentConfig() {
                     <TwoColumn
                         aside={
                             <>
-                                {memoryIndex}
                                 {sharing}
                                 {danger}
                             </>
                         }
                     >
                         {identity}
-                        {model}
                         {behaviour}
                     </TwoColumn>
                 )}
+                {tab === 'models' && <ModelsFields form={form} errors={errors} set={set} />}
                 {tab === 'prompt' && (
                     <Card title="System prompt" description="Who the agent is and how it should work.">
                         <MarkdownEditor look="compact" value={form.systemPrompt} onChange={(systemPrompt) => set({ systemPrompt })} className="h-640" />
                     </Card>
-                )}
-                {tab === 'tools' && (
-                    <>
-                        <ToolsFields form={form} errors={errors} set={set} />
-                        <div className="mt-24">
-                            <SelfManagementCard agentId={agentId} />
-                        </div>
-                    </>
                 )}
                 {tab === 'sharing' && sharing}
                 {tab === 'danger' && danger}
