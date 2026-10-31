@@ -8,6 +8,7 @@ All notable changes to this project will be documented in this file.
 
 - Set the updater public key
 - Set the updater public key (#141)
+- Bump version to 0.14.0-rc.3
 ## [0.14.0-rc.2] - 2026-10-31
 
 ### 🚀 Features
