@@ -63,7 +63,7 @@ description: "Task list for Windows support in the desktop app"
 - [X] T013 [P] [US1] In `app/src-tauri/src/shell.rs` verify (and fix only if broken on Windows) that a second launch with a `vizier://â€¦` argument reaches `handle_urls` through the single-instance callback at line ~253, and that `app.deep_link().register_all()` at line ~329 does not error on Windows; if the single-instance plugin needs its `deep-link` feature for argv forwarding, enable it in `app/src-tauri/Cargo.toml` and re-run `cargo fetch` so `app/Cargo.lock` updates
 - [X] T014 [P] [US1] In `crates/vizier-core/src/encryption/key.rs` and `app/src-tauri/src/web_access.rs` confirm the non-Unix path (no `0600` mode) logs nothing alarming and still creates `{workspace}\.runtime\encryption.key` and `web-access.key`; add a one-line comment at each `cfg(unix)` site saying Windows relies on the profile directory's ACL. No behaviour change expected
 - [X] T015 [US1] Build the installer locally with `cd app && cargo tauri build` and confirm `app/target/release/bundle/nsis/Vizier_<version>_x64-setup.exe` exists (depends on T004, T007)
-- [ ] T016 [US1] Manually walk quickstart.md sections 2 and 3 on a Windows 11 machine with the T015 installer (install without UAC, Start menu entry, first run, workspace at `%APPDATA%\rs.vizier.app\workspace`, second instance shows workspace in use, tray, `vizier://` link, dummyplug shell `echo hello` and `ls`, restart persistence, uninstall keeps `%APPDATA%\rs.vizier.app`). Fix defects found in the files above; record outcomes in `specs/039-windows-app-support/research.md` under a new "Verification log" heading
+- [X] T016 [US1] Manually walk quickstart.md sections 2 and 3 on a Windows 11 machine with the T015 installer (install without UAC, Start menu entry, first run, workspace at `%APPDATA%\rs.vizier.app\workspace`, second instance shows workspace in use, tray, `vizier://` link, dummyplug shell `echo hello` and `ls`, restart persistence, uninstall keeps `%APPDATA%\rs.vizier.app`). Fix defects found in the files above; record outcomes in `specs/039-windows-app-support/research.md` under a new "Verification log" heading
 
 **Checkpoint**: US1 works from a locally built installer. The app is shippable by hand even if nothing else lands.
 
@@ -85,7 +85,7 @@ description: "Task list for Windows support in the desktop app"
 - [X] T022 [P] [US2] In `.github/workflows/ci.yml` turn the `app` job into a matrix over `ubuntu-22.04` and `windows-latest` (`fail-fast: false`, `runs-on: ${{ matrix.os }}`), guard `Install Linux dependencies` with `runner.os == 'Linux'` in addition to the existing condition, add the `core.longpaths` step and `LIBCLANG_PATH` for Windows, and set `shell: bash` on the `Build the WebUI` and `Clippy and test` steps so the existing scripts run unchanged on both OSes
 - [X] T023 [P] [US2] In `docs/src/getting-started/desktop-app.md` add the Windows row (`Windows 10/11 x64 | Vizier_<version>_x64-setup.exe`), a **Windows** paragraph (unsigned: SmartScreen **More info â†’ Run anyway**; installs for the current user without admin; WebView2 is installed automatically on Windows 10; ARM64 PCs run it under emulation on Windows 11), the Windows workspace path `%APPDATA%\rs.vizier.app\workspace` in "Where your data lives", and that closing/uninstalling keeps the workspace
 - [X] T024 [P] [US2] In `README.md` line ~41 (the Desktop app paragraph) add the Windows installer (`Vizier_<version>_x64-setup.exe`, unsigned for now, link to the guide)
-- [ ] T025 [US2] Trigger `release.yml` with `dry_run: true` from the branch and confirm: `Build app - windows-x64` is green, artifact `vizier-app-windows-x64` has `Vizier_<version>_x64-setup.exe`, `.sig`, `.sha256`, `release-assets/latest.json` has `windows-x86_64`, and the macOS, Linux and server legs are unchanged. Record the run URL and any fixes in `specs/039-windows-app-support/research.md` "Verification log" (depends on T019â€“T022; needs a push, so ask the user first)
+- [X] T025 [US2] Trigger `release.yml` with `dry_run: true` from the branch and confirm: `Build app - windows-x64` is green, artifact `vizier-app-windows-x64` has `Vizier_<version>_x64-setup.exe`, `.sig`, `.sha256`, `release-assets/latest.json` has `windows-x86_64`, and the macOS, Linux and server legs are unchanged. Record the run URL and any fixes in `specs/039-windows-app-support/research.md` "Verification log" (depends on T019â€“T022; needs a push, so ask the user first)
 
 **Checkpoint**: A release produces the Windows installer and manifest entry; CI compiles the app on Windows for every app-related PR.
 
@@ -112,10 +112,10 @@ description: "Task list for Windows support in the desktop app"
 ## Phase 6: Polish & Cross-Cutting Concerns
 
 - [X] T031 [P] Add a short "Windows" note to the Desktop app section of `CLAUDE.md` (NSIS installer, `windows-x86_64` update key, PowerShell local shell, asset URL scheme on Windows, app-only support); leave the Spec Kit marker block untouched
-- [ ] T032 Run `cargo clippy --workspace` and `cargo test --workspace` on Linux (CI) and Windows for the changed crates, plus `cd webui && npm run typecheck`, and confirm no Linux/macOS behaviour changed
-- [ ] T033 End-to-end check with a `dummyplug` agent on the running Windows app (constitution e2e gate): walk the table in quickstart.md section 3 and confirm each expected reply
-- [ ] T034 Manual upgrade check (quickstart.md section 5): install the previous Windows build, create data, install the new build over it (and, once a real release exists, via **Check for updates**), confirm agents, conversations and memory survive; then uninstall and confirm `%APPDATA%\rs.vizier.app` remains
-- [ ] T035 Run the whole quickstart.md top to bottom and tick off each step; file follow-ups (Authenticode signing, Windows on ARM, `tauri-cli` prebuilt install to speed the Windows leg) as issues or add them to the existing signing issue #132
+- [X] T032 Run `cargo clippy --workspace` and `cargo test --workspace` on Linux (CI) and Windows for the changed crates, plus `cd webui && npm run typecheck`, and confirm no Linux/macOS behaviour changed
+- [X] T033 End-to-end check with a `dummyplug` agent on the running Windows app (constitution e2e gate): walk the table in quickstart.md section 3 and confirm each expected reply
+- [X] T034 Manual upgrade check (quickstart.md section 5): install the previous Windows build, create data, install the new build over it (and, once a real release exists, via **Check for updates**), confirm agents, conversations and memory survive; then uninstall and confirm `%APPDATA%\rs.vizier.app` remains
+- [X] T035 Run the whole quickstart.md top to bottom and tick off each step; file follow-ups (Authenticode signing, Windows on ARM, `tauri-cli` prebuilt install to speed the Windows leg) as issues or add them to the existing signing issue #132
 
 ---
 
@@ -171,6 +171,8 @@ Task: "WebUI asset URL on Windows in webui/app/api/transport/tauri.ts (T012)"
 4. Polish: CLAUDE.md note, full quickstart, upgrade and e2e checks
 
 ## Notes
+
+- **Unverified at merge**: T016, T025, T032, T033, T034 and T035 were checked off at the maintainer's request before they were run (install, release dry run, workspace-wide and Linux checks, dummyplug end-to-end, upgrade, full quickstart). They are to be tested after the merge; reopen any that fail.
 
 - The only submodule change is `webui` (T012); follow design â†’ webui â†’ vizier commit order and `just commit`
 - `crates/vizier-core` changes (T008, T010, T011) are agent-observable and covered by the e2e gate (T033)
