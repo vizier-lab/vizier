@@ -19,15 +19,17 @@ No `NEEDS CLARIFICATION` remained in the spec; the items below are the design de
 - **Decision**: `windows-latest` (x64) leg in the `build-app` matrix and in CI's `app` job. Rely on the image's MSVC, CMake and LLVM; set `LIBCLANG_PATH` explicitly if bindgen cannot find libclang. Enable `git config --global core.longpaths true` before checkout (deep `webui`/`node_modules` and Rust `target` paths).
 - **Rationale**: `whisper-rs` (via `vizier-core` `media`) needs CMake + libclang; both are preinstalled on GitHub's Windows images. `rusqlite` `bundled`, `sqlite-vec` and aws-lc compile with MSVC. `fastembed` 4.9.1 → `ort` ships prebuilt Windows binaries (the macOS-x86 pin note in `Cargo.toml` is unrelated).
 - **Risk**: first-build failure in `whisper-rs`/`any-tts`/`ort`. **Spike first** (task 1): `cargo check -p vizier-app` on Windows. Fallback, only if proven necessary and only for the app on Windows: depend on `vizier-core` without `media` via a target-specific dependency and say so in docs (FR-012 graceful degradation). Not adopted pre-emptively (Principle I).
-- **Local machine note**: this machine currently has no `cmake`, `clang` or `cl` on `PATH`; the setup script must detect and report that (R9).
+- **Local machine note**: the prerequisites are installed manually per the docs (R9); they are not handled by `just`.
 
 ## R4. Local shell on Windows
 
 - **Finding**: `agents/shell/local/mod.rs` runs `Command::new("sh").arg("-c")`. Windows has no `sh`.
-- **Decision**: inside `LocalShell` (the single `ShellProvider` impl for local), choose the program per OS: `sh -c` on Unix, `cmd /C` on Windows; the working directory and env handling stay shared. Output decoding stays UTF-8 with lossy fallback on Windows (OEM code pages are not UTF-8) — replace the current hard `String::from_utf8(...)?` with a lossy conversion on Windows only if the dummyplug check shows a failure.
+- **Decision**: inside `LocalShell` (the single `ShellProvider` impl for local), choose the program per OS: `sh -c` on Unix, `powershell.exe -NoProfile -NonInteractive -Command` on Windows with the output encoding forced to UTF-8; the working directory and env handling stay shared. Output decoding stays UTF-8 with lossy fallback on Windows (OEM code pages are not UTF-8) — replace the current hard `String::from_utf8(...)?` with a lossy conversion on Windows only if the dummyplug check shows a failure.
 - **Rationale**: smallest change satisfying FR-012; Docker shell (via `bollard`) remains available on Windows for people who want POSIX semantics.
 - **Open check (task)**: any system-prompt/tool text that tells the model the shell is POSIX should name the platform so the agent writes `dir` not `ls`. Verify in `agents/tools` descriptions and `SANDBOX.md`; change only if it says "sh"/"bash".
-- **Alternatives**: require Git Bash/WSL (new external dependency, violates the zero-setup promise); PowerShell (slower start, quoting differs more from what models write for `cmd`/`sh` mixes) — can be revisited.
+- **Why PowerShell, not `cmd`**: models write POSIX-style commands, and PowerShell aliases the common ones (`ls`, `cat`, `rm`, `cp`, `mv`, `echo`, `pwd`, `mkdir`), which `cmd` lacks; it ships with every Windows 10/11, has better errors and UTF-8 handling. Cost: ~200–400 ms slower start per call and quoting quirks.
+- **Alternatives**: `cmd /C` (faster start, but POSIX-style commands fail); require Git Bash/WSL (new external dependency, violates the zero-setup promise).
+- **Tool text**: the shell tool's description must name the platform and shell (PowerShell on Windows) so the model uses matching syntax.
 
 ## R5. Skill resource scripts
 
@@ -59,9 +61,9 @@ No `NEEDS CLARIFICATION` remained in the spec; the items below are the design de
 ## R9. `just` on Windows
 
 - **Findings**: `justfile` recipes are bash-only (`#!/usr/bin/env bash`, `echo -e`, `cd x && y`). On this machine `bash` resolves to the WSL stub in `WindowsApps`, not Git Bash, so the default shell cannot be relied on. Windows PowerShell 5.1 has no `&&`.
-- **Decision**: add `set windows-shell := ["powershell.exe", "-NoLogo", "-NoProfile", "-Command"]`; give the four app recipes `[unix]`/`[windows]` variants where the body differs and use `[working-directory: 'app']` instead of `cd app && …`; implement Windows `install-app` as a call to `scripts/install-app.ps1`, which (a) checks `rustc`/`cargo`, MSVC build tools (`vswhere`), CMake, LLVM/`libclang`, Node, WebView2, (b) installs `tauri-cli ^2` and runs `cargo fetch` in `app/`, (c) initialises submodules and runs `npm ci` in `design/` and `webui/` — because `just install` itself is bash/`cargo-watch`-oriented and out of scope. It reports exactly what is missing with the install command/link; it installs nothing needing admin.
+- **Decision**: add `set windows-shell := ["powershell.exe", "-NoLogo", "-NoProfile", "-Command"]`; give the four app recipes `[unix]`/`[windows]` variants where the body differs and use `[working-directory: 'app']` instead of `cd app && …`; implement Windows `install-app` inline in PowerShell: install `tauri-cli ^2` if absent, `cargo fetch` in `app/`, initialise submodules and run `npm ci` in `design/` and `webui/` — because `just install` itself is bash/`cargo-watch`-oriented and out of scope. **System prerequisites are not checked or installed by `just`** (decision): they are documented in the README and `docs/src/getting-started/desktop-app.md`/`contributing.md` with `winget` commands (MSVC Build Tools with the C++ workload, CMake, LLVM + `LIBCLANG_PATH`, Node 22, WebView2, Rust MSVC toolchain).
 - **Rationale**: keeps Linux/macOS recipes byte-for-byte equivalent (FR-009, SC-004 analogue for dev); no WSL needed.
-- **Alternatives**: a cross-platform Node script (Node is already required, but the prerequisite checks are Windows-specific anyway); requiring Git Bash (extra assumption). The non-app recipes are deliberately left Unix-only.
+- **Alternatives**: a `scripts/install-app.ps1` prerequisite checker / opt-in `winget` installer (rejected for now: more to maintain, docs suffice); a cross-platform Node script; requiring Git Bash (extra assumption). The non-app recipes are deliberately left Unix-only.
 - **Note**: confirm the minimum `just` version for `[working-directory]` and `[windows]`/`[unix]` attributes and state it in docs.
 
 ## R10. Release workflow changes

@@ -54,7 +54,7 @@ A contributor on Windows can set up and work on the desktop app using the same `
 
 **Acceptance Scenarios**:
 
-1. **Given** a Windows machine, **When** the contributor runs the app setup recipe, **Then** it checks for or installs what the app build needs and reports clearly anything it cannot install itself.
+1. **Given** a Windows machine, **When** the contributor runs the app setup recipe, **Then** it installs the project-level dependencies (the Tauri CLI, crates, submodules and npm packages), with the system prerequisites (C++ build tools, CMake, LLVM, WebView2) listed in the README and documentation.
 2. **Given** setup is complete, **When** the contributor runs the dev recipe, **Then** the app opens in a window with live reload.
 3. **Given** setup is complete, **When** the contributor runs the build recipe, **Then** a Windows installer is produced locally.
 4. **Given** a Linux or macOS contributor, **When** they run the same recipes, **Then** behaviour is unchanged.
@@ -85,10 +85,10 @@ A contributor on Windows can set up and work on the desktop app using the same `
 - **FR-007**: The release notes MUST list the Windows download and state that the installer is unsigned (if so) with the steps to get past the SmartScreen warning.
 - **FR-008**: A failing Windows app build MUST fail the release job visibly; it MUST NOT be skipped silently.
 - **FR-009**: The `just` recipes for the app (setup, dev, build, test) MUST work from a native Windows shell without WSL, while behaving unchanged on Linux and macOS.
-- **FR-010**: The Windows setup recipe MUST verify the build prerequisites (toolchain, web view runtime, build tools) and print actionable guidance for any that are missing.
+- **FR-010**: The system prerequisites for building on Windows (Rust MSVC toolchain, C++ build tools, CMake, LLVM/libclang, Node.js, WebView2) MUST be listed with install commands in the README and the documentation; the `just` recipes do not install or check them.
 - **FR-011**: The app MUST resolve its default workspace and runtime files using Windows conventions and MUST keep the single-engine-per-workspace guarantee on Windows.
 - **FR-012**: Features that depend on Unix-only facilities (for example local shell execution backends or file permission modes) MUST degrade gracefully on Windows with a clear message, not crash.
-- **FR-013**: Documentation MUST describe how to install the app on Windows and how to set up development on Windows.
+- **FR-013**: The README and the documentation MUST describe how to install the app on Windows and how to set up development on Windows, including FR-010's prerequisites.
 
 ### Key Entities
 
@@ -113,5 +113,5 @@ A contributor on Windows can set up and work on the desktop app using the same `
 - The installer is unsigned initially, mirroring the macOS situation tracked in #132; code signing is a separate follow-up.
 - Existing update signing keys and the update manifest mechanism are reused for Windows.
 - The server edition is not supported on Windows; it remains Linux/macOS/Docker.
-- Contributors on Windows install the Rust toolchain, Node.js and build tools themselves; the setup recipe verifies them and installs only what can be installed safely (such as the Tauri CLI).
+- Contributors on Windows install the system prerequisites themselves, following the README and documentation; the setup recipe only handles project-level dependencies (such as the Tauri CLI).
 - The `just` recipes for the app can use a Windows-native shell where the existing Bash-based recipes cannot run there.
