@@ -3,9 +3,11 @@
 pub mod brave_search;
 #[cfg(feature = "discord")]
 pub mod discord;
+pub mod http;
 pub mod mcp;
 #[cfg(feature = "documents")]
 pub mod office;
+pub mod shell;
 #[cfg(feature = "telegram")]
 pub mod telegram;
 

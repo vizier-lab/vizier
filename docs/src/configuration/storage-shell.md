@@ -32,71 +32,39 @@ The `indexer` key that older docs mentioned at this level no longer exists — v
 
 ## Shell
 
-Shell access is configured **per agent** under `tools.shell`. Each agent owns its own shell instance; there is no global shell. Setting `shell` to `null` (the default) removes the `shell_exec` tool from that agent entirely.
+Shell access is the **Shell addon**, added per agent from its Addons page. Each agent owns its own shell instance; there is no global shell. Without the addon, the agent has no `shell_exec` tool.
 
-The tool runs `sh -c "<commands>"` (local) or `docker exec` (docker) and returns stdout. Each call is bounded by the agent's `tools.timeout` (default `30m`).
+The tool runs `sh -c "<commands>"` (PowerShell on a Windows host) and returns stdout. Each call is bounded by the agent's `tools.timeout` (default `30m`).
 
 ### Local
 
+Install the addon with:
+
 ```json
 {
-  "tools": {
-    "shell": {
-      "environment": "local",
-      "path": "/home/me/project",
-      "env": { "RUST_LOG": "debug" }
-    }
+  "kind": "shell",
+  "name": "Shell",
+  "settings": {
+    "path": "/home/me/project",
+    "env": "RUST_LOG=debug\nTZ=UTC"
   }
 }
 ```
 
-| Field | Required | Description |
-|-------|----------|-------------|
+| Setting | Required | Description |
+|---------|----------|-------------|
 | `path` | yes | Working directory for every command |
-| `env` | no | Extra environment variables |
+| `env` | no | Extra environment variables, one `KEY=value` per line (stored as a secret and never returned by the API) |
 
-The command runs with the same OS user as the Vizier process — treat `local` as fully trusted.
+The command runs with the same OS user as the Vizier process — treat a local shell as fully trusted.
 
 ### Docker
 
-```json
-{
-  "tools": {
-    "shell": {
-      "environment": "docker",
-      "image": { "source": "pull", "name": "ubuntu:latest" },
-      "container_name": "vizier-agent-1",
-      "env": { "TZ": "UTC" }
-    }
-  }
-}
-```
-
-Build from a Dockerfile instead of pulling:
-
-```json
-{
-  "environment": "docker",
-  "image": { "source": "dockerfile", "path": "./sandbox/Dockerfile", "name": "vizier-sandbox" },
-  "container_name": "vizier-agent-1"
-}
-```
-
-| Field | Default | Description |
-|-------|---------|-------------|
-| `image.source` | `pull` | `pull` (pull `name` from a registry) or `dockerfile` (build `path` and tag as `name`) |
-| `container_name` | `vizier` | Name of the long-lived container |
-| `env` | — | Environment for each `exec` |
-
-Behavior:
-
-- Connects to the local Docker daemon (`connect_with_local_defaults`, i.e. `/var/run/docker.sock` or `DOCKER_HOST`).
-- If a container named `container_name` **already exists** it is reused as-is (image settings are ignored). Otherwise the image is pulled/built and a new TTY container is created and started.
-- The container is kept running; every `shell_exec` is a `docker exec` inside it. Give each agent a distinct `container_name` if you want isolation between agents.
+Not offered yet. Docker shells are being rewritten; the Shell addon is local-only for now.
 
 ### Managing at runtime
 
-- **WebUI**: agent Settings → Tools → Shell
-- **API**: `PUT /api/v1/agents/{id}` with `tools.shell` (owner, or `all_agents:edit`)
+- **WebUI**: agent → **Addons** → Shell → Manage
+- **API**: `POST /api/v1/agents/{id}/integrations` to add it, or `PUT /api/v1/integrations/{id}` with new settings
 
-Updating an agent restarts its process, which rebuilds the shell from the new config.
+Changing an addon's settings takes effect from the agent's next turn; it does not restart the agent.

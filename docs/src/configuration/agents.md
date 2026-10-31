@@ -8,7 +8,7 @@ Each agent runs as its own process inside the Vizier binary, with its own provid
 
 ### WebUI
 
-**Agents → New Agent**. Fill in name, provider, model; enable tools; save. The agent starts immediately.
+**Agents → New Agent** (a modal on Home). Give it a name, choose its model, add any addons it should start with, and save. The agent starts immediately.
 
 ### API
 
@@ -24,9 +24,11 @@ Content-Type: application/json
   "provider": "anthropic",
   "model": "claude-sonnet-4-5",
   "system_prompt": "You are a helpful coding assistant specialized in Rust.",
-  "tools": { "fetch": true, "shell": { "environment": "local", "path": "/home/me/project" } }
+  "tools": { "tts": false, "stt": false, "read_image": false, "image_gen": false }
 }
 ```
+
+Shell, HTTP and search are **addons** now: install one for the agent with `POST /api/v1/agents/{id}/integrations` (the WebUI does this from the agent’s Addons page and the creation wizard).
 
 `PUT /api/v1/agents/{agent_id}` takes the **same body** and replaces the config (omitted optional fields fall back to their defaults, not to the previous value — send the full config). The creating user becomes the agent's owner.
 
@@ -47,7 +49,7 @@ Content-Type: application/json
 | `context_window` | number | `null` (catalogue) | Override the context window the catalogue gives for the model. Used for checkpoints |
 | `checkpoint_threshold` | float 0–1 | `0.8` | Auto-checkpoint when `input_tokens / context_window` reaches this ratio |
 | `silent_read_initiative_chance` | float 0–1 | `0.0` | Probability of replying to a `silent_read` (un-mentioned group message) |
-| `tools` | object | all off | See [Tools & Embedding](./tools-embedding.md) |
+| `tools` | object | all off | Media tools and timeouts. Shell, HTTP, search, Office and MCP are addons. See [Tools & Embedding](./tools-embedding.md) |
 | `embedding` | object | local `all_mini_lml6_v2` | Per-agent embedding model |
 | `indexer` | object | `{ "kind": "sqlite" }` | Vector index |
 | `discord_token` | string | `null` | Discord bot token — see [Channels](./channels.md) |
@@ -177,6 +179,23 @@ When upgrading, the usage each saved reply already carried is copied over once, 
 - `GET /api/v1/agents/health` — all agent processes with alive/dead status (same data as `vizier agent ps`)
 - `GET /api/v1/agents/{id}/ping` — one agent
 
+## Addons
+
+Tools beyond the always-on set are **addons**, attached to one agent and installed like small apps:
+
+- **Shell** — `shell_exec` in a working directory on the Vizier host.
+- **HTTP** — `fetch` and `http_client` together.
+- **Brave Search** — web and news search.
+- **Office** — read and write Word and Excel files.
+
+Install or remove one from the agent's **Addons** page, or with `POST /api/v1/agents/{id}/integrations`:
+
+```json
+{ "kind": "http", "name": "HTTP", "settings": {} }
+```
+
+Each addon runs under its own category in code mode (`shell`, `http`, `brave_search`, `office`). Shell and HTTP were per-agent switches before; installing them on an existing agent carries the old setting across on the first start after the upgrade.
+
 ## Complete example
 
 ```json
@@ -195,16 +214,6 @@ When upgrading, the usage each saved reply already carried is copied over once, 
   "silent_read_initiative_chance": 0.05,
   "tools": {
     "timeout": "10m",
-    "shell": { "environment": "docker", "image": { "source": "pull", "name": "ubuntu:latest" }, "container_name": "steward-sandbox" },
-    "brave_search": true,
-    "brave_search_settings": { "api_key": "BSA…", "safesearch": true },
-    "fetch": true,
-    "http_client": true,
-    "discord": true,
-    "telegram": false,
-    "mcp_servers": {
-      "github": { "host": "local", "command": "npx", "args": ["-y", "@modelcontextprotocol/server-github"], "env": { "GITHUB_TOKEN": "ghp_…" } }
-    },
     "tts": true,
     "tts_settings": { "provider": "openai", "voice": "nova" },
     "stt": true,

@@ -10559,6 +10559,7 @@ dependencies = [
  "tracing-subscriber",
  "vizier-core",
  "vizier-http",
+ "windows",
 ]
 
 [[package]]

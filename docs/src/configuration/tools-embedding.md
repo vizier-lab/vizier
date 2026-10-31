@@ -45,16 +45,6 @@ The `tools` object in the agent API:
 {
   "tools": {
     "timeout": "30m",
-    "shell": { "environment": "local", "path": "/home/me/project" },
-    "brave_search": true,
-    "brave_search_settings": { "api_key": "BSA…", "safesearch": true },
-    "fetch": true,
-    "http_client": true,
-    "discord": false,
-    "telegram": false,
-    "mcp_servers": {
-      "filesystem": { "host": "local", "command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"] }
-    },
     "tts": false,
     "tts_settings": { "provider": "openai", "model": "tts-1", "voice": "alloy", "speed": 1.0 },
     "stt": false,
@@ -62,19 +52,20 @@ The `tools` object in the agent API:
     "read_image": false,
     "read_image_settings": { "provider": "openai", "model": "gpt-4o-mini" },
     "image_gen": false,
-    "image_gen_settings": { "provider": "openai", "model": "dall-e-3", "size": "1024x1024" },
-    "python": { "enabled": true, "code_mode": false }
+    "image_gen_settings": { "provider": "openai", "model": "dall-e-3", "size": "1024x1024" }
   }
 }
 ```
 
+Shell, HTTP, Brave Search, Office and MCP servers are **addons**: they are attached to an agent with `POST /api/v1/agents/{id}/integrations`, not listed under `tools`.
+
 | Field | Type | Default | Tools it enables | Notes |
 |-------|------|---------|------------------|-------|
-| `timeout` | duration | `30m` | — | Per tool-call timeout (`"30s"`, `"5m"`, …) |
-| `shell` | object \| null | `null` | `shell_exec` | Local or Docker shell — see [Storage & Shell](./storage-shell.md#shell) |
-| `brave_search` + `brave_search_settings` | bool + `{api_key, safesearch}` | `false` | `web_search`, `news_search` | **Both** `api_key` and `safesearch` must be set or the tools are not registered |
-| `fetch` | bool | `false` | `fetch` | Fetch a URL → markdown |
-| `http_client` | bool | `false` | `http_client` | Arbitrary HTTP requests (GET/POST/PUT/DELETE/PATCH/HEAD/OPTIONS) with custom headers |
+| `timeout` | duration | `30m` | – | Per tool-call timeout (`"30s"`, `"5m"`, …) |
+| `shell` | – | – | `shell_exec` | **An addon now** (the addons redesign). Install **Shell** with `path` and optional `env`, then `shell_exec` is contributed under the `shell` category. Docker is not offered yet. |
+| `brave_search` + `brave_search_settings` | bool + `{api_key, safesearch}` | `false` | `brave_search_web`, `brave_search_news` | An addon: install **Brave Search** from the agent’s Addons page. |
+| `fetch` | – | – | `fetch` | **Part of the HTTP addon** (the addons redesign): install **HTTP**, which adds `fetch` and `http_client` together. |
+| `http_client` | – | – | `http_client` | **Part of the HTTP addon**: arbitrary requests (GET/POST/PUT/DELETE/PATCH/HEAD/OPTIONS) with custom headers. |
 | `discord` | bool | `false` | `discord_*` | Requires `discord_token` on the agent |
 | `telegram` | bool | `false` | `telegram_*` | Requires `telegram_token` |
 | `mcp_servers` | map | `{}` | `mcp_<server>__<tool>` | See [MCP Servers](./mcp.md) |
@@ -151,7 +142,7 @@ Each agent has its own embedding model, used for semantic memory search and skil
 
 Defaults when omitted on create: `local` / `all_mini_lml6_v2` and `sqlite` indexer. If either `embedding` or `indexer` is `null`, the agent has **no** vector index — memory tools and skill recommendation are disabled.
 
-> **Vector dimension caveat.** Embeddings are generated when a memory is written or imported (not re-generated on boot). The `document_index` vector table in the workspace database is created once, with the dimension of the first embedding model that touches it, and is shared by every agent in the workspace. When an agent is built with a model whose vectors have a different size, the build is refused with the index's dimension, the model's dimension and the reindex instruction, and no wrong-sized vectors are written. Keep all agents in a workspace on same-dimension embedding models, or rebuild the index when you switch.
+> **Vector dimensions.** A `vec0` table fixes the width of the vectors it holds, so the workspace keeps **one vector table per size**: the first model's table keeps the name `document_index` (an existing install keeps its vectors), and each other width gets `document_index_d<size>`. Agents whose embedding models return the same size share a table; agents with different sizes use different tables, so they no longer block each other. When an agent's model changes to one of another width, its stored passage coordinates are dropped on its next start and its corpus is re-indexed into the new table in the background — semantic search for that agent is empty until that pass finishes. The old table keeps the rows of the agents still on its size. Embeddings are generated when a memory is written or imported (not re-generated on boot), apart from that one automatic re-index.
 
 ### Embedding providers
 
@@ -183,7 +174,7 @@ Bedrock embeddings and image generation reuse the one `amazon-bedrock` connectio
 | Amazon Titan Text Embeddings V1 | `amazon.titan-embed-text-v1` | one text per call | 1024 |
 | Cohere Embed v3 | `cohere.embed-english-v3`, `cohere.embed-multilingual-v3` | batches of up to 96 texts, `input_type: search_document` | 1024 |
 
-All supported models return 1024-dimensional vectors, so they share one index. There is no dimension setting. A model id outside these families fails the agent's build, naming the model and the supported families, before any request. A model whose vectors differ from the existing index is refused with the reindex instruction above.
+All supported models return 1024-dimensional vectors, so they share one index table. There is no dimension setting. A model id outside these families fails the agent's build, naming the model and the supported families, before any request.
 
 **Image generation:**
 

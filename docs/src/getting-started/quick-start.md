@@ -61,7 +61,7 @@ The same thing via API: `GET /api/v1/auth/setup-status` → `POST /api/v1/auth/s
 
 ## 6. Create your first agent
 
-**Agents → New Agent**: pick a name, provider, model, and enable whatever tools you want (shell, web fetch, Brave search, MCP servers…). Save and start chatting.
+**Agents → New Agent** (a modal on Home): pick a name, a provider and a model, add the first addons it should have, and create it. Add more tools later from the agent’s **Addons** page.
 
 Each agent has:
 

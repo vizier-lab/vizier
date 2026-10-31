@@ -278,6 +278,20 @@ pub async fn seed_default(
     kind_id: &str,
     name: &str,
 ) -> ServiceResult<Option<Integration>> {
+    seed_with_settings(deps, agent_id, owner, kind_id, name, serde_json::json!({})).await
+}
+
+/// Like [`seed_default`], with the settings the addon needs (the shell addon's directory, for
+/// an agent migrating from the old per-agent switch). An existing addon of the kind is left
+/// exactly as it is, settings included.
+pub async fn seed_with_settings(
+    deps: &VizierDependencies,
+    agent_id: &str,
+    owner: Option<&str>,
+    kind_id: &str,
+    name: &str,
+    settings: Value,
+) -> ServiceResult<Option<Integration>> {
     let kind = deps
         .integration_kinds
         .get(kind_id)
@@ -287,7 +301,7 @@ pub async fn seed_default(
     let new = NewIntegration {
         kind: kind_id.to_string(),
         name: name.to_string(),
-        settings: serde_json::json!({}),
+        settings,
         enabled: true,
     };
     match persist_new(deps, &requester, draft, agent_id, kind.as_ref(), new).await {

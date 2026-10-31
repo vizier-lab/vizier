@@ -286,6 +286,7 @@ impl VizierDependencies {
         };
         #[cfg(feature = "documents")]
         deps.seed_office_defaults().await;
+        deps.seed_tool_addons().await;
         Ok(deps)
     }
 
@@ -336,6 +337,85 @@ impl VizierDependencies {
             && let Err(e) = self.storage.save_state(key, serde_json::json!(true)).await
         {
             tracing::warn!("failed to record the Office addon backfill: {e}");
+        }
+    }
+
+    /// the addons redesign: shell, fetch and http_client were per-agent switches; they are addons now. Give
+    /// every agent that had one the matching addon once, carrying its shell directory and
+    /// environment across. Docker shells aren't offered as an addon yet, so they are left alone.
+    /// Like the Office seed, the key is set only after every agent was handled.
+    pub const TOOLS_AS_ADDONS_SEEDED: &'static str = "migration.tools_as_addons_seeded";
+
+    async fn seed_tool_addons(&self) {
+        use crate::{
+            config::shell::ShellConfig,
+            storage::{agent::AgentStorage, state::StateStorage},
+        };
+
+        let key = Self::TOOLS_AS_ADDONS_SEEDED.to_string();
+        match self.storage.get_state(key.clone()).await {
+            Ok(Some(_)) => return,
+            Ok(None) => {}
+            Err(e) => {
+                tracing::warn!("could not read the addon backfill state: {e}");
+                return;
+            }
+        }
+        let agents = match self.storage.list_agents().await {
+            Ok(agents) => agents,
+            Err(e) => {
+                tracing::warn!("could not list agents for the addon backfill: {e}");
+                return;
+            }
+        };
+        let mut complete = true;
+        for (agent_id, config) in agents {
+            let owner = config.owner_id.as_deref();
+            if let Some(ShellConfig::Local(local)) = &config.tools.shell {
+                let mut settings = serde_json::json!({ "path": local.path });
+                if let Some(env) = &local.env
+                    && !env.is_empty()
+                {
+                    let mut keys: Vec<&String> = env.keys().collect();
+                    keys.sort();
+                    let text = keys
+                        .iter()
+                        .map(|key| format!("{key}={}", env[*key]))
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    settings["env"] = serde_json::json!(text);
+                }
+                if let Err(e) = crate::integrations::service::seed_with_settings(
+                    self,
+                    &agent_id,
+                    owner,
+                    crate::integrations::kinds::shell::ID,
+                    crate::integrations::kinds::shell::DEFAULT_NAME,
+                    settings,
+                )
+                .await
+                {
+                    complete = false;
+                    tracing::warn!("failed to add the Shell addon to agent '{agent_id}': {e}");
+                }
+            }
+            let had_web = config.tools.fetch.enabled || config.tools.http_client.enabled;
+            if had_web
+                && let Err(e) = crate::integrations::service::seed_default(
+                    self,
+                    &agent_id,
+                    owner,
+                    crate::integrations::kinds::http::ID,
+                    crate::integrations::kinds::http::DEFAULT_NAME,
+                )
+                .await
+            {
+                complete = false;
+                tracing::warn!("failed to add the HTTP addon to agent '{agent_id}': {e}");
+            }
+        }
+        if complete && let Err(e) = self.storage.save_state(key, serde_json::json!(true)).await {
+            tracing::warn!("failed to record the addon backfill: {e}");
         }
     }
 
@@ -1564,5 +1644,75 @@ mod encryption_startup_tests {
         deps.storage.delete_integration(&added[0].id, &event).await.unwrap();
         deps.seed_office_defaults().await;
         assert!(deps.storage.list_agent_integrations("old").await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn the_tool_backfill_carries_a_local_shell_and_http_once() {
+        use crate::{
+            config::shell::{LocalShellConfig, ShellConfig},
+            storage::{agent::AgentStorage, integration::IntegrationStorage},
+        };
+
+        let dir = tempfile::tempdir().unwrap();
+        let config = VizierConfig {
+            workspace: dir.path().to_string_lossy().to_string(),
+            ..Default::default()
+        };
+        let deps = VizierDependencies::new(config).await.unwrap();
+
+        let mut with_shell = crate::tests_support::agent_config("shell");
+        with_shell.tools.shell = Some(ShellConfig::Local(LocalShellConfig {
+            path: "/srv/work".into(),
+            env: Some(std::collections::HashMap::from([(
+                "A".to_string(),
+                "1".to_string(),
+            )])),
+        }));
+        deps.storage
+            .create_agent("shell", &with_shell)
+            .await
+            .unwrap();
+
+        let mut with_web = crate::tests_support::agent_config("web");
+        with_web.tools.http_client.enabled = true;
+        deps.storage.create_agent("web", &with_web).await.unwrap();
+
+        // The first start had no agents, so it only set the flag. Simulate an upgrade.
+        {
+            let conn = deps.sqlite_conn.lock();
+            conn.execute(
+                "DELETE FROM state WHERE key = ?1",
+                [VizierDependencies::TOOLS_AS_ADDONS_SEEDED],
+            )
+            .unwrap();
+        }
+        deps.seed_tool_addons().await;
+
+        let shells = deps.storage.list_agent_integrations("shell").await.unwrap();
+        assert_eq!(shells.len(), 1);
+        assert_eq!(shells[0].kind, "shell");
+        assert_eq!(shells[0].settings["path"], "/srv/work");
+        assert_eq!(shells[0].settings["env"], "A=1");
+        let web = deps.storage.list_agent_integrations("web").await.unwrap();
+        assert_eq!(web.len(), 1);
+        assert_eq!(web[0].kind, "http");
+
+        // A second run adds nothing back after a removal.
+        let event = crate::schema::EventDraft::new(
+            crate::schema::Requester::User("p".into()),
+            crate::schema::EventAction::Deleted,
+        );
+        deps.storage
+            .delete_integration(&shells[0].id, &event)
+            .await
+            .unwrap();
+        deps.seed_tool_addons().await;
+        assert!(
+            deps.storage
+                .list_agent_integrations("shell")
+                .await
+                .unwrap()
+                .is_empty()
+        );
     }
 }

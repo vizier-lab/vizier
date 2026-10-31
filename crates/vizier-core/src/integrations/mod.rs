@@ -37,6 +37,8 @@ impl IntegrationKinds {
                 #[cfg(feature = "telegram")]
                 Arc::new(kinds::telegram::TelegramKind),
                 Arc::new(kinds::brave_search::BraveSearchKind),
+                Arc::new(kinds::http::HttpKind),
+                Arc::new(kinds::shell::ShellKind),
                 #[cfg(feature = "documents")]
                 Arc::new(kinds::office::OfficeKind),
                 Arc::new(kinds::mcp::McpKind),
@@ -393,8 +395,15 @@ mod tests {
             let contribution = kind.contribute(&addon, &ctx());
             assert_eq!(contribution.addon, Some(kind.id()));
             assert!(!contribution.native.tools.is_empty(), "{} contributes nothing", kind.id());
+            // The HTTP addon deliberately keeps the names agents already call it by; every
+            // other addon namespaces its tools.
+            let legacy = ["fetch", "http_client"];
             for name in contribution.native.tools.keys() {
-                assert!(name.starts_with(&format!("{}_", kind.id())), "{name}");
+                if kind.id() == "http" {
+                    assert!(legacy.contains(&name.as_str()), "{name}");
+                } else {
+                    assert!(name.starts_with(&format!("{}_", kind.id())), "{name}");
+                }
             }
         }
     }

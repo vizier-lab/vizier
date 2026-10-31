@@ -59,8 +59,8 @@ mod consult;
 #[cfg(feature = "discord")]
 pub mod discord;
 mod dream_journal;
-mod fetch;
-mod http_client;
+pub mod fetch;
+pub mod http_client;
 mod image_gen;
 #[cfg(feature = "documents")]
 pub mod office;
@@ -71,7 +71,7 @@ mod scratchpad;
 mod secrets;
 pub mod self_integrations;
 mod session_files;
-mod shell;
+pub mod shell;
 mod skill;
 pub mod stt;
 mod subagents;
@@ -1216,17 +1216,6 @@ impl BaseTools {
                 storage: deps.storage.clone(),
             });
 
-        if let Some(ref shell_config) = agent_config.tools.shell {
-            match crate::agents::shell::VizierShell::new(shell_config).await {
-                Ok(shell) => {
-                    default_toolset = default_toolset.tool(ShellExec(Arc::new(shell)));
-                }
-                Err(e) => {
-                    tracing::error!("failed to create shell for agent {}: {}", agent_id, e);
-                }
-            }
-        }
-
         user_toolset = user_toolset
             .tool(SendWebuiMessage {
                 agent_id: agent_id.clone(),
@@ -1237,13 +1226,8 @@ impl BaseTools {
                 storage: deps.storage.clone(),
             });
 
-        if agent_config.tools.fetch.enabled {
-            user_toolset = user_toolset.tool(FetchWebpage);
-        }
-
-        if agent_config.tools.http_client.enabled {
-            user_toolset = user_toolset.tool(HttpClient);
-        }
+        // Shell and HTTP come from their addons (spec 040), so they are contributed by the
+        // integration layer rather than read from the agent's own config.
 
         if let Some(idx) = indexer.clone() {
             let (

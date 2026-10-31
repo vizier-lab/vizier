@@ -4,7 +4,10 @@ use anyhow::Result;
 
 #[cfg(feature = "docker-shell")]
 use crate::agents::shell::docker::DockerShell;
-use crate::{agents::shell::local::LocalShell, config::shell::ShellConfig};
+use crate::{
+    agents::shell::local::LocalShell,
+    config::shell::{LocalShellConfig, ShellConfig},
+};
 
 #[cfg(feature = "docker-shell")]
 pub mod docker;
@@ -32,6 +35,11 @@ impl VizierShell {
             }
             ShellConfig::Local(local) => Self::build(LocalShell::new(local.clone()).await?),
         })
+    }
+
+    /// A local shell from an addon's settings, built synchronously (spec 040).
+    pub fn local(config: LocalShellConfig) -> Self {
+        Self::build(LocalShell::from_config(config))
     }
 }
 

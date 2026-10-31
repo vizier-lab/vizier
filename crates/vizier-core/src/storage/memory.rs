@@ -109,6 +109,12 @@ pub trait MemoryStorage {
         indexer: &VizierIndexer,
     ) -> Result<(usize, usize)>;
 
+    /// Forget one agent's stored passage coordinates, so the next `reconcile_agent_passages` treats
+    /// its whole corpus as unconverted and indexes it again. Used when the embedding model's vector
+    /// width changes: the agent moves to another `vec0` table, and the old one's vectors are not
+    /// where it searches.
+    async fn reset_agent_passages(&self, agent_id: &str) -> Result<()>;
+
     /// `bundle: None` means all bundles.
     async fn get_all_agent_memory(
         &self,
@@ -355,6 +361,10 @@ impl MemoryStorage for VizierStorage {
         self.0
             .reconcile_agent_passages(agent_id, limits, indexer)
             .await
+    }
+
+    async fn reset_agent_passages(&self, agent_id: &str) -> Result<()> {
+        self.0.reset_agent_passages(agent_id).await
     }
 
     async fn get_all_agent_memory(
