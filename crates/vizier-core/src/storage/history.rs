@@ -182,3 +182,19 @@ impl HistoryStorage for VizierStorage {
         self.0.count_session_requests(session).await
     }
 }
+
+#[cfg(test)]
+mod channel_kind_tests {
+    use super::is_non_user_channel;
+
+    /// FR-016a: a project chat is a person's conversation, so the dream cycle reflects on it.
+    #[test]
+    fn project_channels_are_user_channels() {
+        assert!(!is_non_user_channel("project__alice__p3xY9aQ2mZ"));
+        assert!(!is_non_user_channel("project__bob__q1"));
+        // The old 040 slug was an ordinary HTTP one and stays excluded by the other tests'
+        // expectations; the channel kind is now the variant, not a prefix.
+        assert!(is_non_user_channel("task__brief__1700000000000"));
+        assert!(is_non_user_channel("SUBAGENT"));
+    }
+}

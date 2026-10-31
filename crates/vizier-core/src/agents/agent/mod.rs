@@ -19,9 +19,9 @@ use crate::{
             model::{VizierModel, usage::UsageScope},
             system_prompt::{
                 boot::boot_md,
-                context::{context_md, with_context},
+                context::{context_md, context_md_with, with_context},
                 init_workspace,
-                project::project_md,
+                project::{project_md, project_state_md},
                 reactions::reaction_digest,
                 sandbox::sandbox_md,
                 scheduled_run::scheduled_run_md,
@@ -714,7 +714,7 @@ impl VizierAgent {
         };
         // The project belongs to this turn only: resolved once, shared by the prompt prefix and
         // the workspace shell. Every non-project session resolves to `None`.
-        let project = crate::projects::context::for_session(&self.deps, &session).await;
+        let project = crate::projects::context::for_turn(&self.deps, &session, &req).await;
         let ctx = ToolContext {
             loaded_images: Default::default(),
             recalled: Default::default(),
@@ -891,16 +891,27 @@ impl VizierAgent {
             session.clone(),
             crate::agents::steps::entries_for(&progress).len(),
         );
+        let project_state = project
+            .as_deref()
+            .map(project_state_md)
+            .map(|state| state.to_string());
+        let mentions = if project.is_some() {
+            crate::projects::mentions::section(&ctx, &req.mentions)
+        } else {
+            None
+        };
         let prompt_result = self
             .prompt_with(
                 &tools,
                 with_context(
                     message,
-                    context_md(
+                    context_md_with(
                         &memory,
                         &skills,
                         invoked.as_ref().map(|invoked| &invoked.skill),
                         digest.as_deref(),
+                        project_state.as_deref(),
+                        mentions.as_deref(),
                     ),
                 ),
                 history,
@@ -2417,6 +2428,12 @@ fn record_channel(span: &tracing::Span, channel: &crate::schema::VizierChannelId
             span.record("vizier.http.user", user.as_str());
             span.record("vizier.channel.id", id.as_str());
             "http"
+        }
+        VizierChannelId::Project(user, id) => {
+            span.record("vizier.http.user", user.as_str());
+            span.record("vizier.project.id", id.as_str());
+            span.record("vizier.channel.id", id.as_str());
+            "project"
         }
         VizierChannelId::Task(slug, _) => {
             span.record("vizier.task.slug", slug.as_str());

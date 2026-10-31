@@ -103,12 +103,16 @@ pub enum ToolCategory {
     Telegram,
     Webui,
     Shell,
+    /// The project coding tools (`specs/041-project-coding-workspace`): read, search and change
+    /// files in the project folder, see its git state, and run commands. Per-turn only, never
+    /// in `BaseTools`.
+    Coding,
     Integrations,
     Secrets,
 }
 
 impl ToolCategory {
-    pub const ALL: [ToolCategory; 16] = [
+    pub const ALL: [ToolCategory; 17] = [
         Self::Memory,
         Self::Identity,
         Self::Scheduling,
@@ -123,6 +127,7 @@ impl ToolCategory {
         Self::Telegram,
         Self::Webui,
         Self::Shell,
+        Self::Coding,
         Self::Integrations,
         Self::Secrets,
     ];
@@ -143,6 +148,7 @@ impl ToolCategory {
             Self::Telegram => "telegram",
             Self::Webui => "webui",
             Self::Shell => "shell",
+            Self::Coding => "coding",
             Self::Integrations => "integrations",
             Self::Secrets => "secrets",
         }
@@ -170,6 +176,9 @@ impl ToolCategory {
             Self::Telegram => "Send, read and react to Telegram messages",
             Self::Webui => "Message WebUI users and list their topics",
             Self::Shell => "Run shell commands",
+            Self::Coding => {
+                "Read, search and change files in the project folder, see its git state, and run commands"
+            }
             Self::Integrations => "Manage your own MCP servers, addons and channel connections",
             Self::Secrets => {
                 "Credentials stored for this agent only; values are usable in scripts but never shown to the model"
@@ -504,7 +513,7 @@ pub fn with_ends_turn_notice(description: String, ends_turn: bool) -> String {
 }
 
 /// A native tool's definition, with the turn-ending notice when it is flagged.
-fn flagged_definition(tool: &(impl VizierToolDyn + ?Sized)) -> ToolDefinition {
+pub(crate) fn flagged_definition(tool: &(impl VizierToolDyn + ?Sized)) -> ToolDefinition {
     let mut definition = tool.tool_def();
     definition.description = with_ends_turn_notice(definition.description, tool.ends_turn());
     definition
@@ -671,26 +680,26 @@ pub async fn turn_catalogue(router: &ToolRouter, ctx: &ToolContext) -> Vec<Catal
     if let Some(client) = &ctx.client {
         entries.extend(client.catalogue().iter().cloned());
     }
-    // The project shell exists only while this turn may run commands in the project folder.
-    if ctx.project.as_ref().is_some_and(|project| project.shell_offered()) {
-        entries.push(crate::projects::shell::WorkspaceShell::entry());
+    // The project coding tools, filtered by this turn's saved mode (`specs/041-project-coding-
+    // workspace` R10): Plan offers reads and `propose_plan`; Build adds writes and commands.
+    if let Some(project) = &ctx.project {
+        entries.extend(crate::projects::tools::offered(project));
     }
     entries
 }
 
 /// The category lines of this turn: the agent's, then the client's in declaration order, plus
-/// `shell` while the project workspace shell is offered.
+/// `coding` whenever a project context exists. It is listed in both modes (and while the folder
+/// is unavailable) so `SANDBOX.md` stays byte-identical within a chat (contract §1/§4).
 pub fn turn_categories(base: &[CategorySummary], ctx: &ToolContext) -> Vec<CategorySummary> {
     let mut categories = base.to_vec();
     if let Some(client) = &ctx.client {
         categories.extend(client.categories().iter().cloned());
     }
-    if ctx.project.as_ref().is_some_and(|project| project.shell_offered())
-        && !categories.iter().any(|category| category.name == "shell")
-    {
+    if ctx.project.is_some() && !categories.iter().any(|category| category.name == "coding") {
         categories.push(CategorySummary {
-            name: "shell".into(),
-            description: "Run commands in the project folder on the host machine".into(),
+            name: ToolCategory::Coding.name().into(),
+            description: ToolCategory::Coding.description().into(),
         });
     }
     categories
@@ -1726,6 +1735,11 @@ mod tests {
         assert_eq!(uncategorised, expected_none);
 
         for category in ToolCategory::ALL {
+            // `coding` has no `BaseTools` entry: its tools are per-turn project contributions
+            // (`projects::tools::REGISTRY`), so the agent-wide table cannot hold them.
+            if category == Coding {
+                continue;
+            }
             assert!(
                 EXPECTED.iter().any(|(_, c)| *c == category),
                 "{category:?} has no tool"
@@ -1802,7 +1816,9 @@ mod tests {
             .map(|category| category.name())
             .collect();
         assert_eq!(names.last(), Some(&"secrets"));
-        assert_eq!(names.len(), 16);
+        // `coding` is the 17th: it was inserted before `integrations`, but no agent-wide
+        // tool uses it (its tools are per-turn project contributions).
+        assert_eq!(names.len(), 17);
         assert_eq!(ToolCategory::Secrets.name(), "secrets");
     }
 

@@ -34,7 +34,8 @@ pub struct WorkspaceShellInput {
 }
 
 /// A command in one project. It is per-turn: never in `BaseTools` and never in an agent's shell
-/// addon, so it cannot appear in an ordinary conversation, task, dream or subagent piece.
+/// addon, so it cannot appear in an ordinary conversation, task, dream or delegation. A subagent
+/// piece launched from a project chat receives it through the project registry, never here.
 pub struct WorkspaceShell;
 
 impl WorkspaceShell {
@@ -42,7 +43,7 @@ impl WorkspaceShell {
     pub fn entry() -> CatalogueEntry {
         CatalogueEntry {
             name: NAME.to_string(),
-            category: ToolCategory::Shell.name().to_string(),
+            category: ToolCategory::Coding.name().to_string(),
             target: ToolTarget::Project,
             definition: ToolDefinition {
                 name: NAME.to_string(),
@@ -54,29 +55,21 @@ impl WorkspaceShell {
     }
 }
 
-/// The project root and the working directory a call asked for, or the refusal. A relative
-/// directory is canonicalized and must stay under the root; an absolute one is refused.
-fn resolve_workdir(root: &Path, workdir: Option<&str>) -> Result<PathBuf, VizierError> {
-    let Some(workdir) = workdir.map(str::trim).filter(|w| !w.is_empty()) else {
-        return Ok(root.to_path_buf());
-    };
-    if Path::new(workdir).is_absolute() {
+/// The chat's `cwd` and the working directory a call asked for, or the refusal. The one path
+/// function every project surface shares (`specs/041-project-coding-workspace` R6).
+fn resolve_workdir(cwd: &Path, workdir: Option<&str>) -> Result<PathBuf, VizierError> {
+    let path = crate::projects::path::resolve(
+        cwd,
+        workdir.unwrap_or(""),
+        crate::projects::path::Purpose::Existing,
+    )?;
+    if !path.is_dir() {
         return Err(VizierError(format!(
-            "workdir_outside_project: {workdir:?} is absolute; use a path inside the project folder"
+            "not_a_directory: {} is not a directory",
+            workdir.unwrap_or("")
         )));
     }
-    let candidate = root.join(workdir);
-    let canonical = std::fs::canonicalize(&candidate).map_err(|err| {
-        VizierError(format!(
-            "workdir_outside_project: {workdir:?} cannot be resolved inside the project folder: {err}"
-        ))
-    })?;
-    if !canonical.starts_with(root) {
-        return Err(VizierError(format!(
-            "workdir_outside_project: {workdir:?} leaves the project folder"
-        )));
-    }
-    Ok(canonical)
+    Ok(path)
 }
 
 #[async_trait::async_trait]
@@ -89,7 +82,7 @@ impl VizierTool for WorkspaceShell {
     }
 
     fn category() -> Option<ToolCategory> {
-        Some(ToolCategory::Shell)
+        Some(ToolCategory::Coding)
     }
 
     fn description(&self) -> String {
@@ -120,7 +113,7 @@ impl VizierTool for WorkspaceShell {
                 "shell_disabled: the project's workspace shell is turned off".into(),
             ));
         }
-        let workdir = resolve_workdir(&project.folder, args.workdir.as_deref())?;
+        let workdir = resolve_workdir(&project.cwd, args.workdir.as_deref())?;
         let timeout = Duration::from_secs(
             args.timeout_secs
                 .unwrap_or(DEFAULT_COMMAND_TIMEOUT.as_secs())
@@ -156,7 +149,7 @@ mod tests {
         ToolContext {
             session: VizierSession(
                 "dp-a".into(),
-                VizierChannelId::HTTP("alice".into(), "project__p3xY9aQ2mZ".into()),
+                VizierChannelId::Project("alice".into(), "p3xY9aQ2mZ".into()),
                 Some("t1".into()),
             ),
             pending_attachments: Default::default(),
@@ -173,14 +166,21 @@ mod tests {
     }
 
     fn project(folder: &std::path::Path, shell_enabled: bool) -> ProjectTurnContext {
+        let folder = std::fs::canonicalize(folder).unwrap();
         ProjectTurnContext {
             project_id: "p3xY9aQ2mZ".into(),
             name: "alpha".into(),
-            folder: std::fs::canonicalize(folder).unwrap(),
+            folder: folder.clone(),
+            cwd: folder,
+            worktree: None,
+            mode: crate::schema::ProjectMode::Build,
+            git: None,
             available: true,
             shell_enabled,
             instructions: None,
             instructions_truncated: false,
+            is_piece: false,
+            ledger: Default::default(),
         }
     }
 
@@ -224,7 +224,9 @@ mod tests {
                 .call(args, &ctx(Some(project(dir.path(), true))))
                 .await
                 .unwrap_err();
-            assert!(err.0.contains("workdir_outside_project"), "got {err:?}");
+            // The one shared refusal code is `path_outside_project`; 040's
+            // `workdir_outside_project` is gone (spec 041 R6).
+            assert!(err.0.contains("path_outside_project"), "got {err:?}");
         }
     }
 

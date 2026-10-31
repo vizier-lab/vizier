@@ -840,7 +840,7 @@ pub async fn chat(
     let transport = deps.transport.clone();
     let session = VizierSession(
         agent_id.to_string(),
-        VizierChannelId::HTTP(who.username.clone(), body.channel_id.clone()),
+        VizierChannelId::from_web(&who.username, &body.channel_id),
         Some(body.topic_id.clone()),
     );
 
@@ -953,7 +953,7 @@ pub async fn btw(
 
     let session = VizierSession(
         agent_id.to_string(),
-        VizierChannelId::HTTP(who.username.clone(), body.channel_id.clone()),
+        VizierChannelId::from_web(&who.username, &body.channel_id),
         Some(body.topic_id.clone()),
     );
     let side_chat = crate::schema::SideChat {

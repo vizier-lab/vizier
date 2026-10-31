@@ -115,8 +115,10 @@ impl SessionStorage for SqliteStorage {
         // Per channel: topics by when they began.
         let mut channels: BTreeMap<String, Vec<(i64, i64, String)>> = BTreeMap::new();
         for (channel, topic, first, last) in spans {
+            // Project chats are listed by their project, never by the regular session list
+            // (FR-014): the new slug is `project__<user>__<id>`.
             if is_non_user_channel(&channel)
-                || crate::projects::channel::project_of_slug(&channel).is_some()
+                || channel.starts_with(crate::projects::channel::PREFIX)
             {
                 continue;
             }
@@ -368,6 +370,11 @@ impl SessionStorage for SqliteStorage {
             "DELETE FROM scratch_file WHERE agent_id = ?1 AND channel = ?2 AND topic = ?3",
             rusqlite::params![agent_id, channel.to_slug(), topic],
         )?;
+        // Its saved mode goes with the topic (`specs/041-project-coding-workspace` §2).
+        conn.execute(
+            "DELETE FROM project_chat WHERE agent_id = ?1 AND channel = ?2 AND topic = ?3",
+            rusqlite::params![agent_id, channel.to_slug(), topic],
+        )?;
         // And its pending turns.
         conn.execute(
             "DELETE FROM session_turn WHERE agent_id = ?1 AND channel = ?2 AND topic = COALESCE(?3, '')",
@@ -575,4 +582,30 @@ mod tests {
                 .is_empty()
         );
     }
+
+    /// FR-014/FR-016a: a project chat is a `project__` channel and never appears in the
+    /// regular Sessions list, search or picker.
+    #[tokio::test]
+    async fn project_chats_stay_out_of_the_regular_list_and_search() {
+        let (s, _d) = setup();
+        let mut n = 0;
+        say(&s, &mut n, "a", "project__ana__p3xY9aQ2mZ", Some("t1"), 100, "rename the parser");
+        say(&s, &mut n, "a", "http__ana__vizier-webui", Some("t0"), 50, "hello");
+        title(
+            &s,
+            "a",
+            VizierChannelId::Project("ana".into(), "p3xY9aQ2mZ".into()),
+            "t1",
+            "parser work",
+        );
+        let rows = s.conversation_rows("a", None).await.unwrap();
+        assert!(
+            rows.iter().all(|r| !r.channel.starts_with("project__")),
+            "{rows:?}"
+        );
+        // Neither its title nor its message text surfaces through search.
+        assert!(s.conversation_rows("a", Some("parser work")).await.unwrap().iter().all(|r| !r.channel.starts_with("project__")));
+        assert!(s.conversation_rows("a", Some("rename the parser")).await.unwrap().iter().all(|r| !r.channel.starts_with("project__")));
+    }
+
 }

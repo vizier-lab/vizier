@@ -44,7 +44,7 @@ async fn topic_session(
 
     Ok(VizierSession(
         agent_id.to_string(),
-        VizierChannelId::HTTP(who.username.clone(), channel_id.to_string()),
+        VizierChannelId::from_web(&who.username, channel_id),
         Some(topic_id.clone()),
     ))
 }

@@ -73,6 +73,9 @@ pub struct VizierDependencies {
     /// The side-chat rate limit (`specs/033-btw-side-chat` research R9): 5 asks per 60 s per
     /// platform identity, shared by the HTTP handler and the Discord/Telegram readers.
     pub side_chat_limits: Arc<crate::utils::rate_limit::RateLimiter>,
+    /// The stale-read guard for project coding tools (`specs/041-project-coding-workspace`
+    /// R8): `(session slug, path) → sha256` of what the chat last read or wrote.
+    pub project_ledger: Arc<crate::projects::ledger::ProjectReadLedger>,
 }
 
 /// Old (pre-bundle) memory frontmatter shape, kept only so `migrate_memory_to_bundles` can parse
@@ -177,6 +180,10 @@ impl VizierDependencies {
         Self::migrate_users(&storage).await?;
         Self::migrate_agent_cores(&storage).await?;
         Self::migrate_task_requester(conn.clone()).await?;
+        // 040 stored project chats as `HTTP(user, "project__<id>")`; move every stored slug
+        // and serialised channel to the `Project` variant before agents start
+        // (`specs/041-project-coding-workspace` FR-015).
+        crate::projects::migrate::migrate_project_channels(&conn.lock())?;
         let interrupted_runs = Self::interrupt_orphaned_task_runs(&storage).await?;
         let interrupted_jobs = Self::interrupt_orphaned_background_jobs(&storage).await;
         Self::interrupt_orphaned_client_calls(&storage).await;
@@ -283,6 +290,7 @@ impl VizierDependencies {
                 crate::channels::side_chat::ASKS_PER_WINDOW,
                 crate::channels::side_chat::ASK_WINDOW,
             )),
+            project_ledger: Default::default(),
         };
         #[cfg(feature = "documents")]
         deps.seed_office_defaults().await;

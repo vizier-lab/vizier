@@ -230,7 +230,7 @@ impl Notifications {
         history_uid: &str,
         at: DateTime<Utc>,
     ) {
-        let VizierChannelId::HTTP(username, channel_id) = &session.1 else {
+        let Some(username) = session.1.web_user() else {
             return;
         };
         let audience = self
@@ -243,7 +243,7 @@ impl Notifications {
         let Some(audience) = audience else {
             return;
         };
-        let href = match (&session.2, crate::projects::channel::project_id(channel_id)) {
+        let href = match (&session.2, session.1.project_id()) {
             // A project reply opens its project route, not the ordinary chat route.
             (Some(topic), Some(project_id)) => {
                 format!("/{}/projects/{}/chat/{}", session.0, project_id, topic)
@@ -586,7 +586,7 @@ mod tests {
         user(&conn, "u-ana", "ana");
         let session = VizierSession(
             "a".into(),
-            VizierChannelId::HTTP("ana".into(), "project__p3xY9aQ2mZ".into()),
+            VizierChannelId::Project("ana".into(), "p3xY9aQ2mZ".into()),
             Some("topic-1".into()),
         );
         n.chat_replied(&session, "h-project", Utc::now()).await;

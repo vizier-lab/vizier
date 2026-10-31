@@ -1382,6 +1382,15 @@ pub async fn handle_request(
         | VizierRequestContent::ClientEvent(_) => {
             // `/skills`, `/<skill> …` and `/skill <name> …` (spec 021): every channel delivers
             // them as `Chat`, so this is the one place they are told apart.
+            // The list as typed rides the request's history entry; the resolved contents never
+            // are stored (FR-019).
+            if !request.mentions.is_empty() {
+                set_metadata(
+                    &mut request.metadata,
+                    "mentions",
+                    serde_json::json!(request.mentions.clone()),
+                );
+            }
             let mut invoked = None;
             if let VizierRequestContent::Chat(text) = &request.content {
                 match invocation::parse(text) {
@@ -1464,7 +1473,7 @@ pub async fn handle_request(
             let skills = agent.recommend_skills(&prompt).await.unwrap_or_default();
             // A WebUI reply is news for the person whose conversation it is. A woken
             // background report already has its own job notification, so it is left out.
-            let notifies_chat = matches!(session.1, VizierChannelId::HTTP(..))
+            let notifies_chat = session.1.web_user().is_some()
                 && matches!(
                     &request.content,
                     VizierRequestContent::Chat(_)

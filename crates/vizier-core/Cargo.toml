@@ -59,6 +59,7 @@ futures.workspace = true
 glob.workspace = true
 hound = { workspace = true, optional = true }
 html2md.workspace = true
+ignore.workspace = true
 indicatif = { workspace = true, optional = true }
 ironcalc = { workspace = true, optional = true }
 mime_guess.workspace = true

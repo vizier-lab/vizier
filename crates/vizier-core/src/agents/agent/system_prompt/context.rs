@@ -27,6 +27,19 @@ pub fn context_md(
     invoked: Option<&Skill>,
     reactions: Option<&str>,
 ) -> String {
+    context_md_with(memory, skills, invoked, reactions, None, None)
+}
+
+/// [`context_md`], plus the two project sections (`specs/041-project-coding-workspace` §4):
+/// `project_state` after the time, and the resolved `## Mentioned files` block at the end.
+pub fn context_md_with(
+    memory: &[MemoryPassageResult],
+    skills: &[Skill],
+    invoked: Option<&Skill>,
+    reactions: Option<&str>,
+    project_state: Option<&str>,
+    mentions: Option<&str>,
+) -> String {
     let utc_now = Utc::now();
     let local_now = Local::now();
 
@@ -35,6 +48,11 @@ pub fn context_md(
         utc_now.format("%A, %Y-%m-%d %H:%M UTC"),
         local_now.format("%A, %Y-%m-%d %H:%M %:z"),
     )];
+
+    // Volatile project facts sit next to the request, never in the cacheable system prompt.
+    if let Some(state) = project_state {
+        sections.push(state.to_string());
+    }
 
     if let Some(skill) = invoked {
         sections.push(render_invoked_skill(skill));
@@ -107,6 +125,10 @@ pub fn context_md(
              `use_skill(slug=\"…\")` in an `execute_python` script and follow it before you start.\n\n{}",
             summarize_skills
         ));
+    }
+
+    if let Some(mentions) = mentions {
+        sections.push(mentions.to_string());
     }
 
     format!("{CONTEXT_HEADER}{}", sections.join("\n\n"))

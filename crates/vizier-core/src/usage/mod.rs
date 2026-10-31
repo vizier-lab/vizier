@@ -24,6 +24,7 @@ use crate::{
         VizierStorage,
         background_job::BackgroundJobStorage,
         integration::IntegrationStorage,
+        project::ProjectStorage,
         state::StateStorage,
         task::TaskStorage,
         usage::{UsageGroup, UsageGrouping, UsageQuery, UsageStorage},
@@ -567,6 +568,8 @@ fn insight(t: &Tally, longest_failed_turn: Option<u32>) -> Option<String> {
 /// `VizierChannelId::to_slug()`'s; this is the one place that reads them back.
 enum SlugKind<'a> {
     Http,
+    /// A project chat; the id is the project the conversation belongs to.
+    Project(&'a str),
     Discord(&'a str),
     Telegram(&'a str),
     Task(&'a str),
@@ -576,7 +579,9 @@ enum SlugKind<'a> {
 }
 
 fn slug_kind(channel: &str) -> SlugKind<'_> {
-    if channel.starts_with("http__") {
+    if channel.starts_with(crate::projects::channel::PREFIX) {
+        SlugKind::Project(channel.rsplit_once("__").map_or("", |(_, id)| id))
+    } else if channel.starts_with("http__") {
         SlugKind::Http
     } else if let Some(id) = channel.strip_prefix("discord__") {
         SlugKind::Discord(id)
@@ -723,7 +728,9 @@ async fn conversation_exists(
 ) -> bool {
     let found = match slug_kind(channel) {
         SlugKind::Dream(_) => return true,
-        SlugKind::Http => storage.session_detail_exists(agent_id, channel, topic).await,
+        SlugKind::Http | SlugKind::Project(_) => {
+            storage.session_detail_exists(agent_id, channel, topic).await
+        }
         _ => storage.conversation_exists(agent_id, channel, topic).await,
     };
     found.unwrap_or(false)
@@ -758,6 +765,23 @@ async fn place_label(
                 .flatten();
             (title.unwrap_or_else(|| "WebUI topic".into()), Some("WebUI topic".into()))
         }
+        "project" => {
+            let (channel, topic) = rest.rsplit_once(':').unwrap_or((rest, ""));
+            let project = match channel.rsplit_once("__").map(|(_, id)| id) {
+                Some(id) => storage.get_project(agent_id, id).await.ok().flatten(),
+                None => None,
+            };
+            let title = storage
+                .session_title(agent_id, channel, Some(topic).filter(|t| !t.is_empty()))
+                .await
+                .ok()
+                .flatten()
+                .unwrap_or_else(|| "Project chat".into());
+            match project {
+                Some(project) => (format!("{} / {title}", project.name), Some("Project".into())),
+                None => (title, Some("Project".into())),
+            }
+        }
         "discord" => (names.label(place, || format!("Discord channel {rest}")), Some("Discord".into())),
         "telegram" => (names.label(place, || format!("Telegram chat {rest}")), Some("Telegram".into())),
         "task" => (task_title(storage, agent_id, rest).await, Some("Scheduled task".into())),
@@ -777,6 +801,14 @@ async fn conversation_label(
     let title = storage.session_title(agent_id, channel, topic).await.ok().flatten();
     match slug_kind(channel) {
         SlugKind::Http => (title.unwrap_or_else(|| "WebUI topic".into()), Some("WebUI topic".into())),
+        SlugKind::Project(id) => {
+            let project = storage.get_project(agent_id, id).await.ok().flatten();
+            let title = title.unwrap_or_else(|| "Project chat".into());
+            match project {
+                Some(project) => (format!("{} / {title}", project.name), Some("Project".into())),
+                None => (title, Some("Project".into())),
+            }
+        }
         // `Vizier HQ / #general / <topic>`: the live names, then the topic's title once it has one.
         SlugKind::Discord(id) => (
             with_topic(names.label(&format!("discord:{id}"), || format!("Discord channel {id}")), title, topic),
@@ -814,6 +846,13 @@ async fn conversation_link(
             Some(t) => link(UsageLinkKind::Chat, format!("/{agent_id}/chat/{t}")),
             None => link(UsageLinkKind::Chat, format!("/{agent_id}/chat")),
         },
+        SlugKind::Project(id) => match topic {
+            Some(t) => link(
+                UsageLinkKind::Topic,
+                format!("/{agent_id}/projects/{id}/chat/{t}"),
+            ),
+            None => none(NoLinkReason::NoWebPage),
+        },
         SlugKind::Task(slug) => link(UsageLinkKind::TaskRun, format!("/{agent_id}/tasks?task={slug}")),
         SlugKind::Dream(_) => link(UsageLinkKind::Dream, format!("/{agent_id}/dream")),
         SlugKind::Background => {
@@ -823,10 +862,17 @@ async fn conversation_link(
             };
             match job {
                 Some(job) => match (&job.origin.1, &job.origin.2) {
-                    (VizierChannelId::HTTP(..), Some(origin_topic)) => link(
-                        UsageLinkKind::Topic,
-                        format!("/{}/chat/{origin_topic}", job.origin.0),
-                    ),
+                    (channel, Some(origin_topic)) if channel.web_user().is_some() => {
+                        // A background job launched from a project chat opens that chat.
+                        let path = match channel.project_id() {
+                            Some(project_id) => format!(
+                                "/{}/projects/{project_id}/chat/{origin_topic}",
+                                job.origin.0
+                            ),
+                            None => format!("/{}/chat/{origin_topic}", job.origin.0),
+                        };
+                        link(UsageLinkKind::Topic, path)
+                    }
                     _ => none(NoLinkReason::NoWebPage),
                 },
                 None => none(NoLinkReason::NoWebPage),
@@ -872,6 +918,10 @@ mod tests {
     #[test]
     fn slugs_read_back_into_their_kind() {
         assert!(matches!(slug_kind("http__alice__webui"), SlugKind::Http));
+        assert!(matches!(
+            slug_kind("project__alice__p3xY9aQ2mZ"),
+            SlugKind::Project("p3xY9aQ2mZ")
+        ));
         assert!(matches!(slug_kind("discord__42"), SlugKind::Discord("42")));
         assert!(matches!(slug_kind("task__morning__brief__1700000000000"), SlugKind::Task("morning__brief")));
         assert!(matches!(

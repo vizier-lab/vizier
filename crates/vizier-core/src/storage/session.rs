@@ -26,7 +26,11 @@ impl ConversationRow {
     /// Orders rows that moved at the same instant, and names a row in a cursor: a WebUI
     /// conversation is a topic, anywhere else it is the channel.
     pub fn key(&self) -> String {
-        if self.channel.starts_with("http__") { format!("{}#{}", self.channel, self.latest_topic) } else { self.channel.clone() }
+        if self.channel.starts_with("http__") || self.channel.starts_with(crate::projects::channel::PREFIX) {
+            format!("{}#{}", self.channel, self.latest_topic)
+        } else {
+            self.channel.clone()
+        }
     }
 }
 

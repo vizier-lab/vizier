@@ -80,6 +80,10 @@ utoipa = { version = "6", features = ["chrono"] }
 utoipa-axum = "0.3"
 utoipa-swagger-ui = { version = "10", features = ["axum"] }
 glob = "0.3.3"
+# Gitignore-correct walking for the project coding tools (`specs/041-project-coding-workspace`
+# research R5): nested `.gitignore`, negation, `info/exclude` and global excludes, which is not
+# a few lines to hand-roll. Pure Rust, so the cross/musl targets are unaffected.
+ignore = "0.4"
 tar = "0.4"
 bzip2 = "0.6"
 zip = { version = "9.0", default-features = false, features = ["deflate"] }
