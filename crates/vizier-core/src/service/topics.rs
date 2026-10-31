@@ -346,6 +346,42 @@ pub async fn detail(
     }
 }
 
+/// Gives one of the caller's own WebUI conversations a name of their choosing. A titled
+/// conversation is never re-titled by the generator (`refresh_session_detail`), so it sticks.
+pub async fn rename(
+    s: &Services,
+    who: &Principal,
+    agent_id: &str,
+    channel_id: &str,
+    topic_id: TopicId,
+    title: &str,
+) -> Result<TopicEntry, ServiceError> {
+    authorize_topic(s, who, agent_id, channel_id).await?;
+    let title = title.trim();
+    if title.is_empty() || title.chars().count() > 120 {
+        return Err(ServiceError::invalid("The title must be 1–120 characters"));
+    }
+    let storage = &s.deps().storage;
+    let mut detail = match storage
+        .get_session_detail_by_topic(
+            agent_id.to_string(),
+            VizierChannelId::HTTP(who.username.clone(), channel_id.to_string()),
+            Some(topic_id),
+        )
+        .await
+    {
+        Ok(Some(detail)) => detail,
+        Ok(None) => return Err(ServiceError::NotFound("Topic not found".into())),
+        Err(e) => return Err(internal(e)),
+    };
+    detail.title = title.to_string();
+    storage
+        .update_session_detail(detail.clone())
+        .await
+        .map_err(internal)?;
+    Ok(TopicEntry::from(detail))
+}
+
 pub async fn delete(
     s: &Services,
     who: &Principal,
