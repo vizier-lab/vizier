@@ -8,8 +8,11 @@ const cases: { name: string; status: number; body: unknown; expect: { ok: unknow
 ]
 
 const invoke = vi.fn()
+let windows = false
 vi.mock('@tauri-apps/api/core', () => ({
     invoke: (...a: unknown[]) => invoke(...a),
+    // What the real helper returns: WebView2 maps a custom scheme onto http://<scheme>.localhost.
+    convertFileSrc: (path: string, scheme: string) => (windows ? `http://${scheme}.localhost/${path}` : `${scheme}://localhost/${path}`),
     Channel: class {
         onmessage: ((m: unknown) => void) | null = null
     },
@@ -77,6 +80,12 @@ describe('transports agree', () => {
     it('assetUrl shapes', () => {
         expect(http.assetUrl('/files/a')).toBe('/api/v1/files/a')
         expect(tauri.assetUrl('/files/a')).toBe('vizier-asset://localhost/api/v1/files/a')
+        windows = true
+        try {
+            expect(tauri.assetUrl('/files/a')).toBe('http://vizier-asset.localhost/api/v1/files/a')
+        } finally {
+            windows = false
+        }
     })
 
     it('tauri topics open, send and close', async () => {

@@ -1,10 +1,12 @@
 // The desktop transport: every call goes to the in-process engine through Tauri commands.
-import { Channel, invoke } from '@tauri-apps/api/core'
+import { Channel, convertFileSrc, invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { sendNotification } from '@tauri-apps/plugin-notification'
 import { API_BASE, relativeToApi, settle, type DesktopShell, type DesktopState, type Envelope, type Transport, type UpdateInfo, type TopicHandle, type TopicOptions } from './common'
 
-const ASSET = 'vizier-asset://localhost'
+// WebView2 serves a custom scheme as `http://<scheme>.localhost`; the other webviews as `<scheme>://localhost`.
+// `convertFileSrc` knows which, so the base is asked for rather than written down.
+const assetBase = () => convertFileSrc('', 'vizier-asset').replace(/\/$/, '')
 const encoder = new TextEncoder()
 
 type ApiResult<T> = { status: number; body: Envelope<T> | null }
@@ -48,9 +50,9 @@ export const tauri: Transport = {
     fetchFile(path, init) {
         const headers: Record<string, string> = {}
         if (init?.range) headers.Range = `bytes=${init.range[0]}-${init.range[1]}`
-        return fetch(`${ASSET}${API_BASE}${path}`, { headers, signal: init?.signal })
+        return fetch(`${assetBase()}${API_BASE}${path}`, { headers, signal: init?.signal })
     },
-    assetUrl: (path) => `${ASSET}${API_BASE}${relativeToApi(path)}`,
+    assetUrl: (path) => `${assetBase()}${API_BASE}${relativeToApi(path)}`,
     saveFile: (path, filename) => invoke('save_file', { path: `${API_BASE}${path}`, filename }),
     openFile: (path, filename) => invoke('open_file', { path: `${API_BASE}${path}`, filename }),
     openTopic(t, opts: TopicOptions): TopicHandle {
