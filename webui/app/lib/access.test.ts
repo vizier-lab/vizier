@@ -8,7 +8,7 @@
 import { beforeEach, test } from 'vitest'
 import assert from 'node:assert/strict'
 
-import { canManageSecrets } from './access.ts'
+import { canManageProject, canManageSecrets, canUseProjects } from './access.ts'
 import { useSession } from '../stores/session.ts'
 
 const person = (permissions: string[]) => ({
@@ -54,4 +54,26 @@ test('a revoked permission is gone from the session list', () => {
     assert.equal(canManageSecrets(agent('user-2')), true)
     useSession.setState({ user: person([]) })
     assert.equal(canManageSecrets(agent('user-2')), false)
+})
+
+test('projects need a project permission, not just a view', () => {
+    useSession.setState({ user: person(['all_agents:view']) })
+    assert.equal(canUseProjects(agent('user-1')), false)
+    useSession.setState({ user: person(['all_agents:projects']) })
+    assert.equal(canUseProjects(agent('someone-else')), true)
+    useSession.setState({ user: person(['owned_agents:projects']) })
+    assert.equal(canUseProjects(agent('user-1')), true)
+    assert.equal(canUseProjects(agent('user-2')), false)
+})
+
+test('a project is managed by its owner or the whole-workspace permission', () => {
+    useSession.setState({ user: person(['owned_agents:projects']) })
+    assert.equal(canManageProject({ owner_id: 'user-1' }), true)
+    assert.equal(canManageProject({ owner_id: 'user-2' }), false)
+    useSession.setState({ user: person(['all_agents:projects']) })
+    assert.equal(canManageProject({ owner_id: 'user-2' }), true)
+    useSession.setState({ user: person([]) })
+    // The owner keeps management rights without the whole-workspace permission (FR-022).
+    assert.equal(canManageProject({ owner_id: 'user-1' }), true)
+    assert.equal(canManageProject({ owner_id: 'user-2' }), false)
 })

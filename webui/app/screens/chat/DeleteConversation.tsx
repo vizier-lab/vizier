@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { deleteTopic } from '../../api/endpoints/chat'
+import { CHANNEL, deleteTopic } from '../../api/endpoints/chat'
 import { toast } from '../../stores/toasts'
 import { ConfirmDialog } from '../shared/ConfirmDialog'
 
@@ -10,12 +10,14 @@ type Props = {
     /** The conversation to delete; the dialog is open while there is one. */
     target: DeleteTarget | null
     onClose: () => void
+    /** The conversation's channel: the WebUI's own, or a project channel. */
+    channel?: string
     /** Called after the server has deleted it. */
     onDeleted: (topic: string) => void
 }
 
 /** Asks before deleting a WebUI conversation, then deletes it. The server refuses while a turn is running in it. */
-export function DeleteConversation({ agentId, target, onClose, onDeleted }: Props) {
+export function DeleteConversation({ agentId, target, channel = CHANNEL, onClose, onDeleted }: Props) {
     const [busy, setBusy] = useState(false)
     return (
         <ConfirmDialog
@@ -29,7 +31,7 @@ export function DeleteConversation({ agentId, target, onClose, onDeleted }: Prop
                 if (!target) return
                 setBusy(true)
                 try {
-                    await deleteTopic(agentId, target.topic)
+                    await deleteTopic(agentId, target.topic, channel)
                     onClose()
                     onDeleted(target.topic)
                 } catch (e) {

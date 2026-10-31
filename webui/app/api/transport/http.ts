@@ -68,4 +68,8 @@ export const http: Transport = {
         })
     },
     async notify() {},
+    /** The browser has no native folder picker; project creation is desktop-only. */
+    async pickFolder() {
+        return null
+    },
 }

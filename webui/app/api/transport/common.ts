@@ -54,6 +54,8 @@ export interface DesktopShell {
     setupOwner(username: string, password?: string): Promise<void>
     chooseOwner(userId: string): Promise<void>
     openWorkspace(path?: string): Promise<void>
+    /** The native folder picker; `null` when the person cancels. */
+    pickFolder(): Promise<string | null>
     restart(): Promise<void>
     settingsGet(): Promise<DesktopSettings>
     settingsSet(settings: DesktopSettings): Promise<DesktopSettings>
@@ -79,6 +81,8 @@ export interface Transport {
     openFile(path: string, filename: string): Promise<void>
     openTopic(t: { agentId: string; channelId: string; topicId: string }, opts: TopicOptions): TopicHandle
     notify(n: { title: string; body: string; href: string }): Promise<void>
+    /** The native folder picker in the desktop app; the browser has none and resolves `null`. */
+    pickFolder(): Promise<string | null>
     desktop?: DesktopShell
 }
 

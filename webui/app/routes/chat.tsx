@@ -1,12 +1,13 @@
 import { DeleteConversation, type DeleteTarget } from '../screens/chat/DeleteConversation'
 import { FadeRule, SIDE_PANEL_WIDTH, SideCard } from '../screens/shared/SideCard'
-import { IconButton, JobsPill, Presence, SlideOver, motionDurations, motionEases } from '@vizier/design'
+import { IconButton, JobsPill, Notice, Presence, SlideOver, motionDurations, motionEases } from '@vizier/design'
 import { nanoid } from 'nanoid'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { motion, useReducedMotion } from 'motion/react'
 import { useNavigate, useParams } from 'react-router'
 import { agentState, getAgent } from '../api/endpoints/agents'
 import { CHANNEL, cancelJob, listTopics, restartAgent } from '../api/endpoints/chat'
+import { createProjectSession, projectChannel } from '../api/endpoints/projects'
 import type { Topic, Turn } from '../api/frames'
 import type { ClientCallView } from '../api/frames'
 import { emptyTopic } from '../lib/frames'
@@ -23,13 +24,16 @@ import { MessageList } from '../screens/chat/MessageList'
 import { recalledFrom } from '../lib/recall'
 import { RecalledMemoryPanel } from '../screens/chat/RecalledMemoryPanel'
 import { SessionFilesPanel } from '../screens/chat/SessionFilesPanel'
+import { HostExecutionNotice } from '../screens/projects/HostExecutionNotice'
+import { OpenProjectButton, ProjectsRefused } from '../screens/projects/ProjectsSection'
 import { lastTopic, read, rememberTopic, write } from '../lib/remember'
 import { useMobile } from '../lib/useMobile'
 import { useAgents } from '../stores/agents'
 import { topicKey, useConnection } from '../stores/connection'
 import { useSession } from '../stores/session'
+import { useProjects } from '../stores/projects'
 import { toast } from '../stores/toasts'
-import { canManageArtifacts } from '../lib/access'
+import { canManageArtifacts, canUseProjects } from '../lib/access'
 import { useTurns } from '../stores/turns'
 import { conversationTitle } from '../lib/conversations'
 
@@ -39,8 +43,19 @@ const EMPTY = emptyTopic()
 const PANEL_KEY = 'vizier.chat.panel.v2'
 
 export default function Chat() {
-    const { agentId = '', topicId } = useParams()
+    const { agentId = '', topicId, projectId } = useParams()
     const navigate = useNavigate()
+    // A project session is the same screen on the project's own channel (spec 040).
+    const channel = projectId ? projectChannel(projectId) : CHANNEL
+    const project = useProjects((s) =>
+        projectId ? (s.byAgent[agentId] ?? []).find((p) => p.id === projectId) : undefined
+    )
+    const agentProjects = useProjects((s) => s.byAgent[agentId] ?? [])
+    const refreshProjects = useProjects((s) => s.refresh)
+    const insertSession = useProjects((s) => s.insertSession)
+    useEffect(() => {
+        if (projectId && !project) void refreshProjects(agentId)
+    }, [agentId, projectId, project, refreshProjects])
     const agents = useAgents((s) => s.agents)
     const health = useAgents((s) => s.health[agentId])
     const setup = useAgents((s) => s.setups[agentId])
@@ -98,7 +113,7 @@ export default function Chat() {
         const remembered = userId ? lastTopic(userId, agentId) : null
         if (!topicId && remembered)
             navigate(`/${agentId}/chat/${remembered}`, { replace: true })
-        listTopics(agentId)
+        listTopics(agentId, channel)
             .then((list) => {
                 if (!alive) return
                 setTopics(list ?? [])
@@ -117,7 +132,7 @@ export default function Chat() {
         return () => {
             alive = false
         }
-    }, [agentId, topicId === undefined]) // eslint-disable-line react-hooks/exhaustive-deps
+    }, [agentId, channel, topicId === undefined]) // eslint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
         if (userId && topicId) rememberTopic(userId, agentId, topicId)
@@ -127,9 +142,9 @@ export default function Chat() {
     const close = useTurns((s) => s.close)
     useEffect(() => {
         if (!topicId) return
-        void open(agentId, topicId)
+        void open(agentId, topicId, channel)
         return () => close(agentId, topicId)
-    }, [agentId, topicId, open, close])
+    }, [agentId, topicId, channel, open, close])
 
     const key = topicKey(agentId, topicId ?? '')
     const opening = useMemo(() => greeting(), [key])
@@ -200,12 +215,34 @@ export default function Chat() {
         />
     ) : null
 
-    // The same fresh topic the picker's "New conversation" opens, one click from the header.
+    // The same fresh topic the picker's "New conversation" opens, one click from the header. In
+    // a project it is a new project session, created server-side so it is listed immediately.
     const newConversation = (
         <IconButton
             icon="plus"
-            aria-label="New conversation"
-            onClick={() => navigate(`/${agentId}/chat/${nanoid(10)}`)}
+            aria-label={projectId ? 'New project session' : 'New conversation'}
+            onClick={() => {
+                if (!projectId) {
+                    navigate(`/${agentId}/chat/${nanoid(10)}`)
+                    return
+                }
+                void createProjectSession(agentId, projectId)
+                    .then((session) => {
+                        insertSession(agentId, projectId, {
+                            topic: session.topic,
+                            title: session.title,
+                            is_thinking: false,
+                            last_activity: null,
+                        })
+                        navigate(`/${agentId}/projects/${projectId}/chat/${session.topic}`)
+                    })
+                    .catch((e) =>
+                        toast.error(
+                            "Couldn't start a session",
+                            e instanceof Error ? e.message : undefined
+                        )
+                    )
+            }}
         />
     )
 
@@ -234,6 +271,10 @@ export default function Chat() {
         </SideCard>
     )
 
+    // A direct project URL without the permission shows the refused state, never empty
+    // read-only content (FR-018). Kept after every hook so the hook order never changes.
+    if (projectId && agent && !canUseProjects(agent)) return <ProjectsRefused />
+
     return (
         <div data-chat-area className="flex min-h-0 flex-1 flex-col">
             <div className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -241,9 +282,11 @@ export default function Chat() {
                     agentId={agentId}
                     title={title}
                     meta={
-                        topicIndex >= 0
-                            ? `webui · topic ${topicIndex + 1} of ${topics.length}`
-                            : 'webui · new topic'
+                        project
+                            ? `${project.name} · ${project.folder}`
+                            : topicIndex >= 0
+                              ? `webui · topic ${topicIndex + 1} of ${topics.length}`
+                              : 'webui · new topic'
                     }
                     current={{ topic: topicId }}
                     agentName={agentName}
@@ -312,6 +355,17 @@ export default function Chat() {
                     configHref={`/${agentId}/config`}
                 />
 
+                <HostExecutionNotice className="mx-24 mt-8" />
+                {project && !project.available && (
+                    <Notice
+                        tone="failed"
+                        title="The project folder is unavailable"
+                        className="mx-24 mt-8"
+                    >
+                        History stays readable; commands are refused until the folder is restored.
+                    </Notice>
+                )}
+
                 {/* The conversation runs the full width and the details card floats over its right
                     edge, so the messages' scroll bar sits at the panel's edge, not beside the card. */}
                 <div className="relative flex min-h-0 flex-1">
@@ -330,6 +384,11 @@ export default function Chat() {
                     }
                     clientCalls={(turn: Turn, running) =>
                         renderClientCalls(turn, running, clientContext)
+                    }
+                    emptyAction={
+                        !project && agentProjects.length === 0 ? (
+                            <OpenProjectButton agentId={agentId} />
+                        ) : undefined
                     }
                     recalledFor={() => recalled.length}
                     error={
@@ -358,6 +417,7 @@ export default function Chat() {
                 >
                     <div aria-hidden className="absolute inset-0 bg-gradient-to-t from-panel via-panel/80 to-transparent" />
                     <div className="pointer-events-auto relative mx-auto w-full max-w-4xl px-24 pt-24 pb-16">
+                    <HostExecutionNotice className="mb-8" />
                     <Composer
                         agentId={agentId}
                         agentName={agentName}
@@ -424,16 +484,23 @@ export default function Chat() {
                 agentId={agentId}
                 agentName={agentName}
                 modelName={modelName}
-                channelId={CHANNEL}
+                channelId={channel}
                 topicId={topicId ?? ''}
                 question={sideChat.question}
             />
 
             <DeleteConversation
                 agentId={agentId}
+                channel={channel}
                 target={deleting}
                 onClose={() => setDeleting(null)}
-                onDeleted={() => navigate(`/${agentId}/chat/${nanoid(10)}`)}
+                onDeleted={() =>
+                    navigate(
+                        projectId
+                            ? `/${agentId}/projects/${projectId}`
+                            : `/${agentId}/chat/${nanoid(10)}`
+                    )
+                }
             />
             {mobile && (
                 <SlideOver

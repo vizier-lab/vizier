@@ -31,4 +31,5 @@ export const transport: Transport = {
     openFile: (p, f) => current.openFile(p, f),
     openTopic: (t, o) => current.openTopic(t, o),
     notify: (n) => current.notify(n),
+    pickFolder: () => current.pickFolder(),
 }

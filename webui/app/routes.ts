@@ -16,6 +16,10 @@ export default [
             route(':agentId/chat', 'routes/chat.tsx', { id: 'chat-latest' }),
             route(':agentId/chat/read', 'routes/chat-read.tsx'),
             route(':agentId/chat/:topicId', 'routes/chat.tsx', { id: 'chat-topic' }),
+            route(':agentId/projects/:projectId', 'routes/projects.tsx'),
+            route(':agentId/projects/:projectId/chat/:topicId', 'routes/chat.tsx', {
+                id: 'project-chat',
+            }),
             route(':agentId/core', 'routes/agent-core.tsx'),
             route(':agentId/core/edit', 'routes/agent-core-edit.tsx'),
             // One route for all three addresses (all bundles, a bundle, a document), so moving

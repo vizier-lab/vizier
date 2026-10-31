@@ -21,6 +21,13 @@ export const PERMISSION_GROUPS: { title: string; items: { permission: string; la
         ],
     },
     {
+        title: 'Projects',
+        items: [
+            { permission: 'all_agents:projects', label: 'Use and manage projects for every agent' },
+            { permission: 'owned_agents:projects', label: 'Use projects for agents they own' },
+        ],
+    },
+    {
         title: 'Integrations',
         items: [
             { permission: 'all_agents:integrations:manage', label: 'Manage every agent’s integrations' },

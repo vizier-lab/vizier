@@ -22,6 +22,8 @@ export const PAGE_PATH: Record<AgentPage, string> = {
 /** Which of an agent's pages the path is on, if any. */
 export function pageOf(pathname: string): AgentPage | undefined {
     const rest = '/' + pathname.split('/').slice(2).join('/')
+    // A project session is a chat screen reached through the project route.
+    if (rest.startsWith('/projects/')) return 'chat'
     return (Object.entries(PAGE_PATH) as [AgentPage, string][]).find(([, p]) => rest === p || rest.startsWith(p + '/'))?.[0]
 }
 

@@ -42,7 +42,9 @@ describe('what the agent calls the tools', () => {
         expect(names).toContain('ui_render')
         // The retired tool is not offered.
         expect(names).not.toContain('ui_render_interactive_ui')
-    })
+        // The first import compiles the whole catalogue; under a loaded runner that can take
+        // longer than the default 5 s, while the assertion itself is instant.
+    }, 30_000)
 
     it('flags only ui_render as ending the turn', async () => {
         await import('./builtin')

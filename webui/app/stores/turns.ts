@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import {
+    CHANNEL,
     topicDetail,
     topicFiles,
     topicHistory,
@@ -26,7 +27,7 @@ type TurnStore = {
     topics: Record<string, TopicState>
     meta: Record<string, Meta>
     /** Opens a topic: history, files and jobs, then the socket. Safe to call again. */
-    open: (agentId: string, topicId: string) => Promise<void>
+    open: (agentId: string, topicId: string, channel?: string) => Promise<void>
     close: (agentId: string, topicId: string) => void
     send: (agentId: string, topicId: string, text: string, attachments?: object[], spoken?: boolean) => void
     sendAudio: (agentId: string, topicId: string, attachment: object) => void
@@ -39,6 +40,12 @@ type TurnStore = {
 }
 
 let nextId = 1
+
+/** The channel each open topic lives on: the WebUI's own, or `project__<id>` (spec 040). */
+const channels = new Map<string, string>()
+
+const channelOf = (agentId: string, topicId: string) =>
+    channels.get(topicKey(agentId, topicId)) ?? CHANNEL
 
 function request(content: VizierRequestContent, attachments?: object[], spoken?: boolean) {
     return {
@@ -63,7 +70,10 @@ export const useTurns = create<TurnStore>()((set, get) => {
     const refreshHistory = async (agentId: string, topicId: string) => {
         const key = topicKey(agentId, topicId)
         try {
-            const entries = await topicHistory(agentId, topicId, { limit: PAGE })
+            const entries = await topicHistory(agentId, topicId, {
+                limit: PAGE,
+                channel: channelOf(agentId, topicId),
+            })
             update(key, (s) => reduce(s, { type: 'history', entries: entries ?? [] }))
         } catch {
             /* the stand-ins stay until the next read */
@@ -103,16 +113,17 @@ export const useTurns = create<TurnStore>()((set, get) => {
 
         dispatch,
 
-        open: async (agentId, topicId) => {
+        open: async (agentId, topicId, channel = CHANNEL) => {
             const key = topicKey(agentId, topicId)
             if (get().meta[key]?.loaded) return
-            update(key, (s) => (s.session.agent_id ? s : emptyTopic({ agent_id: agentId, channel: 'vizier-webui', topic: topicId })))
+            channels.set(key, channel)
+            update(key, (s) => (s.session.agent_id ? s : emptyTopic({ agent_id: agentId, channel, topic: topicId })))
 
             const [history, detail, files, jobs] = await Promise.allSettled([
-                topicHistory(agentId, topicId, { limit: PAGE }),
-                topicDetail(agentId, topicId),
-                topicFiles(agentId, topicId),
-                topicJobs(agentId, topicId),
+                topicHistory(agentId, topicId, { limit: PAGE, channel }),
+                topicDetail(agentId, topicId, channel),
+                topicFiles(agentId, topicId, 0, 100, channel),
+                topicJobs(agentId, topicId, channel),
             ])
             if (history.status === 'fulfilled') {
                 const entries = history.value ?? []
@@ -157,19 +168,20 @@ export const useTurns = create<TurnStore>()((set, get) => {
                 onOpen: (reopened) => {
                     if (!reopened) return
                     void refreshHistory(agentId, topicId)
-                    topicDetail(agentId, topicId)
+                    topicDetail(agentId, topicId, channelOf(agentId, topicId))
                         .then((d) => update(key, (s) => reduce(s, { type: 'busy', thinking: !!d?.is_thinking })))
                         .catch(() => {})
-                    topicJobs(agentId, topicId)
+                    topicJobs(agentId, topicId, channelOf(agentId, topicId))
                         .then((jobs) => update(key, (s) => reduce(s, { type: 'jobs', jobs: jobs ?? [] })))
                         .catch(() => {})
                 },
-            })
+            }, channelOf(agentId, topicId))
         },
 
         close: (agentId, topicId) => {
             useConnection.getState().close(agentId, topicId)
             const key = topicKey(agentId, topicId)
+            channels.delete(key)
             set((cur) => {
                 const { [key]: _t, ...topics } = cur.topics
                 const { [key]: _m, ...meta } = cur.meta
@@ -238,6 +250,7 @@ export const useTurns = create<TurnStore>()((set, get) => {
                         before: oldest.timestamp,
                         before_seq: oldest.seq,
                         limit: PAGE,
+                        channel: channelOf(agentId, topicId),
                     })) ?? []
                 update(key, (s) => reduce(s, { type: 'history', entries: older, position: 'older' }))
                 setMeta(key, { exhausted: older.length < PAGE, loadingOlder: false })

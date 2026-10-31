@@ -51,6 +51,27 @@ export function canManageArtifacts(agent: { owner_id?: string }): boolean {
     )
 }
 
+/** Whether the current person may see and use `agent`'s projects. Mirrors
+ * `crates/vizier-core/src/projects/access.rs`: view + one project permission. The server is
+ * still the authority for a direct URL. */
+export function canUseProjects(agent: { owner_id?: string }): boolean {
+    const { user, can } = useSession.getState()
+    if (!user) return false
+    // A listed agent is one the person can already view; the project permission decides the rest.
+    return (
+        can('all_agents:projects') ||
+        (can('owned_agents:projects') && agent.owner_id === user.user_id)
+    )
+}
+
+/** Whether the current person may rename, remove or toggle `project`: its owner or the
+ * whole-workspace permission. */
+export function canManageProject(project: { owner_id: string }): boolean {
+    const { user, can } = useSession.getState()
+    if (!user) return false
+    return project.owner_id === user.user_id || can('all_agents:projects')
+}
+
 export function canViewUsage(): boolean {
     return useSession.getState().user != null
 }
