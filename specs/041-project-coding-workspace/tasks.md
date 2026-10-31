@@ -118,8 +118,8 @@ description: "Task list for 041 Project Coding Workspace"
 
 ### Design and WebUI
 
-- [ ] T043 [US2] Draw in FigCraft (`Vizier.figcraft`, page `- App`, project chat, both themes): the Composer mode toggle with its hint, the "applies to the next message" state, and the plan card with **Build this plan** / **Keep planning**
-- [ ] T044 [P] [US2] Build `ModeToggle` (segmented control) and `PlanCard` with stories in `design/src/` per the drawing
+- [ ] T043 [US2] Draw in FigCraft (`Vizier.figcraft`, page `- App`, project chat, both themes): the Composer mode toggle with its hint, the "applies to the next message" state, and the plan card with its single action **Build this plan**
+- [X] T044 [P] [US2] Build `ModeToggle` (segmented control) and `PlanCard` with stories in `design/src/` per the drawing
 - [X] T045 [US2] Add `setMode` to `webui/app/api/endpoints/projects.ts`, mode in the project chat store `webui/app/stores/projects.ts` (optimistic, reverted on error), and regenerate `webui/app/api/schema.d.ts` (`scripts/openapi.mjs`)
 - [X] T046 [US2] Put the toggle in `webui/app/screens/chat/Composer.tsx` for project chats only
 - [X] T047 [US2] Render `propose_plan` from the `execute_python` report in `webui/app/screens/chat/client/PlanCard.tsx`, registered where report invocations are drawn; **Build this plan** sets Build then sends "Build the plan."; buttons hide once a later message exists; vitest for the hide rule and the action order
@@ -148,7 +148,7 @@ description: "Task list for 041 Project Coding Workspace"
 ### Design and WebUI
 
 - [ ] T056 [US3] Draw in FigCraft: the New worktree dialog, the delete confirmation (clean and dirty forms, **Also delete branch**), the sidebar grouping with branch, change dot and unavailable state, and the project removal note
-- [ ] T057 [P] [US3] Build the dialog and confirmation pieces in `design/src/` with stories (reuse `Dialog`, form fields, checkbox)
+- [X] T057 [P] [US3] Build the dialog and confirmation pieces in `design/src/` with stories (reuse `Dialog`, form fields, checkbox)
 - [X] T058 [US3] Add worktree endpoints to `webui/app/api/endpoints/projects.ts` and worktree state to `webui/app/stores/projects.ts`; regenerate `schema.d.ts`
 - [X] T059 [US3] Implement `webui/app/screens/projects/WorktreeDialog.tsx` (navigate to the new chat on success, progress while creating) and the **New worktree** action on `webui/app/screens/projects/ProjectRow.tsx`
 - [X] T060 [US3] Implement `webui/app/screens/projects/DeleteWorktreeDialog.tsx` (fetch detail for counts, re-show destructive form on `worktree_dirty`) and route worktree chats' **Delete** to it
@@ -204,7 +204,7 @@ description: "Task list for 041 Project Coding Workspace"
 ### Design and WebUI
 
 - [ ] T080 [US5] Draw in FigCraft: the mention menu under the composer and the mention chip in the input and in sent messages
-- [ ] T081 [P] [US5] Build `MentionMenu` with stories in `design/src/`
+- [X] T081 [P] [US5] Build `MentionMenu` with stories in `design/src/`
 - [X] T082 [US5] Add `@` handling to `webui/app/screens/chat/Composer.tsx` (debounced 120 ms query, stale responses dropped, keyboard navigation, chip insertion, `mentions` on send through the socket store) and chips from `metadata.mentions` in `webui/app/screens/chat/MessageList.tsx`; vitest for the mention parsing and stale-response rule in `webui/app/lib/`
 - [ ] T083 [US5] Run [quickstart.md](./quickstart.md) §6; record the outcome
 
@@ -317,3 +317,39 @@ Left open, with the reason:
 - **T093 (live provider)** — no live provider credentials here.
 - The conformance vectors were added and the suite passes; a fresh `CONFORMANCE_RECORD=1`
   baseline was not written because the recorded baselines are build artifacts, not committed.
+
+## Design review and refinement (2026-10-31)
+
+Run against an isolated instance (throwaway workspace, dummyplug agent, a real git repository,
+a project row inserted directly because project creation is desktop-only), through the WebUI in
+a browser at desktop and phone widths. Bugs found and fixed:
+
+- **The app went blank on a fresh load once a project existed**: `ProjectsSection` and the chat
+  route selected `byAgent[agent] ?? []`, a new array on every call, which React treats as an
+  unstable snapshot (infinite render loop). One shared `NO_PROJECTS` constant, with a test.
+- **`@` suggestions never appeared**: `Composer` passed `(projectId, agentId)` to
+  `suggestProjectFiles(agentId, projectId, …)`; the 404 was swallowed.
+- **Enter sent the half-typed `@ma`** because the library composer owned Enter: the `@` menu now
+  lives in the library (`MentionMenu`, `Composer.suggest`) with ↑ ↓ Tab Enter Esc.
+- **Deleting a worktree chat from its header** showed the generic dialog (nothing about the
+  folder or the work that would be lost): it now opens the worktree dialog, like the sidebar.
+- A sent message's `@path` was rendered as Markdown (underscores became italics): mentions are
+  drawn as inline code from `metadata.mentions`.
+
+Design refinements: branch chip and sidebar use real git icons (they used a clock); the branch
+menu is anchored with `Floating`, filterable, and creates a branch inline instead of
+`window.prompt`; the plan card is a library component with one action and a loading state (**Keep
+planning** removed: typing a message rejects a plan); Changes is the first section of the details
+panel with the same header as its siblings, a selected row and an empty state; the worktree dialog
+shows the path, validates the name, submits on Enter and shows progress; the delete dialog waits
+for the facts, words the loss, warns about an unmerged branch and re-asks if the folder changed;
+the Build hint says when commands are off; a worktree chat's title falls back to the project
+list's; on a phone the branch switcher lives in the Changes section.
+
+Observed and left alone (shipped in 040): the host-execution notice appears twice in a browser
+session (above the messages and above the composer).
+
+Still open: T043/T056/T068/T080 (FigCraft drawings), T069's `BranchMenu` as a library component
+(it is composed from `Menu` in the WebUI for now), the story tests of `design/` (they need a
+Playwright browser that is not installed here; `tsc` passes), T003/T094 (GitHub issue edits),
+T093 (live provider), T088 (upgrade rehearsal on a real 040 workspace).
