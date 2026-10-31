@@ -4,7 +4,7 @@ default-members = ["crates/vizier"]
 resolver = "3"
 
 [workspace.package]
-version = "0.14.0-rc.1"
+version = "0.14.0-rc.2"
 edition = "2024"
 authors = ["Ganesha Danu <hi@blinfoldking.dev>"]
 license = "MIT"
@@ -123,9 +123,9 @@ tracing-opentelemetry = { version = "0.34" }
 opentelemetry-otlp = { version = "0.33", default-features = false, features = ["trace", "metrics", "http-proto", "reqwest-blocking-client"] }
 libc = "0.2"
 # The workspace's own crates. One version for all four, bumped in this file only.
-vizier-derive = { path = "crates/vizier-derive", version = "0.14.0-rc.1" }
-vizier-core = { path = "crates/vizier-core", version = "0.14.0-rc.1" }
-vizier-http = { path = "crates/vizier-http", version = "0.14.0-rc.1" }
+vizier-derive = { path = "crates/vizier-derive", version = "0.14.0-rc.2" }
+vizier-core = { path = "crates/vizier-core", version = "0.14.0-rc.2" }
+vizier-http = { path = "crates/vizier-http", version = "0.14.0-rc.2" }
 
 # Dependencies are compiled optimised even in dev builds. Local speech (candle for Kokoro,
 # whisper.cpp) is unusably slow at opt-level 0; vizier's own crates stay unoptimised so

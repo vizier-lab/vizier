@@ -2,6 +2,65 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.14.0-rc.2] - 2026-10-31
+
+### 🚀 Features
+
+- Add the desktop app edition (#133)
+- Implementation progress
+- Implementation progress
+- Addons as apps, per-dimension memory index and narrow-window layout
+- Add projects mode foundation
+- Add a topic rename endpoint and bump design and webui
+- Projects mode (#139)
+- Implementation progress
+- Add project coding workspace to the webui (spec 041)
+- Refine the project coding workspace UI (spec 041)
+- Add project skills to project chats (spec 041)
+- Project coding workspace enhancement (#140)
+- Floating diff dialog for project changes
+
+### 🐛 Bug Fixes
+
+- Start the WebUI dev server from just app-dev
+- Correct provider connection listings (#135)
+- Answer /btw outside the session queue
+- Delete a session's messages when the session is deleted
+
+### 📚 Documentation
+
+- Add specification
+- Add implementation plan
+- Add implementation plan
+- Add tasks
+- Add specification
+- Scope projects to one agent
+- Add implementation plan
+- Add tasks
+- Add specification
+- Include project chats in the dream cycle in spec 041
+- Add implementation plan
+- Let subagent pieces inherit a project chat's coding tools in spec 041
+- Add tasks
+- Tell the agent its project mode per message, not in the system prompt (spec 041)
+- Record the spec 041 implementation status
+
+### ⚡ Performance
+
+- Keep focused tests incremental
+
+### ⚙️ Miscellaneous Tasks
+
+- Bump webui to the commit that landed on master (#134)
+- Bump design for the memory graph's free layout
+- Bump design and webui for the settings refinement
+- Add desktop app icons and refresh Tauri config
+- Bump webui to the merged asset scheme fix
+- Remove the submodule PR cascade workflow
+- Bump webui
+- Bump webui
+- Bump design and webui to their merged master
+- Bump design and webui pins for the plan/build switch
 ## [0.14.0-rc.1] - 2026-10-30
 
 ### 🚀 Features
@@ -94,6 +153,7 @@ All notable changes to this project will be documented in this file.
 - Add just push, commit, branch-rm and worktree recipes; checkout creates missing branches
 - Align CLAUDE.md, webui pin and Spec Kit pointer with the merged branch
 - Bump webui and dummyplug pins
+- Bump version to 0.14.0-rc.1
 ## [0.13.5] - 2026-10-29
 
 ### 🚀 Features
