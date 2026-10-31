@@ -25,7 +25,7 @@ export default function SettingsRoles() {
 
     return (
         <SettingsFrame
-            width="full"
+            width="wide"
             title="Roles"
             description="Permissions are granted to roles, never to individual people. Built-in roles can’t be edited."
             actions={

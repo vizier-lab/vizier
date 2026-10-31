@@ -1,6 +1,7 @@
 import { Button, Card, ProfileHeader, Skeleton, TextField } from '@vizier/design'
 import { useEffect, useState } from 'react'
 import { myProfile, saveMyProfile, type Profile } from '../api/endpoints/auth'
+import { PasswordCard } from '../screens/settings/PasswordCard'
 import { SettingsFrame } from '../screens/shared/SettingsFrame'
 import { useSession } from '../stores/session'
 import { toast } from '../stores/toasts'
@@ -59,7 +60,7 @@ export default function SettingsProfile() {
     }
 
     return (
-        <SettingsFrame title="Profile" description="How agents recognise you on Discord and Telegram, and how you sign in.">
+        <SettingsFrame title="Profile" description="How agents recognise you on Discord and Telegram, and the password you sign in with.">
             <ProfileHeader name={user?.username ?? ''} role={user?.role_name} />
             <Card title="Who you are on other channels" description="Agents use these to recognise you on Discord and Telegram, and to address you properly.">
                 {problem ? (
@@ -83,6 +84,7 @@ export default function SettingsProfile() {
                     </div>
                 )}
             </Card>
+            <PasswordCard />
         </SettingsFrame>
     )
 }

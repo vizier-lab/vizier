@@ -40,7 +40,7 @@ export default [
             layout('layouts/SettingsLayout.tsx', [
                 route('settings', 'routes/redirect-settings.tsx'),
                 route('settings/profile', 'routes/settings-profile.tsx'),
-                route('settings/password', 'routes/settings-password.tsx'),
+                route('settings/password', 'routes/redirect-password.tsx'),
                 route('settings/desktop', 'routes/settings-desktop.tsx'),
                 route('settings/api-keys', 'routes/settings-api-keys.tsx'),
                 route('settings/providers', 'routes/settings-providers.tsx'),

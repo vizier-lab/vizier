@@ -28,6 +28,7 @@ export default function SettingsApiKeys() {
 
     return (
         <SettingsFrame
+            width="wide"
             title="API keys"
             description="Keys let scripts and other programs talk to Vizier as you. A key is shown once, when it is made."
             actions={

@@ -76,6 +76,7 @@ export default function SettingsRole() {
 
     return (
         <PageFrame
+            width="wide"
             back={back}
             title={role?.name ?? 'Role'}
             meta={role ? `${builtIn ? 'built-in' : 'custom'} · held by ${role.people} ${role.people === 1 ? 'person' : 'people'} · ${permissionCount(shown, available.length)} granted` : undefined}

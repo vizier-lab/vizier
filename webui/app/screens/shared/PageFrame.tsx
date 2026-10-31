@@ -9,7 +9,8 @@ type Props = Omit<PageHeaderProps, 'children'> & {
     children?: ReactNode
     /**
      * `full` (the default) uses the whole width, as Chat does; `narrow` holds a form to a readable
-     * measure, still starting on the same left edge. (`wide` and `workspace` are `full`.)
+     * measure and `wide` a table or list to a comfortable one, both centred under the header.
+     * (`workspace` is `full`.)
      */
     width?: 'narrow' | 'wide' | 'workspace' | 'full'
     /** The body is panes that fill the page and scroll themselves (Chat, Memory, Core): no gutter, no page scroll. */
@@ -57,7 +58,7 @@ export function PageFrame({ children, width = 'full', fill, back, description, a
                 <div className="flex min-h-0 flex-1 flex-col">{children}</div>
             ) : (
                 <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-                    <div className={`flex w-full flex-col gap-24 px-16 py-20 sm:px-24 sm:py-24 ${width === 'narrow' ? 'max-w-3xl' : ''}`}>
+                    <div className={`mx-auto flex w-full flex-col gap-24 px-16 py-20 sm:px-24 sm:py-24 ${width === 'narrow' ? 'max-w-3xl' : width === 'wide' ? 'max-w-5xl' : ''}`}>
                         {description && <p className="type-ui-para text-muted">{description}</p>}
                         {children}
                     </div>

@@ -58,6 +58,7 @@ export default function SettingsUsers() {
 
     return (
         <SettingsFrame
+            width="wide"
             title="Users"
             description="Everyone who can sign in to this Vizier. Their role decides what they can do."
             actions={

@@ -136,6 +136,7 @@ export default function SettingsProviders() {
 
     return (
         <PageFrame
+            width="wide"
             title="Providers"
             meta={`${rows.length} connected · catalogue from models.dev${status ? `, refreshed ${relativeTime(status.checked_at ?? status.fetched_at)}` : ''}`}
             description="Keys are stored in Vizier; environment variables still work."
