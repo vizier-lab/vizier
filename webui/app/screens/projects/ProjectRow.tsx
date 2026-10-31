@@ -1,9 +1,10 @@
 import { Icon, IconButton, Notice } from '@vizier/design'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router'
 import { renameTopic } from '../../api/endpoints/chat'
 import {
     createProjectSession,
+    getGitSummary,
     projectChannel,
     type Project,
     type ProjectSessionRow,
@@ -12,6 +13,8 @@ import { useProjects } from '../../stores/projects'
 import { toast } from '../../stores/toasts'
 import { DeleteConversation, type DeleteTarget } from '../chat/DeleteConversation'
 import { RemoveProjectDialog } from './RemoveProjectDialog'
+import { WorktreeDialog } from './WorktreeDialog'
+import { DeleteWorktreeDialog } from './DeleteWorktreeDialog'
 
 /** The last component of a folder path, for the sidebar's one-line folder hint. */
 export function folderName(folder: string) {
@@ -55,6 +58,19 @@ export function ProjectRow({ agentId, project, sessions, expanded, onToggle }: P
     const [renamingTopic, setRenamingTopic] = useState<string | null>(null)
     const [draft, setDraft] = useState('')
     const [deleting, setDeleting] = useState<DeleteTarget | null>(null)
+    const [creatingWorktree, setCreatingWorktree] = useState(false)
+    // A worktree needs a git repository: ask once when the project is opened in the sidebar.
+    const [isRepo, setIsRepo] = useState(false)
+    useEffect(() => {
+        if (!expanded || !project.available) return
+        let alive = true
+        getGitSummary(agentId, project.id)
+            .then((summary) => alive && setIsRepo(!!summary?.available))
+            .catch(() => alive && setIsRepo(false))
+        return () => {
+            alive = false
+        }
+    }, [expanded, agentId, project.id, project.available])
 
     const shown = query.trim()
         ? sessions.filter((s) =>
@@ -141,6 +157,17 @@ export function ProjectRow({ agentId, project, sessions, expanded, onToggle }: P
                         onClick={() => (searchOpen ? closeSearch() : setSearching(true))}
                     />
                 )}
+                {isRepo && (
+                    <IconButton
+                        size="sm"
+                        variant="ghost"
+                        icon="git-fork"
+                        aria-label={`New worktree in ${folder}`}
+                        title="New worktree"
+                        disabled={busy}
+                        onClick={() => setCreatingWorktree(true)}
+                    />
+                )}
                 <IconButton
                     size="sm"
                     variant="ghost"
@@ -217,7 +244,33 @@ export function ProjectRow({ agentId, project, sessions, expanded, onToggle }: P
                                                     className="size-6 shrink-0 rounded-pill bg-live"
                                                 />
                                             )}
+                                            {session.worktree && (
+                                                <span
+                                                    className="shrink-0"
+                                                    title={
+                                                        session.worktree.available
+                                                            ? `Worktree on ${session.worktree.branch}`
+                                                            : 'Worktree folder unavailable'
+                                                    }
+                                                >
+                                                    <Icon
+                                                        name="git-fork"
+                                                        size={12}
+                                                        tone={session.worktree.available ? 'faint' : 'failed'}
+                                                        aria-label={
+                                                            session.worktree.available
+                                                                ? 'Worktree'
+                                                                : 'Worktree unavailable'
+                                                        }
+                                                    />
+                                                </span>
+                                            )}
                                             <span className="truncate type-small text-muted">{title}</span>
+                                            {session.worktree && session.worktree.branch !== title && (
+                                                <span className="shrink-0 truncate type-mono-xs text-faint">
+                                                    {session.worktree.branch}
+                                                </span>
+                                            )}
                                         </button>
                                         <span className="absolute inset-y-0 right-2 flex items-center bg-raised opacity-0 transition-opacity group-hover/row:opacity-100 group-focus-within/row:opacity-100">
                                             <IconButton
@@ -253,17 +306,42 @@ export function ProjectRow({ agentId, project, sessions, expanded, onToggle }: P
                 project={removing ? { id: project.id, name: folder } : null}
                 onClose={() => setRemoving(false)}
             />
-            <DeleteConversation
+            <WorktreeDialog
                 agentId={agentId}
-                channel={projectChannel(project.id)}
-                target={deleting}
-                onClose={() => setDeleting(null)}
-                onDeleted={(topic) => {
-                    void loadSessions(agentId, project.id)
-                    void refresh(agentId)
-                    if (activeTopic === topic) navigate(`/${agentId}/chat`)
-                }}
+                projectId={project.id}
+                open={creatingWorktree}
+                onClose={() => setCreatingWorktree(false)}
             />
+            {deleting && sessions.find((s) => s.topic === deleting.topic)?.worktree ? (
+                <DeleteWorktreeDialog
+                    agentId={agentId}
+                    projectId={project.id}
+                    worktree={{
+                        id: sessions.find((s) => s.topic === deleting.topic)!.worktree!.id,
+                        name: sessions.find((s) => s.topic === deleting.topic)!.worktree!.name,
+                        topic: deleting.topic,
+                    }}
+                    onClose={() => setDeleting(null)}
+                    onDeleted={(topic) => {
+                        setDeleting(null)
+                        void loadSessions(agentId, project.id)
+                        void refresh(agentId)
+                        if (activeTopic === topic) navigate(`/${agentId}/chat`)
+                    }}
+                />
+            ) : (
+                <DeleteConversation
+                    agentId={agentId}
+                    channel={projectChannel(project.id)}
+                    target={deleting}
+                    onClose={() => setDeleting(null)}
+                    onDeleted={(topic) => {
+                        void loadSessions(agentId, project.id)
+                        void refresh(agentId)
+                        if (activeTopic === topic) navigate(`/${agentId}/chat`)
+                    }}
+                />
+            )}
         </div>
     )
 }

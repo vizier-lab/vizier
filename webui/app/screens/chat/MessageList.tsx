@@ -36,6 +36,9 @@ import { Markdown } from '../shared/Markdown'
 import { ReplyMedia } from './ReplyMedia'
 import { Reactions } from './Reactions'
 import { Trail } from './Trail'
+import { mentionsAsCode } from '../../lib/mentions'
+import { planActionsVisible, planOf } from '../../lib/plans'
+import { PlanCard } from './client/PlanCard'
 
 type Props = {
     state: TopicState
@@ -56,6 +59,10 @@ type Props = {
     error?: ReactNode
     /** Client tool calls a turn made, drawn inside its reply (T056). */
     clientCalls?: (turn: Turn, running: boolean) => ReactNode
+    /** A plan card's Build this plan action (spec 041 US2). */
+    onBuildPlan?: (plan: { title: string; steps: string[] }) => void
+    /** Build was pressed and the chat is switching mode. */
+    buildingPlan?: boolean
     /** How many passages the turn recalled, for its trail summary. */
     recalledFor?: (turn: Turn) => number
     /** A Discord or Telegram conversation: people's messages carry their own names, not "You". */
@@ -68,7 +75,7 @@ function stopTime(entry: ChatMessage | undefined) {
     return entry?.timestamp ? time(entry.timestamp) : ''
 }
 
-export function MessageList({ state, agent, greeting, hasOlder, bottomInset = 0, insetRight = 0, loadingOlder, onLoadOlder, onReact, error, clientCalls, recalledFor, byPlatformName, emptyAction }: Props) {
+export function MessageList({ state, agent, greeting, hasOlder, bottomInset = 0, insetRight = 0, loadingOlder, onLoadOlder, onReact, error, clientCalls, recalledFor, byPlatformName, emptyAction, onBuildPlan, buildingPlan }: Props) {
     const { entries } = state
     const turns = useMemo(() => groupHistory(entries), [entries])
     const prices = usePrices()
@@ -109,6 +116,19 @@ export function MessageList({ state, agent, greeting, hasOlder, bottomInset = 0,
         const price = stats?.provider && stats.model ? prices.prices[`${stats.provider}/${stats.model}`] : undefined
         return (
             <div key={`reply-${turn.key}`} className="flex flex-col gap-8">
+                {(() => {
+                    const plan = planOf(turn)
+                    if (!plan) return null
+                    const newest = turns[turns.length - 1]?.key ?? null
+                    return (
+                        <PlanCard
+                            plan={plan}
+                            actionable={planActionsVisible(turn.key, newest)}
+                            building={buildingPlan}
+                            onBuild={() => onBuildPlan?.(plan)}
+                        />
+                    )
+                })()}
                 {(text != null || attachments.length > 0) && (
                     <AgentReply
                         stats={stats ? statsLine(stats, price) : undefined}
@@ -192,6 +212,7 @@ export function MessageList({ state, agent, greeting, hasOlder, bottomInset = 0,
                 continue
             }
             const skill = (c.Request.metadata as { invoked_skill?: string } | undefined)?.invoked_skill
+            const mentioned = (c.Request.metadata as { mentions?: string[] } | undefined)?.mentions
             const attachments = requestAttachments(content, c.Request.attachments)
             const spoken = isAudioRequest(content)
             const text = requestText(content)
@@ -203,7 +224,7 @@ export function MessageList({ state, agent, greeting, hasOlder, bottomInset = 0,
                     attachments={attachments.length ? <ReplyMedia attachments={attachments} transcript={spoken ? text : undefined} /> : undefined}
                 >
                     {/* A voice message's transcript sits behind "Show transcript" in its player. */}
-                    {!spoken && text !== '' && <Markdown size="document">{text}</Markdown>}
+                    {!spoken && text !== '' && <Markdown size="document">{mentionsAsCode(text, mentioned)}</Markdown>}
                 </UserMessage>,
                 e.uid
             )
@@ -257,8 +278,8 @@ export function MessageList({ state, agent, greeting, hasOlder, bottomInset = 0,
         <div className="relative flex min-h-0 flex-1 flex-col">
             <div
                 ref={scroller}
-                className="flex min-h-0 flex-1 flex-col overflow-y-auto px-24 pt-24 transition-[padding] duration-[var(--vz-duration-slow)]"
-                style={{ paddingBottom: bottomInset + 16, paddingRight: 24 + insetRight }}
+                className="flex min-h-0 flex-1 flex-col overflow-y-auto px-24 pt-24"
+                style={{ paddingRight: 24 + insetRight }}
                 onScroll={(e) => {
                     const el = e.currentTarget
                     setPinned(el.scrollHeight - el.scrollTop - el.clientHeight < 48)
@@ -275,6 +296,9 @@ export function MessageList({ state, agent, greeting, hasOlder, bottomInset = 0,
                         items
                     )}
                 </div>
+                {/* Room for the composer floating over the list. A spacer, not padding-bottom: WebKit
+                    leaves a flex scroll container's end padding out of what can be scrolled to. */}
+                <div aria-hidden className="shrink-0 transition-[height] duration-[var(--vz-duration-slow)]" style={{ height: bottomInset + 16 }} />
             </div>
             <Presence>
                 {!pinned && (

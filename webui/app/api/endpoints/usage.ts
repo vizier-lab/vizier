@@ -1,6 +1,6 @@
 import { api } from '../client'
 
-export type Activity = 'chat' | 'background' | 'scheduled' | 'dreams' | 'compaction' | 'vision' | 'other'
+export type Activity = 'chat' | 'project' | 'background' | 'scheduled' | 'dreams' | 'compaction' | 'vision' | 'other'
 
 export interface Breakdown {
     key: string

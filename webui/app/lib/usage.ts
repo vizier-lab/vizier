@@ -4,6 +4,7 @@ export type Range = '7' | '30' | 'custom'
 
 export const ACTIVITY_LABEL: Record<Activity, string> = {
     chat: 'Chat',
+    project: 'Projects',
     background: 'Background',
     scheduled: 'Scheduled',
     dreams: 'Dreams',

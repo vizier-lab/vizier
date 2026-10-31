@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { transport } from '../../api/transport'
 import { canUseProjects } from '../../lib/access'
 import { useAgents } from '../../stores/agents'
-import { projectKey, useProjects } from '../../stores/projects'
+import { NO_PROJECTS, projectKey, useProjects } from '../../stores/projects'
 import { OpenProjectDialog } from './OpenProjectDialog'
 import { ProjectRow } from './ProjectRow'
 
@@ -21,7 +21,7 @@ export function projectsSectionVisible(
  */
 export function ProjectsSection({ agentId }: { agentId: string }) {
     const agent = useAgents((s) => s.agents.find((a) => a.agent_id === agentId))
-    const projects = useProjects((s) => s.byAgent[agentId] ?? [])
+    const projects = useProjects((s) => s.byAgent[agentId] ?? NO_PROJECTS)
     const sessions = useProjects((s) => s.sessions)
     const refresh = useProjects((s) => s.refresh)
     const loadSessions = useProjects((s) => s.loadSessions)

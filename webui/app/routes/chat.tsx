@@ -1,4 +1,5 @@
 import { DeleteConversation, type DeleteTarget } from '../screens/chat/DeleteConversation'
+import { DeleteWorktreeDialog } from '../screens/projects/DeleteWorktreeDialog'
 import { FadeRule, SIDE_PANEL_WIDTH, SideCard } from '../screens/shared/SideCard'
 import { IconButton, JobsPill, Notice, Presence, SlideOver, motionDurations, motionEases } from '@vizier/design'
 import { nanoid } from 'nanoid'
@@ -14,6 +15,8 @@ import { emptyTopic } from '../lib/frames'
 import { greeting } from '../lib/greetings'
 import { requestText } from '../lib/messages'
 import { ConversationHeader } from '../screens/chat/ConversationHeader'
+import { BranchChip } from '../screens/chat/BranchChip'
+import { ChangesPanel } from '../screens/chat/ChangesPanel'
 import { AgentStateBanner } from '../screens/chat/AgentStateBanner'
 import { BackgroundJobsPanel } from '../screens/chat/BackgroundJobsPanel'
 import { renderClientCalls } from '../screens/chat/ClientCalls'
@@ -31,7 +34,7 @@ import { useMobile } from '../lib/useMobile'
 import { useAgents } from '../stores/agents'
 import { topicKey, useConnection } from '../stores/connection'
 import { useSession } from '../stores/session'
-import { useProjects } from '../stores/projects'
+import { NO_PROJECTS, projectKey, useProjects } from '../stores/projects'
 import { toast } from '../stores/toasts'
 import { canManageArtifacts, canUseProjects } from '../lib/access'
 import { useTurns } from '../stores/turns'
@@ -50,12 +53,45 @@ export default function Chat() {
     const project = useProjects((s) =>
         projectId ? (s.byAgent[agentId] ?? []).find((p) => p.id === projectId) : undefined
     )
-    const agentProjects = useProjects((s) => s.byAgent[agentId] ?? [])
+    const agentProjects = useProjects((s) => s.byAgent[agentId] ?? NO_PROJECTS)
     const refreshProjects = useProjects((s) => s.refresh)
     const insertSession = useProjects((s) => s.insertSession)
+    const loadProjectSessions = useProjects((s) => s.loadSessions)
+    const setProjectMode = useProjects((s) => s.setMode)
+    const [buildingPlan, setBuildingPlan] = useState(false)
+    // A project chat's title as the project list has it, for a chat the topics list hasn't seen yet.
+    const projectSessionTitle = useProjects((s) =>
+        projectId && topicId
+            ? (s.sessions[projectKey(agentId, projectId)] ?? []).find((x) => x.topic === topicId)?.title
+            : undefined
+    )
+    // The worktree this chat lives in, if any: deleting the chat then deletes the worktree too.
+    const chatWorktree = useProjects((s) =>
+        projectId && topicId
+            ? ((s.sessions[projectKey(agentId, projectId)] ?? []).find((x) => x.topic === topicId)
+                  ?.worktree ?? null)
+            : null
+    )
+    const gitAvailable = useProjects((s) =>
+        projectId && topicId
+            ? !!s.git[`${projectKey(agentId, projectId)}/${topicId}`]?.available
+            : false
+    )
+    const refreshGit = useProjects((s) => s.refreshGit)
+    const projectMode = useProjects((s) =>
+        projectId && topicId
+            ? (s.sessions[projectKey(agentId, projectId)] ?? []).find((x) => x.topic === topicId)?.mode
+            : undefined
+    )
     useEffect(() => {
         if (projectId && !project) void refreshProjects(agentId)
     }, [agentId, projectId, project, refreshProjects])
+    // The chat's saved mode and git header come from the project endpoints, per chat.
+    useEffect(() => {
+        if (!projectId) return
+        void loadProjectSessions(agentId, projectId)
+        if (topicId) void refreshGit(agentId, projectId, topicId)
+    }, [agentId, projectId, topicId, loadProjectSessions, refreshGit])
     const agents = useAgents((s) => s.agents)
     const health = useAgents((s) => s.health[agentId])
     const setup = useAgents((s) => s.setups[agentId])
@@ -149,6 +185,11 @@ export default function Chat() {
     const key = topicKey(agentId, topicId ?? '')
     const opening = useMemo(() => greeting(), [key])
     const state = useTurns((s) => s.topics[key]) ?? EMPTY
+    // A finished turn may have changed files, so the header's count is re-read with it.
+    useEffect(() => {
+        if (projectId && topicId && state.phase === 'idle') void refreshGit(agentId, projectId, topicId)
+    }, [projectId, topicId, state.phase, refreshGit])
+
     const meta = useTurns((s) => s.meta[key])
     const connection = useConnection((s) => s.state[key]) ?? 'connecting'
     const {
@@ -203,7 +244,10 @@ export default function Chat() {
     const modelName = health?.model?.model
     const failed = health?.state === 'failed'
     const topicIndex = topics.findIndex((t) => t.topic_id === topicId)
-    const title = conversationTitle(state.title || topics[topicIndex]?.title, topicId)
+    const title = conversationTitle(
+        state.title || topics[topicIndex]?.title || projectSessionTitle,
+        topicId
+    )
 
     // Deleting the conversation on screen: the server refuses while a turn runs in it.
     const [deleting, setDeleting] = useState<DeleteTarget | null>(null)
@@ -249,6 +293,22 @@ export default function Chat() {
     // The recalled memory, background jobs and session files: a side panel, or a sheet on a phone.
     const details = (
         <SideCard>
+            {projectId && topicId && gitAvailable && (
+                <>
+                    <ChangesPanel
+                        agentId={agentId}
+                        projectId={projectId}
+                        topicId={topicId}
+                        refreshKey={`${state.phase}:${state.entries.length}`}
+                        branchAction={
+                            mobile ? (
+                                <BranchChip agentId={agentId} projectId={projectId} topicId={topicId} />
+                            ) : undefined
+                        }
+                    />
+                    <FadeRule />
+                </>
+            )}
             <RecalledMemoryPanel agentId={agentId} recalled={recalled} />
             <FadeRule />
             <BackgroundJobsPanel
@@ -319,6 +379,13 @@ export default function Chat() {
                         .map((t) => t.topic_id)}
                     trailing={
                         <>
+                            {projectId && topicId && (
+                                <BranchChip
+                                    agentId={agentId}
+                                    projectId={projectId}
+                                    topicId={topicId}
+                                />
+                            )}
                             <JobsPill
                                 count={runningJobs}
                                 onClick={() => togglePanel(true)}
@@ -382,6 +449,20 @@ export default function Chat() {
                     onReact={(uid, emoji, action) =>
                         react(agentId, topicId ?? '', uid, emoji, action)
                     }
+                    buildingPlan={buildingPlan}
+                    onBuildPlan={() => {
+                        if (!projectId || !topicId) return
+                        setBuildingPlan(true)
+                        void setProjectMode(agentId, projectId, topicId, 'build')
+                            .then(() => send(agentId, topicId, 'Build the plan.'))
+                            .catch((error) =>
+                                toast.error(
+                                    "Couldn't switch to Build",
+                                    error instanceof Error ? error.message : undefined
+                                )
+                            )
+                            .finally(() => setBuildingPlan(false))
+                    }}
                     clientCalls={(turn: Turn, running) =>
                         renderClientCalls(turn, running, clientContext)
                     }
@@ -421,6 +502,26 @@ export default function Chat() {
                     <Composer
                         agentId={agentId}
                         agentName={agentName}
+                        project={
+                            projectId
+                                ? {
+                                      id: projectId,
+                                      mode: projectMode ?? 'plan',
+                                      shell: project?.shell_enabled,
+                                  }
+                                : undefined
+                        }
+                        topicId={topicId}
+                        onModeChange={(mode) => {
+                            if (!projectId || !topicId) return
+                            void setProjectMode(agentId, projectId, topicId, mode).catch(
+                                (error) =>
+                                    toast.error(
+                                        "Couldn't change the mode",
+                                        error instanceof Error ? error.message : undefined
+                                    )
+                            )
+                        }}
                         sttEnabled={voice?.stt ?? false}
                         ttsEnabled={voice?.tts ?? false}
                         busy={state.phase !== 'idle'}
@@ -436,13 +537,14 @@ export default function Chat() {
                                 ? { ...state.context, detail: modelName }
                                 : null
                         }
-                        onSend={(text, attachments, spoken) =>
+                        onSend={(text, attachments, spoken, mentions) =>
                             send(
                                 agentId,
                                 topicId ?? '',
                                 text,
                                 attachments,
-                                spoken
+                                spoken,
+                                mentions
                             )
                         }
                         onSendAudio={(attachment) =>
@@ -489,19 +591,38 @@ export default function Chat() {
                 question={sideChat.question}
             />
 
-            <DeleteConversation
-                agentId={agentId}
-                channel={channel}
-                target={deleting}
-                onClose={() => setDeleting(null)}
-                onDeleted={() =>
-                    navigate(
-                        projectId
-                            ? `/${agentId}/projects/${projectId}`
-                            : `/${agentId}/chat/${nanoid(10)}`
-                    )
-                }
-            />
+            {chatWorktree && projectId && topicId ? (
+                <DeleteWorktreeDialog
+                    agentId={agentId}
+                    projectId={projectId}
+                    worktree={
+                        deleting
+                            ? { id: chatWorktree.id, name: chatWorktree.name, topic: topicId }
+                            : null
+                    }
+                    onClose={() => setDeleting(null)}
+                    onDeleted={() => {
+                        setDeleting(null)
+                        void loadProjectSessions(agentId, projectId)
+                        void refreshProjects(agentId)
+                        navigate(`/${agentId}/projects/${projectId}`)
+                    }}
+                />
+            ) : (
+                <DeleteConversation
+                    agentId={agentId}
+                    channel={channel}
+                    target={deleting}
+                    onClose={() => setDeleting(null)}
+                    onDeleted={() =>
+                        navigate(
+                            projectId
+                                ? `/${agentId}/projects/${projectId}`
+                                : `/${agentId}/chat/${nanoid(10)}`
+                        )
+                    }
+                />
+            )}
             {mobile && (
                 <SlideOver
                     open={sheet}

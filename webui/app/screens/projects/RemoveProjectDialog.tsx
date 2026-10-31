@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { removeProject } from '../../api/endpoints/projects'
+import { getProject, removeProject } from '../../api/endpoints/projects'
 import { useProjects } from '../../stores/projects'
 import { ConfirmDialog } from '../shared/ConfirmDialog'
 
@@ -17,8 +17,15 @@ export function RemoveProjectDialog({ agentId, project, onClose }: Props) {
     const forget = useProjects((s) => s.forget)
     const [busy, setBusy] = useState(false)
     const [error, setError] = useState('')
+    const [worktrees, setWorktrees] = useState(0)
 
     useEffect(() => setError(''), [project])
+    useEffect(() => {
+        if (!project) return
+        getProject(agentId, project.id)
+            .then((detail) => setWorktrees(detail.worktree_count ?? 0))
+            .catch(() => setWorktrees(0))
+    }, [agentId, project])
 
     return (
         <ConfirmDialog
@@ -26,7 +33,11 @@ export function RemoveProjectDialog({ agentId, project, onClose }: Props) {
             title="Remove this project?"
             message={
                 project &&
-                `“${project.name}” and its sessions leave the sidebar. Every file in the folder stays, and its history is kept: opening the same folder again restores it.`
+                `“${project.name}” and its sessions leave the sidebar. Every file in the folder stays, and its history is kept: opening the same folder again restores it.${
+                    worktrees > 0
+                        ? ` Its ${worktrees} worktree folder${worktrees === 1 ? '' : 's'} also stay on disk.`
+                        : ''
+                }`
             }
             confirmLabel="Remove project"
             busy={busy}

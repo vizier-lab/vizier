@@ -4589,7 +4589,7 @@ export interface components {
          * @description What a model call was for. Decided once, when the call is recorded (research R4).
          * @enum {string}
          */
-        UsageActivity: "chat" | "background" | "scheduled" | "dreams" | "compaction" | "vision" | "other";
+        UsageActivity: "chat" | "project" | "background" | "scheduled" | "dreams" | "compaction" | "vision" | "other";
         UsageLink: {
             kind: components["schemas"]["UsageLinkKind"];
             path: string;
