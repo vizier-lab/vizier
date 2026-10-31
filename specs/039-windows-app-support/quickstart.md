@@ -5,7 +5,7 @@ Needs a Windows 11 x64 machine (a second clean one or a VM for the install/upgra
 ## 1. Developer setup (User Story 3)
 
 ```powershell
-just install-app     # reports anything missing; fix and re-run until it exits 0
+just install-app     # after installing the system prerequisites from the README
 just app-test        # cargo test in app/
 just app-dev         # window opens with hot reload
 just app-build       # installer at app\target\release\bundle\nsis\Vizier_<version>_x64-setup.exe
@@ -30,7 +30,8 @@ Constitution gate for agent-observable changes. In the app: Settings → create 
 |---|---|
 | `tools` | the tool list (includes the shell tool) |
 | the shell tool name | a sample request |
-| the sample request with the command `echo hello` | tool result contains `hello` — runs through `cmd /C` on Windows |
+| the sample request with the command `echo hello` | tool result contains `hello` — runs through PowerShell on Windows |
+| the same with `ls` | lists the working directory (PowerShell alias) |
 | `context` | the per-request context block |
 
 Also: send a message, close and reopen the app, confirm the conversation is still there; write a memory document and confirm the `.md` file appears under `workspace\agents\<id>\memory\`.
