@@ -22,13 +22,20 @@ export type SkillMenuProps = {
 export function SkillMenu({ items, query, active, onPick, id, className, ...rest }: SkillMenuProps) {
   return (
     <div className={cx("flex flex-col rounded-lg border border-border-strong bg-surface p-6 shadow-popover", className)} {...rest}>
-      <span className="px-8 pt-4 pb-4 type-label uppercase text-faint">Skills</span>
+      <span className="px-8 pt-4 pb-4 type-label uppercase text-faint">Commands and skills</span>
       {items.length === 0 ? (
         <p id={id} role="status" className="px-8 py-8 type-small text-muted">
           No skill matches “/{query}”. Enter sends it as a message.
         </p>
       ) : (
-        <div id={id} role="listbox" aria-label="Skills" className="flex flex-col">
+        // One grid for every row, so the descriptions share a column instead of each row
+        // starting where its own name ends. Capped and scrolling, as the mention menu is.
+        <div
+          id={id}
+          role="listbox"
+          aria-label="Commands and skills"
+          className="grid max-h-240 grid-cols-[max-content_minmax(0,1fr)] gap-x-10 overflow-y-auto"
+        >
           {items.map((s, i) => (
             <div
               key={s.name}
@@ -39,12 +46,16 @@ export function SkillMenu({ items, query, active, onPick, id, className, ...rest
                 e.preventDefault();
                 onPick(s);
               }}
-              className={cx("flex cursor-pointer items-center gap-10 rounded-sm px-8 py-6", i === active && "bg-raised")}
+              className={cx(
+                "col-span-2 grid cursor-pointer grid-cols-subgrid items-center rounded-sm px-8 py-6",
+                i === active && "bg-raised",
+              )}
             >
-              <span className="type-code-medium text-fg">
+              <span className="whitespace-nowrap type-code-medium text-fg">
                 /<HighlightMatch text={s.name} query={query} />
               </span>
-              <span className="min-w-0 truncate type-small text-muted">{s.description}</span>
+              {/* A phone shows the names alone: twenty characters of clipped prose is noise. */}
+              <span className="min-w-0 truncate type-small text-muted max-sm:hidden">{s.description}</span>
             </div>
           ))}
         </div>
