@@ -91,6 +91,34 @@ const MAX_ZOOM = 5;
 const LABEL_SIZE = 11.5;
 /** Below this many pixels on screen a label is unreadable, so it is left out. */
 const MIN_LABEL_PX = 7;
+/** Room kept clear around a fitted graph: the controls on top, the caption below. */
+const FIT_PAD = { top: 52, right: 24, bottom: 44, left: 24 };
+
+const starRadius = (n: GraphNode, max: number, nodeSize: number) => (3 + (n.weight / max) * 14) * nodeSize;
+
+/** The view that shows every star and its label, never zoomed in past 1. */
+function fitView(nodes: SimNode[], w: number, h: number, radius: (n: SimNode) => number): View {
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const n of nodes) {
+    if (n.x == null || n.y == null) continue;
+    const r = radius(n);
+    // A mono label is roughly 0.62em per character, drawn to the right of the star.
+    const label = r + 8 + n.label.length * LABEL_SIZE * 0.62;
+    minX = Math.min(minX, n.x - r);
+    maxX = Math.max(maxX, n.x + label);
+    minY = Math.min(minY, n.y - r - LABEL_SIZE);
+    maxY = Math.max(maxY, n.y + r + LABEL_SIZE);
+  }
+  if (minX === Infinity) return { x: 0, y: 0, k: 1 };
+  const aw = Math.max(1, w - FIT_PAD.left - FIT_PAD.right);
+  const ah = Math.max(1, h - FIT_PAD.top - FIT_PAD.bottom);
+  const k = Math.max(MIN_ZOOM, Math.min(1, aw / (maxX - minX), ah / (maxY - minY)));
+  return {
+    k,
+    x: FIT_PAD.left + (aw - (maxX - minX) * k) / 2 - minX * k,
+    y: FIT_PAD.top + (ah - (maxY - minY) * k) / 2 - minY * k,
+  };
+}
 
 /**
  * A memory neighbourhood (X73), live: a force layout you can drag stars around
@@ -104,6 +132,8 @@ export function MemoryGraph({ nodes, edges, selectedId, onSelect, onOpen, captio
   const simNodes = useRef<SimNode[]>([]);
   const drag = useRef<Drag | null>(null);
   const justDragged = useRef(false);
+  // Until the person pans, zooms or drags, the view follows the layout so every star stays in sight.
+  const touched = useRef(false);
   const [size, setSize] = useState({ w: 800, h: 600 });
   const [view, setView] = useState<View>({ x: 0, y: 0, k: 1 });
   const [, setTick] = useState(0);
@@ -125,7 +155,8 @@ export function MemoryGraph({ nodes, edges, selectedId, onSelect, onOpen, captio
   }, []);
 
   const max = Math.max(1, ...nodes.map((n) => n.weight));
-  const radius = (n: GraphNode) => (3 + (n.weight / max) * 14) * settings.nodeSize;
+  const radius = (n: GraphNode) => starRadius(n, max, settings.nodeSize);
+  const fit = () => setView(fitView(simNodes.current, size.w, size.h, (n) => starRadius(n, max, live.current.nodeSize)));
 
   // (Re)build the simulation when the graph changes, keeping known positions.
   useEffect(() => {
@@ -143,6 +174,11 @@ export function MemoryGraph({ nodes, edges, selectedId, onSelect, onOpen, captio
     const ids = new Set(next.map((n) => n.id));
     const links: SimLink[] = edges.filter((e) => ids.has(e.from) && ids.has(e.to)).map((e) => ({ source: e.from, target: e.to, dashed: e.dashed }));
     sim.current?.stop();
+    touched.current = false;
+    const heaviest = Math.max(1, ...nodes.map((n) => n.weight));
+    const follow = () => {
+      if (!touched.current) setView(fitView(next, w, h, (n) => starRadius(n, heaviest, live.current.nodeSize)));
+    };
     let frame = 0;
     const s = forceSimulation<SimNode, SimLink>(next)
       .force("link", forceLink<SimNode, SimLink>(links).id((d) => d.id).distance(live.current.linkDistance))
@@ -154,18 +190,17 @@ export function MemoryGraph({ nodes, edges, selectedId, onSelect, onOpen, captio
       .alphaDecay(0.02)
       .velocityDecay(0.3)
       .on("tick", () => {
-        // Keep every star, with its label to the right, inside the frame and clear of the caption.
-        for (const n of next) {
-          n.x = Math.max(24, Math.min(w - 130, n.x ?? w / 2));
-          n.y = Math.max(52, Math.min(h - 44, n.y ?? h / 2));
-        }
         cancelAnimationFrame(frame);
-        frame = requestAnimationFrame(() => setTick((t) => t + 1));
+        frame = requestAnimationFrame(() => {
+          follow();
+          setTick((t) => t + 1);
+        });
       });
     // Under reduced motion, settle at once instead of animating.
     if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
       s.stop();
       s.tick(300);
+      follow();
       setTick((t) => t + 1);
     }
     if (live.current.frozen) s.stop();
@@ -197,6 +232,7 @@ export function MemoryGraph({ nodes, edges, selectedId, onSelect, onOpen, captio
   };
 
   const zoomAt = (k: number, px: number, py: number) => {
+    touched.current = true;
     setView((v) => {
       const nk = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, k));
       const ratio = nk / v.k;
@@ -240,6 +276,7 @@ export function MemoryGraph({ nodes, edges, selectedId, onSelect, onOpen, captio
       const d = drag.current;
       if (!d) return;
       d.moved = true;
+      touched.current = true;
       if (d.kind === "pan") {
         setView({ ...d.from, x: d.from.x + ev.clientX - d.startX, y: d.from.y + ev.clientY - d.startY });
       } else {
@@ -292,7 +329,7 @@ export function MemoryGraph({ nodes, edges, selectedId, onSelect, onOpen, captio
       <IconButtonGroup aria-label="Zoom" className="absolute top-12 right-12 z-10">
         <IconButton variant="ghost" icon="zoom-in" aria-label="Zoom in" onClick={() => zoomAt(view.k * 1.3, size.w / 2, size.h / 2)} />
         <IconButton variant="ghost" icon="zoom-out" aria-label="Zoom out" onClick={() => zoomAt(view.k / 1.3, size.w / 2, size.h / 2)} />
-        <IconButton variant="ghost" icon="maximize" aria-label="Reset view" onClick={() => setView({ x: 0, y: 0, k: 1 })} />
+        <IconButton variant="ghost" icon="maximize" aria-label="Fit to view" onClick={fit} />
         <IconButton variant="ghost" icon="settings" aria-label="Graph settings" aria-expanded={panel} selected={panel} onClick={() => setPanel((p) => !p)} />
       </IconButtonGroup>
       {panel && (
