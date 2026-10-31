@@ -1,6 +1,7 @@
 import { Badge, Callout as Hint, CodeBlock, Notice } from '@vizier/design'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { remarkBreaks } from '../../remarkBreaks'
 import { Prose } from '@vizier/design'
 import type { ComponentRenderProps } from '@json-render/react'
 import { SafeLink } from './anchor'
@@ -27,7 +28,7 @@ export function MarkdownText({ children, renderLink }: { children: string; rende
     return (
         <Prose size="reply">
             <ReactMarkdown
-                remarkPlugins={[remarkGfm]}
+                remarkPlugins={[remarkGfm, remarkBreaks]}
                 allowedElements={ALLOWED}
                 unwrapDisallowed
                 components={{ a: ({ node: _n, href, children: label }) => (renderLink && href ? renderLink(href, label) : <span>{label}</span>) }}

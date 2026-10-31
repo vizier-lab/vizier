@@ -35,3 +35,54 @@ describe('markdown code fences', () => {
         expect(draw('call `read_file` first')).toContain('<code>read_file</code>')
     })
 })
+
+describe('markdown line breaks', () => {
+    // One rule everywhere: a newline is a line break, whether the text came from a chat or a document.
+    it('draws a single newline as a line break', () => {
+        expect(draw('one\ntwo')).toContain('<br/>')
+    })
+
+    it('draws a newline after inline markup', () => {
+        expect(draw('**one**\ntwo')).toContain('<br/>')
+    })
+
+    it('breaks a continued line inside a list item', () => {
+        expect(draw('- one\n  two')).toContain('<br/>')
+    })
+
+    it('draws a blank line as a paragraph, not as a break', () => {
+        const html = draw('one\n\ntwo')
+        expect(html).toContain('<p>one</p>')
+        expect(html).toContain('<p>two</p>')
+        expect(html).not.toContain('<br/>')
+    })
+
+    // The two ways to say "break here" must not stack into a double break.
+    it('draws an explicit hard break once', () => {
+        const brs = (markdown: string) => draw(markdown).match(/<br\/>/g)?.length ?? 0
+        expect(brs('one  \ntwo')).toBe(1)
+        expect(brs('one\\\ntwo')).toBe(1)
+    })
+
+    it('leaves a fenced block as source text', () => {
+        const html = draw('```yaml\nagent:\n  name: oz\n```')
+        expect(html).not.toContain('<br/>')
+        expect(html).toContain('name: oz')
+    })
+
+    it('leaves an indented block as source text', () => {
+        expect(draw('text:\n\n    one\n    two')).not.toContain('<br/>')
+    })
+
+    it('leaves a table row on one line', () => {
+        const html = draw('| a | b |\n| - | - |\n| 1 | 2 |')
+        expect(html).not.toContain('<br/>')
+        expect(html).toContain('<td>1</td>')
+    })
+
+    it('leaves a heading on one line', () => {
+        const html = draw('# one\ntwo')
+        expect(html).not.toContain('<br/>')
+        expect(html).toContain('<h1>one</h1>')
+    })
+})
