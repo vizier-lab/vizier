@@ -10563,7 +10563,7 @@ dependencies = [
 
 [[package]]
 name = "vizier-core"
-version = "0.13.5"
+version = "0.14.0-rc.1"
 dependencies = [
  "any-tts",
  "anyhow",
@@ -10641,7 +10641,7 @@ dependencies = [
 
 [[package]]
 name = "vizier-derive"
-version = "0.13.5"
+version = "0.14.0-rc.1"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -10650,7 +10650,7 @@ dependencies = [
 
 [[package]]
 name = "vizier-http"
-version = "0.13.5"
+version = "0.14.0-rc.1"
 dependencies = [
  "anyhow",
  "axum",
