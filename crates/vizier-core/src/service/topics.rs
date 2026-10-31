@@ -75,7 +75,7 @@ pub fn readable_channel(username: &str, channel_id: &str) -> (VizierChannelId, b
         return (VizierChannelId::Subagent, false);
     }
     (
-        VizierChannelId::HTTP(username.to_string(), channel_id.to_string()),
+        VizierChannelId::from_web(username, channel_id),
         false,
     )
 }
@@ -291,7 +291,7 @@ pub async fn list(
 ) -> Result<Vec<TopicEntry>, ServiceError> {
     authorize_view(s, who, agent_id).await?;
     let deps = s.deps();
-    let channel = VizierChannelId::HTTP(who.username.clone(), channel_id.to_string());
+    let channel = VizierChannelId::from_web(&who.username, channel_id);
 
     let response = deps
         .storage
@@ -365,7 +365,7 @@ pub async fn rename(
     let mut detail = match storage
         .get_session_detail_by_topic(
             agent_id.to_string(),
-            VizierChannelId::HTTP(who.username.clone(), channel_id.to_string()),
+            VizierChannelId::from_web(&who.username, channel_id),
             Some(topic_id),
         )
         .await
@@ -390,9 +390,23 @@ pub async fn delete(
     topic_id: TopicId,
 ) -> Result<String, ServiceError> {
     authorize_topic(s, who, agent_id, channel_id).await?;
+    // A worktree chat's delete is the worktree's: same checks, and the folder goes with it
+    // (`specs/041-project-coding-workspace` FR-030/R13).
+    if let Some(project_id) = crate::projects::channel::project_id(channel_id)
+        && let Some(worktree) = s
+            .deps()
+            .storage
+            .worktree_by_topic(project_id, &topic_id)
+            .await
+            .map_err(|e| ServiceError::Internal(e.to_string()))?
+    {
+        super::projects::delete_worktree(s, who, agent_id, project_id, &worktree.id, false, false)
+            .await?;
+        return Ok("Topic deleted".into());
+    }
     let session = VizierSession(
         agent_id.to_string(),
-        VizierChannelId::HTTP(who.username.clone(), channel_id.to_string()),
+        VizierChannelId::from_web(&who.username, channel_id),
         Some(topic_id),
     );
     let files = &s.deps().session_files;
@@ -400,7 +414,11 @@ pub async fn delete(
         return Err(conflict(TURN_ACTIVE));
     }
     match files.delete_conversation(&session).await {
-        Ok(_) => Ok("Topic deleted".into()),
+        Ok(_) => {
+            // The stale-read ledger is per conversation and dies with it.
+            s.deps().project_ledger.forget_session(&session.to_slug());
+            Ok("Topic deleted".into())
+        }
         Err(ClearError::TurnActive) => Err(conflict(TURN_ACTIVE)),
         Err(ClearError::AgentNotFound) => Err(ServiceError::NotFound("Topic not found".into())),
         Err(ClearError::Storage(e)) => Err(ServiceError::Internal(e)),

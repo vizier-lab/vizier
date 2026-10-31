@@ -33,6 +33,9 @@ impl VizierSession {
             VizierChannelId::HTTP(..) => {
                 format!("http:{}:{}", self.1.to_slug(), self.2.as_deref().unwrap_or(""))
             }
+            VizierChannelId::Project(..) => {
+                format!("project:{}:{}", self.1.to_slug(), self.2.as_deref().unwrap_or(""))
+            }
             VizierChannelId::Task(slug, _) => format!("task:{slug}"),
             VizierChannelId::Subagent | VizierChannelId::InterAgent(_) => "background".into(),
             VizierChannelId::Dream(..) => "dreams".into(),
@@ -56,6 +59,9 @@ pub enum VizierChannelId {
     DiscordChanel(u64),
     TelegramChannel(i64),
     HTTP(String, String),
+    /// A project chat (`specs/041-project-coding-workspace` R1): the person's username, then
+    /// the project id. The web wire form (`project__<id>`) is unchanged from 040.
+    Project(String, String),
     Task(String, DateTime<Utc>),
     InterAgent(Vec<String>),
     System,
@@ -64,6 +70,41 @@ pub enum VizierChannelId {
 }
 
 impl VizierChannelId {
+    /// The channel a web client means by `channel_id`, for the signed-in `username`
+    /// (`specs/041-project-coding-workspace` contracts/channel-and-migration.md §2). One
+    /// constructor, so no call site has to remember the project carve-out.
+    pub fn from_web(username: &str, channel_id: &str) -> Self {
+        match crate::projects::channel::project_id(channel_id) {
+            Some(project_id) => Self::Project(username.to_string(), project_id.to_string()),
+            None => Self::HTTP(username.to_string(), channel_id.to_string()),
+        }
+    }
+
+    /// The person whose WebUI or project chat this is.
+    pub fn web_user(&self) -> Option<&str> {
+        match self {
+            Self::HTTP(user, _) | Self::Project(user, _) => Some(user),
+            _ => None,
+        }
+    }
+
+    /// The wire `channel_id` of a web channel: `HTTP` → its id, `Project` → `project__<id>`.
+    pub fn web_channel_id(&self) -> Option<String> {
+        match self {
+            Self::HTTP(_, id) => Some(id.clone()),
+            Self::Project(_, id) => Some(crate::projects::channel::channel_id(id)),
+            _ => None,
+        }
+    }
+
+    /// The project id of a `Project` channel.
+    pub fn project_id(&self) -> Option<&str> {
+        match self {
+            Self::Project(_, id) => Some(id),
+            _ => None,
+        }
+    }
+
     /// The chat platform a conversation is happening on, if it is a Discord or Telegram one.
     pub fn platform(&self) -> Option<crate::schema::ChannelPlatform> {
         match self {
@@ -79,6 +120,7 @@ impl VizierChannelId {
         use crate::schema::usage::UsageActivity;
         match self {
             Self::DiscordChanel(_) | Self::TelegramChannel(_) | Self::HTTP(..) => UsageActivity::Chat,
+            Self::Project(..) => UsageActivity::Project,
             Self::Task(..) => UsageActivity::Scheduled,
             Self::Subagent | Self::InterAgent(_) => UsageActivity::Background,
             Self::Dream(..) => UsageActivity::Dreams,
@@ -91,6 +133,7 @@ impl VizierChannelId {
             Self::DiscordChanel(id) => format!("discord__{}", id),
             Self::TelegramChannel(id) => format!("telegram__{}", id),
             Self::HTTP(user, id) => format!("http__{}__{}", user, id),
+            Self::Project(user, id) => format!("project__{}__{}", user, id),
             Self::Task(id, datetime) => {
                 // The full timestamp, so each firing of a task gets its own
                 // conversation. This used to render `timestamp_subsec_nanos()` of

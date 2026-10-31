@@ -400,8 +400,11 @@ mod tests {
             description: description.into(),
             content: String::new(),
             keywords: vec![],
-            version: 1,
+            version: Default::default(),
             resources: vec![],
+            user_invocable: true,
+            disable_model_invocation: false,
+            argument_hint: None,
         }
     }
 

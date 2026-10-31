@@ -5,20 +5,16 @@ use crate::agents::tools::{ToolCategory, ToolContext, VizierTool};
 use crate::dependencies::VizierDependencies;
 use crate::error::VizierError;
 use crate::schema::AgentId;
-use crate::skill::SkillManager;
+
+use super::scopes;
 
 pub struct GetSkillDetails {
-    global_manager: SkillManager,
-    agent_manager: SkillManager,
+    workspace: String,
 }
 
 impl GetSkillDetails {
-    pub fn new(agent_id: AgentId, deps: VizierDependencies) -> Self {
-        let workspace = deps.config.workspace.clone();
-        Self {
-            global_manager: SkillManager::new(&workspace),
-            agent_manager: SkillManager::for_agent(&workspace, &agent_id),
-        }
+    pub fn new(_agent_id: AgentId, deps: VizierDependencies) -> Self {
+        Self { workspace: deps.config.workspace.clone() }
     }
 }
 
@@ -33,8 +29,14 @@ pub struct SkillDetails {
     pub name: String,
     pub description: String,
     pub keywords: Vec<String>,
-    pub version: u32,
+    pub version: String,
     pub resources: Vec<String>,
+    /// `project`, `agent` or `global`.
+    pub scope: String,
+    /// The skill's folder: relative to the project root for a project skill, else its slug.
+    pub folder: String,
+    /// Whether a person may run it by name (`/slug`).
+    pub user_invocable: bool,
 }
 
 #[async_trait::async_trait]
@@ -56,25 +58,24 @@ impl VizierTool for GetSkillDetails {
             .into()
     }
 
-    async fn call(&self, args: Self::Input, _ctx: &ToolContext) -> Result<Self::Output, VizierError> {
-        // Agent skill takes priority
-        let skill = self
-            .agent_manager
-            .get_skill(&args.slug)
-            .map_err(|e| VizierError(e.to_string()))?
-            .or(
-                self.global_manager
-                    .get_skill(&args.slug)
-                    .map_err(|e| VizierError(e.to_string()))?,
-            )
-            .ok_or_else(|| VizierError(format!("Skill '{}' not found", args.slug)))?;
+    async fn call(&self, args: Self::Input, ctx: &ToolContext) -> Result<Self::Output, VizierError> {
+        let Some(scoped) = scopes(ctx, &self.workspace).find(&args.slug) else {
+            return Err(VizierError(format!("Skill '{}' not found", args.slug)));
+        };
+        let listing = scoped.resources();
+        let scope = scoped.scope.label().to_string();
+        let folder = scoped.folder();
+        let skill = scoped.skill;
 
         Ok(SkillDetails {
             name: skill.name,
             description: skill.description,
             keywords: skill.keywords,
-            version: skill.version,
-            resources: skill.resources,
+            version: skill.version.to_string(),
+            resources: listing.paths,
+            scope,
+            folder,
+            user_invocable: skill.user_invocable,
         })
     }
 }

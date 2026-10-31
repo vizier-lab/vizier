@@ -100,7 +100,7 @@ impl VizierTool for UpdateSkill {
             skill.resources = resources.iter().map(|r| r.path.clone()).collect();
         }
 
-        skill.version += 1;
+        skill.version = skill.version.bumped();
 
         manager.save_skill(&skill)
             .map_err(|e| VizierError(e.to_string()))?;

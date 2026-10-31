@@ -32,7 +32,7 @@ pub enum ConversationKind {
 /// conversation is only ever its owner's.
 fn kind_of(channel: &str, username: &str) -> Option<ConversationKind> {
     // Project sessions are listed by their project, never by the regular session list (FR-006).
-    if crate::projects::channel::project_of_slug(channel).is_some() {
+    if channel.starts_with(crate::projects::channel::PREFIX) {
         return None;
     }
     if channel.starts_with("discord__") {
@@ -249,7 +249,7 @@ mod tests {
     #[test]
     fn a_project_session_is_not_a_regular_conversation() {
         assert_eq!(
-            kind_of("http__ana__project__p3xY9aQ2mZ", "ana"),
+            kind_of("project__ana__p3xY9aQ2mZ", "ana"),
             None,
             "a project session must not appear in the picker, counts or search"
         );

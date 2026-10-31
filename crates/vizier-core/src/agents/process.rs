@@ -1382,26 +1382,50 @@ pub async fn handle_request(
         | VizierRequestContent::ClientEvent(_) => {
             // `/skills`, `/<skill> …` and `/skill <name> …` (spec 021): every channel delivers
             // them as `Chat`, so this is the one place they are told apart.
+            // The list as typed rides the request's history entry; the resolved contents never
+            // are stored (FR-019).
+            if !request.mentions.is_empty() {
+                set_metadata(
+                    &mut request.metadata,
+                    "mentions",
+                    serde_json::json!(request.mentions.clone()),
+                );
+            }
+            // A person's `/name` resolves the same scopes the tools do: the project's own skills
+            // first, then the agent's, then the global ones (FR-036). For a non-project chat this
+            // costs one pointer check and no storage read.
+            let skills = {
+                let cwd = crate::projects::context::skills_cwd(&deps, &session, &request).await;
+                crate::skill::scopes::SkillScopes::for_turn(
+                    &deps.config.workspace,
+                    &session.0,
+                    cwd.as_deref(),
+                )
+            };
+
             let mut invoked = None;
             if let VizierRequestContent::Chat(text) = &request.content {
                 match invocation::parse(text) {
                     Parsed::Plain => {}
                     Parsed::List => {
-                        let reply = list_reply(agent.skills());
+                        let reply = list_reply(&skills);
                         return answer_directly(&storage, &session, request, &response_tx, reply)
                             .await;
                     }
-                    Parsed::Invoke { name, input } => match agent.skills().resolve(&name) {
-                        Ok(Some(skill)) => {
+                    Parsed::Invoke { name, input } => match skills.find(&name) {
+                        Some(found) if found.skill.user_invocable => {
                             set_metadata(
                                 &mut request.metadata,
                                 "invoked_skill",
-                                skill.name.clone().into(),
+                                found.skill.name.clone().into(),
                             );
-                            invoked = Some(Invoked { skill, input });
+                            invoked = Some(Invoked { skill: found.skill, input });
                         }
-                        Ok(None) => {
-                            let reply = not_found_reply(agent.skills(), &name);
+                        Some(found) => {
+                            let reply = format!(
+                                "`{}` is not runnable by name. Ask me to use it instead.",
+                                found.skill.name
+                            );
                             return answer_directly(
                                 &storage,
                                 &session,
@@ -1411,10 +1435,16 @@ pub async fn handle_request(
                             )
                             .await;
                         }
-                        Err(e) => {
-                            tracing::warn!(
-                                "could not read skills to resolve /{name}, answering as chat: {e}"
-                            );
+                        None => {
+                            let reply = not_found_reply(&skills, &name);
+                            return answer_directly(
+                                &storage,
+                                &session,
+                                request,
+                                &response_tx,
+                                reply,
+                            )
+                            .await;
                         }
                     },
                 }
@@ -1464,7 +1494,7 @@ pub async fn handle_request(
             let skills = agent.recommend_skills(&prompt).await.unwrap_or_default();
             // A WebUI reply is news for the person whose conversation it is. A woken
             // background report already has its own job notification, so it is left out.
-            let notifies_chat = matches!(session.1, VizierChannelId::HTTP(..))
+            let notifies_chat = session.1.web_user().is_some()
                 && matches!(
                     &request.content,
                     VizierRequestContent::Chat(_)
@@ -1746,26 +1776,46 @@ fn set_metadata(metadata: &mut serde_json::Value, key: &str, value: serde_json::
     }
 }
 
-/// The `/skills` reply.
-fn list_reply(skills: &VizierSkills) -> String {
-    match skills.available() {
-        Ok(skills) if skills.is_empty() => "No skills are available to this agent.".to_string(),
-        Ok(skills) => skills
-            .iter()
-            .map(|skill| format!("`/{}` — {}", skill.name, skill.description))
-            .collect::<Vec<_>>()
-            .join("\n"),
-        Err(e) => format!("Could not read the skills: {e}"),
+/// The `/skills` reply: every scope, one line per skill, the project's own first.
+fn list_reply(scopes: &crate::skill::scopes::SkillScopes) -> String {
+    let found = scopes.discover();
+    let available = scopes.available();
+    if available.is_empty() {
+        return "No skills are available to this agent.".to_string();
     }
+    let mut reply = available
+        .iter()
+        .map(|scoped| {
+            let hint = if scoped.skill.user_invocable {
+                format!("`/{}`", scoped.skill.name)
+            } else {
+                scoped.skill.name.clone()
+            };
+            format!("{hint} — {}", scoped.skill.description)
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    if !found.skipped.is_empty() {
+        reply.push_str(&format!(
+            "\n\n{} skill folder(s) could not be read: {}",
+            found.skipped.len(),
+            found
+                .skipped
+                .iter()
+                .map(|skipped| skipped.folder.clone())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    }
+    reply
 }
 
 /// The reply to `/<name>` when no skill has that name.
-fn not_found_reply(skills: &VizierSkills, name: &str) -> String {
-    let known: Vec<String> = skills
+fn not_found_reply(scopes: &crate::skill::scopes::SkillScopes, name: &str) -> String {
+    let known: Vec<String> = scopes
         .available()
-        .unwrap_or_default()
         .into_iter()
-        .map(|skill| skill.name)
+        .map(|scoped| scoped.skill.name)
         .collect();
     let mut reply = format!("No skill named \"{name}\".");
     let close = crate::sandbox::docs::did_you_mean(name, &known);

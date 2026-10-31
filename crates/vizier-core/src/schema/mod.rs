@@ -59,7 +59,8 @@ pub use notification::{
 };
 pub use project::{
     DEFAULT_COMMAND_TIMEOUT, INSTRUCTIONS_CAP_BYTES, MAX_COMMAND_TIMEOUT, NEW_SESSION_TITLE,
-    OUTPUT_CAP_BYTES, PROJECT_ID_LEN, Project, ProjectSessionRow,
+    OUTPUT_CAP_BYTES, PROJECT_ID_LEN, Project, ProjectMode, ProjectScope, ProjectSessionRow,
+    Worktree, WorktreeRef,
 };
 pub use provider::{
     CustomModel, CustomProtocol, CustomProvider, ProviderCredentials, ProviderEntry,
@@ -83,7 +84,7 @@ pub use session_file::SessionFileRecord;
 pub use storage::{
     BundleSummary, DEFAULT_BUNDLE, DocumentIndex, ImportReport, Memory, MemoryAttachment,
     MemoryAttachmentView, MemoryFrontMatter, MemoryGraph, MemoryGraphEdge, MemoryGraphNode,
-    MemoryPassageResult, MemoryQueryParams, PaginatedMemory, Skill, SkillFrontMatter,
+    MemoryPassageResult, MemoryQueryParams, PaginatedMemory, Skill, SkillFrontMatter, SkillVersion,
     default_bundle,
 };
 pub use task::{Requester, Task, TaskFrontMatter, TaskRun, TaskRunState, TaskSchedule};

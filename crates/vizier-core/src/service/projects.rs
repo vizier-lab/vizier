@@ -12,8 +12,9 @@ use crate::{
     auth::Principal,
     projects::{access, channel, instructions},
     schema::{
-        AgentConfig, AgentId, NEW_SESSION_TITLE, PROJECT_ID_LEN, Project, ProjectSessionRow,
-        TopicId, VizierChannelId, VizierSession, VizierSessionDetail,
+        AgentConfig, AgentId, NEW_SESSION_TITLE, PROJECT_ID_LEN, Project, ProjectMode,
+        ProjectSessionRow, TopicId, VizierChannelId, VizierSession, VizierSessionDetail, Worktree,
+        WorktreeRef,
     },
     storage::{
         agent::AgentStorage,
@@ -51,6 +52,8 @@ pub struct ProjectDetail {
     pub project: ProjectSummary,
     pub instructions_present: bool,
     pub instructions_truncated: bool,
+    /// Worktree chats whose folders stay on disk when the project is removed (FR-033).
+    pub worktree_count: usize,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -78,6 +81,41 @@ pub struct ProjectSession {
     pub is_thinking: bool,
     /// Unix milliseconds; `null` for a brand-new empty session.
     pub last_activity: Option<i64>,
+    /// The chat's saved Plan/Build mode (FR-009).
+    pub mode: ProjectMode,
+    /// The worktree this chat works in, when it has one.
+    pub worktree: Option<WorktreeSummary>,
+}
+
+/// A worktree as the sidebar and a create response show it.
+#[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+pub struct WorktreeSummary {
+    pub id: String,
+    pub name: String,
+    pub branch: String,
+    /// The folder is still there (FR-032).
+    pub available: bool,
+}
+
+impl WorktreeSummary {
+    fn of(worktree: &Worktree) -> Self {
+        Self {
+            id: worktree.id.clone(),
+            name: worktree.name.clone(),
+            branch: worktree.branch.clone(),
+            available: worktree.path.is_dir(),
+        }
+    }
+}
+
+fn worktree_ref_summary(worktree: &WorktreeRef) -> WorktreeSummary {
+    WorktreeSummary {
+        id: worktree.id.clone(),
+        name: worktree.name.clone(),
+        branch: worktree.branch.clone(),
+        available: true,
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -263,10 +301,18 @@ pub async fn get(
         true => instructions::read(&project.folder),
         false => None,
     };
+    let worktree_count = s
+        .deps()
+        .storage
+        .worktrees(&project.id)
+        .await
+        .map_err(internal)?
+        .len();
     Ok(ProjectDetail {
         project: summary(s, who, project).await?,
         instructions_present: instructions.is_some(),
         instructions_truncated: instructions.is_some_and(|read| read.truncated),
+        worktree_count,
     })
 }
 
@@ -403,7 +449,8 @@ pub async fn remove(
         .await
         .map_err(internal)?;
     if pending.iter().any(|turn| {
-        matches!(&turn.session.1, VizierChannelId::HTTP(_, id) if *id == channel_id)
+        turn.session.1.web_channel_id().as_deref() == Some(channel_id.as_str())
+            && turn.session.1.project_id().is_some()
     }) {
         return Err(ServiceError::Conflict {
             message: "a turn is running or queued in this project; wait for it to finish".into(),
@@ -427,11 +474,7 @@ pub async fn sessions(
     project_id: &str,
 ) -> Result<Vec<ProjectSession>, ServiceError> {
     let project = project_for_read(s, who, agent_id, project_id).await?;
-    let slug = VizierChannelId::HTTP(
-        who.username.clone(),
-        channel::channel_id(&project.id),
-    )
-    .to_slug();
+    let slug = VizierChannelId::from_web(&who.username, &channel::channel_id(&project.id)).to_slug();
     let rows = s
         .deps()
         .storage
@@ -447,7 +490,62 @@ fn session_item(row: ProjectSessionRow) -> ProjectSession {
         title: row.title,
         is_thinking: row.is_thinking,
         last_activity: row.last_activity,
+        mode: row.mode,
+        worktree: row.worktree.as_ref().map(worktree_ref_summary),
     }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+pub struct SetModeRequest {
+    pub mode: ProjectMode,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+pub struct SetModeResponse {
+    pub mode: ProjectMode,
+}
+
+/// Switch one of the caller's chats between Plan and Build. Effective from the next turn; a
+/// running turn keeps the tools it started with (FR-013).
+pub async fn set_mode(
+    s: &Services,
+    who: &Principal,
+    agent_id: &str,
+    project_id: &str,
+    topic: &str,
+    request: SetModeRequest,
+) -> Result<SetModeResponse, ServiceError> {
+    let project = project_for_read(s, who, agent_id, project_id).await?;
+    let channel = VizierChannelId::Project(who.username.clone(), project.id.clone()).to_slug();
+    s.deps()
+        .storage
+        .set_project_chat_mode(agent_id, &channel, topic, request.mode)
+        .await
+        .map_err(internal)?;
+    Ok(SetModeResponse { mode: request.mode })
+}
+
+/// The folder a chat works in: its worktree when bound to one, else the project root.
+async fn chat_cwd(
+    s: &Services,
+    project: &Project,
+    topic: Option<&str>,
+) -> Result<PathBuf, ServiceError> {
+    let worktree = match topic {
+        Some(topic) => s
+            .deps()
+            .storage
+            .worktree_by_topic(&project.id, topic)
+            .await
+            .map_err(internal)?,
+        None => None,
+    };
+    Ok(match worktree {
+        Some(worktree) => worktree.path,
+        None => project.folder.clone(),
+    })
 }
 
 /// Create an empty titled session for the caller, so it is listed before its first message.
@@ -462,7 +560,7 @@ pub async fn create_session(
     let topic: TopicId = nanoid::nanoid!(PROJECT_ID_LEN);
     let detail = VizierSessionDetail {
         agent_id: agent_id.to_string(),
-        channel: VizierChannelId::HTTP(who.username.clone(), channel_id.clone()),
+        channel: VizierChannelId::from_web(&who.username, &channel_id),
         topic: Some(topic.clone()),
         title: NEW_SESSION_TITLE.to_string(),
         is_thinking: false,
@@ -483,9 +581,690 @@ pub async fn create_session(
 pub fn session_for(who: &Principal, agent_id: &str, project_id: &str, topic: &str) -> VizierSession {
     VizierSession(
         agent_id.to_string(),
-        VizierChannelId::HTTP(who.username.clone(), channel::channel_id(project_id)),
+        VizierChannelId::from_web(&who.username, &channel::channel_id(project_id)),
         Some(topic.to_string()),
     )
+}
+
+
+#[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+pub struct FileSuggestion {
+    pub path: String,
+    /// `file` or `dir`.
+    pub kind: String,
+}
+
+/// Path suggestions for the composer's `@` menu (FR-017), from the chat's own folder.
+pub async fn file_suggestions(
+    s: &Services,
+    who: &Principal,
+    agent_id: &str,
+    project_id: &str,
+    query: &str,
+    topic: Option<&str>,
+    limit: usize,
+) -> Result<Vec<FileSuggestion>, ServiceError> {
+    let project = project_for_read(s, who, agent_id, project_id).await?;
+    let cwd = chat_cwd(s, &project, topic).await?;
+    if !cwd.is_dir() {
+        return Err(ServiceError::Conflict {
+            message: "the project folder is missing".into(),
+            code: Some("project_unavailable".into()),
+            data: None,
+        });
+    }
+    let query = query.to_string();
+    let suggestions = tokio::task::spawn_blocking(move || {
+        crate::projects::suggest::suggest(&cwd, &query, limit.clamp(1, 50))
+    })
+    .await
+    .map_err(|err| ServiceError::Internal(err.to_string()))?;
+    Ok(suggestions
+        .into_iter()
+        .map(|suggestion| FileSuggestion {
+            path: suggestion.path,
+            kind: if suggestion.is_dir { "dir" } else { "file" }.to_string(),
+        })
+        .collect())
+}
+
+/// One skill a project chat can run, as the composer's `/` menu lists it.
+#[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+pub struct ProjectSkillRow {
+    pub name: String,
+    pub description: String,
+    /// `project`. Every row here is one, and saying so keeps the shape the same if a later route
+    /// merges the workspace scopes in.
+    pub scope: String,
+    /// Whether a person may run it by name; a `false` one is prose for the agent, not a command.
+    pub user_invocable: bool,
+    /// The usage line the skill declares, e.g. `[audit|critique] [target]`.
+    pub argument_hint: Option<String>,
+    /// Its folder relative to the chat's folder, which is what `use_skill` reports.
+    pub folder: String,
+}
+
+/// The skills a project chat carries in its own folder (`specs/041-project-coding-workspace`
+/// FR-035), read from the folder the chat works in — its worktree's own checkout when it is bound
+/// to one, so a branch's skills are the ones offered. One entry per slug, `.agents` winning a
+/// `.claude` it duplicates.
+pub async fn skills(
+    s: &Services,
+    who: &Principal,
+    agent_id: &str,
+    project_id: &str,
+    topic: Option<&str>,
+) -> Result<Vec<ProjectSkillRow>, ServiceError> {
+    let project = project_for_read(s, who, agent_id, project_id).await?;
+    let cwd = chat_cwd(s, &project, topic).await?;
+    if !cwd.is_dir() {
+        return Err(ServiceError::Conflict {
+            message: "the project folder is missing".into(),
+            code: Some("project_unavailable".into()),
+            data: None,
+        });
+    }
+
+    let found = crate::skill::scopes::SkillScopes::project(&cwd).discover();
+    Ok(found
+        .skills
+        .into_iter()
+        .map(|scoped| ProjectSkillRow {
+            scope: scoped.scope.label().to_string(),
+            folder: scoped.folder(),
+            user_invocable: scoped.skill.user_invocable,
+            argument_hint: scoped.skill.argument_hint.clone(),
+            name: scoped.skill.name,
+            description: scoped.skill.description,
+        })
+        .collect())
+}
+
+// ---------------------------------------------------------------------------------------------
+// Git (`specs/041-project-coding-workspace` contracts/http-api.md §4)
+// ---------------------------------------------------------------------------------------------
+
+fn git_refusal(err: crate::error::VizierError) -> ServiceError {
+    let text = err.0;
+    let (code, message) = text.split_once(':').unwrap_or(("git_failed", &text));
+    let status = match code {
+        "git_unavailable" => 409,
+        "local_changes" | "branch_exists" | "branch_checked_out" | "branch_not_merged" => 409,
+        _ => 500,
+    };
+    let code = Some(code.trim().to_string());
+    match status {
+        409 => ServiceError::Conflict {
+            message: message.trim().to_string(),
+            code,
+            data: None,
+        },
+        422 => invalid_code(code.as_deref().unwrap_or("invalid"), message.trim()),
+        _ => ServiceError::Internal(message.trim().to_string()),
+    }
+}
+
+fn require_git(cwd: &Path) -> Result<crate::projects::git::Git, ServiceError> {
+    if !cwd.is_dir() {
+        return Err(ServiceError::Conflict {
+            message: "the project folder is missing".into(),
+            code: Some("project_unavailable".into()),
+            data: None,
+        });
+    }
+    Ok(crate::projects::git::Git::new(cwd))
+}
+
+async fn ensure_git(git: &crate::projects::git::Git) -> Result<(), ServiceError> {
+    match crate::projects::git::probe(&git.dir).await {
+        Some(_) => Ok(()),
+        None => Err(ServiceError::Conflict {
+            message: "git is not available in this folder".into(),
+            code: Some("git_unavailable".into()),
+            data: None,
+        }),
+    }
+}
+
+/// The header's branch and change count. `available: false` when git is missing or the folder
+/// is not a repository (FR-024), never an error.
+pub async fn git_summary(
+    s: &Services,
+    who: &Principal,
+    agent_id: &str,
+    project_id: &str,
+    topic: Option<&str>,
+) -> Result<crate::projects::git::GitSummary, ServiceError> {
+    let project = project_for_read(s, who, agent_id, project_id).await?;
+    let cwd = chat_cwd(s, &project, topic).await?;
+    if !cwd.is_dir() {
+        return Ok(crate::projects::git::GitSummary::unavailable());
+    }
+    let git = crate::projects::git::Git::new(&cwd);
+    if crate::projects::git::probe(&cwd).await.is_none() {
+        return Ok(crate::projects::git::GitSummary::unavailable());
+    }
+    Ok(git.summary().await)
+}
+
+pub async fn git_changes(
+    s: &Services,
+    who: &Principal,
+    agent_id: &str,
+    project_id: &str,
+    topic: Option<&str>,
+) -> Result<Vec<crate::projects::git::GitChange>, ServiceError> {
+    let project = project_for_read(s, who, agent_id, project_id).await?;
+    let cwd = chat_cwd(s, &project, topic).await?;
+    let git = require_git(&cwd)?;
+    ensure_git(&git).await?;
+    git.changes().await.map_err(git_refusal)
+}
+
+pub async fn git_file_diff(
+    s: &Services,
+    who: &Principal,
+    agent_id: &str,
+    project_id: &str,
+    topic: Option<&str>,
+    path: &str,
+) -> Result<crate::projects::git::GitFileDiff, ServiceError> {
+    let project = project_for_read(s, who, agent_id, project_id).await?;
+    let cwd = chat_cwd(s, &project, topic).await?;
+    let git = require_git(&cwd)?;
+    ensure_git(&git).await?;
+    let resolved = crate::projects::path::resolve(&cwd, path, crate::projects::path::Purpose::Existing)
+        .map_err(|err| invalid_code("invalid_path", err.0))?;
+    let shown = crate::projects::path::display_rel(&cwd, &resolved);
+    git.file_diff(&shown, false).await.map_err(git_refusal)
+}
+
+pub async fn git_branches(
+    s: &Services,
+    who: &Principal,
+    agent_id: &str,
+    project_id: &str,
+    topic: Option<&str>,
+) -> Result<Vec<crate::projects::git::GitBranch>, ServiceError> {
+    let project = project_for_read(s, who, agent_id, project_id).await?;
+    let cwd = chat_cwd(s, &project, topic).await?;
+    let git = require_git(&cwd)?;
+    ensure_git(&git).await?;
+    let mut branches = git.branches().await.map_err(git_refusal)?;
+    // Name the worktree a branch is checked out in, when it is one of this project's.
+    let worktrees = s
+        .deps()
+        .storage
+        .worktrees(&project.id)
+        .await
+        .map_err(internal)?;
+    for branch in &mut branches {
+        if let Some(holder) = &mut branch.checked_out_in
+            && let Some(worktree) = worktrees.iter().find(|worktree| worktree.name == holder.name)
+        {
+            holder.worktree_id = Some(worktree.id.clone());
+        }
+    }
+    Ok(branches)
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+pub struct SwitchBranchRequest {
+    #[serde(default)]
+    pub topic: Option<String>,
+    pub branch: String,
+    #[serde(default)]
+    pub create: Option<bool>,
+}
+
+/// Switch the folder to another branch, or create one from the current branch. A switch in the
+/// main folder needs managing the project; one inside a worktree needs using it (FR-034).
+pub async fn git_switch(
+    s: &Services,
+    who: &Principal,
+    agent_id: &str,
+    project_id: &str,
+    request: SwitchBranchRequest,
+) -> Result<crate::projects::git::GitSummary, ServiceError> {
+    let project = project_for_read(s, who, agent_id, project_id).await?;
+    let branch = request.branch.trim();
+    if branch.is_empty() {
+        return Err(invalid_code("invalid_branch", "a branch name is required"));
+    }
+    let worktree = match request.topic.as_deref() {
+        Some(topic) => s
+            .deps()
+            .storage
+            .worktree_by_topic(&project.id, topic)
+            .await
+            .map_err(internal)?,
+        None => None,
+    };
+    if let Some(worktree) = &worktree {
+        // One's own worktree needs only use; someone else's does not exist for this caller's
+        // chats in the first place.
+        if worktree.owner_name != who.username && !access::can_manage(Caller::from(who), &project) {
+            return Err(ServiceError::Forbidden("Access denied".into()));
+        }
+        let pending = s.deps().storage.pending_turns(agent_id).await.map_err(internal)?;
+        let slug = VizierChannelId::Project(worktree.owner_name.clone(), project.id.clone()).to_slug();
+        if pending.iter().any(|turn| {
+            turn.session.1.to_slug() == slug
+                && turn.session.2.as_deref() == Some(worktree.topic.as_str())
+        }) {
+            return Err(ServiceError::Conflict {
+                message: "a turn is running in this chat; wait for it to finish".into(),
+                code: Some("turn_active".into()),
+                data: None,
+            });
+        }
+    } else {
+        if !access::can_manage(Caller::from(who), &project) {
+            return Err(ServiceError::Forbidden(
+                "switching the project's own folder needs managing the project".into(),
+            ));
+        }
+        if s.deps()
+            .storage
+            .project_has_main_turn(agent_id, &project.id)
+            .await
+            .map_err(internal)?
+        {
+            return Err(ServiceError::Conflict {
+                message: "a turn is running in this project; wait for it to finish".into(),
+                code: Some("turn_active".into()),
+                data: None,
+            });
+        }
+    }
+
+    let cwd = match &worktree {
+        Some(worktree) => worktree.path.clone(),
+        None => project.folder.clone(),
+    };
+    let git = require_git(&cwd)?;
+    ensure_git(&git).await?;
+    let create = request.create.unwrap_or(false);
+    if !create {
+        // A branch checked out in another worktree cannot be picked (FR-023).
+        let branches = git.branches().await.map_err(git_refusal)?;
+        if let Some(found) = branches.iter().find(|found| found.name == branch)
+            && let Some(holder) = &found.checked_out_in
+        {
+            return Err(ServiceError::Conflict {
+                message: format!("branch '{branch}' is checked out in worktree '{}'", holder.name),
+                code: Some("branch_checked_out".into()),
+                data: None,
+            });
+        }
+    }
+    let args: Vec<&str> = if create {
+        vec!["switch", "-c", branch]
+    } else {
+        vec!["switch", branch]
+    };
+    if let Err(err) = git.run_write(&args).await {
+        let mapped = git_refusal(err);
+        // `git switch -c` of a name git refuses is a validation failure.
+        return Err(match &mapped {
+            ServiceError::Conflict { code: Some(code), .. } if code == "branch_exists" => mapped,
+            ServiceError::Conflict { code: Some(code), .. } if code == "local_changes" => mapped,
+            _ if create => invalid_code("invalid_branch", "git refused that branch name"),
+            _ => mapped,
+        });
+    }
+    Ok(git.summary().await)
+}
+
+// ---------------------------------------------------------------------------------------------
+// Worktrees (data-model §3, contracts/http-api.md §5)
+// ---------------------------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+pub struct CreateWorktreeRequest {
+    pub name: String,
+    pub base: String,
+    #[serde(default)]
+    pub branch: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+pub struct CreateWorktreeResponse {
+    pub worktree: WorktreeSummary,
+    pub topic: String,
+    pub channel_id: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+pub struct WorktreeDetail {
+    #[serde(flatten)]
+    pub worktree: WorktreeSummary,
+    pub base_ref: String,
+    pub path: String,
+    pub created_at: i64,
+    pub changed: usize,
+    pub untracked: usize,
+    pub branch_merged: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+pub struct WorktreeDeleted {
+    pub deleted: bool,
+    pub branch_deleted: bool,
+}
+
+/// A folder and branch name (`data-model.md` §3).
+fn validate_worktree_name(name: &str) -> Result<String, ServiceError> {
+    let name = name.trim();
+    let valid = name.len() <= 64
+        && name
+            .chars()
+            .next()
+            .is_some_and(|first| first.is_ascii_alphanumeric())
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+        && !name.ends_with(".lock")
+        && !name.contains("..");
+    if !valid {
+        return Err(invalid_code(
+            "invalid_name",
+            "the worktree name must start with a letter or digit and use only A–Z, a–z, 0–9, '.', '_' and '-'",
+        ));
+    }
+    Ok(name.to_string())
+}
+
+async fn check_ref_format(git: &crate::projects::git::Git, branch: &str) -> Result<(), ServiceError> {
+    git.run_read(&["check-ref-format", "--branch", branch])
+        .await
+        .map(|_| ())
+        .map_err(|_| invalid_code("invalid_branch", format!("'{branch}' is not a valid branch name")))
+}
+
+pub async fn create_worktree(
+    s: &Services,
+    who: &Principal,
+    agent_id: &str,
+    project_id: &str,
+    request: CreateWorktreeRequest,
+) -> Result<CreateWorktreeResponse, ServiceError> {
+    let project = project_for_read(s, who, agent_id, project_id).await?;
+    if !project.folder.is_dir() {
+        return Err(ServiceError::Conflict {
+            message: "the project folder is missing".into(),
+            code: Some("project_unavailable".into()),
+            data: None,
+        });
+    }
+    let git = crate::projects::git::Git::new(&project.folder);
+    ensure_git(&git).await?;
+    let name = validate_worktree_name(&request.name)?;
+    let branch = match request.branch.as_deref().map(str::trim).filter(|b| !b.is_empty()) {
+        Some(branch) => {
+            check_ref_format(&git, branch).await?;
+            branch.to_string()
+        }
+        None => name.clone(),
+    };
+    check_ref_format(&git, &branch).await?;
+    let base = request.base.trim();
+    if base.is_empty() {
+        return Err(invalid_code("unknown_base", "choose the branch to start from"));
+    }
+    if git.run_read(&["rev-parse", "--verify", &format!("refs/heads/{base}")]).await.is_err() {
+        return Err(invalid_code("unknown_base", format!("there is no branch '{base}'")));
+    }
+    if s.deps()
+        .storage
+        .worktrees(&project.id)
+        .await
+        .map_err(internal)?
+        .iter()
+        .any(|worktree| worktree.name == name)
+    {
+        return Err(ServiceError::Conflict {
+            message: format!("a worktree named '{name}' already exists in this project"),
+            code: Some("name_in_use".into()),
+            data: None,
+        });
+    }
+    let path = project.folder.join(".vizier").join(agent_id).join(&name);
+    if path.exists() {
+        return Err(ServiceError::Conflict {
+            message: format!("the folder {} already exists", channel::display_path(&path)),
+            code: Some("path_exists".into()),
+            data: None,
+        });
+    }
+    if git
+        .branches()
+        .await
+        .map_err(git_refusal)?
+        .iter()
+        .any(|found| found.name == branch)
+    {
+        return Err(ServiceError::Conflict {
+            message: format!("branch '{branch}' already exists"),
+            code: Some("branch_exists".into()),
+            data: None,
+        });
+    }
+    crate::projects::git::worktree::ensure_excluded(&git)
+        .await
+        .map_err(git_refusal)?;
+    let topic: TopicId = nanoid::nanoid!(PROJECT_ID_LEN);
+    let path_text = path.to_string_lossy().into_owned();
+    git.run_write(&["worktree", "add", "-b", &branch, &path_text, base])
+        .await
+        .map_err(git_refusal)?;
+
+    let canonical = std::fs::canonicalize(&path).unwrap_or(path.clone());
+    let worktree = Worktree {
+        id: nanoid::nanoid!(PROJECT_ID_LEN),
+        project_id: project.id.clone(),
+        agent_id: agent_id.to_string(),
+        owner_id: who.user_id.clone(),
+        owner_name: who.username.clone(),
+        topic: topic.clone(),
+        name: name.clone(),
+        branch: branch.clone(),
+        base_ref: base.to_string(),
+        path: canonical,
+        created_at: chrono::Utc::now().timestamp_millis(),
+    };
+    let detail = VizierSessionDetail {
+        agent_id: agent_id.to_string(),
+        channel: VizierChannelId::Project(who.username.clone(), project.id.clone()),
+        topic: Some(topic.clone()),
+        title: name.clone(),
+        is_thinking: false,
+    };
+    if let Err(err) = s.deps().storage.insert_worktree(&worktree, detail).await {
+        // Roll the folder back so a failed row never leaves a half-created worktree.
+        let _ = git.run_write(&["worktree", "remove", "--force", &path_text]).await;
+        return Err(internal(err));
+    }
+    Ok(CreateWorktreeResponse {
+        worktree: WorktreeSummary::of(&worktree),
+        topic,
+        channel_id: channel::channel_id(&project.id),
+    })
+}
+
+pub async fn list_worktrees(
+    s: &Services,
+    who: &Principal,
+    agent_id: &str,
+    project_id: &str,
+) -> Result<Vec<WorktreeSummary>, ServiceError> {
+    let project = project_for_read(s, who, agent_id, project_id).await?;
+    Ok(s.deps()
+        .storage
+        .worktrees(&project.id)
+        .await
+        .map_err(internal)?
+        .iter()
+        .map(WorktreeSummary::of)
+        .collect())
+}
+
+async fn worktree_for_read(
+    s: &Services,
+    who: &Principal,
+    agent_id: &str,
+    project_id: &str,
+    id: &str,
+) -> Result<(Project, Worktree), ServiceError> {
+    let project = project_for_read(s, who, agent_id, project_id).await?;
+    let worktree = s
+        .deps()
+        .storage
+        .worktree(&project.id, id)
+        .await
+        .map_err(internal)?
+        .ok_or_else(|| ServiceError::NotFound("worktree not found".into()))?;
+    Ok((project, worktree))
+}
+
+pub async fn worktree_detail(
+    s: &Services,
+    who: &Principal,
+    agent_id: &str,
+    project_id: &str,
+    id: &str,
+) -> Result<WorktreeDetail, ServiceError> {
+    let (_, worktree) = worktree_for_read(s, who, agent_id, project_id, id).await?;
+    let available = worktree.path.is_dir();
+    let mut changed = 0usize;
+    let mut untracked = 0usize;
+    let mut branch_merged = false;
+    if available {
+        let git = crate::projects::git::Git::new(&worktree.path);
+        if let Ok(changes) = git.changes().await {
+            untracked = changes
+                .iter()
+                .filter(|change| change.kind == crate::projects::git::GitChangeKind::Untracked)
+                .count();
+            changed = changes.len() - untracked;
+        }
+        if let Ok(output) = git
+            .run_read(&["merge-base", "--is-ancestor", &worktree.branch, &worktree.base_ref])
+            .await
+        {
+            branch_merged = output.trim().is_empty();
+        }
+    }
+    Ok(WorktreeDetail {
+        worktree: WorktreeSummary::of(&worktree),
+        base_ref: worktree.base_ref.clone(),
+        path: channel::display_path(&worktree.path),
+        created_at: worktree.created_at,
+        changed,
+        untracked,
+        branch_merged,
+    })
+}
+
+pub async fn delete_worktree(
+    s: &Services,
+    who: &Principal,
+    agent_id: &str,
+    project_id: &str,
+    id: &str,
+    force: bool,
+    delete_branch: bool,
+) -> Result<WorktreeDeleted, ServiceError> {
+    let (project, worktree) = worktree_for_read(s, who, agent_id, project_id, id).await?;
+    let own = worktree.owner_name == who.username;
+    if !own && !access::can_manage(Caller::from(who), &project) {
+        return Err(ServiceError::Forbidden(
+            "deleting another person's worktree chat needs managing the project".into(),
+        ));
+    }
+    // Refused while a turn is running in it (FR-030).
+    let slug = VizierChannelId::Project(worktree.owner_name.clone(), project.id.clone()).to_slug();
+    let pending = s.deps().storage.pending_turns(agent_id).await.map_err(internal)?;
+    if pending.iter().any(|turn| {
+        turn.session.1.to_slug() == slug
+            && turn.session.2.as_deref() == Some(worktree.topic.as_str())
+    }) {
+        return Err(ServiceError::Conflict {
+            message: "a turn is running in this chat; wait for it to finish".into(),
+            code: Some("turn_active".into()),
+            data: None,
+        });
+    }
+
+    let git = crate::projects::git::Git::new(&project.folder);
+    let available = worktree.path.is_dir();
+    if available {
+        if !force
+            && let Ok(changes) = crate::projects::git::Git::new(&worktree.path).changes().await
+        {
+            let untracked = changes
+                .iter()
+                .filter(|change| change.kind == crate::projects::git::GitChangeKind::Untracked)
+                .count();
+            let changed = changes.len() - untracked;
+            if changed + untracked > 0 {
+                return Err(ServiceError::Conflict {
+                    message: format!(
+                        "{changed} changed and {untracked} untracked files would be lost"
+                    ),
+                    code: Some("worktree_dirty".into()),
+                    data: Some(serde_json::json!({ "changed": changed, "untracked": untracked })),
+                });
+            }
+        }
+        let path = worktree.path.to_string_lossy().into_owned();
+        let args: Vec<&str> = if force {
+            vec!["worktree", "remove", "--force", &path]
+        } else {
+            vec!["worktree", "remove", &path]
+        };
+        git.run_write(&args).await.map_err(git_refusal)?;
+    }
+    let _ = git.run_write(&["worktree", "prune"]).await;
+
+    let mut branch_deleted = false;
+    if delete_branch {
+        let args: Vec<&str> = if force {
+            vec!["branch", "-D", &worktree.branch]
+        } else {
+            vec!["branch", "-d", &worktree.branch]
+        };
+        branch_deleted = git.run_write(&args).await.is_ok();
+    }
+
+    // The chat goes through the existing conversation deletion, so history, files, turns and
+    // jobs are cleaned by the code that already owns them (R3).
+    let session = VizierSession(
+        agent_id.to_string(),
+        VizierChannelId::Project(worktree.owner_name.clone(), project.id.clone()),
+        Some(worktree.topic.clone()),
+    );
+    s.deps()
+        .session_files
+        .delete_conversation(&session)
+        .await
+        .map_err(|err| ServiceError::Internal(err.to_string()))?;
+    s.deps()
+        .project_ledger
+        .forget_session(&session.to_slug());
+    s.deps()
+        .storage
+        .delete_worktree(&worktree.id)
+        .await
+        .map_err(internal)?;
+    Ok(WorktreeDeleted { deleted: true, branch_deleted })
 }
 
 #[cfg(test)]
@@ -574,6 +1353,86 @@ mod tests {
         let sessions = sessions(&services, &who, "dp-a", &first.project.id).await.unwrap();
         assert_eq!(sessions[0].topic, created.topic);
         assert_eq!(sessions[0].title, NEW_SESSION_TITLE);
+    }
+
+    fn write_skill(root: &std::path::Path, slug: &str, description: &str) {
+        let dir = root.join(".agents/skills").join(slug);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("SKILL.md"),
+            format!("---\nname: {slug}\ndescription: {description}\n---\n\nbody\n"),
+        )
+        .unwrap();
+    }
+
+    /// The composer's `/` menu reads this: the chat's own folder, which is the worktree when the
+    /// chat is bound to one, so a branch's skills are the ones offered (FR-035).
+    #[tokio::test]
+    async fn a_chats_skills_come_from_its_own_folder() {
+        let (services, who, _dir) = setup().await;
+        let root = folder();
+        write_skill(root.path(), "root-only", "the project root");
+        let opened = open(&services, &who, AuthMethod::Desktop, "dp-a", request(&root))
+            .await
+            .unwrap();
+        let project_id = opened.project.id.clone();
+
+        let listed = skills(&services, &who, "dp-a", &project_id, None).await.unwrap();
+        let names: Vec<String> = listed.iter().map(|row| row.name.clone()).collect();
+        assert_eq!(names, ["root-only"]);
+        assert!(listed[0].user_invocable, "the default is invocable");
+        assert_eq!(listed[0].scope, "project");
+
+        // A worktree of the same project carries its own branch's skills, not the root's.
+        let worktree_dir = root.path().join(".vizier/dp-a/fix");
+        std::fs::create_dir_all(&worktree_dir).unwrap();
+        write_skill(&worktree_dir, "branch-only", "the worktree");
+        let detail = crate::schema::VizierSessionDetail {
+            agent_id: "dp-a".into(),
+            channel: VizierChannelId::Project("alice".into(), project_id.clone()),
+            topic: Some("t1".into()),
+            title: "fix".into(),
+            is_thinking: false,
+        };
+        let worktree = crate::schema::Worktree {
+            id: "w1".into(),
+            project_id: project_id.clone(),
+            agent_id: "dp-a".into(),
+            owner_id: who.user_id.clone(),
+            owner_name: "alice".into(),
+            topic: "t1".into(),
+            name: "fix".into(),
+            branch: "fix".into(),
+            base_ref: "master".into(),
+            path: worktree_dir.clone(),
+            created_at: 0,
+        };
+        services
+            .deps()
+            .storage
+            .insert_worktree(&worktree, detail)
+            .await
+            .unwrap();
+
+        let in_worktree = skills(&services, &who, "dp-a", &project_id, Some("t1")).await.unwrap();
+        let names: Vec<String> = in_worktree.iter().map(|row| row.name.clone()).collect();
+        assert_eq!(names, ["branch-only"], "the worktree's checkout, not the project root");
+    }
+
+    #[tokio::test]
+    async fn a_missing_folder_is_a_conflict_not_an_empty_list() {
+        let (services, who, _dir) = setup().await;
+        let root = folder();
+        let opened = open(&services, &who, AuthMethod::Desktop, "dp-a", request(&root))
+            .await
+            .unwrap();
+        let path = std::fs::canonicalize(root.path()).unwrap();
+        drop(root);
+        assert!(!path.is_dir());
+        let err = skills(&services, &who, "dp-a", &opened.project.id, None)
+            .await
+            .unwrap_err();
+        assert_eq!(err.code(), Some("project_unavailable"));
     }
 
     #[tokio::test]
@@ -744,4 +1603,73 @@ mod tests {
         assert!(!text.contains("Be terse."));
         assert!(Utc::now().timestamp_millis() >= detail.project.created_at);
     }
+
+    fn git_repo() -> Option<tempfile::TempDir> {
+        let ok = std::process::Command::new("git")
+            .arg("--version")
+            .output()
+            .is_ok_and(|o| o.status.success());
+        if !ok {
+            return None;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        for args in [
+            vec!["init", "-q", "-b", "master"],
+            vec!["config", "user.email", "t@example.com"],
+            vec!["config", "user.name", "T"],
+        ] {
+            assert!(std::process::Command::new("git").current_dir(dir.path()).args(&args).status().unwrap().success());
+        }
+        std::fs::write(dir.path().join("a.txt"), "a").unwrap();
+        assert!(std::process::Command::new("git").current_dir(dir.path()).args(["add", "-A"]).status().unwrap().success());
+        assert!(std::process::Command::new("git").current_dir(dir.path()).args(["commit", "-qm", "init"]).status().unwrap().success());
+        Some(dir)
+    }
+
+    #[tokio::test]
+    async fn a_worktree_is_created_on_its_own_branch_and_removed_with_its_chat() {
+        let Some(folder) = git_repo() else { return };
+        let (services, who, _dir) = setup().await;
+        let opened = open(&services, &who, AuthMethod::Desktop, "dp-a", request(&folder))
+            .await
+            .unwrap();
+        let created = create_worktree(
+            &services,
+            &who,
+            "dp-a",
+            &opened.project.id,
+            CreateWorktreeRequest {
+                name: "fix-ps".into(),
+                base: "master".into(),
+                branch: None,
+            },
+        )
+        .await
+        .unwrap();
+        let path = folder.path().join(".vizier/dp-a/fix-ps");
+        assert!(path.is_dir());
+        assert_eq!(created.worktree.branch, "fix-ps");
+        assert_eq!(list_worktrees(&services, &who, "dp-a", &opened.project.id).await.unwrap().len(), 1);
+        let detail = worktree_detail(&services, &who, "dp-a", &opened.project.id, &created.worktree.id)
+            .await
+            .unwrap();
+        assert!(detail.worktree.available);
+        assert_eq!((detail.changed, detail.untracked), (0, 0));
+        assert!(detail.branch_merged);
+
+        delete_worktree(
+            &services,
+            &who,
+            "dp-a",
+            &opened.project.id,
+            &created.worktree.id,
+            false,
+            true,
+        )
+        .await
+        .unwrap();
+        assert!(!path.exists());
+        assert!(list_worktrees(&services, &who, "dp-a", &opened.project.id).await.unwrap().is_empty());
+    }
+
 }
