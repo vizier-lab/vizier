@@ -172,27 +172,69 @@ The WebUI's notification inbox replaces the old Home "Since you were away" feed.
 
 HTTP is `/api/v1/notifications` (list with `filter`+`before`+`limit`, `/count`, `PUT /{id}/read`, `POST /read-all`), all under `require_auth`. The WebUI has one Zustand store (`stores/notifications.ts`, 15 s count poll while visible), pure merge/filter helpers (`lib/notifications.ts`) and a dropdown (`screens/notifications/NotificationsPanel.tsx`, a design `Floating` + `useDismiss` like the agent card's menu, rendered by the bell itself and anchored to it). The bell lives at the right end of every page header (`screens/shared/NotificationsBell.tsx`, mounted by the shared `PageFrame`/`SettingsFrame`, Home's header, the chat header and the mobile top bar), so a store `openPanel` needs a mounted bell to show anything: a count badge and a separate busy dot are `design` `IconButton` props. Each row is a bordered card with a 34px `Sigil`; its read toggle is an eye beside the time (closed = unread, open = read, always visible), an unread card is outlined in the live emerald and a hidden word says so. A `chat_reply` for the conversation on screen is auto-marked read with no toast or badge change (`isViewing` + `viewing` on the store, set from the pathname); the dropdown closes on Escape, an outside press or its ×, and the chat details panel starts collapsed. A new arrival while the panel is closed raises a timed `Toast` (design `Toast`'s `onSelect`; one toast per burst) pushed from `screens/shared/NotificationToasts.tsx`, which the 15 s poll detects by id above `lastSeenId`. The panel is reached from no route and adds no sidebar item. The panel is not a route; opening marks nothing read, selecting a row marks it read and navigates. Home's `AwayFeed` and the `/api/v1/overview/feed` endpoint are **removed** — a deliberate breaking change; the unused visit tracking (`record_visit`, `last_seen_at`, `previous_visit_at`) stays for #82.
 
-### Projects (`specs/040-projects-mode/`)
+### Projects (`specs/040-projects-mode/`, `specs/041-project-coding-workspace/`)
 
 A **project** mounts one host folder to exactly one agent (`project` table behind `ProjectStorage`;
-`crates/vizier-core/src/projects/`). A project session is an ordinary HTTP session whose channel id is
-`project__<project_id>`; `projects::channel` owns the prefix and parsing, and `projects::access` is the
-only permission matrix (`all_agents:projects`, `owned_agents:projects`; management is the project owner
-or the all-agents permission; creation requires a desktop principal). `service/projects.rs` owns the
-DTOs, folder validation (canonical, must exist, never the app workspace or inside it) and soft removal
-(refused with `turn_active` while a turn is pending); the routes are `/agents/{id}/projects…`
-(`crates/vizier-http/src/api/v1/agents/projects.rs`). `projects::context::for_session` resolves the folder,
-availability, shell switch and bounded `AGENTS.md`/`CLAUDE.md` once per turn and re-reads the owner's
-current permission; `chat_turn`, side chat and checkpoint rebuilds pass it to the system prompt
-(`agents/agent/system_prompt/project.rs`) and to `ToolContext.project`. The per-turn `workspace_shell`
-tool (`projects/shell.rs`, `ToolTarget::Project`, dispatched by `RouterBridge`) runs through
-`LocalShell::run` with exit/stderr/duration, a 64 KiB cap, a 120 s default (600 s max) timeout and a
-process-tree kill (`agents/shell/process_tree.rs`). Project sessions are excluded from
-`conversation_rows` and `kind_of`, so they never appear in the regular Sessions list, search or picker;
-notifications link to `/<agent>/projects/<id>/chat/<topic>`. The WebUI adds `ProjectsSection` above
-Sessions, project routes under `/:agentId/projects/:projectId`, a desktop folder picker
-(`desktop_pick_folder`) and a host-execution notice for browsers.
+`crates/vizier-core/src/projects/`). A project chat is its own channel kind,
+`VizierChannelId::Project(username, project_id)` with slug `project__{user}__{id}` (040 stored it as
+`HTTP(user, "project__<id>")`; `projects::migrate::migrate_project_channels` rewrites every stored
+slug/JSON once at startup under `migration.project_channel_v1`, and is tracked on #82). The web wire
+`channel_id` is unchanged (`project__<id>`); `VizierChannelId::from_web(user, channel_id)` is the one
+constructor, `web_user()` the one "the person in this chat" accessor, and `web_channel_id()` the wire
+id. `projects::channel` keeps only the wire prefix (`PREFIX`, `channel_id`, `project_id`) and path
+helpers; `projects::access` is the only permission matrix (`all_agents:projects`,
+`owned_agents:projects`; management is the project owner or the all-agents permission; creation
+requires a desktop principal). `service/projects.rs` owns the DTOs, folder validation (canonical,
+must exist, never the app workspace or inside it), soft removal (`turn_active` while a turn is
+pending), the mode, file suggestions, git and worktree operations; routes live in
+`crates/vizier-http/src/api/v1/agents/projects.rs`.
 
+`projects::context::for_turn(deps, session, request)` replaces 040's `for_session`: a `Project`
+session resolves the project, the topic's worktree as `cwd`, the saved mode and a git probe; a
+`Subagent` piece with `VizierRequest.project_scope` (set only by
+`BackgroundJobs::dispatch_piece`) resolves the same project under the launching turn's mode and
+re-checks the owner's permission. It is resolved once per turn and passed to the system prompt
+(`agents/agent/system_prompt/project.rs`, stable per chat) and to `ToolContext.project`. Volatile
+state (mode, branch, shell switch, folder availability) goes in the per-message `## Project state`
+section of `context_md` (`system_prompt/context.rs`, `context_md_with`), never the system prompt, so
+a switch cannot invalidate the prompt cache for the history.
+
+**Coding tools** (`crates/vizier-core/src/projects/tools/`): one `REGISTRY` (`ProjectToolSpec {
+access: Read|Plan|Write|Command, needs_git, tool }`) decides `offered(project)` for the turn,
+`call(name, args, ctx)` refuses a name not offered (`tool_not_offered`), and `output_schema` serves
+docs. `turn_catalogue` appends the offered entries, `turn_categories` adds `coding` whenever a
+project context exists (both modes and an unavailable folder, so `SANDBOX.md` is stable);
+`RouterBridge` dispatches `ToolTarget::Project` to `projects::tools::call`, and `docs_tools` asks the
+registry for output schemas. Plan offers reads plus `propose_plan` (an ending tool); Build adds
+`write_file`/`edit_file` and `workspace_shell` when the shell switch is on. `workspace_shell`
+(`projects/shell.rs`) is now category `coding`. Paths go through one `projects::path::resolve`
+(refuses absolute paths, `..`, symlinks out, and `.vizier/` from the root); walks use `ignore` with
+hidden files shown and `.git/`/`.vizier/` skipped (`projects/tools/walk.rs`). `edit_file`/`write_file`
+check `ProjectReadLedger` (`projects/ledger.rs`, on `VizierDependencies.project_ledger`, in memory,
+1,024 entries per session); a read, a write or an `@` mention records the file's sha256. `@` mentions
+resolve at turn start into `## Mentioned files` (`projects/mentions.rs`, never stored) and
+suggestions come from `projects::suggest` (10 s per-folder cache, hand-rolled scorer).
+
+**Git** (`projects/git/`): `Git { dir }` runs argv only, `-C`, `core.quotepath=off`, no color,
+`GIT_TERMINAL_PROMPT=0`, `GIT_OPTIONAL_LOCKS=0` for reads, `LC_ALL=C`, a 15 s timeout with kill; `probe`
+is `rev-parse`; `status.rs` holds the pure porcelain-v2/numstat/branch/log parsers; `worktree.rs`
+appends `/.vizier/` to `info/exclude`. git is optional: absent git or a non-repository hides every git
+surface (`GET …/git` answers `{available:false}`) and leaves the file tools working.
+
+**Mode and worktrees**: `project_chat (agent_id, channel, topic, mode, updated_at)`, no row meaning
+`plan`, written only by `PUT …/mode`; deleted with the topic/agent. `project_worktree` binds one row
+to one `(project_id, topic)` at `{root}/.vizier/{agent_id}/{name}`; creating it writes the row and the
+chat's `session_detail` in one transaction, deleting it removes the folder/branch then the chat via
+`SessionFiles::delete_conversation`; the ordinary topic delete delegates to the same path.
+`project_has_main_turn` is the branch-switch guard for the main folder. The WebUI adds the composer
+mode toggle (with "applies to the next message"), the plan card, the branch chip and changes panel,
+the worktree dialog/delete confirmation, sidebar branch labels, and `@` mentions; `ProjectSession`
+carries `mode`/`worktree`.
+
+Project sessions are excluded from `conversation_rows` and `kind_of`; notifications link to
+`/<agent>/projects/<id>/chat/<topic>`; usage reports `UsageActivity::Project` (label **Projects**,
+place `project:<slug>:<topic>`, link to the project chat). History, files and the chat socket use the
+existing channel routes with the project `channel_id`.
 ### Storage (`crates/vizier-core/src/storage/`)
 
 `VizierStorageProvider` is a supertrait composing every storage concern (`IntegrationStorage`, `MemoryStorage`, `TaskStorage`, `TaskRunStorage`, `HistoryStorage`, `SessionStorage`, `StateStorage`, `UserStorage`, `AgentStorage`, `ProviderStorage`, `CustomProviderStorage`, `CatalogueCacheStorage`, `GlobalConfigStorage`, `DreamJournalStorage`, `DreamStorage`, `SessionFileStorage`, `BackgroundJobStorage`, `UsageStorage`, `NotificationStorage`). Provider tables: `provider_config` holds one `ProviderCredentials` JSON per `ProviderId`, `custom_provider` the operator-defined providers, `catalogue_snapshot`/`catalogue_logo` the refreshed catalogue and logos. `VizierStorage` type-erases the concrete backend (`storage/sqlite` — the sole `VizierStorageProvider` implementation) behind `Arc<Box<dyn VizierStorageProvider>>` and hand-forwards every trait method. **Adding a storage backend** means implementing every one of those traits for the new type, then `impl VizierStorageProvider for it`. The old `storage/fs` (`FileSystemStorage`) backend has been removed as a runtime option; its non-memory trait impls survive only as a read source for the one-time `migrate_filesystem_backend_to_sqlite` startup migration in `dependencies.rs`, for deployments upgrading from a pre-existing `--storage filesystem` install.

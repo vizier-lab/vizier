@@ -29,9 +29,7 @@ pub(super) fn entry_doc(router: &ToolRouter, ctx: &ToolContext, entry: &Catalogu
             .as_ref()
             .and_then(|client| client.declaration(&entry.name))
             .and_then(|declaration| declaration.output_schema.clone()),
-        ToolTarget::Project => Some(
-            <crate::projects::shell::WorkspaceShell as VizierTool>::output_schema(),
-        ),
+        ToolTarget::Project => crate::projects::tools::output_schema(&entry.name),
     };
     docs::describe_as(
         entry.name.clone(),

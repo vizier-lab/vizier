@@ -23,5 +23,31 @@ pub fn vectors() -> Vec<Vector> {
         v("DELETE", "/agents/agent-a/projects/p3xY9aQ2mZ", None),
         v("GET", "/agents/agent-a/projects/p3xY9aQ2mZ/sessions", None),
         v("POST", "/agents/agent-a/projects/p3xY9aQ2mZ/sessions", None),
+        // 041: mode, file suggestions, git and worktrees (contracts/http-api.md). The fixture
+        // has no project row, so these pin the authorization/not-found envelope; the handlers'
+        // own service tests cover the happy paths.
+        v(
+            "PUT",
+            "/agents/agent-a/projects/p3xY9aQ2mZ/sessions/t1/mode",
+            Some(json!({ "mode": "build" })),
+        ),
+        v("GET", "/agents/agent-a/projects/p3xY9aQ2mZ/files?q=age", None),
+        v("GET", "/agents/agent-a/projects/p3xY9aQ2mZ/git", None),
+        v("GET", "/agents/agent-a/projects/p3xY9aQ2mZ/git/changes", None),
+        v("GET", "/agents/agent-a/projects/p3xY9aQ2mZ/git/diff?path=src%2Flib.rs", None),
+        v("GET", "/agents/agent-a/projects/p3xY9aQ2mZ/git/branches", None),
+        v(
+            "POST",
+            "/agents/agent-a/projects/p3xY9aQ2mZ/git/switch",
+            Some(json!({ "branch": "main" })),
+        ),
+        v("GET", "/agents/agent-a/projects/p3xY9aQ2mZ/worktrees", None),
+        v(
+            "POST",
+            "/agents/agent-a/projects/p3xY9aQ2mZ/worktrees",
+            Some(json!({ "name": "fix", "base": "main" })),
+        ),
+        v("GET", "/agents/agent-a/projects/p3xY9aQ2mZ/worktrees/w1", None),
+        v("DELETE", "/agents/agent-a/projects/p3xY9aQ2mZ/worktrees/w1", None),
     ]
 }

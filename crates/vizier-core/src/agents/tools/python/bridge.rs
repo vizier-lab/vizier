@@ -101,15 +101,16 @@ impl RouterBridge {
                     }
                     result
                 }
-                // The project shell lives only in this turn's catalogue, not in the router's.
+                // Project coding tools live only in this turn's catalogue, not in the
+                // router's; the registry re-checks what this turn may use (contract §1).
                 Some(ToolTarget::Project) => {
-                    let output = <crate::projects::shell::WorkspaceShell as VizierToolDyn>::tool_call(
-                        &crate::projects::shell::WorkspaceShell,
-                        arguments,
-                        &self.ctx,
-                    )
-                    .await?;
-                    tool_output_to_response(&output)
+                    let value = crate::projects::tools::call(&tool, arguments, &self.ctx).await?;
+                    Ok(crate::schema::VizierResponse {
+                        timestamp: chrono::Utc::now(),
+                        content: VizierResponseContent::ToolResponse { response: value },
+                        attachments: vec![],
+                        ..Default::default()
+                    })
                 }
                 _ => self.router.call(tool.clone(), arguments, &self.ctx).await,
             }

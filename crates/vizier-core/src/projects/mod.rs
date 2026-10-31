@@ -9,7 +9,14 @@
 pub mod access;
 pub mod channel;
 pub mod context;
+pub mod git;
 pub mod instructions;
+pub mod ledger;
+pub mod mentions;
+pub mod migrate;
+pub mod path;
+pub mod suggest;
+pub mod tools;
 pub mod shell;
 
 pub use context::ProjectTurnContext;

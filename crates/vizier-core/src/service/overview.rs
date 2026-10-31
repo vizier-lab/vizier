@@ -270,7 +270,9 @@ pub async fn activity(
         for (activity, n) in deps.storage.turns_by_activity(&ids, start).await.unwrap_or_default() {
             use crate::schema::usage::UsageActivity::*;
             match activity {
-                Chat => kinds.chat += n,
+                // A project chat is still a person's chat turn in the today summary; the
+                // usage report is where project work is broken out (FR-016).
+                Chat | Project => kinds.chat += n,
                 Scheduled => kinds.scheduled += n,
                 Dreams => kinds.dream_stages += n,
                 Background => kinds.background += n,

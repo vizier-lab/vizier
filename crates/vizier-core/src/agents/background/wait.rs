@@ -155,6 +155,7 @@ impl BackgroundJobs {
         })?;
 
         let origin = ctx.session.0.clone();
+        let scope = super::project_scope(ctx);
         let sessions: Vec<VizierSession> = prompts
             .iter()
             .map(|_| {
@@ -181,7 +182,14 @@ impl BackgroundJobs {
                 .iter()
                 .zip(prompts.iter())
                 .map(|(session, prompt)| {
-                    self.dispatch_piece(session, prompt, &origin, ctx.background_depth + 1, true)
+                    self.dispatch_piece(
+                        session,
+                        prompt,
+                        &origin,
+                        ctx.background_depth + 1,
+                        true,
+                        scope.as_ref(),
+                    )
                 }),
         )
         .await;

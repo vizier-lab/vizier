@@ -53,6 +53,25 @@ pub struct TopicOutbound {
     out: flume::Sender<serde_json::Value>,
 }
 
+/// At most ten relative, non-empty mention paths of at most 1,024 bytes each.
+fn validate_mentions(mentions: &[String]) -> Result<(), String> {
+    if mentions.len() > 10 {
+        return Err("at most 10 files can be mentioned in one message".into());
+    }
+    for mention in mentions {
+        if mention.trim().is_empty() {
+            return Err("a mention cannot be empty".into());
+        }
+        if mention.len() > 1024 {
+            return Err("a mention path is too long".into());
+        }
+        if std::path::Path::new(mention).is_absolute() {
+            return Err(format!("mention {mention:?} must be relative to the project folder"));
+        }
+    }
+    Ok(())
+}
+
 impl TopicConnection {
     pub async fn open(
         state: &HTTPState,
@@ -68,7 +87,7 @@ impl TopicConnection {
 
         let session = VizierSession(
             agent_id.to_string(),
-            VizierChannelId::HTTP(principal.username.clone(), channel_id.to_string()),
+            VizierChannelId::from_web(&principal.username, channel_id),
             Some(topic_id.to_string()),
         );
         let limits = ClientLimits {
@@ -155,13 +174,23 @@ impl TopicConnection {
                             // A person's message starts a fresh chain; the depth is never
                             // the client's to set.
                             request.background_depth = 0;
+                            // `@` mentions are a project-chat feature; elsewhere the field is
+                            // ignored (contracts/http-api.md §6).
+                            if self.session.1.project_id().is_some() {
+                                if let Err(message) = validate_mentions(&request.mentions) {
+                                    send_frame(client_error("invalid_mentions", None, message)).await;
+                                    return;
+                                }
+                            } else {
+                                request.mentions.clear();
+                            }
 
                             // A project socket re-checks the caller's permission on every turn
                             // (FR-018), so a revocation between two frames refuses the next one.
-                            let VizierChannelId::HTTP(_, channel_id) = &self.session.1 else {
+                            let Some(channel_id) = self.session.1.web_channel_id() else {
                                 return;
                             };
-                            if vizier_core::projects::channel::project_id(channel_id).is_some() {
+                            if self.session.1.project_id().is_some() {
                                 let check = async {
                                     let config = vizier_core::service::topics::authorize_view(
                                         &self.services,
@@ -174,7 +203,7 @@ impl TopicConnection {
                                         &self.principal,
                                         &config,
                                         &self.session.0,
-                                        channel_id,
+                                        &channel_id,
                                     )
                                     .await
                                 }

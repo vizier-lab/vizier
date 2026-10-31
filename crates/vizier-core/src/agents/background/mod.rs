@@ -267,6 +267,7 @@ impl BackgroundJobs {
             vizier.job.timeout_secs = timeout_secs,
         );
 
+        let scope = project_scope(ctx);
         let mut receivers = Vec::with_capacity(job.pieces.len());
         for piece in job.pieces.iter_mut() {
             let sent = self
@@ -276,6 +277,7 @@ impl BackgroundJobs {
                     &origin.0,
                     job.depth + 1,
                     false,
+                    scope.as_ref(),
                 )
                 .instrument(job_span.clone())
                 .await;
@@ -349,6 +351,7 @@ impl BackgroundJobs {
         origin: &AgentId,
         depth: u8,
         transient: bool,
+        scope: Option<&crate::schema::ProjectScope>,
     ) -> crate::Result<flume::Receiver<VizierResponse>> {
         let (tx, rx) = flume::unbounded();
         self.transport
@@ -360,6 +363,7 @@ impl BackgroundJobs {
                     content: VizierRequestContent::Prompt(prompt.to_string()),
                     metadata: serde_json::json!({}),
                     background_depth: depth,
+                    project_scope: scope.cloned(),
                     transient,
                     ..Default::default()
                 },
@@ -999,3 +1003,17 @@ mod tests {
         assert!(err.0.contains("nesting limit (3) reached"), "{}", err.0);
     }
 }
+
+/// The launching turn's project, for a subagent piece (FR-007a). A piece of a piece gets
+/// none: only a person's own project chat is the source of a scope.
+fn project_scope(ctx: &ToolContext) -> Option<crate::schema::ProjectScope> {
+    let project = ctx.project.as_ref()?;
+    let owner = ctx.session.1.web_user()?;
+    Some(crate::schema::ProjectScope {
+        project_id: project.project_id.clone(),
+        owner: owner.to_string(),
+        topic: ctx.session.2.clone().unwrap_or_default(),
+        mode: project.mode,
+    })
+}
+

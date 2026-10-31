@@ -15,6 +15,8 @@ use crate::schema::metrics::TokenCounts;
 #[serde(rename_all = "snake_case")]
 pub enum UsageActivity {
     Chat,
+    /// A project chat's coding work (`specs/041-project-coding-workspace` FR-016).
+    Project,
     Background,
     Scheduled,
     Dreams,
@@ -24,8 +26,9 @@ pub enum UsageActivity {
 }
 
 impl UsageActivity {
-    pub const ALL: [UsageActivity; 7] = [
+    pub const ALL: [UsageActivity; 8] = [
         Self::Chat,
+        Self::Project,
         Self::Background,
         Self::Scheduled,
         Self::Dreams,
@@ -37,6 +40,7 @@ impl UsageActivity {
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Chat => "chat",
+            Self::Project => "project",
             Self::Background => "background",
             Self::Scheduled => "scheduled",
             Self::Dreams => "dreams",
@@ -49,6 +53,7 @@ impl UsageActivity {
     pub fn label(&self) -> &'static str {
         match self {
             Self::Chat => "Chat",
+            Self::Project => "Projects",
             Self::Background => "Background",
             Self::Scheduled => "Scheduled",
             Self::Dreams => "Dreams",

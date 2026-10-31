@@ -695,10 +695,11 @@ pub(crate) async fn webui_reaction(
         }
     }
 
-    let username = match &curr_session.1 {
-        VizierChannelId::HTTP(user, _) => user.clone(),
-        _ => "unknown".to_string(),
-    };
+    let username = curr_session
+        .1
+        .web_user()
+        .unwrap_or("unknown")
+        .to_string();
     let kind = match payload.action {
         ReactionAction::Added => ReactionKind::Add(payload.emoji.clone()),
         ReactionAction::Removed => ReactionKind::Remove(payload.emoji.clone()),

@@ -59,7 +59,8 @@ pub use notification::{
 };
 pub use project::{
     DEFAULT_COMMAND_TIMEOUT, INSTRUCTIONS_CAP_BYTES, MAX_COMMAND_TIMEOUT, NEW_SESSION_TITLE,
-    OUTPUT_CAP_BYTES, PROJECT_ID_LEN, Project, ProjectSessionRow,
+    OUTPUT_CAP_BYTES, PROJECT_ID_LEN, Project, ProjectMode, ProjectScope, ProjectSessionRow,
+    Worktree, WorktreeRef,
 };
 pub use provider::{
     CustomModel, CustomProtocol, CustomProvider, ProviderCredentials, ProviderEntry,

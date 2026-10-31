@@ -345,6 +345,7 @@ async fn a_project_session_can_run_the_workspace_shell() {
 
     let folder = tempfile::tempdir().unwrap();
     std::fs::write(folder.path().join("AGENTS.md"), "Always answer in French.").unwrap();
+    std::fs::write(folder.path().join("main.rs"), "fn greet() {}\nfn main() { greet(); }\n").unwrap();
     let project = vizier_core::schema::Project {
         id: "p3xY9aQ2mZ".into(),
         agent_id: "plug".into(),
@@ -375,16 +376,28 @@ async fn a_project_session_can_run_the_workspace_shell() {
 
     let project_session = VizierSession(
         "plug".into(),
-        VizierChannelId::HTTP("e2e".into(), "project__p3xY9aQ2mZ".into()),
+        VizierChannelId::Project("e2e".into(), "p3xY9aQ2mZ".into()),
         Some("project-1".into()),
     );
+    // The shell is a Build-mode tool; a new project chat starts in Plan (spec 041 FR-009).
+    runtime
+        .deps()
+        .storage
+        .set_project_chat_mode(
+            "plug",
+            &project_session.1.to_slug(),
+            "project-1",
+            vizier_core::schema::ProjectMode::Build,
+        )
+        .await
+        .unwrap();
     let list = chat(
         transport,
         &project_session,
-        r#"{"tool":"list_tool_functions","arguments":{"category":"shell"}}"#,
+        r#"{"tool":"list_tool_functions","arguments":{"category":"coding"}}"#,
     )
     .await;
-    assert!(list.contains("workspace_shell"), "project shell is listed: {list}");
+    assert!(list.contains("workspace_shell"), "project shell is listed under coding: {list}");
 
     let outcome = chat(
         transport,
@@ -395,6 +408,27 @@ async fn a_project_session_can_run_the_workspace_shell() {
     assert!(outcome.contains("hello"), "the command output comes back: {outcome}");
     assert!(outcome.contains("exit_code"), "the result carries the exit code: {outcome}");
 
+    // The coding tools read and edit through the same code-mode bridge, with the stale-read
+    // guard making the edit legal only after the read (spec 041 US1, quickstart §3).
+    let outcome = chat(
+        transport,
+        &project_session,
+        r#"{"tool":"execute_python","arguments":{"intent":"rename greet","code":"print(read_file(path='main.rs'))\nprint(edit_file(path='main.rs', old_text='greet', new_text='hello'))"}}"#,
+    )
+    .await;
+    assert!(outcome.contains("stale_read") || outcome.contains("edit_ambiguous"), "an unread or ambiguous edit is refused: {outcome}");
+    let outcome = chat(
+        transport,
+        &project_session,
+        r#"{"tool":"execute_python","arguments":{"intent":"rename greet everywhere","code":"print(read_file(path='main.rs'))\nprint(edit_file(path='main.rs', old_text='greet', new_text='hello', replace_all=True))"}}"#,
+    )
+    .await;
+    assert!(outcome.contains("replacements"), "the edit applies after a read: {outcome}");
+    assert_eq!(
+        std::fs::read_to_string(folder.path().join("main.rs")).unwrap(),
+        "fn hello() {}\nfn main() { hello(); }\n"
+    );
+
     // An ordinary conversation has neither the tool nor the project section.
     let ordinary = VizierSession(
         "plug".into(),
@@ -404,7 +438,7 @@ async fn a_project_session_can_run_the_workspace_shell() {
     let list = chat(
         transport,
         &ordinary,
-        r#"{"tool":"list_tool_functions","arguments":{"category":"shell"}}"#,
+        r#"{"tool":"list_tool_functions","arguments":{"category":"coding"}}"#,
     )
     .await;
     assert!(!list.contains("workspace_shell"), "ordinary turn has no project shell: {list}");

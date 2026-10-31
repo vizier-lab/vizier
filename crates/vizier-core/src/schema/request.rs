@@ -293,6 +293,16 @@ pub struct VizierRequest {
     /// turn that launched the job and must still count as one level deeper.
     #[serde(default)]
     pub background_depth: u8,
+    /// The project a subagent piece works in (`specs/041-project-coding-workspace` R11),
+    /// copied from the launching turn by `BackgroundJobs::dispatch_piece`. It is serialised
+    /// with the durable turn row, so a resumed piece keeps the folder and mode it started
+    /// with; clients cannot send it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_scope: Option<crate::schema::ProjectScope>,
+    /// Files and folders a project chat's message mentions (FR-018). Their contents are
+    /// resolved when the turn starts and never stored.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub mentions: Vec<String>,
     /// A request that belongs to a blocking piece and must not survive a restart.
     /// Blocking pieces are never journaled or resumed; only their conversation history
     /// remains for inspection.

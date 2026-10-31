@@ -34,9 +34,80 @@ conversation picker.
 Each session is private to the person who opened it. Two people with the project permission share
 the project and its files, but not their session lists or histories.
 
+## Plan and Build
+
+Every project chat has a mode, saved with the chat. A new chat starts in **Plan**.
+
+- **Plan** offers only tools that read: `read_file`, `list_files`, `grep`, `glob` and the
+  read-only git tools. The agent is told to finish with `propose_plan`, which the WebUI draws as a
+  plan card with **Build this plan**.
+- **Build** adds `write_file` and `edit_file`, and `workspace_shell` when the project's shell
+  switch is on.
+
+The mode is server state, so every tab, a resumed turn and a background report see the same one.
+A switch applies from the next turn; a running turn keeps the tools it started with. Subagents
+launched from a project chat inherit its folder (the worktree, when it has one) and the launching
+turn's mode, minus `propose_plan`.
+
+## Coding tools
+
+All project tools are listed in the `coding` category. They take paths relative to the chat's
+folder and refuse anything that leaves it (`path_outside_project`), including through `..`,
+symbolic links or an absolute path. In the main folder, `.vizier/` is refused as
+`path_in_worktree_area`.
+
+| Tool | What it does |
+|---|---|
+| `read_file` | Reads a file, optionally a 1-based line range, with line numbers and a continuation hint |
+| `list_files` | Lists a folder, sorted, with sizes, honouring ignore rules |
+| `glob` | Finds files by a gitignore-style pattern |
+| `grep` | Regex search with optional glob and context lines |
+| `write_file` | Writes a whole file atomically, creating parents inside the folder |
+| `edit_file` | Replaces exact text; refuses a miss, an ambiguity or a stale read, leaving the file byte-identical |
+
+`edit_file` and `write_file` only overwrite a file the chat has read and whose bytes still match
+what it read; a changed file is `stale_read` until it is read again. Edits preserve CRLF line
+endings and the final-newline state. Listings and searches follow `.gitignore`, nested ignore
+files and `info/exclude`; `include_ignored` reaches ignored files deliberately.
+
+## Mentions
+
+In a project or worktree chat, typing `@` suggests files and folders from that chat's folder
+(ignored files excluded). A picked file's current contents — or a folder's shallow listing — are
+given to the agent with the message, bounded per file and per message. A mention counts as a read
+for the stale-read guard. The saved conversation keeps the text and the list of mentions, never the
+contents.
+
+## Git
+
+When git is installed and the folder is inside a repository, the chat header shows the branch and
+the number of changed files; the details panel lists every change with added/removed counts and a
+diff. The branch menu switches or creates a branch. A switch is refused while a turn is running in
+that folder (`turn_active`), when another worktree has the branch checked out
+(`branch_checked_out`), or when git would overwrite local changes (`local_changes`).
+
+The agent has read-only `git_status`, `git_diff` and `git_log`. There is no commit or push in the
+UI: commit through the workspace shell in Build mode, or outside Vizier.
+
+## Worktrees
+
+In a git project a person who may use it can create a worktree: a separate checkout under
+`.vizier/<agent-id>/<name>` on its own branch, bound to exactly one chat. `.vizier/` is added to the
+repository's `info/exclude`, so it does not appear in `git status` and no tracked file changes.
+
+Every tool, the shell, mentions and git act in the worktree for that chat, and paths outside it are
+refused. Deleting the worktree chat removes the chat and the folder; with uncommitted or untracked
+changes the confirmation says how many files will be lost, and **Also delete branch** is
+pre-selected only when the branch is merged into the branch it started from.
+
+A fresh worktree contains only tracked files: install dependencies or run setup through the agent in
+Build mode, guided by the project's own instructions. Note that build tools or file watchers in the
+main folder may react to changes inside `.vizier/`. Removing a project leaves its worktree folders
+on disk.
+
 ## The workspace shell
 
-In a project session the agent has `workspace_shell`:
+In a Build-mode project session, with the shell switch on, the agent has `workspace_shell`:
 
 ```json
 { "command": "cargo test", "workdir": "crates", "timeout_secs": 120 }
@@ -46,11 +117,11 @@ It returns `stdout`, `stderr`, `exit_code`, `duration_ms`, `timed_out` and `trun
 exit is a normal result, not a tool failure. Each stream is capped at 64 KiB. The default time
 limit is 120 seconds (maximum 600); a timed-out command and its child processes are stopped.
 
-`workdir` is relative to the project root and must stay inside it. The command itself is not
-sandboxed — the trust disclosure says so.
+`workdir` is relative to the chat's folder (the worktree, for a worktree chat) and must stay
+inside it. The command itself is not sandboxed — the trust disclosure says so.
 
-Turn the shell off from the project row's menu. The agent is then not offered the tool at all. The
-switch takes effect on the next turn; no agent restart.
+Turn the shell off from the project row's menu. The agent is then not offered the tool at all,
+even in Build mode. The switch takes effect on the next turn; no agent restart.
 
 Two sessions of one project may run commands at the same time. They are not serialised, and file
 changes can race; that is the person's responsibility.
@@ -105,11 +176,26 @@ Agent-scoped routes under `/api/v1/agents/{agent_id}/projects`:
 | `DELETE` | `/{project_id}` | Soft-remove |
 | `GET` | `/{project_id}/sessions` | The caller's sessions |
 | `POST` | `/{project_id}/sessions` | Create an empty session |
+| `PUT` | `/{project_id}/sessions/{topic}/mode` | Switch one chat between `plan` and `build` |
+| `GET` | `/{project_id}/files?q=&topic=` | `@` file suggestions |
+| `GET` | `/{project_id}/git?topic=` | Branch and change count (`available: false` without git) |
+| `GET` | `/{project_id}/git/changes?topic=` | Uncommitted changes with line counts |
+| `GET` | `/{project_id}/git/diff?topic=&path=` | One file's diff against the last commit |
+| `GET` | `/{project_id}/git/branches?topic=` | Branches, and the worktree holding each |
+| `POST` | `/{project_id}/git/switch` | Switch or create a branch |
+| `GET` | `/{project_id}/worktrees` | The project's worktrees |
+| `POST` | `/{project_id}/worktrees` | Create one worktree and its chat |
+| `GET` | `/{project_id}/worktrees/{id}` | Availability, change counts, merged state |
+| `DELETE` | `/{project_id}/worktrees/{id}?force=&delete_branch=` | Delete the chat and folder |
 
 A project session's channel id is `project__<project_id>`; history, files and the chat socket use
-the existing channel routes with that id.
+the existing channel routes with that id. Internally the channel is its own kind, so a project
+chat is reported as **Projects** in usage, links to its project chat in notifications, and never
+appears in the regular Sessions list. Chats created before this change are migrated at startup.
 
 ## Out of scope
 
-Git integration, diff review, a file editor, per-session worktrees, a terminal UI and sandboxing
-are not part of projects.
+Line-range writes, GitHub (`#123`) references, merging or rebasing a worktree from the UI,
+agent-created worktrees and a per-project worktree setup command are out of scope. Per-action
+approval (ask before running a command) belongs to the guardrails work, not Plan mode. There is no
+terminal UI and commands are not sandboxed.

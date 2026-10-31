@@ -28,19 +28,6 @@ pub fn is_project_channel(channel_id: &str) -> bool {
     project_id(channel_id).is_some()
 }
 
-/// The project id a channel slug addresses: `http__<owner>__project__<id>`.
-pub fn project_of_slug(slug: &str) -> Option<&str> {
-    let rest = slug.strip_prefix("http__")?;
-    let (_, channel_id) = rest.split_once("__")?;
-    project_id(channel_id)
-}
-
-/// The project channel id (not the full slug) a conversation slug addresses, when it is one.
-pub fn project_channel_of_slug(slug: &str) -> Option<String> {
-    let id = project_of_slug(slug)?;
-    Some(channel_id(id))
-}
-
 /// A path as people should read it: the canonical form with Windows' `\\?\` verbatim prefix
 /// removed for display only. Comparison always uses the canonical path.
 pub fn display_path(path: &Path) -> String {
@@ -96,19 +83,6 @@ mod tests {
         assert!(!is_project_channel("project:abc"));
         assert!(!is_project_channel("vizier-webui"));
         assert!(!is_project_channel(""));
-    }
-
-    #[test]
-    fn ordinary_slugs_are_not_projects() {
-        assert_eq!(project_of_slug("http__alice__vizier-webui"), None);
-        assert_eq!(project_of_slug("discord__123"), None);
-        assert_eq!(project_of_slug("telegram__-9"), None);
-        assert_eq!(project_of_slug("SUBAGENT"), None);
-        assert_eq!(project_of_slug("http__alice__project__abc123"), Some("abc123"));
-        assert_eq!(
-            project_channel_of_slug("http__alice__project__abc123").as_deref(),
-            Some("project__abc123")
-        );
     }
 
     #[test]
