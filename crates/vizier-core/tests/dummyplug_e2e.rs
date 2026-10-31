@@ -22,7 +22,10 @@ use vizier_core::{
         VizierRequestContent, VizierResponse, VizierResponseContent, VizierSession,
         provider::{ProviderCredentials, ProviderEntry},
     },
-    storage::{history::HistoryStorage, provider::ProviderStorage},
+    storage::{
+        history::HistoryStorage, project::ProjectStorage, provider::ProviderStorage,
+        user::UserStorage,
+    },
     transport::VizierTransport,
 };
 
@@ -293,6 +296,120 @@ async fn dummyplug_agent_answers_through_the_runtime() {
         .shutdown()
         .await
         .unwrap();
+}
+
+/// Spec 040: the workspace shell is offered in a project session, runs a command in the project
+/// folder, and is absent from an ordinary conversation.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_project_session_can_run_the_workspace_shell() {
+    let Some(dummyplug) = Dummyplug::start() else {
+        return;
+    };
+    dummyplug.ready().await;
+
+    let dir = tempfile::tempdir().unwrap();
+    let runtime = VizierRuntime::start(RuntimeOptions {
+        config: VizierConfig::with_workspace(dir.path().to_path_buf()),
+    })
+    .await
+    .unwrap();
+    runtime
+        .deps()
+        .storage
+        .upsert_provider(&ProviderEntry {
+            id: ProviderId::DUMMYPLUG,
+            credentials: ProviderCredentials {
+                base_url: Some(dummyplug.base_url()),
+                ..Default::default()
+            },
+        })
+        .await
+        .unwrap();
+
+    let role = runtime
+        .deps()
+        .storage
+        .create_role(
+            "projects",
+            vec!["all_agents:view".into(), "all_agents:projects".into()],
+            false,
+        )
+        .await
+        .unwrap();
+    runtime
+        .deps()
+        .storage
+        .create_user("e2e", "", &role.role_id)
+        .await
+        .unwrap();
+
+    let folder = tempfile::tempdir().unwrap();
+    std::fs::write(folder.path().join("AGENTS.md"), "Always answer in French.").unwrap();
+    let project = vizier_core::schema::Project {
+        id: "p3xY9aQ2mZ".into(),
+        agent_id: "plug".into(),
+        name: "alpha".into(),
+        folder: std::fs::canonicalize(folder.path()).unwrap(),
+        owner_id: "u-e2e".into(),
+        shell_enabled: true,
+        created_at: 0,
+        removed_at: None,
+    };
+    runtime.deps().storage.open_project(project).await.unwrap();
+
+    let (resp, created) = tokio::sync::oneshot::channel();
+    runtime
+        .transport()
+        .send_agent_command(AgentCommand::Create {
+            agent_id: "plug".into(),
+            config: agent_config("plug"),
+            resp,
+        })
+        .await
+        .unwrap();
+    match tokio::time::timeout(TURN_TIMEOUT, created).await.unwrap().unwrap() {
+        AgentCommandResult::Ok(_) => {}
+        AgentCommandResult::Error(e) => panic!("create failed: {e}"),
+    }
+    let transport = runtime.transport();
+
+    let project_session = VizierSession(
+        "plug".into(),
+        VizierChannelId::HTTP("e2e".into(), "project__p3xY9aQ2mZ".into()),
+        Some("project-1".into()),
+    );
+    let list = chat(
+        transport,
+        &project_session,
+        r#"{"tool":"list_tool_functions","arguments":{"category":"shell"}}"#,
+    )
+    .await;
+    assert!(list.contains("workspace_shell"), "project shell is listed: {list}");
+
+    let outcome = chat(
+        transport,
+        &project_session,
+        r#"{"tool":"execute_python","arguments":{"intent":"run echo in the project folder","code":"print(workspace_shell(command='echo hello'))"}}"#,
+    )
+    .await;
+    assert!(outcome.contains("hello"), "the command output comes back: {outcome}");
+    assert!(outcome.contains("exit_code"), "the result carries the exit code: {outcome}");
+
+    // An ordinary conversation has neither the tool nor the project section.
+    let ordinary = VizierSession(
+        "plug".into(),
+        VizierChannelId::HTTP("e2e".into(), "harness".into()),
+        Some("plain-1".into()),
+    );
+    let list = chat(
+        transport,
+        &ordinary,
+        r#"{"tool":"list_tool_functions","arguments":{"category":"shell"}}"#,
+    )
+    .await;
+    assert!(!list.contains("workspace_shell"), "ordinary turn has no project shell: {list}");
+
+    runtime.shutdown().await.unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread")]

@@ -220,6 +220,7 @@ mod tests {
             client: None,
             secret_redactor: Arc::new(crate::secrets::SecretRedactor::default()),
             dream_sources: vec![],
+            project: None,
         }
     }
 

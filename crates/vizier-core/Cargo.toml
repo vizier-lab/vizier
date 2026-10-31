@@ -110,6 +110,10 @@ whisper-rs = { workspace = true, optional = true }
 zeroize.workspace = true
 zip.workspace = true
 
+# Process-group signalling for the workspace shell's timeout kill (`agents/shell/process_tree.rs`).
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
 [build-dependencies]
 flate2.workspace = true
 serde_json.workspace = true

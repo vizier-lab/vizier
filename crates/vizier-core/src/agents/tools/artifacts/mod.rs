@@ -342,6 +342,7 @@ mod tests {
             client: None,
             secret_redactor: Default::default(),
             dream_sources,
+            project: None,
         }
     }
 

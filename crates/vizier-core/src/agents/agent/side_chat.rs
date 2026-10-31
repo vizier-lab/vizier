@@ -44,10 +44,12 @@ impl VizierAgent {
         history: Vec<SessionHistory>,
         handover: Option<String>,
     ) -> Result<VizierResponse> {
-        // The one snapshot this answer uses, system prompt and tool list alike (G2).
+        // The one snapshot this answer uses, system prompt and tool list alike (G2). A side chat
+        // beside a project session inherits the project section, but it is tool-less.
         let snapshot = self.tools.load_full();
+        let project = crate::projects::context::for_session(&self.deps, &session).await;
         let mut messages = self
-            .prepare_system_prompts(&snapshot.categories, &session)
+            .prepare_system_prompts(&snapshot.categories, &session, project.as_deref())
             .await;
         if let Some(handover) = handover {
             messages.push(checkpoint_context(handover));

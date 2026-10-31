@@ -28,6 +28,10 @@ use crate::{
 
 pub struct TopicConnection {
     session: VizierSession,
+    /// The caller and the service layer, kept so every inbound turn re-checks the project
+    /// permission (spec 040 FR-018: revocation applies to the next turn, not the next socket).
+    principal: Principal,
+    services: vizier_core::service::Services,
     transport: VizierTransport,
     storage: Arc<vizier_core::storage::VizierStorage>,
     limits: ClientLimits,
@@ -58,12 +62,9 @@ impl TopicConnection {
         topic_id: &str,
         out: flume::Sender<serde_json::Value>,
     ) -> Result<Self, ServiceError> {
-        vizier_core::service::topics::authorize_view(
-            &vizier_core::service::Services::new(state.deps.clone()),
-            principal,
-            agent_id,
-        )
-        .await?;
+        let services = vizier_core::service::Services::new(state.deps.clone());
+        vizier_core::service::topics::authorize_topic(&services, principal, agent_id, channel_id)
+            .await?;
 
         let session = VizierSession(
             agent_id.to_string(),
@@ -91,6 +92,8 @@ impl TopicConnection {
 
         Ok(Self {
             session,
+            principal: principal.clone(),
+            services,
             transport: state.transport.clone(),
             storage: state.storage.clone(),
             limits,
@@ -152,6 +155,41 @@ impl TopicConnection {
                             // A person's message starts a fresh chain; the depth is never
                             // the client's to set.
                             request.background_depth = 0;
+
+                            // A project socket re-checks the caller's permission on every turn
+                            // (FR-018), so a revocation between two frames refuses the next one.
+                            let VizierChannelId::HTTP(_, channel_id) = &self.session.1 else {
+                                return;
+                            };
+                            if vizier_core::projects::channel::project_id(channel_id).is_some() {
+                                let check = async {
+                                    let config = vizier_core::service::topics::authorize_view(
+                                        &self.services,
+                                        &self.principal,
+                                        &self.session.0,
+                                    )
+                                    .await?;
+                                    vizier_core::service::topics::authorize_project_channel(
+                                        &self.services,
+                                        &self.principal,
+                                        &config,
+                                        &self.session.0,
+                                        channel_id,
+                                    )
+                                    .await
+                                }
+                                .await;
+                                if let Err(e) = check {
+                                    let code = if e.status() == 404 {
+                                        "project_not_found"
+                                    } else {
+                                        "forbidden"
+                                    };
+                                    send_frame(client_error(code, None, e.message().to_string()))
+                                        .await;
+                                    return;
+                                }
+                            }
 
                             // Refused before anything is sent, so no turn starts (FR-002).
                             if let Err(error) = bind_client_tools(&mut request, &self.connection) {

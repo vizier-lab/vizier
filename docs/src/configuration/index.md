@@ -112,6 +112,7 @@ Variables used by the defaults and the Docker entrypoint:
 - **[Channels](./channels.md)** — HTTP server, Discord, Telegram
 - **[Tools & Embedding](./tools-embedding.md)** — per-agent tools, embedding, indexer
 - **[Storage & Shell](./storage-shell.md)** — SQLite storage and per-agent shell (local/Docker)
+- **[Projects](./projects.md)** — folder-mounted projects, sessions, the workspace shell and permissions
 - **[Agents](./agents.md)** — agent fields, CORE.md, dream cycle, checkpoints, sharing
 - **[CLI](./cli.md)** — `run`, `shutdown`, `onboard`, `skill`, `agent`, Docker
 - **[MCP Servers](./mcp.md)** — per-agent Model Context Protocol servers

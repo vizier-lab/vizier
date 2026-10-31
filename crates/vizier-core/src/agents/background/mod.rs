@@ -981,6 +981,7 @@ mod tests {
             deadline: None,
             dream_sources: vec![],
             secret_redactor: Arc::new(crate::secrets::SecretRedactor::default()),
+            project: None,
         };
 
         let err = jobs

@@ -197,6 +197,19 @@ async fn desktop_open_workspace(path: Option<String>, app: AppHandle, shell: Sta
     Ok(())
 }
 
+/// The native folder picker, for opening a folder as a project (spec 040). A read-only dialog:
+/// creation itself stays a normal authenticated API call, so this never touches the engine.
+#[tauri::command]
+async fn desktop_pick_folder(app: AppHandle) -> Result<Option<String>, CommandError> {
+    let app = app.clone();
+    let chosen = tauri::async_runtime::spawn_blocking(move || {
+        app.dialog().file().blocking_pick_folder().and_then(|p| p.into_path().ok())
+    })
+    .await
+    .map_err(|e| CommandError::new("dialog", e.to_string()))?;
+    Ok(chosen.map(|path| path.to_string_lossy().into_owned()))
+}
+
 #[tauri::command]
 async fn runtime_restart(shell: State<'_, Shell>) -> Result<(), ()> {
     shell.topics.close_all();
@@ -326,14 +339,16 @@ pub fn run() {
     #[cfg(debug_assertions)]
     let handler: Box<dyn Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Sync> = Box::new(tauri::generate_handler![
         api, topic_open, topic_send, topic_close, desktop_state, desktop_setup_owner,
-        desktop_choose_owner, desktop_open_workspace, runtime_restart, desktop_theme, desktop_settings_get,
+        desktop_choose_owner, desktop_open_workspace, desktop_pick_folder, runtime_restart,
+        desktop_theme, desktop_settings_get,
         desktop_settings_set, desktop_ready, save_file, open_file, notify, update_check,
         update_install, runtime_debug_stop_scheduler
     ]);
     #[cfg(not(debug_assertions))]
     let handler: Box<dyn Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Sync> = Box::new(tauri::generate_handler![
         api, topic_open, topic_send, topic_close, desktop_state, desktop_setup_owner,
-        desktop_choose_owner, desktop_open_workspace, runtime_restart, desktop_theme, desktop_settings_get,
+        desktop_choose_owner, desktop_open_workspace, desktop_pick_folder, runtime_restart,
+        desktop_theme, desktop_settings_get,
         desktop_settings_set, desktop_ready, save_file, open_file, notify, update_check,
         update_install
     ]);

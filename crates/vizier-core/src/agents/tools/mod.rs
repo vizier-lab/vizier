@@ -232,6 +232,9 @@ pub struct ToolContext {
     /// sessions a dream may read session files from or promote an artifact from. Empty on every
     /// ordinary, scheduled and background turn.
     pub dream_sources: Vec<VizierSession>,
+    /// The project this turn belongs to (`specs/040-projects-mode`): set only for a project
+    /// session, resolved once and shared by the prompt and `workspace_shell`.
+    pub project: Option<Arc<crate::projects::context::ProjectTurnContext>>,
 }
 
 #[derive(Clone, Default)]
@@ -467,6 +470,9 @@ pub enum ToolTarget {
         category: String,
         tool: String,
     },
+    /// The per-turn project workspace shell. Only [`turn_catalogue`] produces it, only while a
+    /// project session may run commands, and only `RouterBridge` dispatches it.
+    Project,
 }
 
 /// One script-callable function: the single source for its name, category and dispatch.
@@ -665,14 +671,27 @@ pub async fn turn_catalogue(router: &ToolRouter, ctx: &ToolContext) -> Vec<Catal
     if let Some(client) = &ctx.client {
         entries.extend(client.catalogue().iter().cloned());
     }
+    // The project shell exists only while this turn may run commands in the project folder.
+    if ctx.project.as_ref().is_some_and(|project| project.shell_offered()) {
+        entries.push(crate::projects::shell::WorkspaceShell::entry());
+    }
     entries
 }
 
-/// The category lines of this turn: the agent's, then the client's in declaration order.
+/// The category lines of this turn: the agent's, then the client's in declaration order, plus
+/// `shell` while the project workspace shell is offered.
 pub fn turn_categories(base: &[CategorySummary], ctx: &ToolContext) -> Vec<CategorySummary> {
     let mut categories = base.to_vec();
     if let Some(client) = &ctx.client {
         categories.extend(client.categories().iter().cloned());
+    }
+    if ctx.project.as_ref().is_some_and(|project| project.shell_offered())
+        && !categories.iter().any(|category| category.name == "shell")
+    {
+        categories.push(CategorySummary {
+            name: "shell".into(),
+            description: "Run commands in the project folder on the host machine".into(),
+        });
     }
     categories
 }
@@ -848,6 +867,7 @@ impl ToolRouter {
                 .unwrap_or(ToolCategory::ALL.len()),
             ToolTarget::Mcp { .. } => ToolCategory::ALL.len() + 1,
             ToolTarget::Client { .. } => ToolCategory::ALL.len() + 2,
+            ToolTarget::Project => ToolCategory::ALL.len() + 3,
         };
         entries
             .sort_by(|a, b| (rank(a), &a.category, &a.name).cmp(&(rank(b), &b.category, &b.name)));
@@ -912,6 +932,12 @@ impl ToolRouter {
             }
             Some(ToolTarget::Client { .. }) => Err(VizierError(format!(
                 "{function_name} is provided by the person's client and is called from a script"
+            ))
+            .into()),
+            // The project shell is dispatched by `RouterBridge`, which owns the per-turn
+            // catalogue; reaching it here would mean the entry leaked outside a turn.
+            Some(ToolTarget::Project) => Err(VizierError(format!(
+                "{function_name} is only available inside a project session"
             ))
             .into()),
             None => Err(VizierError(format!("{} not found", function_name)).into()),
@@ -1992,6 +2018,7 @@ mod tests {
             client,
             dream_sources: vec![],
             secret_redactor: Arc::new(crate::secrets::SecretRedactor::default()),
+            project: None,
         }
     }
 
