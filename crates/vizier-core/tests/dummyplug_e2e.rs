@@ -463,7 +463,7 @@ async fn an_agents_identity_is_a_memory_at_core_soul() {
 
     let dir = tempfile::tempdir().unwrap();
     let config = VizierConfig::with_workspace(dir.path().to_path_buf());
-    let mut runtime = VizierRuntime::start(RuntimeOptions { config }).await.unwrap();
+    let runtime = VizierRuntime::start(RuntimeOptions { config }).await.unwrap();
     runtime
         .deps()
         .storage
