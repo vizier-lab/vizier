@@ -7,7 +7,8 @@ const ROUTES = [
     '/',
     '/agents/new',
     `/${AGENT}/chat`,
-    `/${AGENT}/core`,
+    // The Core page is gone (spec 043): identity is reached at this document in Memory.
+    `/${AGENT}/memory/core/soul`,
     `/${AGENT}/memory`,
     `/${AGENT}/tasks`,
     `/${AGENT}/skills`,

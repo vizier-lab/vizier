@@ -36,6 +36,8 @@ export interface Bundle {
     concept_count: number
     updated_at: string | null
     link_count: number
+    /** Reserved bundle: its documents can be deleted, the bundle itself cannot. */
+    protected?: boolean
 }
 
 export interface GraphNodeDto {
@@ -80,8 +82,17 @@ export const listBundles = (agentId: string) => api.get<Bundle[]>(`${base(agentI
 
 export const getDoc = (agentId: string, bundle: string, path: string) => api.get<MemoryDoc>(doc(agentId, bundle, stripMd(path)))
 
-export const saveDoc = (agentId: string, bundle: string, path: string, body: { title: string; content: string; tags: string[] }) =>
-    api.put(doc(agentId, bundle, stripMd(path)), body)
+/**
+ * `base_seq` is the revision this edit started from. Sending it turns a save made from a stale
+ * view into a `409 stale_revision` carrying the newer content, instead of overwriting it. It is
+ * optional so callers without revision history keep the old behaviour.
+ */
+export const saveDoc = (
+    agentId: string,
+    bundle: string,
+    path: string,
+    body: { title: string; content: string; tags: string[]; base_seq?: number }
+) => api.put(doc(agentId, bundle, stripMd(path)), body)
 
 export const deleteDoc = (agentId: string, bundle: string, path: string) => api.delete(doc(agentId, bundle, stripMd(path)))
 

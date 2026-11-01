@@ -149,7 +149,7 @@ export default function AgentDream() {
                             { label: 'Reflects on', value: 'conversations since the last dream' },
                         ]}
                     />
-                    <p className="type-small text-faint">While it dreams, the agent can read and write memory and CORE, and nothing else.</p>
+                    <p className="type-small text-faint">While it dreams, the agent can read and write its memory — including Core, at core/soul — and nothing else.</p>
                 </aside>
             </div>
         </PageFrame>

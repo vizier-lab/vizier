@@ -20,7 +20,10 @@ export interface DreamCycle {
     written: number
     revised: number
     removed: number
+    /** Did this cycle change the agent's identity? */
     core: boolean
+    /** How many identity changes — the reserved bundle's revisions, counted on their own. */
+    core_changes: number
     changes: DreamChange[]
     more: number
     model: string | null
@@ -30,8 +33,10 @@ export interface DreamCycle {
 export interface DreamNight {
     date: string
     cycle_id: string | null
+    /** written + revised + removed, excluding identity changes. */
     memories: number
     core: boolean
+    core_changes: number
     state: CycleState | null
 }
 
