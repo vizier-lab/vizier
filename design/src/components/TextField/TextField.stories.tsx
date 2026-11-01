@@ -25,13 +25,27 @@ export const Invalid: Story = {
   args: { label: "Confirm password", type: "password", defaultValue: "hunter22", invalid: true, helper: "Passwords do not match." },
 };
 
-/** Screen extensions: mono value, a unit, a locked id, a password, the Lg login field. */
+/** Screen extensions: mono value, a unit, a fixed addon tail, a locked id, a password, the Lg login field. */
 export const Extensions: Story = {
   decorators: [(Story) => <div className="flex w-320 flex-col gap-20">{Story()}</div>],
   render: () => (
     <>
       <TextField label="Model" mono defaultValue="qwen3:32b" />
       <TextField label="Context window" mono defaultValue="200000" suffix="tokens" inputMode="numeric" />
+      <TextField
+        label="Base URL"
+        mono
+        defaultValue="https://oni.lio.id/v1"
+        addon="/chat/completions"
+        helper="Enter the URL up to the version prefix; Vizier adds the endpoint."
+      />
+      {/* A long value keeps its own room: the input scrolls, the panel never moves. */}
+      <TextField
+        label="Long Base URL"
+        mono
+        defaultValue="https://gateway.example.internal:8443/proxy/openai/v1"
+        addon="/chat/completions"
+      />
       <TextField label="Agent ID" mono locked defaultValue="archivist" helper="Set when the agent was created." />
       <TextField label="Password" type="password" defaultValue="correct horse" />
       <TextField label="Username" size="lg" defaultValue="ganesha" autoComplete="username" />
