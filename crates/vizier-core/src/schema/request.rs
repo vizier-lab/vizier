@@ -352,6 +352,29 @@ pub struct VizierRequest {
     pub client: Option<crate::agents::client::ClientBinding>,
 }
 
+/// The `# Attached Files` block for a request's attachments: what reached the conversation's
+/// session files, and which tool reads each kind. `None` when the request carries none.
+///
+/// The leading blank line is part of the block: the offline provider cuts the user message at
+/// `"\n\n# Attached Files\n"` (`dummyplug/src/protocol.mjs`), so the block has to read the same
+/// wherever it is rendered. It has two callers: `to_prompt`, for a request that still carries its
+/// attachments (a replayed turn), and the turn itself, which moves them into the session files
+/// and then says so on the model's message — otherwise the model is handed a request whose files
+/// were just taken off it and never learns they exist.
+pub fn attachments_note(attachments: &[VizierAttachment]) -> Option<String> {
+    if attachments.is_empty() {
+        return None;
+    }
+    let list = attachments
+        .iter()
+        .map(|a| format!("- {} ({})", a.filename, get_mime_type(&a.filename)))
+        .collect::<Vec<_>>()
+        .join("\n");
+    Some(format!(
+        "\n\n# Attached Files\n{list}\nThe following files were added to your session files.\nUse `read_document_file` for text documents and PDFs, `read_image_file` for images, and the `office_*` tools for Word and Excel files."
+    ))
+}
+
 impl VizierRequest {
     /// Whether the request is journaled so a restart can pick it up again. An abort is an
     /// instruction about the present, and a dream cycle is rescheduled on its own.
@@ -373,19 +396,8 @@ impl VizierRequest {
             self.content
         );
 
-        let mut all_attachments_info = vec![];
-
-        for a in &self.attachments {
-            let mime = get_mime_type(&a.filename);
-            all_attachments_info.push(format!("- {} ({})", a.filename, mime));
-        }
-
-        if !all_attachments_info.is_empty() {
-            prompt = format!(
-                "{}\n\n# Attached Files\n{}\nthe following files added to your session files.\nUse `read_document_file` for text documents and PDFs, `read_image_file` for images, and the `office_*` tools for Word and Excel files.",
-                prompt,
-                all_attachments_info.join("\n")
-            );
+        if let Some(note) = attachments_note(&self.attachments) {
+            prompt.push_str(&note);
         }
 
         Ok(prompt)
@@ -810,5 +822,51 @@ mod tests {
         };
         let typed = typed.to_prompt().unwrap();
         assert!(!typed.contains("question_answer") && !typed.contains("set-123"), "{typed}");
+    }
+
+    fn attached(filename: &str) -> VizierAttachment {
+        VizierAttachment {
+            filename: filename.into(),
+            content: VizierAttachmentContent::Local(format!("/api/v1/files/{filename}")),
+        }
+    }
+
+    #[test]
+    fn a_request_without_attachments_has_no_note() {
+        assert_eq!(attachments_note(&[]), None);
+    }
+
+    /// The block the turn puts on the model's message is the same one a replayed request
+    /// carries in its prompt, so neither can drift from the other.
+    #[test]
+    fn the_note_names_every_attachment_with_its_mime_type() {
+        let note = attachments_note(&[attached("notes.txt"), attached("cat.png")]).unwrap();
+        assert!(note.starts_with("\n\n# Attached Files\n"), "{note}");
+        assert!(note.contains("- notes.txt (text/plain)"), "{note}");
+        assert!(note.contains("- cat.png (image/png)"), "{note}");
+        assert!(note.contains("`read_document_file`") && note.contains("`read_image_file`"));
+    }
+
+    /// A replayed turn's request still carries its attachments, so its prompt already ends
+    /// with this block — unchanged bytes, from the one function the live turn also uses.
+    #[test]
+    fn to_prompt_ends_with_the_note_for_a_request_that_holds_its_attachments() {
+        let request = VizierRequest {
+            user: "alice".into(),
+            content: VizierRequestContent::Chat("summarise this".into()),
+            attachments: vec![attached("notes.txt")],
+            ..Default::default()
+        };
+        let prompt = request.to_prompt().unwrap();
+        assert!(
+            prompt.ends_with(&attachments_note(&request.attachments).unwrap()),
+            "{prompt}"
+        );
+
+        let bare = VizierRequest {
+            attachments: vec![],
+            ..request
+        };
+        assert!(!bare.to_prompt().unwrap().contains("# Attached Files"));
     }
 }

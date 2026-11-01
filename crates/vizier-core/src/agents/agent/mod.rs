@@ -762,14 +762,20 @@ impl VizierAgent {
         // Store attachments in SessionFiles via FileManager. One that fails is left out and
         // the model told so, rather than failing the turn over one file (#47).
         let mut unavailable = vec![];
+        // The ones that are now session files: the request is about to lose its attachments, so
+        // this is the only record of them the turn's own message can be built from.
+        let mut stored_attachments: Vec<VizierAttachment> = vec![];
         for attachment in &req.attachments {
-            if let Err(e) = self.store_session_file(&session, attachment).await {
-                tracing::warn!(
-                    "attachment '{}' could not be stored, continuing without it: {}",
-                    attachment.filename,
-                    e
-                );
-                unavailable.push(attachment.filename.clone());
+            match self.store_session_file(&session, attachment).await {
+                Ok(()) => stored_attachments.push(attachment.clone()),
+                Err(e) => {
+                    tracing::warn!(
+                        "attachment '{}' could not be stored, continuing without it: {}",
+                        attachment.filename,
+                        e
+                    );
+                    unavailable.push(attachment.filename.clone());
+                }
             }
         }
         let attachment_names: Vec<String> =
@@ -880,14 +886,24 @@ impl VizierAgent {
             }
             None => req.to_message(&self.global_workspace, self.deps.artifacts.as_ref())?,
         };
+        // What became of the person's files, on their own message: the ones that could not be
+        // stored (loudly, #47) and the ones that did. Without the second, the model is handed a
+        // request whose attachments were just moved into the session files and reads a message
+        // that mentions a file it was never told exists — so it only finds it if it happens to
+        // call `list_session_files`. The stored bytes never ride the message; the names do.
+        let mut note = String::new();
         if !unavailable.is_empty() {
-            message = with_note(
-                message,
-                format!(
-                    "[These attachments could not be loaded: {}]",
-                    unavailable.join(", ")
-                ),
-            );
+            note.push_str(&format!(
+                "[These attachments could not be loaded: {}]",
+                unavailable.join(", ")
+            ));
+        }
+        if let Some(added) = crate::schema::attachments_note(&stored_attachments) {
+            // The block brings its own leading blank line, which separates it from a failure.
+            note.push_str(&added);
+        }
+        if !note.is_empty() {
+            message = with_note(message, note);
         }
 
         let progress = resume_steps
@@ -2565,5 +2581,248 @@ mod ends_turn_tests {
             Message::Assistant(vec![AssistantPart::Text("and more".into())]),
         ];
         assert_eq!(ending_tool_in(&messages), None);
+    }
+}
+
+/// The turn moves a person's attachments into the session files and clears them off the
+/// request before the message is built, so the note it appends is the only thing telling the
+/// model its files exist. These drive a real turn over a scripted model and read the messages
+/// it was handed.
+#[cfg(test)]
+mod attachment_note_tests {
+    use super::*;
+    use crate::llm::{CompletionModel, CompletionResponse, LlmError};
+    use crate::schema::VizierChannelId;
+    use std::sync::Mutex as StdMutex;
+
+    const AGENT: &str = "note-agent";
+    /// The upload the `Local` attachments point at, as the FileManager resolves them.
+    const FILE_ID: &str = "abc123";
+
+    /// Answers each completion with the next scripted reply, and keeps every request it saw.
+    struct RecordingModel {
+        replies: StdMutex<Vec<AssistantPart>>,
+        seen: StdMutex<Vec<Vec<Message>>>,
+    }
+
+    impl RecordingModel {
+        fn new(replies: Vec<AssistantPart>) -> Arc<Self> {
+            Arc::new(Self {
+                replies: replies.into(),
+                seen: Vec::new().into(),
+            })
+        }
+
+        /// The messages of the `nth` completion, 0-based.
+        fn seen(&self, nth: usize) -> Vec<Message> {
+            self.seen.lock().unwrap()[nth].clone()
+        }
+
+        fn calls(&self) -> usize {
+            self.seen.lock().unwrap().len()
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl CompletionModel for RecordingModel {
+        async fn complete(&self, req: CompletionRequest) -> Result<CompletionResponse, LlmError> {
+            self.seen.lock().unwrap().push(req.messages);
+            let reply = self.replies.lock().unwrap().remove(0);
+            Ok(CompletionResponse {
+                id: None,
+                content: vec![reply],
+                usage: Default::default(),
+                model: None,
+                finish_reason: None,
+            })
+        }
+
+        fn context_window(&self) -> Option<u64> {
+            None
+        }
+    }
+
+    async fn setup(
+        model: Arc<RecordingModel>,
+    ) -> (VizierAgent, Arc<VizierStorage>, VizierSession, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        let config = VizierConfig {
+            workspace: dir.path().to_string_lossy().to_string(),
+            ..Default::default()
+        };
+        let deps = VizierDependencies::new(config).await.unwrap();
+        let mut agent_config = crate::tests_support::agent_config(AGENT);
+        // Room for a tool round before the wrap-up asks for text only, and a turn that is not
+        // already past its own deadline.
+        agent_config.thinking_depth = 3;
+        agent_config.prompt_timeout =
+            duration_string::DurationString::from_string("30s".into()).unwrap();
+        let mut agent = VizierAgent::new(AGENT.to_string(), &deps, &agent_config, None)
+            .await
+            .unwrap();
+        let scripted = VizierModel::scripted(
+            AGENT.to_string(),
+            deps.storage.clone(),
+            model,
+            "scripted",
+        );
+        agent.swap_model_for_test(scripted);
+        let session = VizierSession(
+            AGENT.into(),
+            VizierChannelId::HTTP("tester".into(), "topic".into()),
+            None,
+        );
+        (agent, deps.storage.clone(), session, dir)
+    }
+
+    /// The upload on disk, under the id the attachment points at.
+    fn upload(dir: &tempfile::TempDir, filename: &str, body: &str) {
+        let folder = dir.path().join("uploads").join(FILE_ID);
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(folder.join(filename), body).unwrap();
+    }
+
+    fn attachment(filename: &str) -> VizierAttachment {
+        VizierAttachment {
+            filename: filename.into(),
+            content: VizierAttachmentContent::Local(format!("/api/v1/files/{FILE_ID}")),
+        }
+    }
+
+    fn request(text: &str, attachments: Vec<VizierAttachment>) -> VizierRequest {
+        VizierRequest {
+            user: "tester".into(),
+            content: VizierRequestContent::Chat(text.into()),
+            attachments,
+            ..Default::default()
+        }
+    }
+
+    async fn run(agent: &VizierAgent, session: &VizierSession, req: VizierRequest) {
+        agent
+            .chat(
+                req,
+                session.clone(),
+                vec![],
+                vec![],
+                vec![],
+                None,
+                None,
+                None,
+                TurnRef::default(),
+            )
+            .await
+            .unwrap();
+    }
+
+    /// The parts of the last user message in a completion's request.
+    fn last_user_parts(messages: &[Message]) -> Vec<Part> {
+        messages
+            .iter()
+            .rev()
+            .find_map(|message| match message {
+                Message::User(parts) => Some(parts.clone()),
+                _ => None,
+            })
+            .expect("the request holds a user message")
+    }
+
+    fn text_of(parts: &[Part]) -> String {
+        parts
+            .iter()
+            .filter_map(|part| part.text())
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    fn any_attachment_part(messages: &[Message]) -> bool {
+        messages.iter().any(|message| match message {
+            Message::User(parts) | Message::ToolResult { content: parts, .. } => {
+                parts.iter().any(|p| matches!(p, Part::Attachment { .. }))
+            }
+            _ => false,
+        })
+    }
+
+    /// The bug: the request is emptied of its attachments before the message is built, so the
+    /// prompt's own `# Attached Files` block never reached the turn that received the file.
+    #[tokio::test]
+    async fn the_turns_own_message_names_the_files_it_moved_into_the_session_files() {
+        let model = RecordingModel::new(vec![AssistantPart::Text("done".into())]);
+        let (agent, storage, session, dir) = setup(model.clone()).await;
+        upload(&dir, "notes.txt", "the answer is 42");
+
+        run(
+            &agent,
+            &session,
+            request("summarise this", vec![attachment("notes.txt")]),
+        )
+        .await;
+
+        let first = model.seen(0);
+        let parts = last_user_parts(&first);
+        let text = text_of(&parts);
+        assert!(text.contains("# Attached Files"), "{text}");
+        assert!(text.contains("- notes.txt (text/plain)"), "{text}");
+        // After the context block, as a trailing note beside what the person typed.
+        assert!(text_of(&parts[..1]).starts_with("# Context"), "{text}");
+        assert!(text_of(&parts[parts.len() - 1..]).contains("# Attached Files"));
+        // Only names: the bytes went to the session files, never onto the message.
+        assert!(
+            !any_attachment_part(&first),
+            "the message carries no attachment part"
+        );
+
+        let stored = storage.get_session_file(&session, "notes.txt").await.unwrap();
+        assert!(stored.is_some(), "the upload became a session file");
+    }
+
+    /// The other half: a later round of the same turn re-sends the message, so the note has to
+    /// be in the history that round is given, not only in the first completion.
+    #[tokio::test]
+    async fn the_note_survives_a_tool_round() {
+        let model = RecordingModel::new(vec![
+            AssistantPart::ToolCall {
+                id: "call-1".into(),
+                name: "list_tool_functions".into(),
+                arguments: serde_json::json!({}),
+                provider_data: None,
+            },
+            AssistantPart::Text("done".into()),
+        ]);
+        let (agent, _storage, session, dir) = setup(model.clone()).await;
+        upload(&dir, "notes.txt", "the answer is 42");
+
+        run(
+            &agent,
+            &session,
+            request("summarise this", vec![attachment("notes.txt")]),
+        )
+        .await;
+
+        assert_eq!(model.calls(), 2, "the turn took a tool round");
+        let second = text_of(&last_user_parts(&model.seen(1)));
+        assert!(second.contains("- notes.txt (text/plain)"), "{second}");
+    }
+
+    /// A file that could not be stored stays a loud note, and is not claimed as a session file.
+    #[tokio::test]
+    async fn a_file_that_could_not_be_stored_is_reported_not_named() {
+        let model = RecordingModel::new(vec![AssistantPart::Text("done".into())]);
+        let (agent, _storage, session, _dir) = setup(model.clone()).await;
+
+        run(
+            &agent,
+            &session,
+            request("look at this", vec![attachment("ghost.txt")]),
+        )
+        .await;
+
+        let text = text_of(&last_user_parts(&model.seen(0)));
+        assert!(
+            text.contains("[These attachments could not be loaded: ghost.txt]"),
+            "{text}"
+        );
+        assert!(!text.contains("# Attached Files"), "{text}");
     }
 }
