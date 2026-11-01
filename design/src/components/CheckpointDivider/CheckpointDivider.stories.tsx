@@ -15,4 +15,8 @@ type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {};
 
+/** A checkpoint whose handover is empty: the server stored a reset, not a summary. */
 export const NoHandover: Story = { args: { detail: undefined } };
+
+/** `/lobotomy`: the context was cleared and nothing was carried over. */
+export const Lobotomy: Story = { args: { detail: undefined, kind: "lobotomy" } };
