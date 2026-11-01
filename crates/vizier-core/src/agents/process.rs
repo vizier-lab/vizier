@@ -944,11 +944,11 @@ fn start_session_job(
 
         let result = match &request.content {
             VizierRequestContent::Command(cmd) if cmd == "checkpoint" => {
-                run_checkpoint(&agent, &storage, &session, &response_tx).await;
+                run_checkpoint(&agent, &storage, &deps.transport, &session, &response_tx).await;
                 Ok(())
             }
             VizierRequestContent::Command(cmd) if cmd == "lobotomy" => {
-                run_lobotomy(&storage, &session, &response_tx).await;
+                run_lobotomy(&storage, &deps.transport, &session, &response_tx).await;
                 Ok(())
             }
             // A side chat is answered by `run_btw`, which never saves anything: no history,
@@ -1043,17 +1043,22 @@ async fn send_checkpoint(
 async fn run_checkpoint(
     agent: &VizierAgent,
     storage: &VizierStorage,
+    transport: &VizierTransport,
     session: &VizierSession,
     response_tx: &Option<flume::Sender<VizierResponse>>,
 ) {
     // Saved when the handover starts, not when the command arrived, so it lands after the
     // turn it waited for.
-    let _ = storage
-        .save_session_history(
-            session.clone(),
-            SessionHistoryContent::Command("checkpoint".to_string()),
-        )
-        .await;
+    // Published, not just saved: a checkpoint run from another socket (the dream cycle's
+    // pre-checkpoint) has no reply on the WebUI's own sender, and an entry saved silently
+    // never reaches the page that is watching (`record_step` pushes both).
+    crate::agents::steps::record_step(
+        storage,
+        transport,
+        session,
+        SessionHistoryContent::Command("checkpoint".to_string()),
+    )
+    .await;
 
     let history = match storage
         .list_session_history(session.clone(), None, None, None)
@@ -1163,15 +1168,19 @@ fn btw_error_response(message: String) -> VizierResponse {
 /// `/lobotomy`: a checkpoint with no handover, so the session carries nothing over.
 async fn run_lobotomy(
     storage: &VizierStorage,
+    transport: &VizierTransport,
     session: &VizierSession,
     response_tx: &Option<flume::Sender<VizierResponse>>,
 ) {
-    let _ = storage
-        .save_session_history(
-            session.clone(),
-            SessionHistoryContent::Command("lobotomy".to_string()),
-        )
-        .await;
+    // Published like a checkpoint's: the WebUI draws the reset from these entries, and a page
+    // watching the conversation has no other copy of them.
+    crate::agents::steps::record_step(
+        storage,
+        transport,
+        session,
+        SessionHistoryContent::Command("lobotomy".to_string()),
+    )
+    .await;
 
     // Save checkpoint with no handover
     if let Err(e) = storage.save_checkpoint(session.clone(), None).await {
@@ -1453,7 +1462,7 @@ pub async fn handle_request(
                     Parsed::Plain => {}
                     Parsed::List => {
                         let reply = list_reply(&skills);
-                        return answer_directly(&storage, &session, request, &response_tx, reply)
+                        return answer_directly(&storage, &deps.transport, &session, request, &response_tx, reply)
                             .await;
                     }
                     Parsed::Invoke { name, input } => match skills.find(&name) {
@@ -1472,6 +1481,7 @@ pub async fn handle_request(
                             );
                             return answer_directly(
                                 &storage,
+                                &deps.transport,
                                 &session,
                                 request,
                                 &response_tx,
@@ -1483,6 +1493,7 @@ pub async fn handle_request(
                             let reply = not_found_reply(&skills, &name);
                             return answer_directly(
                                 &storage,
+                                &deps.transport,
                                 &session,
                                 request,
                                 &response_tx,
@@ -1763,17 +1774,22 @@ pub async fn handle_request(
 /// reply are saved like any exchange, so they show on reload, and no usage is recorded.
 async fn answer_directly(
     storage: &Arc<VizierStorage>,
+    transport: &VizierTransport,
     session: &VizierSession,
     mut request: VizierRequest,
     response_tx: &Option<flume::Sender<VizierResponse>>,
     content: String,
 ) -> Result<()> {
     request.attachments.clear();
-    if let Err(e) =
-        save_with_busy_retry(storage, session, SessionHistoryContent::Request(request)).await
-    {
-        tracing::error!(agent_id = %session.0, "failed to save session history: {e}");
-    }
+    // Recorded, not merely saved: a second tab, or a page reopened while this ran, draws the
+    // exchange from these pushed entries rather than waiting for its next history read.
+    crate::agents::steps::record_step(
+        storage,
+        transport,
+        session,
+        SessionHistoryContent::Request(request),
+    )
+    .await;
     let mut response = VizierResponse {
         timestamp: Utc::now(),
         content: VizierResponseContent::Message {
@@ -1782,15 +1798,16 @@ async fn answer_directly(
         },
         ..Default::default()
     };
-    match save_with_busy_retry(
+    match crate::agents::steps::record_step(
         storage,
+        transport,
         session,
         SessionHistoryContent::Response(response.clone()),
     )
     .await
     {
-        Ok(uid) => response.history_uid = Some(uid),
-        Err(e) => tracing::error!(agent_id = %session.0, "failed to save session history: {e}"),
+        Some(uid) => response.history_uid = Some(uid),
+        None => tracing::error!(agent_id = %session.0, "failed to save session history"),
     }
     if let Some(tx) = response_tx {
         let _ = tx.send_async(response).await;
