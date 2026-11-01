@@ -4,6 +4,7 @@ import {
     BackgroundReportCard,
     ChatGreeting,
     CheckpointDivider,
+    CommandNote,
     HandoverSummary,
     JumpToLatest,
     LoadMore,
@@ -75,6 +76,29 @@ type Props = {
 
 function stopTime(entry: ChatMessage | undefined) {
     return entry?.timestamp ? time(entry.timestamp) : ''
+}
+
+/** The commands that draw their own line; `abort` is named by its StoppedNote instead. */
+function isCommand(command: string): command is 'checkpoint' | 'lobotomy' {
+    return command === 'checkpoint' || command === 'lobotomy'
+}
+
+/**
+ * Whether this checkpoint is the one `/lobotomy` saves. The engine stores the command and then
+ * a checkpoint with no handover (`run_lobotomy`), so the command directly above it is what tells
+ * the two resets apart — a `/checkpoint` whose handover generation failed looks the same
+ * otherwise.
+ */
+function lobotomyAt(entries: ChatMessage[], checkpoint: ChatMessage) {
+    const at = entries.findIndex((entry) => entry.uid === checkpoint.uid)
+    if (at <= 0) return false
+    // Nothing but the command's own entry separates them: both are saved in one go.
+    for (let i = at - 1; i >= 0; i -= 1) {
+        const command = entries[i].content.Command
+        if (command !== undefined) return command === 'lobotomy'
+        if (entries[i].content.Checkpoint !== undefined) break
+    }
+    return false
 }
 
 export function MessageList({ state, agent, greeting, hasOlder, bottomInset = 0, insetRight = 0, loadingOlder, onLoadOlder, onReact, error, clientCalls, questions, recalledFor, byPlatformName, emptyAction, onBuildPlan, buildingPlan }: Props) {
@@ -242,7 +266,15 @@ export function MessageList({ state, agent, greeting, hasOlder, bottomInset = 0,
         }
         if (c.Checkpoint !== undefined) {
             const handover = typeof c.Checkpoint === 'string' ? c.Checkpoint : c.Checkpoint?.handover
-            arrive(<CheckpointEntry key={`cp-${e.uid}`} handover={handover ?? null} />, `cp-${e.uid}`)
+            // `/lobotomy` asks for exactly this: a checkpoint that carries nothing over. The
+            // divider says which of the two it was, because they read the same without it.
+            const kind = lobotomyAt(entries, e) ? 'lobotomy' : 'checkpoint'
+            arrive(<CheckpointEntry key={`cp-${e.uid}`} handover={handover ?? null} kind={kind} />, `cp-${e.uid}`)
+        }
+        // A command the person ran: `/checkpoint` and `/lobotomy` are written out, since the
+        // divider alone does not say one was asked for. An abort already has its StoppedNote.
+        if (c.Command && c.Command !== 'abort' && isCommand(c.Command)) {
+            arrive(<CommandNote key={`cmd-${e.uid}`} command={c.Command} meta={time(e.timestamp)} />, `cmd-${e.uid}`)
         }
     }
 
@@ -329,11 +361,11 @@ export function MessageList({ state, agent, greeting, hasOlder, bottomInset = 0,
     )
 }
 
-function CheckpointEntry({ handover }: { handover: string | null }) {
+function CheckpointEntry({ handover, kind }: { handover: string | null; kind: 'checkpoint' | 'lobotomy' }) {
     const [open, setOpen] = useState(false)
     return (
         <div className="flex flex-col gap-8">
-            <CheckpointDivider detail={handover ? 'handed over' : undefined} open={open} onClick={() => handover && setOpen((o) => !o)} />
+            <CheckpointDivider kind={kind} detail={handover ? 'handed over' : undefined} open={open} onClick={() => handover && setOpen((o) => !o)} />
             <Presence>
                 {open && handover && (
                     <motion.div

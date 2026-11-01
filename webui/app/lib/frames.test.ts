@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ChatMessage, Frame, WebSocketResponse } from '../api/frames'
-import { emptyTopic, nextQueued, reduce, type Action, type TopicState } from './frames'
+import { emptyTopic, reduce, type Action, type TopicState } from './frames'
 import { groupHistory, openTurn } from './trail'
 
 const session = { agent_id: 'plug', channel: 'webui', topic: 't' }
@@ -35,17 +35,52 @@ describe('turn state machine', () => {
         expect(s.entries.at(-1)?.uid).toBe('rep1')
     })
 
-    it('holds a message sent while busy and sends it when the turn ends', () => {
+    it('clears a waiting message once the stored request arrives', () => {
+        // It was sent when it was typed and queued at the agent; the server storing it is the
+        // only thing that ends the wait.
+        let s = run(start(), { type: 'send', id: '1', text: 'first' }, response('thinking_start'))
+        s = run(s, { type: 'send', id: '2', text: 'second', now: '2026-10-23T10:00:05Z' })
+        expect(s.queued.map((q) => q.text)).toEqual(['second'])
+        // Nothing here sends it: the turn ending is not a trigger, and `nextQueued` is gone.
+        s = run(s, response({ message: { content: 'ok' } }, { history_uid: 'a' }))
+        expect(s.queued.map((q) => q.text)).toEqual(['second'])
+        s = run(s, { type: 'sent', request: { chat: 'second' }, timestamp: '2026-10-23T10:00:05Z' })
+        expect(s.queued).toEqual([])
+    })
+
+    it('clears a waiting message when a history read finds it stored', () => {
+        let s = run(start(), { type: 'send', id: '1', text: 'first' }, response('thinking_start'), { type: 'send', id: '2', text: 'second', now: '2026-10-23T10:00:05Z' })
+        s = run(s, {
+            type: 'history',
+            entries: [entry('r-second', { Request: { timestamp: '2026-10-23T10:00:05Z', user: 'me', content: { chat: 'second' } } })],
+        })
+        expect(s.queued).toEqual([])
+    })
+
+    it('draws a command where it was run, without ending the turn', () => {
+        const s = run(start(), response('thinking_start'), { type: 'command', command: 'checkpoint', now: '2026-10-23T10:00:05Z' })
+        // The turn is still running: the checkpoint is written inside it, and its reply ends it.
+        expect(s.phase).not.toBe('idle')
+        expect(s.entries.at(-1)?.content.Command).toBe('checkpoint')
+    })
+
+    it('holds a message sent while busy, so the page can show it waiting', () => {
+        // It has already gone to the agent, which queues it there; the drawing waits for the
+        // server to store it, so it is not lost when the page is left and reopened.
         let s = run(start(), { type: 'send', id: '1', text: 'first' }, response('thinking_start'))
         s = run(s, { type: 'send', id: '2', text: 'second' })
         expect(s.queued.map((q) => q.text)).toEqual(['second'])
-        expect(nextQueued(s)).toBeUndefined()
-
-        s = run(s, response({ message: { content: 'ok' } }, { history_uid: 'a' }))
-        expect(nextQueued(s)?.text).toBe('second')
-        s = run(s, { type: 'dequeue' })
+        // The server storing it is what clears the wait: nothing here sends it.
+        s = run(s, { type: 'history', entries: [entry('r-second', { Request: { timestamp: '2026-10-23T10:00:00Z', user: 'me', content: { chat: 'second' } } })] })
         expect(s.queued).toEqual([])
-        expect(s.phase).toBe('thinking')
+    })
+
+    it('ends the turn on a checkpoint, which is what a dream leaves behind', () => {
+        // A pre-dream checkpoint is sent by the scheduler, so its reply reaches this socket
+        // with nothing else to close the turn: without this branch the trail stays live.
+        const s = run(start(), response('thinking_start'), response({ checkpoint: { handover: 'the summary' } }))
+        expect(s.phase).toBe('idle')
+        expect(s.entries.some((e) => e.content.Checkpoint !== undefined)).toBe(true)
     })
 
     it('drops the queue on abort', () => {

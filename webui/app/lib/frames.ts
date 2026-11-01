@@ -12,6 +12,7 @@ import type {
     Frame,
     QuestionRefusal,
     QuestionSetUpdate,
+    VizierRequestContent,
     SensitiveAsk,
     SessionFileRecord,
     VizierAttachment,
@@ -22,11 +23,19 @@ import { applyClientOutcome, applyClientState, appendClientCall, mergeEntries } 
 
 export type Phase = 'idle' | 'thinking' | 'working'
 
+/**
+ * A message sent while a turn was running. It has already gone to the agent, which queues it;
+ * this is only the drawing, held until the server stores it as a request. It lives with the rest
+ * of the server's state (`session_turn`) rather than in this tab, so leaving the page and coming
+ * back does not lose it.
+ */
 export interface QueuedMessage {
     id: string
     text: string
     attachments?: VizierAttachment[]
     spoken?: boolean
+    /** When it was sent, to pair it with the stored request that ends the wait. */
+    sentAt?: string
 }
 
 export interface TopicError {
@@ -40,7 +49,7 @@ export interface TopicState {
     phase: Phase
     /** "Archivist is running execute_python…" — from `tool_choice` only. */
     label: string | null
-    /** Sent while a turn was running; held here and sent when it ends. */
+    /** Sent while a turn ran, waiting for the agent to store it as a request. */
     queued: QueuedMessage[]
     jobs: Record<string, BackgroundJobSnapshot>
     /** Newest first. */
@@ -66,8 +75,12 @@ export type Action =
     | { type: 'history'; entries: ChatMessage[]; position?: 'latest' | 'older' }
     | { type: 'busy'; thinking: boolean }
     | { type: 'send'; id: string; text: string; attachments?: VizierAttachment[]; spoken?: boolean; now?: string }
-    | { type: 'dequeue'; now?: string }
+    | { type: 'dequeue' }
+    /** The server stored a request this page was drawing as waiting. */
+    | { type: 'sent'; request: VizierRequestContent; timestamp?: string }
     | { type: 'abort'; now?: string }
+    /** `/checkpoint` or `/lobotomy`, drawn where it was run; the turn carries on behind it. */
+    | { type: 'command'; command: 'checkpoint' | 'lobotomy'; now?: string }
     | { type: 'files'; files: SessionFileRecord[] }
     | { type: 'jobs'; jobs: BackgroundJobSnapshot[] }
 
@@ -183,7 +196,10 @@ function onResponse(state: TopicState, response: WebSocketResponse, now: string)
         const entry = live(state, `checkpoint-${response.timestamp}`, response.timestamp, {
             Checkpoint: content.checkpoint.handover ?? undefined,
         })
-        return { ...state, entries: mergeEntries(state.entries, [entry]) }
+        // A checkpoint reply ends the turn that wrote it. A `/checkpoint` sent from another
+        // socket (the dream cycle's pre-checkpoint, a scheduled run) arrives here with nothing
+        // else to close the turn, and a trail left live never ends.
+        return { ...idle(state), entries: mergeEntries(state.entries, [entry]) }
     }
 
     if ('message' in content || 'audio_reply' in content) {
@@ -319,8 +335,20 @@ export function reduce(state: TopicState, action: Action): TopicState {
                 const merged = [...stored.filter((e) => !have.has(e.uid)), ...held]
                 return { ...state, entries: keptLive.length ? [...merged, ...keptLive] : merged }
             }
+            // A page that already holds the message this page was drawing as waiting means the
+            // agent has it: the wait is over, whether or not this tab saw it arrive.
+            const answered = state.queued.filter(
+                (q) =>
+                    !stored.some(
+                        (s) =>
+                            s.content.Request &&
+                            (JSON.stringify(s.content.Request.content) === JSON.stringify({ chat: q.text }) ||
+                                stampedNear(s.content.Request.timestamp, q.sentAt))
+                    )
+            )
             return {
                 ...state,
+                queued: answered,
                 context: state.context ?? contextOfHistory(stored),
                 entries: mergePage(state.entries, stored),
             }
@@ -334,7 +362,13 @@ export function reduce(state: TopicState, action: Action): TopicState {
         case 'send': {
             const now = action.now ?? new Date(0).toISOString()
             if (state.phase !== 'idle') {
-                return { ...state, queued: [...state.queued, { id: action.id, text: action.text, attachments: action.attachments, spoken: action.spoken }] }
+                return {
+                    ...state,
+                    queued: [
+                        ...state.queued,
+                        { id: action.id, text: action.text, attachments: action.attachments, spoken: action.spoken, sentAt: action.now },
+                    ],
+                }
             }
             return {
                 ...state,
@@ -346,17 +380,29 @@ export function reduce(state: TopicState, action: Action): TopicState {
         }
 
         case 'dequeue': {
+            // A queued message is not held here: it went to the agent when it was sent, and the
+            // agent queues it. This only clears the drawing's wait once the server has stored
+            // it (`sent`), so it stays "swallowed" rather than lost when the page is left.
             const [next, ...rest] = state.queued
-            if (!next || state.phase !== 'idle') return state
+            if (!next) return state
+            return { ...state, queued: rest }
+        }
+
+        case 'sent': {
+            // The server stored a message that was waiting: it is history now, not a wait.
+            const at = state.queued.findIndex(
+                (q) => JSON.stringify({ chat: q.text }) === JSON.stringify(action.request) || stampedNear(q.sentAt, action.timestamp)
+            )
+            return at < 0 ? state : { ...state, queued: state.queued.filter((_, i) => i !== at) }
+        }
+
+        case 'command': {
+            // The server records the command as a `Command` entry once it runs; this is the copy
+            // drawn the moment it was typed, replaced by the stored one through `coveredByStored`.
+            // Unlike an abort it does not end the turn: the checkpoint is written inside it.
             const now = action.now ?? new Date(0).toISOString()
-            return {
-                ...state,
-                queued: rest,
-                phase: 'thinking',
-                error: null,
-                stopped: false,
-                entries: mergeEntries(state.entries, [requestEntry(state, next.id, next.text, now, next.attachments)]),
-            }
+            const entry = live(state, `command-${action.command}-${now}`, now, { Command: action.command })
+            return { ...state, entries: mergeEntries(state.entries, [entry]) }
         }
 
         case 'abort': {
@@ -459,7 +505,3 @@ function mergePage(current: ChatMessage[], stored: ChatMessage[]): ChatMessage[]
     return out
 }
 
-/** The next queued message to send, once the topic is idle. */
-export function nextQueued(state: TopicState): QueuedMessage | undefined {
-    return state.phase === 'idle' ? state.queued[0] : undefined
-}
