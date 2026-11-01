@@ -152,6 +152,8 @@ So the area is **removed, not redirected**: the reserved bundle is browsed, open
 - **FR-031**: A change to any document in the reserved bundle MUST be classified as a change to the agent's identity, and MUST be classified that way because of the bundle it lives in rather than the record it was written to. The identity document needs no special case: it is a member of that bundle.
 - **FR-032**: A change to the reserved bundle MUST NOT be counted twice — it is reported as an identity change and MUST NOT also be counted among the memories written, revised or removed. A revision of the identity document is not also a memory revision for counting purposes.
 - **FR-033**: A summary of a period's changes MUST report the number of identity changes rather than merely whether any happened, and MUST still say plainly when a period changed the agent's identity.
+- **FR-034**: The interfaces that read, write and version identity without an agent's memory in the address MUST keep working and keep their existing response shapes, but MUST be marked deprecated wherever they are described to a consumer, and MUST state what replaces them. Their removal is deferred, not cancelled.
+- **FR-035**: A deprecated identity interface MUST read and write the same underlying document as the memory surfaces, so the two can never disagree — there is one identity document, not a compatibility copy.
 
 ### Key Entities
 
@@ -176,6 +178,7 @@ So the area is **removed, not redirected**: the reserved bundle is browsed, open
 - **SC-010**: An agent that reads a warning-carrying success does not retry the write: over a sample of warnings, zero immediate duplicate writes of the same content.
 - **SC-011**: Identity changes are never invisible and never double-counted: over a sample of periods that changed the reserved bundle, 100% report an identity change with the right count, and zero of those revisions also appear among the memories written, revised or removed.
 - **SC-012**: The behaviour the removed identity area carried is fully reachable from memory: for 100% of sampled agents, finding identity, viewing its history, comparing two revisions and restoring one each succeed without any identity-only interface.
+- **SC-013**: A retained deprecated interface and the memory surfaces never disagree: for 100% of sampled writes to identity through either, the other reads back the same content immediately, and zero cases exist of two different identity documents.
 
 ## Assumptions
 
