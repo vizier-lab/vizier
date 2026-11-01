@@ -295,7 +295,16 @@ pub enum MemoryOpRequest {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum MemoryOpResponse {
+    /// A memory that was read or attached, with no write outcome to report.
     Memory(Memory),
+    /// The outcome of a write: the stored document plus a **separate** warning when its content
+    /// went over the soft limit (specs/043-unify-core-and-memory, FR-019/FR-020). The warning is
+    /// never folded into the success message, so the caller cannot read the write as a failure.
+    Written {
+        memory: Memory,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        warning: Option<crate::storage::memory_bundle::WriteWarning>,
+    },
     MemoryList(Vec<Memory>),
     /// What a search returns: addressed passages, not whole document bodies (FR-008). Separate
     /// from `MemoryList` because link traversal and listing still answer in documents.
@@ -311,6 +320,21 @@ pub enum MemoryOpResponse {
     Diff(RevisionDiff),
     Rollback(RollbackResponse),
     Unit,
+}
+
+impl MemoryOpResponse {
+    /// No write outcome: a read or an attachment change.
+    pub fn from_memory(memory: Memory) -> Self {
+        Self::Memory(memory)
+    }
+
+    /// A write's outcome, keeping its warning beside the document rather than in a message.
+    pub fn from_written(written: crate::storage::memory_bundle::WrittenMemory) -> Self {
+        Self::Written {
+            memory: written.memory,
+            warning: written.warning,
+        }
+    }
 }
 
 pub struct MemoryOpEnvelope {

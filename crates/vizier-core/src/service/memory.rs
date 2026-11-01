@@ -135,6 +135,10 @@ pub struct CreateMemoryResponse {
     pub message: String,
     pub tags: Vec<String>,
     pub relations: Vec<String>,
+    /// Present only when the content went over the soft limit. Additive: a client that ignores
+    /// it behaves exactly as before (contracts/http-api.md).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub warning: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -146,6 +150,9 @@ pub struct UpdateMemoryResponse {
     pub message: String,
     pub tags: Vec<String>,
     pub relations: Vec<String>,
+    /// Present only when the content went over the soft limit (contracts/http-api.md).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub warning: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -289,7 +296,17 @@ async fn detail_from_memory(s: &Services, memory: &Memory) -> MemoryDetail {
 /// The status a failed memory operation maps to, from its message.
 fn op_error(msg: String) -> ServiceError {
     let lower = msg.to_lowercase();
-    if lower.contains("already exists") {
+    // The stable prefixes fixed by `contracts/storage-behaviour.md`. Matched on the prefix
+    // rather than the prose so the wording can change without the status changing with it.
+    if msg.starts_with("memory too large:") {
+        ServiceError::Invalid { status: 422, message: msg, code: None }
+    } else if msg.starts_with("the core bundle holds only") {
+        ServiceError::Invalid { status: 422, message: msg, code: None }
+    } else if msg.starts_with("bundle 'core' is reserved")
+        || msg.starts_with("the core bundle cannot receive")
+    {
+        ServiceError::Conflict { message: msg, code: None, data: None }
+    } else if lower.contains("already exists") {
         ServiceError::Conflict { message: msg, code: None, data: None }
     } else if lower.contains("malformed") || lower.contains("archive") {
         ServiceError::Invalid { status: 400, message: msg, code: None }
@@ -484,7 +501,7 @@ pub async fn create(
         origin: RevisionOrigin::from_user(who),
     };
     match op(s, agent_id, request).await {
-        Ok(MemoryOpResponse::Memory(memory)) => Ok(CreateMemoryResponse {
+        Ok(MemoryOpResponse::Written { memory, warning }) => Ok(CreateMemoryResponse {
             agent_id: agent_id.to_string(),
             bundle: memory.bundle,
             title: body.title,
@@ -492,6 +509,7 @@ pub async fn create(
             message: "memory created successfully".to_string(),
             tags: memory.tags,
             relations: memory.relations,
+            warning: warning.map(|w| w.describe()),
         }),
         Ok(_) => Err(unexpected()),
         Err(e) => Err(op_error(e.to_string())),
@@ -525,13 +543,14 @@ pub async fn update(
         origin: RevisionOrigin::from_user(who),
     };
     match op(s, agent_id, request).await {
-        Ok(MemoryOpResponse::Memory(memory)) => Ok(UpdateMemoryResponse {
+        Ok(MemoryOpResponse::Written { memory, warning }) => Ok(UpdateMemoryResponse {
             agent_id: agent_id.to_string(),
             bundle: memory.bundle,
             path: memory.slug,
             message: "memory updated successfully".to_string(),
             tags: memory.tags,
             relations: memory.relations,
+            warning: warning.map(|w| w.describe()),
         }),
         Ok(_) => Err(unexpected()),
         Err(e) => Err(op_error(e.to_string())),

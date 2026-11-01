@@ -185,6 +185,10 @@ pub struct BundleSummary {
     /// Links from this bundle's documents (to anywhere), for the "Most linked" sort.
     #[serde(default)]
     pub link_count: usize,
+    /// The bundle cannot be deleted, though the documents inside it can
+    /// (specs/043-unify-core-and-memory). Additive: a client that ignores it is unchanged.
+    #[serde(default)]
+    pub protected: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]

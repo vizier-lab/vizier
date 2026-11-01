@@ -16,6 +16,7 @@ use crate::schema::{
 };
 use crate::storage::VizierStorage;
 use crate::storage::memory::MemoryStorage;
+use crate::storage::memory_bundle::WritePolicy;
 use crate::storage::session_file::SessionFileStorage;
 use crate::utils::get_mime_type;
 
@@ -91,6 +92,8 @@ pub const SEARCH_THRESHOLD: f64 = 0.20;
 #[derive(Clone)]
 pub struct RecallSettings {
     pub chunking: crate::config::ChunkLimits,
+    /// The size bounds a `memory_write` is judged against (specs/043-unify-core-and-memory).
+    pub limits: crate::config::MemoryLimits,
     /// Results returned by one `memory_search` call (FR-013).
     pub search_limit: usize,
     /// Relevance floor for `memory_search` (FR-013). Deliberately looser than the
@@ -453,7 +456,7 @@ impl VizierTool for MemoryWrite {
 
         let content = args.content.clone();
 
-        let memory = self
+        let written = self
             .1
             .write_memory(
                 self.0.clone(),
@@ -466,20 +469,34 @@ impl VizierTool for MemoryWrite {
                 &RevisionOrigin::from_session(&ctx.session),
                 &self.2,
                 &self.3.chunking,
+                &WritePolicy::new(self.3.limits.clone()),
             )
             .await
             .map_err(|err| VizierError(err.to_string()))?;
 
+        let memory = &written.memory;
         let relations_info = if memory.relations.is_empty() {
             String::new()
         } else {
             format!(" Links: [{}]", memory.relations.join(", "))
         };
 
-        Ok(format!(
+        let message = format!(
             "memory '{}/{}' written{}",
             memory.bundle, memory.slug, relations_info
-        ))
+        );
+
+        // The warning is a separate field, never concatenated into the message, so an agent
+        // cannot read a successful write as a failure and retry it (FR-020, tool contract 1).
+        // Below the soft limit the output is the plain string it always was (tool contract 2).
+        match &written.warning {
+            None => Ok(message),
+            Some(warning) => Ok(serde_json::json!({
+                "message": message,
+                "warning": warning.describe(),
+            })
+            .to_string()),
+        }
     }
 }
 

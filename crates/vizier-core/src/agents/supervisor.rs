@@ -475,7 +475,26 @@ impl Supervisor {
             let agent_id = agent_id.clone();
             let limits = self.config.chunking.clone();
             let idx = idx.clone();
+            let legacy_core = self.config.core.clone();
             tokio::spawn(async move {
+                // Seed `core/soul` before the reconcile, in the same task, so the identity
+                // document's passages are converted on this start rather than the next one —
+                // an identity that exists but is unsearchable is the one document this could
+                // least afford to degrade (`specs/043-unify-core-and-memory`, research
+                // Decision 7). A failure is logged and retried next start; the agent keeps
+                // serving either way.
+                match storage
+                    .seed_identity(&agent_id, legacy_core, &idx, &limits)
+                    .await
+                {
+                    Ok(true) => tracing::info!(agent_id, "seeded the identity memory at core/soul"),
+                    Ok(false) => {}
+                    Err(e) => tracing::warn!(
+                        agent_id,
+                        "failed to seed the identity memory; it is retried on the next start: {e}"
+                    ),
+                }
+
                 let started = std::time::Instant::now();
                 match storage
                     .reconcile_agent_passages(&agent_id, &limits, &idx)
@@ -530,6 +549,7 @@ impl Supervisor {
         let storage = (*self.deps.storage).clone();
         let settings = memory_ops::MemoryOpSettings {
             chunking: self.config.chunking.clone(),
+            limits: self.config.limits.clone(),
             per_document: self.config.auto_context.per_document,
         };
         Some(tokio::spawn(async move {

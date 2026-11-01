@@ -1413,6 +1413,7 @@ impl BaseTools {
                 idx,
                 RecallSettings {
                     chunking: agent_config.chunking.clone(),
+                    limits: agent_config.limits.clone(),
                     search_limit: 10,
                     search_threshold: SEARCH_THRESHOLD,
                     per_document: agent_config.auto_context.per_document,

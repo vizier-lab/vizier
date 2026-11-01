@@ -53,6 +53,7 @@ use crate::{
         VizierStorage,
         agent::AgentStorage,
         history::HistoryStorage,
+        memory::MemoryStorage,
         integration::IntegrationStorage,
         session_file::SessionFileStorage,
         turn::TurnStorage,
@@ -88,7 +89,6 @@ pub struct VizierAgent {
     refresh_lock: Arc<Mutex<()>>,
     skills: VizierSkills,
     config: AgentConfig,
-    core: String,
     owner_profile: Option<UserProfile>,
     stt: Option<Arc<VizierStt>>,
     tts: Option<Arc<VizierTts>>,
@@ -200,13 +200,6 @@ impl VizierAgent {
             None
         };
 
-        let core = deps
-            .storage
-            .get_agent_core(&agent_id)
-            .await
-            .unwrap_or(None)
-            .unwrap_or_else(|| crate::constant::CORE_MD.to_string());
-
         Ok(Self {
             agent_id,
             deps: deps.clone(),
@@ -216,7 +209,6 @@ impl VizierAgent {
             refresh_lock: Arc::new(Mutex::new(())),
             skills,
             config: agent_config.clone(),
-            core,
             owner_profile,
             stt,
             tts,
@@ -439,6 +431,56 @@ impl VizierAgent {
         }
     }
 
+    /// The agent's identity, rendered as an addressed memory block
+    /// (specs/043-unify-core-and-memory, FR-006, FR-009).
+    ///
+    /// Built from the document alone — no timestamp, no `updated_at`, no per-turn anything — so
+    /// the wrapper is byte-identical across consecutive turns and the prompt prefix carrying it
+    /// stays cacheable (FR-007, SC-002).
+    ///
+    /// Read per turn rather than cached at construction, so a write to the document shows up on
+    /// the next turn without a restart.
+    ///
+    /// A removed or absent document renders the embedded template plus a note naming the
+    /// address, never an empty block: an agent must never see a turn with no identity
+    /// (FR-008, SC-003), and the note is how it learns it can write itself back
+    /// (research Decision 10).
+    async fn identity_block(&self) -> String {
+        let stored = self
+            .storage
+            .get_memory_detail(
+                self.agent_id.to_string(),
+                Some(crate::schema::CORE_BUNDLE.to_string()),
+                crate::schema::SOUL_PATH.to_string(),
+            )
+            .await
+            .ok()
+            .flatten()
+            .map(|memory| memory.content)
+            .filter(|content| !content.trim().is_empty());
+
+        let address = format!(
+            "<memory bundle=\"{}\" path=\"{}\">",
+            crate::schema::CORE_BUNDLE,
+            crate::schema::SOUL_PATH
+        );
+
+        match stored {
+            Some(content) => {
+                format!("{address}\n{}\n</memory>", content.trim_end())
+            }
+            None => format!(
+                "{address}\n{}\n</memory>\n\n\
+                 This is the default identity, shown because no document exists at \
+                 {}/{}. It is a memory like any other: write it with `memory_write` to make it \
+                 yours.",
+                crate::constant::CORE_MD.trim(),
+                crate::schema::CORE_BUNDLE,
+                crate::schema::SOUL_PATH
+            ),
+        }
+    }
+
     /// Takes the session because one section is conditional on it: the scheduled-run
     /// framing. The question is answered through `VizierSession::is_scheduled_task()` and
     /// nowhere else — selecting on the request content kind would catch the dream cycle,
@@ -485,10 +527,10 @@ impl VizierAgent {
             res.push(Message::system(owner_md(owner)));
         }
 
-        res.push(Message::system(self.core.clone()));
+        res.push(Message::system(self.identity_block().await));
 
-        // After CORE and before configured documents (FR-015/FR-016): project identity is
-        // stable across a project session's turns, and no other session kind gets it.
+        // After the identity block and before configured documents (FR-015/FR-016): project
+        // identity is stable across a project session's turns, and no other session kind gets it.
         if let Some(project) = project {
             res.push(Message::system(project_md(project)));
         }
@@ -497,8 +539,8 @@ impl VizierAgent {
             res.push(Message::system(document.clone()));
         }
 
-        // Appended last, after CORE and documents, so the cacheable boot/CORE prefix stays
-        // byte-identical to an interactive turn's.
+        // Appended last, after the identity block and documents, so the cacheable
+        // boot/identity prefix stays byte-identical to an interactive turn's.
         if session.is_scheduled_task() {
             res.push(Message::system(scheduled_run_md()));
         }
