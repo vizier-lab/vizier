@@ -8,6 +8,7 @@ import { motion, useReducedMotion } from 'motion/react'
 import { useNavigate, useParams } from 'react-router'
 import { agentState, getAgent } from '../api/endpoints/agents'
 import { CHANNEL, cancelJob, listTopics, restartAgent } from '../api/endpoints/chat'
+import { listIntegrations } from '../api/endpoints/integrations'
 import { createProjectSession, projectChannel } from '../api/endpoints/projects'
 import type { Topic, Turn } from '../api/frames'
 import type { ClientCallView } from '../api/frames'
@@ -114,6 +115,27 @@ export default function Chat() {
             .catch(() => {
                 /* offer both: the config read is not worth an error on the composer */
                 if (alive) setVoice({ stt: true, tts: true })
+            })
+        return () => {
+            alive = false
+        }
+    }, [agentId])
+
+    // The host-execution notice is only worth its line when this agent can actually run a
+    // command: the Shell addon, or a project whose own shell switch is on. Nothing is drawn
+    // until the addon list has arrived; if that read fails, the notice stays, because hiding a
+    // disclosure is the worse mistake.
+    const [shellAddon, setShellAddon] = useState<boolean>()
+    useEffect(() => {
+        let alive = true
+        setShellAddon(undefined)
+        listIntegrations(agentId, 'addon')
+            .then((list) => {
+                if (alive)
+                    setShellAddon((list?.items ?? []).some((i) => i.kind === 'shell' && i.enabled))
+            })
+            .catch(() => {
+                if (alive) setShellAddon(true)
             })
         return () => {
             alive = false
@@ -428,7 +450,6 @@ export default function Chat() {
                     configHref={`/${agentId}/config`}
                 />
 
-                <HostExecutionNotice className="mx-24 mt-8" />
                 {project && !project.available && (
                     <Notice
                         tone="failed"
@@ -520,7 +541,10 @@ export default function Chat() {
                         topicId={topicId ?? ''}
                         question={sideChat.question}
                     />
-                    <HostExecutionNotice className="mb-8" />
+                    <HostExecutionNotice
+                        shell={!!shellAddon || !!project?.shell_enabled}
+                        className="mb-8"
+                    />
                     <Composer
                         agentId={agentId}
                         agentName={agentName}
