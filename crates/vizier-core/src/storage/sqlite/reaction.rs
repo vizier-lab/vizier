@@ -8,7 +8,7 @@ use crate::{
         reaction::{Platform, ReactionStorage, Reactor},
         sqlite::{
             SqliteStorage,
-            history::{fill_client_calls, fill_reactions, parse_history_row},
+            history::{fill_client_calls, fill_question_sets, fill_reactions, parse_history_row},
         },
     },
 };
@@ -144,6 +144,7 @@ fn with_reactions(
     };
     fill_reactions(conn, std::slice::from_mut(&mut entry))?;
     fill_client_calls(conn, std::slice::from_mut(&mut entry))?;
+    fill_question_sets(conn, std::slice::from_mut(&mut entry))?;
     Ok(Some(entry))
 }
 

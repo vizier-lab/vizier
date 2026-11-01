@@ -65,6 +65,15 @@ pub enum SessionFrame {
         call_id: String,
         state: serde_json::Value,
     },
+    /// A question set's state changed (`specs/042-agent-asking-question`): it was answered,
+    /// declined or withdrawn. The entry itself is filled from storage on the next read, so this
+    /// frame is what makes an open card close without a reload.
+    QuestionSet {
+        set_id: String,
+        state: crate::questions::model::QuestionState,
+        answers: Option<Vec<crate::questions::model::Answer>>,
+        answerer: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone)]

@@ -167,6 +167,72 @@ pub(super) fn fill_client_calls(
     Ok(())
 }
 
+
+/// Fill each `QuestionSet` entry's `state`, `answers` and `answerer` from `question_set`, their
+/// only home (`specs/042-agent-asking-question` research R3). Costs nothing for a page without
+/// questions, and is what makes a pending card answerable after a reload or a restart: nothing
+/// about a live set is held in memory.
+pub(super) fn fill_question_sets(
+    conn: &rusqlite::Connection,
+    entries: &mut [SessionHistory],
+) -> rusqlite::Result<()> {
+    const CHUNK: usize = 500;
+    let set_ids: Vec<String> = entries
+        .iter()
+        .filter(|entry| matches!(entry.content, SessionHistoryContent::QuestionSet { .. }))
+        .map(|entry| entry.uid.clone())
+        .collect();
+    if set_ids.is_empty() {
+        return Ok(());
+    }
+
+    let mut by_id: HashMap<String, (String, Option<String>, Option<String>)> = HashMap::new();
+    for chunk in set_ids.chunks(CHUNK) {
+        let placeholders = vec!["?"; chunk.len()].join(", ");
+        let sql = format!(
+            "SELECT set_id, state, answers, answerer FROM question_set \
+             WHERE set_id IN ({placeholders})"
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(rusqlite::params_from_iter(chunk.iter()), |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                (row.get(1)?, row.get(2)?, row.get(3)?),
+            ))
+        })?;
+        for row in rows {
+            let (set_id, columns) = row?;
+            by_id.insert(set_id, columns);
+        }
+    }
+
+    let parse = |text: Option<String>| text.and_then(|text| serde_json::from_str(&text).ok());
+    for entry in entries.iter_mut() {
+        if let SessionHistoryContent::QuestionSet {
+            state,
+            answers,
+            answerer,
+            ..
+        } = &mut entry.content
+        {
+            match by_id.remove(&entry.uid) {
+                Some((stored, recorded, who)) => {
+                    *state = crate::questions::model::QuestionState::from_str(&stored);
+                    *answers = parse(recorded);
+                    *answerer = who;
+                }
+                // A set whose row was never written (its save failed) has no state to show.
+                None => {
+                    *state = crate::questions::model::QuestionState::Withdrawn;
+                    *answers = None;
+                    *answerer = None;
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 /// The sort key every in-Rust re-sort of history uses.
 ///
 /// Keying on `timestamp` alone is the actual ordering defect: `sort_by_key` is a **stable**
@@ -188,6 +254,7 @@ fn content_type_discriminant(content: &SessionHistoryContent) -> &'static str {
         SessionHistoryContent::Command(_) => "Command",
         SessionHistoryContent::ClientToolCall { .. } => "ClientToolCall",
         SessionHistoryContent::Recall { .. } => "Recall",
+        SessionHistoryContent::QuestionSet { .. } => "QuestionSet",
     }
 }
 
@@ -345,6 +412,7 @@ impl HistoryStorage for SqliteStorage {
         fill_reactions(&conn, &mut list)?;
         fill_artifact_availability(&conn, &mut list)?;
         fill_client_calls(&conn, &mut list)?;
+        fill_question_sets(&conn, &mut list)?;
         Ok(list)
     }
 
@@ -391,6 +459,7 @@ impl HistoryStorage for SqliteStorage {
         fill_reactions(&conn, &mut list)?;
         fill_artifact_availability(&conn, &mut list)?;
         fill_client_calls(&conn, &mut list)?;
+        fill_question_sets(&conn, &mut list)?;
         Ok(list)
     }
 
@@ -515,6 +584,7 @@ impl HistoryStorage for SqliteStorage {
         fill_reactions(&conn, &mut history)?;
         fill_artifact_availability(&conn, &mut history)?;
         fill_client_calls(&conn, &mut history)?;
+        fill_question_sets(&conn, &mut history)?;
 
         Ok((history, handover))
     }

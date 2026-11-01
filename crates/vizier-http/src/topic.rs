@@ -36,6 +36,9 @@ pub struct TopicConnection {
     storage: Arc<vizier_core::storage::VizierStorage>,
     limits: ClientLimits,
     connection: Arc<ClientConnection>,
+    /// The shared question service (`specs/042-agent-asking-question`): a submission is validated
+    /// and claimed through it before a turn is queued.
+    questions: Arc<vizier_core::questions::Questions>,
     client_rx: Option<mpsc::Receiver<serde_json::Value>>,
     events: Option<broadcast::Receiver<SessionEvent>>,
     out: flume::Sender<serde_json::Value>,
@@ -117,6 +120,7 @@ impl TopicConnection {
             storage: state.storage.clone(),
             limits,
             connection,
+            questions: state.deps.questions.clone(),
             client_rx: Some(client_rx),
             events: Some(events),
             out,
@@ -231,6 +235,37 @@ impl TopicConnection {
                                 send_frame(error).await;
                                 return;
                             }
+                            // A question answer is claimed before the turn is queued, so a
+                            // second tab finds the set closed instead of starting a duplicate
+                            // turn (spec 042 FR-017).
+                            if matches!(request.content, VizierRequestContent::QuestionAnswer(_))
+                            {
+                                let VizierRequestContent::QuestionAnswer(answer) = request.content
+                                else {
+                                    unreachable!("just matched a question answer")
+                                };
+                                match vizier_core::questions::submit::submit(
+                                    &self.storage,
+                                    &self.transport,
+                                    &self.questions,
+                                    &self.session,
+                                    answer,
+                                    &self.principal.username,
+                                )
+                                .await
+                                {
+                                    Ok(prepared) => request = prepared,
+                                    Err(error) => {
+                                        send_frame(client_error(
+                                            error.code(),
+                                            None,
+                                            error.message(),
+                                        ))
+                                        .await;
+                                        return;
+                                    }
+                                }
+                            }
                             if request.attachments.iter().any(|attachment| {
                                 matches!(
                                     attachment.content,
@@ -341,6 +376,16 @@ impl TopicOutbound {
                                     "client_call_state": { "call_id": call_id, "state": state }
                                 })
                             ),
+                            SessionFrame::QuestionSet { set_id, state, answers, answerer } => {
+                                Some(serde_json::json!({
+                                    "question_set": {
+                                        "set_id": set_id,
+                                        "state": state,
+                                        "answers": answers,
+                                        "answerer": answerer,
+                                    }
+                                }))
+                            }
                         };
                         if let Some(json) = json {
                             if self.out.send_async(json).await.is_err() { return; }

@@ -1407,7 +1407,10 @@ pub async fn handle_request(
         VizierRequestContent::Chat(_)
         | VizierRequestContent::AudioChat(_, _)
         | VizierRequestContent::BackgroundReport(_)
-        | VizierRequestContent::ClientEvent(_) => {
+        | VizierRequestContent::ClientEvent(_)
+        // An answer starts a turn the way a typed message does (FR-015): same queue, same
+        // history, same hooks.
+        | VizierRequestContent::QuestionAnswer(_) => {
             // `/skills`, `/<skill> …` and `/skill <name> …` (spec 021): every channel delivers
             // them as `Chat`, so this is the one place they are told apart.
             // The list as typed rides the request's history entry; the resolved contents never

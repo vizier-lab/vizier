@@ -62,6 +62,9 @@ pub enum VizierRequestContent {
     /// from the conversation's context, but nothing above, about or around it is saved.
     /// Dispatched beside `checkpoint`/`lobotomy`, never through `handle_request`.
     Btw(SideChat),
+    /// A person's answer to a question set (`specs/042-agent-asking-question`). It starts a turn
+    /// like `Chat`: same history, same queue, same attribution, no bypass (FR-015).
+    QuestionAnswer(crate::questions::model::QuestionAnswer),
 }
 
 /// One `/btw` side chat carried in each request: the question being asked now and the
@@ -119,6 +122,7 @@ impl VizierRequestContent {
             Self::BackgroundReport(_) => "background_report",
             Self::ClientEvent(_) => "client_event",
             Self::Btw(_) => "btw",
+            Self::QuestionAnswer(_) => "question_answer",
         }
     }
 
@@ -154,6 +158,21 @@ impl Display for VizierRequestContent {
             Self::BackgroundReport(report) => write!(f, "{}", report),
             Self::ClientEvent(event) => write!(f, "{}", event),
             Self::Btw(side_chat) => write!(f, "{}", side_chat.question),
+            // The readable summary, then the answers as data the agent can read without
+            // re-parsing prose — the shape `ClientEvent` already uses.
+            Self::QuestionAnswer(answer) => {
+                write!(f, "{}", answer.text)?;
+                let data = serde_json::json!({
+                    "set_id": answer.set_id,
+                    "declined": answer.declined,
+                    "answerer": answer.answerer,
+                    "answers": answer.answers,
+                });
+                if let Ok(data) = serde_json::to_string(&data) {
+                    write!(f, "\n\n```json\n{data}\n```")?;
+                }
+                Ok(())
+            }
         }
     }
 }

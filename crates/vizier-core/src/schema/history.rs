@@ -67,6 +67,27 @@ pub enum SessionHistoryContent {
         origin: RecallOrigin,
         passages: Vec<RecalledPassage>,
     },
+    /// A question set the agent asked (`specs/042-agent-asking-question`), saved when it is
+    /// presented. Its uid **is** the set id. `state`, `answers` and `answerer` change after the
+    /// insert, so they live in `question_set` and are filled in on every read, exactly as
+    /// `ClientToolCall`'s `outcome` and `state` are.
+    QuestionSet {
+        set_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        title: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        description: Option<String>,
+        questions: Vec<crate::questions::model::Question>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        submit_label: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        dismiss_label: Option<String>,
+        state: crate::questions::model::QuestionState,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        answers: Option<Vec<crate::questions::model::Answer>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        answerer: Option<String>,
+    },
 }
 
 impl SessionHistoryContent {
@@ -371,6 +392,11 @@ pub fn history_entries_to_messages(entries: &[SessionHistory]) -> Vec<Message> {
                 // Skipped without flushing anything: the turn's own `execute_python` report
                 // already tells the model what it called, and a page's HTML (up to 256 KB)
                 // must not be re-read on every later turn.
+            }
+            SessionHistoryContent::QuestionSet { .. } => {
+                // Display only. The answers reach the model as the person's `QuestionAnswer`
+                // request — replayed here as well, a set would show the model a question it
+                // asked as if the person had typed it.
             }
         }
     }
@@ -729,6 +755,7 @@ mod tests {
                 SessionHistoryContent::Command(_) => "Command",
                 SessionHistoryContent::ClientToolCall { .. } => "ClientToolCall",
                 SessionHistoryContent::Recall { .. } => "Recall",
+                SessionHistoryContent::QuestionSet { .. } => "QuestionSet",
             })
             .collect()
     }

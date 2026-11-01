@@ -1366,6 +1366,17 @@ impl VizierAgent {
                     round_ended_by = Some(name);
                 }
 
+                // A script that asked a question and then failed takes its questions with it: the
+                // set must not stay answerable for a call the agent was told failed (FR-010). The
+                // turn then continues with the script's error, which is why this runs here rather
+                // than in the tool.
+                if let VizierResponseContent::ToolResponse { response } = &tool_res.content
+                    && response.get("ok") == Some(&serde_json::Value::Bool(false))
+                    && let Some(set_id) = ctx.questions.asked()
+                {
+                    self.withdraw_question_set(&ctx, &set_id).await;
+                }
+
                 let response_content = tool_res
                     .to_tool_result(
                         call_id.clone(),
@@ -1495,6 +1506,34 @@ impl VizierAgent {
             attachments,
             full_history,
         ))
+    }
+
+
+    /// Take a set away and tell whoever is watching, when the script that asked it failed
+    /// (`specs/042-agent-asking-question` FR-010). Best effort: a failure here is logged and
+    /// changes nothing about the turn, which is already continuing with the script's error.
+    async fn withdraw_question_set(&self, ctx: &ToolContext, set_id: &str) {
+        use crate::storage::question::QuestionStorage;
+
+        match self.storage.withdraw_question_set(set_id).await {
+            Ok(true) => {
+                self.transport
+                    .publish_session_event(crate::transport::SessionEvent {
+                        session: ctx.session.clone(),
+                        frame: crate::transport::SessionFrame::QuestionSet {
+                            set_id: set_id.to_string(),
+                            state: crate::questions::model::QuestionState::Withdrawn,
+                            answers: None,
+                            answerer: None,
+                        },
+                    });
+            }
+            Ok(false) => {}
+            Err(e) => tracing::warn!(
+                set_id,
+                "could not withdraw a question set whose script failed: {e}"
+            ),
+        }
     }
 
     /// Compact the turn's context once the last completion used `checkpoint_threshold` of the

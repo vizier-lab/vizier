@@ -293,6 +293,9 @@ pub fn is_interactive_turn(content: &VizierRequestContent, session: &VizierSessi
         // An off-the-record aside: nothing above or around it is saved, so an answer would have
         // nowhere to land.
         VizierRequestContent::Btw(_) => false,
+        // A person just answered a set and is waiting on the reply, so this is as interactive as a
+        // typed message — and the agent may ask its next question in it (US6 #6).
+        VizierRequestContent::QuestionAnswer(_) => true,
     };
     // A task, dream, subagent, inter-agent or system conversation has no person on it at all,
     // whatever the request kind says.
@@ -1343,6 +1346,14 @@ impl BaseTools {
                 storage: deps.storage.clone(),
                 agent_id: agent_id.clone(),
             })
+            // Asking the person (`specs/042-agent-asking-question`): always registered, offered
+            // only in a turn somebody can answer — `available` decides, so an unattended prompt
+            // never lists it (FR-007).
+            .tool(crate::questions::tool_question::AskQuestion::new(
+                deps.storage.clone(),
+                deps.transport.clone(),
+                deps.questions.clone(),
+            ))
             .tool(vector_memory::attachments::AttachArtifactToMemory {
                 agent_id: agent_id.clone(),
                 storage: deps.storage.clone(),

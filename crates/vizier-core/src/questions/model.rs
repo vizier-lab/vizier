@@ -15,6 +15,7 @@ use crate::schema::VizierSession;
 
 /// What kind of answer a question wants (FR-003).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum QuestionType {
     /// Free text, single- or multi-line.
@@ -45,6 +46,7 @@ impl QuestionType {
 /// a boolean — so the wire form is the natural one (`"sqlite"`, `["auth", "ci"]`, `true`) rather
 /// than a tagged wrapper the agent would have to learn.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(untagged)]
 pub enum AnswerValue {
     Text(String),
@@ -69,6 +71,7 @@ impl AnswerValue {
 /// Named `ChoiceOption` rather than `Option` so it does not shadow the prelude's `Option` in
 /// every signature that mentions both.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct ChoiceOption {
     /// What the agent receives when this option is chosen. Never travels inside a control id.
     pub value: String,
@@ -86,6 +89,7 @@ pub struct ChoiceOption {
 /// `choice` with no `options` is refused, and `max_length` on a `choice` is ignored rather than
 /// rejected, so an agent that sends a superset still gets a usable question.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct Question {
     /// Stable within the set; what the answer names.
     pub id: String,
@@ -164,6 +168,7 @@ impl Question {
 
 /// What the agent asks: the tool's whole input, and the set as it is stored (FR-002).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct QuestionSet {
     /// A heading over the card.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -196,6 +201,7 @@ impl QuestionSet {
 
 /// Whether a question was answered or deliberately left blank (FR-013, US2 #3).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum AnswerState {
     Answered,
@@ -205,6 +211,7 @@ pub enum AnswerState {
 
 /// One question's part of an answer.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct Answer {
     pub question_id: String,
     pub state: AnswerState,
@@ -231,6 +238,7 @@ impl Answer {
 
 /// Where a set stands (data-model.md §1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum QuestionState {
     /// Shown and answerable.
@@ -273,6 +281,7 @@ impl QuestionState {
 
 /// Where one platform message presents a set, so it can be edited or stripped later (FR-024).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct ControlMessage {
     /// The platform's conversation id.
     pub chat_id: String,
@@ -286,6 +295,7 @@ pub struct ControlMessage {
 
 /// A set's platform side: which messages carry it, and where.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct Controls {
     /// The platform that posted them, e.g. `discord`.
     pub platform: String,
@@ -321,6 +331,7 @@ pub struct QuestionSetRecord {
 
 /// Where a sensitive ask stands (data-model.md §7).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum AskState {
     /// The dialog is up and the script is waiting.
@@ -443,8 +454,12 @@ impl std::fmt::Debug for SensitiveOutcome {
 ///
 /// It says what was asked and nothing else: the answers arrive as the person's next turn.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct QuestionAsked {
-    pub status: &'static str,
+    /// Always `pending`: a set is either presented or refused, and a refusal is an error rather
+    /// than an output. A `String` rather than `&'static str` so the type can round-trip through
+    /// serde like every other tool output.
+    pub status: String,
     pub question_set_id: String,
     /// The questions, in order, so a script can log what it asked without rebuilding it.
     pub questions: Vec<AskedQuestion>,
@@ -453,7 +468,7 @@ pub struct QuestionAsked {
 impl QuestionAsked {
     pub fn pending(set_id: impl Into<String>, set: &QuestionSet) -> Self {
         Self {
-            status: "pending",
+            status: "pending".to_string(),
             question_set_id: set_id.into(),
             questions: set
                 .questions
@@ -469,6 +484,7 @@ impl QuestionAsked {
 
 /// One question in [`QuestionAsked`].
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct AskedQuestion {
     pub id: String,
     #[serde(rename = "type")]
@@ -477,6 +493,7 @@ pub struct AskedQuestion {
 
 /// The person's answer, carried as a turn of its own (`contracts/questions-wire.md` §7).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct QuestionAnswer {
     /// The set being answered.
     pub set_id: String,

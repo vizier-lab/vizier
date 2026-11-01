@@ -25,6 +25,7 @@ pub(crate) mod memory_revision;
 mod notification;
 mod project;
 mod provider;
+mod question;
 mod reaction;
 mod scratch;
 mod secret;
@@ -416,6 +417,7 @@ impl SqliteStorage {
         init_integration_schema(conn)?;
         init_usage_schema(conn)?;
         init_client_call_schema(conn)?;
+        init_question_schema(conn)?;
         init_scratch_schema(conn)?;
         init_turn_schema(conn)?;
         init_secret_schema(conn)?;
@@ -591,6 +593,41 @@ pub fn init_client_call_schema(conn: &Connection) -> Result<()> {
         );
         CREATE INDEX IF NOT EXISTS idx_client_call_session ON client_tool_call(agent_id, channel, topic);
         CREATE INDEX IF NOT EXISTS idx_client_call_pending ON client_tool_call(status) WHERE status = 'pending';
+        ",
+    )?;
+    Ok(())
+}
+
+
+/// The `question_set` table (`specs/042-agent-asking-question/data-model.md` §9): one row per set
+/// the agent asked. `questions` is the immutable set; `state`, `answers` and `answerer` change
+/// after the insert and are filled into the history entry on every read, exactly as
+/// `client_tool_call`'s are. `short_id` is the only thing a platform control carries.
+///
+/// A new table needs no migration and no `add_column_if_missing`: `CREATE TABLE IF NOT EXISTS` is
+/// all a table that never existed before needs (research R13). Split out like
+/// [`init_client_call_schema`] so the tests in `src/storage/sqlite/question.rs` can stand it up
+/// against an in-memory connection.
+pub fn init_question_schema(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "
+        CREATE TABLE IF NOT EXISTS question_set (
+            set_id     TEXT PRIMARY KEY,
+            short_id   TEXT NOT NULL UNIQUE,
+            agent_id   TEXT NOT NULL,
+            channel    TEXT NOT NULL,
+            channel_json TEXT NOT NULL,
+            topic      TEXT,
+            state      TEXT NOT NULL,
+            questions  TEXT NOT NULL,
+            answers    TEXT,
+            answerer   TEXT,
+            controls   TEXT,
+            created_at INTEGER NOT NULL,
+            closed_at  INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_qs_session ON question_set(agent_id, channel, topic);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_qs_short ON question_set(short_id);
         ",
     )?;
     Ok(())
