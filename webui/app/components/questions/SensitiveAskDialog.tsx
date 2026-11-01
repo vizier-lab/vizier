@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Button, Dialog, TextField } from '@vizier/design'
+import { Button, Dialog, IconButton, TextField } from '@vizier/design'
 import type { SensitiveAsk } from '../../api/frames'
 
 export type { SensitiveAsk } from '../../api/frames'
@@ -82,17 +82,22 @@ export function SensitiveAskDialog({
                     data-lpignore="true"
                     onChange={(event) => setValue(event.target.value)}
                     aria-describedby={`${current.ask_id}-help`}
+                    // The reveal lives inside the field, as an eye: the value stays masked until it is pressed.
+                    suffix={
+                        <IconButton
+                            variant="ghost"
+                            size="sm"
+                            icon={revealed ? 'eye-closed' : 'eye'}
+                            aria-label={revealed ? 'Hide value' : 'Show value'}
+                            onClick={() => setRevealed((shown) => !shown)}
+                        />
+                    }
                 />
 
-                <div className="flex items-center gap-8">
-                    <Button variant="secondary" onClick={() => setRevealed((shown) => !shown)}>
-                        {revealed ? 'Hide' : 'Reveal'}
-                    </Button>
-                    <span id={`${current.ask_id}-help`} className="type-ui text-faint">
-                        {current.min_bytes}–{current.max_bytes} bytes. The value goes to this run only: it is
-                        never written to the conversation.
-                    </span>
-                </div>
+                <span id={`${current.ask_id}-help`} className="type-ui text-faint">
+                    {current.min_bytes}–{current.max_bytes} bytes. The value goes to this run only: it is never
+                    written to the conversation.
+                </span>
 
                 {!current.protected || tooShort ? (
                     <p className="type-ui text-danger" role="alert">

@@ -59,8 +59,11 @@ describe('the sensitive-input dialog', () => {
         expect(html).toContain('autoComplete="off"')
         expect(html).toContain('data-1p-ignore')
         expect(html).toContain('data-lpignore="true"')
-        // Reveal is explicit, and the purpose is shown to the person.
-        expect(html).toContain('Reveal')
+        // Reveal is an eye inside the field, named for a screen reader; it starts masked.
+        expect(html).toContain('aria-label="Show value"')
+        expect(html).not.toContain('aria-label="Hide value"')
+        expect(html).not.toContain('>Reveal<')
+        expect(html).toContain('The value goes to this run only')
         expect(html).toContain('To file the issue you asked for.')
         expect(html).toContain('never written to the conversation')
         // Nothing is prefilled.
