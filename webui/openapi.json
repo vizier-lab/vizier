@@ -3598,7 +3598,7 @@
         ],
         "responses": {
           "200": {
-            "description": "The caller's sessions, newest activity first, empty last",
+            "description": "The caller's sessions in creation order, newest first, empty last",
             "content": {
               "application/json": {
                 "schema": {

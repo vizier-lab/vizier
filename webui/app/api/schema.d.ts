@@ -7123,7 +7123,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The caller's sessions, newest activity first, empty last */
+            /** @description The caller's sessions in creation order, newest first, empty last */
             200: {
                 headers: {
                     [name: string]: unknown;

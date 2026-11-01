@@ -2,13 +2,16 @@ import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router'
 import { createProjectSession, listProjectSessions } from '../api/endpoints/projects'
 import { canUseProjects } from '../lib/access'
+import { mostRecentSession } from '../lib/projectSessions'
 import { ProjectsRefused } from '../screens/projects/ProjectsSection'
 import { useAgents } from '../stores/agents'
 import { useProjects } from '../stores/projects'
 
 /**
  * `/:agentId/projects/:projectId` opens the caller's most recent session in the project, or
- * starts one when they have none. A person without the project permission sees the refused state.
+ * starts one when they have none. The list is in creation order, so the session to open is picked
+ * by `last_activity` rather than by being first. A person without the project permission sees the
+ * refused state.
  */
 export default function ProjectIndex() {
     const { agentId = '', projectId = '' } = useParams()
@@ -24,7 +27,7 @@ export default function ProjectIndex() {
         listProjectSessions(agentId, projectId)
             .then(async (sessions) => {
                 if (!alive) return
-                const existing = sessions?.[0]
+                const existing = mostRecentSession(sessions ?? [])
                 if (existing) {
                     navigate(`/${agentId}/projects/${projectId}/chat/${existing.topic}`, { replace: true })
                     return

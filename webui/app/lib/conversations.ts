@@ -45,7 +45,7 @@ export function sidebarSections(items: ConversationItem[], now: Date = new Date(
 }
 
 /** The sidebar's short time: "now", "12m", "2h" today, the clock for yesterday, the weekday this week, a date after. */
-export function sidebarTime(at: string, now: Date = new Date()): string {
+export function sidebarTime(at: string | number, now: Date = new Date()): string {
     const d = new Date(at)
     const mins = Math.floor((now.getTime() - d.getTime()) / 60_000)
     const days = Math.round((startOfDay(now) - startOfDay(d)) / 86_400_000)

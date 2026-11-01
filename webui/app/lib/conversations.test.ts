@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ConversationItem } from '../api/endpoints/conversations'
-import { conversationHref, dayGroup, rowTime, sections } from './conversations'
+import { conversationHref, dayGroup, rowTime, sections, sidebarTime } from './conversations'
 
 const now = new Date(2026, 9, 23, 12, 0)
 const item = (channel: string, kind: ConversationItem['kind'], at: Date, topic = ''): ConversationItem => ({
@@ -32,6 +32,14 @@ describe('times', () => {
         expect(rowTime(new Date(2026, 9, 23, 14, 2).toISOString(), now)).toBe('14:02')
         expect(rowTime(new Date(2026, 9, 5, 14, 2).toISOString(), now)).toBe('Oct 5')
         expect(dayGroup(new Date(2026, 9, 22, 1, 0).toISOString(), now)).toBe('Yesterday')
+    })
+})
+
+describe('sidebarTime', () => {
+    it('takes an ISO string or the milliseconds a project session carries', () => {
+        const at = new Date(2026, 9, 23, 10, 0)
+        expect(sidebarTime(at.toISOString(), now)).toBe('2h')
+        expect(sidebarTime(at.getTime(), now)).toBe('2h')
     })
 })
 

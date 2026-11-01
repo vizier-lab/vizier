@@ -26,7 +26,6 @@ export function ProjectsSection({ agentId }: { agentId: string }) {
     const refresh = useProjects((s) => s.refresh)
     const loadSessions = useProjects((s) => s.loadSessions)
     const start = useProjects((s) => s.start)
-    const [expanded, setExpanded] = useState<Record<string, boolean>>({})
     const [creating, setCreating] = useState(false)
     const allowed = !!agent && canUseProjects(agent)
 
@@ -45,8 +44,10 @@ export function ProjectsSection({ agentId }: { agentId: string }) {
     if (!allowed || projects.length === 0) return null
 
     return (
-        <section aria-label="Projects" className="flex flex-col gap-8 px-10">
-            <div className="flex items-center justify-between gap-8">
+        // No horizontal padding here: the header and every row carry their own, so a project row
+        // lines up with a Sessions row at the same x.
+        <section aria-label="Projects" className="flex flex-col gap-8">
+            <div className="flex items-center justify-between gap-8 px-10">
                 <span className="type-mono-xs text-faint">Projects</span>
                 {transport.authMode === 'desktop' && (
                     <IconButton
@@ -66,10 +67,6 @@ export function ProjectsSection({ agentId }: { agentId: string }) {
                         agentId={agentId}
                         project={project}
                         sessions={sessions[projectKey(agentId, project.id)] ?? []}
-                        expanded={!!expanded[project.id]}
-                        onToggle={() =>
-                            setExpanded((cur) => ({ ...cur, [project.id]: !cur[project.id] }))
-                        }
                     />
                 ))}
             </div>
