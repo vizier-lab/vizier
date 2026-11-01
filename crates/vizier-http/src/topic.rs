@@ -20,8 +20,8 @@ use vizier_core::{
 
 use crate::{
     api::v1::agents::channel::{
-        ClientLimits, WebSocketReactionMessage, bind_client_tools, check_client_event, client_call_state,
-        client_error, client_tool_result, question_error, spawn_delivery, webui_reaction,
+        ClientLimits, WebSocketReactionMessage, bind_client_tools, check_client_context, check_client_event,
+        client_call_state, client_error, client_tool_result, question_error, spawn_delivery, webui_reaction,
     },
     state::HTTPState,
 };
@@ -293,6 +293,13 @@ impl TopicConnection {
                                         .await;
                                     return;
                                 }
+                            }
+
+                            // What the client says it can render: checked here, like the tool
+                            // declarations, so a malformed note is refused before a turn starts.
+                            if let Err(error) = check_client_context(&mut request) {
+                                send_frame(error).await;
+                                return;
                             }
 
                             // Refused before anything is sent, so no turn starts (FR-002).

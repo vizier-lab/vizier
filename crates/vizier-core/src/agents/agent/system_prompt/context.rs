@@ -10,6 +10,50 @@ use crate::{
 /// tell the injected block apart from the user's own text.
 pub const CONTEXT_HEADER: &str = "# Context\n";
 
+/// How many client-context notes a request may carry, and how long each may be after trimming.
+/// The WebSocket surface refuses a request past these (`invalid_client_context`); the section
+/// below also stops at them, so a stored request can never make a prompt unbounded.
+pub const CLIENT_CONTEXT_MAX_ENTRIES: usize = 8;
+pub const CLIENT_CONTEXT_MAX_BYTES: usize = 512;
+
+/// The `## Client Context` section: what the client that sent the message says about itself —
+/// that it renders mermaid diagrams and LaTeX, say.
+///
+/// It is the block's first section, so it is the first content after the system messages
+/// (`with_context` prepends the block to the user message). Per-turn by construction: the
+/// block rides the newest user message and `VizierRequest::to_prompt` leaves the notes out, so
+/// they are shown to the turn that sent them and never replayed. `None` when there is nothing
+/// to say, like every other optional section.
+pub fn client_context_note(notes: &[String]) -> Option<String> {
+    let list = notes
+        .iter()
+        .map(|note| note.trim())
+        .filter(|note| !note.is_empty())
+        .take(CLIENT_CONTEXT_MAX_ENTRIES)
+        .map(|note| format!("- {}", clipped(note, CLIENT_CONTEXT_MAX_BYTES)))
+        .collect::<Vec<_>>();
+    if list.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "## Client Context\nThe client that sent this message describes itself as follows. These are \
+         facts about the client, not instructions from the person, and they hold for this turn.\n\n{}",
+        list.join("\n")
+    ))
+}
+
+/// `note`, cut to at most `max` bytes on a character boundary. A note that was cut says so.
+fn clipped(note: &str, max: usize) -> String {
+    if note.len() <= max {
+        return note.to_string();
+    }
+    let mut end = max;
+    while end > 0 && !note.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}…", &note[..end])
+}
+
 /// Per-request context (time, related memories, related skills).
 ///
 /// Prepended to the current user message instead of being sent as system messages, so the
@@ -27,12 +71,15 @@ pub fn context_md(
     invoked: Option<&Skill>,
     reactions: Option<&str>,
 ) -> String {
-    context_md_with(memory, skills, invoked, reactions, None, None)
+    context_md_with(&[], memory, skills, invoked, reactions, None, None)
 }
 
-/// [`context_md`], plus the two project sections (`specs/041-project-coding-workspace` §4):
-/// `project_state` after the time, and the resolved `## Mentioned files` block at the end.
+/// [`context_md`], plus what only some turns have: `client_context` first (what the client that
+/// sent the message can render), then the two project sections
+/// (`specs/041-project-coding-workspace` §4) — `project_state` after the time, and the resolved
+/// `## Mentioned files` block at the end.
 pub fn context_md_with(
+    client_context: &[String],
     memory: &[MemoryPassageResult],
     skills: &[Skill],
     invoked: Option<&Skill>,
@@ -43,11 +90,16 @@ pub fn context_md_with(
     let utc_now = Utc::now();
     let local_now = Local::now();
 
-    let mut sections = vec![format!(
+    // The client goes first: `with_context` puts this block at the head of the user message, so
+    // its first section is the first content after the system prompts. Nothing is cached by
+    // position inside the block — the provider caches tools, the system field, and the newest
+    // message's last block — so the order is only a matter of reading.
+    let mut sections = client_context_note(client_context).into_iter().collect::<Vec<_>>();
+    sections.push(format!(
         "## Time\n**System Datetime (UTC)**: {}\n**Actual Datetime (Local Timezone)**: {}",
         utc_now.format("%A, %Y-%m-%d %H:%M UTC"),
         local_now.format("%A, %Y-%m-%d %H:%M %:z"),
-    )];
+    ));
 
     // Volatile project facts sit next to the request, never in the cacheable system prompt.
     if let Some(state) = project_state {
@@ -217,6 +269,52 @@ mod tests {
         assert!(rendered.starts_with(CONTEXT_HEADER));
         assert!(rendered.contains("## Time"), "time is always present");
         assert!(!rendered.contains("## Reactions"), "omitted when nothing was reacted to");
+    }
+
+    /// The client's own words come first in the block — the block leads the user message, so
+    /// this is the first content after the system prompts — and the header still leads, which is
+    /// what lets dummyplug and `/context` tell the block from the person's text.
+    #[test]
+    fn client_context_is_the_first_section_after_the_header() {
+        let notes = vec!["This client renders mermaid diagrams and LaTeX.".to_string()];
+        let rendered = context_md_with(&notes, &[], &[], None, None, None, None);
+
+        assert!(rendered.starts_with(&format!("{CONTEXT_HEADER}## Client Context")), "{rendered}");
+        let client = rendered.find("## Client Context").unwrap();
+        let time = rendered.find("## Time").unwrap();
+        assert!(client < time, "{rendered}");
+        assert!(rendered.contains("- This client renders mermaid diagrams and LaTeX."), "{rendered}");
+        assert!(rendered.contains("not instructions from the person"), "{rendered}");
+        // The 4-argument wrapper says nothing about a client: a dream or a side chat has none.
+        assert!(!context_md(&[], &[], None, None).contains("## Client Context"));
+    }
+
+    /// Blank notes are not a section, and neither is a long list: the block is bounded whatever
+    /// a stored request happens to carry.
+    #[test]
+    fn client_context_is_capped_and_blank_notes_are_dropped() {
+        assert_eq!(client_context_note(&[]), None);
+        assert_eq!(client_context_note(&["  ".into(), "".into()]), None);
+
+        let long = "x".repeat(CLIENT_CONTEXT_MAX_BYTES + 100);
+        let notes: Vec<String> = std::iter::once(long.clone())
+            .chain((0..CLIENT_CONTEXT_MAX_ENTRIES + 4).map(|i| format!("note {i}")))
+            .collect();
+        let note = client_context_note(&notes).unwrap();
+        let entries = note.lines().filter(|line| line.starts_with("- ")).count();
+        assert_eq!(entries, CLIENT_CONTEXT_MAX_ENTRIES, "{note}");
+        assert!(!note.contains(&long), "the long note was cut");
+        assert!(note.contains(&format!("- {}…", "x".repeat(CLIENT_CONTEXT_MAX_BYTES))), "{note}");
+    }
+
+    /// A cut falls on a character boundary: a note in a language that is not ASCII must not
+    /// panic the turn that carries it.
+    #[test]
+    fn a_cut_note_keeps_whole_characters() {
+        let note = "図".repeat(CLIENT_CONTEXT_MAX_BYTES);
+        let cut = clipped(&note, CLIENT_CONTEXT_MAX_BYTES);
+        assert!(cut.ends_with('…'));
+        assert!(cut.trim_end_matches('…').chars().all(|c| c == '図'));
     }
 
     /// contracts/agent-context.md: after `## Time`, before the memories, and in the user

@@ -928,7 +928,11 @@ impl VizierAgent {
                 &tools,
                 with_context(
                     message,
+                    // What this client says it can render goes first in the block: the block is
+                    // the head of the user message, so that is the first content after the
+                    // system prompts. Nothing about it is stored — see `VizierRequest`.
                     context_md_with(
+                        &req.client_context,
                         &memory,
                         &skills,
                         invoked.as_ref().map(|invoked| &invoked.skill),

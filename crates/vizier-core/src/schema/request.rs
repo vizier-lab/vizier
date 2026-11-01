@@ -322,6 +322,17 @@ pub struct VizierRequest {
     /// resolved when the turn starts and never stored.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub mentions: Vec<String>,
+    /// What the client that sent this request says about itself: what it renders, what it
+    /// offers, how it is being used. The WebUI says it draws mermaid diagrams and LaTeX.
+    ///
+    /// A note for the turn that sent it. It is rendered into the turn's context block
+    /// (`system_prompt::context::client_context_note`) and deliberately left out of
+    /// [`VizierRequest::to_prompt`]: the block rides the newest user message and is never
+    /// stored, so a replayed request cannot restate a note from a client that may have gone,
+    /// and no later turn inherits it in the person's voice. It stays on the stored request so
+    /// a resumed turn rebuilds the same block.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub client_context: Vec<String>,
     /// A request that belongs to a blocking piece and must not survive a restart.
     /// Blocking pieces are never journaled or resumed; only their conversation history
     /// remains for inspection.
@@ -868,5 +879,43 @@ mod tests {
             ..request
         };
         assert!(!bare.to_prompt().unwrap().contains("# Attached Files"));
+    }
+
+    /// Client context is for the turn that sent it and for no other. It rides the turn's context
+    /// block (`system_prompt::context`), so the request text — which is what a later turn
+    /// replays — must not mention it, in any spelling.
+    #[test]
+    fn to_prompt_never_carries_the_client_context() {
+        let request = VizierRequest {
+            user: "alice".into(),
+            content: VizierRequestContent::Chat("draw me a diagram".into()),
+            client_context: vec!["This client renders mermaid diagrams.".into()],
+            ..Default::default()
+        };
+        let prompt = request.to_prompt().unwrap();
+        assert!(prompt.contains("draw me a diagram"), "{prompt}");
+        assert!(!prompt.contains("mermaid"), "{prompt}");
+        assert!(!prompt.contains("Client Context"), "{prompt}");
+
+        // The field is not stored away either: it stays on the request, so a resumed turn
+        // rebuilds the same block and a round trip keeps it.
+        let wire = serde_json::to_value(&request).unwrap();
+        assert_eq!(wire["client_context"], serde_json::json!(["This client renders mermaid diagrams."]));
+        let back: VizierRequest = serde_json::from_value(wire).unwrap();
+        assert_eq!(back.client_context, request.client_context);
+    }
+
+    /// Every other request site, and every client that predates the field, sends none: the
+    /// default is empty and an empty list is not serialised.
+    #[test]
+    fn client_context_defaults_to_none_and_is_omitted_when_empty() {
+        let request = VizierRequest {
+            user: "alice".into(),
+            content: VizierRequestContent::Chat("hi".into()),
+            ..Default::default()
+        };
+        assert!(request.client_context.is_empty());
+        let wire = serde_json::to_value(&request).unwrap();
+        assert!(wire.get("client_context").is_none(), "{wire}");
     }
 }

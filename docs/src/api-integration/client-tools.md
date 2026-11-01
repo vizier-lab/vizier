@@ -67,6 +67,32 @@ At most 32 tools and 16 categories per request.
 
 `rule` is one of `name_pattern`, `duplicate_name`, `too_many_tools`, `too_many_categories`, `description_missing`, `description_too_long`, `category_description_too_long`, `schema_not_object`, `schema_too_large`, `timeout_out_of_range`.
 
+## 1a. What this client can render (`client_context`)
+
+A request may also say what the client itself can draw, so the agent spends a diagram or a formula where they help and plain prose where they do not:
+
+```json
+{
+  "timestamp": "2026-10-17T12:00:00Z",
+  "user": "alice",
+  "content": { "chat": "Show me how the two queues interact" },
+  "metadata": {},
+  "client_context": [
+    "This client renders markdown: mermaid fences as diagrams, $…$ and $$…$$ as LaTeX."
+  ]
+}
+```
+
+| Field | Required | Rules |
+|-------|----------|-------|
+| `client_context` | no | at most 8 notes, each at most 512 bytes after trimming; blank notes are dropped |
+
+**Where the agent sees it.** At the head of the turn's context block — a `## Client Context` section, first after the system prompts, before the message. The agent is told these are facts about the client, not instructions from the person.
+
+**It is not a message, and it is not stored with the request.** The note is not part of the request text, so no later turn replays it and no other client inherits it; a turn resumed after a restart rebuilds it from the stored request. An ordinary request simply carries none.
+
+**What to put in it.** What is stable about your client: the formats it renders, the affordances it has, the platform it runs on. It is re-sent on every request, so keep each note short and about the client rather than the conversation. A request past the caps is refused before the turn starts with a `client_error` whose code is `invalid_client_context`.
+
 ## 2. Server → client: resolved names
 
 When the agent starts the turn, before the model runs, the declaring connection receives:
@@ -294,6 +320,7 @@ Every refusal goes to the sending connection only.
 | `code` | Sent when |
 |--------|-----------|
 | `invalid_client_tools` | A declaration breaks a rule (§1); carries `tool` and `rule` |
+| `invalid_client_context` | `client_context` has too many notes or a note over 512 bytes (§1a) |
 | `not_pending` | An answer for a call not waiting on this connection (§4) |
 | `result_too_large` | An answer over 1 MB (§4) |
 | `invalid_client_event` | A client event's `text` is empty or over 4 KB, or its `data` over 64 KB (§5) |
@@ -309,5 +336,6 @@ This is version 1. `client_tools_resolved.protocol` carries it. Within version 1
 
 ### Changelog
 
+- Optional `client_context` on a request: what the client says it can render, shown to that turn and never stored with it (version 1).
 - Optional `ends_turn` on tool declarations and in `client_tools_resolved` (version 1).
 - Question frames: `question_set`, `sensitive_ask`, `sensitive_ask_closed`, the `question_answer` request and `sensitive_input_answer`, with the `QuestionSet` and `SensitiveAsk` history entries (version 1).

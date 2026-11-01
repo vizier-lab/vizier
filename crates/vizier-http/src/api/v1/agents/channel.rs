@@ -664,6 +664,45 @@ pub(crate) async fn check_client_event(
     Ok(())
 }
 
+/// Check what the client says about itself (`VizierRequest::client_context`): at most
+/// `CLIENT_CONTEXT_MAX_ENTRIES` notes of `CLIENT_CONTEXT_MAX_BYTES` bytes each, after trimming.
+/// Blank notes are dropped rather than refused — a client that sends an empty string has said
+/// nothing, and the turn should not fail over it. Refused before the turn starts, so a client
+/// learns the rule instead of silently losing its note.
+///
+/// The caps are the ones the context block renders with, so what reaches a prompt and what the
+/// socket accepts cannot drift apart.
+pub(crate) fn check_client_context(request: &mut VizierRequest) -> Result<(), serde_json::Value> {
+    use vizier_core::agents::agent::system_prompt::context::{
+        CLIENT_CONTEXT_MAX_BYTES, CLIENT_CONTEXT_MAX_ENTRIES,
+    };
+
+    let notes: Vec<String> = std::mem::take(&mut request.client_context)
+        .into_iter()
+        .map(|note| note.trim().to_string())
+        .filter(|note| !note.is_empty())
+        .collect();
+    if notes.len() > CLIENT_CONTEXT_MAX_ENTRIES {
+        return Err(client_error(
+            "invalid_client_context",
+            None,
+            format!("at most {CLIENT_CONTEXT_MAX_ENTRIES} client context notes"),
+        ));
+    }
+    if let Some(long) = notes.iter().find(|note| note.len() > CLIENT_CONTEXT_MAX_BYTES) {
+        return Err(client_error(
+            "invalid_client_context",
+            None,
+            format!(
+                "a client context note is {} bytes; the limit is {CLIENT_CONTEXT_MAX_BYTES}",
+                long.len()
+            ),
+        ));
+    }
+    request.client_context = notes;
+    Ok(())
+}
+
 /// Move a request's checked declarations into its binding to `connection`. Only a request
 /// that starts a chat turn takes client tools; on any other they are dropped unread.
 pub(crate) fn bind_client_tools(
@@ -816,6 +855,68 @@ pub async fn handle_socket(
     }
     drop(write_tx);
     let _ = write_handle.await;
+}
+
+#[cfg(test)]
+mod client_context_tests {
+    use super::*;
+    use vizier_core::agents::agent::system_prompt::context::{
+        CLIENT_CONTEXT_MAX_BYTES, CLIENT_CONTEXT_MAX_ENTRIES,
+    };
+
+    fn request(notes: &[&str]) -> VizierRequest {
+        VizierRequest {
+            user: "alice".into(),
+            content: VizierRequestContent::Chat("hi".into()),
+            client_context: notes.iter().map(|note| note.to_string()).collect(),
+            ..Default::default()
+        }
+    }
+
+    /// A client's own words reach the turn trimmed, and the blanks it left behind are dropped
+    /// rather than refused.
+    #[test]
+    fn a_well_formed_list_is_kept_trimmed_and_blank_notes_are_dropped() {
+        let mut req = request(&["  This client renders mermaid.  ", "   ", ""]);
+        assert!(check_client_context(&mut req).is_ok());
+        assert_eq!(req.client_context, vec!["This client renders mermaid."]);
+    }
+
+    /// A request with no notes, or one that only had blanks, is an ordinary request.
+    #[test]
+    fn no_notes_stays_empty() {
+        let mut req = request(&[]);
+        assert!(check_client_context(&mut req).is_ok());
+        assert!(req.client_context.is_empty());
+    }
+
+    /// Over the cap the note is refused before a turn starts, and the code names the rule so a
+    /// client can fix it instead of guessing.
+    #[test]
+    fn too_many_notes_are_refused() {
+        let many: Vec<String> = (0..CLIENT_CONTEXT_MAX_ENTRIES + 1).map(|i| format!("note {i}")).collect();
+        let mut req = request(&many.iter().map(String::as_str).collect::<Vec<_>>());
+        let frame = check_client_context(&mut req).unwrap_err();
+        assert_eq!(frame["client_error"]["code"], "invalid_client_context");
+        assert!(frame["client_error"]["message"].as_str().unwrap().contains("at most"));
+    }
+
+    /// A note over the byte cap is refused too: the block it becomes is bounded, so a client
+    /// that wants to say more has to choose what matters.
+    #[test]
+    fn a_too_long_note_is_refused() {
+        let long = "x".repeat(CLIENT_CONTEXT_MAX_BYTES + 1);
+        let mut req = request(&[&long]);
+        let frame = check_client_context(&mut req).unwrap_err();
+        assert_eq!(frame["client_error"]["code"], "invalid_client_context");
+        assert!(frame["client_error"]["message"].as_str().unwrap().contains("limit"));
+
+        // At the cap it is fine, and the trimmed length is what counts.
+        let at_cap = format!("{}  ", "x".repeat(CLIENT_CONTEXT_MAX_BYTES));
+        let mut req = request(&[&at_cap]);
+        assert!(check_client_context(&mut req).is_ok());
+        assert_eq!(req.client_context[0].len(), CLIENT_CONTEXT_MAX_BYTES);
+    }
 }
 
 #[cfg(test)]
