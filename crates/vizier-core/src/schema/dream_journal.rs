@@ -79,7 +79,14 @@ pub struct DreamCycle {
     pub written: u32,
     pub revised: u32,
     pub removed: u32,
+    /// Did this cycle change the agent's identity? Recomputed from `core_changes` so the flag
+    /// and the count can never disagree.
     pub core: bool,
+    /// How many identity changes: any revision whose **bundle** is the reserved one
+    /// (specs/043-unify-core-and-memory, FR-031/FR-033). Excluded from
+    /// written/revised/removed — an identity change is not also a memory change (FR-032).
+    #[serde(default)]
+    pub core_changes: u32,
     /// At most [`MAX_CHANGES`]; `more` counts the rest.
     pub changes: Vec<DreamChange>,
     pub more: u32,
@@ -93,9 +100,10 @@ pub struct DreamNight {
     pub date: NaiveDate,
     /// The latest cycle of the night.
     pub cycle_id: Option<String>,
-    /// written + revised + removed
+    /// written + revised + removed, excluding identity changes
     pub memories: u32,
     pub core: bool,
+    pub core_changes: u32,
     pub state: Option<DreamCycleState>,
 }
 
@@ -118,6 +126,21 @@ pub const LEGACY_WINDOW_SLACK: Duration = Duration::minutes(1);
 /// A revision's kind: a CORE revision is `Core`; a memory revision that deleted the document is
 /// `Removed`; one with no earlier revision, or whose earlier one was a deletion, is `Wrote`;
 /// anything else `Revised`. `previous_deleted` is `None` when there is no earlier revision.
+/// The kind of one memory revision, given the **bundle it lives in**
+/// (specs/043-unify-core-and-memory, FR-031). Classification follows bundle membership, not
+/// the table the row was written to: an agent that adds `core/values` gets an identity change
+/// for it, with no special case for the document that happens to be the soul.
+///
+/// This is the function `list_dream_revisions` classifies rows with, so the rule is tested
+/// through the code the query actually runs.
+pub fn revision_kind(bundle: &str, deleted: bool, previous_deleted: Option<bool>) -> ChangeKind {
+    if crate::schema::is_core_bundle(bundle) {
+        ChangeKind::Core
+    } else {
+        change_kind(false, deleted, previous_deleted)
+    }
+}
+
 pub fn change_kind(is_core: bool, deleted: bool, previous_deleted: Option<bool>) -> ChangeKind {
     if is_core {
         ChangeKind::Core
@@ -166,15 +189,37 @@ pub fn cycle_state(running: bool, has_extraction: bool, has_consolidation: bool)
     }
 }
 
+/// One cycle's counts, and its capped change list.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Tally {
+    pub written: u32,
+    pub revised: u32,
+    pub removed: u32,
+    pub core: bool,
+    pub core_changes: u32,
+    pub changes: Vec<DreamChange>,
+    pub more: u32,
+}
+
 /// Counts and the capped change list of one cycle, from all its changes (any order).
-pub fn tally(mut all: Vec<DreamChange>) -> (u32, u32, u32, bool, Vec<DreamChange>, u32) {
+pub fn tally(mut all: Vec<DreamChange>) -> Tally {
     all.sort_by_key(|c| c.at);
     let count = |k| all.iter().filter(|c| c.kind == k).count() as u32;
     let (written, revised, removed) = (count(ChangeKind::Wrote), count(ChangeKind::Revised), count(ChangeKind::Removed));
-    let core = all.iter().any(|c| c.kind == ChangeKind::Core);
+    // Identity changes are counted on their own and never among the memories: a revision of
+    // the identity document is not also a memory revision for counting purposes (FR-032).
+    let core_changes = count(ChangeKind::Core);
     let more = all.len().saturating_sub(MAX_CHANGES) as u32;
     all.truncate(MAX_CHANGES);
-    (written, revised, removed, core, all, more)
+    Tally {
+        written,
+        revised,
+        removed,
+        core: core_changes > 0,
+        core_changes,
+        changes: all,
+        more,
+    }
 }
 
 /// One entry per night of the `days` ending at `today`, oldest first. Several cycles on one
@@ -193,6 +238,7 @@ pub fn build_nights(cycles: &[DreamCycle], days: u32, today: NaiveDate, offset_m
                 cycle_id: latest.map(|c| c.cycle_id.clone()),
                 memories: of_night.iter().map(|c| c.written + c.revised + c.removed).sum(),
                 core: of_night.iter().any(|c| c.core),
+                core_changes: of_night.iter().map(|c| c.core_changes).sum(),
                 state: latest.map(|c| c.state),
             }
         })
@@ -206,6 +252,61 @@ mod tests {
 
     fn at(h: u32, m: u32) -> DateTime<Utc> {
         Utc.with_ymd_and_hms(2026, 10, 20, h, m, 0).unwrap()
+    }
+
+    #[test]
+    fn an_identity_change_is_classified_by_the_bundle_it_lives_in() {
+        // FR-031: membership, not a path or a table. Any document in the reserved bundle is an
+        // identity change, so a second document there needs no special case.
+        assert_eq!(revision_kind("core", false, Some(false)), ChangeKind::Core);
+        assert_eq!(
+            revision_kind("core", true, Some(false)),
+            ChangeKind::Core,
+            "even a deletion in the reserved bundle is an identity change"
+        );
+        assert_eq!(
+            revision_kind("vizier", false, Some(false)),
+            ChangeKind::Revised,
+            "an ordinary bundle keeps the ordinary kinds"
+        );
+        assert_eq!(revision_kind("vizier", true, Some(false)), ChangeKind::Removed);
+        assert_eq!(revision_kind("vizier", false, None), ChangeKind::Wrote);
+    }
+
+    #[test]
+    fn identity_changes_are_counted_on_their_own_and_never_as_memories() {
+        // FR-032/FR-033, SC-011: the summary reports a count, and the count is excluded from
+        // written/revised/removed.
+        let all = vec![
+            change(ChangeKind::Wrote, 1),
+            change(ChangeKind::Core, 2),
+            change(ChangeKind::Core, 3),
+            change(ChangeKind::Revised, 4),
+        ];
+        let t = tally(all);
+        assert_eq!((t.written, t.revised, t.removed), (1, 1, 0));
+        assert_eq!(t.core_changes, 2, "a count, not a flag");
+        assert!(t.core);
+        // The change list still shows them: they are reported, just not as memories.
+        assert_eq!(t.changes.iter().filter(|c| c.kind == ChangeKind::Core).count(), 2);
+    }
+
+    #[test]
+    fn a_night_reports_how_many_identity_changes_it_held() {
+        // FR-033: a period's summary carries the number, not merely whether one happened.
+        let night = DreamNight {
+            date: NaiveDate::from_ymd_opt(2026, 1, 1).unwrap(),
+            cycle_id: Some("c1".into()),
+            memories: 3,
+            core: true,
+            core_changes: 2,
+            state: Some(DreamCycleState::Complete),
+        };
+        assert_eq!(night.core_changes, 2);
+        assert_eq!(
+            night.memories, 3,
+            "identity changes are not counted among the memories"
+        );
     }
 
     #[test]
@@ -255,10 +356,14 @@ mod tests {
         all.extend((0..55).map(|m| change(ChangeKind::Wrote, m % 50)));
         all.push(change(ChangeKind::Revised, 1));
         all.push(change(ChangeKind::Removed, 2));
-        let (w, r, d, core, shown, more) = tally(all);
-        assert_eq!((w, r, d, core), (55, 1, 1, true));
-        assert_eq!(shown.len(), MAX_CHANGES);
-        assert_eq!(more, 58 - MAX_CHANGES as u32);
+        let t = tally(all);
+        assert_eq!(
+            (t.written, t.revised, t.removed, t.core, t.core_changes),
+            (55, 1, 1, true, 1),
+            "an identity change is counted on its own, never among the memories"
+        );
+        assert_eq!(t.changes.len(), MAX_CHANGES);
+        assert_eq!(t.more, 58 - MAX_CHANGES as u32);
     }
 
     #[test]
@@ -274,6 +379,7 @@ mod tests {
             revised: 1,
             removed: 0,
             core,
+            core_changes: u32::from(core),
             changes: vec![],
             more: 0,
             model: None,
@@ -388,7 +494,7 @@ pub fn assemble_cycles(
                     }
                 }
             }
-            let (written, revised, removed, core, changes, more) = tally(own);
+            let t = tally(own);
             let model = entries.iter().rev().find_map(|e| match (&e.provider, &e.model) {
                 (Some(p), Some(m)) => Some(format!("{p}/{m}")),
                 (None, Some(m)) => Some(m.clone()),
@@ -405,12 +511,13 @@ pub fn assemble_cycles(
                 started_at,
                 sessions_read: sources.len(),
                 sources,
-                written,
-                revised,
-                removed,
-                core,
-                changes,
-                more,
+                written: t.written,
+                revised: t.revised,
+                removed: t.removed,
+                core: t.core,
+                core_changes: t.core_changes,
+                changes: t.changes,
+                more: t.more,
                 model,
                 cost_usd: None,
             }
