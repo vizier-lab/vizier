@@ -39,7 +39,7 @@ export type ComposerProps = {
   recording?: boolean;
   /** Voice mode: a VoiceRecorder row in place of the text. */
   voice?: ReactNode;
-  /** In the tool row after Attach, "/", the mic and the context meter: a host's own toggle, e.g. a spoken reply. */
+  /** In the tool row after Attach, "/" and the mic: a host's own toggle, e.g. a spoken reply. */
   afterTools?: ReactNode;
   /** In the right group, just left of Send: a host's own switch, e.g. a chat's Plan/Build mode. */
   beforeSend?: ReactNode;
@@ -49,7 +49,7 @@ export type ComposerProps = {
   skills?: SkillMenuItem[];
   /** The "@" menu, when the host has a token to complete. The composer owns its keys, like the slash menu's. */
   suggest?: ComposerSuggest | null;
-  /** The context meter in the tool row, right of the mic. */
+  /** The context meter, at the end of the tool row's left group. */
   context?: { used: number; window: number; detail?: string };
   /** Mobile shows the count as text instead of the ring: "21k / 200k". */
   tokenText?: string;
@@ -57,8 +57,9 @@ export type ComposerProps = {
 
 /**
  * Where a person writes (D46). Attach, "/", voice and the context ring on the
- * left; a host's switch and Send on the right. "/" opens the skill menu. Text
- * entry focuses emerald. Enter sends, Shift+Enter breaks the line.
+ * left; a host's switch and Send on the right; a host's toggle can end the
+ * left group. "/" opens the skill menu. Text entry focuses emerald. Enter
+ * sends, Shift+Enter breaks the line.
  */
 export function Composer({
   agentName,
@@ -221,12 +222,12 @@ export function Composer({
                 <Icon name="mic" />
               </button>
             )}
+            {afterTools}
             {tokenText ? (
               <span className="type-mono-xs text-faint">{tokenText}</span>
             ) : (
               context && <ContextRing used={context.used} window={context.window} detail={context.detail} />
             )}
-            {afterTools}
             <span className="flex-1" />
             {beforeSend}
             {showStop ? (
