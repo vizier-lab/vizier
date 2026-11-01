@@ -16,8 +16,8 @@ export type ContextRingProps = {
 const compact = (n: number) => (n >= 1000 ? `${Math.round(n / 1000)}k` : String(n));
 
 /**
- * How full the model's context is (X36): a small ring beside Send, in the
- * foreground colour only. Hover or focus shows the exact numbers.
+ * How full the model's context is (X36): a small ring in the composer's tool
+ * row, in the foreground colour only. Hover or focus shows the exact numbers.
  */
 export function ContextRing({ used, window, detail, className, ...rest }: ContextRingProps) {
   const pct = window > 0 ? Math.min(1, used / window) : 0;

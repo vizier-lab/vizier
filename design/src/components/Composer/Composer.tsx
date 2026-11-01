@@ -39,9 +39,9 @@ export type ComposerProps = {
   recording?: boolean;
   /** Voice mode: a VoiceRecorder row in place of the text. */
   voice?: ReactNode;
-  /** In the tool row after Attach, the mic and "/": a host's own toggle, e.g. a spoken reply. */
+  /** In the tool row after Attach, "/", the mic and the context meter: a host's own toggle, e.g. a spoken reply. */
   afterTools?: ReactNode;
-  /** In the tool row just left of Send: a host's own switch, e.g. a chat's Plan/Build mode. */
+  /** In the right group, just left of Send: a host's own switch, e.g. a chat's Plan/Build mode. */
   beforeSend?: ReactNode;
   /** Laid over the input box exactly (a DropZone overlay while files are dragged in). */
   overlay?: ReactNode;
@@ -49,16 +49,16 @@ export type ComposerProps = {
   skills?: SkillMenuItem[];
   /** The "@" menu, when the host has a token to complete. The composer owns its keys, like the slash menu's. */
   suggest?: ComposerSuggest | null;
-  /** The context meter beside Send. */
+  /** The context meter in the tool row, right of the mic. */
   context?: { used: number; window: number; detail?: string };
   /** Mobile shows the count as text instead of the ring: "21k / 200k". */
   tokenText?: string;
 } & Omit<HTMLAttributes<HTMLDivElement>, "onChange">;
 
 /**
- * Where a person writes (D46). Attach and voice on the left, the context
- * ring and Send on the right; "/" opens the skill menu. Text entry focuses
- * emerald. Enter sends, Shift+Enter breaks the line.
+ * Where a person writes (D46). Attach, "/", voice and the context ring on the
+ * left; a host's switch and Send on the right. "/" opens the skill menu. Text
+ * entry focuses emerald. Enter sends, Shift+Enter breaks the line.
  */
 export function Composer({
   agentName,
@@ -204,6 +204,11 @@ export function Composer({
             <button type="button" aria-label="Attach files" onClick={onAttach} disabled={disabled} className={toolButton}>
               <Icon name="attach" />
             </button>
+            {skills.length > 0 && (
+              <button type="button" aria-label="Skills" onClick={() => onValueChange("/")} disabled={disabled} className={toolButton}>
+                <Icon name="slash" />
+              </button>
+            )}
             {mic && (
               <button
                 type="button"
@@ -216,18 +221,13 @@ export function Composer({
                 <Icon name="mic" />
               </button>
             )}
-            {skills.length > 0 && (
-              <button type="button" aria-label="Skills" onClick={() => onValueChange("/")} disabled={disabled} className={toolButton}>
-                <Icon name="slash" />
-              </button>
-            )}
-            {afterTools}
-            <span className="flex-1" />
             {tokenText ? (
               <span className="type-mono-xs text-faint">{tokenText}</span>
             ) : (
               context && <ContextRing used={context.used} window={context.window} detail={context.detail} />
             )}
+            {afterTools}
+            <span className="flex-1" />
             {beforeSend}
             {showStop ? (
               <button

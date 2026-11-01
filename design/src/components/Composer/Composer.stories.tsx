@@ -88,8 +88,9 @@ export const VoiceRecorded: Story = {
 };
 
 /**
- * A project chat: the mode switch sits left of Send, the spoken-reply toggle after the tools.
- * Both are the host's own controls, passed through `beforeSend` and `afterTools`.
+ * A project chat: the mode switch sits in the right group, left of Send; the spoken-reply toggle
+ * ends the left group, after the context ring. Both are the host's own controls, passed through
+ * `afterTools` and `beforeSend`.
  */
 export const WithToggles: Story = {
   render: function Render(args) {
