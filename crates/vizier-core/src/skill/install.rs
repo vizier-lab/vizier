@@ -7,8 +7,15 @@ use crate::skill::{SkillManager, SkillMeta, SkillSource};
 
 const DEFAULT_REGISTRY: &str = "https://github.com/vizier-lab/vizier.git";
 
+/// A `git` that opens no console window of its own (Windows), like `crate::process`.
+fn git() -> Command {
+    let mut command = Command::new("git");
+    crate::process::no_window_blocking(&mut command);
+    command
+}
+
 pub fn check_git_available() -> crate::Result<()> {
-    match Command::new("git").arg("--version").output() {
+    match git().arg("--version").output() {
         Ok(output) => {
             if output.status.success() {
                 Ok(())
@@ -80,7 +87,7 @@ fn install_from_registry(
     let tmp_dir = tempfile::TempDir::new().map_err(|e| crate::VizierError(format!("Failed to create temp dir: {}", e)))?;
 
     // Sparse clone
-    let output = Command::new("git")
+    let output = git()
         .args(["clone", "--depth", "1", "--filter=blob:none", "--sparse", registry_url])
         .arg(tmp_dir.path())
         .output()
@@ -93,7 +100,7 @@ fn install_from_registry(
 
     // Set sparse checkout
     let sparse_pattern = format!("skills/{}", slug);
-    let output = Command::new("git")
+    let output = git()
         .args(["sparse-checkout", "set", &sparse_pattern])
         .current_dir(tmp_dir.path())
         .output()
@@ -148,7 +155,7 @@ fn install_from_git(
     let tmp_dir = tempfile::TempDir::new().map_err(|e| crate::VizierError(format!("Failed to create temp dir: {}", e)))?;
 
     // Clone repo
-    let output = Command::new("git")
+    let output = git()
         .args(["clone", "--depth", "1", repo_url])
         .arg(tmp_dir.path())
         .output()

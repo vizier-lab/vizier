@@ -125,6 +125,7 @@ impl VizierTool for ExecuteSkillResource {
             .current_dir(&dir)
             .stdin(std::process::Stdio::null())
             .kill_on_drop(true);
+        crate::process::no_window(&mut command);
 
         let output = match tokio::time::timeout(SCRIPT_TIMEOUT, command.output()).await {
             Ok(Ok(output)) => output,

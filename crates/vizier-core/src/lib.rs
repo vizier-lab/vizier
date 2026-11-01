@@ -117,6 +117,7 @@ pub(crate) mod encryption;
 pub(crate) mod file_manager;
 pub(crate) mod image_generation;
 pub(crate) mod indexer;
+pub(crate) mod process;
 pub(crate) mod sandbox;
 pub(crate) mod stt;
 pub(crate) mod tts;

@@ -32,11 +32,13 @@ pub async fn kill(child: &mut Child) {
 #[cfg(windows)]
 pub async fn kill(child: &mut Child) {
     if let Some(pid) = child.id() {
-        let _ = std::process::Command::new("taskkill")
+        let mut taskkill = std::process::Command::new("taskkill");
+        taskkill
             .args(["/PID", &pid.to_string(), "/T", "/F"])
             .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status();
+            .stderr(std::process::Stdio::null());
+        crate::process::no_window_blocking(&mut taskkill);
+        let _ = taskkill.status();
     }
     let _ = child.kill().await;
     let _ = child.wait().await;

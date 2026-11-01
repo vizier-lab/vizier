@@ -51,6 +51,8 @@ just app-test
 
 Troubleshooting: `could not find libclang` means `LIBCLANG_PATH` is unset in this terminal; a path-too-long error means `git config --global core.longpaths true` is needed; the first build compiles a large dependency tree and takes a while. If Windows blocks the build scripts (error 4551, "An Application Control policy has blocked this file"), Smart App Control is on: turn it off in Windows Security → App & browser control.
 
+`just app-dev` builds in debug mode, which keeps a console window; `just app-build` is a release build, linked as a GUI program, so it opens none (`app/src-tauri/src/main.rs`). A release app therefore has no console to hand down, and every child the engine starts — the workspace shell's PowerShell, `git`, MCP servers, the timeout `taskkill` — sets `CREATE_NO_WINDOW` through `crates/vizier-core/src/process.rs`. A new spawn must do the same, or it flashes a window over the app.
+
 ## Workspace layout
 
 The Rust code is a Cargo workspace of four crates under `crates/`. A bare `cargo build` or

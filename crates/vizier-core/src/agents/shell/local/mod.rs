@@ -13,6 +13,7 @@ use crate::{
         process_tree,
     },
     config::shell::LocalShellConfig,
+    process,
     schema::OUTPUT_CAP_BYTES,
 };
 
@@ -51,6 +52,7 @@ impl LocalShell {
             .stderr(Stdio::piped())
             .kill_on_drop(true);
         process_tree::isolate(&mut cmd);
+        process::no_window(&mut cmd);
 
         let started = Instant::now();
         let mut child = cmd
