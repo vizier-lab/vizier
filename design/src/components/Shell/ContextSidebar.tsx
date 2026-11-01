@@ -6,8 +6,8 @@ import { NavItem } from "../NavItem/NavItem";
 /** The agent's essentials (Artifacts shows only to people who may view them), always one click away; everything else lives in the agent card's menu. */
 export type EssentialPage = "memory" | "artifacts" | "tasks" | "skills" | "dreams";
 
-/** The pages behind the agent card, in the menu's three groups. */
-export type MenuPage = "core" | "channels" | "addons" | "mcp" | "usage" | "secrets" | "config";
+/** The pages behind the agent card, in the menu's groups. */
+export type MenuPage = "channels" | "addons" | "mcp" | "usage" | "secrets" | "config";
 
 export const ESSENTIALS: { page: EssentialPage; label: string; icon: IconName }[] = [
   { page: "memory", label: "Memory", icon: "memory" },
@@ -18,7 +18,6 @@ export const ESSENTIALS: { page: EssentialPage; label: string; icon: IconName }[
 ];
 
 export const MENU_GROUPS: { label: string; pages: { page: MenuPage; label: string; icon: IconName }[] }[] = [
-  { label: "The agent", pages: [{ page: "core", label: "Core", icon: "core" }] },
   {
     label: "Connections",
     pages: [
