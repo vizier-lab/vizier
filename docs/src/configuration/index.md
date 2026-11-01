@@ -20,7 +20,7 @@ Vizier keeps file-based configuration deliberately small. The YAML seed file cov
 │    providers, users, roles, api keys                         │
 │    agents: model, tools, shell, MCP servers, embedding,      │
 │            discord/telegram tokens, dream schedule, sharing  │
-│    agent CORE.md, memory bundles, tasks, skills              │
+│    agent Core memory, memory bundles, tasks, skills          │
 └──────────────────────────────────────────────────────────────┘
 ```
 
@@ -42,7 +42,7 @@ Full reference: [Main Configuration](./main-config.md).
 | Setting | Where |
 |---------|-------|
 | Agents (everything) | WebUI **Agents** / `POST|PUT /api/v1/agents` — see [Agents](./agents.md) |
-| Agent `CORE.md` | WebUI agent **Core** page / `/api/v1/agents/{id}/core` |
+| Agent Core | WebUI agent **Memory** → `core` → `soul` / `/api/v1/agents/{id}/memory/doc/core/soul` (the `…/core` route is deprecated) |
 | Agent memory bundles | WebUI agent **Memory** page / `/api/v1/agents/{id}/memory/*` — see [Memory](./memory.md) |
 | Per-agent shell, MCP servers, Brave key, TTS/STT/image tools | Agent settings `tools` — see [Tools & Embedding](./tools-embedding.md) |
 | Per-agent embedding model & indexer | Agent settings — see [Tools & Embedding](./tools-embedding.md) |
@@ -113,7 +113,7 @@ Variables used by the defaults and the Docker entrypoint:
 - **[Tools & Embedding](./tools-embedding.md)** — per-agent tools, embedding, indexer
 - **[Storage & Shell](./storage-shell.md)** — SQLite storage and per-agent shell (local/Docker)
 - **[Projects](./projects.md)** — folder-mounted projects, sessions, the workspace shell and permissions
-- **[Agents](./agents.md)** — agent fields, CORE.md, dream cycle, checkpoints, sharing
+- **[Agents](./agents.md)** — agent fields, Core, dream cycle, checkpoints, sharing
 - **[CLI](./cli.md)** — `run`, `shutdown`, `onboard`, `skill`, `agent`, Docker
 - **[MCP Servers](./mcp.md)** — per-agent Model Context Protocol servers
 - **[Skills](./skills.md)** — skill packages

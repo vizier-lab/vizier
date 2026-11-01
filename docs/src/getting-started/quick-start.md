@@ -65,7 +65,7 @@ The same thing via API: `GET /api/v1/auth/setup-status` → `POST /api/v1/auth/s
 
 Each agent has:
 
-- **Core** — its persistent `CORE.md` identity/operating document (editable in the WebUI)
+- **Core** — its identity/operating document, a memory at `core/soul` (editable in the WebUI under Memory)
 - **Memory** — a browsable knowledge graph of markdown concept documents
 - **Schedule** — scheduled cron / one-time tasks, as a calendar or a table
 - **Skills** — per-agent skill packages

@@ -159,19 +159,19 @@ The separate server reads the latest user message and replies by these rules, fi
 Example:
 
 ````text
-> read_core
-**`read_core`** — read your CORE document
+> memory_read
+**`memory_read`** — read one whole memory by `(bundle, path)`
 
 ```json
 {
-  "tool": "read_core",
-  "arguments": {}
+  "tool": "memory_read",
+  "arguments": { "bundle": "core", "path": "soul" }
 }
 ```
 
-> {"tool": "read_core", "arguments": {}}
-**Tool result** (`read_core`):
-"# CORE\n\n## Operating Framework ..."
+> {"tool": "memory_read", "arguments": {"bundle": "core", "path": "soul"}}
+**Tool result** (`memory_read`):
+"# Core\n\n## Operating Framework ..."
 ````
 
 Scheduled tasks, dream cycles and other non-interactive prompts fall into the last rule, so they complete normally. Token usage is always reported as zero.

@@ -12,7 +12,7 @@ Vizier is a Rust-based AI agent framework: a single binary that runs multiple co
 - **Open-Format Memory**: Long-term memory is plain markdown on disk (YAML frontmatter + body), organized into per-agent **bundles** with a link graph (`[label](concept.md)` and `[[bundle/slug]]`), semantic search via a per-agent embedding model, and `.zip` export/import.
 - **Tools**: Shell execution (local or Docker-sandboxed), web search (Brave), web fetch, HTTP client, scheduler (cron & one-time tasks), memory graph tools, skills, session files (documents, images), TTS / STT / image generation, sub-tasks, inter-agent consult/delegate, per-platform messaging tools, and per-agent MCP servers.
 - **Skills**: Reusable `SKILL.md` instruction packages with resources and scripts — global or per-agent, installable from a registry, git, or local path, and recommended to the agent by embedding similarity.
-- **Dream Cycle**: Optional per-agent cron-scheduled reflection that extracts insights from recent sessions and consolidates them into memory and the agent's `CORE.md`.
+- **Dream Cycle**: Optional per-agent cron-scheduled reflection that extracts insights from recent sessions and consolidates them into memory, including the agent's Core.
 - **Checkpoints**: Automatic context-window handover when a session approaches the model's context limit, plus manual `/checkpoint` and `/lobotomy` commands.
 - **Multi-user**: JWT + API-key auth, roles with granular permissions, agent ownership and sharing.
 - **Config-less**: Runs with no config file at all — the WebUI/API manages everything at runtime.
@@ -33,8 +33,8 @@ Vizier is a Rust-based AI agent framework: a single binary that runs multiple co
 ┌─────────────────────────────────▼────────────────────────────┐
 │                    One process per agent                     │
 │  ┌───────────┐ ┌──────────┐ ┌──────────┐ ┌────────────────┐  │
-│  │  CORE.md  │ │  Memory  │ │  Tools   │ │ Skills + MCP   │  │
-│  │ (identity)│ │ (bundles)│ │ (+shell) │ │ (per-agent)    │  │
+│  │   Core    │ │  Memory  │ │  Tools   │ │ Skills + MCP   │  │
+│  │(core/soul)│ │ (bundles)│ │ (+shell) │ │ (per-agent)    │  │
 │  └───────────┘ └──────────┘ └──────────┘ └────────────────┘  │
 └─────────────────────────────────┬────────────────────────────┘
                                   │

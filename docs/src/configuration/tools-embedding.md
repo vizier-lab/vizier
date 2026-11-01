@@ -9,7 +9,6 @@ Every agent gets these regardless of configuration:
 | Tool | Description |
 |------|-------------|
 | `think` | Scratchpad for reasoning |
-| `READ_CORE` / `WRITE_CORE` | Read / overwrite the agent's `CORE.md` (see [Agents](./agents.md#coremd)) |
 | `schedule_one_time_task`, `schedule_cron_task`, `list_task`, `get_task_detail`, `delete_task` | Scheduler — tasks run as the agent in a dedicated `Task` session |
 | `consult_agent` | Ask another agent and wait for its reply |
 | `delegate_agent` | Hand a task to another agent |
@@ -229,4 +228,4 @@ The sandbox tools are never part of the dream cycle's toolset.
 
 ## Dream-cycle tool subset
 
-During a [dream cycle](./agents.md#dream-cycle) the agent runs with a restricted toolset: the 8 `memory_*` tools, `READ_CORE`/`WRITE_CORE`, the 4 scheduler tools, `create_skill`/`update_skill`/`list_skills`/`get_skill_details`/`use_skill`, `write_tmp`/`append_tmp`/`read_tmp`, plus `read_dream_journal`/`write_dream_journal`.
+During a [dream cycle](./agents.md#dream-cycle) the agent runs with a restricted toolset: the 8 `memory_*` tools (which is also how it updates its Core at `core/soul`), the 4 scheduler tools, `create_skill`/`update_skill`/`list_skills`/`get_skill_details`/`use_skill`, `write_tmp`/`append_tmp`/`read_tmp`, plus `read_dream_journal`/`write_dream_journal`.

@@ -28,7 +28,7 @@ The `indexer` key that older docs mentioned at this level no longer exists — v
 3. Seed users → `superadmin` system role
 4. Provider credentials saved under pre-catalogue names → catalogue ids (`gemini` → `google`, …), once
 5. Per-agent MCP / shell config backfill (from the old global config)
-6. Default `CORE.md` for agents missing one
+6. Legacy identity backfill — the source the spawn-time `core/soul` seed reads (retired before 1.0.0, #82)
 
 ## Shell
 

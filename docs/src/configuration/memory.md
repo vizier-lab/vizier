@@ -6,6 +6,8 @@ Each agent's long-term memory is a set of **markdown documents on disk**, groupe
 
 ```
 <workspace>/agents/<agent_id>/memory/
+  core/                       # reserved: holds only soul, cannot be deleted
+    soul.md                   # the agent's identity, injected every turn
   default/                    # every agent has a "default" bundle
     index.md                  # auto-maintained table of concepts
     log.md                    # auto-maintained change log
@@ -18,6 +20,8 @@ Each agent's long-term memory is a set of **markdown documents on disk**, groupe
     hogwarts.md
     ...
 ```
+
+**`core` is reserved.** It accepts one document, `soul`, and refuses any other; it cannot be deleted, even with `force`; and a bundle import into it is refused. The document inside it is an ordinary memory — readable, writable, versioned and deletable — and it is the only memory injected into every turn. See [Agents → Core](./agents.md#core).
 
 A **concept** is one `.md` file addressed by `(bundle, path)` where `path` is relative to the bundle and omits the `.md` extension (`people/alice`). Its **slug** is the file stem (`alice`).
 
@@ -73,15 +77,31 @@ Available whenever the agent has an `embedding` + `indexer` configured:
 | Tool | Description |
 |------|-------------|
 | `memory_write` | Create or update a concept. `bundle` defaults to `default` (a new bundle name creates it); `path` may nest (`friends/bob`); `tags` optional |
-| `memory_read` | Semantic search across all bundles (or one), returns matching content |
+| `memory_search` | Semantic search across all bundles (or one), returns matching passages |
 | `memory_list` | No bundle → list bundles (name, count, last updated). With a bundle → paginated concept list |
 | `memory_read` | Full content of one concept by `(bundle, path)`; copies its artifacts into the session as transient files |
 | `memory_follow` | Traverse links from a concept to the given depth |
 | `memory_graph` | Nodes/edges: top level (bundles + cross-bundle edges) or within one bundle |
 | `memory_delete` | Delete one concept (and its embedding) |
-| `memory_delete_bundle` | Delete a whole bundle |
+| `memory_delete_bundle` | Delete a whole bundle (the reserved `core` refuses) |
 
 Before every reply, the user's message is also used to search memory (top 10, similarity ≥ 0.5) and any hits are shown to the model as `# Possible Related Memories`.
+
+## Size limits
+
+One memory should be one thing: a search returns a handful of excerpts drawn from across everything the agent knows, so a document covering several subjects competes with itself for those slots. Each agent therefore carries two bounds on a document's **content** (the markdown body — titles, tags and links are metadata and are not counted):
+
+| | hard ceiling | soft limit |
+|---|---|---|
+| ordinary memory | 8 KiB | 4 KiB |
+| the identity document (`core/soul`) | 4 KiB | 1.5 KiB |
+
+- **Over the ceiling** the write is refused, and nothing is written: the response states the size, the ceiling, how far over it is, and a concrete way to split the document into smaller memories that link to one another. Only exceeding the ceiling is refused; a document exactly at it is accepted.
+- **Over the soft limit** the write succeeds **in full** and the result carries a separate `warning` field. It is advisory: nothing is truncated, and it is a field rather than a sentence in the message so an agent cannot read a successful write as a failure and retry it.
+- **A document already over the ceiling** — written before the limit existed — stays readable in full and accepts a write that makes it shorter, so the limit is never a trap on the documents it exists to fix. The upgrade that carries an existing identity document into `core/soul` bypasses the ceiling entirely, so no upgrade is blocked or made lossy.
+- The limits apply to **every** write path: the agent's own `memory_write`, a person's edit, a restore and an import all land in the same place.
+
+They are per-agent (`limits` in the agent config) and take effect on the next write. The operating doctrine deliberately names no figure, so the numbers live only where they are enforced and cannot drift.
 
 ## HTTP API
 
@@ -100,13 +120,13 @@ All under `/api/v1/agents/{agent_id}/memory`:
 | `DELETE` | `/bundles/{bundle}` | Delete a bundle |
 | `GET|PUT|DELETE` | `/doc/{bundle}/{path}` | Read / update (`{ "title", "content", "tags"?, "attachments"? }`) / delete one concept |
 | `GET` | `/related/{bundle}/{path}` | Linked concepts |
-| `GET|POST` | `/history/{bundle}/{path}` | Version history of one concept: list (`?offset&limit`), one version (`?seq`), diff (`?to[&from]`); `POST { "seq" }` restores a version as a new one. See [REST API → Version history](../api-integration/rest-api.md#version-history-core-and-memories) |
+| `GET|POST` | `/history/{bundle}/{path}` | Version history of one concept: list (`?offset&limit`), one version (`?seq`), diff (`?to[&from]`); `POST { "seq" }` restores a version as a new one. See [REST API → Version history](../api-integration/rest-api.md#version-history-memories-core-included) |
 | `GET|PUT|DELETE` | `/{slug}` | Legacy: same as `/doc/default/{slug}` |
 | `GET` | `/{slug}/related` | Legacy related lookup in `default` |
 
 ## WebUI
 
-Agent → **Memory**: browse bundles, view the graph, read/edit concepts with a markdown editor, export/import `.zip` bundles. Every concept's view has a **History** button: browse earlier versions (who saved, when, why), see a line diff against the previous version or between any two, and **Restore** an earlier version (or a deleted memory) as a new version. The same panel is available for `CORE.md` on the agent's **Core** page.
+Agent → **Memory**: browse bundles, view the graph, read/edit concepts with a markdown editor, export/import `.zip` bundles. Every concept's view has a **History** button: browse earlier versions (who saved, when, why), see a line diff against the previous version or between any two, and **Restore** an earlier version (or a deleted memory) as a new version. Identity is browsed the same way: `core` appears in the tree marked **reserved**, with its delete action disabled, and `core/soul` is an ordinary document with its own history, diff and restore. Saving from a stale view is refused with the newer content rather than overwriting it.
 
 ## Export / import
 

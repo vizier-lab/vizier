@@ -10,7 +10,7 @@ web
 
 Two primary audiences, weighted equally:
 
-- **Solo self-hoster.** A technical person running Vizier for themselves. They open the WebUI to chat with their agents, shape an agent's identity (CORE.md), memory, skills and scheduled tasks, and check usage and cost. Usually one operator, sometimes with a few invited people.
+- **Solo self-hoster.** A technical person running Vizier for themselves. They open the WebUI to chat with their agents, shape an agent's identity (its Core), memory, skills and scheduled tasks, and check usage and cost. Usually one operator, sometimes with a few invited people.
 - **Small-team or community operator.** An admin running agents for other people, often reached through Discord or Telegram. They manage users, roles and permissions, agent ownership and sharing, integrations (channel bots, addons, MCP servers), providers, and spend.
 
 Both are comfortable with self-hosting, API keys and model/provider concepts. Neither should have to drop to YAML or the CLI for anything the WebUI covers.
@@ -25,7 +25,7 @@ It succeeds when a person can stand up a capable, persistent agent with no exter
 
 Vizier foregrounds four things together:
 
-1. **Agents with a persistent self.** Every agent has a CORE.md identity, long-term memory stored as open-format markdown bundles with a link graph and passage-level search, and a dream cycle that reflects on recent sessions and folds what it learns back into memory and CORE. Revision history is kept for both. Agents remember and grow, not just respond.
+1. **Agents with a persistent self.** Every agent has a Core — its identity, kept as a document in its own memory — long-term memory stored as open-format markdown bundles with a link graph and passage-level search, and a dream cycle that reflects on recent sessions and folds what it learns back into memory, Core included. Revision history is kept for both, because both are the same thing. Agents remember and grow, not just respond.
 2. **Single binary, no services.** One binary with embedded SQLite. It runs with no config file (config-less mode), in Docker or bare, with nothing else to install.
 3. **Many agents, many channels.** Concurrent, isolated agents. Each has its own MCP clients, shell, provider and integrations, and its own presence on Discord, Telegram and the WebUI. Agents can consult and delegate to each other.
 4. **Open and inspectable.** Memory is human-readable markdown on disk. Bundles export and import as .zip. The project is MIT-licensed and has no lock-in.
@@ -44,7 +44,7 @@ Vizier foregrounds four things together:
 - Stack: React Router v7, React 19, TypeScript, Tailwind v4, Zustand-style stores, Recharts, MDX editor. The built WebUI is embedded in and served by the Rust binary, so the frontend ships with each release and cannot rely on a separate host or CDN at runtime.
 - Multi-user: JWT plus API keys, roles with granular permissions, agent ownership and sharing. Integration access depends on permissions (`all_agents` vs `owned_agents`), never on who created the integration.
 - Providers come from the models.dev catalogue (29+ including Ollama, llama.cpp, OpenAI, Anthropic, Google, OpenRouter, ChatGPT OAuth, GitHub Copilot), plus operator-defined OpenAI-compatible or Anthropic-protocol custom providers. Cost is shown as an estimate.
-- Terminology to keep: agent, CORE.md, memory bundle, passage, dream cycle, skill, task / task run, session / topic, integration (channel, addon, MCP server), grant, checkpoint, background job, code mode.
+- Terminology to keep: agent, Core (the identity memory at `core/soul`), memory bundle, passage, dream cycle, skill, task / task run, session / topic, integration (channel, addon, MCP server), grant, checkpoint, background job, code mode.
 - Agent failures are visible states (`Failed`, retrying with backoff, channel reader `failed`), not silent ones. The UI should surface health and never imply an agent is working when it isn't.
 
 ## Brand Commitments

@@ -2,7 +2,7 @@
 
 Agents are created and managed entirely at runtime — through the WebUI or `/api/v1/agents`. They are never defined in `.vizier.yaml`, and the old `*.agent.md` file format is not read.
 
-Each agent runs as its own process inside the Vizier binary, with its own provider, tools, MCP clients, shell, embedding model, memory bundles, and `CORE.md`. Creating, updating, or deleting an agent restarts just that agent's process.
+Each agent runs as its own process inside the Vizier binary, with its own provider, tools, MCP clients, shell, embedding model, memory bundles, and Core memory. Creating, updating, or deleting an agent restarts just that agent's process.
 
 ## Creating an agent
 
@@ -42,7 +42,7 @@ Shell, HTTP and search are **addons** now: install one for the agent with `POST 
 | `avatar_url` | string | `null` | Avatar shown in the WebUI |
 | `provider` | string | required | A [provider id](./providers.md): catalogue, built-in or custom (old names like `gemini` are accepted) |
 | `model` | string | required | Model id for that provider (for `ollama`, the model is pulled automatically on start) |
-| `system_prompt` | string | `null` | Free-form system prompt. Sits between the built-in boot prompt and `CORE.md` |
+| `system_prompt` | string | `null` | Free-form system prompt. Sits between the built-in boot prompt and the Core memory |
 | `thinking_depth` | number | `100` | **Max tool-call turns** per request. When exceeded the request fails with a `prompt_timeout` error |
 | `prompt_timeout` | duration | `"60m"` | Wall-clock limit for one request (all turns included) |
 | `max_tokens` | number | `null` | Cap on output tokens per completion; unset uses the model's own limit |
@@ -74,14 +74,16 @@ Each request is prefixed with these system messages, in order:
    - **Sandbox** — `SANDBOX.md`, only when `tools.python.enabled`: how to use `execute_python` (sandbox-only or code-mode variant)
 2. **`system_prompt`** — yours, or a one-line default
 3. **Owner profile** — the owner user's profile (display name, Discord/Telegram ids, aliases) if set
-4. **`CORE.md`** — the agent's self-maintained document
+4. **Core** — the agent's identity, as the addressed memory block `<memory bundle="core" path="soul">`
 
-## `CORE.md`
+## Core
 
-Every agent has a persistent markdown document, seeded from the built-in template on creation (identity, operating rules, learnings). The agent reads and **overwrites** it with the `READ_CORE` / `WRITE_CORE` tools and is instructed to update it when it learns something durable about itself or its user. It is stored in the database, not on disk.
+Every agent has a **reserved memory bundle** called `core` holding one document, `soul`: its identity, operating rules and what it has learned about itself and its people. It is ordinary memory in every mechanical respect — read it with `memory_read`, write it with `memory_write`, at `bundle="core"`, `path="soul"` — and it is the only memory injected into every turn, because an agent must always know who it is. A new agent's soul is seeded from the built-in template; an existing agent's is copied from its previous identity document on upgrade.
 
-- **WebUI**: agent → Core (markdown editor)
-- **API**: `GET|PUT /api/v1/agents/{id}/core`
+Because it is paid for on every turn, it has tighter [size limits](./memory.md#size-limits) than other memories. The `core` bundle accepts nothing but `soul` and cannot be deleted, but the soul itself can be deleted and rewritten freely; a deleted soul falls back to the template so the agent never sees an empty identity.
+
+- **WebUI**: agent → Memory → `core` → `soul`
+- **API**: `GET|PUT /api/v1/agents/{id}/memory/doc/core/soul`. The older `GET|PUT /api/v1/agents/{id}/core` still works — it is a **deprecated** projection over the same document — but new clients should use the memory routes.
 
 ## Secrets
 
@@ -117,7 +119,7 @@ Clients see a `checkpoint` response event with the handover text. Manual variant
 An optional, scheduled reflection pass. When `dream_enabled` is true and `dream_schedule` is a valid cron expression, the scheduler runs (per agent, never concurrently):
 
 1. **Extraction** — for every user session with activity since the last dream, the agent (using `dream_provider`/`dream_model` if set) writes a structured *extraction report*: facts & preferences, feedback, task progress, relationship context, learnings, action items
-2. **Consolidation** — with the [restricted dream toolset](./tools-embedding.md#dream-cycle-tool-subset), the agent writes durable facts into memory (`memory_write`), updates `CORE.md`, schedules follow-up tasks, and may create/update skills
+2. **Consolidation** — with the [restricted dream toolset](./tools-embedding.md#dream-cycle-tool-subset), the agent writes durable facts into memory (`memory_write`), updates its Core at `core/soul`, schedules follow-up tasks, and may create/update skills
 3. Each stage's output is saved as a **dream journal** entry
 
 Endpoints (all under `/api/v1/agents/{id}/dream`):
