@@ -75,8 +75,8 @@ All agent routes require auth. Visibility: owner, users in `shared_to`, or `all_
 | `GET` | `/agents/{id}/usage?start_date&end_date&activity` | Usage report: cost, tokens, activities, models, costliest conversations (see [Agents › Usage](../configuration/agents.md#usage)) |
 | `GET` | `/agents/{id}/usage/conversation?channel&topic&…` | One conversation's model calls |
 | `GET` / `PATCH` | `/agents/{id}/sharing` | `{ "add": [user_id], "remove": [user_id] }` |
-| `GET` / `PUT` | `/agents/{id}/core` | `CORE.md` |
-| `GET` / `POST` | `/agents/{id}/core/history` | **Version history** of `CORE.md` (see below) |
+| `GET` / `PUT` | `/agents/{id}/core` | **Deprecated** — the agent's Core. Use `/agents/{id}/memory/doc/core/soul`; same document, same shapes |
+| `GET` / `POST` | `/agents/{id}/core/history` | **Deprecated** — version history of the Core, projected from its memory revisions |
 | `GET` | `/agents/{id}/secrets` | Secret names, masks and last change — see [Agent Secrets](../configuration/secrets.md#http-api) |
 | `PUT` | `/agents/{id}/secrets/{name}` | Create (`201`) or replace (`200`) one secret; body `{ "value": "…" }` |
 | `DELETE` | `/agents/{id}/secrets/{name}` | Delete one secret; `404` when absent |
@@ -134,15 +134,17 @@ Guarantees:
 
 - **Nothing is saved.** No history entry, no title or topic, no turn record, no scratchpad, memory or notification, and the response has no history id. The only record is one usage row per answered call.
 - **No tools.** The model is offered none, and any tool call it makes anyway is dropped: the answer is then a fixed "I can't use tools in a side chat" notice.
-- **The agent answers as itself**: same system prompt, CORE.md, owner profile and model as the conversation, and it sees the conversation as its next turn would, then `turns`, then `question`.
+- **The agent answers as itself**: same system prompt, Core, owner profile and model as the conversation, and it sees the conversation as its next turn would, then `turns`, then `question`.
 - **Not resumable.** A restart mid-answer fails the request; ask again.
 - It queues behind a turn already running in the same conversation, like any message.
 
-### Version history (CORE and memories)
+### Version history (memories, Core included)
 
-Every save of `CORE.md` or a memory concept — by the agent (`WRITE_CORE`, `memory_write`, …, in conversation or a dream cycle), the WebUI, the API, an import, or a rollback — appends a full-content revision tagged with who saved it and why. History is append-only; a rollback is just a new save.
+Every save of a memory concept — by the agent (`memory_write`, …, in conversation or a dream cycle), the WebUI, the API, an import, or a rollback — appends a full-content revision tagged with who saved it and why. History is append-only; a rollback is just a new save.
 
-Same routes for both kinds; CORE lives at `/agents/{id}/core/history`, a memory at `/agents/{id}/memory/history/{bundle}/{path}` (nested paths allowed, `.md` optional). Access rules are the ones for reading the document.
+There is one kind of document and one set of routes: `/agents/{id}/memory/history/{bundle}/{path}` (nested paths allowed, `.md` optional). The agent's Core is the document at `core/soul`, so its history is `/agents/{id}/memory/history/core/soul`. Access rules are the ones for reading the document.
+
+The older `/agents/{id}/core/history` (list, one version, diff, rollback) still answers, with unchanged shapes, as a deprecated projection over those same revision rows — see [Agents → Core](../configuration/agents.md#core).
 
 | Method | Path | Query / body | Returns |
 |--------|------|--------------|---------|

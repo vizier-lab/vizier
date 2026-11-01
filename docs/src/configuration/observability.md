@@ -114,7 +114,7 @@ The sandbox run inside `execute_python`, with `agent_id`, `session` and `duratio
 
 ## Content capture
 
-By default spans carry **no message content**, only metadata. Prompts contain the system prompt, CORE.md, memory passages and what people wrote, so content is opt-in, as the GenAI conventions require:
+By default spans carry **no message content**, only metadata. Prompts contain the system prompt, the agent's Core, memory passages and what people wrote, so content is opt-in, as the GenAI conventions require:
 
 ```sh
 OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=true

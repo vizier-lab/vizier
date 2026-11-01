@@ -8,7 +8,11 @@ use crate::{
         MemoryRevision, PaginatedMemory, PaginatedMemoryRevisions, RevisionDiff, RevisionOrigin,
         RollbackResponse,
     },
-    storage::{memory::MemoryStorage, sqlite::SqliteStorage},
+    storage::{
+        memory::MemoryStorage,
+        memory_bundle::{WritePolicy, WrittenMemory},
+        sqlite::SqliteStorage,
+    },
 };
 
 #[async_trait::async_trait]
@@ -26,9 +30,10 @@ impl MemoryStorage for SqliteStorage {
         origin: &RevisionOrigin,
         indexer: &VizierIndexer,
         limits: &ChunkLimits,
-    ) -> Result<Memory> {
+        policy: &WritePolicy,
+    ) -> Result<WrittenMemory> {
         self.bundle_store()
-            .write_memory(
+            .write_memory_with(
                 agent_id,
                 bundle,
                 path,
@@ -39,6 +44,7 @@ impl MemoryStorage for SqliteStorage {
                 origin,
                 indexer,
                 limits,
+                policy,
             )
             .await
     }
@@ -78,6 +84,18 @@ impl MemoryStorage for SqliteStorage {
     ) -> Result<usize> {
         self.bundle_store()
             .detach_artifact_from_memories(agent_id, artifact_id, origin)
+            .await
+    }
+
+    async fn seed_identity(
+        &self,
+        agent_id: &str,
+        legacy: Option<String>,
+        indexer: &VizierIndexer,
+        limits: &ChunkLimits,
+    ) -> Result<bool> {
+        self.bundle_store()
+            .seed_identity(agent_id, legacy, indexer, limits)
             .await
     }
 
@@ -293,9 +311,10 @@ impl MemoryStorage for SqliteStorage {
         origin: &RevisionOrigin,
         indexer: &VizierIndexer,
         limits: &ChunkLimits,
+        policy: &WritePolicy,
     ) -> Result<RollbackResponse> {
         self.bundle_store()
-            .rollback_memory(agent_id, bundle, path, seq, origin, indexer, limits)
+            .rollback_memory(agent_id, bundle, path, seq, origin, indexer, limits, policy)
             .await
     }
 }

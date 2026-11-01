@@ -1,5 +1,6 @@
 pub mod boot;
 pub mod context;
+pub mod identity;
 pub mod project;
 pub mod reactions;
 pub mod sandbox;

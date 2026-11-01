@@ -2,7 +2,7 @@ use anyhow::Result;
 
 use crate::schema::{
     AgentId, DreamStage,
-    dream_journal::{ChangeKind, DreamEntryStub, DreamJournalEntry, DreamRevision, change_kind},
+    dream_journal::{DreamEntryStub, DreamJournalEntry, DreamRevision, revision_kind},
 };
 use crate::storage::{dream_journal::DreamJournalStorage, sqlite::SqliteStorage};
 
@@ -205,26 +205,20 @@ impl DreamJournalStorage for SqliteStorage {
         })?;
         for (bundle, path, seq, deleted, at, cycle_id, previous_deleted) in rows.filter_map(|r| r.ok()) {
             let Some(at) = chrono::DateTime::from_timestamp_millis(at) else { continue };
+            // Classification follows the **bundle the change lives in**, not the table it was
+            // written to (FR-031). After the unification there is one place identity changes
+            // are recorded, so the separate `core_revision` query that used to supply these
+            // rows has nothing left to read and is gone: implementing FR-031 meant deleting a
+            // query and adding a predicate, not adding a mechanism (research Decision 8).
+            let kind = revision_kind(&bundle, deleted, previous_deleted);
             out.push(DreamRevision {
-                kind: change_kind(false, deleted, previous_deleted),
+                kind,
                 bundle: Some(bundle),
                 path: Some(path),
                 seq,
                 at,
                 cycle_id,
             });
-        }
-
-        let mut stmt = conn.prepare(
-            "SELECT seq, created_at, dream_cycle_id FROM core_revision
-             WHERE agent_id = ?1 AND trigger = 'dream' AND created_at >= ?2 ORDER BY created_at ASC",
-        )?;
-        let rows = stmt.query_map(rusqlite::params![agent_id, since], |row| {
-            Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?, row.get::<_, Option<String>>(2)?))
-        })?;
-        for (seq, at, cycle_id) in rows.filter_map(|r| r.ok()) {
-            let Some(at) = chrono::DateTime::from_timestamp_millis(at) else { continue };
-            out.push(DreamRevision { kind: ChangeKind::Core, bundle: None, path: None, seq, at, cycle_id });
         }
 
         out.sort_by_key(|r| r.at);

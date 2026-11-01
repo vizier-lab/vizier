@@ -404,22 +404,10 @@ impl VizierAgents {
             return AgentCommandResult::Error(format!("failed to persist agent: {}", e));
         }
 
-        if let Err(e) = self
-            .deps
-            .storage
-            .set_agent_core(
-                &agent_id,
-                CORE_MD,
-                &RevisionOrigin::system(RevisionTrigger::Baseline),
-            )
-            .await
-        {
-            tracing::warn!(
-                "failed to seed default CORE for agent '{}': {}",
-                agent_id,
-                e
-            );
-        }
+        // A new agent's identity is seeded as the memory document `core/soul` when it starts
+        // (specs/043-unify-core-and-memory). Writing the legacy `agent_core` row here would
+        // give every new agent a "carried over from the identity record" provenance line
+        // describing a record that never held anything of its own.
 
         // Built-in default addon, before the agent starts (specs/036-office-addon). A failure
         // is logged and never fails the creation.

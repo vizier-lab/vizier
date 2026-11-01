@@ -132,8 +132,28 @@ pub enum MemoryAttachmentView {
 
 pub const DEFAULT_BUNDLE: &str = "default";
 
+/// The reserved bundle every agent has exactly one of, holding the identity document
+/// (specs/043-unify-core-and-memory). It cannot be removed, and no other document may be
+/// written into it. `core` is a reserved *address*, not a product term: the product-facing
+/// name for the identity stays **Core**, and the bundle/path here are internal.
+pub const CORE_BUNDLE: &str = "core";
+
+/// The identity document's path inside [`CORE_BUNDLE`]. The path segment is an internal
+/// detail the agent addresses; it is not renamed on any product surface.
+pub const SOUL_PATH: &str = "soul";
+
 pub fn default_bundle() -> String {
     DEFAULT_BUNDLE.to_string()
+}
+
+/// True when `bundle` is the reserved identity bundle.
+pub fn is_core_bundle(bundle: &str) -> bool {
+    bundle == CORE_BUNDLE
+}
+
+/// True when `(bundle, path)` is the identity document's address.
+pub fn is_identity_address(bundle: &str, path: &str) -> bool {
+    is_core_bundle(bundle) && path == SOUL_PATH
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -165,6 +185,10 @@ pub struct BundleSummary {
     /// Links from this bundle's documents (to anywhere), for the "Most linked" sort.
     #[serde(default)]
     pub link_count: usize,
+    /// The bundle cannot be deleted, though the documents inside it can
+    /// (specs/043-unify-core-and-memory). Additive: a client that ignores it is unchanged.
+    #[serde(default)]
+    pub protected: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]

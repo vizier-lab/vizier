@@ -82,10 +82,10 @@ pub use session::{
 };
 pub use session_file::SessionFileRecord;
 pub use storage::{
-    BundleSummary, DEFAULT_BUNDLE, DocumentIndex, ImportReport, Memory, MemoryAttachment,
-    MemoryAttachmentView, MemoryFrontMatter, MemoryGraph, MemoryGraphEdge, MemoryGraphNode,
-    MemoryPassageResult, MemoryQueryParams, PaginatedMemory, Skill, SkillFrontMatter, SkillVersion,
-    default_bundle,
+    BundleSummary, CORE_BUNDLE, DEFAULT_BUNDLE, DocumentIndex, ImportReport, Memory,
+    MemoryAttachment, MemoryAttachmentView, MemoryFrontMatter, MemoryGraph, MemoryGraphEdge,
+    MemoryGraphNode, MemoryPassageResult, MemoryQueryParams, PaginatedMemory, SOUL_PATH, Skill,
+    SkillFrontMatter, SkillVersion, default_bundle, is_core_bundle, is_identity_address,
 };
 pub use task::{Requester, Task, TaskFrontMatter, TaskRun, TaskRunState, TaskSchedule};
 

@@ -7,17 +7,18 @@ use chrono::{DateTime, Utc};
 use parking_lot::Mutex;
 use regex::Regex;
 use rusqlite::{Connection, OptionalExtension, params};
-use serde::{Serialize, de::DeserializeOwned};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use slugify::slugify;
 
 use crate::{
-    config::ChunkLimits,
+    config::{ChunkLimits, MemoryLimits},
     indexer::VizierIndexer,
     schema::{
         BundleSummary, ImportReport, Memory, MemoryAttachment, MemoryFrontMatter, MemoryGraph,
         MemoryGraphEdge, MemoryGraphNode, MemoryPassageResult, MemoryQueryParams, MemoryRevision,
         MemoryRevisionSummary, PaginatedMemory, PaginatedMemoryRevisions, RevisionDiff,
-        RevisionOrigin, RevisionTrigger, RollbackResponse, VizierAttachment, default_bundle,
+        RevisionOrigin, RevisionTrigger, RollbackResponse, SOUL_PATH, VizierAttachment,
+        CORE_BUNDLE, default_bundle, is_core_bundle, is_identity_address,
     },
     storage::{
         chunk::{chunk_markdown, embedded_text, heading_breadcrumb},
@@ -30,6 +31,75 @@ use crate::{
         },
     },
 };
+
+/// How one memory write is judged against the size limits
+/// (specs/043-unify-core-and-memory). Carried as one struct rather than three positional
+/// arguments, and attached to the *single* write path so every caller — the agent's tool, the
+/// HTTP service, a rollback and an import — is judged identically (research Decision 1).
+#[derive(Debug, Clone)]
+pub struct WritePolicy {
+    pub limits: MemoryLimits,
+    /// Set only by the one-time identity migration, which must never be blocked by a ceiling
+    /// introduced in the same change (FR-025). Skips the ceiling, never the bundle guard.
+    pub bypass_cap: bool,
+}
+
+impl WritePolicy {
+    pub fn new(limits: MemoryLimits) -> Self {
+        Self {
+            limits,
+            bypass_cap: false,
+        }
+    }
+
+    /// The identity migration's policy: the identity pair, cap bypassed.
+    pub fn migrating() -> Self {
+        Self {
+            limits: MemoryLimits::identity(),
+            bypass_cap: true,
+        }
+    }
+
+    /// The limits that apply to one address: the identity document is paid for on every turn,
+    /// so it is held to a tighter pair (FR-023). Selected by address, not by a second config
+    /// field, so the two can never disagree (data-model rule 8).
+    pub fn limits_for(&self, bundle: &str, path: &str) -> MemoryLimits {
+        if is_identity_address(bundle, path) {
+            MemoryLimits::identity()
+        } else {
+            self.limits.clone()
+        }
+    }
+}
+
+/// What a successful write leaves to report, beyond the document itself: a non-error warning
+/// when the content is over the soft limit (FR-019, research Decision 4). Never merged into the
+/// success message, so an agent cannot read the write as a failure and retry it (FR-020).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct WriteWarning {
+    pub bytes: usize,
+    pub limit: usize,
+}
+
+impl WriteWarning {
+    /// The sentence rendered wherever a caller wants to show it. Kept in one place so the tool
+    /// and the HTTP service cannot drift.
+    pub fn describe(&self) -> String {
+        format!(
+            "{} bytes — over the {}-byte comfortable size. One memory, one topic: consider \
+             splitting it and linking the parts.",
+            self.bytes, self.limit
+        )
+    }
+}
+
+/// The outcome of one write: the stored document, plus the warning if the content went over
+/// the soft limit.
+#[derive(Debug, Clone)]
+pub struct WrittenMemory {
+    pub memory: Memory,
+    pub warning: Option<WriteWarning>,
+}
 
 /// The shared implementation behind `impl MemoryStorage for SqliteStorage`: bundle/concept
 /// document read+write, link resolution, index/log maintenance, and the Memory Graph Index
@@ -179,6 +249,23 @@ fn slice_passage(content: &str, start: usize, end: usize) -> String {
 fn canonical_of_bytes(bytes: &[u8]) -> Option<String> {
     let (fm, body) = parse_markdown_bytes::<MemoryFrontMatter>(bytes).ok()?;
     memory_canonical(&fm.title, &fm.tags, &fm.attachments, &body).ok()
+}
+
+/// The refusal for content above the ceiling (FR-018). The first token is the stable marker
+/// `memory too large:`, which the service maps to 422 (research Decision 5); the rest names the
+/// actual size, the ceiling, the overage and a concrete split pattern. It deliberately does not
+/// choose the seam — which subject moves out is the agent's judgement.
+fn too_large_message(bundle: &str, path: &str, len: usize, limits: &MemoryLimits) -> String {
+    let over = len.saturating_sub(limits.content_cap);
+    let leaf = path.rsplit('/').next().unwrap_or(path);
+    format!(
+        "memory too large: content is {len} bytes, {over} over the {}-byte limit.\n\
+         One memory, one topic. Split it, then link the parts:\n  \
+         - write the part that belongs to another subject to '{bundle}/{leaf}-<subject>' in the same bundle\n  \
+         - replace the moved text in this memory with [<subject>]({leaf}-<subject>.md)\n\
+         Same-bundle links are ordinary markdown links; across bundles use [[bundle/slug]].",
+        limits.content_cap
+    )
 }
 
 fn memory_from_frontmatter(fm: MemoryFrontMatter, content: String) -> Memory {
@@ -1062,6 +1149,8 @@ impl BundleMemoryStore {
 
     // ---- MemoryStorage-shaped methods (called by the trait impl in sqlite/memory.rs) ----
 
+    /// A write judged against the default size limits — the shape every existing caller and
+    /// test uses. Callers that carry per-agent limits use [`Self::write_memory_with`].
     #[allow(clippy::too_many_arguments)]
     pub async fn write_memory(
         &self,
@@ -1075,7 +1164,40 @@ impl BundleMemoryStore {
         origin: &RevisionOrigin,
         indexer: &VizierIndexer,
         limits: &ChunkLimits,
-    ) -> Result<Memory> {
+    ) -> Result<WrittenMemory> {
+        self.write_memory_with(
+            agent_id,
+            bundle,
+            path,
+            create_only,
+            title,
+            content,
+            tags,
+            origin,
+            indexer,
+            limits,
+            &WritePolicy::new(MemoryLimits::default()),
+        )
+        .await
+    }
+
+    /// A write judged against `policy`. Both this and [`Self::write_memory`] land in
+    /// [`Self::write_memory_inner`], which is the only place any of the rules live.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn write_memory_with(
+        &self,
+        agent_id: String,
+        bundle: Option<String>,
+        path: Option<String>,
+        create_only: bool,
+        title: String,
+        content: String,
+        tags: Vec<String>,
+        origin: &RevisionOrigin,
+        indexer: &VizierIndexer,
+        limits: &ChunkLimits,
+        policy: &WritePolicy,
+    ) -> Result<WrittenMemory> {
         self.write_memory_inner(
             agent_id,
             bundle,
@@ -1088,6 +1210,7 @@ impl BundleMemoryStore {
             origin,
             indexer,
             limits,
+            policy,
         )
         .await
     }
@@ -1109,15 +1232,35 @@ impl BundleMemoryStore {
         origin: &RevisionOrigin,
         indexer: &VizierIndexer,
         limits: &ChunkLimits,
-    ) -> Result<Memory> {
+        policy: &WritePolicy,
+    ) -> Result<WrittenMemory> {
         let bundle = bundle.unwrap_or_else(default_bundle);
         let path = normalize_path(&path.unwrap_or_else(|| slugify!(&title)));
         if path.is_empty() {
             return Err(anyhow!("resolved memory path is empty"));
         }
 
+        let memory_limits = policy.limits_for(&bundle, &path);
+
         let key = Self::doc_key(&agent_id, &bundle, &path);
         let existing = self.document_store.get(&key).await?;
+
+        // The reserved-bundle guard runs before anything is **persisted**, so a refused write
+        // leaves the document, its passages, its revisions and its log untouched (contract
+        // rule 1, data-model invariant 1). It reads `existing` first on purpose: `core` was an
+        // ordinary bundle name before it was reserved, so an install may already hold unrelated
+        // documents there. Refusing to *create* another one is FR-013; refusing to keep an
+        // existing one maintainable would make it readable and permanently un-editable, which
+        // is a data-access trap rather than protection.
+        if is_core_bundle(&bundle)
+            && !is_identity_address(&bundle, &path)
+            && existing.is_none()
+        {
+            return Err(anyhow!(
+                "the core bundle holds only the identity document, at path '{SOUL_PATH}' — \
+                 '{path}' cannot be written there"
+            ));
+        }
         // This (bundle, path) collision check (FR-011) is also exactly what US3/FR-014's
         // portability story relies on: copying another deployment's bundle directory tree in
         // and writing a *new* concept can never silently clobber a concept that arrived via the
@@ -1128,6 +1271,37 @@ impl BundleMemoryStore {
                 "a memory already exists at bundle '{bundle}' path '{path}'"
             ));
         }
+
+        // The ceiling applies before anything is written, so a refusal cannot leave a partial
+        // document, replaced passages, a revision or a log line (contract rule 7, SC-009).
+        // Grandfathering: a document already above the ceiling accepts a write that brings it
+        // closer, which is how a legacy over-cap memory ever gets fixed (FR-019, FR-021).
+        if !policy.bypass_cap && memory_limits.exceeds_cap(content.len()) {
+            let stored_len = existing
+                .as_deref()
+                .and_then(|bytes| {
+                    parse_markdown_bytes::<MemoryFrontMatter>(bytes)
+                        .ok()
+                        .map(|(_, body)| body.len())
+                })
+                .unwrap_or(0);
+            if !(stored_len > memory_limits.content_cap && content.len() < stored_len) {
+                return Err(anyhow!(too_large_message(
+                    &bundle,
+                    &path,
+                    content.len(),
+                    &memory_limits
+                )));
+            }
+        }
+        let warning = if memory_limits.warns_at(content.len()) {
+            Some(WriteWarning {
+                bytes: content.len(),
+                limit: memory_limits.warn_threshold(),
+            })
+        } else {
+            None
+        };
 
         let now = Utc::now();
         let (created_at, read_count, existing_attachments) = match &existing {
@@ -1199,7 +1373,73 @@ impl BundleMemoryStore {
         )
         .await?;
 
-        Ok(memory_from_frontmatter(frontmatter, content))
+        Ok(WrittenMemory {
+            memory: memory_from_frontmatter(frontmatter, content),
+            warning,
+        })
+    }
+
+    /// Seed the identity document at `core/soul` from whatever the agent had before this
+    /// change (specs/043-unify-core-and-memory, FR-002/FR-003/FR-025).
+    ///
+    /// Order: the document already exists → nothing to do; else the legacy `agent_core` row;
+    /// else the embedded template. The content is carried **verbatim**, with one provenance
+    /// line appended, written **once** and never rewritten. The write carries the cap bypass,
+    /// so an identity larger than the new ceiling still migrates — an upgrade must never be
+    /// blocked or made lossy by a limit introduced in the same change.
+    ///
+    /// Idempotent: a second call with the document present does nothing (data-model rule 16).
+    /// Returns `true` when it wrote.
+    pub async fn seed_identity(
+        &self,
+        agent_id: &str,
+        legacy: Option<String>,
+        indexer: &VizierIndexer,
+        limits: &ChunkLimits,
+    ) -> Result<bool> {
+        let existing = self
+            .get_memory_detail(
+                agent_id.to_string(),
+                Some(CORE_BUNDLE.to_string()),
+                SOUL_PATH.to_string(),
+            )
+            .await?;
+        if existing.is_some() {
+            return Ok(false);
+        }
+
+        let (body, source) = match legacy.filter(|l| !l.trim().is_empty()) {
+            Some(core) => (core, "the identity record this agent had before memory was unified"),
+            None => (
+                crate::constant::CORE_MD.to_string(),
+                "the default identity template, because this agent had none",
+            ),
+        };
+
+        let content = format!(
+            "{}
+
+<!-- carried over from {source} when identity moved into memory \
+(specs/043-unify-core-and-memory). Edit it like any other memory. -->
+",
+            body.trim_end()
+        );
+
+        self.write_memory_with(
+            agent_id.to_string(),
+            Some(CORE_BUNDLE.to_string()),
+            Some(SOUL_PATH.to_string()),
+            false,
+            "Core".to_string(),
+            content,
+            vec![],
+            &RevisionOrigin::system(RevisionTrigger::Baseline),
+            indexer,
+            limits,
+            &WritePolicy::migrating(),
+        )
+        .await?;
+        Ok(true)
     }
 
     /// Sync the derived `artifact_reference` rows for one memory. Best effort: the document is
@@ -2133,7 +2373,13 @@ impl BundleMemoryStore {
 
     pub async fn list_bundles(&self, agent_id: String) -> Result<Vec<BundleSummary>> {
         self.reconcile_all(&agent_id).await?;
-        let bundles = self.discover_bundles(&agent_id).await?;
+        let mut bundles = self.discover_bundles(&agent_id).await?;
+        // The reserved bundle is always listed, even while its document is absent — an empty
+        // `core` is a real state, and dropping it from the listing would make a deleted soul
+        // look like a deleted bundle (FR-012, spec edge case).
+        if !bundles.iter().any(|b| is_core_bundle(b)) {
+            bundles.push(crate::schema::CORE_BUNDLE.to_string());
+        }
 
         let conn = self.conn.lock();
         let mut result = Vec::new();
@@ -2152,6 +2398,7 @@ impl BundleMemoryStore {
                 |row| row.get(0),
             )?;
             result.push(BundleSummary {
+                protected: is_core_bundle(&bundle),
                 name: bundle,
                 concept_count: count as usize,
                 updated_at,
@@ -2169,6 +2416,15 @@ impl BundleMemoryStore {
         origin: &RevisionOrigin,
         indexer: &VizierIndexer,
     ) -> Result<()> {
+        // The reserved bundle cannot be removed at all — not even with `force`, which is why
+        // this check sits above the non-empty branch rather than in it (FR-012, data-model
+        // invariant 3). The document inside it stays deletable, as an ordinary memory.
+        if is_core_bundle(&bundle) {
+            return Err(anyhow!(
+                "bundle '{bundle}' is reserved and cannot be deleted; delete its documents \
+                 individually instead"
+            ));
+        }
         self.reconcile_bundle(&agent_id, &bundle).await?;
 
         let concept_paths: Vec<String> = self
@@ -2282,6 +2538,15 @@ impl BundleMemoryStore {
         indexer: &VizierIndexer,
         limits: &ChunkLimits,
     ) -> Result<ImportReport> {
+        // Importing into the reserved bundle would let a foreign document land beside the
+        // identity one, which is exactly what the bundle guard refuses one write at a time
+        // (FR-014, data-model invariant 1).
+        if is_core_bundle(&bundle) {
+            return Err(anyhow!(
+                "the core bundle cannot receive an imported bundle; it holds only the identity \
+                 document at path '{SOUL_PATH}'"
+            ));
+        }
         let cursor = std::io::Cursor::new(zip_bytes);
         let mut archive =
             zip::ZipArchive::new(cursor).map_err(|e| anyhow!("malformed zip archive: {e}"))?;
@@ -2509,6 +2774,7 @@ impl BundleMemoryStore {
         origin: &RevisionOrigin,
         indexer: &VizierIndexer,
         limits: &ChunkLimits,
+        policy: &WritePolicy,
     ) -> Result<RollbackResponse> {
         let bundle = bundle.unwrap_or_else(default_bundle);
         let path = normalize_path(&path);
@@ -2544,6 +2810,7 @@ impl BundleMemoryStore {
             &origin,
             indexer,
             limits,
+            policy,
         )
         .await?;
 
@@ -2738,7 +3005,7 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(updated.content, "v2");
+        assert_eq!(updated.memory.content, "v2");
     }
 
     #[tokio::test]
@@ -2759,8 +3026,8 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(memory.bundle, "andy");
-        assert_eq!(memory.slug, "friends/bred");
+        assert_eq!(memory.memory.bundle, "andy");
+        assert_eq!(memory.memory.slug, "friends/bred");
 
         let detail = store
             .get_memory_detail("a1".into(), Some("andy".into()), "friends/bred".into())
@@ -3375,6 +3642,7 @@ mod tests {
             )
             .await
             .unwrap()
+            .memory
     }
 
     fn history(store: &BundleMemoryStore) -> Vec<memory_revision::MemoryRevisionRow> {
@@ -3612,6 +3880,7 @@ mod tests {
             )
             .await
             .unwrap()
+            .memory
     }
 
     /// A long body: `sections` headed sections, each comfortably over `min_size`, so the chunker
@@ -3976,5 +4245,589 @@ mod tests {
             BundleMemoryStore::passage_indexer_key("a1", "work", "ops/deploys", 3),
             "a1/work/ops/deploys#3"
         );
+    }
+
+    // ---- the reserved bundle and the size limits (specs/043-unify-core-and-memory) ----
+
+    /// Default limits, so a test only names the pair it actually cares about.
+    fn policy() -> WritePolicy {
+        WritePolicy::new(MemoryLimits::default())
+    }
+
+    /// A body of exactly `bytes` bytes, so a limit test can sit on a boundary rather than
+    /// near one.
+    fn body_of(bytes: usize) -> String {
+        "x".repeat(bytes)
+    }
+
+    /// Writes `(bundle, path)` under an explicit policy.
+    async fn write_with(
+        store: &BundleMemoryStore,
+        indexer: &VizierIndexer,
+        bundle: Option<&str>,
+        path: Option<&str>,
+        content: &str,
+        policy: &WritePolicy,
+    ) -> Result<WrittenMemory> {
+        store
+            .write_memory_with(
+                "a1".into(),
+                bundle.map(str::to_string),
+                path.map(str::to_string),
+                false,
+                "Note".into(),
+                content.into(),
+                vec![],
+                &origin(),
+                indexer,
+                &limits(),
+                policy,
+            )
+            .await
+    }
+
+    #[tokio::test]
+    async fn the_identity_document_is_an_ordinary_round_tripping_memory() {
+        // T008: (core, soul) writes, reads back through get_memory_detail, is listed among
+        // the bundles, and is found by a search like any other document (FR-005).
+        let (store, _dir, indexer) = setup();
+        write_with(
+            &store,
+            &indexer,
+            Some(CORE_BUNDLE),
+            Some(SOUL_PATH),
+            "I am Oz.",
+            &policy(),
+        )
+        .await
+        .unwrap();
+
+        let detail = store
+            .get_memory_detail("a1".into(), Some(CORE_BUNDLE.into()), SOUL_PATH.into())
+            .await
+            .unwrap()
+            .expect("the identity document is readable like any other");
+        assert_eq!(detail.content, "I am Oz.");
+        assert_eq!(detail.bundle, CORE_BUNDLE);
+
+        let bundles = store.list_bundles("a1".into()).await.unwrap();
+        let core = bundles
+            .iter()
+            .find(|b| b.name == CORE_BUNDLE)
+            .expect("the reserved bundle appears in the listing");
+        assert!(core.protected, "a client must be able to disable delete");
+        assert_eq!(core.concept_count, 1);
+    }
+
+    #[tokio::test]
+    async fn the_reserved_bundle_refuses_a_foreign_document() {
+        // T017 / FR-013: the refusal must name the path the bundle accepts.
+        let (store, _dir, indexer) = setup();
+        let err = write_with(
+            &store,
+            &indexer,
+            Some(CORE_BUNDLE),
+            Some("values"),
+            "nope",
+            &policy(),
+        )
+        .await
+        .unwrap_err()
+        .to_string();
+        assert!(err.starts_with("the core bundle holds only"), "{err}");
+        assert!(err.contains(SOUL_PATH), "the message names soul: {err}");
+    }
+
+    #[tokio::test]
+    async fn an_import_into_the_reserved_bundle_is_refused_but_an_export_is_allowed() {
+        // FR-014 and the spec's edge case: an import that would place anything but a soul in
+        // `core` is refused, an export of `core` is permitted. Importing would otherwise put a
+        // foreign document beside the identity one, which is exactly what the write guard
+        // refuses one document at a time.
+        let (store, _dir, indexer) = setup();
+        write_at(&store, &indexer, "note", "some ordinary content").await;
+        write_with(
+            &store,
+            &indexer,
+            Some(CORE_BUNDLE),
+            Some(SOUL_PATH),
+            "I am Oz.",
+            &policy(),
+        )
+        .await
+        .unwrap();
+
+        let ordinary = store
+            .export_bundle("a1".into(), "default".into())
+            .await
+            .unwrap();
+        let err = store
+            .import_bundle(
+                "a1".into(),
+                CORE_BUNDLE.into(),
+                ordinary,
+                &origin(),
+                &indexer,
+                &limits(),
+            )
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(err.starts_with("the core bundle cannot receive"), "{err}");
+        assert!(err.contains(SOUL_PATH), "it names the path it accepts: {err}");
+
+        // The refusal changed nothing: the soul is still the bundle's only document.
+        let bundles = store.list_bundles("a1".into()).await.unwrap();
+        let core = bundles.iter().find(|b| b.name == CORE_BUNDLE).unwrap();
+        assert_eq!(core.concept_count, 1);
+
+        // Exporting the reserved bundle is fine — a person may take a copy.
+        let exported = store
+            .export_bundle("a1".into(), CORE_BUNDLE.into())
+            .await
+            .expect("the reserved bundle can be exported");
+        assert!(!exported.is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_pre_reservation_document_in_a_legacy_core_bundle_stays_maintainable() {
+        // `core` was an ordinary bundle name before it was reserved, so an install may already
+        // hold unrelated documents there. FR-013 refuses *creating* another one; leaving an
+        // existing one un-editable would be a data-access trap, so it stays writable.
+        let (store, _dir, indexer) = setup();
+        let now = Utc::now();
+        store
+            .write_migrated_memory(
+                "a1".into(),
+                CORE_BUNDLE.into(),
+                "legacy".into(),
+                "Legacy".into(),
+                "written before core was reserved".into(),
+                vec![],
+                vec![],
+                now,
+                now,
+                0,
+                &indexer,
+            )
+            .await
+            .unwrap();
+
+        let written = write_with(
+            &store,
+            &indexer,
+            Some(CORE_BUNDLE),
+            Some("legacy"),
+            "still editable",
+            &policy(),
+        )
+        .await
+        .expect("an existing document in the bundle can still be maintained");
+        assert_eq!(written.memory.content, "still editable");
+
+        // And a *new* one is still refused: the reservation is about creation.
+        let err = write_with(
+            &store,
+            &indexer,
+            Some(CORE_BUNDLE),
+            Some("brand-new"),
+            "nope",
+            &policy(),
+        )
+        .await
+        .unwrap_err()
+        .to_string();
+        assert!(err.starts_with("the core bundle holds only"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn the_reserved_bundle_cannot_be_deleted_even_with_force() {
+        // T017 / FR-012: `force` must not bypass the refusal.
+        let (store, _dir, indexer) = setup();
+        write_with(
+            &store,
+            &indexer,
+            Some(CORE_BUNDLE),
+            Some(SOUL_PATH),
+            "I am Oz.",
+            &policy(),
+        )
+        .await
+        .unwrap();
+
+        let err = store
+            .delete_bundle("a1".into(), CORE_BUNDLE.into(), true, &origin(), &indexer)
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(err.starts_with("bundle 'core' is reserved"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn the_soul_is_deletable_and_the_bundle_survives_it() {
+        // T017 / FR-009, FR-015, data-model invariant 3: deletion is allowed, records a
+        // deletion revision, and leaves the reserved bundle listed.
+        let (store, _dir, indexer) = setup();
+        write_with(
+            &store,
+            &indexer,
+            Some(CORE_BUNDLE),
+            Some(SOUL_PATH),
+            "I am Oz.",
+            &policy(),
+        )
+        .await
+        .unwrap();
+
+        store
+            .delete_memory(
+                "a1".into(),
+                Some(CORE_BUNDLE.into()),
+                SOUL_PATH.into(),
+                &origin(),
+                &indexer,
+            )
+            .await
+            .expect("the soul is removable");
+
+        let history = store
+            .list_memory_revisions("a1".into(), Some(CORE_BUNDLE.into()), SOUL_PATH.into(), 0, 10)
+            .await
+            .unwrap();
+        assert!(
+            history.revisions.iter().any(|r| r.deleted),
+            "the removal is visible in the document's own history"
+        );
+
+        let bundles = store.list_bundles("a1".into()).await.unwrap();
+        let core = bundles
+            .iter()
+            .find(|b| b.name == CORE_BUNDLE)
+            .expect("an emptied reserved bundle is still listed");
+        assert_eq!(core.concept_count, 0);
+        assert!(core.protected);
+    }
+
+    #[tokio::test]
+    async fn below_the_soft_limit_a_write_carries_no_warning() {
+        // T023 / FR-016, data-model rule 6.
+        let (store, _dir, indexer) = setup();
+        let written = write_with(
+            &store,
+            &indexer,
+            Some("work"),
+            Some("small"),
+            &body_of(2048),
+            &policy(),
+        )
+        .await
+        .unwrap();
+        assert!(written.warning.is_none());
+    }
+
+    #[tokio::test]
+    async fn between_the_soft_limit_and_the_ceiling_a_write_succeeds_with_a_warning() {
+        // T023 / FR-019: saved in full, and the warning carries the real numbers.
+        let (store, _dir, indexer) = setup();
+        let written = write_with(
+            &store,
+            &indexer,
+            Some("work"),
+            Some("big"),
+            &body_of(6144),
+            &policy(),
+        )
+        .await
+        .unwrap();
+        let warning = written.warning.expect("over the soft limit warns");
+        assert_eq!(warning.bytes, 6144);
+        assert_eq!(warning.limit, 4096);
+        assert_eq!(
+            written.memory.content.len(),
+            6144,
+            "the whole content is stored, never truncated"
+        );
+    }
+
+    #[tokio::test]
+    async fn exactly_at_the_ceiling_is_accepted_and_one_byte_over_is_refused() {
+        // T023 / FR-017, data-model rule 4: equality is accepted.
+        let (store, _dir, indexer) = setup();
+        let limits = MemoryLimits::default();
+
+        write_with(
+            &store,
+            &indexer,
+            Some("work"),
+            Some("edge"),
+            &body_of(limits.content_cap),
+            &policy(),
+        )
+        .await
+        .expect("a document exactly at the ceiling is accepted");
+
+        let err = write_with(
+            &store,
+            &indexer,
+            Some("work"),
+            Some("over"),
+            &body_of(limits.content_cap + 1),
+            &policy(),
+        )
+        .await
+        .unwrap_err()
+        .to_string();
+        assert!(err.starts_with("memory too large:"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn the_refusal_states_size_ceiling_overage_and_a_split_pattern() {
+        // T023 / FR-018, data-model rule 11.
+        let (store, _dir, indexer) = setup();
+        let err = write_with(
+            &store,
+            &indexer,
+            Some("vizier"),
+            Some("workqueue"),
+            &body_of(11240),
+            &policy(),
+        )
+        .await
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains("11240 bytes"), "names the actual size: {err}");
+        assert!(err.contains("8192-byte limit"), "names the ceiling: {err}");
+        assert!(err.contains("3048 over"), "names the overage: {err}");
+        assert!(
+            err.contains("vizier/workqueue-<subject>"),
+            "names a sibling path in the same bundle: {err}"
+        );
+        assert!(
+            err.contains("[<subject>](workqueue-<subject>.md)"),
+            "names the link syntax: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_refusal_leaves_the_document_its_history_and_its_passages_untouched() {
+        // T023 / FR-017, SC-009: no partial writes.
+        let (store, _dir, indexer) = setup();
+        write_with(
+            &store,
+            &indexer,
+            Some("work"),
+            Some("kept"),
+            "the original",
+            &policy(),
+        )
+        .await
+        .unwrap();
+        let before = store
+            .list_memory_revisions("a1".into(), Some("work".into()), "kept".into(), 0, 10)
+            .await
+            .unwrap();
+
+        assert!(
+            write_with(
+                &store,
+                &indexer,
+                Some("work"),
+                Some("kept"),
+                &body_of(20_000),
+                &policy(),
+            )
+            .await
+            .is_err()
+        );
+
+        let detail = store
+            .get_memory_detail("a1".into(), Some("work".into()), "kept".into())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(detail.content, "the original");
+        let after = store
+            .list_memory_revisions("a1".into(), Some("work".into()), "kept".into(), 0, 10)
+            .await
+            .unwrap();
+        assert_eq!(before.total, after.total, "no revision was recorded");
+    }
+
+    #[tokio::test]
+    async fn a_legacy_over_cap_document_accepts_a_shorter_write_and_refuses_a_longer_one() {
+        // T024 / FR-021: the ceiling must not become a trap on the documents it exists to fix.
+        let (store, _dir, indexer) = setup();
+        // The legacy state: above the ceiling, written before the limit existed.
+        write_with(
+            &store,
+            &indexer,
+            Some("work"),
+            Some("legacy"),
+            &body_of(10_000),
+            &WritePolicy::migrating(),
+        )
+        .await
+        .expect("the migration bypass can carry over-cap content");
+
+        let err = write_with(
+            &store,
+            &indexer,
+            Some("work"),
+            Some("legacy"),
+            &body_of(11_000),
+            &policy(),
+        )
+        .await
+        .unwrap_err()
+        .to_string();
+        assert!(err.starts_with("memory too large:"), "growing is refused: {err}");
+
+        let written = write_with(
+            &store,
+            &indexer,
+            Some("work"),
+            Some("legacy"),
+            &body_of(3000),
+            &policy(),
+        )
+        .await
+        .expect("shrinking is accepted");
+        assert_eq!(written.memory.content.len(), 3000);
+    }
+
+    #[tokio::test]
+    async fn the_seed_carries_the_legacy_identity_verbatim_with_a_provenance_line() {
+        // T010 / FR-003: copied byte for byte, plus one appended note, never split.
+        let (store, _dir, indexer) = setup();
+        let legacy = "# My core\n\nI am Oz, a software engineer.".to_string();
+        assert!(
+            store
+                .seed_identity("a1", Some(legacy.clone()), &indexer, &limits())
+                .await
+                .unwrap(),
+            "the first run writes"
+        );
+
+        let detail = store
+            .get_memory_detail("a1".into(), Some(CORE_BUNDLE.into()), SOUL_PATH.into())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            detail.content.starts_with(&legacy),
+            "the legacy text is carried verbatim at the front of the body"
+        );
+        assert!(
+            detail.content.contains("carried over from"),
+            "one provenance line is appended"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_seed_falls_back_to_the_template_and_is_idempotent() {
+        // T010 / FR-002, data-model rule 16: no legacy means the template, and a second run
+        // changes nothing at all.
+        let (store, _dir, indexer) = setup();
+        assert!(
+            store
+                .seed_identity("a1", None, &indexer, &limits())
+                .await
+                .unwrap()
+        );
+        let first = store
+            .get_memory_detail("a1".into(), Some(CORE_BUNDLE.into()), SOUL_PATH.into())
+            .await
+            .unwrap()
+            .unwrap();
+        // The template is the default identity. Asserted on a distinctive line rather than
+        // the raw constant: the markdown layer normalises line endings on the way in.
+        assert!(
+            first.content.contains("## Operating Framework"),
+            "the embedded template is the fallback identity"
+        );
+
+        assert!(
+            !store
+                .seed_identity("a1", Some("something else".into()), &indexer, &limits())
+                .await
+                .unwrap(),
+            "a document already present means nothing to do"
+        );
+        let second = store
+            .get_memory_detail("a1".into(), Some(CORE_BUNDLE.into()), SOUL_PATH.into())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            first.content, second.content,
+            "no second provenance line, no rewrite"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_over_ceiling_legacy_identity_still_migrates_in_full() {
+        // T010 / FR-025: the upgrade can never be blocked by the ceiling introduced beside it.
+        let (store, _dir, indexer) = setup();
+        let legacy = body_of(6000); // over the identity ceiling of 4096
+        store
+            .seed_identity("a1", Some(legacy.clone()), &indexer, &limits())
+            .await
+            .expect("an upgrade is never refused by the new ceiling");
+
+        let detail = store
+            .get_memory_detail("a1".into(), Some(CORE_BUNDLE.into()), SOUL_PATH.into())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(detail.content.starts_with(&legacy), "carried without loss");
+    }
+
+    #[tokio::test]
+    async fn the_identity_document_is_judged_against_the_tighter_pair() {
+        // T023 / FR-023, data-model rule 8: the address decides, not a second config field.
+        let (store, _dir, indexer) = setup();
+        // 5000 bytes is comfortably under the ordinary ceiling…
+        write_with(
+            &store,
+            &indexer,
+            Some("work"),
+            Some("ordinary"),
+            &body_of(5000),
+            &policy(),
+        )
+        .await
+        .expect("under the ordinary ceiling");
+
+        // …and over the identity one.
+        let err = write_with(
+            &store,
+            &indexer,
+            Some(CORE_BUNDLE),
+            Some(SOUL_PATH),
+            &body_of(5000),
+            &policy(),
+        )
+        .await
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains("4096-byte limit"), "quotes the identity ceiling: {err}");
+    }
+
+    #[tokio::test]
+    async fn the_identity_document_warns_at_its_own_soft_limit() {
+        // T023 / FR-023: the tighter pair applies to the warning band too.
+        let (store, _dir, indexer) = setup();
+        let written = write_with(
+            &store,
+            &indexer,
+            Some(CORE_BUNDLE),
+            Some(SOUL_PATH),
+            &body_of(2000),
+            &policy(),
+        )
+        .await
+        .unwrap();
+        let warning = written.warning.expect("over the identity soft limit");
+        assert_eq!(warning.limit, 1536);
     }
 }

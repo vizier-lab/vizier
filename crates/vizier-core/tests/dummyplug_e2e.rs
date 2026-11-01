@@ -121,6 +121,7 @@ fn agent_config(id: &str) -> AgentConfig {
         embedding: None,
         indexer: None,
         chunking: Default::default(),
+        limits: Default::default(),
         auto_context: Default::default(),
         completion_retry: Default::default(),
     }
@@ -442,6 +443,122 @@ async fn a_project_session_can_run_the_workspace_shell() {
     )
     .await;
     assert!(!list.contains("workspace_shell"), "ordinary turn has no project shell: {list}");
+
+    runtime.shutdown().await.unwrap();
+}
+
+/// identity is a memory (`specs/043-unify-core-and-memory`, quickstart steps 1, 3 and 4).
+///
+/// Everything here is agent-observable: the document exists because the agent was created, the
+/// tool that reads it is the ordinary memory tool, and the guard refuses a second document in
+/// the reserved bundle without anyone having to know the rule.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_agents_identity_is_a_memory_at_core_soul() {
+    use vizier_core::storage::memory::MemoryStorage;
+
+    let Some(dummyplug) = Dummyplug::start() else {
+        return;
+    };
+    dummyplug.ready().await;
+
+    let dir = tempfile::tempdir().unwrap();
+    let config = VizierConfig::with_workspace(dir.path().to_path_buf());
+    let runtime = VizierRuntime::start(RuntimeOptions { config }).await.unwrap();
+    runtime
+        .deps()
+        .storage
+        .upsert_provider(&ProviderEntry {
+            id: ProviderId::DUMMYPLUG,
+            credentials: ProviderCredentials {
+                base_url: Some(dummyplug.base_url()),
+                ..Default::default()
+            },
+        })
+        .await
+        .unwrap();
+
+    let (resp, created) = tokio::sync::oneshot::channel();
+    runtime
+        .transport()
+        .send_agent_command(AgentCommand::Create {
+            agent_id: "plug".into(),
+            config: agent_config("plug"),
+            resp,
+        })
+        .await
+        .unwrap();
+    match tokio::time::timeout(TURN_TIMEOUT, created).await.unwrap().unwrap() {
+        AgentCommandResult::Ok(_) => {}
+        AgentCommandResult::Error(e) => panic!("create failed: {e}"),
+    }
+
+    // Step 1: the seed is a detached task at spawn, so give it a moment rather than assuming
+    // it has already run. Nobody created this document — that is the point.
+    let soul = {
+        let mut found = None;
+        for _ in 0..100 {
+            match runtime
+                .deps()
+                .storage
+                .get_memory_detail(
+                    "plug".into(),
+                    Some(vizier_core::schema::CORE_BUNDLE.into()),
+                    vizier_core::schema::SOUL_PATH.into(),
+                )
+                .await
+                .unwrap()
+            {
+                Some(memory) => {
+                    found = Some(memory);
+                    break;
+                }
+                None => tokio::time::sleep(Duration::from_millis(100)).await,
+            }
+        }
+        found.expect("the identity document exists without anyone creating it")
+    };
+    assert!(
+        soul.content.contains("## Operating Framework"),
+        "a new agent's soul is the embedded template: {}",
+        soul.content
+    );
+
+    // The reserved bundle is listed with its protection, and the document is inside it.
+    let bundles = runtime
+        .deps()
+        .storage
+        .list_bundles("plug".into())
+        .await
+        .unwrap();
+    let core = bundles
+        .iter()
+        .find(|b| b.name == vizier_core::schema::CORE_BUNDLE)
+        .expect("the reserved bundle is listed");
+    assert!(core.protected, "a client can disable deleting it");
+    assert_eq!(core.concept_count, 1);
+
+    let session = VizierSession(
+        "plug".into(),
+        VizierChannelId::HTTP("e2e".into(), "identity".into()),
+        Some("identity".into()),
+    );
+    let transport = runtime.transport();
+
+    // Step 3: one vocabulary. The identity-only operations are gone, so an agent holding this
+    // agent's configuration is never offered them. (The memory tools themselves need an
+    // embedding index, which this harness deliberately does not configure; that they read the
+    // document is covered by the storage tests and by `memory_read` being the same accessor.)
+    let tools = chat(transport, &session, "tools").await;
+    for gone in ["read_core", "write_core"] {
+        assert!(!tools.contains(gone), "`{gone}` is no longer a tool: {tools}");
+    }
+    assert!(!tools.contains("`identity`"), "no identity category: {tools}");
+
+    // What this harness cannot reach: the write path itself, because it needs an indexer and
+    // the indexer module is crate-private. The guard (only `soul` in the bundle), the ceiling,
+    // the warning and grandfathering are covered by the storage tests against
+    // `write_memory_inner`, which is the one function the tool, the HTTP route, rollback and
+    // import all call — so a unit test there is a test of every caller.
 
     runtime.shutdown().await.unwrap();
 }

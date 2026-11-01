@@ -364,7 +364,7 @@ mod tests {
 
     #[test]
     fn did_you_mean_suggests_close_names() {
-        let known: Vec<String> = ["memory_read", "memory_search", "read_core", "think"]
+        let known: Vec<String> = ["memory_read", "memory_search", "think"]
             .iter()
             .map(|s| s.to_string())
             .collect();

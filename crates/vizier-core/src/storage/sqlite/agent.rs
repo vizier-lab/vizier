@@ -188,6 +188,9 @@ impl AgentStorage for SqliteStorage {
         Ok(())
     }
 
+    /// **Deprecated** (specs/043-unify-core-and-memory, FR-034): identity is the memory
+    /// document `core/soul`. This answers from the legacy sources only, for the spawn-time
+    /// seed and for the removal tracked in issue #82.
     async fn get_agent_core(&self, agent_id: &str) -> Result<Option<String>> {
         if let Some(content) = self.read_agent_core(agent_id)? {
             return Ok(Some(content));
@@ -198,6 +201,10 @@ impl AgentStorage for SqliteStorage {
         Ok(self.get_agent(agent_id).await?.and_then(|c| c.core))
     }
 
+    /// **Deprecated** (specs/043-unify-core-and-memory, FR-034). Kept for the filesystem
+    /// migration, which still carries a legacy CORE into the legacy table; nothing else writes
+    /// it. Identity saves go through `write_memory` at `core/soul`.
+    ///
     /// Upserts the CORE and appends a `core_revision` entry in one transaction, so a save and
     /// its history entry either both land or neither does (research Decision 8).
     async fn set_agent_core(

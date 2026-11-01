@@ -8,7 +8,10 @@ use crate::{
         MemoryQueryParams, MemoryRevision, PaginatedMemory, PaginatedMemoryRevisions, RevisionDiff,
         RevisionOrigin, RollbackResponse,
     },
-    storage::VizierStorage,
+    storage::{
+        VizierStorage,
+        memory_bundle::{WritePolicy, WrittenMemory},
+    },
 };
 
 #[async_trait::async_trait]
@@ -38,7 +41,8 @@ pub trait MemoryStorage {
         origin: &RevisionOrigin,
         indexer: &VizierIndexer,
         limits: &ChunkLimits,
-    ) -> Result<Memory>;
+        policy: &WritePolicy,
+    ) -> Result<WrittenMemory>;
 
     /// Attach one artifact to an existing memory by identity (`specs/035-add-artifacts`).
     /// Idempotent by `artifact_id`; rewrites only the frontmatter, node count, a revision and
@@ -75,6 +79,17 @@ pub trait MemoryStorage {
 
     /// Rebuild `artifact_reference` memory rows for one agent from its concept documents.
     async fn reconcile_agent_artifact_references(&self, agent_id: &str) -> Result<usize>;
+
+    /// Seed `core/soul` from `legacy` (the pre-change identity record) or the embedded
+    /// template, once, with the cap bypassed (specs/043-unify-core-and-memory, FR-002/FR-003).
+    /// Idempotent: a document already present means nothing to do. Returns whether it wrote.
+    async fn seed_identity(
+        &self,
+        agent_id: &str,
+        legacy: Option<String>,
+        indexer: &VizierIndexer,
+        limits: &ChunkLimits,
+    ) -> Result<bool>;
 
     /// Semantic search over **passages**, not whole documents (FR-008). Returns short addressed
     /// slices of matching memories, ranked by each passage's own relevance independently of which
@@ -250,6 +265,7 @@ pub trait MemoryStorage {
         origin: &RevisionOrigin,
         indexer: &VizierIndexer,
         limits: &ChunkLimits,
+        policy: &WritePolicy,
     ) -> Result<RollbackResponse>;
 }
 
@@ -267,7 +283,8 @@ impl MemoryStorage for VizierStorage {
         origin: &RevisionOrigin,
         indexer: &VizierIndexer,
         limits: &ChunkLimits,
-    ) -> Result<Memory> {
+        policy: &WritePolicy,
+    ) -> Result<WrittenMemory> {
         self.0
             .write_memory(
                 agent_id,
@@ -280,6 +297,7 @@ impl MemoryStorage for VizierStorage {
                 origin,
                 indexer,
                 limits,
+                policy,
             )
             .await
     }
@@ -324,6 +342,16 @@ impl MemoryStorage for VizierStorage {
 
     async fn reconcile_agent_artifact_references(&self, agent_id: &str) -> Result<usize> {
         self.0.reconcile_agent_artifact_references(agent_id).await
+    }
+
+    async fn seed_identity(
+        &self,
+        agent_id: &str,
+        legacy: Option<String>,
+        indexer: &VizierIndexer,
+        limits: &ChunkLimits,
+    ) -> Result<bool> {
+        self.0.seed_identity(agent_id, legacy, indexer, limits).await
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -520,9 +548,10 @@ impl MemoryStorage for VizierStorage {
         origin: &RevisionOrigin,
         indexer: &VizierIndexer,
         limits: &ChunkLimits,
+        policy: &WritePolicy,
     ) -> Result<RollbackResponse> {
         self.0
-            .rollback_memory(agent_id, bundle, path, seq, origin, indexer, limits)
+            .rollback_memory(agent_id, bundle, path, seq, origin, indexer, limits, policy)
             .await
     }
 }

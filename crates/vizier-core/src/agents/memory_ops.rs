@@ -1,10 +1,10 @@
 use anyhow::Result;
 
 use crate::{
-    config::ChunkLimits,
+    config::{ChunkLimits, MemoryLimits},
     indexer::VizierIndexer,
     schema::{MemoryOpEnvelope, MemoryOpRequest, MemoryOpResponse},
-    storage::{VizierStorage, memory::MemoryStorage},
+    storage::{VizierStorage, memory::MemoryStorage, memory_bundle::WritePolicy},
 };
 
 /// The per-agent chunking and recall settings this handler applies to every memory op it
@@ -13,6 +13,10 @@ use crate::{
 #[derive(Clone)]
 pub struct MemoryOpSettings {
     pub chunking: ChunkLimits,
+    /// The size bounds every write through this handler is judged against
+    /// (specs/043-unify-core-and-memory). The identity document is tighter regardless of this
+    /// value, because the address decides that.
+    pub limits: MemoryLimits,
     /// Cap on how many passages one document may contribute to a single search (FR-012).
     pub per_document: usize,
 }
@@ -61,9 +65,10 @@ async fn dispatch_memory_op(
                 origin,
                 indexer,
                 &settings.chunking,
+                &WritePolicy::new(settings.limits.clone()),
             )
             .await
-            .map(MemoryOpResponse::Memory),
+            .map(MemoryOpResponse::from_written),
         MemoryOpRequest::AttachArtifact {
             bundle,
             path,
@@ -80,7 +85,7 @@ async fn dispatch_memory_op(
                 origin,
             )
             .await
-            .map(MemoryOpResponse::Memory),
+            .map(MemoryOpResponse::from_memory),
         MemoryOpRequest::DetachAttachment {
             bundle,
             path,
@@ -95,7 +100,7 @@ async fn dispatch_memory_op(
                 origin,
             )
             .await
-            .map(MemoryOpResponse::Memory),
+            .map(MemoryOpResponse::from_memory),
         MemoryOpRequest::Query {
             bundle,
             query,
@@ -229,6 +234,7 @@ async fn dispatch_memory_op(
                 origin,
                 indexer,
                 &settings.chunking,
+                &WritePolicy::new(settings.limits.clone()),
             )
             .await
             .map(MemoryOpResponse::Rollback),

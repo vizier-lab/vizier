@@ -13,10 +13,18 @@ pub trait AgentStorage {
     async fn update_agent(&self, agent_id: &str, config: &AgentConfig) -> Result<()>;
     async fn delete_agent(&self, agent_id: &str) -> Result<()>;
 
+    /// **Deprecated** (specs/043-unify-core-and-memory, FR-034). An agent's identity is the
+    /// memory document `core/soul`; read that instead. This answers from the legacy
+    /// `agent_core` source and exists only so the spawn-time seed can find pre-change content
+    /// (FR-003) and so the removal tracked in issue #82 has something to check.
     async fn get_agent_core(&self, agent_id: &str) -> Result<Option<String>> {
         Ok(self.get_agent(agent_id).await?.and_then(|c| c.core))
     }
 
+    /// **Deprecated** (specs/043-unify-core-and-memory). Writes the legacy `agent_core` row,
+    /// which nothing reads except the spawn-time seed. Writing identity goes through
+    /// `write_memory` at `core/soul`.
+    ///
     /// `origin` describes who/what is saving; the sqlite backend records a `core_revision`
     /// entry for every save (specs/006-memory-version-history). The config-backed default
     /// keeps no history.

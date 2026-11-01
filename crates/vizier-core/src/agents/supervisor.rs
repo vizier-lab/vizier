@@ -405,6 +405,9 @@ impl Supervisor {
     /// or the request channel closed by a delete); `Err` is anything else, a panic included.
     async fn run_once(&mut self, built: BuiltAgent) -> Result<()> {
         let BuiltAgent { agent, indexer, .. } = built;
+        // Runs for every agent, indexer or not: an agent with no embedding config still has an
+        // identity, and the seed must not depend on a capability the agent may not have.
+        self.start_memory_maintenance(indexer.as_ref());
         let memory_ops = self.start_memory_ops(indexer.as_ref()).await;
 
         *self.current.write().unwrap_or_else(|p| p.into_inner()) = Some(agent.clone());
@@ -447,14 +450,16 @@ impl Supervisor {
         }
     }
 
-    /// The memory-op channel and handler, plus the one-time passage conversion, for an agent
-    /// with an indexer.
-    async fn start_memory_ops(
-        &self,
-        indexer: Option<&VizierIndexer>,
-    ) -> Option<tokio::task::JoinHandle<()>> {
-        let idx = indexer?.clone();
+    /// The identity seed, and — when the agent has an indexer — the one-time passage
+    /// conversion. Runs for **every** agent: an identity is not conditional on embeddings, so
+    /// the seed uses a no-op indexer when there is none and leaves the passages to a later
+    /// reconcile (`specs/043-unify-core-and-memory`, FR-002).
+    fn start_memory_maintenance(&self, indexer: Option<&VizierIndexer>) {
+        let storage = self.deps.storage.clone();
         let agent_id = self.agent_id.clone();
+        let limits = self.config.chunking.clone();
+        let legacy_core = self.config.core.clone();
+        let idx = indexer.cloned();
 
         // One-time passage conversion for this agent's existing corpus (FR-038).
         //
@@ -470,36 +475,69 @@ impl Supervisor {
         // (FR-040). It holds neither the agent's request channel nor the sqlite write lock for
         // the duration: `reconcile_all_passages` takes the connection lock per statement and
         // yields between bundles.
-        {
-            let storage = self.deps.storage.clone();
-            let agent_id = agent_id.clone();
-            let limits = self.config.chunking.clone();
-            let idx = idx.clone();
-            tokio::spawn(async move {
-                let started = std::time::Instant::now();
-                match storage
-                    .reconcile_agent_passages(&agent_id, &limits, &idx)
-                    .await
-                {
-                    // FR-042: counts processed, counts failed, and the reason for each failure —
-                    // the reasons are logged per document by the reconcile itself. Silent when
-                    // there was nothing to do, which is every start after the first.
-                    Ok((0, 0)) => {}
-                    Ok((converted, failed)) => tracing::info!(
-                        agent_id,
-                        converted,
-                        failed,
-                        elapsed_ms = started.elapsed().as_millis() as u64,
-                        "memory passage conversion finished"
-                    ),
-                    Err(e) => tracing::warn!(
-                        agent_id,
-                        "memory passage conversion failed; memories stay readable and are \
-                         retried on the next start: {e}"
-                    ),
+        tokio::spawn(async move {
+            use crate::indexer::noop::NoopIndexer;
+
+            // Seed `core/soul` before the reconcile, in the same task, so the identity
+            // document's passages are converted on this start rather than the next one — an
+            // identity that exists but is unsearchable is the one document this could least
+            // afford to degrade (research Decision 7). A failure is logged and retried next
+            // start; the agent keeps serving either way.
+            let noop;
+            let seed_indexer = match &idx {
+                Some(indexer) => indexer,
+                None => {
+                    noop = VizierIndexer::build(NoopIndexer);
+                    &noop
                 }
-            });
-        }
+            };
+            match storage
+                .seed_identity(&agent_id, legacy_core, seed_indexer, &limits)
+                .await
+            {
+                Ok(true) => tracing::info!(agent_id, "seeded the identity memory at core/soul"),
+                Ok(false) => {}
+                Err(e) => tracing::warn!(
+                    agent_id,
+                    "failed to seed the identity memory; it is retried on the next start: {e}"
+                ),
+            }
+
+            // Passages are this agent's own; with no indexer there is nothing to convert with,
+            // and the next start that has one catches the whole corpus up.
+            let Some(idx) = idx else { return };
+            let started = std::time::Instant::now();
+            match storage
+                .reconcile_agent_passages(&agent_id, &limits, &idx)
+                .await
+            {
+                // FR-042: counts processed, counts failed, and the reason for each failure —
+                // the reasons are logged per document by the reconcile itself. Silent when
+                // there was nothing to do, which is every start after the first.
+                Ok((0, 0)) => {}
+                Ok((converted, failed)) => tracing::info!(
+                    agent_id,
+                    converted,
+                    failed,
+                    elapsed_ms = started.elapsed().as_millis() as u64,
+                    "memory passage conversion finished"
+                ),
+                Err(e) => tracing::warn!(
+                    agent_id,
+                    "memory passage conversion failed; memories stay readable and are \
+                     retried on the next start: {e}"
+                ),
+            }
+        });
+    }
+
+    /// The memory-op channel and handler, for an agent with an indexer.
+    async fn start_memory_ops(
+        &self,
+        indexer: Option<&VizierIndexer>,
+    ) -> Option<tokio::task::JoinHandle<()>> {
+        let idx = indexer?.clone();
+        let agent_id = self.agent_id.clone();
 
         // Rebuild the derived `artifact_reference` memory rows from the concept documents
         // (`specs/035-add-artifacts`), so an import or a crashed write is repaired on the next
@@ -530,6 +568,7 @@ impl Supervisor {
         let storage = (*self.deps.storage).clone();
         let settings = memory_ops::MemoryOpSettings {
             chunking: self.config.chunking.clone(),
+            limits: self.config.limits.clone(),
             per_document: self.config.auto_context.per_document,
         };
         Some(tokio::spawn(async move {

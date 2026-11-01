@@ -41,7 +41,6 @@ use crate::{
         tts::TtsGenerate,
         vector_memory::{RecallSettings, SEARCH_THRESHOLD, init_vector_memory},
         webui::{ListWebuiTopics, SendWebuiMessage},
-        workspace::{ReadCore, WriteCore},
     },
     dependencies::VizierDependencies,
     error::VizierError,
@@ -83,7 +82,6 @@ mod think;
 pub mod tts;
 mod vector_memory;
 mod webui;
-mod workspace;
 
 pub type VizierToolDef = Arc<Box<dyn VizierToolDyn + Send + Sync + 'static>>;
 
@@ -92,7 +90,6 @@ pub type VizierToolDef = Arc<Box<dyn VizierToolDyn + Send + Sync + 'static>>;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ToolCategory {
     Memory,
-    Identity,
     Scheduling,
     Agents,
     Skills,
@@ -118,9 +115,8 @@ pub enum ToolCategory {
 }
 
 impl ToolCategory {
-    pub const ALL: [ToolCategory; 18] = [
+    pub const ALL: [ToolCategory; 17] = [
         Self::Memory,
-        Self::Identity,
         Self::Scheduling,
         Self::Agents,
         Self::Skills,
@@ -142,7 +138,6 @@ impl ToolCategory {
     pub fn name(self) -> &'static str {
         match self {
             Self::Memory => "memory",
-            Self::Identity => "identity",
             Self::Scheduling => "scheduling",
             Self::Agents => "agents",
             Self::Skills => "skills",
@@ -165,7 +160,6 @@ impl ToolCategory {
     pub fn description(self) -> &'static str {
         match self {
             Self::Memory => "Search, read, write and organise long-term memory",
-            Self::Identity => "Read and update your CORE identity document",
             Self::Scheduling => "Schedule one-time and recurring tasks and check their results",
             Self::Agents => {
                 "Consult or delegate to other agents, run parallel subagents, manage background jobs"
@@ -1115,8 +1109,6 @@ impl VizierTools {
         "memory_delete",
         "memory_delete_bundle",
         // Workspace (2)
-        "write_core",
-        "read_core",
         // Scheduler (6)
         "schedule_one_time_task",
         "schedule_cron_task",
@@ -1243,8 +1235,6 @@ impl BaseTools {
         let mut user_toolset = VizierToolSet::new();
 
         default_toolset = default_toolset
-            .tool(WriteCore::new(agent_id.clone(), deps.storage.clone()))
-            .tool(ReadCore::new(agent_id.clone(), deps.storage.clone()))
             .tool(ScheduleOneTimeTask {
                 agent_id: agent_id.clone(),
                 storage: deps.storage.clone(),
@@ -1413,6 +1403,7 @@ impl BaseTools {
                 idx,
                 RecallSettings {
                     chunking: agent_config.chunking.clone(),
+                    limits: agent_config.limits.clone(),
                     search_limit: 10,
                     search_threshold: SEARCH_THRESHOLD,
                     per_document: agent_config.auto_context.per_document,
@@ -1634,8 +1625,6 @@ mod tests {
             entry::<MemoryDeleteBundle>(),
             entry::<AttachArtifactToMemory>(),
             entry::<DetachAttachmentFromMemory>(),
-            entry::<ReadCore>(),
-            entry::<WriteCore>(),
             entry::<ScheduleOneTimeTask>(),
             entry::<ScheduleCronTask>(),
             entry::<ListTask>(),
@@ -1741,8 +1730,6 @@ mod tests {
             ("memory_delete_bundle", Memory),
             ("attach_artifact_to_memory", Memory),
             ("detach_attachment_from_memory", Memory),
-            ("read_core", Identity),
-            ("write_core", Identity),
             ("schedule_one_time_task", Scheduling),
             ("schedule_cron_task", Scheduling),
             ("list_task", Scheduling),
@@ -1945,7 +1932,8 @@ mod tests {
     }
 
     /// A new category is appended, never slotted in among the categories older prompts and
-    /// scripts already saw. `questions` (spec 042) is the 18th and last; `secrets` was the 17th.
+    /// scripts already saw. `questions` (spec 042) is the last; `secrets` is the one before it.
+    /// `identity` left the list in spec 043 — identity is reached through the memory tools now.
     #[test]
     fn a_new_category_is_appended_to_the_end_of_the_list() {
         let names: Vec<&str> = ToolCategory::ALL
@@ -1953,10 +1941,14 @@ mod tests {
             .map(|category| category.name())
             .collect();
         assert_eq!(names.last(), Some(&"questions"));
-        assert_eq!(names.len(), 18);
-        // `coding` is the 15th: inserted before `integrations`, but no agent-wide tool uses it
-        // (its tools are per-turn project contributions).
-        assert_eq!(names[14], "coding");
+        assert_eq!(names.len(), 17);
+        // `coding` sits before `integrations`, but no agent-wide tool uses it (its tools are
+        // per-turn project contributions).
+        assert_eq!(names[13], "coding");
+        assert!(
+            !names.contains(&"identity"),
+            "the identity category is gone: identity is a memory (spec 043)"
+        );
         assert_eq!(ToolCategory::Secrets.name(), "secrets");
         assert_eq!(ToolCategory::Questions.name(), "questions");
     }
@@ -2075,7 +2067,7 @@ mod tests {
             .collect();
         // No Discord, Telegram, TTS, STT, image or shell tools registered.
         let present = [
-            Webui, Memory, Agents, Identity, Memory, Skills, Files, Scheduling,
+            Webui, Memory, Agents, Memory, Skills, Files, Scheduling,
         ];
         let (addon, description) = ("brave_search".to_string(), "Search the web".to_string());
         let summaries = summarise_categories(present, [(&addon, &description)], &servers, &[]);
@@ -2084,7 +2076,6 @@ mod tests {
             names,
             [
                 "memory",
-                "identity",
                 "scheduling",
                 "agents",
                 "skills",
@@ -2096,9 +2087,9 @@ mod tests {
                 "memory_mcp"
             ]
         );
-        assert_eq!(summaries[7].description, "Search the web");
+        assert_eq!(summaries[6].description, "Search the web");
         assert_eq!(
-            summaries[10].description,
+            summaries[9].description,
             "Tools from the memory MCP server"
         );
         assert_eq!(
@@ -2138,7 +2129,7 @@ mod tests {
     #[test]
     fn no_mcp_name_keeps_the_old_prefix() {
         let names = assign_names(
-            &["read_core"],
+            &["memory_read"],
             &[("github", "create_issue"), ("fs", "read_file")],
         );
         assert!(names.iter().all(|name| !name.starts_with("mcp_")));

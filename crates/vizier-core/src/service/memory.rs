@@ -16,7 +16,7 @@ use crate::{
         VizierAttachment, default_bundle,
     },
     service::{ServiceError, Services},
-    storage::{agent::AgentStorage, artifact::ArtifactStorage},
+    storage::{agent::AgentStorage, artifact::ArtifactStorage, memory::MemoryStorage},
 };
 
 #[derive(Debug, Deserialize)]
@@ -43,6 +43,12 @@ pub struct UpdateMemoryRequest {
     pub tags: Vec<String>,
     #[serde(default)]
     pub attachments: Option<Vec<VizierAttachment>>,
+    /// The revision this edit started from, when the client knows it. When the document has
+    /// moved on, the save is refused with `409 stale_revision` and the newer content instead of
+    /// overwriting it (FR-028). Optional and additive: a client that omits it keeps the old
+    /// last-write-wins behaviour.
+    #[serde(default)]
+    pub base_seq: Option<i64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -135,6 +141,10 @@ pub struct CreateMemoryResponse {
     pub message: String,
     pub tags: Vec<String>,
     pub relations: Vec<String>,
+    /// Present only when the content went over the soft limit. Additive: a client that ignores
+    /// it behaves exactly as before (contracts/http-api.md).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub warning: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -146,6 +156,9 @@ pub struct UpdateMemoryResponse {
     pub message: String,
     pub tags: Vec<String>,
     pub relations: Vec<String>,
+    /// Present only when the content went over the soft limit (contracts/http-api.md).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub warning: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -287,9 +300,19 @@ async fn detail_from_memory(s: &Services, memory: &Memory) -> MemoryDetail {
 }
 
 /// The status a failed memory operation maps to, from its message.
-fn op_error(msg: String) -> ServiceError {
+pub(crate) fn op_error(msg: String) -> ServiceError {
     let lower = msg.to_lowercase();
-    if lower.contains("already exists") {
+    // The stable prefixes fixed by `contracts/storage-behaviour.md`. Matched on the prefix
+    // rather than the prose so the wording can change without the status changing with it.
+    if msg.starts_with("memory too large:") {
+        ServiceError::Invalid { status: 422, message: msg, code: None }
+    } else if msg.starts_with("the core bundle holds only") {
+        ServiceError::Invalid { status: 422, message: msg, code: None }
+    } else if msg.starts_with("bundle 'core' is reserved")
+        || msg.starts_with("the core bundle cannot receive")
+    {
+        ServiceError::Conflict { message: msg, code: None, data: None }
+    } else if lower.contains("already exists") {
         ServiceError::Conflict { message: msg, code: None, data: None }
     } else if lower.contains("malformed") || lower.contains("archive") {
         ServiceError::Invalid { status: 400, message: msg, code: None }
@@ -340,7 +363,11 @@ async fn require_memory_and_artifact_view(
     Ok(config)
 }
 
-async fn op(s: &Services, agent_id: &str, op: MemoryOpRequest) -> anyhow::Result<MemoryOpResponse> {
+pub(crate) async fn op(
+    s: &Services,
+    agent_id: &str,
+    op: MemoryOpRequest,
+) -> anyhow::Result<MemoryOpResponse> {
     s.deps().transport.send_memory_op(&agent_id.to_string(), op).await
 }
 
@@ -484,7 +511,7 @@ pub async fn create(
         origin: RevisionOrigin::from_user(who),
     };
     match op(s, agent_id, request).await {
-        Ok(MemoryOpResponse::Memory(memory)) => Ok(CreateMemoryResponse {
+        Ok(MemoryOpResponse::Written { memory, warning }) => Ok(CreateMemoryResponse {
             agent_id: agent_id.to_string(),
             bundle: memory.bundle,
             title: body.title,
@@ -492,6 +519,7 @@ pub async fn create(
             message: "memory created successfully".to_string(),
             tags: memory.tags,
             relations: memory.relations,
+            warning: warning.map(|w| w.describe()),
         }),
         Ok(_) => Err(unexpected()),
         Err(e) => Err(op_error(e.to_string())),
@@ -515,6 +543,37 @@ pub async fn update(
             code: None,
         });
     }
+    // A stale save is refused before anything is written, showing the newer content — the
+    // behaviour the removed Core page carried, so it must not be lost with it (FR-028, FR-029).
+    if let Some(base) = body.base_seq
+        && let Ok(page) = s
+            .deps()
+            .storage
+            .list_memory_revisions(agent_id.to_string(), bundle.clone(), path.clone(), 0, 1)
+            .await
+        && let Some(latest) = page.revisions.first().map(|r| r.seq)
+        && latest != base
+    {
+        let content = s
+            .deps()
+            .storage
+            .get_memory_detail(agent_id.to_string(), bundle.clone(), path.clone())
+            .await
+            .ok()
+            .flatten()
+            .map(|memory| memory.content)
+            .unwrap_or_default();
+        return Err(ServiceError::Conflict {
+            message: "stale_revision".into(),
+            code: None,
+            data: serde_json::to_value(serde_json::json!({
+                "latest_seq": latest,
+                "content": content,
+            }))
+            .ok(),
+        });
+    }
+
     let request = MemoryOpRequest::Write {
         bundle,
         path: Some(path),
@@ -525,13 +584,14 @@ pub async fn update(
         origin: RevisionOrigin::from_user(who),
     };
     match op(s, agent_id, request).await {
-        Ok(MemoryOpResponse::Memory(memory)) => Ok(UpdateMemoryResponse {
+        Ok(MemoryOpResponse::Written { memory, warning }) => Ok(UpdateMemoryResponse {
             agent_id: agent_id.to_string(),
             bundle: memory.bundle,
             path: memory.slug,
             message: "memory updated successfully".to_string(),
             tags: memory.tags,
             relations: memory.relations,
+            warning: warning.map(|w| w.describe()),
         }),
         Ok(_) => Err(unexpected()),
         Err(e) => Err(op_error(e.to_string())),

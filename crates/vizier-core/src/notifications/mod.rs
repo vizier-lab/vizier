@@ -451,6 +451,7 @@ mod tests {
             embedding: None,
             indexer: None,
             chunking: Default::default(),
+            limits: Default::default(),
             auto_context: Default::default(),
             completion_retry: Default::default(),
         };
