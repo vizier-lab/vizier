@@ -7,7 +7,8 @@ import {
     Thought,
     TrailCall,
 } from '@vizier/design'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
+import { highlightCode } from '../../lib/highlight'
 import { useThinkingWord } from '../../lib/thinkingWords'
 import type { ExecutionReport, TrailEvent } from '../../api/frames'
 import { duration } from '../../lib/format'
@@ -76,17 +77,27 @@ function Run({
     intent: string | null
 }) {
     const e = report?.error
+    const source = code ?? ''
+    const result =
+        report && report.result != null && !e
+            ? JSON.stringify(report.result, null, 2)
+            : undefined
+    // Once per run: a live trail re-renders as each step arrives, and re-highlighting a long
+    // script every frame is exactly what a plain block never had to pay for.
+    const codeTokens = useMemo(() => highlightCode(source, 'python'), [source])
+    const resultTokens = useMemo(
+        () => (result ? highlightCode(result, 'json') : undefined),
+        [result]
+    )
     return (
         <RunDetail
             description={intent ?? undefined}
-            code={code ?? ''}
+            code={source}
+            codeTokens={codeTokens}
             callCount={report?.tool_calls.length}
             output={report?.stdout || undefined}
-            result={
-                report && report.result != null && !e
-                    ? JSON.stringify(report.result, null, 2)
-                    : undefined
-            }
+            result={result}
+            resultTokens={resultTokens}
             traceback={
                 e && e.kind !== 'limit'
                     ? { where: e.kind, message: e.message, full: e.traceback }

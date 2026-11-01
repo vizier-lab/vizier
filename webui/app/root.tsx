@@ -1,6 +1,8 @@
 import { useEffect } from 'react'
 import { Links, Meta, Outlet, Scripts, ScrollRestoration, useNavigate } from 'react-router'
 import { MotionProvider } from '@vizier/design'
+// Before the app's own stylesheet, so `.katex-display`'s overflow rule can follow it.
+import 'katex/dist/katex.min.css'
 import './app.css'
 import './lib/clientTools/builtin'
 import { transport } from './api/transport'

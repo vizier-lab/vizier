@@ -411,6 +411,9 @@ export interface WebSocketMessage {
   // This client's tools for the turn this request starts (client tools protocol §1).
   client_tools?: ClientToolDeclaration[]
   client_categories?: ClientCategoryDeclaration[]
+  // What this client renders, in its own words: shown to the turn that sends it, never stored
+  // with the request. The WebUI says it draws mermaid diagrams and LaTeX.
+  client_context?: string[]
 }
 
 // ============================================================================

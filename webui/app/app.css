@@ -1,2 +1,9 @@
 @import '@vizier/design/styles.css';
 @source "../../design/src";
+
+/* A formula wider than the column scrolls inside its own line: a display block is the one place
+   a reply may scroll, because there is no way to wrap it that keeps the maths readable. */
+.katex-display {
+    overflow-x: auto;
+    overflow-y: hidden;
+}

@@ -127,7 +127,7 @@ export default function SkillPage() {
                         <Markdown size="document">{skill.content}</Markdown>
                     </article>
                 ) : (
-                    <CodeBlock code={skill.content} language="markdown" filename="SKILL.md" className="max-w-[100ch] [&_pre]:break-words [&_pre]:whitespace-pre-wrap" />
+                    <CodeBlock code={skill.content} language="markdown" filename="SKILL.md" className="max-w-[100ch]" />
                 )}
             </Panes>
 

@@ -1,6 +1,8 @@
 import { Badge, Callout as Hint, CodeBlock, Notice } from '@vizier/design'
+import { useMemo } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { highlightCode } from '../../highlight'
 import { remarkBreaks } from '../../remarkBreaks'
 import { Prose } from '@vizier/design'
 import type { ComponentRenderProps } from '@json-render/react'
@@ -66,5 +68,8 @@ export function CalloutC({ element }: ComponentRenderProps<P>) {
 
 export function CodeC({ element }: ComponentRenderProps<P>) {
     const p = element.props
-    return <CodeBlock code={String(p.text ?? '')} language={typeof p.lang === 'string' ? p.lang : undefined} />
+    const code = String(p.text ?? '')
+    const lang = typeof p.lang === 'string' ? p.lang : undefined
+    const tokens = useMemo(() => highlightCode(code, lang), [code, lang])
+    return <CodeBlock code={code} tokens={tokens} language={lang} />
 }

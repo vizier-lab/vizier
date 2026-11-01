@@ -4688,6 +4688,18 @@ export interface components {
              *     turn that launched the job and must still count as one level deeper.
              */
             background_depth?: number;
+            /**
+             * @description What the client that sent this request says about itself: what it renders, what it
+             *     offers, how it is being used. The WebUI says it draws mermaid diagrams and LaTeX.
+             *
+             *     A note for the turn that sent it. It is rendered into the turn's context block
+             *     (`system_prompt::context::client_context_note`) and deliberately left out of
+             *     [`VizierRequest::to_prompt`]: the block rides the newest user message and is never
+             *     stored, so a replayed request cannot restate a note from a client that may have gone,
+             *     and no later turn inherits it in the person's voice. It stays on the stored request so
+             *     a resumed turn rebuilds the same block.
+             */
+            client_context?: string[];
             content: components["schemas"]["VizierRequestContent"];
             expect_audio_reply?: boolean | null;
             metadata: unknown;

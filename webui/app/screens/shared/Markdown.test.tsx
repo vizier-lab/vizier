@@ -5,19 +5,34 @@ import { Markdown } from './Markdown'
 /** A reply drawn as the chat draws it. */
 const draw = (markdown: string) => renderToString(<Markdown>{markdown}</Markdown>)
 
+/**
+ * What the block actually reads, whatever it is coloured as: tags, React's hydration comments
+ * and HTML entities taken out. A highlighted block is many elements where a plain one was one
+ * string, so the source is asserted here rather than against the markup.
+ */
+const shown = (html: string) =>
+    html
+        // From the code itself: the language label and the copy button above it are chrome.
+        .slice(html.indexOf('<pre'))
+        .replace(/<!--.*?-->/g, '')
+        .replace(/<[^>]*>/g, '')
+        .replace(/&quot;/g, '"')
+        .replace(/&#x27;/g, "'")
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&amp;/g, '&')
+
 describe('markdown code fences', () => {
     // The reply in the bug report: the plain text was right, the drawn block was not.
     it('draws a yaml fence as its source text', () => {
         const html = draw('```yaml\nagent:\n  name: oz\n  tools: [read_file]\n```')
-        expect(html).toContain('agent:')
-        expect(html).toContain('name: oz')
-        expect(html).toContain('tools: [read_file]')
+        expect(shown(html)).toBe('agent:  name: oz  tools: [read_file]')
         expect(html).not.toContain('[object Object]')
     })
 
     it('draws a json fence as its source text', () => {
         const html = draw('```json\n{ "name": "oz", "tools": ["read_file"] }\n```')
-        expect(html).toContain('&quot;name&quot;: &quot;oz&quot;')
+        expect(shown(html)).toBe('{ "name": "oz", "tools": ["read_file"] }')
         expect(html).not.toContain('[object Object]')
     })
 
@@ -67,7 +82,7 @@ describe('markdown line breaks', () => {
     it('leaves a fenced block as source text', () => {
         const html = draw('```yaml\nagent:\n  name: oz\n```')
         expect(html).not.toContain('<br/>')
-        expect(html).toContain('name: oz')
+        expect(shown(html)).toBe('agent:  name: oz')
     })
 
     it('leaves an indented block as source text', () => {
@@ -84,5 +99,55 @@ describe('markdown line breaks', () => {
         const html = draw('# one\ntwo')
         expect(html).not.toContain('<br/>')
         expect(html).toContain('<h1>one</h1>')
+    })
+})
+
+describe('markdown highlighting', () => {
+    // The block is drawn from tokens now, so each tone is a class of its own; the text is still
+    // the source, which is what the tests above keep locking.
+    it('colours a fence by its language', () => {
+        const html = draw('```python\nfor x in hits:\n    print("db", 8)\n```')
+        expect(html).toContain('text-rank-text')
+        expect(html).toContain('text-live-text')
+        expect(shown(html)).toBe('for x in hits:    print("db", 8)')
+        expect(html).not.toContain('[object Object]')
+    })
+
+    it('draws a fence in a language it does not highlight as its source', () => {
+        const html = draw('```brainfuck\n+++.\n```')
+        expect(html).toContain('+++.')
+        expect(html).not.toContain('[object Object]')
+    })
+})
+
+describe('markdown math', () => {
+    it('draws inline math', () => {
+        const html = draw('a formula $e^{i\\pi} + 1 = 0$ here')
+        expect(html).toContain('class="katex"')
+        // KaTeX draws the exponent as markup, not as the source it was given.
+        expect(html).toContain('mord')
+    })
+
+    it('draws display math on its own line', () => {
+        expect(draw('$$\n\\int_0^1 x^2\\,dx\n$$')).toContain('katex-display')
+    })
+
+    // A fence is source: the highlighter reads it as text and KaTeX never sees it. A price in
+    // prose is the price of `$…$`; a fence is where it must not happen.
+    it('leaves a dollar inside a fence alone', () => {
+        const html = draw('```python\nprice = "$5"\n```')
+        expect(html).not.toContain('class="katex"')
+        expect(html).toContain('$5')
+    })
+})
+
+describe('markdown diagrams', () => {
+    // Drawn on the client, so a render without effects shows the source — which is also the
+    // fallback when mermaid cannot parse it.
+    it('shows a mermaid fence as its source until it is drawn', () => {
+        const html = draw('```mermaid\ngraph TD\n  a --> b\n```')
+        expect(html).toContain('graph TD')
+        expect(html).toContain('a --&gt; b')
+        expect(html).toContain('mermaid')
     })
 })
