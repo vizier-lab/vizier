@@ -257,6 +257,34 @@ A client event appears as a `Request` entry whose `content` is `{ "client_event"
 | C → S | request with `content.client_event` | §5 |
 | C ↔ S | `client_call_state` | §6 |
 
+### Question frames
+
+An agent can ask the person structured questions (`ask_question`) or for a sensitive value
+(`ask_sensitive_input`); see [Asking the person](../configuration/questions.md). They add the frames
+below to the same socket, all additive under §9: a client that does not know them ignores them and
+simply never draws a card or a dialog.
+
+| Direction | Frame | Meaning |
+|-----------|-------|---------|
+| S → C | `history_entry` with `content.QuestionSet` | A question set the agent asked. Its `state` (`pending`, `answered`, `declined`, `withdrawn`), `answers` and `answerer` are filled from the server on every read, so a pending card survives a reload, a second tab and a restart. |
+| S → C | `question_set` | `{ set_id, state, answers, answerer }`: the set changed state. Sent to every socket on the conversation, including the one that answered. |
+| C → S | request with `content.question_answer` | `{ set_id, answers, declined, text?, answerer? }`. An ordinary request: same principal, queue and history as a `chat`. `answers` holds every question exactly once (`state` `answered` or `skipped`, `value` a string, an array of strings or a boolean); `declined: true` dismisses the set and `answers` is then empty. |
+| S → C | `sensitive_ask` | `{ ask_id, label, purpose, protected, min_bytes, max_bytes, expires_at }`: show a masked dialog. Sent to every socket and replayed when a socket opens while the ask is open. |
+| S → C | `sensitive_ask_closed` | `{ ask_id, outcome }` with `outcome` one of `provided`, `declined`, `timeout`, `abandoned`: close the dialog, whichever socket or person resolved it. |
+| C → S | `sensitive_input_answer` | `{ ask_id, value }` or `{ ask_id, decline: true }`. The value is never trimmed, echoed, logged or sent to the model. |
+
+A refused answer is a `client_error` to the sending socket only, and starts no turn:
+
+| `code` | Sent when |
+|--------|-----------|
+| `question_not_found` | The set is not in this conversation. |
+| `question_not_open` | The set was already answered, dismissed or withdrawn. |
+| `invalid_answer` | A rule was broken; carries `set_id`, and `question_id` and `rule` when one question is to blame. The client keeps what the person typed. |
+| `question_not_recorded` | The answer could not be stored; try again. |
+| `sensitive_ask_not_open` | The ask is closed, or is not open in this conversation; carries it as `call_id`. |
+| `sensitive_value_empty` | The value is empty or only whitespace; the dialog stays open. |
+| `sensitive_value_too_large` | The value is over `max_bytes`. |
+
 Frames that are not part of the client tools protocol (for example `session_file`, sent when a file is added to the conversation) are listed in the [REST API](rest-api.md#server--client-a-file-was-added-session_file); a client ignores them like any other unknown frame.
 
 ### `client_error` codes
@@ -282,3 +310,4 @@ This is version 1. `client_tools_resolved.protocol` carries it. Within version 1
 ### Changelog
 
 - Optional `ends_turn` on tool declarations and in `client_tools_resolved` (version 1).
+- Question frames: `question_set`, `sensitive_ask`, `sensitive_ask_closed`, the `question_answer` request and `sensitive_input_answer`, with the `QuestionSet` and `SensitiveAsk` history entries (version 1).

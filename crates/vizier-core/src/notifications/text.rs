@@ -270,4 +270,11 @@ mod tests {
         assert_eq!(integrations_href("a", IntegrationFamily::Addon), "/a/integrations/addons");
         assert_eq!(config_href("a"), "/a/config");
     }
+
+    /// A reply notifies with a fixed sentence, built from nothing the turn handled: a notification
+    /// has no route by which a supplied value could reach it (US5 #4).
+    #[test]
+    fn a_chat_reply_notification_carries_no_content() {
+        assert_eq!(chat_replied(), "Replied in your conversation.");
+    }
 }

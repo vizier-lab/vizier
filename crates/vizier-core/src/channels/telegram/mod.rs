@@ -4,6 +4,9 @@ use anyhow::Result;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use teloxide::Bot;
+pub mod questions;
+mod questions_handlers;
+
 use teloxide::prelude::*;
 use teloxide::types::{
     AllowedUpdate, BotCommand, ChatAction, ChatId, InputFile, MaybeAnonymousUser, MessageId,
@@ -112,6 +115,18 @@ impl VizierChannel for TelegramChannelReader {
             }
         });
 
+        // Announced while this reader runs and dropped with it, so `ask_question` posts through
+        // the bot and reports a failure it can act on (`specs/042-agent-asking-question` R4).
+        let question_surface: std::sync::Arc<dyn crate::questions::QuestionSurface> =
+            std::sync::Arc::new(questions::TelegramQuestionSurface {
+                bot: self.bot.clone(),
+                storage: self.deps.storage.clone(),
+            });
+        self.deps
+            .questions
+            .surfaces()
+            .register(&self.agent_id, &question_surface);
+
         let _woken = woken::watch(
             &self.deps.transport,
             self.agent_id.clone(),
@@ -169,10 +184,13 @@ impl VizierChannel for TelegramChannelReader {
                 .get_updates()
                 .offset(self.offset.load(Ordering::SeqCst) as i32)
                 // Telegram sends `message_reaction` only when asked for it by name.
+                // A question's inline keyboard is pressed through a callback, which Telegram
+                // sends only when asked for it by name (`specs/042-agent-asking-question`).
                 .allowed_updates(vec![
                     AllowedUpdate::Message,
                     AllowedUpdate::EditedMessage,
                     AllowedUpdate::MessageReaction,
+                    AllowedUpdate::CallbackQuery,
                 ])
                 .timeout(30)
                 .await;
@@ -222,6 +240,11 @@ impl TelegramChannelReader {
             }
             teloxide::types::UpdateKind::MessageReaction(update) => {
                 self.handle_reaction(update).await;
+            }
+            teloxide::types::UpdateKind::CallbackQuery(query) => {
+                // Answered inside the handler, once the press is understood, so a refusal can be
+                // its text (FR-023).
+                self.handle_question_press(query.clone()).await;
             }
             _ => return Ok(()),
         }
@@ -317,6 +340,12 @@ impl TelegramChannelReader {
 
         let is_mention = text.starts_with(&format!("@{}", bot_username))
             || text.contains(&format!("@{}", bot_username));
+
+        // A reply to a question set's message answers it (`specs/042-agent-asking-question`
+        // FR-027); it is never an ordinary message.
+        if self.question_reply(&msg).await {
+            return Ok(());
+        }
 
         // `/btw` and replies to a side chat's messages come first (spec 033, R13): before the
         // attachments are fetched, before every other command, and before `Chat`/`SilentRead`,

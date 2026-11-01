@@ -134,6 +134,8 @@ impl AgentStorage for SqliteStorage {
         // Its bots go with it, and its attachments to shared integrations
         // (`IntegrationStorage::delete_agent_integrations`), on the connection already held.
         super::integration::delete_agent_integrations(&conn, agent_id)?;
+        // What it asked the people it talked to.
+        super::question::delete_agent(&conn, agent_id)?;
         conn.execute(
             "DELETE FROM client_tool_call WHERE agent_id = ?1",
             rusqlite::params![agent_id],

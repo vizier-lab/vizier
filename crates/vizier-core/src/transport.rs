@@ -65,6 +65,24 @@ pub enum SessionFrame {
         call_id: String,
         state: serde_json::Value,
     },
+    /// A question set's state changed (`specs/042-agent-asking-question`): it was answered,
+    /// declined or withdrawn. The entry itself is filled from storage on the next read, so this
+    /// frame is what makes an open card close without a reload.
+    QuestionSet {
+        set_id: String,
+        state: crate::questions::model::QuestionState,
+        answers: Option<Vec<crate::questions::model::Answer>>,
+        answerer: Option<String>,
+    },
+    /// A sensitive-input dialog opening (`specs/042-agent-asking-question`). Sent to every socket
+    /// on the conversation and replayed on open, so a second tab or a reload shows the same
+    /// dialog; it carries the ask and never a value.
+    SensitiveAsk(crate::questions::model::SensitiveAskRecord),
+    /// A sensitive-input ask closing, whichever tab or person resolved it.
+    SensitiveAskClosed {
+        ask_id: String,
+        outcome: crate::questions::model::AskState,
+    },
 }
 
 #[derive(Debug, Clone)]

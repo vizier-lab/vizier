@@ -473,6 +473,25 @@ pub(crate) fn client_error(
     serde_json::json!({ "client_error": error })
 }
 
+/// A refused answer to a question set (`specs/042-agent-asking-question` contracts/questions-wire.md
+/// §2): the usual `client_error`, plus the set it concerns and — for an invalid answer — the first
+/// question to blame and the rule it broke, so a client can put the message on that question and
+/// keep what the person typed (FR-012).
+pub(crate) fn question_error(
+    set_id: &str,
+    error: &vizier_core::questions::submit::SubmitError,
+) -> serde_json::Value {
+    let mut frame = client_error(error.code(), None, error.message());
+    frame["client_error"]["set_id"] = serde_json::json!(set_id);
+    if let Some(problem) = error.problems().first() {
+        frame["client_error"]["rule"] = serde_json::json!(problem.rule);
+        if let Some(question_id) = &problem.question_id {
+            frame["client_error"]["question_id"] = serde_json::json!(question_id);
+        }
+    }
+    frame
+}
+
 /// Whether `uid` is a client tool call in `session`: the scope of saved state and of a client
 /// event's `source_call_id`, so a person cannot reach another's conversation by guessing ids.
 async fn is_client_call_in(
@@ -797,4 +816,39 @@ pub async fn handle_socket(
     }
     drop(write_tx);
     let _ = write_handle.await;
+}
+
+#[cfg(test)]
+mod question_error_tests {
+    use super::*;
+    use vizier_core::questions::{model::QuestionState, submit::SubmitError};
+
+    /// An invalid answer names the set, the question to blame and the rule (contract §2), so the
+    /// card can show it on that question and keep every field.
+    #[test]
+    fn an_invalid_answer_names_the_set_the_question_and_the_rule() {
+        let frame = question_error(
+            "set-1",
+            &SubmitError::Invalid(vec![vizier_core::questions::validate::Problem::question_for_test(
+                "db",
+                "value_not_offered",
+                "\"oracle\" is not one of this question's options",
+            )]),
+        );
+        let error = &frame["client_error"];
+        assert_eq!(error["code"], "invalid_answer");
+        assert_eq!(error["set_id"], "set-1");
+        assert_eq!(error["question_id"], "db");
+        assert_eq!(error["rule"], "value_not_offered");
+    }
+
+    /// A closed set names the set and nothing else to blame.
+    #[test]
+    fn a_closed_set_names_only_the_set() {
+        let frame = question_error("set-1", &SubmitError::AlreadyClosed(QuestionState::Answered));
+        let error = &frame["client_error"];
+        assert_eq!(error["code"], "question_not_open");
+        assert_eq!(error["set_id"], "set-1");
+        assert!(error.get("question_id").is_none() && error.get("rule").is_none());
+    }
 }

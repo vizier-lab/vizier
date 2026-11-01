@@ -184,3 +184,159 @@ need to read rather than whole documents — slice, filter and summarise inside 
 On error you get the exception and a traceback with line numbers — fix the script and re-run."
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use parking_lot::Mutex;
+
+    use super::*;
+    use crate::{
+        agents::tools::VizierToolSet,
+        questions::{AskReply, Questions, QuestionsHandle, tool_sensitive::AskSensitiveInput},
+        schema::{
+            SessionHistory, SessionHistoryContent, VizierChannelId, VizierSession,
+            history_entries_to_messages,
+        },
+        storage::{VizierStorage, document::LocalDocumentStore, sqlite::SqliteStorage},
+        transport::VizierTransport,
+    };
+
+    const TOKEN: &str = "ghp_end-to-end-secret-4242";
+
+    fn session() -> VizierSession {
+        VizierSession(
+            "agent-1".into(),
+            VizierChannelId::HTTP("alice".into(), "webui".into()),
+            Some("t".into()),
+        )
+    }
+
+    /// The whole chain of US5: a script asks for a value, the person supplies it, the script uses
+    /// it byte for byte, and no copy that leaves the turn carries it — not the report the model
+    /// reads, not what the next turn is built from (SC-014, SC-015, SC-022, FR-041).
+    #[tokio::test]
+    async fn a_supplied_value_reaches_the_script_and_no_copy_that_leaves_the_turn() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        crate::storage::sqlite::init_question_schema(&conn).unwrap();
+        crate::storage::sqlite::init_sensitive_ask_schema(&conn).unwrap();
+        let storage = Arc::new(VizierStorage::new(SqliteStorage::new(
+            Arc::new(Mutex::new(conn)),
+            Arc::new(LocalDocumentStore::new(dir.path().to_path_buf())),
+        )));
+        let questions = Arc::new(Questions::new());
+
+        let router = ToolRouter {
+            default_toolset: VizierToolSet::new()
+                .tool(AskSensitiveInput::new(storage.clone(), VizierTransport::new())),
+            user_toolset: VizierToolSet::new(),
+            integration_toolset: VizierToolSet::new(),
+            addons: Default::default(),
+            mcp: Default::default(),
+            reserved: Arc::new(vec![]),
+        };
+        let ctx = ToolContext {
+            session: session(),
+            pending_attachments: Default::default(),
+            hooks: None,
+            background_depth: 0,
+            loaded_images: Default::default(),
+            recalled: Default::default(),
+            deadline: None,
+            client: None,
+            questions: QuestionsHandle::new(questions.clone()),
+            interactive: true,
+            secret_redactor: Arc::new(crate::secrets::SecretRedactor::default()),
+            dream_sources: vec![],
+            project: None,
+        };
+        let tool = ExecutePython::new(
+            router,
+            SandboxLimits { timeout: Duration::from_secs(20), tools_enabled: true },
+            "20s",
+        );
+
+        // The person: wait for the dialog, then type the value into it.
+        let person = {
+            let questions = questions.clone();
+            tokio::spawn(async move {
+                for _ in 0..400 {
+                    if let Some(id) = questions.open_asks(&session()).into_iter().next() {
+                        assert!(questions.answer(&id, AskReply::Value(TOKEN.into())));
+                        return;
+                    }
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+                panic!("the dialog never opened");
+            })
+        };
+
+        // The script prints the value, returns it and compares it, which proves it received it
+        // exactly while the report must not show it.
+        let code = format!(
+            "r = ask_sensitive_input(purpose='to push the branch')\n\
+             print('got', r['value'])\n\
+             {{'value': r['value'], 'exact': r['value'] == '{TOKEN}', 'protected': r['protected']}}"
+        );
+        let response = tool
+            .call(
+                ExecutePythonInput { code, intent: "ask for a token and use it".into() },
+                &ctx,
+            )
+            .await
+            .expect("the tool call itself succeeds");
+        person.await.unwrap();
+
+        let VizierResponseContent::ToolResponse { response: report } = &response.content else {
+            panic!("not a tool response: {:?}", response.content);
+        };
+        let report_text = report.to_string();
+        assert_eq!(report["ok"], true, "{report_text}");
+        // The script received the value exactly...
+        assert_eq!(report["result"]["exact"], true, "{report_text}");
+        assert_eq!(report["result"]["protected"], true, "{report_text}");
+        // ...and nothing the model reads carries it, where it was used the marker stands.
+        assert!(!report_text.contains(TOKEN), "the report carries the value: {report_text}");
+        assert!(report_text.contains("[redacted]"), "{report_text}");
+
+        // What the next turn is built from: this turn's history entries, replayed.
+        let entry = |content| SessionHistory {
+            uid: uuid::Uuid::new_v4().to_string(),
+            vizier_session: session(),
+            content,
+            timestamp: Utc::now(),
+            reactions: vec![],
+            seq: None,
+        };
+        let entries = vec![
+            entry(SessionHistoryContent::ToolCall {
+                call_id: "c1".into(),
+                name: "execute_python".into(),
+                arguments: serde_json::json!({ "code": "…", "intent": "ask for a token" }),
+            }),
+            // The ask's own record, which a person sees and the model must not be told more from.
+            entry(SessionHistoryContent::SensitiveAsk {
+                ask_id: "a1".into(),
+                purpose: "to push the branch".into(),
+                label: None,
+                state: crate::questions::model::AskState::Provided,
+            }),
+            entry(SessionHistoryContent::ToolResult { call_id: "c1".into(), content: report_text }),
+        ];
+        let next_turn = serde_json::to_string(&history_entries_to_messages(&entries)).unwrap();
+        assert!(!next_turn.contains(TOKEN), "the next turn is built with the value: {next_turn}");
+        assert!(next_turn.contains("[redacted]"), "{next_turn}");
+
+        // Neither the ask's stored record nor the open slot keeps it.
+        use crate::storage::question::SensitiveAskStorage;
+        let stored = storage
+            .sensitive_asks(&session(), crate::questions::model::AskState::Provided)
+            .await
+            .unwrap();
+        assert_eq!(stored.len(), 1, "the ask is recorded as provided");
+        assert!(!format!("{stored:?}").contains(TOKEN));
+        assert!(questions.open_asks(&session()).is_empty());
+    }
+}

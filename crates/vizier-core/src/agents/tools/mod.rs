@@ -47,7 +47,9 @@ use crate::{
     error::VizierError,
     indexer::VizierIndexer,
     sandbox::docs::python_identifier,
-    schema::{AgentId, VizierAttachment, VizierResponse, VizierSession},
+    schema::{
+        AgentId, VizierAttachment, VizierRequestContent, VizierResponse, VizierSession,
+    },
     storage::{VizierStorage, agent::AgentStorage},
     utils::agent_workspace,
 };
@@ -109,10 +111,14 @@ pub enum ToolCategory {
     Coding,
     Integrations,
     Secrets,
+    /// The question tools (`specs/042-agent-asking-question`): ask a person one or more
+    /// structured questions. Offered only in a turn somebody can answer, so its category line
+    /// is absent from an unattended prompt (FR-007).
+    Questions,
 }
 
 impl ToolCategory {
-    pub const ALL: [ToolCategory; 17] = [
+    pub const ALL: [ToolCategory; 18] = [
         Self::Memory,
         Self::Identity,
         Self::Scheduling,
@@ -130,6 +136,7 @@ impl ToolCategory {
         Self::Coding,
         Self::Integrations,
         Self::Secrets,
+        Self::Questions,
     ];
 
     pub fn name(self) -> &'static str {
@@ -151,6 +158,7 @@ impl ToolCategory {
             Self::Coding => "coding",
             Self::Integrations => "integrations",
             Self::Secrets => "secrets",
+            Self::Questions => "questions",
         }
     }
 
@@ -182,6 +190,9 @@ impl ToolCategory {
             Self::Integrations => "Manage your own MCP servers, addons and channel connections",
             Self::Secrets => {
                 "Credentials stored for this agent only; values are usable in scripts but never shown to the model"
+            }
+            Self::Questions => {
+                "Ask the person one or more structured questions; the answer arrives as their next message"
             }
         }
     }
@@ -233,6 +244,15 @@ pub struct ToolContext {
     /// only for a chat turn whose request came over a WebSocket that declared some and is
     /// still open, `None` everywhere else.
     pub client: Option<Arc<crate::agents::client::ClientTools>>,
+    /// Asking the person (`specs/042-agent-asking-question`): the shared service plus this
+    /// turn's own one-set slot. Both tools read it; nothing else does.
+    pub questions: crate::questions::QuestionsHandle,
+    /// Whether somebody is there to answer this turn (`specs/042-agent-asking-question`,
+    /// research R2): a chat, voice or client-event turn in a conversation a person can see.
+    /// False for every unattended turn — a dream, a task run, a background piece, an
+    /// inter-agent turn, a side chat and an ordinary REST prompt — so a tool that needs an
+    /// answer can take itself out of the offer instead of asking nobody.
+    pub interactive: bool,
     /// The values this turn handled through `set_secret`/`get_secret`, scrubbed from the
     /// script report, logs and telemetry (`specs/027-agent-secrets`). Empty — and so a no-op —
     /// on every turn that touches no secret.
@@ -244,6 +264,42 @@ pub struct ToolContext {
     /// The project this turn belongs to (`specs/040-projects-mode`): set only for a project
     /// session, resolved once and shared by the prompt and `workspace_shell`.
     pub project: Option<Arc<crate::projects::context::ProjectTurnContext>>,
+}
+
+/// Whether somebody is there to answer this turn (`specs/042-agent-asking-question` research R2).
+///
+/// The test is a whitelist on the request kind and then on the conversation, so a request kind
+/// nobody has classified yet is unattended until someone says otherwise. The `match` is
+/// exhaustive on purpose: adding a request kind fails the build here rather than silently
+/// offering a question tool to a turn with no person on the other end.
+pub fn is_interactive_turn(content: &VizierRequestContent, session: &VizierSession) -> bool {
+    let somebody_may_answer = match content {
+        // A person typed, spoke or clicked, and is waiting on this turn's reply.
+        VizierRequestContent::Chat(_)
+        | VizierRequestContent::AudioChat(..)
+        | VizierRequestContent::ClientEvent(_) => true,
+        // REST `prompt`: the reply is the response body and no socket is open to answer on.
+        VizierRequestContent::Prompt(_) => false,
+        // The agent is told to read, not to reply.
+        VizierRequestContent::SilentRead(_) => false,
+        // A machine wrote the prompt: a scheduled run, or a dream cycle's own work.
+        VizierRequestContent::Unattended(_) => false,
+        // A command is executed, not answered.
+        VizierRequestContent::Command(_) => false,
+        // An unattended voice turn, dispatched beside `Prompt`/`Unattended`.
+        VizierRequestContent::AudioPrompt(..) => false,
+        // The result of background work: nobody asked for it and nobody is waiting.
+        VizierRequestContent::BackgroundReport(_) => false,
+        // An off-the-record aside: nothing above or around it is saved, so an answer would have
+        // nowhere to land.
+        VizierRequestContent::Btw(_) => false,
+        // A person just answered a set and is waiting on the reply, so this is as interactive as a
+        // typed message — and the agent may ask its next question in it (US6 #6).
+        VizierRequestContent::QuestionAnswer(_) => true,
+    };
+    // A task, dream, subagent, inter-agent or system conversation has no person on it at all,
+    // whatever the request kind says.
+    somebody_may_answer && (session.1.web_user().is_some() || session.1.platform().is_some())
 }
 
 #[derive(Clone, Default)]
@@ -321,14 +377,28 @@ pub(crate) fn record_tool_arguments(
     arguments: &str,
     redactor: Option<&crate::secrets::SecretRedactor>,
 ) {
-    if !crate::llm::telemetry::capture_content() {
-        return;
+    if let Some(recorded) =
+        arguments_to_record(crate::llm::telemetry::capture_content(), arguments, redactor)
+    {
+        span.record("gen_ai.tool.call.arguments", recorded);
     }
-    let recorded = match redactor {
+}
+
+/// What an `execute_tool` span records for the call's arguments: nothing at all unless content
+/// capture is on, and with it on, the arguments with the turn's secrets scrubbed. One decision,
+/// so the gate and the scrub cannot drift apart (FR-042).
+fn arguments_to_record(
+    capture: bool,
+    arguments: &str,
+    redactor: Option<&crate::secrets::SecretRedactor>,
+) -> Option<String> {
+    if !capture {
+        return None;
+    }
+    Some(match redactor {
         Some(redactor) if redactor.is_armed() => redact_arguments(arguments, redactor),
         _ => arguments.to_string(),
-    };
-    span.record("gen_ai.tool.call.arguments", recorded);
+    })
 }
 
 /// A JSON argument object scrubbed value-by-value, so a secret containing quotes or line
@@ -350,26 +420,28 @@ pub(crate) fn record_tool_result(
     redactor: Option<&crate::secrets::SecretRedactor>,
 ) {
     let capture = crate::llm::telemetry::capture_content();
-    match result {
-        Ok(response) => {
-            if capture {
-                span.record(
-                    "gen_ai.tool.call.result",
-                    recorded_tool_result(response, redactor),
-                );
-            }
-        }
-        Err(err) => {
-            span.record("otel.status_code", "ERROR");
-            span.record("error.type", "tool_error");
-            if capture {
-                span.record(
-                    "gen_ai.tool.call.result",
-                    recorded_tool_error(&err.to_string(), redactor),
-                );
-            }
-        }
+    if result.is_err() {
+        span.record("otel.status_code", "ERROR");
+        span.record("error.type", "tool_error");
     }
+    if let Some(recorded) = result_to_record(capture, result, redactor) {
+        span.record("gen_ai.tool.call.result", recorded);
+    }
+}
+
+/// What a call records as its result, under the same gate and scrub as the arguments.
+fn result_to_record(
+    capture: bool,
+    result: &Result<VizierResponse>,
+    redactor: Option<&crate::secrets::SecretRedactor>,
+) -> Option<String> {
+    if !capture {
+        return None;
+    }
+    Some(match result {
+        Ok(response) => recorded_tool_result(response, redactor),
+        Err(err) => recorded_tool_error(&err.to_string(), redactor),
+    })
 }
 
 /// What a successful call records as its result: the model's copy, without the response
@@ -548,6 +620,11 @@ pub trait VizierToolDyn {
     /// Whether a successful call is the turn's final answer.
     fn ends_turn(&self) -> bool;
 
+    /// Whether this turn is offered the tool at all. False takes it out of the catalogue, out of
+    /// the category lines and out of reach of a script, so an agent never sees a tool it cannot
+    /// use here (`specs/042-agent-asking-question` FR-007, FR-028, FR-046).
+    fn available(&self, ctx: &ToolContext) -> bool;
+
     fn tool_def(&self) -> ToolDefinition;
 
     fn description(&self) -> String;
@@ -571,6 +648,10 @@ impl<Tool: VizierTool + Sync + Send> VizierToolDyn for Tool {
 
     fn ends_turn(&self) -> bool {
         <Self as VizierTool>::ends_turn()
+    }
+
+    fn available(&self, ctx: &ToolContext) -> bool {
+        <Self as VizierTool>::available(self, ctx)
     }
 
     fn tool_def(&self) -> ToolDefinition {
@@ -616,6 +697,12 @@ pub trait VizierTool {
     /// Only code mode acts on it: the call must be made from `execute_python`.
     fn ends_turn() -> bool {
         false
+    }
+
+    /// Whether this turn is offered the tool. Every ordinary tool is; one that needs a person on
+    /// the other end overrides this and decides per turn.
+    fn available(&self, _ctx: &ToolContext) -> bool {
+        true
     }
 
     fn input_schema() -> serde_json::Value {
@@ -676,7 +763,7 @@ pub fn client_category_name(category: &str, reserved: &[String]) -> String {
 
 /// The functions a script in this turn can call: the router's, then the client's.
 pub async fn turn_catalogue(router: &ToolRouter, ctx: &ToolContext) -> Vec<CatalogueEntry> {
-    let mut entries = router.catalogue().await;
+    let mut entries = router.catalogue(ctx).await;
     if let Some(client) = &ctx.client {
         entries.extend(client.catalogue().iter().cloned());
     }
@@ -691,8 +778,31 @@ pub async fn turn_catalogue(router: &ToolRouter, ctx: &ToolContext) -> Vec<Catal
 /// The category lines of this turn: the agent's, then the client's in declaration order, plus
 /// `coding` whenever a project context exists. It is listed in both modes (and while the folder
 /// is unavailable) so `SANDBOX.md` stays byte-identical within a chat (contract §1/§4).
-pub fn turn_categories(base: &[CategorySummary], ctx: &ToolContext) -> Vec<CategorySummary> {
-    let mut categories = base.to_vec();
+///
+/// A built-in category with no tool available this turn is dropped, so an unattended prompt never
+/// advertises an area it cannot use (`specs/042-agent-asking-question` FR-007). Addon, MCP and
+/// client categories are not built-ins and are left alone.
+pub fn turn_categories(
+    base: &[CategorySummary],
+    router: &ToolRouter,
+    ctx: &ToolContext,
+) -> Vec<CategorySummary> {
+    let offered: BTreeSet<ToolCategory> = router
+        .native_tools()
+        .chain(router.addon_tools().map(|(_, tool)| tool))
+        .filter(|tool| tool.available(ctx))
+        .filter_map(|tool| tool.category())
+        .collect();
+    let mut categories: Vec<CategorySummary> = base
+        .iter()
+        .filter(|category| {
+            ToolCategory::ALL
+                .iter()
+                .find(|built_in| built_in.name() == category.name)
+                .is_none_or(|built_in| offered.contains(built_in))
+        })
+        .cloned()
+        .collect();
     if let Some(client) = &ctx.client {
         categories.extend(client.categories().iter().cloned());
     }
@@ -806,10 +916,16 @@ impl ToolRouter {
             .cloned()
     }
 
-    /// Every script-callable function, sorted by category (system-prompt order) then name.
-    pub async fn catalogue(&self) -> Vec<CatalogueEntry> {
+    /// Every script-callable function this turn is offered, sorted by category (system-prompt
+    /// order) then name.
+    ///
+    /// A native or addon tool that says it is not available here is left out entirely, so an
+    /// agent cannot call what it cannot use (`specs/042-agent-asking-question` research R1).
+    /// MCP tools have no such say: a server either lists a tool or it does not.
+    pub async fn catalogue(&self, ctx: &ToolContext) -> Vec<CatalogueEntry> {
         let mut entries: Vec<CatalogueEntry> = self
             .native_tools()
+            .filter(|tool| tool.available(ctx))
             .filter_map(|tool| {
                 Some(CatalogueEntry {
                     name: python_identifier(&tool.tool_name()),
@@ -820,13 +936,17 @@ impl ToolRouter {
                 })
             })
             .collect();
-        entries.extend(self.addon_tools().map(|(addon, tool)| CatalogueEntry {
-            name: python_identifier(&tool.tool_name()),
-            category: addon.clone(),
-            target: ToolTarget::Native(tool.tool_name()),
-            definition: flagged_definition(&***tool),
-            ends_turn: tool.ends_turn(),
-        }));
+        entries.extend(
+            self.addon_tools()
+                .filter(|(_, tool)| tool.available(ctx))
+                .map(|(addon, tool)| CatalogueEntry {
+                    name: python_identifier(&tool.tool_name()),
+                    category: addon.clone(),
+                    target: ToolTarget::Native(tool.tool_name()),
+                    definition: flagged_definition(&***tool),
+                    ends_turn: tool.ends_turn(),
+                }),
+        );
 
         // Concurrently, so one slow server costs one listing timeout, not one per server. A
         // server that can't list leaves its tools out of this turn and never fails it (#53).
@@ -918,7 +1038,7 @@ impl ToolRouter {
         }
 
         let target = self
-            .catalogue()
+            .catalogue(ctx)
             .await
             .into_iter()
             .find(|entry| entry.name == function_name)
@@ -1242,6 +1362,18 @@ impl BaseTools {
                 storage: deps.storage.clone(),
                 agent_id: agent_id.clone(),
             })
+            // Asking the person (`specs/042-agent-asking-question`): always registered, offered
+            // only in a turn somebody can answer — `available` decides, so an unattended prompt
+            // never lists it (FR-007).
+            .tool(crate::questions::tool_question::AskQuestion::new(
+                deps.storage.clone(),
+                deps.transport.clone(),
+                deps.questions.clone(),
+            ))
+            .tool(crate::questions::tool_sensitive::AskSensitiveInput::new(
+                deps.storage.clone(),
+                deps.transport.clone(),
+            ))
             .tool(vector_memory::attachments::AttachArtifactToMemory {
                 agent_id: agent_id.clone(),
                 storage: deps.storage.clone(),
@@ -1583,6 +1715,8 @@ mod tests {
             entry::<self_integrations::DeleteIntegration>(),
             entry::<SetSecret>(),
             entry::<GetSecret>(),
+            entry::<crate::questions::tool_question::AskQuestion>(),
+            entry::<crate::questions::tool_sensitive::AskSensitiveInput>(),
             entry::<ThinkTool>(),
             entry::<ExecutePython>(),
             entry::<ListToolFunctions>(),
@@ -1676,6 +1810,9 @@ mod tests {
             ("delete_integration", Integrations),
             ("set_secret", Secrets),
             ("get_secret", Secrets),
+            // Beside `set_secret`/`get_secret`: the value goes to a script (spec 042).
+            ("ask_sensitive_input", Secrets),
+            ("ask_question", Questions),
         ];
         // Listed under their addon's id rather than a built-in category (research R12).
         const ADDON: &[(&str, &str)] = &[
@@ -1807,19 +1944,21 @@ mod tests {
         assert!(!VizierTools::DREAM_TOOL_NAMES.contains(&"get_secret"));
     }
 
-    /// The category list ends with `secrets`: it was appended, never slotted in among the
-    /// categories older prompts and scripts already saw.
+    /// A new category is appended, never slotted in among the categories older prompts and
+    /// scripts already saw. `questions` (spec 042) is the 18th and last; `secrets` was the 17th.
     #[test]
-    fn secrets_is_the_last_built_in_category() {
+    fn a_new_category_is_appended_to_the_end_of_the_list() {
         let names: Vec<&str> = ToolCategory::ALL
             .iter()
             .map(|category| category.name())
             .collect();
-        assert_eq!(names.last(), Some(&"secrets"));
-        // `coding` is the 17th: it was inserted before `integrations`, but no agent-wide
-        // tool uses it (its tools are per-turn project contributions).
-        assert_eq!(names.len(), 17);
+        assert_eq!(names.last(), Some(&"questions"));
+        assert_eq!(names.len(), 18);
+        // `coding` is the 15th: inserted before `integrations`, but no agent-wide tool uses it
+        // (its tools are per-turn project contributions).
+        assert_eq!(names[14], "coding");
         assert_eq!(ToolCategory::Secrets.name(), "secrets");
+        assert_eq!(ToolCategory::Questions.name(), "questions");
     }
 
     /// An `execute_tool` span records a scrubbed result and scrubbed arguments once the turn
@@ -1858,6 +1997,40 @@ mod tests {
             recorded_tool_error(&err.to_string(), Some(&plain)),
             err.to_string()
         );
+    }
+
+    /// With content capture off — the default — a span records no argument or result at all, so a
+    /// secret has nowhere to be; with it on, only the marker (FR-042, US5 #2).
+    #[test]
+    fn execute_tool_telemetry_records_the_marker_with_capture_on_and_nothing_off() {
+        const TOKEN: &str = "agent-token-abc123";
+        let redactor = crate::secrets::SecretRedactor::default();
+        redactor.arm(TOKEN);
+        let arguments = format!(r#"{{"header":"Bearer {TOKEN}"}}"#);
+        let ok: Result<VizierResponse> = Ok(VizierResponse {
+            timestamp: Utc::now(),
+            content: crate::schema::VizierResponseContent::ToolResponse {
+                response: serde_json::json!({ "value": TOKEN }),
+            },
+            attachments: vec![],
+            ..Default::default()
+        });
+        let failed: Result<VizierResponse> = Err(VizierError(format!("refused {TOKEN}")).into());
+
+        assert_eq!(arguments_to_record(false, &arguments, Some(&redactor)), None);
+        assert_eq!(result_to_record(false, &ok, Some(&redactor)), None);
+        assert_eq!(result_to_record(false, &failed, Some(&redactor)), None);
+
+        let recorded = [
+            arguments_to_record(true, &arguments, Some(&redactor)),
+            result_to_record(true, &ok, Some(&redactor)),
+            result_to_record(true, &failed, Some(&redactor)),
+        ];
+        for recorded in recorded {
+            let recorded = recorded.expect("capture is on");
+            assert!(!recorded.contains(TOKEN), "{recorded}");
+            assert!(recorded.contains("[redacted]"), "{recorded}");
+        }
     }
 
     #[test]
@@ -2032,6 +2205,8 @@ mod tests {
             loaded_images: Default::default(),
             recalled: Default::default(),
             client,
+            questions: crate::questions::QuestionsHandle::new(Default::default()),
+            interactive: false,
             dream_sources: vec![],
             secret_redactor: Arc::new(crate::secrets::SecretRedactor::default()),
             project: None,
@@ -2058,9 +2233,9 @@ mod tests {
             |entries: Vec<CatalogueEntry>| entries.into_iter().map(|e| e.name).collect::<Vec<_>>();
         assert_eq!(
             names(turn_catalogue(&router, &ctx(None)).await),
-            names(router.catalogue().await)
+            names(router.catalogue(&ctx(None)).await)
         );
-        assert_eq!(turn_categories(&base, &ctx(None)), base);
+        assert_eq!(turn_categories(&base, &router, &ctx(None)), base);
 
         let list = python::ListToolFunctions::new(router.clone(), base.clone());
         let out = list
@@ -2076,13 +2251,155 @@ mod tests {
         assert!(out.get("did_you_mean").is_some(), "{out}");
     }
 
+    /// A tool that says it is unavailable this turn is gone: out of the catalogue, out of reach
+    /// of a script, and its category line gone with it (`specs/042-agent-asking-question` FR-007).
+    #[tokio::test]
+    async fn a_tool_that_is_unavailable_this_turn_is_offered_nowhere() {
+        let router = ToolRouter {
+            default_toolset: VizierToolSet::new()
+                .tool(GatedForTests { open: true })
+                .tool(UngatedForTests),
+            ..empty_router()
+        };
+        let base = category_summaries(&router);
+        assert!(base.iter().any(|category| category.name == "questions"));
+
+        let open = ToolContext { interactive: true, ..ctx(None) };
+        let names = |entries: Vec<CatalogueEntry>| entries.into_iter().map(|e| e.name).collect::<Vec<_>>();
+        // Catalogue order is built-in category order, so `memory` comes before `questions`.
+        assert_eq!(
+            names(router.catalogue(&open).await),
+            vec!["ungated_tool", "gated_tool"]
+        );
+        assert!(turn_categories(&base, &router, &open)
+            .iter()
+            .any(|category| category.name == "questions"));
+
+        // The same router, an unattended turn: the gated tool and its category both disappear.
+        let closed = ToolContext { interactive: false, ..ctx(None) };
+        assert_eq!(names(router.catalogue(&closed).await), vec!["ungated_tool"]);
+        assert!(!turn_categories(&base, &router, &closed)
+            .iter()
+            .any(|category| category.name == "questions"));
+    }
+
+    /// A tool whose offer depends on the turn, for the test above.
+    struct GatedForTests {
+        open: bool,
+    }
+
+    #[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
+    struct NoArgs {}
+
+    #[async_trait::async_trait]
+    impl VizierTool for GatedForTests {
+        type Input = NoArgs;
+        type Output = NoArgs;
+
+        fn name() -> String {
+            "gated_tool".into()
+        }
+
+        fn category() -> Option<ToolCategory> {
+            Some(ToolCategory::Questions)
+        }
+
+        fn available(&self, ctx: &ToolContext) -> bool {
+            ctx.interactive && self.open
+        }
+
+        fn description(&self) -> String {
+            "Only offered in a turn somebody can answer.".into()
+        }
+
+        async fn call(&self, _args: Self::Input, _ctx: &ToolContext) -> Result<Self::Output, VizierError> {
+            Ok(NoArgs {})
+        }
+    }
+
+    struct UngatedForTests;
+
+    #[async_trait::async_trait]
+    impl VizierTool for UngatedForTests {
+        type Input = NoArgs;
+        type Output = NoArgs;
+
+        fn name() -> String {
+            "ungated_tool".into()
+        }
+
+        fn category() -> Option<ToolCategory> {
+            Some(ToolCategory::Memory)
+        }
+
+        fn description(&self) -> String {
+            "Every turn has this one.".into()
+        }
+
+        async fn call(&self, _args: Self::Input, _ctx: &ToolContext) -> Result<Self::Output, VizierError> {
+            Ok(NoArgs {})
+        }
+    }
+
+    /// The whitelist itself: a turn somebody answers, and the ones nobody does.
+    #[test]
+    fn only_a_turn_with_a_person_on_it_is_interactive() {
+        let web = VizierSession(
+            "a".into(),
+            crate::schema::VizierChannelId::HTTP("alice".into(), "webui".into()),
+            Some("t".into()),
+        );
+        let discord = VizierSession(
+            "a".into(),
+            crate::schema::VizierChannelId::DiscordChanel(7),
+            None,
+        );
+        let task = VizierSession(
+            "a".into(),
+            crate::schema::VizierChannelId::Task("sched".into(), chrono::Utc::now()),
+            None,
+        );
+        assert!(is_interactive_turn(&VizierRequestContent::Chat("hi".into()), &web));
+        assert!(is_interactive_turn(&VizierRequestContent::Chat("hi".into()), &discord));
+        assert!(is_interactive_turn(
+            &VizierRequestContent::ClientEvent(crate::schema::ClientEvent {
+                text: "clicked".into(),
+                data: None,
+                source_call_id: None,
+            }),
+            &web
+        ));
+
+        // Nobody is there: a prompt with no socket, a read, a machine-written prompt, a command,
+        // a background report, an aside, and any kind of request in a task's own conversation.
+        for content in [
+            VizierRequestContent::Prompt("hi".into()),
+            VizierRequestContent::SilentRead("hi".into()),
+            VizierRequestContent::Unattended("hi".into()),
+            VizierRequestContent::Command("abort".into()),
+            VizierRequestContent::Btw(crate::schema::SideChat {
+                question: "hi".into(),
+                turns: vec![],
+            }),
+        ] {
+            assert!(
+                !is_interactive_turn(&content, &web),
+                "{content:?} must not be an interactive turn"
+            );
+        }
+        assert!(!is_interactive_turn(
+            &VizierRequestContent::Chat("hi".into()),
+            &task
+        ));
+    }
+
     /// The client's functions and categories follow the agent's own.
     #[tokio::test]
     async fn a_turn_with_a_client_sees_its_tools_after_the_agents() {
         let router = empty_router();
         let base = category_summaries(&router);
         let client = crate::agents::client::ClientTools::for_tests(
-            &router.catalogue().await,
+            &router.catalogue(&ctx(None)).await,
             &[],
             "palette",
             "pick_color",
@@ -2098,7 +2415,7 @@ mod tests {
                 tool: "pick_color".into()
             }
         );
-        let categories = turn_categories(&base, &ctx);
+        let categories = turn_categories(&base, &router, &ctx);
         assert_eq!(&categories[..base.len()], &base[..]);
         assert_eq!(categories.last().unwrap().name, "palette");
     }

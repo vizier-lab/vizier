@@ -24,6 +24,9 @@ use twilight_model::id::marker::{ApplicationMarker, ChannelMarker, MessageMarker
 use twilight_util::builder::InteractionResponseDataBuilder;
 use twilight_util::builder::command::{CommandBuilder, StringBuilder};
 
+pub mod questions;
+mod questions_handlers;
+
 use crate::channels::commands::{self, CommandEntry, CommandOption, CommandSync, PlatformRules};
 use crate::channels::reactions::{self, ReactionChange, ReactionKind, ReactionTarget};
 use crate::channels::side_chat::{
@@ -113,6 +116,19 @@ impl VizierChannel for DiscordChannelReader {
         let mut closing = false;
         // The last close Discord sent, to tell a bad token or intents from a dropped line.
         let mut last_close: Option<u16> = None;
+
+        // Announced while this reader runs and dropped with it (`specs/042-agent-asking-question`
+        // research R4), so `ask_question` can post through the bot and report a failure it can
+        // act on.
+        let question_surface: Arc<dyn crate::questions::QuestionSurface> =
+            Arc::new(questions::DiscordQuestionSurface {
+                http: handler.http.clone(),
+            });
+        handler
+            .deps
+            .questions
+            .surfaces()
+            .register(&handler.agent_id, &question_surface);
 
         let _woken = woken::watch(
             &self.deps.transport,
@@ -471,6 +487,17 @@ impl Handler {
     }
 
     async fn interaction(&self, interaction: Interaction) {
+        // A question's control (`specs/042-agent-asking-question`): acknowledged first, then
+        // resolved from storage — a press must never show a failed interaction (FR-023).
+        if let Some(InteractionData::MessageComponent(data)) = &interaction.data {
+            self.question_press(&interaction, &data.custom_id, &data.values).await;
+            return;
+        }
+        if let Some(InteractionData::ModalSubmit(data)) = &interaction.data {
+            self.question_modal(&interaction, data).await;
+            return;
+        }
+
         let Some(InteractionData::ApplicationCommand(data)) = &interaction.data else {
             return;
         };
@@ -1307,6 +1334,12 @@ If I am halucinating, feel free to `/lobotomy` me
                 }
                 ReplyKind::NotSideChat => {}
             }
+        }
+
+        // A reply to a question set's text form answers the set (`specs/042-agent-asking-question`
+        // FR-027); it is never an ordinary message.
+        if self.question_reply(&msg).await {
+            return;
         }
 
         let ChannelState {

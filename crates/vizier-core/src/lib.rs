@@ -92,6 +92,8 @@ pub(crate) mod notifications;
 pub mod projects;
 pub(crate) mod provider_keys;
 pub(crate) mod provider_migration;
+#[doc(hidden)]
+pub mod questions;
 pub(crate) mod scheduler;
 pub(crate) mod secrets;
 #[doc(hidden)]

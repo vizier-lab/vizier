@@ -340,6 +340,8 @@ mod tests {
             recalled: Default::default(),
             deadline: None,
             client: None,
+            questions: crate::questions::QuestionsHandle::new(Default::default()),
+            interactive: false,
             secret_redactor: Default::default(),
             dream_sources,
             project: None,

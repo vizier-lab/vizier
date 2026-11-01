@@ -25,6 +25,7 @@ use crate::{
         notification::NotificationStorage,
         project::ProjectStorage,
         provider::{CustomProviderStorage, ProviderStorage},
+        question::{QuestionStorage, SensitiveAskStorage},
         reaction::ReactionStorage,
         scratch::ScratchStorage,
         secret::SecretStorage,
@@ -58,6 +59,7 @@ pub mod memory_bundle;
 pub mod notification;
 pub mod project;
 pub mod provider;
+pub mod question;
 pub mod reaction;
 pub mod rerank;
 pub mod scratch;
@@ -102,7 +104,9 @@ where
         + TurnStorage
         + SecretStorage
         + NotificationStorage
-        + ProjectStorage,
+        + ProjectStorage
+        + QuestionStorage
+        + SensitiveAskStorage,
 {
 }
 

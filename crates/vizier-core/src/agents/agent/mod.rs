@@ -692,13 +692,36 @@ impl VizierAgent {
         // The one snapshot this turn uses, system prompt and every tool call alike (G2).
         let tools = self.tools.load_full();
 
+        // The project belongs to this turn only: resolved once, shared by the prompt prefix and
+        // the workspace shell. Every non-project session resolves to `None`.
+        let project = crate::projects::context::for_turn(&self.deps, &session, &req).await;
+        // Whether anybody can answer this turn, decided from the request kind and the
+        // conversation before anything is offered (`specs/042-agent-asking-question` R2). It is
+        // built before the client tools because naming them reads the turn's catalogue, and the
+        // catalogue is what the availability rule filters (R1).
+        let mut ctx = ToolContext {
+            loaded_images: Default::default(),
+            recalled: Default::default(),
+            session: session.clone(),
+            pending_attachments: Arc::new(Mutex::new(vec![])),
+            hooks: hooks.clone(),
+            background_depth,
+            deadline: None,
+            client: None,
+            questions: crate::questions::QuestionsHandle::new(self.deps.questions.clone()),
+            interactive: crate::agents::tools::is_interactive_turn(&req.content, &session),
+            dream_sources: vec![],
+            secret_redactor: Arc::new(crate::secrets::SecretRedactor::default()),
+            project: project.clone(),
+        };
+
         // The tools the person's client declared for this turn, if its connection is still
         // open now that the turn has started (specs/019-client-tools R4). They are named
         // against this snapshot's catalogue, and the client is told the names before the
         // model runs. Taken off the request so nothing downstream holds the connection.
-        let client = match req.client.take() {
+        ctx.client = match req.client.take() {
             Some(binding) if binding.connection.is_open() => {
-                let catalogue = tools.router.catalogue().await;
+                let catalogue = tools.router.catalogue(&ctx).await;
                 let client = crate::agents::client::ClientTools::resolve(
                     &binding,
                     &catalogue,
@@ -712,26 +735,10 @@ impl VizierAgent {
             }
             _ => None,
         };
-        // The project belongs to this turn only: resolved once, shared by the prompt prefix and
-        // the workspace shell. Every non-project session resolves to `None`.
-        let project = crate::projects::context::for_turn(&self.deps, &session, &req).await;
-        let ctx = ToolContext {
-            loaded_images: Default::default(),
-            recalled: Default::default(),
-            session: session.clone(),
-            pending_attachments: Arc::new(Mutex::new(vec![])),
-            hooks: hooks.clone(),
-            background_depth,
-            deadline: None,
-            client,
-            dream_sources: vec![],
-            secret_redactor: Arc::new(crate::secrets::SecretRedactor::default()),
-            project: project.clone(),
-        };
 
         let mut history = self
             .prepare_system_prompts(
-                &turn_categories(&tools.categories, &ctx),
+                &turn_categories(&tools.categories, &tools.router, &ctx),
                 &session,
                 project.as_deref(),
             )
@@ -1359,6 +1366,17 @@ impl VizierAgent {
                     round_ended_by = Some(name);
                 }
 
+                // A script that asked a question and then failed takes its questions with it: the
+                // set must not stay answerable for a call the agent was told failed (FR-010). The
+                // turn then continues with the script's error, which is why this runs here rather
+                // than in the tool.
+                if let VizierResponseContent::ToolResponse { response } = &tool_res.content
+                    && response.get("ok") == Some(&serde_json::Value::Bool(false))
+                    && let Some(set_id) = ctx.questions.asked()
+                {
+                    self.withdraw_question_set(ctx, &set_id).await;
+                }
+
                 let response_content = tool_res
                     .to_tool_result(
                         call_id.clone(),
@@ -1490,6 +1508,34 @@ impl VizierAgent {
         ))
     }
 
+
+    /// Take a set away and tell whoever is watching, when the script that asked it failed
+    /// (`specs/042-agent-asking-question` FR-010). Best effort: a failure here is logged and
+    /// changes nothing about the turn, which is already continuing with the script's error.
+    async fn withdraw_question_set(&self, ctx: &ToolContext, set_id: &str) {
+        use crate::storage::question::QuestionStorage;
+
+        match self.storage.withdraw_question_set(set_id).await {
+            Ok(true) => {
+                self.transport
+                    .publish_session_event(crate::transport::SessionEvent {
+                        session: ctx.session.clone(),
+                        frame: crate::transport::SessionFrame::QuestionSet {
+                            set_id: set_id.to_string(),
+                            state: crate::questions::model::QuestionState::Withdrawn,
+                            answers: None,
+                            answerer: None,
+                        },
+                    });
+            }
+            Ok(false) => {}
+            Err(e) => tracing::warn!(
+                set_id,
+                "could not withdraw a question set whose script failed: {e}"
+            ),
+        }
+    }
+
     /// Compact the turn's context once the last completion used `checkpoint_threshold` of the
     /// window: generate a handover, save it as the session's checkpoint, and rebuild `history`
     /// as system prompts, handover, the turn's `request` and the exchange in progress (from the
@@ -1559,7 +1605,7 @@ impl VizierAgent {
         history.clear();
         history.extend(
             self.prepare_system_prompts(
-                &turn_categories(&tools.categories, ctx),
+                &turn_categories(&tools.categories, &tools.router, ctx),
                 &ctx.session,
                 ctx.project.as_deref(),
             )
@@ -1762,6 +1808,8 @@ impl VizierAgent {
                     loaded_images: Default::default(),
                     recalled: Default::default(),
                     client: None,
+                    questions: crate::questions::QuestionsHandle::new(deps.questions.clone()),
+                    interactive: false,
                     session,
                     pending_attachments: Arc::new(Mutex::new(vec![])),
                     hooks: hooks.clone(),

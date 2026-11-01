@@ -28,6 +28,7 @@
 - [2.15 Artifacts](./configuration/artifacts.md)
 - [2.16 Office Addon](./configuration/office-addon.md)
 - [2.17 Desktop Web Access](./configuration/desktop-web-access.md)
+- [2.18 Asking the Person](./configuration/questions.md)
 
 # 3. API Integration
 

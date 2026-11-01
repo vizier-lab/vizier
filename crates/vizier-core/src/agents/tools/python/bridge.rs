@@ -254,3 +254,119 @@ fn is_deferred(value: &serde_json::Value) -> bool {
 fn take<T>(list: &Mutex<Vec<T>>) -> Vec<T> {
     list.lock().map(|mut items| std::mem::take(&mut *items)).unwrap_or_default()
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use schemars::JsonSchema;
+    use serde::{Deserialize, Serialize};
+
+    use super::*;
+    use crate::{
+        agents::tools::{ToolCategory, ToolContext, VizierTool, VizierToolSet},
+        error::VizierError,
+        schema::{VizierChannelId, VizierSession},
+    };
+
+    const TOKEN: &str = "ghp_nested-secret-value-99";
+
+    #[derive(Debug, Deserialize, Serialize, JsonSchema)]
+    struct ProbeInput {
+        token: String,
+        fail: bool,
+    }
+
+    /// A tool that does what a real one does with a credential: sends it on, and when the far end
+    /// refuses, repeats it back in its error.
+    struct Probe;
+
+    #[async_trait::async_trait]
+    impl VizierTool for Probe {
+        type Input = ProbeInput;
+        type Output = String;
+
+        fn category() -> Option<ToolCategory> {
+            Some(ToolCategory::Secrets)
+        }
+
+        fn name() -> String {
+            "probe_credential".into()
+        }
+
+        fn description(&self) -> String {
+            "Test probe.".into()
+        }
+
+        async fn call(&self, args: Self::Input, _ctx: &ToolContext) -> Result<Self::Output, VizierError> {
+            if args.fail {
+                Err(VizierError(format!("401: credential {} was refused", args.token)))
+            } else {
+                Ok(format!("accepted {}", args.token))
+            }
+        }
+    }
+
+    fn bridge() -> RouterBridge {
+        let router = ToolRouter {
+            default_toolset: VizierToolSet::new().tool(Probe),
+            user_toolset: VizierToolSet::new(),
+            integration_toolset: VizierToolSet::new(),
+            addons: Default::default(),
+            mcp: Default::default(),
+            reserved: Arc::new(vec![]),
+        };
+        let ctx = ToolContext {
+            session: VizierSession(
+                "agent-1".into(),
+                VizierChannelId::HTTP("alice".into(), "webui".into()),
+                Some("t".into()),
+            ),
+            pending_attachments: Default::default(),
+            hooks: None,
+            background_depth: 0,
+            loaded_images: Default::default(),
+            recalled: Default::default(),
+            deadline: None,
+            client: None,
+            questions: crate::questions::QuestionsHandle::new(Default::default()),
+            interactive: true,
+            secret_redactor: Arc::new(crate::secrets::SecretRedactor::default()),
+            dream_sources: vec![],
+            project: None,
+        };
+        ctx.secret_redactor.arm(TOKEN);
+        RouterBridge::new(router, ctx, Duration::from_secs(5))
+    }
+
+    /// A value handed to a nested tool call reaches the tool whole, and leaves nowhere else:
+    /// not in the recorded arguments, the recorded error, or the error the script catches
+    /// (FR-042). The script keeps the real result, because it is the one holding the value.
+    #[tokio::test]
+    async fn a_value_passed_to_a_nested_call_is_scrubbed_from_every_copy() {
+        let bridge = bridge();
+
+        let failed = bridge
+            .call("probe_credential", serde_json::json!({ "token": TOKEN, "fail": true }))
+            .await
+            .expect_err("the probe fails");
+        let BridgeError::Tool(message) = failed else { panic!("not a tool error: {failed:?}") };
+        assert!(!message.contains(TOKEN), "the caught error still carries the value: {message}");
+        assert!(message.contains("[redacted]"), "{message}");
+
+        let ok = bridge
+            .call("probe_credential", serde_json::json!({ "token": TOKEN, "fail": false }))
+            .await
+            .expect("the probe succeeds");
+        assert!(
+            ok.to_string().contains(TOKEN),
+            "the script itself must receive the real result, byte for byte: {ok}"
+        );
+
+        let (records, _) = bridge.take_parts();
+        assert_eq!(records.len(), 2);
+        let recorded = serde_json::to_string(&records).unwrap();
+        assert!(!recorded.contains(TOKEN), "a recorded call still carries the value: {recorded}");
+        assert!(recorded.contains("[redacted]"));
+    }
+}

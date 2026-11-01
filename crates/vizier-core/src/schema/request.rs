@@ -62,6 +62,9 @@ pub enum VizierRequestContent {
     /// from the conversation's context, but nothing above, about or around it is saved.
     /// Dispatched beside `checkpoint`/`lobotomy`, never through `handle_request`.
     Btw(SideChat),
+    /// A person's answer to a question set (`specs/042-agent-asking-question`). It starts a turn
+    /// like `Chat`: same history, same queue, same attribution, no bypass (FR-015).
+    QuestionAnswer(crate::questions::model::QuestionAnswer),
 }
 
 /// One `/btw` side chat carried in each request: the question being asked now and the
@@ -119,6 +122,7 @@ impl VizierRequestContent {
             Self::BackgroundReport(_) => "background_report",
             Self::ClientEvent(_) => "client_event",
             Self::Btw(_) => "btw",
+            Self::QuestionAnswer(_) => "question_answer",
         }
     }
 
@@ -154,6 +158,21 @@ impl Display for VizierRequestContent {
             Self::BackgroundReport(report) => write!(f, "{}", report),
             Self::ClientEvent(event) => write!(f, "{}", event),
             Self::Btw(side_chat) => write!(f, "{}", side_chat.question),
+            // The readable summary, then the answers as data the agent can read without
+            // re-parsing prose — the shape `ClientEvent` already uses.
+            Self::QuestionAnswer(answer) => {
+                write!(f, "{}", answer.text)?;
+                let data = serde_json::json!({
+                    "set_id": answer.set_id,
+                    "declined": answer.declined,
+                    "answerer": answer.answerer,
+                    "answers": answer.answers,
+                });
+                if let Ok(data) = serde_json::to_string(&data) {
+                    write!(f, "\n\n```json\n{data}\n```")?;
+                }
+                Ok(())
+            }
         }
     }
 }
@@ -411,6 +430,18 @@ impl VizierRequest {
             if let Some(source) = &event.source_call_id {
                 frontmatter.insert("source_call".into(), json!(source));
             }
+            frontmatter.insert("metadata".into(), self.metadata.clone());
+            return Ok(serde_yaml::to_string(&frontmatter)?);
+        }
+
+        // A question answer is still the person's reply, so `sender` stays theirs; `via` and the
+        // set say it answered the agent's questions rather than being typed
+        // (`specs/042-agent-asking-question` FR-062).
+        if let VizierRequestContent::QuestionAnswer(answer) = &self.content {
+            let mut frontmatter = serde_json::Map::new();
+            frontmatter.insert("sender".into(), json!(self.user));
+            frontmatter.insert("via".into(), json!("question_answer"));
+            frontmatter.insert("question_set".into(), json!(answer.set_id));
             frontmatter.insert("metadata".into(), self.metadata.clone());
             return Ok(serde_yaml::to_string(&frontmatter)?);
         }
@@ -726,5 +757,58 @@ mod tests {
         for key in ["client_tools", "client_categories", "client"] {
             assert!(out.get(key).is_none(), "{key} was serialised: {out}");
         }
+    }
+
+    /// What the next turn reads for an answered set: it is attributed to the person, marked as an
+    /// answer to the set, and carries each question, the answer, the option's label and value, and
+    /// who answered — different from the same words typed (FR-062, US6 #5).
+    #[test]
+    fn a_question_answer_reads_as_an_answer_not_as_typing() {
+        use crate::questions::model::{Answer, AnswerState, AnswerValue, QuestionAnswer};
+
+        let answer = QuestionAnswer {
+            set_id: "set-123".into(),
+            text: "Database: SQLite · Name: skipped".into(),
+            answers: vec![
+                Answer {
+                    question_id: "db".into(),
+                    state: AnswerState::Answered,
+                    value: Some(AnswerValue::Text("sqlite".into())),
+                    label: Some("SQLite".into()),
+                },
+                Answer::skipped("name"),
+            ],
+            answerer: Some("alice".into()),
+            declined: false,
+        };
+        let request = VizierRequest {
+            user: "alice".into(),
+            content: VizierRequestContent::QuestionAnswer(answer),
+            ..Default::default()
+        };
+        let prompt = request.to_prompt().unwrap();
+        for needle in [
+            "sender: alice",
+            "via: question_answer",
+            "question_set: set-123",
+            "Database: SQLite",
+            "\"question_id\":\"db\"",
+            "\"value\":\"sqlite\"",
+            "\"label\":\"SQLite\"",
+            "\"state\":\"skipped\"",
+            "\"answerer\":\"alice\"",
+            "\"declined\":false",
+        ] {
+            assert!(prompt.contains(needle), "the prompt lacks {needle:?}:\n{prompt}");
+        }
+
+        // The same words typed by the person carry none of that.
+        let typed = VizierRequest {
+            user: "alice".into(),
+            content: VizierRequestContent::Chat("Database: SQLite".into()),
+            ..Default::default()
+        };
+        let typed = typed.to_prompt().unwrap();
+        assert!(!typed.contains("question_answer") && !typed.contains("set-123"), "{typed}");
     }
 }
