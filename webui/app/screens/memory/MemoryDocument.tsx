@@ -1,4 +1,4 @@
-import { Badge, Button, DiffView, EmptyState, Eyebrow, FilterTabs, Icon, IconButton, KeyValueList, LoadMore, MarkdownEditor, Notice, PanelHeader, RevisionRow, Skeleton, UnsavedIndicator, type DocLink } from '@vizier/design'
+import { Badge, Button, DiffView, Dialog, EmptyState, Eyebrow, FilterTabs, Icon, IconButton, KeyValueList, LoadMore, MarkdownEditor, Notice, PanelHeader, RevisionRow, Skeleton, UnsavedIndicator, type DocLink } from '@vizier/design'
 import { Enter, stagger } from '../../lib/motion'
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router'
@@ -358,11 +358,16 @@ function EditDoc({ agentId, bundle, path }: DocProps) {
     const [text, setText] = useState('')
     const [saving, setSaving] = useState(false)
     const [stale, setStale] = useState<ReturnType<typeof pendingDraft>>(null)
+    // The revision this edit started from. Sent with the save so a concurrent edit is refused
+    // rather than silently overwritten (FR-028).
+    const [baseSeq, setBaseSeq] = useState<number | undefined>(undefined)
+    const [conflict, setConflict] = useState<{ content: string; seq: number } | null>(null)
 
     useEffect(() => {
-        getDoc(agentId, bundle, path)
-            .then((d) => {
+        Promise.all([getDoc(agentId, bundle, path), memoryHistory(agentId, bundle, path, 0, 1).catch(() => null)])
+            .then(([d, history]) => {
                 setDoc(d)
+                setBaseSeq(history?.revisions[0]?.seq)
                 const pending = pendingDraft(key, d.content)
                 setText(pending?.text ?? d.content)
                 if (pending?.stale) setStale(pending)
@@ -376,16 +381,21 @@ function EditDoc({ agentId, bundle, path }: DocProps) {
         if (doc) saveDraft(key, v, doc.content)
     }
 
-    const save = async () => {
+    const save = async (over?: number) => {
         if (!doc || !dirty || saving) return
         setSaving(true)
         try {
-            await saveDoc(agentId, bundle, path, { title: doc.title, content: text, tags: doc.tags })
+            await saveDoc(agentId, bundle, path, { title: doc.title, content: text, tags: doc.tags, base_seq: over ?? baseSeq })
             clearDraft(key)
             toast.success('Saved')
             navigate(back)
         } catch (e) {
-            toast.error("Couldn't save", e instanceof ApiError || e instanceof Error ? e.message : undefined)
+            // The document moved on under us. Show the newer text and let the person choose,
+            // rather than overwriting it — the behaviour the removed Core page carried.
+            if (e instanceof ApiError && e.status === 409) {
+                const data = e.data as { latest_seq: number; content: string }
+                setConflict({ content: data.content, seq: data.latest_seq })
+            } else toast.error("Couldn't save", e instanceof ApiError || e instanceof Error ? e.message : undefined)
         } finally {
             setSaving(false)
         }
@@ -429,6 +439,28 @@ function EditDoc({ agentId, bundle, path }: DocProps) {
                     <MarkdownEditor look="compact" mode={mobile ? 'markdown' : undefined} value={text} onChange={edit} onSaveShortcut={() => void save()} className="min-h-[420px] flex-1" />
                 )}
             </div>
+
+            <Dialog
+                open={conflict !== null}
+                title="This document changed while you were editing"
+                message={`Someone saved revision ${conflict?.seq ?? ''} after you opened it. Reload theirs to drop your edit, or keep yours to save it over theirs as a new revision.`}
+                confirmLabel="Keep mine"
+                cancelLabel="Reload theirs"
+                onConfirm={() => {
+                    const seq = conflict?.seq
+                    setConflict(null)
+                    void save(seq)
+                }}
+                onCancel={() => {
+                    if (conflict) {
+                        clearDraft(key)
+                        setDoc((d) => (d ? { ...d, content: conflict.content } : d))
+                        setText(conflict.content)
+                        setBaseSeq(conflict.seq)
+                    }
+                    setConflict(null)
+                }}
+            />
         </div>
     )
 }

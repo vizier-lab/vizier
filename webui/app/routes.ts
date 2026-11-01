@@ -20,8 +20,6 @@ export default [
             route(':agentId/projects/:projectId/chat/:topicId', 'routes/chat.tsx', {
                 id: 'project-chat',
             }),
-            route(':agentId/core', 'routes/agent-core.tsx'),
-            route(':agentId/core/edit', 'routes/agent-core-edit.tsx'),
             // One route for all three addresses (all bundles, a bundle, a document), so moving
             // between them keeps the explorer mounted instead of rebuilding its tree.
             route(':agentId/memory/*', 'routes/memory.tsx', { id: 'memory' }),

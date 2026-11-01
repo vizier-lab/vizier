@@ -378,7 +378,14 @@ function GraphArea({ agentId, bundles, open, onFocus, onOpenDoc, onExport, onDel
                             <Button size="sm" variant="secondary" icon="download" onClick={() => onExport(open.name)}>
                                 Export
                             </Button>
-                            <Button size="sm" variant="destructive" icon="trash" onClick={() => onDelete(open.name)}>
+                            <Button
+                                size="sm"
+                                variant="destructive"
+                                icon="trash"
+                                disabled={open.protected}
+                                title={open.protected ? 'The reserved bundle cannot be deleted. Delete its documents individually.' : undefined}
+                                onClick={() => onDelete(open.name)}
+                            >
                                 Delete
                             </Button>
                         </>

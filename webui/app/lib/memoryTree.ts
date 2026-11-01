@@ -60,7 +60,9 @@ export function bundleNode(b: Bundle, docs: LoadedDocs | undefined, moreId: stri
         kind: 'folder',
         icon: 'memory',
         mono: true,
-        meta: count(b.concept_count),
+        // A reserved bundle is marked here so the person can see why its delete action is
+        // disabled, rather than finding out from a refusal after trying (webui contract rule 1).
+        meta: b.protected ? `${count(b.concept_count)} · reserved` : count(b.concept_count),
         children: docs ? bundleChildren(b.name, docs, moreId) : undefined,
     }
 }

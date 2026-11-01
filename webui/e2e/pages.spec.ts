@@ -9,10 +9,15 @@ test.describe('Day-to-day pages (quickstart §5, §7)', () => {
         await createPlugAgent(page, AGENT)
     })
 
-    test('Core: an edit saves as a new revision and survives a reload', async ({ page }) => {
-        await page.goto(`/${AGENT}/core`)
+    // Identity is the memory document `core/soul` (specs/043-unify-core-and-memory), so these
+    // two carry what the deleted Core page did — a save as a new revision, and a refusal of a
+    // save made from a stale view — through the memory surfaces alone (FR-027, FR-028, FR-029).
+    // They also prove the spawn-time seed: the document exists without anyone creating it.
+    test('Core is a memory: an edit saves as a new revision and survives a reload', async ({ page }) => {
+        await page.goto(`/${AGENT}/memory/core/soul`)
+        await expect(page.getByRole('heading', { name: /core/i })).toBeVisible()
         await page.getByRole('button', { name: 'Edit' }).click()
-        await expect(page).toHaveURL(new RegExp(`/${AGENT}/core/edit$`))
+        await expect(page).toHaveURL(new RegExp(`/${AGENT}/memory/core/soul\\?edit=1`))
         // The editor opens split: the source is typed into, the preview follows.
         const editor = page.getByRole('textbox', { name: 'Markdown source' })
         await expect(editor).toBeVisible()
@@ -22,32 +27,32 @@ test.describe('Day-to-day pages (quickstart §5, §7)', () => {
         await page.keyboard.type(`\n\nEdited ${stamp}`)
         await expect(page.getByText(/Unsaved/)).toBeVisible()
         await page.getByRole('button', { name: /^Save/ }).click()
-        await expect(page.getByText('CORE saved')).toBeVisible()
-        // Saving goes back to the preview, which shows the new text.
-        await expect(page).toHaveURL(new RegExp(`/${AGENT}/core$`))
+        await expect(page.getByText('Saved')).toBeVisible()
+        // Saving goes back to the document, which shows the new text and its provenance.
+        await expect(page).toHaveURL(new RegExp(`/${AGENT}/memory/core/soul$`))
         await page.reload()
         await expect(page.getByText(`Edited ${stamp}`)).toBeVisible()
         await expect(page.getByText(/last written by/)).toBeVisible()
     })
 
-    test('Core: saving over a newer revision offers Reload theirs / Keep mine', async ({ page, context }) => {
-        await page.goto(`/${AGENT}/core/edit`)
+    test('Core is a memory: saving over a newer revision offers Reload theirs / Keep mine', async ({ page, context }) => {
+        await page.goto(`/${AGENT}/memory/core/soul?edit=1`)
         await expect(page.getByRole('textbox', { name: 'Markdown source' })).toBeVisible()
         const other = await context.newPage()
-        await other.goto(`/${AGENT}/core/edit`)
+        await other.goto(`/${AGENT}/memory/core/soul?edit=1`)
         const otherEditor = other.getByRole('textbox', { name: 'Markdown source' })
         await otherEditor.click()
         await other.keyboard.press('Control+End')
         await other.keyboard.type(`\n\ntheirs ${unique('t')}`)
         await other.getByRole('button', { name: /^Save/ }).click()
-        await expect(other.getByText('CORE saved')).toBeVisible()
+        await expect(other.getByText('Saved')).toBeVisible()
 
         const editor = page.getByRole('textbox', { name: 'Markdown source' })
         await editor.click()
         await page.keyboard.press('Control+End')
         await page.keyboard.type(`\n\nmine ${unique('m')}`)
         await page.getByRole('button', { name: /^Save/ }).click()
-        await expect(page.getByText('CORE changed while you were editing')).toBeVisible()
+        await expect(page.getByText('This document changed while you were editing')).toBeVisible()
         await page.getByRole('button', { name: 'Reload theirs' }).click()
         await expect(page.getByText(/theirs t-/).last()).toBeVisible()
         await other.close()
