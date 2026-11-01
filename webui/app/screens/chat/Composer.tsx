@@ -439,47 +439,47 @@ export function Composer({
                     />
                 }
                 below={
-                    (project || ttsEnabled) && (
-                        <div className="flex flex-wrap items-center gap-12">
-                            {project && (
-                                <div className="flex items-center gap-8">
-                                    <FilterTabs<ProjectMode>
-                                        aria-label="Plan or Build"
-                                        value={mode}
-                                        onChange={() => {
-                                            // Either half toggles: pressing the active one flips to the other.
-                                            const next: ProjectMode = mode === 'plan' ? 'build' : 'plan'
-                                            setMode(next)
-                                            setModeNote(busy)
-                                            onModeChange?.(next)
-                                        }}
-                                        options={[
-                                            { value: 'plan', label: 'Plan', tone: 'solid' },
-                                            { value: 'build', label: 'Build', tone: 'live' },
-                                        ]}
-                                    />
-                                    <span className="type-small text-faint">
-                                        {mode === 'plan'
-                                            ? "Read-only: can look, can't change anything"
-                                            : project.shell === false
-                                              ? 'Can edit files; commands are off'
-                                              : 'Can edit files and run commands'}
-                                        {modeNote ? ' · applies to the next message' : ''}
-                                    </span>
-                                </div>
-                            )}
-                            {ttsEnabled && (
-                                <label className="flex items-center gap-8 type-small text-muted">
-                                    <Switch
-                                        checked={spoken}
-                                        onCheckedChange={setSpoken}
-                                        aria-label="Ask for a spoken reply"
-                                    />
-                                    Ask for a spoken reply
-                                </label>
-                            )}
-                        </div>
-                    )
+                    // Always drawn, even with nothing in it: this row is the composer's bottom
+                    // band, and a row that collapses moves the box and its fade whenever an
+                    // agent has no project and no Text-to-Speech. `min-h-31` is the Plan/Build
+                    // strip's own height (segment h-25 plus the strip's padding and border), so
+                    // every combination of toggles leaves the composer the same height.
+                    <div className="flex min-h-31 flex-wrap items-center gap-12">
+                        {ttsEnabled && (
+                            <label className="flex items-center gap-8 type-small text-muted">
+                                <Switch
+                                    checked={spoken}
+                                    onCheckedChange={setSpoken}
+                                    aria-label="Ask for a spoken reply"
+                                />
+                                Ask for a spoken reply
+                            </label>
+                        )}
+                        {project && modeNote && (
+                            <span className="type-small text-faint">
+                                Applies to the next message
+                            </span>
+                        )}
+                        {/* The right side is the mode switch; the left is the spoken reply. */}
+                        {project && (
+                            <FilterTabs<ProjectMode>
+                                aria-label="Plan or Build"
+                                className="ml-auto"
+                                value={mode}
+                                onChange={() => {
+                                    // Either half toggles: pressing the active one flips to the other.
+                                    const next: ProjectMode = mode === 'plan' ? 'build' : 'plan'
+                                    setMode(next)
+                                    setModeNote(busy)
+                                    onModeChange?.(next)
+                                }}
+                                options={[
+                                    { value: 'plan', label: 'Plan', tone: 'solid' },
+                                    { value: 'build', label: 'Build', tone: 'live' },
+                                ]}
+                            />
+                        )}
+                    </div>
                 }
                 attachments={
                     pending.length > 0 ? (
