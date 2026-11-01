@@ -16,7 +16,7 @@ use crate::{
         VizierAttachment, default_bundle,
     },
     service::{ServiceError, Services},
-    storage::{agent::AgentStorage, artifact::ArtifactStorage},
+    storage::{agent::AgentStorage, artifact::ArtifactStorage, memory::MemoryStorage},
 };
 
 #[derive(Debug, Deserialize)]
@@ -43,6 +43,12 @@ pub struct UpdateMemoryRequest {
     pub tags: Vec<String>,
     #[serde(default)]
     pub attachments: Option<Vec<VizierAttachment>>,
+    /// The revision this edit started from, when the client knows it. When the document has
+    /// moved on, the save is refused with `409 stale_revision` and the newer content instead of
+    /// overwriting it (FR-028). Optional and additive: a client that omits it keeps the old
+    /// last-write-wins behaviour.
+    #[serde(default)]
+    pub base_seq: Option<i64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -537,6 +543,37 @@ pub async fn update(
             code: None,
         });
     }
+    // A stale save is refused before anything is written, showing the newer content — the
+    // behaviour the removed Core page carried, so it must not be lost with it (FR-028, FR-029).
+    if let Some(base) = body.base_seq
+        && let Ok(page) = s
+            .deps()
+            .storage
+            .list_memory_revisions(agent_id.to_string(), bundle.clone(), path.clone(), 0, 1)
+            .await
+        && let Some(latest) = page.revisions.first().map(|r| r.seq)
+        && latest != base
+    {
+        let content = s
+            .deps()
+            .storage
+            .get_memory_detail(agent_id.to_string(), bundle.clone(), path.clone())
+            .await
+            .ok()
+            .flatten()
+            .map(|memory| memory.content)
+            .unwrap_or_default();
+        return Err(ServiceError::Conflict {
+            message: "stale_revision".into(),
+            code: None,
+            data: serde_json::to_value(serde_json::json!({
+                "latest_seq": latest,
+                "content": content,
+            }))
+            .ok(),
+        });
+    }
+
     let request = MemoryOpRequest::Write {
         bundle,
         path: Some(path),
