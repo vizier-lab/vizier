@@ -294,7 +294,7 @@ async fn detail_from_memory(s: &Services, memory: &Memory) -> MemoryDetail {
 }
 
 /// The status a failed memory operation maps to, from its message.
-fn op_error(msg: String) -> ServiceError {
+pub(crate) fn op_error(msg: String) -> ServiceError {
     let lower = msg.to_lowercase();
     // The stable prefixes fixed by `contracts/storage-behaviour.md`. Matched on the prefix
     // rather than the prose so the wording can change without the status changing with it.
@@ -357,7 +357,11 @@ async fn require_memory_and_artifact_view(
     Ok(config)
 }
 
-async fn op(s: &Services, agent_id: &str, op: MemoryOpRequest) -> anyhow::Result<MemoryOpResponse> {
+pub(crate) async fn op(
+    s: &Services,
+    agent_id: &str,
+    op: MemoryOpRequest,
+) -> anyhow::Result<MemoryOpResponse> {
     s.deps().transport.send_memory_op(&agent_id.to_string(), op).await
 }
 

@@ -20,6 +20,7 @@ use crate::{
             system_prompt::{
                 boot::boot_md,
                 context::{context_md, context_md_with, with_context},
+                identity::identity_md,
                 init_workspace,
                 project::{project_md, project_state_md},
                 reactions::reaction_digest,
@@ -456,29 +457,8 @@ impl VizierAgent {
             .await
             .ok()
             .flatten()
-            .map(|memory| memory.content)
-            .filter(|content| !content.trim().is_empty());
-
-        let address = format!(
-            "<memory bundle=\"{}\" path=\"{}\">",
-            crate::schema::CORE_BUNDLE,
-            crate::schema::SOUL_PATH
-        );
-
-        match stored {
-            Some(content) => {
-                format!("{address}\n{}\n</memory>", content.trim_end())
-            }
-            None => format!(
-                "{address}\n{}\n</memory>\n\n\
-                 This is the default identity, shown because no document exists at \
-                 {}/{}. It is a memory like any other: write it with `memory_write` to make it \
-                 yours.",
-                crate::constant::CORE_MD.trim(),
-                crate::schema::CORE_BUNDLE,
-                crate::schema::SOUL_PATH
-            ),
-        }
+            .map(|memory| memory.content);
+        identity_md(stored.as_deref())
     }
 
     /// Takes the session because one section is conditional on it: the scheduled-run
