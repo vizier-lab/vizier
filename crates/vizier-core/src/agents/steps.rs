@@ -249,6 +249,53 @@ mod tests {
     }
 
     #[test]
+    fn a_recorded_step_is_saved_and_published_together() {
+        // What `run_checkpoint`, `run_lobotomy` and `answer_directly` all rely on: one call
+        // saves the entry *and* pushes it, so a page watching the session gets a divider it
+        // would otherwise only see after a reload.
+        let storage = crate::agents::client::test_storage();
+        let transport = VizierTransport::new();
+        let session = VizierSession(
+            "oz".into(),
+            crate::schema::VizierChannelId::from_web("me", "c"),
+            Some("t".into()),
+        );
+        let mut events = transport.subscribe_session_events();
+        let runtime = tokio::runtime::Builder::new_current_thread().build().unwrap();
+        runtime.block_on(async {
+            let uid = record_step(
+                &storage,
+                &transport,
+                &session,
+                SessionHistoryContent::Command("lobotomy".to_string()),
+            )
+            .await
+            .expect("the step is recorded");
+
+            let event = events.try_recv().expect("and published in the same breath");
+            let SessionFrame::HistoryEntry(entry) = event.frame else {
+                panic!("a recorded step is published as a history entry")
+            };
+            assert_eq!(entry.uid, uid);
+            assert!(matches!(
+                &entry.content,
+                SessionHistoryContent::Command(command) if command == "lobotomy"
+            ));
+
+            let stored = crate::storage::history::HistoryStorage::list_session_history(
+                &*storage, session.clone(), None, None, None,
+            )
+            .await
+            .unwrap();
+            assert_eq!(stored.len(), 1);
+            assert!(matches!(
+                &stored[0].content,
+                SessionHistoryContent::Command(command) if command == "lobotomy"
+            ));
+        });
+    }
+
+    #[test]
     fn every_stop_notice_is_recognisable_to_the_webui() {
         for reason in [StopReason::Restart, StopReason::Aborted, StopReason::AgentRestarted, StopReason::InternalError] {
             let n = reason.notice();

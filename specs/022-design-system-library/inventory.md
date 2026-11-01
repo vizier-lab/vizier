@@ -148,7 +148,7 @@ Columns: **Variants** are the FigCraft axes. **Screen extensions** are what the 
 | D45 | AgentReply | T3 | State Default/Hover/Streaming/Failed | **meta row** (reactions, add reaction, copy, model · in · out · cost); prose tables and code inside (see X49 Prose) | Chat, Mobile Chat | `MessageItem.tsx` |
 | D46 | Composer | T3 | State Idle/Busy/Focus/Filled/Recording/Disabled | **attachments row**; **skills menu open** (X33); **recorded playback** + "Ask for a spoken reply" switch (X35); **ContextRing** beside Send (X36); custom disabled placeholder ("Archivist can't answer until it restarts"); Mobile token text ("21k / 200k") | Chat, Mobile Chat | chat route |
 | D47 | Thinking | T3 | — | "Archivist is answering Scout's report…" wording | Chat | `ThinkingIndicator.tsx` |
-| D48 | CheckpointDivider | T3 | — | **no-handover** variant ("/lobotomy"); opens HandoverSummary (X31) | Chat B3 | `CheckpointDivider.tsx` |
+| D48 | CheckpointDivider | T3 | — | **no-handover** variant; **lobotomy** label ("Lobotomy · nothing carried over"); opens HandoverSummary (X31) | Chat B3 | `CheckpointDivider.tsx` |
 | D49 | ActivityTrail | T3 | (composition) | **collapsed summary** row with › (A5); **Mobile mini-timeline** summary | Chat A4/A5, C4, D1, I1–I8, Mobile Chat | `ActivityTrail.tsx` |
 | D50 | TrailHead | T3 | State Live/Done/Failed | "stopped" count (I6) | as ActivityTrail | — |
 | D51 | TrailCall | T3 | State Done/Running/Failed/Limit | "running…" in place of the duration; **lookup** look (quiet, no duration: list/describe_tool_function, I2) | as ActivityTrail | — |
@@ -220,6 +220,7 @@ The screens draw many two-line list rows that share one anatomy: leading slot, t
 | X31 | HandoverSummary (checkpoint expanded) | T3 | — | Chat B3 | `CheckpointDivider.tsx` |
 | X32 | StoppedNote ("■ Stopped by you at 14:03 · 1 queued message dropped") | T3 | — | Chat B2 | — |
 | X33 | SkillMenu (slash menu: Eyebrow, command rows mono + description, key-hint footer) | T3 | filtering / no match | Chat A2 | — |
+| X33a | CommandNote (`/checkpoint`, `/lobotomy` in the flow: emerald mono, no chip) | T3 | checkpoint / lobotomy | Chat | — |
 | X34 | ChatGreeting (empty topic: sigil, "What shall we deliberate?", meta) | T3 | — | Chat A1 | — |
 | X35 | VoiceRecorder / VoicePlayback (Composer modes: ● timer waveform Stop; ▶ track time Discard) | T3 | recording / recorded | Chat E3 | — |
 | X36 | ContextRing (0–100 % ring + rich Tooltip) | T2 | idle / filling / hover | Chat, Chat E4 | — |
