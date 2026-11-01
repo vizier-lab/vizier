@@ -395,6 +395,8 @@ pub fn run() {
             // The main window is built here, not in tauri.conf.json, to guard navigation (FR-013).
             let guard = handle.clone();
             let dev_url = app.config().build.dev_url.as_ref().map(|u| u.to_string());
+            // Only Windows reads it back, to paint the caption (as in `desktop_theme`).
+            #[allow(unused_variables)]
             let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
                 .title("Vizier")
                 .inner_size(1280.0, 800.0)
