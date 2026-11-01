@@ -212,7 +212,7 @@ pub async fn remove(
         ("project_id" = String, Path, description = "Project ID")
     ),
     responses(
-        (status = 200, description = "The caller's sessions, newest activity first, empty last", body = APIResponse<Vec<ProjectSession>>),
+        (status = 200, description = "The caller's sessions in creation order, newest first, empty last", body = APIResponse<Vec<ProjectSession>>),
         (status = 403, description = "The caller may not use this agent's projects"),
         (status = 404, description = "Agent or project not found, or removed")
     )

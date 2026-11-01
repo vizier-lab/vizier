@@ -466,7 +466,9 @@ pub async fn remove(
     Ok(ProjectRemoved { removed: true })
 }
 
-/// The caller's own sessions in a project, newest activity first.
+/// The caller's own sessions in a project, in creation order, newest first. It is a stable
+/// order — using a chat does not move it — so a caller that wants the last one talked to must
+/// pick it by `last_activity`, not by position.
 pub async fn sessions(
     s: &Services,
     who: &Principal,

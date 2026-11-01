@@ -45,10 +45,13 @@ Sessions section
 - Hidden entirely when the person lacks a project permission or the agent has
   no projects (FR-005).
 - Header row: "Projects" and, on desktop when permitted, "Open a Project".
-- One row per project: name, folder basename, availability dot, session count.
-  Clicking expands the caller's sessions; the row itself does not navigate.
-- Session row: title, live marker while `is_thinking`, and a new-session "+".
-- Expanded state is local UI state (not persisted).
+- One row per project: name, folder basename, availability marker. The row itself
+  does not navigate; its sessions are always listed under it (no collapse).
+- Session row: title, live marker while `is_thinking`, activity time, and
+  rename/delete on hover — the same row as the Sessions groups.
+- Five sessions are shown; "Show all" / "Show less" reveals the rest. A worktree
+  chat is lifted above that preview and never hidden. The preview and the search
+  are local UI state (not persisted).
 - Project menu (owner or `all_agents:projects` only): Rename, Toggle workspace
   shell, Remove. Remove asks for confirmation and explains that files are kept.
 - An unavailable project shows a warning marker and its sessions remain

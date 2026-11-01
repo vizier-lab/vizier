@@ -28,8 +28,9 @@ pub trait ProjectStorage {
     /// Set `removed_at`; nothing else changes.
     async fn remove_project(&self, project_id: &str, removed_at: i64) -> Result<()>;
 
-    /// The sessions of one exact project channel slug, newest activity first, with a brand-new
-    /// empty session last.
+    /// The sessions of one exact project channel slug in creation order, newest first: a
+    /// worktree chat by when the worktree was made, any other by its first message. A brand-new
+    /// session that has no message yet was created last, so it sorts last.
     async fn project_sessions(
         &self,
         agent_id: &str,

@@ -27,9 +27,13 @@ database and encryption key, `agents/` the memory documents, and `uploads/` sess
 ## Sessions
 
 A project holds several independent sessions. Start one from the project row's **+**, or from the
-project header's **New conversation**. Sessions are grouped under the project in the sidebar above
-the regular Sessions list, and **never** appear in that list, in session search or in the
+project header's **New conversation**. The project's sessions are listed under it in the sidebar
+above the regular Sessions list, and **never** appear in that list, in session search or in the
 conversation picker.
+
+The list is in the order the sessions were started, newest first, so using one does not move it.
+A **worktree** chat sits at the top of its project and is never hidden. Five sessions are shown
+until you pick **Show all**.
 
 Each session is private to the person who opened it. Two people with the project permission share
 the project and its files, but not their session lists or histories.

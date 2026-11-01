@@ -225,6 +225,10 @@ impl ProjectStorage for SqliteStorage {
         // `project__<user>__<id>`; the id addresses the project's worktrees.
         let project_id = channel_slug.rsplit_once("__").map_or("", |(_, id)| id);
         let conn = self.conn.lock();
+        // Creation order, not activity: a chat keeps its row when a turn runs, so the list holds
+        // still. A worktree chat knows its exact creation time; for the rest it is the first
+        // message (`session_detail` has no created_at of its own), and a session that has never
+        // been messaged yet has none, so it sorts last. Both sides are Unix milliseconds.
         let mut stmt = conn.prepare(
             "SELECT sd.topic, \
                     COALESCE(json_extract(sd.data, '$.title'), sd.topic), \
@@ -244,7 +248,9 @@ impl ProjectStorage for SqliteStorage {
                ON pw.project_id = ?3 AND pw.topic = sd.topic \
              WHERE sd.agent_id = ?1 AND sd.channel = ?2 AND sd.topic IS NOT NULL \
              GROUP BY sd.topic \
-             ORDER BY MAX(sh.timestamp) IS NULL, MAX(sh.timestamp) DESC, sd.topic",
+             ORDER BY COALESCE(MAX(pw.created_at), MIN(sh.timestamp)) IS NULL, \
+                      COALESCE(MAX(pw.created_at), MIN(sh.timestamp)) DESC, \
+                      sd.topic",
         )?;
         let rows = stmt.query_map(params![agent_id, channel_slug, project_id], |row| {
             let mode: String = row.get(4)?;
@@ -537,7 +543,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn sessions_are_newest_first_and_an_empty_one_is_last() {
+    async fn sessions_keep_their_creation_order_and_an_empty_one_is_last() {
         let storage = storage();
         let dir = tempfile::tempdir().unwrap();
         storage.open_project(project(dir.path())).await.unwrap();
@@ -546,7 +552,10 @@ mod tests {
         }
         {
             let conn = storage.conn.lock();
+            // "old" started first…
             history(&conn, "old", 10);
+            // …and was used last. Activity order would lift it above "new"; creation order holds.
+            history(&conn, "old", 30);
             history(&conn, "new", 20);
         }
         let rows = storage
@@ -554,8 +563,39 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(rows.iter().map(|r| r.topic.as_str()).collect::<Vec<_>>(), vec!["new", "old", "empty"]);
+        // The row below ran a turn more recently than the one above it: that is the point.
         assert_eq!(rows[0].last_activity, Some(20));
+        assert_eq!(rows[1].last_activity, Some(30));
         assert_eq!(rows[2].last_activity, None);
+    }
+
+    #[tokio::test]
+    async fn a_worktree_chat_is_placed_by_its_own_creation_time() {
+        let storage = storage();
+        let dir = tempfile::tempdir().unwrap();
+        storage.open_project(project(dir.path())).await.unwrap();
+        storage.save_session_detail(detail("chat", "Chat")).await.unwrap();
+        storage.save_session_detail(detail("empty", "New session")).await.unwrap();
+        {
+            let conn = storage.conn.lock();
+            history(&conn, "chat", 20);
+        }
+        // A worktree knows exactly when it was made; the chat was started in between the two.
+        let mut early = worktree("early");
+        early.created_at = 2;
+        storage.insert_worktree(&early, detail("early", "wt-early")).await.unwrap();
+        let mut later = worktree("later");
+        later.created_at = 40;
+        storage.insert_worktree(&later, detail("later", "wt-later")).await.unwrap();
+
+        let rows = storage
+            .project_sessions("dp-a", "project__alice__p3xY9aQ2mZ")
+            .await
+            .unwrap();
+        assert_eq!(
+            rows.iter().map(|r| r.topic.as_str()).collect::<Vec<_>>(),
+            vec!["later", "chat", "early", "empty"]
+        );
     }
 
     #[tokio::test]
