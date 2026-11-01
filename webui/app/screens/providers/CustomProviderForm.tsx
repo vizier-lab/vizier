@@ -2,6 +2,32 @@ import { Button, FilterTabs, Notice, TextField, Textarea } from '@vizier/design'
 import { useState } from 'react'
 import { createCustom, testCustom, updateCustom, type CustomBody, type CustomModel, type CustomProtocol, type CustomProvider, type TestResult } from '../../api/endpoints/providers'
 
+/**
+ * The path Vizier appends to the base URL, as the transport builds it (`llm/dialect/openai_chat`
+ * and `anthropic`): OpenAI chat is `{base}/chat/completions`; Anthropic is `{base}/messages`, with
+ * `/v1` inserted in front when the base carries no version prefix.
+ */
+export function endpointFor(protocol: CustomProtocol, baseUrl: string): string {
+    const base = baseUrl.trim().replace(/\/+$/, '')
+    if (protocol === 'anthropic') {
+        return base.endsWith('/v1') ? '/messages' : '/v1/messages'
+    }
+    return '/chat/completions'
+}
+
+/** The endpoints a pasted URL may already carry, longest first, so the longest is removed. */
+const ENDPOINTS = ['/chat/completions', '/responses', '/completions', '/messages']
+
+/**
+ * The base URL without a trailing slash or endpoint. A value saved from a curl line
+ * (`https://host/v1/chat/completions`) is shown — and saved again — as the base Vizier appends to.
+ */
+export function withoutEndpoint(baseUrl: string): string {
+    const trimmed = baseUrl.trim().replace(/\/+$/, '')
+    const tail = ENDPOINTS.find((endpoint) => trimmed.endsWith(endpoint))
+    return tail ? trimmed.slice(0, -tail.length) : trimmed
+}
+
 type Props = {
     /** Editing this provider; absent creates one. */
     provider?: CustomProvider
@@ -15,7 +41,7 @@ type Props = {
 export function CustomProviderForm({ provider, initialName, onDone, onCancel }: Props) {
     const [name, setName] = useState(provider?.name ?? initialName ?? '')
     const [protocol, setProtocol] = useState<CustomProtocol>(provider?.protocol ?? 'openai_compatible')
-    const [baseUrl, setBaseUrl] = useState(provider?.base_url ?? '')
+    const [baseUrl, setBaseUrl] = useState(withoutEndpoint(provider?.base_url ?? ''))
     const [apiKey, setApiKey] = useState('')
     const [models, setModels] = useState((provider?.models ?? []).map((m) => m.id).join('\n'))
     const [busy, setBusy] = useState(false)
@@ -58,7 +84,15 @@ export function CustomProviderForm({ provider, initialName, onDone, onCancel }: 
                 value={protocol}
                 onChange={setProtocol}
             />
-            <TextField label="Base URL" mono value={baseUrl} placeholder="http://10.0.0.8:8000/v1" onChange={(e) => setBaseUrl(e.target.value)} />
+            <TextField
+                label="Base URL"
+                mono
+                value={baseUrl}
+                placeholder="http://10.0.0.8:8000/v1"
+                addon={endpointFor(protocol, baseUrl)}
+                helper={`Up to the version prefix — Vizier adds ${endpointFor(protocol, baseUrl)} itself.`}
+                onChange={(e) => setBaseUrl(e.target.value)}
+            />
             <TextField
                 label="API key"
                 mono
