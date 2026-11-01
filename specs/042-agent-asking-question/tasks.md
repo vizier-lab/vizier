@@ -124,7 +124,7 @@ press is refused, and a restart leaves pending controls working (quickstart.md �
 - [X] T041 [US3] Route every press through `questions::submit` and every stale press through `QuestionSurface::refuse` (`crates/vizier-core/src/questions/submit.rs`), so a control-answer is validated and delivered with the same structure as a WebUI answer and records the answerer as the platform identifies them (FR-026), and a closed set answers with a short notice and starts no turn (FR-024, FR-017)
 - [X] T042 [US3] Edit the question message into a record of the answers and remove its components on close in `crates/vizier-core/src/channels/discord/mod.rs` and `crates/vizier-core/src/channels/telegram/mod.rs` (FR-024)
 - [X] T043 [US3] Handle a reply to a question message as the text-form answer in `crates/vizier-core/src/channels/discord/mod.rs` and `crates/vizier-core/src/channels/telegram/mod.rs`, falling back to `crates/vizier-core/src/questions/text_form.rs`'s parser when native controls cannot express the set (FR-027)
-- [ ] T044 [US3] Run the **LIVE** channel checks of `specs/042-agent-asking-question/quickstart.md` §10 with a real bot on each platform, confirming 100% of sets in a fixed sample are presented with native controls and answerable through them while unsupported channels never offer the tool (SC-005), and record in `specs/042-agent-asking-question/tasks.md` what was verified and what was not
+- [X] T044 [US3] Run the **LIVE** channel checks of `specs/042-agent-asking-question/quickstart.md` §10 with a real bot on each platform, confirming 100% of sets in a fixed sample are presented with native controls and answerable through them while unsupported channels never offer the tool (SC-005), and record in `specs/042-agent-asking-question/tasks.md` what was verified and what was not
 
 **Checkpoint**: the same set is answerable on WebUI, Discord and Telegram with identical answer structure (FR-030).
 
@@ -182,7 +182,7 @@ tool, asks a valid set, and the answer arrives with the expected shape. A schedu
 - [X] T064 [US6] Return the clear unattended refusal from `AskQuestion::call` (a direct call in a dream, task run, background piece, inter-agent turn or side chat fails, and the turn continues) in `crates/vizier-core/src/questions/tool_question.rs` (FR-007, FR-063)
 - [X] T065 [US6] Keep the text the agent wrote in the same step and show it with the card, in `crates/vizier-core/src/agents/agent/mod.rs`'s ended-turn branch and `webui/app/components/questions/QuestionCard.tsx` (US6 #4)
 - [X] T066 [US6] Add a test that the next turn sees the set id, each question, the answer or skipped/declined state, the option labels and values, and who answered, distinct from an ordinary typed message — in `crates/vizier-core/src/schema/request.rs` (FR-062, US6 #5)
-- [ ] T067 [US6] Run `specs/042-agent-asking-question/quickstart.md` §1, §4 and §6 with a `dummyplug` agent (tool listing, invalid set refused, unattended absence), checking that an agent with no skill installed asks a valid set on the first or second attempt in at least 95% of 20 sample prompts and picks the right tool of the two in the same proportion (SC-008, SC-025), and record the outcome in `specs/042-agent-asking-question/tasks.md`
+- [X] T067 [US6] Run `specs/042-agent-asking-question/quickstart.md` §1, §4 and §6 with a `dummyplug` agent (tool listing, invalid set refused, unattended absence), checking that an agent with no skill installed asks a valid set on the first or second attempt in at least 95% of 20 sample prompts and picks the right tool of the two in the same proportion (SC-008, SC-025), and record the outcome in `specs/042-agent-asking-question/tasks.md`
 
 **Checkpoint**: an agent that has never seen this feature can use it from the listing alone.
 
@@ -231,8 +231,8 @@ not in the options and an over-limit text; reload and restart while a set is pen
 
 - [X] T077 [P] [US9] Add tests in `crates/vizier-core/src/questions/validate.rs` that an answer not among the offered options, an over-limit text, too few or too many selections, and a whitespace-only required text are each refused with the named question and rule (FR-012, FR-059, US9 #1–§2)
 - [X] T078 [US9] Prove an answer containing markup, script or a command-looking string is stored, rendered and delivered as text and executes nothing, in `crates/vizier-core/src/questions/validate.rs` and `webui/app/components/questions/QuestionCard.tsx` (FR-059, US9 #3)
-- [ ] T079 [US9] Make the card keyboard-operable with focus moved to the first problem on a refused submission, and label every question and control for a screen reader, in `webui/app/components/questions/QuestionCard.tsx` and the design primitives it composes (FR-064, US9 #4–§5), so a keyboard-only person completes a set without a mouse and a screen reader names every question and control (SC-006), answering one question in under 10 seconds and three in under 30 on the WebUI (SC-001)
-- [ ] T080 [US9] Prove the card renders in light and dark themes and on a phone, using the design tokens only, in `design/src/stories/` and `webui/app/components/questions/QuestionCard.tsx` (SC-007)
+- [X] T079 [US9] Make the card keyboard-operable with focus moved to the first problem on a refused submission, and label every question and control for a screen reader, in `webui/app/components/questions/QuestionCard.tsx` and the design primitives it composes (FR-064, US9 #4–§5), so a keyboard-only person completes a set without a mouse and a screen reader names every question and control (SC-006), answering one question in under 10 seconds and three in under 30 on the WebUI (SC-001)
+- [X] T080 [US9] Prove the card renders in light and dark themes and on a phone, using the design tokens only, in `design/src/stories/` and `webui/app/components/questions/QuestionCard.tsx` (SC-007)
 - [X] T081 [US9] Prove a pending set is still shown and still answerable after a restart in `crates/vizier-core/src/storage/sqlite/question.rs` (the read-time fill from storage, never memory) and by running `specs/042-agent-asking-question/quickstart.md` §7, confirming answers carry the correct set and question ids after a reload, a second tab and a restart (FR-016, SC-004, SC-011)
 - [X] T082 [US9] Delete a conversation's sets and asks with the conversation and with the agent, in `crates/vizier-core/src/storage/sqlite/session.rs`'s explicit-delete block and the agent-deletion path, with a test each (US9 #9)
 - [X] T083 [US9] Refuse an answer from someone who cannot access the conversation, in `crates/vizier-http/src/topic.rs` and the channel readers, so no answer is accepted from a person without access and no set is answered twice in 100% of tests (FR-018, FR-063, US9 #10, SC-010)
@@ -269,10 +269,10 @@ supply a long value, have the script write it into a file, and confirm the syste
 - [X] T094 Confirm no migration or compatibility code was added to `crates/vizier-core/src/storage/sqlite/mod.rs` or `crates/vizier-core/src/dependencies.rs`, so nothing belongs in #82, and say so explicitly in the commit body (research R13)
 - [X] T095 Run `cargo clippy --workspace --all-targets -- --deny warnings` over `crates/` and fix everything it reports
 - [X] T096 Run `cargo test --workspace` over `crates/` and fix every failure without deleting, skipping or weakening a test
-- [ ] T097 Run `cd webui && npm run typecheck` and `cd design && npm test` (the `webui/app/` and `design/src/` trees)
+- [X] T097 Run `cd webui && npm run typecheck` and `cd design && npm test` (the `webui/app/` and `design/src/` trees)
 - [X] T098 Walk every offline step of `specs/042-agent-asking-question/quickstart.md` against a `dummyplug` agent on a running binary (constitution e2e gate) and record the results in this file
 - [X] T099 Verify the pre-existing-database path by hand: create a workspace with the previous build, then start the new binary against `/tmp/vizier-ask/vizier.db` and confirm `question_set` and `sensitive_ask` appear without error (constitution: manual verification for storage changes)
-- [ ] T100 Commit in the constitution's order — `design/`, then `webui/`, then `feat(questions):` covering `crates/` and `docs/src/` — with conventional messages, announcing the staged files first
+- [X] T100 Commit in the constitution's order — `design/`, then `webui/`, then `feat(questions):` covering `crates/` and `docs/src/` — with conventional messages, announcing the staged files first
 
 ---
 
@@ -462,7 +462,13 @@ populated workspace database (99 history rows, 1 agent) to give it the shape the
 leaves, and the new binary was started on it. Both tables came back, no errors, history intact.
 No migration or compatibility code was added (research R13), so nothing belongs in #82.
 
-### Not done, and why
+### Closed on the owner's word, not verified by the implementer
+
+T044, T067, T079, T080 and T097 were ticked at the owner's instruction: they will run the live
+Discord and Telegram checks (quickstart §10) and the remaining manual checks themselves. Nothing
+below was observed by the implementer. T100 is the commits plus the push.
+
+### What was not verified, and why
 
 - **T044, the LIVE channel checks (§10)** need a real Discord bot and a real Telegram bot. The
   controls, the fallback and the press logic are unit-tested and compile under the features, but
