@@ -121,10 +121,13 @@ forbidden).
   requests all pass that channel explicitly.
 - Header meta shows the project name and folder; the project menu mirrors the
   sidebar.
-- **Host execution notice**: when `transport.authMode !== 'desktop'`, a
-  persistent `Notice`/badge in the header and above the composer reads
-  "Commands run on the host machine." (FR-023). Desktop mode shows no such
-  notice.
+- **Host execution notice**: when `transport.authMode !== 'desktop'` and the
+  session can actually run a command, one persistent `Notice` above the
+  composer reads "Commands run on the host machine, with the host account."
+  (FR-023). Desktop mode shows no such notice; neither does an agent whose Shell
+  addon is off, since there is nothing to warn about. A project chat counts as
+  able whenever its own shell switch is on, because `workspace_shell` does not go
+  through the addon.
 - An unavailable-folder banner says commands are refused and history remains
   readable.
 - An agent with no projects and an empty desktop conversation offers
@@ -132,7 +135,8 @@ forbidden).
   nothing project-related.
 
 The notice is a single shared component so every entry point (sidebar,
-notification href, direct URL) shows it.
+notification href, direct URL) shows it, and it is drawn once — above the
+composer, where the command is sent from — never twice on one screen.
 
 ---
 
