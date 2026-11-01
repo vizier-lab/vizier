@@ -10,6 +10,9 @@ import type {
     BackgroundJobSnapshot,
     ChatMessage,
     Frame,
+    QuestionRefusal,
+    QuestionSetUpdate,
+    SensitiveAsk,
     SessionFileRecord,
     VizierAttachment,
     VizierResponseContent,
@@ -52,6 +55,10 @@ export interface TopicState {
     /** The generated title, once the server sends it; the topic list's copy is older. */
     title: string | null
     session: ChatMessage['vizier_session']
+    /** Sensitive-input asks open on this conversation, by ask id. The dialog shows the oldest. */
+    asks: Record<string, SensitiveAsk>
+    /** The latest refusal of an answer to each question set, so its card names the question. */
+    refusals: Record<string, QuestionRefusal>
 }
 
 export type Action =
@@ -80,6 +87,8 @@ export function emptyTopic(session: ChatMessage['vizier_session'] = { agent_id: 
         stopped: false,
         title: null,
         session,
+        asks: {},
+        refusals: {},
     }
 }
 
@@ -94,6 +103,30 @@ const live = (state: TopicState, uid: string, timestamp: string, content: ChatMe
 function requestEntry(state: TopicState, id: string, text: string, now: string, attachments?: VizierAttachment[]): ChatMessage {
     return live(state, `req-${id}`, now, {
         Request: { timestamp: now, user: '', content: { chat: text }, ...(attachments?.length ? { attachments } : {}) },
+    })
+}
+
+/** The `client_error` codes that refuse an answer to a question set. */
+const QUESTION_ERRORS = new Set(['question_not_open', 'invalid_answer', 'answer_too_large', 'rate_limited', 'question_not_found', 'question_not_recorded'])
+
+function withoutKey<T>(record: Record<string, T>, key: string): Record<string, T> {
+    if (!(key in record)) return record
+    const { [key]: _gone, ...rest } = record
+    return rest
+}
+
+/** A set's state, answers and answerer, as the server last said. Nothing else about the entry changes. */
+function applyQuestionUpdate(entries: ChatMessage[], update: QuestionSetUpdate): ChatMessage[] {
+    return entries.map((entry) => {
+        const set = entry.content.QuestionSet
+        if (!set || set.set_id !== update.set_id) return entry
+        return {
+            ...entry,
+            content: {
+                ...entry.content,
+                QuestionSet: { ...set, state: update.state, answers: update.answers ?? null, answerer: update.answerer ?? null },
+            },
+        }
     })
 }
 
@@ -227,8 +260,36 @@ export function reduce(state: TopicState, action: Action): TopicState {
                     const rest = state.files.filter((f) => f.id !== frame.file.id)
                     return { ...state, files: [frame.file, ...rest] }
                 }
+                case 'question_set':
+                    return {
+                        ...state,
+                        entries: applyQuestionUpdate(state.entries, frame.update),
+                        // A set that closed has nothing left to refuse.
+                        refusals: withoutKey(state.refusals, frame.update.set_id),
+                    }
+                case 'sensitive_ask':
+                    return { ...state, asks: { ...state.asks, [frame.ask.ask_id]: frame.ask } }
+                case 'sensitive_ask_closed':
+                    return { ...state, asks: withoutKey(state.asks, frame.askId) }
                 case 'client': {
                     const f = frame.frame
+                    // The ask is gone on the server (answered elsewhere, timed out): so is its dialog.
+                    if ('client_error' in f && f.client_error.code === 'sensitive_ask_not_open' && f.client_error.call_id) {
+                        return { ...state, asks: withoutKey(state.asks, f.client_error.call_id) }
+                    }
+                    if ('client_error' in f && QUESTION_ERRORS.has(f.client_error.code) && f.client_error.set_id) {
+                        return {
+                            ...state,
+                            refusals: {
+                                ...state.refusals,
+                                [f.client_error.set_id]: {
+                                    code: f.client_error.code,
+                                    message: f.client_error.message,
+                                    questionId: f.client_error.question_id,
+                                },
+                            },
+                        }
+                    }
                     if ('client_tool_call' in f) {
                         return { ...state, entries: appendClientCall(state.entries, f.client_tool_call, state.session) }
                     }

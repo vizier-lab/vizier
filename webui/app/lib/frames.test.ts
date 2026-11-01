@@ -237,3 +237,75 @@ describe('paging history', () => {
         expect(s.entries.map((e) => e.uid)).toEqual(['a', 'b', 'c', 'd'])
     })
 })
+
+
+describe('questions the agent asked (spec 042)', () => {
+    const set = (state: 'pending' | 'answered' = 'pending') =>
+        entry('h-q', {
+            QuestionSet: {
+                set_id: 'set-1',
+                questions: [{ id: 'db', prompt: 'Database', type: 'choice', options: [{ value: 'pg', label: 'PostgreSQL' }] }],
+                state,
+            },
+        })
+
+    it('draws a pending card from a history entry and groups it into the turn that asked', () => {
+        const s = run(start(), frame({ kind: 'history_entry', entry: request() }), frame({ kind: 'history_entry', entry: set() }))
+        const turns = groupHistory(s.entries)
+        expect(turns).toHaveLength(1)
+        expect(turns[0].questions.map((e) => e.content.QuestionSet?.set_id)).toEqual(['set-1'])
+        // The card is part of the open turn, so it renders live.
+        expect(openTurn(turns)?.questions).toHaveLength(1)
+    })
+
+    it('closes the card on a question_set frame, from any socket, leaving the rest of the entry alone', () => {
+        let s = run(start(), frame({ kind: 'history_entry', entry: set() }))
+        s = run(
+            s,
+            frame({
+                kind: 'question_set',
+                update: { set_id: 'set-1', state: 'answered', answers: [{ question_id: 'db', state: 'answered', value: 'pg' }], answerer: 'alice' },
+            })
+        )
+        const card = s.entries[0].content.QuestionSet
+        expect(card?.state).toBe('answered')
+        expect(card?.answerer).toBe('alice')
+        expect(card?.answers).toEqual([{ question_id: 'db', state: 'answered', value: 'pg' }])
+        expect(card?.questions).toHaveLength(1)
+        // An update for another set changes nothing.
+        const same = run(s, frame({ kind: 'question_set', update: { set_id: 'other', state: 'declined' } }))
+        expect(same.entries[0].content.QuestionSet?.state).toBe('answered')
+    })
+
+    it('keeps the fields and names the question when an answer is refused, and forgets it once the set closes', () => {
+        let s = run(start(), frame({ kind: 'history_entry', entry: set() }))
+        s = run(s, frame({ kind: 'client', frame: { client_error: { code: 'invalid_answer', message: 'not offered', set_id: 'set-1', question_id: 'db', rule: 'value_not_offered' } } }))
+        expect(s.refusals['set-1']).toEqual({ code: 'invalid_answer', message: 'not offered', questionId: 'db' })
+        s = run(s, frame({ kind: 'question_set', update: { set_id: 'set-1', state: 'answered' } }))
+        expect(s.refusals['set-1']).toBeUndefined()
+    })
+
+    it('opens a sensitive ask on every socket and closes it on the first answer anywhere', () => {
+        const ask = { ask_id: 'a1', purpose: 'to push', protected: true, min_bytes: 8, max_bytes: 65536 }
+        let s = run(start(), frame({ kind: 'sensitive_ask', ask }))
+        expect(Object.keys(s.asks)).toEqual(['a1'])
+        // Replayed on reconnect: the same ask, not a second dialog.
+        s = run(s, frame({ kind: 'sensitive_ask', ask }))
+        expect(Object.keys(s.asks)).toEqual(['a1'])
+        s = run(s, frame({ kind: 'sensitive_ask_closed', askId: 'a1', outcome: 'provided' }))
+        expect(s.asks).toEqual({})
+    })
+
+    it('drops a dialog the server says is no longer open', () => {
+        const ask = { ask_id: 'a1', purpose: 'p', protected: true, min_bytes: 8, max_bytes: 10 }
+        let s = run(start(), frame({ kind: 'sensitive_ask', ask }))
+        s = run(s, frame({ kind: 'client', frame: { client_error: { code: 'sensitive_ask_not_open', message: 'closed', call_id: 'a1' } } }))
+        expect(s.asks).toEqual({})
+    })
+
+    it('never holds a sensitive value: the ask carries a purpose only', () => {
+        const ask = { ask_id: 'a1', purpose: 'p', protected: true, min_bytes: 8, max_bytes: 10 }
+        const s = run(start(), frame({ kind: 'sensitive_ask', ask }))
+        expect(JSON.stringify(s)).not.toContain('value')
+    })
+})

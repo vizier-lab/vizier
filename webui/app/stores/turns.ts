@@ -6,7 +6,7 @@ import {
     topicHistory,
     topicJobs,
 } from '../api/endpoints/chat'
-import { classifyFrame, type ChatMessage, type VizierRequestContent } from '../api/frames'
+import { classifyFrame, type ChatMessage, type QuestionAnswerPayload, type VizierRequestContent } from '../api/frames'
 import { emptyTopic, nextQueued, reduce, type Action, type TopicState } from '../lib/frames'
 import { handleClientCall } from '../lib/clientTools'
 import { playNotify } from '../lib/sound'
@@ -40,6 +40,10 @@ type TurnStore = {
     sendAudio: (agentId: string, topicId: string, attachment: object) => void
     clientEvent: (agentId: string, topicId: string, text: string, data?: unknown, sourceCallId?: string) => void
     saveClientState: (agentId: string, topicId: string, callId: string, state: unknown) => void
+    /** Submit (or dismiss) a question set the agent asked: one ordinary request, claimed once on the server. */
+    answerQuestions: (agentId: string, topicId: string, answer: QuestionAnswerPayload) => void
+    /** Hand a sensitive value to the script that asked, or decline. The value is sent once and kept nowhere. */
+    answerSensitive: (agentId: string, topicId: string, askId: string, value: string | null) => void
     command: (agentId: string, topicId: string, command: 'abort' | 'checkpoint' | 'lobotomy') => void
     react: (agentId: string, topicId: string, uid: string, emoji: string, action: 'added' | 'removed') => void
     loadOlder: (agentId: string, topicId: string) => Promise<void>
@@ -240,6 +244,28 @@ export const useTurns = create<TurnStore>()((set, get) => {
             if (useConnection.getState().send(agentId, topicId, request(content)) && idle) {
                 dispatch(agentId, topicId, { type: 'send', id: String(nextId++), text, now: new Date().toISOString() })
             }
+        },
+
+        answerQuestions: (agentId, topicId, answer) => {
+            const content = { question_answer: answer } as VizierRequestContent
+            const key = topicKey(agentId, topicId)
+            const idle = (get().topics[key]?.phase ?? 'idle') === 'idle'
+            if (useConnection.getState().send(agentId, topicId, request(content)) && idle) {
+                // Drawn at once as the person's message; the stored request, with the server's own
+                // summary, replaces it when it arrives.
+                dispatch(agentId, topicId, {
+                    type: 'send',
+                    id: String(nextId++),
+                    text: answer.declined ? 'Dismissed the questions.' : 'Answered the questions.',
+                    now: new Date().toISOString(),
+                })
+            }
+        },
+
+        answerSensitive: (agentId, topicId, askId, value) => {
+            useConnection
+                .getState()
+                .send(agentId, topicId, { sensitive_input_answer: value === null ? { ask_id: askId, decline: true } : { ask_id: askId, value } })
         },
 
         saveClientState: (agentId, topicId, callId, state) => {
