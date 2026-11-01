@@ -65,6 +65,16 @@ pub const SHORT_ID_BYTES: usize = 8;
 /// (FR-051). A person is present; a script still has its own budget.
 pub const ASK_WAIT: Duration = Duration::from_secs(120);
 
+/// Shortest a sensitive value may be. Re-exported from the redactor rather than restated, so a
+/// value is either protectable or explicitly flagged as not (FR-056).
+pub const MIN_SENSITIVE_VALUE_BYTES: usize = crate::secrets::MIN_VALUE_BYTES;
+
+/// Longest a sensitive value may be. The redactor's own maximum (FR-056).
+pub const MAX_SENSITIVE_VALUE_BYTES: usize = crate::secrets::MAX_VALUE_BYTES;
+
+/// Longest a sensitive ask's stated purpose may be, in bytes.
+pub const MAX_ASK_PURPOSE_BYTES: usize = 1_000;
+
 /// Most question sets one turn may present (FR-008).
 pub const MAX_SETS_PER_TURN: usize = 1;
 

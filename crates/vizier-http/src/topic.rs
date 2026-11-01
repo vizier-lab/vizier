@@ -107,6 +107,26 @@ impl TopicConnection {
         // Calls deferred while no client was here are this connection's to deliver first.
         spawn_delivery(&state.storage, &state.transport, &session, &connection, &limits.deferred, None);
 
+        // A dialog still open survives a reload or a second tab: the asks are replayed from
+        // storage, so nothing about a live ask is held only in the process that asked
+        // (`specs/042-agent-asking-question` FR-048).
+        if let Ok(asks) = vizier_core::storage::question::SensitiveAskStorage::sensitive_asks(
+            &state.storage,
+            &session,
+            vizier_core::questions::model::AskState::Open,
+        )
+        .await
+        {
+            for ask in asks {
+                state
+                    .transport
+                    .publish_session_event(vizier_core::transport::SessionEvent {
+                        session: session.clone(),
+                        frame: vizier_core::transport::SessionFrame::SensitiveAsk(ask),
+                    });
+            }
+        }
+
         // Background job changes, reactions, and the frames of every turn on this session: the
         // ones a background report woke and the ones a person started from any connection,
         // this one included. A turn's frames are published only there, so nothing arrives twice.
@@ -157,7 +177,50 @@ impl TopicConnection {
                         let frame = Some(frame);
                         let client_frame = |key: &str| frame.as_ref().and_then(|f| f.get(key)).filter(|p| p.is_object());
 
-                        if let Some(payload) = client_frame("client_tool_result") {
+                        if let Some(payload) = client_frame("sensitive_input_answer") {
+                            let ask_id = payload.get("ask_id").and_then(|v| v.as_str()).unwrap_or_default();
+                            let reply = if payload.get("decline").and_then(|v| v.as_bool()) == Some(true) {
+                                Some(vizier_core::questions::AskReply::Declined)
+                            } else {
+                                match payload.get("value").and_then(|v| v.as_str()) {
+                                    // Never trimmed or normalised: the value is what the person
+                                    // typed (spec 042 FR-037). Only emptiness is refused.
+                                    Some(value) if value.trim().is_empty() => {
+                                        send_frame(client_error(
+                                            "sensitive_value_empty",
+                                            None,
+                                            "a value is required; dismiss the dialog to decline",
+                                        ))
+                                        .await;
+                                        return;
+                                    }
+                                    Some(value) if value.len() > vizier_core::questions::limits::MAX_SENSITIVE_VALUE_BYTES => {
+                                        send_frame(client_error(
+                                            "sensitive_value_too_large",
+                                            None,
+                                            format!(
+                                                "the value is {} bytes; the limit is {}",
+                                                value.len(),
+                                                vizier_core::questions::limits::MAX_SENSITIVE_VALUE_BYTES
+                                            ),
+                                        ))
+                                        .await;
+                                        return;
+                                    }
+                                    Some(value) => Some(vizier_core::questions::AskReply::Value(value.to_string())),
+                                    None => None,
+                                }
+                            };
+                            let answered = reply.is_some_and(|reply| self.questions.answer(ask_id, reply));
+                            if !answered {
+                                send_frame(client_error(
+                                    "sensitive_ask_not_open",
+                                    Some(ask_id),
+                                    "this dialog is no longer open",
+                                ))
+                                .await;
+                            }
+                        } else if let Some(payload) = client_frame("client_tool_result") {
                             if let Err(error) = client_tool_result(&self.connection, payload) {
                                 send_frame(error).await;
                             }
@@ -384,6 +447,28 @@ impl TopicOutbound {
                                         "answers": answers,
                                         "answerer": answerer,
                                     }
+                                }))
+                            }
+                            // The dialog carries the ask and never a value (spec 042 FR-044).
+                            SessionFrame::SensitiveAsk(ask) => Some(serde_json::json!({
+                                "sensitive_ask": {
+                                    "ask_id": ask.ask_id,
+                                    "label": ask.label,
+                                    "purpose": ask.purpose,
+                                    // What a person may submit: the redactor's own bounds, so the
+                                    // dialog can warn before submission, not after.
+                                    "protected": true,
+                                    "min_bytes": vizier_core::questions::limits::MIN_SENSITIVE_VALUE_BYTES,
+                                    "max_bytes": vizier_core::questions::limits::MAX_SENSITIVE_VALUE_BYTES,
+                                    "expires_at": ask.requested_at
+                                        + chrono::Duration::from_std(
+                                            vizier_core::questions::limits::ASK_WAIT
+                                        ).unwrap_or_default(),
+                                }
+                            })),
+                            SessionFrame::SensitiveAskClosed { ask_id, outcome } => {
+                                Some(serde_json::json!({
+                                    "sensitive_ask_closed": { "ask_id": ask_id, "outcome": outcome }
                                 }))
                             }
                         };

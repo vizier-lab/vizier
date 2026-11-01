@@ -410,7 +410,8 @@ impl Claim {
 /// The value lives only in this struct, only until the script has it. `Debug` is implemented by
 /// hand to leave it out, so a stray `{:?}` in a log line or a panic message cannot print it
 /// (FR-041).
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum SensitiveOutcome {
     /// The person supplied a value.

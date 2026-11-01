@@ -418,6 +418,7 @@ impl SqliteStorage {
         init_usage_schema(conn)?;
         init_client_call_schema(conn)?;
         init_question_schema(conn)?;
+        init_sensitive_ask_schema(conn)?;
         init_scratch_schema(conn)?;
         init_turn_schema(conn)?;
         init_secret_schema(conn)?;
@@ -628,6 +629,36 @@ pub fn init_question_schema(conn: &Connection) -> Result<()> {
         );
         CREATE INDEX IF NOT EXISTS idx_qs_session ON question_set(agent_id, channel, topic);
         CREATE UNIQUE INDEX IF NOT EXISTS idx_qs_short ON question_set(short_id);
+        ",
+    )?;
+    Ok(())
+}
+
+
+/// The `sensitive_ask` table (`specs/042-agent-asking-question/data-model.md` §9): one row per ask
+/// for a sensitive value. It holds **no value** — only that one was wanted, why, and what came of
+/// it (FR-044). The value lives in the running tool until the script takes it.
+///
+/// New table, so no migration (research R13). Split out like [`init_question_schema`] so the
+/// tests can stand it up on an in-memory connection.
+pub fn init_sensitive_ask_schema(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "
+        CREATE TABLE IF NOT EXISTS sensitive_ask (
+            ask_id       TEXT PRIMARY KEY,
+            agent_id     TEXT NOT NULL,
+            channel      TEXT NOT NULL,
+            channel_json TEXT NOT NULL,
+            topic        TEXT,
+            purpose      TEXT NOT NULL,
+            label        TEXT,
+            state        TEXT NOT NULL,
+            requested_at INTEGER NOT NULL,
+            closed_at    INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_sa_session
+            ON sensitive_ask(agent_id, channel, topic, state);
+        CREATE INDEX IF NOT EXISTS idx_sa_open ON sensitive_ask(state) WHERE state = 'open';
         ",
     )?;
     Ok(())

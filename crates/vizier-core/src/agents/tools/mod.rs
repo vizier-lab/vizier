@@ -1354,6 +1354,10 @@ impl BaseTools {
                 deps.transport.clone(),
                 deps.questions.clone(),
             ))
+            .tool(crate::questions::tool_sensitive::AskSensitiveInput::new(
+                deps.storage.clone(),
+                deps.transport.clone(),
+            ))
             .tool(vector_memory::attachments::AttachArtifactToMemory {
                 agent_id: agent_id.clone(),
                 storage: deps.storage.clone(),

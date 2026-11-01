@@ -293,6 +293,18 @@ pub async fn agent_process(
                     seal_open_calls(&deps.storage, &deps.transport, &session, None, StopReason::InternalError).await;
                 }
                 if finished.outcome != TurnOutcome::Done {
+                    // A dialog belongs to the turn that opened it: an aborted, panicked or
+                    // dropped turn leaves no ask answerable (`specs/042-agent-asking-question`
+                    // FR-049).
+                    crate::questions::sensitive::abandon_session(
+                        &deps.storage,
+                        &deps.transport,
+                        &deps.questions,
+                        &session,
+                    )
+                    .await;
+                }
+                if finished.outcome != TurnOutcome::Done {
                     recover_failed_turn(&session, finished.outcome, finished.response_tx, &mut thinking_handles, &deps.storage);
                 }
 

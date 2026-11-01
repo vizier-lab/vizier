@@ -25,7 +25,7 @@ use crate::{
         notification::NotificationStorage,
         project::ProjectStorage,
         provider::{CustomProviderStorage, ProviderStorage},
-        question::QuestionStorage,
+        question::{QuestionStorage, SensitiveAskStorage},
         reaction::ReactionStorage,
         scratch::ScratchStorage,
         secret::SecretStorage,
@@ -105,7 +105,8 @@ where
         + SecretStorage
         + NotificationStorage
         + ProjectStorage
-        + QuestionStorage,
+        + QuestionStorage
+        + SensitiveAskStorage,
 {
 }
 

@@ -88,6 +88,16 @@ pub enum SessionHistoryContent {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         answerer: Option<String>,
     },
+    /// An ask for a sensitive value (`specs/042-agent-asking-question`). Says that one was
+    /// requested, why, and what came of it — **never the value** (FR-044, FR-054). Its `state` is
+    /// filled at read time from `sensitive_ask`.
+    SensitiveAsk {
+        ask_id: String,
+        purpose: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        label: Option<String>,
+        state: crate::questions::model::AskState,
+    },
 }
 
 impl SessionHistoryContent {
@@ -397,6 +407,10 @@ pub fn history_entries_to_messages(entries: &[SessionHistory]) -> Vec<Message> {
                 // Display only. The answers reach the model as the person's `QuestionAnswer`
                 // request — replayed here as well, a set would show the model a question it
                 // asked as if the person had typed it.
+            }
+            SessionHistoryContent::SensitiveAsk { .. } => {
+                // Display only, and deliberately so: the record exists to tell a person that a
+                // value was requested. Replaying it would tell the agent nothing new.
             }
         }
     }
@@ -756,6 +770,7 @@ mod tests {
                 SessionHistoryContent::ClientToolCall { .. } => "ClientToolCall",
                 SessionHistoryContent::Recall { .. } => "Recall",
                 SessionHistoryContent::QuestionSet { .. } => "QuestionSet",
+                SessionHistoryContent::SensitiveAsk { .. } => "SensitiveAsk",
             })
             .collect()
     }

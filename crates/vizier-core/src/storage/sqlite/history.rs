@@ -255,6 +255,7 @@ fn content_type_discriminant(content: &SessionHistoryContent) -> &'static str {
         SessionHistoryContent::ClientToolCall { .. } => "ClientToolCall",
         SessionHistoryContent::Recall { .. } => "Recall",
         SessionHistoryContent::QuestionSet { .. } => "QuestionSet",
+        SessionHistoryContent::SensitiveAsk { .. } => "SensitiveAsk",
     }
 }
 

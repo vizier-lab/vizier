@@ -497,3 +497,124 @@ mod tests {
         assert_eq!(after.controls, Some(controls));
     }
 }
+
+/// The columns a sensitive ask is read from, matching [`ask_row`].
+const ASK_COLUMNS: &str = "ask_id, agent_id, channel_json, topic, purpose, label, state, \
+                           requested_at, closed_at";
+
+fn ask_row(row: &Row<'_>) -> rusqlite::Result<crate::questions::model::SensitiveAskRecord> {
+    use crate::questions::model::{AskState, SensitiveAskRecord};
+
+    let agent_id: String = row.get(1)?;
+    let channel_json: String = row.get(2)?;
+    let topic: Option<String> = row.get(3)?;
+    let state: String = row.get(6)?;
+    let requested_at: i64 = row.get(7)?;
+    let closed_at: Option<i64> = row.get(8)?;
+
+    let channel = serde_json::from_str(&channel_json).map_err(|e| {
+        rusqlite::Error::FromSqlConversionFailure(2, rusqlite::types::Type::Text, Box::new(e))
+    })?;
+
+    Ok(SensitiveAskRecord {
+        ask_id: row.get(0)?,
+        purpose: row.get(4)?,
+        label: row.get(5)?,
+        session: VizierSession(agent_id, channel, topic),
+        state: AskState::from_str(&state),
+        requested_at: DateTime::from_timestamp_millis(requested_at).unwrap_or_else(Utc::now),
+        closed_at: closed_at.and_then(DateTime::from_timestamp_millis),
+    })
+}
+
+#[async_trait::async_trait]
+impl crate::storage::question::SensitiveAskStorage for SqliteStorage {
+    async fn open_sensitive_ask(
+        &self,
+        record: &crate::questions::model::SensitiveAskRecord,
+    ) -> Result<()> {
+        let channel_json = serde_json::to_string(&record.session.1)?;
+        let conn = self.conn.lock();
+        conn.execute(
+            "INSERT INTO sensitive_ask
+                (ask_id, agent_id, channel, channel_json, topic, purpose, label, state,
+                 requested_at, closed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, NULL)",
+            rusqlite::params![
+                record.ask_id,
+                record.session.0,
+                record.session.1.to_slug(),
+                channel_json,
+                record.session.2,
+                record.purpose,
+                record.label,
+                record.state.as_str(),
+                millis(record.requested_at),
+            ],
+        )?;
+        Ok(())
+    }
+
+    async fn close_sensitive_ask(
+        &self,
+        ask_id: &str,
+        state: crate::questions::model::AskState,
+    ) -> Result<bool> {
+        let conn = self.conn.lock();
+        // Only an open ask changes: a late submission after a timeout, or a second tab's answer,
+        // finds nothing to update (FR-049).
+        let changed = conn.execute(
+            "UPDATE sensitive_ask SET state = ?1, closed_at = ?2
+              WHERE ask_id = ?3 AND state = 'open'",
+            rusqlite::params![state.as_str(), millis(Utc::now()), ask_id],
+        )?;
+        Ok(changed > 0)
+    }
+
+    async fn get_sensitive_ask(
+        &self,
+        ask_id: &str,
+    ) -> Result<Option<crate::questions::model::SensitiveAskRecord>> {
+        let conn = self.conn.lock();
+        Ok(conn
+            .query_row(
+                &format!("SELECT {ASK_COLUMNS} FROM sensitive_ask WHERE ask_id = ?1"),
+                [ask_id],
+                ask_row,
+            )
+            .optional()?)
+    }
+
+    async fn sensitive_asks(
+        &self,
+        session: &VizierSession,
+        state: crate::questions::model::AskState,
+    ) -> Result<Vec<crate::questions::model::SensitiveAskRecord>> {
+        let conn = self.conn.lock();
+        let mut stmt = conn.prepare(&format!(
+            "SELECT {ASK_COLUMNS} FROM sensitive_ask
+              WHERE state = ?1 AND agent_id = ?2 AND channel = ?3 AND topic IS ?4
+              ORDER BY requested_at, rowid"
+        ))?;
+        let records = stmt
+            .query_map(
+                rusqlite::params![state.as_str(), session.0, session.1.to_slug(), session.2],
+                ask_row,
+            )?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(records)
+    }
+
+    async fn open_sensitive_asks_all(
+        &self,
+    ) -> Result<Vec<crate::questions::model::SensitiveAskRecord>> {
+        let conn = self.conn.lock();
+        let mut stmt = conn.prepare(&format!(
+            "SELECT {ASK_COLUMNS} FROM sensitive_ask WHERE state = 'open' ORDER BY requested_at"
+        ))?;
+        let records = stmt
+            .query_map([], ask_row)?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(records)
+    }
+}

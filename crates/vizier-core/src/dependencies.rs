@@ -191,6 +191,10 @@ impl VizierDependencies {
         let interrupted_runs = Self::interrupt_orphaned_task_runs(&storage).await?;
         let interrupted_jobs = Self::interrupt_orphaned_background_jobs(&storage).await;
         Self::interrupt_orphaned_client_calls(&storage).await;
+        // A dialog cannot outlive the process awaiting it (`specs/042-agent-asking-question`
+        // research R9): a restart abandons every ask still open, so none is answerable against a
+        // turn that no longer exists.
+        crate::questions::sensitive::abandon_open_asks(&storage).await;
         Self::clear_orphaned_scratch(&storage).await;
         crate::skill::builtin::seed_builtin_skills(&config.workspace, &storage).await;
         // Never blocks startup: it is retried on the next start until it has finished.

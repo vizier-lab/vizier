@@ -113,3 +113,78 @@ impl QuestionStorage for VizierStorage {
         self.0.open_question_sets_all().await
     }
 }
+
+/// The sensitive asks of one conversation (`specs/042-agent-asking-question` research R9).
+///
+/// A row records that a value was asked for and what came of it, never the value (FR-044). It is
+/// what the transcript shows and what a socket replays when it opens, so a dialog survives a
+/// reload without the value ever existing anywhere but in the running tool.
+#[async_trait::async_trait]
+pub trait SensitiveAskStorage {
+    /// Record an ask as `open`, when the dialog goes up.
+    async fn open_sensitive_ask(&self, record: &crate::questions::model::SensitiveAskRecord)
+    -> Result<()>;
+
+    /// Close an open ask with `state`. Only an `open` row changes, so a late submission after a
+    /// timeout cannot reopen or rewrite one (FR-049). Returns whether this call closed it.
+    async fn close_sensitive_ask(
+        &self,
+        ask_id: &str,
+        state: crate::questions::model::AskState,
+    ) -> Result<bool>;
+
+    /// One ask by id.
+    async fn get_sensitive_ask(
+        &self,
+        ask_id: &str,
+    ) -> Result<Option<crate::questions::model::SensitiveAskRecord>>;
+
+    /// The asks of a conversation with this state, oldest first.
+    async fn sensitive_asks(
+        &self,
+        session: &VizierSession,
+        state: crate::questions::model::AskState,
+    ) -> Result<Vec<crate::questions::model::SensitiveAskRecord>>;
+
+    /// Every open ask in the database: startup has no conversation to scope to (research R9).
+    async fn open_sensitive_asks_all(&self) -> Result<Vec<crate::questions::model::SensitiveAskRecord>>;
+}
+
+#[async_trait::async_trait]
+impl SensitiveAskStorage for VizierStorage {
+    async fn open_sensitive_ask(
+        &self,
+        record: &crate::questions::model::SensitiveAskRecord,
+    ) -> Result<()> {
+        self.0.open_sensitive_ask(record).await
+    }
+
+    async fn close_sensitive_ask(
+        &self,
+        ask_id: &str,
+        state: crate::questions::model::AskState,
+    ) -> Result<bool> {
+        self.0.close_sensitive_ask(ask_id, state).await
+    }
+
+    async fn get_sensitive_ask(
+        &self,
+        ask_id: &str,
+    ) -> Result<Option<crate::questions::model::SensitiveAskRecord>> {
+        self.0.get_sensitive_ask(ask_id).await
+    }
+
+    async fn sensitive_asks(
+        &self,
+        session: &VizierSession,
+        state: crate::questions::model::AskState,
+    ) -> Result<Vec<crate::questions::model::SensitiveAskRecord>> {
+        self.0.sensitive_asks(session, state).await
+    }
+
+    async fn open_sensitive_asks_all(
+        &self,
+    ) -> Result<Vec<crate::questions::model::SensitiveAskRecord>> {
+        self.0.open_sensitive_asks_all().await
+    }
+}
