@@ -70,19 +70,23 @@ The engine cannot split these for the agent: the right seam is the agent's judge
 
 ---
 
-### User Story 4 - A person can review an agent's identity like any other memory (Priority: P3)
+### User Story 4 - A person reviews an agent's identity where every other memory lives, and the separate area is gone (Priority: P3)
 
-A person responsible for an agent can read its soul, see how it changed over time, and restore an earlier version, and can browse the core bundle alongside everything else the agent knows rather than in a separate area of the interface.
+A person responsible for an agent can read its identity, see how it changed over time, and restore an earlier version — but the dedicated area that used to exist only for this has no reason to survive. Once identity is a memory, a page built solely to show one document is a second place to look for something already reachable from the first, and it carries its own editor, its own history view and its own navigation entry for a document that now has none of those privileges.
 
-**Why this priority**: Reviewability is the payoff of unification for people rather than agents, but the agent-facing behaviour is what makes the feature worth building, so it follows.
+So the area is **removed, not redirected**: the reserved bundle is browsed, opened and edited in the memory surfaces like any other, and the navigation entry for it goes away. What must not be lost is the *behaviour* it carried — finding it quickly, its revision history, restoring a revision, and refusing a stale save.
 
-**Independent Test**: Open an agent's core bundle in the memory view, open the soul, view its revision history, diff two revisions, restore one, and confirm each step works and that the restored text is what the agent sees next turn.
+**Why this priority**: This is what makes the unification real for people rather than cosmetic. Leaving a bespoke page behind would mean the system still has two ways to see identity, which is the thing the feature exists to remove.
+
+**Independent Test**: Confirm the identity area no longer exists — its entry is gone from the agent's navigation and its address is not served. Then, from the memory surfaces alone, open the reserved bundle, open the identity document, view and compare its revisions, restore one, and confirm the restored text is what the agent sees next turn.
 
 **Acceptance Scenarios**:
 
-1. **Given** an agent with a soul, **When** a person opens the core bundle, **Then** they see the soul listed and can open it.
-2. **Given** a soul with several revisions, **When** a person views its history, **Then** they see each revision with who or what wrote it, and can compare and restore as they can for any other memory.
-3. **Given** a person editing a soul from a stale view, **When** they save, **Then** the save is refused with the newer content shown, rather than overwriting it.
+1. **Given** an agent, **When** a person looks at its navigation, **Then** no separate identity entry is offered, and the agent's memory is where identity is found.
+2. **Given** an address for the former identity area, **When** it is visited, **Then** it is not served as a working page.
+3. **Given** an agent with an identity document, **When** a person opens the reserved bundle in the memory view, **Then** they see the document listed and can open it.
+4. **Given** an identity document with several revisions, **When** a person views its history, **Then** they see each revision with who or what wrote it, and can compare and restore as they can for any other memory.
+5. **Given** a person editing the identity document from a stale view, **When** they save, **Then** the save is refused with the newer content shown, rather than overwriting it.
 
 ### Edge Cases
 
@@ -95,7 +99,8 @@ A person responsible for an agent can read its soul, see how it changed over tim
 - An agent's pre-existing identity content is larger than the soul's own ceiling: the upgrade must still succeed. The content is migrated as it is — never refused and never split — and the agent's next edit of it is what brings it within the limit.
 - The comfortable size and ceiling are changed for an agent after the fact: subsequent writes are judged against the new values, and no existing memory becomes unreadable.
 - The core bundle is empty because its soul was removed: memory listing still shows the core bundle as reserved rather than dropping it.
-- An install still holds files written by the earlier per-document model: nothing reads them, nothing is promised about them, and no upgrade path is offered for them — the only document an agent has is its soul in the core bundle.
+- An install still holds files written by the earlier per-document model: nothing reads them, nothing is promised about them, and no upgrade path is offered for them — the only identity document an agent has is the one in the reserved bundle.
+- A person has the former identity area bookmarked or open in a tab: the address no longer serves it, and reaching identity takes the memory surfaces instead.
 - An agent writes a memory just under the ceiling that is a single indivisible block, such as a large pasted table: it is accepted, and the warning still applies if it is above the comfortable size.
 
 ## Requirements *(mandatory)*
@@ -139,10 +144,10 @@ A person responsible for an agent can read its soul, see how it changed over tim
 
 **Interface**
 
-- **FR-027**: A person MUST be able to read a soul, view its revision history, compare revisions, and restore one, through the surfaces already used for memory revisions.
+- **FR-027**: A person MUST be able to read the identity document, view its revision history, compare revisions, and restore one, entirely through the memory surfaces — the bundle list, the document view, and the revision history already used for memory revisions. No separate area of the interface for identity MUST remain: the reserved bundle is browsed and edited exactly like any other.
 - **FR-028**: A concurrent edit from a stale view MUST be refused with the newer content shown, rather than overwriting it.
-- **FR-029**: Existing interfaces that read, write, and version an agent's identity MUST continue to answer with the same shapes, so that a person does not have to change what they use.
-- **FR-030**: Every place that names the old concept — the doctrine and tool guidance the agent receives, the tool-name lists that decide what an agent may call, the progress labels a person sees, the templates a new agent is seeded from, the management interface's labels, and the documentation and website copy — MUST be updated in the same change, so that no surface tells an agent or a person to use something that no longer exists.
+- **FR-029**: Removing the separate identity area MUST NOT lose behaviour it carried: choosing the identity from the agent's navigation, viewing and comparing its revisions, restoring one, and refusing a save made from a stale view MUST all remain reachable from the memory surfaces. The separate area itself MUST be removed, not redirected.
+- **FR-030**: Every place that refers to the old arrangement — the doctrine and tool guidance the agent receives, the tool-name lists that decide what an agent may call, the progress labels a person sees, the navigation entry and pages that exist only for identity, the templates a new agent is seeded from, and the documentation and website copy — MUST be updated or removed in the same change, so that no surface offers an agent or a person something that no longer exists. The product-facing term for identity does not change: what changes is where it lives.
 
 ### Key Entities
 
@@ -159,7 +164,7 @@ A person responsible for an agent can read its soul, see how it changed over tim
 - **SC-002**: An agent's context cost for its identity is unchanged by the upgrade beyond the fixed wrapper that marks it as memory, verified as a cached prefix that is stable across consecutive turns for sampled agents.
 - **SC-003**: An agent sees its identity on 100% of turns, including after the soul has been removed — measured as zero turns with an empty or missing identity section.
 - **SC-004**: An agent no longer has a second vocabulary to choose from: the number of operations that exist only for identity is zero, and the existing ability to read and write identity is reachable through the memory operations.
-- **SC-005**: A person can complete the task "find an agent's identity, compare it with last week's, and restore last week's" without visiting a second area of the interface, in under a minute.
+- **SC-005**: A person can complete the task "find an agent's identity, compare it with last week's, and restore last week's" from the memory surfaces alone in under a minute, and there are zero interface entries, routes or pages that exist only for identity.
 - **SC-006**: Zero successful writes are silently truncated: every write either saves the caller's content in full or fails with a refusal that names the overage.
 - **SC-007**: Memories stop growing without bound: over a sample of at least 100 memory writes by agents after the change, the share of writes receiving a soft-limit warning is measurably non-zero and the share refused by the ceiling is small, showing the warning guides rather than the refusal.
 - **SC-008**: No memory becomes unreadable or uneditable as a result of the limits, verified against a corpus containing documents above the ceiling.
@@ -168,8 +173,8 @@ A person responsible for an agent can read its soul, see how it changed over tim
 
 ## Assumptions
 
-- The reserved bundle is named `core` and its soul document lives at path `soul`, giving the address `core/soul`. This is the requested naming; `core` is reserved and is not a valid destination for general memories.
-- "Soul" is a restoration, not a new coinage: the identity document was called a soul before it was renamed to a core document, and the file-based soul, identity and heartbeat documents were retired at that point. A management interface for them survived as unreachable code that nothing called and nothing documented; it is removed by this feature rather than kept, because a second, unguarded identity surface is a trap.
+- The reserved bundle is named `core` and the identity document lives at path `soul`, giving the address `core/soul`. `core` is reserved and is not a valid destination for general memories. The path segment is an implementation detail the agent addresses and the product never names: **Core is the only product-facing term**, and it stays exactly as it is today.
+- The old-concept cleanup removes code, not vocabulary: the retired document model survived as an unreachable interface that nothing called and nothing documented, and it is removed here because a second, unguarded identity surface is a trap. No user-visible label, route, anchor or template name changes as a result, because the product-facing term never changed.
 - The default agent bundle for ordinary memories is unchanged, so no existing memory is re-addressed and no existing search or link path is invalidated.
 - Default limits: 8 KiB hard ceiling and 4 KiB soft limit for ordinary memories; 4 KiB hard ceiling and 1.5 KiB soft limit for the soul. These come from measurement of a real agent corpus of 34 memories (median 3.2 KiB, four documents above 8 KiB) rather than from a round number, and are expected to be adjusted after real use.
 - The hard ceiling exists to enforce addressing — one memory, one thing — not to bound per-turn cost, which is already bounded separately by how much automatic context may inject. This is recorded so the ceiling is not later tightened on cost grounds it does not serve.
