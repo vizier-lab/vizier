@@ -4339,6 +4339,57 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn an_import_into_the_reserved_bundle_is_refused_but_an_export_is_allowed() {
+        // FR-014 and the spec's edge case: an import that would place anything but a soul in
+        // `core` is refused, an export of `core` is permitted. Importing would otherwise put a
+        // foreign document beside the identity one, which is exactly what the write guard
+        // refuses one document at a time.
+        let (store, _dir, indexer) = setup();
+        write_at(&store, &indexer, "note", "some ordinary content").await;
+        write_with(
+            &store,
+            &indexer,
+            Some(CORE_BUNDLE),
+            Some(SOUL_PATH),
+            "I am Oz.",
+            &policy(),
+        )
+        .await
+        .unwrap();
+
+        let ordinary = store
+            .export_bundle("a1".into(), "default".into())
+            .await
+            .unwrap();
+        let err = store
+            .import_bundle(
+                "a1".into(),
+                CORE_BUNDLE.into(),
+                ordinary,
+                &origin(),
+                &indexer,
+                &limits(),
+            )
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(err.starts_with("the core bundle cannot receive"), "{err}");
+        assert!(err.contains(SOUL_PATH), "it names the path it accepts: {err}");
+
+        // The refusal changed nothing: the soul is still the bundle's only document.
+        let bundles = store.list_bundles("a1".into()).await.unwrap();
+        let core = bundles.iter().find(|b| b.name == CORE_BUNDLE).unwrap();
+        assert_eq!(core.concept_count, 1);
+
+        // Exporting the reserved bundle is fine — a person may take a copy.
+        let exported = store
+            .export_bundle("a1".into(), CORE_BUNDLE.into())
+            .await
+            .expect("the reserved bundle can be exported");
+        assert!(!exported.is_empty());
+    }
+
+    #[tokio::test]
     async fn a_pre_reservation_document_in_a_legacy_core_bundle_stays_maintainable() {
         // `core` was an ordinary bundle name before it was reserved, so an install may already
         // hold unrelated documents there. FR-013 refuses *creating* another one; leaving an
