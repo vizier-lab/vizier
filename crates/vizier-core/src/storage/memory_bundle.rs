@@ -1240,19 +1240,27 @@ impl BundleMemoryStore {
             return Err(anyhow!("resolved memory path is empty"));
         }
 
-        // The reserved-bundle guard runs before anything is read or persisted, so a refused
-        // write leaves the document, its passages, its revisions and its log untouched
-        // (contract rule 1, data-model invariant 1).
-        if is_core_bundle(&bundle) && !is_identity_address(&bundle, &path) {
+        let memory_limits = policy.limits_for(&bundle, &path);
+
+        let key = Self::doc_key(&agent_id, &bundle, &path);
+        let existing = self.document_store.get(&key).await?;
+
+        // The reserved-bundle guard runs before anything is **persisted**, so a refused write
+        // leaves the document, its passages, its revisions and its log untouched (contract
+        // rule 1, data-model invariant 1). It reads `existing` first on purpose: `core` was an
+        // ordinary bundle name before it was reserved, so an install may already hold unrelated
+        // documents there. Refusing to *create* another one is FR-013; refusing to keep an
+        // existing one maintainable would make it readable and permanently un-editable, which
+        // is a data-access trap rather than protection.
+        if is_core_bundle(&bundle)
+            && !is_identity_address(&bundle, &path)
+            && existing.is_none()
+        {
             return Err(anyhow!(
                 "the core bundle holds only the identity document, at path '{SOUL_PATH}' — \
                  '{path}' cannot be written there"
             ));
         }
-        let memory_limits = policy.limits_for(&bundle, &path);
-
-        let key = Self::doc_key(&agent_id, &bundle, &path);
-        let existing = self.document_store.get(&key).await?;
         // This (bundle, path) collision check (FR-011) is also exactly what US3/FR-014's
         // portability story relies on: copying another deployment's bundle directory tree in
         // and writing a *new* concept can never silently clobber a concept that arrived via the
@@ -4328,6 +4336,57 @@ mod tests {
         .to_string();
         assert!(err.starts_with("the core bundle holds only"), "{err}");
         assert!(err.contains(SOUL_PATH), "the message names soul: {err}");
+    }
+
+    #[tokio::test]
+    async fn a_pre_reservation_document_in_a_legacy_core_bundle_stays_maintainable() {
+        // `core` was an ordinary bundle name before it was reserved, so an install may already
+        // hold unrelated documents there. FR-013 refuses *creating* another one; leaving an
+        // existing one un-editable would be a data-access trap, so it stays writable.
+        let (store, _dir, indexer) = setup();
+        let now = Utc::now();
+        store
+            .write_migrated_memory(
+                "a1".into(),
+                CORE_BUNDLE.into(),
+                "legacy".into(),
+                "Legacy".into(),
+                "written before core was reserved".into(),
+                vec![],
+                vec![],
+                now,
+                now,
+                0,
+                &indexer,
+            )
+            .await
+            .unwrap();
+
+        let written = write_with(
+            &store,
+            &indexer,
+            Some(CORE_BUNDLE),
+            Some("legacy"),
+            "still editable",
+            &policy(),
+        )
+        .await
+        .expect("an existing document in the bundle can still be maintained");
+        assert_eq!(written.memory.content, "still editable");
+
+        // And a *new* one is still refused: the reservation is about creation.
+        let err = write_with(
+            &store,
+            &indexer,
+            Some(CORE_BUNDLE),
+            Some("brand-new"),
+            "nope",
+            &policy(),
+        )
+        .await
+        .unwrap_err()
+        .to_string();
+        assert!(err.starts_with("the core bundle holds only"), "{err}");
     }
 
     #[tokio::test]
