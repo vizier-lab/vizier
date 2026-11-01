@@ -3,10 +3,19 @@ import { cx } from "../../lib/cx";
 import { Badge } from "../Badge/Badge";
 
 export type DreamChange = {
+  /** `core` is kept as the internal name; it renders as an identity change. */
   kind: "wrote" | "revised" | "removed" | "core";
   text: ReactNode;
-  /** Opens the document or the CORE revision. */
+  /** Opens the document in Memory — for an identity change, the document it touched. */
   href?: string;
+};
+
+/** What each kind is called where a person reads it. Identity is a memory, not its own page. */
+const KIND_LABEL: Record<DreamChange["kind"], string> = {
+  wrote: "wrote",
+  revised: "revised",
+  removed: "removed",
+  core: "identity",
 };
 
 export type DreamJournalEntryProps = {
@@ -48,7 +57,7 @@ export function DreamJournalEntry({ when, state = "complete", meta, extraction, 
       <ul className="flex flex-col gap-10">
         {changes.map((c, i) => (
           <li key={i} className="grid grid-cols-[56px_1fr] items-baseline gap-8">
-            <span className={cx("type-mono-xs", c.kind === "core" ? "text-rank-text" : c.kind === "removed" ? "text-failed-text" : "text-muted")}>{c.kind}</span>
+            <span className={cx("type-mono-xs", c.kind === "core" ? "text-rank-text" : c.kind === "removed" ? "text-failed-text" : "text-muted")}>{KIND_LABEL[c.kind]}</span>
             <span className="type-ui text-fg">
               {c.href ? (
                 <a href={c.href} className="underline decoration-border-strong underline-offset-2 hover:decoration-fg">

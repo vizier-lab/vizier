@@ -8,11 +8,13 @@ export type Night = {
   label?: string;
   /** Memories written or revised; 0 for a night with no dream. */
   memories: number;
-  /** CORE changed that night: a ring around the dot. */
+  /** The agent's identity changed that night — any document in its reserved bundle. A ring
+   * around the dot. The field keeps the `core` name: the product-facing term for identity is
+   * Core, and only the *address* moved. */
   core?: boolean;
   /** A dream is running now: the dot is emerald. */
   live?: boolean;
-  /** Said on hover or focus: "Oct 20 · 3 memories · CORE". */
+  /** Said on hover or focus: "Oct 20 · 3 memories · 1 identity". */
   hint?: string;
 };
 
@@ -25,8 +27,9 @@ export type NightStripProps = {
   onSelectNight?: (index: number) => void;
 } & HTMLAttributes<HTMLElement>;
 
-/** The last 30 nights of dreams (X69): dot size is memories written or revised; a ring is CORE changed. */
-export function NightStrip({ nights, meta = "dot size = memories written or revised · ring = CORE changed", selected, onSelectNight, className, ...rest }: NightStripProps) {
+/** The last 30 nights of dreams (X69): dot size is memories written or revised; a ring is the
+ * agent's identity changed. */
+export function NightStrip({ nights, meta = "dot size = memories written or revised · ring = identity changed", selected, onSelectNight, className, ...rest }: NightStripProps) {
   const max = Math.max(1, ...nights.map((n) => n.memories));
   const size = (m: number) => (m <= 0 ? 3 : Math.max(5, Math.round((m / max) * 12)));
   // One id per strip, so the selection halo glides from night to night.
@@ -39,7 +42,7 @@ export function NightStrip({ nights, meta = "dot size = memories written or revi
       </header>
       <div
         role={onSelectNight ? "group" : "img"}
-        aria-label={`Dreams over the last ${nights.length} nights: ${nights.filter((n) => n.memories > 0).length} with changes, ${nights.filter((n) => n.core).length} changed CORE`}
+        aria-label={`Dreams over the last ${nights.length} nights: ${nights.filter((n) => n.memories > 0).length} with changes, ${nights.filter((n) => n.core).length} changed the agent's identity`}
         className="grid"
         style={{ gridTemplateColumns: `repeat(${nights.length}, minmax(0, 1fr))` }}
       >

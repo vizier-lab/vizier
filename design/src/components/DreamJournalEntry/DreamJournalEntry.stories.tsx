@@ -15,7 +15,7 @@ const meta = {
       { kind: "wrote", text: "infra/vector-dbs/summary.md — linked from qdrant and sqlite-vec" },
       { kind: "revised", text: "people/ganesha.md — prefers tables for comparisons" },
       { kind: "revised", text: "infra/lancedb.md — v0.19 filtered-search fix" },
-      { kind: "core", text: "rev 41: delegate release-note checks to Scout" },
+      { kind: "core", text: "core/soul · rev 41: delegate release-note checks to Scout" },
     ],
   },
   decorators: [(Story) => <div className="w-650">{Story()}</div>],
@@ -26,14 +26,14 @@ type Story = StoryObj<typeof meta>;
 
 export const Complete: Story = {};
 
-/** All four kinds, with the document and revision links. */
+/** All four kinds — an identity change links into Memory like any other document. */
 export const AllKinds: Story = {
   args: {
     changes: [
       { kind: "wrote", text: "infra/vector-dbs/summary.md", href: "#doc" },
       { kind: "revised", text: "people/ganesha.md", href: "#doc" },
       { kind: "removed", text: "infra/old-notes.md — merged into summary.md", href: "#doc" },
-      { kind: "core", text: "rev 41: delegate release-note checks to Scout", href: "#rev" },
+      { kind: "core", text: "core/soul · rev 41: delegate release-note checks to Scout", href: "#doc" },
     ],
   },
 };
