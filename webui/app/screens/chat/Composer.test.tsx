@@ -21,15 +21,15 @@ const draw = (project = true) =>
     )
 
 describe("the composer's own controls", () => {
-    it('draws the tool row left to right: attach, slash, mic, context, speaker, then mode, Send', () => {
+    it('draws the tool row left to right: attach, slash, mic, speaker, context, then mode, Send', () => {
         const html = draw()
         // Document order is the drawn order: the row is one flex line.
         const at = [
             'Attach files',
             'Skills',
             'Record a voice message',
-            'Context used',
             'Ask for a spoken reply',
+            'Context used',
             'Plan or Build',
             'Send',
         ].map((label) => html.indexOf(`aria-label="${label}"`))
