@@ -2,13 +2,64 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.14.0-rc.3] - 2026-10-31
+## [0.14.0] - 2026-11-01
+
+### 🚀 Features
+
+- *(ui)* Rotate the side chat's thinking line, dots after the line
+- *(questions)* Add the questions category and per-turn tool availability (042)
+- *(questions)* Model the question set and the ask service (042)
+- *(questions)* Ask_question, the turn-ending question loop (042)
+- *(questions)* Ask_sensitive_input and the channel controls (042)
+- *(questions)* The WebUI card, the masked dialog and the docs (042)
+- *(questions)* Bump webui for the question card and dialog (042)
+- *(questions)* Finish asking the person: answers that run, channels that compile, guarantees that hold (042)
+- *(questions)* Agents can ask the person structured questions and for sensitive input (042) (#142)
+- *(projects)* Order project sessions by creation, not activity
+- Mermaid, LaTeX, code highlighting and wrapping; client_context
+- Emerald selection; composer keeps its bottom band with the mode switch on the right
+- Add the reserved identity address and memory size limits (043)
+- Make identity a memory, guard the reserved bundle, cap memory size (043)
+- Classify dream changes by bundle membership and count identity changes (043)
+- Remove the identity tools and point every surface at the memory address (043)
+- Make the deprecated core API a projection over the identity memory (043)
+- Guard stale memory saves and point the agent template at Core-as-memory (043)
+- Unify core and memory — identity is the memory document core/soul (043) (#154)
 
 ### 🐛 Bug Fixes
 
 - Draw code fences as their source text
 - Address server files for the desktop window
 - *(ci)* Verify the Windows payload, not the NSIS bootstrap
+- *(ui)* Pin the webui that keeps a cancelled turn's trail in place
+- *(ci)* Give create-release a checkout and make the release idempotent
+- *(projects)* Hand git plain paths, not Windows verbatim ones
+- *(attachments)* Name a person's uploads on the model's message
+- Seed the identity for agents without an indexer (043)
+- Keep a pre-reservation document in a legacy core bundle maintainable (043)
+- *(agents)* Publish the entries a reset and a direct answer save
+- *(agents)* Publish the entries a reset and a direct answer save (#144)
+
+### 📚 Documentation
+
+- Add specification for asking the person (042)
+- Add plan, research and design artifacts for asking the person (042)
+- Add dependency-ordered tasks for asking the person (042)
+- *(questions)* Close the remaining 042 tasks on the owner's word
+- *(design)* Record TextField's addon in the D12 inventory row
+- Add specification for unifying core and memory (043)
+- Keep the dead documents router in 043 scope and sequence the docs sweep
+- Remove the dedicated core page and keep Core as the only product term
+- Classify identity changes by bundle membership and drop the fixed prompt slot
+- Deprecate the core API instead of removing it
+- Add implementation plan for unifying core and memory (043)
+- Add tasks for unifying core and memory (043)
+- Sweep the copy that still says identity is a CORE.md file (043)
+- Record what shipped against the task list (043)
+
+### 🧪 Testing
+
+- Cover the import-into-core refusal and the permitted export (043)
 
 ### ⚙️ Miscellaneous Tasks
 
@@ -17,6 +68,12 @@ All notable changes to this project will be documented in this file.
 - Bump version to 0.14.0-rc.3
 - Bump version to 0.14.0-rc.3
 - Bump version to 0.14.0-rc.3
+- Bump version to 0.14.0-rc.3
+- Bump webui and design for markdown breaks and the slash menu
+- *(questions)* Bump webui for the in-field reveal eye (042)
+- Bump design and webui for the MiddleTruncate class fix
+- Remove the unreachable documents router (SOUL/IDENTITY/HEARTBEAT)
+- Drop an unneeded `mut` the CI lint set rejects (043)
 ## [0.14.0-rc.2] - 2026-10-31
 
 ### 🚀 Features
