@@ -340,6 +340,7 @@ mod tests {
             recalled: Default::default(),
             deadline: None,
             client: None,
+            interactive: false,
             secret_redactor: Default::default(),
             dream_sources,
             project: None,

@@ -978,6 +978,7 @@ mod tests {
             loaded_images: Default::default(),
             recalled: Default::default(),
             client: None,
+            interactive: false,
             session: VizierSession("a".into(), VizierChannelId::Subagent, None),
             pending_attachments: Arc::new(tokio::sync::Mutex::new(vec![])),
             hooks: None,

@@ -149,9 +149,10 @@ a per-agent component).
 
 ## R5 — Discord controls
 
-**Decision**: components on the question message, `custom_id` = `<short>.<question>.<option>`
+**Decision**: components on the question message, `custom_id` = `<short>.q<index>.<option>`
 (≤ 100 bytes, the platform limit), where `<short>` is an 8-character reference indexed on
-`question_set.short_id`:
+`question_set.short_id` and `<index>` is the question's position in the set — never its id, which
+the agent may make 64 bytes long and which would not fit Telegram's 64-byte `callback_data`:
 
 | Question type | Control | Limit that drives it |
 |---|---|---|
@@ -179,8 +180,8 @@ per question (extra channel spam, no way to edit the question); command-based an
 
 **Decision**: one inline keyboard per question, posted as one message per question when a set
 has more than one question (FR-029: split, never merged), all carrying the same `<short>`
-reference. `callback_data` is capped at **64 bytes**, so it is the same short reference and the
-option index, never a JSON payload.
+reference. `callback_data` is capped at **64 bytes**, so it is the same short reference, the question's
+position and the option index — never a JSON payload, and never the question id.
 
 | Question type | Control |
 |---|---|

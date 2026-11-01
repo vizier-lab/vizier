@@ -20,24 +20,29 @@ pub trait QuestionSurface: Send + Sync {
 }
 ```
 
-A platform control carries **only** an 8-character `short_id` plus a question index and an
-option index or action. Everything else is resolved from `question_set`, which is why a press
-still works after a restart (FR-025) and why the identifiers fit the platform's byte budget.
+A platform control carries **only** an 8-character `short_id`, a question's position in the set,
+and an option index or an action. Everything else is resolved from `question_set`, which is why a
+press still works after a restart (FR-025) and why the identifiers fit the platform's byte budget.
 
 ## 1. Identifiers
 
 ```
-<short>.<question>.<action>      e.g.  7f3a91c2.db.pick
-<short>.<question>.o<index>      e.g.  7f3a91c2.features.o2
+<short>.q<index>.<action>        e.g.  7f3a91c2.q1.pick
+<short>.q<index>.o<option>       e.g.  7f3a91c2.q2.o3
 <short>.submit | <short>.dismiss | <short>.text
 ```
 
+`index` is the question's **position**, not its id. The agent chooses the id and may make it up
+to 64 bytes; a control that carried it would not fit Telegram's `callback_data`
+(`crates/vizier-core/src/questions/limits.rs` asserts both halves of that).
+
 | Platform | Field | Limit | Worst case |
 |---|---|---|---|
-| Discord | `custom_id` | 100 bytes | `7f3a91c2.features.o25` = 22 ✅ |
-| Telegram | `callback_data` | 64 bytes | `7f3a91c2.features.o25` = 22 ✅ |
+| Discord | `custom_id` | 100 bytes | `7f3a91c2.q10.dismiss` = 20 ✅ |
+| Telegram | `callback_data` | 64 bytes | `7f3a91c2.q10.dismiss` = 20 ✅ |
 
-Never JSON, never a prompt or label, never a value: the platform sees only indices.
+Never JSON, never a prompt or label, never a value, never the question id: the platform sees only
+a reference and indices.
 
 ## 2. Discord
 

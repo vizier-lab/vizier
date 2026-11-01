@@ -80,7 +80,7 @@ impl VizierTool for ListToolFunctions {
 
     async fn call(&self, args: Self::Input, ctx: &ToolContext) -> Result<Self::Output, VizierError> {
         let catalogue = turn_catalogue(&self.router, ctx).await;
-        let categories = turn_categories(&self.categories, ctx);
+        let categories = turn_categories(&self.categories, &self.router, ctx);
 
         let Some(category) = args.category else {
             let functions: Vec<serde_json::Value> = catalogue

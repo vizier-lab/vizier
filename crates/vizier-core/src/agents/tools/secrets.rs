@@ -218,6 +218,7 @@ mod tests {
             recalled: Default::default(),
             deadline: None,
             client: None,
+            interactive: false,
             secret_redactor: Arc::new(crate::secrets::SecretRedactor::default()),
             dream_sources: vec![],
             project: None,
