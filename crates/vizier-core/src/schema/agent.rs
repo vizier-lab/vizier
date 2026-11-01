@@ -4,7 +4,7 @@ use duration_string::DurationString;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::config::ChunkLimits;
+use crate::config::{ChunkLimits, MemoryLimits};
 use crate::config::provider::ProviderId;
 use crate::config::shell::ShellConfig;
 
@@ -55,6 +55,10 @@ pub struct AgentConfig {
     /// Passage sizing bounds used when this agent's memories are chunked (FR-041).
     #[serde(default)]
     pub chunking: ChunkLimits,
+    /// Size bounds for one memory's content (specs/043-unify-core-and-memory). Ordinary
+    /// memories use this pair; the identity document uses [`MemoryLimits::identity`].
+    #[serde(default)]
+    pub limits: MemoryLimits,
     /// Budget for the related-memory block injected into each turn (FR-022, FR-023, FR-030).
     #[serde(default)]
     pub auto_context: AutoContextConfig,

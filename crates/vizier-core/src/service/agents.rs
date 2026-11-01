@@ -229,6 +229,7 @@ impl CreateAgentRequest {
                 kind: IndexerKind::Sqlite,
             })),
             chunking: Default::default(),
+            limits: Default::default(),
             auto_context: Default::default(),
             completion_retry: Default::default(),
         }

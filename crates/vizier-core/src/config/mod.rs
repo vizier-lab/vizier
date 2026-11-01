@@ -86,6 +86,71 @@ impl Default for ChunkLimits {
     }
 }
 
+/// Size bounds for one memory document's **content** (specs/043-unify-core-and-memory,
+/// FR-016/FR-019/FR-022/FR-023). Both values are denominated in bytes of the markdown body
+/// only — never the serialised file, whose frontmatter carries titles, tags, links and
+/// timestamps the system rewrites (research Decision 2).
+///
+/// `content_cap` refuses a write; `warn_at` only warns, so a document may legitimately sit
+/// between them. Sits beside [`ChunkLimits`] so it rides the same per-agent config plumbing a
+/// memory write already receives.
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+pub struct MemoryLimits {
+    /// Hard ceiling: content larger than this is refused, never truncated (FR-017).
+    #[serde(default = "default_content_cap")]
+    pub content_cap: usize,
+    /// Soft limit: content larger than this still writes, and the result carries a warning
+    /// (FR-019). Values above `content_cap` are treated as `content_cap` (no warning band).
+    #[serde(default = "default_warn_at")]
+    pub warn_at: usize,
+}
+
+fn default_content_cap() -> usize {
+    8192
+}
+
+fn default_warn_at() -> usize {
+    4096
+}
+
+impl Default for MemoryLimits {
+    fn default() -> Self {
+        Self {
+            content_cap: default_content_cap(),
+            warn_at: default_warn_at(),
+        }
+    }
+}
+
+impl MemoryLimits {
+    /// The tighter pair the identity document is held to, because it is paid for on every
+    /// turn (FR-023). Selected by address, not by a second config field (data-model rule 8).
+    pub fn identity() -> Self {
+        Self {
+            content_cap: 4096,
+            warn_at: 1536,
+        }
+    }
+
+    /// The soft limit actually applied. A pair where `warn_at > content_cap` is a config
+    /// mistake, and it degrades to "no warning band" rather than erroring — a bad value must
+    /// never break writes (data-model rule 7).
+    pub fn warn_threshold(&self) -> usize {
+        self.warn_at.min(self.content_cap)
+    }
+
+    /// True when `len` exceeds the ceiling.
+    pub fn exceeds_cap(&self, len: usize) -> bool {
+        len > self.content_cap
+    }
+
+    /// True when `len` is over the soft limit but still at or under the ceiling, so the write
+    /// succeeds and carries a warning.
+    pub fn warns_at(&self, len: usize) -> bool {
+        len > self.warn_threshold() && !self.exceeds_cap(len)
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct VizierConfig {
     #[serde(skip)]
@@ -268,5 +333,56 @@ impl Default for VizierConfig {
             worker_threads: 4,
             catalogue: CatalogueConfig::default(),
         }
+    }
+}
+
+#[cfg(test)]
+mod memory_limits_tests {
+    use super::MemoryLimits;
+
+    #[test]
+    fn a_bad_pairing_behaves_as_no_warning_band_instead_of_failing() {
+        // `warn_at` above the ceiling is a configuration mistake: degrade, never error.
+        let bad = MemoryLimits {
+            content_cap: 4096,
+            warn_at: 8192,
+        };
+        assert_eq!(bad.warn_threshold(), 4096);
+        // Nothing can be "over the soft limit but under the ceiling" any more.
+        assert!(!bad.warns_at(4096));
+        assert!(!bad.warns_at(1000));
+        // The ceiling itself still refuses.
+        assert!(bad.exceeds_cap(4097));
+    }
+
+    #[test]
+    fn the_warning_band_is_exclusive_at_the_soft_limit_and_inclusive_at_the_ceiling() {
+        let limits = MemoryLimits {
+            content_cap: 8192,
+            warn_at: 4096,
+        };
+        assert!(!limits.warns_at(4096), "exactly at the soft limit is clean");
+        assert!(limits.warns_at(4097), "one byte over warns");
+        assert!(limits.warns_at(8192), "exactly at the ceiling still wins");
+        assert!(!limits.warns_at(8193), "over the ceiling is a refusal, not a warning");
+        assert!(limits.exceeds_cap(8193));
+        assert!(!limits.exceeds_cap(8192), "equality is accepted");
+    }
+
+    #[test]
+    fn the_identity_pair_is_tighter_than_the_ordinary_pair() {
+        let ordinary = MemoryLimits::default();
+        let identity = MemoryLimits::identity();
+        assert_eq!((ordinary.content_cap, ordinary.warn_at), (8192, 4096));
+        assert_eq!((identity.content_cap, identity.warn_at), (4096, 1536));
+        assert!(identity.content_cap < ordinary.content_cap);
+        assert!(identity.warn_at < ordinary.warn_at);
+    }
+
+    #[test]
+    fn an_absent_config_deserialises_to_the_defaults() {
+        // An agent config saved before this existed must load unchanged.
+        let limits: MemoryLimits = serde_yaml::from_str("{}").unwrap();
+        assert_eq!(limits, MemoryLimits::default());
     }
 }
