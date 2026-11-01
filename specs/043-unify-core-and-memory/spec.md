@@ -67,6 +67,7 @@ The engine cannot split these for the agent: the right seam is the agent's judge
 4. **Given** a memory that already exceeds the ceiling from before this change, **When** the agent reads it, **Then** it reads in full; when the agent shortens it, the shortened version is accepted.
 5. **Given** a soul document, **When** it is written past its own, tighter comfortable size, **Then** the same warning behaviour applies, because the soul is paid for on every turn.
 6. **Given** a warning-carrying success, **When** the agent reads the result, **Then** the warning is distinguishable from the success itself so the agent does not mistake the write for a failure and retry it.
+7. **Given** a period that changed only the reserved bundle, **When** the agent reads the summary of that period, **Then** it sees those changes reported as identity changes rather than as memories written, and does not see them counted twice.
 
 ---
 
@@ -115,7 +116,7 @@ So the area is **removed, not redirected**: the reserved bundle is browsed, open
 - **FR-004**: Identity MUST be readable and writable through the same memory operations, address shape, and result shapes as every other memory, so that no identity-specific read or write operation remains.
 - **FR-005**: The soul document MUST be listed, searched, linked, and versioned like every other memory, and MUST appear in the agent's memory listing.
 - **FR-006**: The soul document MUST be the only memory automatically injected into the agent's system context; no other memory is injected there.
-- **FR-007**: The soul MUST occupy the same position in the assembled context that the former identity document occupied, so the cacheable part of the prompt is unchanged for existing conversations.
+- **FR-007**: The identity document's wrapper MUST be byte-stable across consecutive turns, so the prompt prefix carrying it stays cacheable. It names no slot in the assembled prompt: where it sits relative to the other instructions is not observable to the agent and MUST NOT be treated as an assumption.
 - **FR-008**: A removed or absent soul MUST be treated as a well-formed default identity; the agent MUST never receive an empty identity section.
 - **FR-009**: The injected soul MUST carry its own address — the bundle and path it came from — in the text the agent receives, so that the agent can tell it is reading a memory it can also write, without being told separately or needing to search for it.
 - **FR-010**: The agent MUST be told, in the doctrine it receives, that its identity is a memory at that address and which operations read and write it, because the old discovery route — a dedicated identity operation named in the tool list — no longer exists.
@@ -148,6 +149,9 @@ So the area is **removed, not redirected**: the reserved bundle is browsed, open
 - **FR-028**: A concurrent edit from a stale view MUST be refused with the newer content shown, rather than overwriting it.
 - **FR-029**: Removing the separate identity area MUST NOT lose behaviour it carried: choosing the identity from the agent's navigation, viewing and comparing its revisions, restoring one, and refusing a save made from a stale view MUST all remain reachable from the memory surfaces. The separate area itself MUST be removed, not redirected.
 - **FR-030**: Every place that refers to the old arrangement — the doctrine and tool guidance the agent receives, the tool-name lists that decide what an agent may call, the progress labels a person sees, the navigation entry and pages that exist only for identity, the templates a new agent is seeded from, and the documentation and website copy — MUST be updated or removed in the same change, so that no surface offers an agent or a person something that no longer exists. The product-facing term for identity does not change: what changes is where it lives.
+- **FR-031**: A change to any document in the reserved bundle MUST be classified as a change to the agent's identity, and MUST be classified that way because of the bundle it lives in rather than the record it was written to. The identity document needs no special case: it is a member of that bundle.
+- **FR-032**: A change to the reserved bundle MUST NOT be counted twice — it is reported as an identity change and MUST NOT also be counted among the memories written, revised or removed. A revision of the identity document is not also a memory revision for counting purposes.
+- **FR-033**: A summary of a period's changes MUST report the number of identity changes rather than merely whether any happened, and MUST still say plainly when a period changed the agent's identity.
 
 ### Key Entities
 
@@ -170,12 +174,15 @@ So the area is **removed, not redirected**: the reserved bundle is browsed, open
 - **SC-008**: No memory becomes unreadable or uneditable as a result of the limits, verified against a corpus containing documents above the ceiling.
 - **SC-009**: A refused write leaves the memory exactly as it was, verified across the ceiling, core-bundle, and stale-edit refusals — zero cases of partial or corrupted state.
 - **SC-010**: An agent that reads a warning-carrying success does not retry the write: over a sample of warnings, zero immediate duplicate writes of the same content.
+- **SC-011**: Identity changes are never invisible and never double-counted: over a sample of periods that changed the reserved bundle, 100% report an identity change with the right count, and zero of those revisions also appear among the memories written, revised or removed.
+- **SC-012**: The behaviour the removed identity area carried is fully reachable from memory: for 100% of sampled agents, finding identity, viewing its history, comparing two revisions and restoring one each succeed without any identity-only interface.
 
 ## Assumptions
 
 - The reserved bundle is named `core` and the identity document lives at path `soul`, giving the address `core/soul`. `core` is reserved and is not a valid destination for general memories. The path segment is an implementation detail the agent addresses and the product never names: **Core is the only product-facing term**, and it stays exactly as it is today.
 - The old-concept cleanup removes code, not vocabulary: the retired document model survived as an unreachable interface that nothing called and nothing documented, and it is removed here because a second, unguarded identity surface is a trap. No user-visible label, route, anchor or template name changes as a result, because the product-facing term never changed.
 - The default agent bundle for ordinary memories is unchanged, so no existing memory is re-addressed and no existing search or link path is invalidated.
+- Identity is injected as its own instruction block alongside the other instructions the agent receives, not inside the per-turn context block that carries retrieved excerpts. Its ordering relative to those instructions is an implementation choice rather than a requirement: nothing an agent can observe depends on it, and explicit placement is settled during planning.
 - Default limits: 8 KiB hard ceiling and 4 KiB soft limit for ordinary memories; 4 KiB hard ceiling and 1.5 KiB soft limit for the soul. These come from measurement of a real agent corpus of 34 memories (median 3.2 KiB, four documents above 8 KiB) rather than from a round number, and are expected to be adjusted after real use.
 - The hard ceiling exists to enforce addressing — one memory, one thing — not to bound per-turn cost, which is already bounded separately by how much automatic context may inject. This is recorded so the ceiling is not later tightened on cost grounds it does not serve.
 - Splitting an over-ceiling memory is the agent's judgement, not the system's: the system states the overage and the pattern and does not pick the seam. Automatic splitting of deliberate prose is explicitly rejected as fragmenting it.
