@@ -17,7 +17,9 @@ export type MiddleTruncateProps = { text: string; max?: number } & HTMLAttribute
 /** Long names and paths, cut in the middle; the full value shows on hover and is what gets copied. */
 export function MiddleTruncate({ text, max = 40, className, ...rest }: MiddleTruncateProps) {
   const short = middleTruncate(text, max);
-  if (short === text) return <span {...rest}>{text}</span>;
+  // `className` must be applied here too: it carries the caller's whole appearance (size, colour,
+  // flex), and dropping it made short names render at the body size while cut ones did not.
+  if (short === text) return <span className={className} {...rest}>{text}</span>;
   // `relative` contains the sr-only copy: unpositioned, it sits after the uncut text and widens the page.
   return (
     <span title={text} className={cx("relative", className)} {...rest}>
