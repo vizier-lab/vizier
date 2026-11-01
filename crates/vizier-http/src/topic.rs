@@ -111,7 +111,7 @@ impl TopicConnection {
         // storage, so nothing about a live ask is held only in the process that asked
         // (`specs/042-agent-asking-question` FR-048).
         if let Ok(asks) = vizier_core::storage::question::SensitiveAskStorage::sensitive_asks(
-            &state.storage,
+            &*state.storage,
             &session,
             vizier_core::questions::model::AskState::Open,
         )
