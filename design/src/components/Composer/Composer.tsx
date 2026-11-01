@@ -39,12 +39,10 @@ export type ComposerProps = {
   recording?: boolean;
   /** Voice mode: a VoiceRecorder row in place of the text. */
   voice?: ReactNode;
-  /**
-   * Under the composer: the row of toggles ("Ask for a spoken reply" on the left, a mode
-   * switch on the right). The host keeps the row in place even when it has nothing to put in
-   * it, so the composer's height does not move as options come and go.
-   */
-  below?: ReactNode;
+  /** In the tool row after Attach, the mic and "/": a host's own toggle, e.g. a spoken reply. */
+  afterTools?: ReactNode;
+  /** In the tool row just left of Send: a host's own switch, e.g. a chat's Plan/Build mode. */
+  beforeSend?: ReactNode;
   /** Laid over the input box exactly (a DropZone overlay while files are dragged in). */
   overlay?: ReactNode;
   /** The agent's skills, for the slash menu. */
@@ -76,7 +74,8 @@ export function Composer({
   mic = true,
   recording,
   voice,
-  below,
+  afterTools,
+  beforeSend,
   overlay,
   skills = [],
   suggest = null,
@@ -222,12 +221,14 @@ export function Composer({
                 <Icon name="slash" />
               </button>
             )}
+            {afterTools}
             <span className="flex-1" />
             {tokenText ? (
               <span className="type-mono-xs text-faint">{tokenText}</span>
             ) : (
               context && <ContextRing used={context.used} window={context.window} detail={context.detail} />
             )}
+            {beforeSend}
             {showStop ? (
               <button
                 type="button"
@@ -252,7 +253,6 @@ export function Composer({
         </div>
         {overlay}
       </div>
-      {below}
     </div>
   );
 }

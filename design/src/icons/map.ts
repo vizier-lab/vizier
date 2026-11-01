@@ -75,6 +75,7 @@ import {
   Unlink,
   User,
   Users,
+  Volume2,
   WandSparkles,
   X,
   ZoomIn,
@@ -170,6 +171,7 @@ export const icons = {
   "circle-check": CircleCheck,
   "ban": Ban,
   "arrow-up-right": ArrowUpRight,
+  "volume-2": Volume2,
   // Found in the final checks: Telegram in the conversation picker
   "paper-plane": Send,
 } satisfies Record<string, LucideIcon>;
@@ -258,6 +260,7 @@ export const lucideNames: Record<IconName, string> = {
   "circle-check": "circle-check",
   "ban": "ban",
   "arrow-up-right": "arrow-up-right",
+  "volume-2": "volume-2",
   "paper-plane": "send",
 };
 

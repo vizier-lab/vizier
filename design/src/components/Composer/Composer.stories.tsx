@@ -1,9 +1,12 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
 import { Attachment } from "../Attachment/Attachment";
-import { SwitchRow } from "../SwitchRow/SwitchRow";
+import { FilterTabs } from "../FilterTabs/FilterTabs";
+import { Icon } from "../../icons/Icon";
+import { Tooltip } from "../Tooltip/Tooltip";
 import { VoiceRecorder } from "../VoiceRecorder/VoiceRecorder";
 import { StateGrid, statePseudo } from "../../stories/StateGrid";
+import { cx } from "../../lib/cx";
 import { Composer } from "./Composer";
 
 const SKILLS = [
@@ -79,11 +82,54 @@ export const WithAttachments: Story = {
   },
 };
 
-/** Recorded: listen back, then send or discard; ask for a spoken reply. */
+/** Recorded: listen back, then send or discard. */
 export const VoiceRecorded: Story = {
-  args: {
-    voice: <VoiceRecorder mode="recorded" elapsed={12} onDiscard={() => {}} />,
-    below: <SwitchRow label="Ask for a spoken reply" checked onCheckedChange={() => {}} />,
+  args: { voice: <VoiceRecorder mode="recorded" elapsed={12} onDiscard={() => {}} /> },
+};
+
+/**
+ * A project chat: the mode switch sits left of Send, the spoken-reply toggle after the tools.
+ * Both are the host's own controls, passed through `beforeSend` and `afterTools`.
+ */
+export const WithToggles: Story = {
+  render: function Render(args) {
+    const [v, setV] = useState("");
+    const [spoken, setSpoken] = useState(true);
+    const [mode, setMode] = useState<"plan" | "build">("build");
+    return (
+      <Composer
+        {...args}
+        value={v}
+        onValueChange={setV}
+        afterTools={
+          <Tooltip label="Ask for a spoken reply">
+            <button
+              type="button"
+              aria-label="Ask for a spoken reply"
+              aria-pressed={spoken}
+              onClick={() => setSpoken((s) => !s)}
+              className={cx(
+                "flex size-28 items-center justify-center rounded-sm hover:bg-raised",
+                spoken ? "text-live hover:text-live" : "text-muted hover:text-fg",
+              )}
+            >
+              <Icon name="volume-2" />
+            </button>
+          </Tooltip>
+        }
+        beforeSend={
+          <FilterTabs<"plan" | "build">
+            aria-label="Plan or Build"
+            value={mode}
+            onChange={() => setMode((m) => (m === "plan" ? "build" : "plan"))}
+            options={[
+              { value: "plan", label: "Plan", tone: "solid" },
+              { value: "build", label: "Build", tone: "live" },
+            ]}
+          />
+        }
+      />
+    );
   },
 };
 
