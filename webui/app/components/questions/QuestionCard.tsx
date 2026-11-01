@@ -1,74 +1,15 @@
-import { useMemo, useState } from 'react'
-import { Button, Callout, Radio, TextField, Textarea } from '@vizier/design'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { Button, Radio, TextField, Textarea } from '@vizier/design'
+import type { QuestionAnswerPayload, QuestionRefusal, QuestionSetEntry } from '../../api/frames'
+import { type Draft, initialDraft, missingQuestions, shownAnswer, toPayload } from '../../lib/questions'
 
-/** One question as the server sends it (`specs/042-agent-asking-question`). */
-export interface QuestionOption {
-    value: string
-    label: string
-    description?: string
-}
-
-export interface Question {
-    id: string
-    prompt: string
-    type: 'text' | 'choice' | 'multi_choice' | 'confirm'
-    help?: string
-    optional?: boolean
-    default?: string | string[] | boolean
-    options?: QuestionOption[]
-    placeholder?: string
-    max_length?: number
-    multiline?: boolean
-    min_selections?: number
-    max_selections?: number
-    yes_label?: string
-    no_label?: string
-}
-
-export interface QuestionSetEntry {
-    set_id: string
-    title?: string
-    description?: string
-    questions: Question[]
-    submit_label?: string
-    dismiss_label?: string
-    state: 'pending' | 'answered' | 'declined' | 'withdrawn'
-    answers?: Array<{
-        question_id: string
-        state: 'answered' | 'skipped'
-        value?: string | string[] | boolean
-        label?: string
-    }>
-    answerer?: string
-}
-
-export interface QuestionAnswerPayload {
-    set_id: string
-    answers: Array<{ question_id: string; state: 'answered' | 'skipped'; value?: string | string[] | boolean }>
-    declined: boolean
-}
-
-type Draft = Record<string, string | string[] | boolean | undefined>
-
-function initialDraft(set: QuestionSetEntry): Draft {
-    const draft: Draft = {}
-    for (const question of set.questions) {
-        if (question.default !== undefined) draft[question.id] = question.default
-    }
-    return draft
-}
-
-/** What a question's answer reads as, on a closed card. */
-function shownAnswer(set: QuestionSetEntry, id: string): string {
-    const answer = set.answers?.find((a) => a.question_id === id)
-    if (!answer) return 'skipped'
-    if (answer.state === 'skipped') return 'skipped'
-    const value = answer.value
-    if (answer.label) return answer.label
-    if (Array.isArray(value)) return value.join(', ')
-    if (typeof value === 'boolean') return value ? 'yes' : 'no'
-    return value ?? 'skipped'
-}
+export type {
+    Question,
+    QuestionAnswerPayload,
+    QuestionOption,
+    QuestionRefusal,
+    QuestionSetEntry,
+} from '../../api/frames'
 
 /**
  * A question set in the conversation (`specs/042-agent-asking-question` FR-011–FR-014, FR-020).
@@ -82,29 +23,37 @@ export function QuestionCard({
     set,
     onSubmit,
     onDecline,
+    refusal,
 }: {
     set: QuestionSetEntry
     onSubmit: (answer: QuestionAnswerPayload) => void
     onDecline: () => void
+    /** The server's latest refusal of this set's answer; the card names the question and keeps what was typed. */
+    refusal?: QuestionRefusal
 }) {
     const [draft, setDraft] = useState<Draft>(() => initialDraft(set))
     const [errors, setErrors] = useState<Record<string, string>>({})
     const closed = set.state !== 'pending'
+    const root = useRef<HTMLDivElement>(null)
 
-    const missing = useMemo(
-        () =>
-            set.questions
-                .filter((q) => !q.optional && q.default === undefined)
-                .filter((q) => {
-                    const value = draft[q.id]
-                    if (value === undefined) return true
-                    if (typeof value === 'string') return value.trim().length === 0
-                    if (Array.isArray(value)) return value.length === 0
-                    return false
-                })
-                .map((q) => q.id),
-        [draft, set.questions],
-    )
+    // The server's refusal lands on the question it names; one that names none is the card's own.
+    const shownErrors = useMemo(() => {
+        const merged = { ...errors }
+        if (refusal?.questionId && !(refusal.questionId in merged)) merged[refusal.questionId] = refusal.message
+        return merged
+    }, [errors, refusal])
+    const cardError = refusal && !refusal.questionId ? refusal.message : null
+
+    // After a refused submission focus goes to the first problem, so a keyboard-only person lands
+    // on what to fix instead of having to look for it (FR-064).
+    const firstProblem = set.questions.find((q) => shownErrors[q.id])?.id
+    useEffect(() => {
+        if (!firstProblem) return
+        const target = root.current?.querySelector<HTMLElement>(`[data-question="${CSS.escape(firstProblem)}"] :is(input, textarea, button)`)
+        target?.focus()
+    }, [firstProblem, refusal])
+
+    const missing = useMemo(() => missingQuestions(set, draft), [draft, set])
 
     function put(id: string, value: string | string[] | boolean) {
         setDraft((current) => ({ ...current, [id]: value }))
@@ -137,31 +86,23 @@ export function QuestionCard({
             setErrors(next)
             return
         }
-        onSubmit({
-            set_id: set.set_id,
-            declined: false,
-            answers: set.questions.map((q) => {
-                const value = draft[q.id]
-                const skipped =
-                    value === undefined ||
-                    (typeof value === 'string' && value.trim().length === 0) ||
-                    (Array.isArray(value) && value.length === 0)
-                return skipped
-                    ? { question_id: q.id, state: 'skipped' as const }
-                    : { question_id: q.id, state: 'answered' as const, value }
-            }),
-        })
+        onSubmit(toPayload(set, draft))
     }
 
     return (
-        <div className="flex flex-col gap-14 rounded-lg border border-border bg-raised p-16">
+        <div
+            ref={root}
+            role="group"
+            aria-label={set.title ?? 'Questions from the agent'}
+            className="flex flex-col gap-14 rounded-lg border border-border bg-raised p-16"
+        >
             <div className="flex flex-col gap-2">
                 {set.title ? <h3 className="type-title text-strong">{set.title}</h3> : null}
                 {set.description ? <p className="type-ui text-soft">{set.description}</p> : null}
             </div>
 
             {set.questions.map((question) => (
-                <div key={question.id} className="flex flex-col gap-6">
+                <div key={question.id} data-question={question.id} className="flex flex-col gap-6">
                     <label className="type-ui text-strong" htmlFor={`q-${set.set_id}-${question.id}`}>
                         {question.prompt}
                         {question.optional ? <span className="text-faint"> (optional)</span> : null}
@@ -231,13 +172,19 @@ export function QuestionCard({
                         </div>
                     )}
 
-                    {errors[question.id] ? (
+                    {shownErrors[question.id] ? (
                         <p role="alert" className="type-ui text-danger">
-                            {errors[question.id]}
+                            {shownErrors[question.id]}
                         </p>
                     ) : null}
                 </div>
             ))}
+
+            {cardError ? (
+                <p role="alert" className="type-ui text-danger">
+                    {cardError}
+                </p>
+            ) : null}
 
             {closed ? (
                 <p className="type-ui text-faint">

@@ -105,11 +105,102 @@ export type VizierRequestContent =
   // A message a client sent on the person's behalf, e.g. a click in a page the agent drew.
   // `text` is the person's bubble; `data` is for the agent only and is never shown.
   | { client_event: ClientEventContent }
+  // The person's answer to a question set the agent asked (specs/042-agent-asking-question).
+  // `text` is the summary the conversation shows as their message.
+  | { question_answer: QuestionAnswerContent }
 
 export interface ClientEventContent {
   text: string
   data?: unknown
   source_call_id?: string
+}
+
+// ============================================================================
+// QUESTIONS (specs/042-agent-asking-question/contracts/questions-wire.md)
+// ============================================================================
+
+export interface QuestionOption {
+  value: string
+  label: string
+  description?: string
+}
+
+export interface Question {
+  id: string
+  prompt: string
+  type: 'text' | 'choice' | 'multi_choice' | 'confirm'
+  help?: string
+  optional?: boolean
+  default?: string | string[] | boolean
+  options?: QuestionOption[]
+  placeholder?: string
+  max_length?: number
+  multiline?: boolean
+  min_selections?: number
+  max_selections?: number
+  yes_label?: string
+  no_label?: string
+}
+
+export type QuestionState = 'pending' | 'answered' | 'declined' | 'withdrawn'
+
+export interface QuestionAnswerItem {
+  question_id: string
+  state: 'answered' | 'skipped'
+  value?: string | string[] | boolean
+  label?: string
+}
+
+/** A question set as a history entry carries it. `state`/`answers`/`answerer` are filled on every read. */
+export interface QuestionSetEntry {
+  set_id: string
+  title?: string
+  description?: string
+  questions: Question[]
+  submit_label?: string
+  dismiss_label?: string
+  state: QuestionState
+  answers?: QuestionAnswerItem[] | null
+  answerer?: string | null
+}
+
+export interface QuestionAnswerPayload {
+  set_id: string
+  answers: Array<{ question_id: string; state: 'answered' | 'skipped'; value?: string | string[] | boolean }>
+  declined: boolean
+}
+
+export interface QuestionAnswerContent extends QuestionAnswerPayload {
+  text?: string
+  answerer?: string | null
+}
+
+/** Server → every socket: a set's state changed (`question_set` frame). */
+export interface QuestionSetUpdate {
+  set_id: string
+  state: QuestionState
+  answers?: QuestionAnswerItem[] | null
+  answerer?: string | null
+}
+
+/** A sensitive-input ask (`sensitive_ask` frame). It carries the purpose, never a value. */
+export interface SensitiveAsk {
+  ask_id: string
+  label?: string | null
+  purpose: string
+  protected: boolean
+  min_bytes: number
+  max_bytes: number
+  expires_at?: string
+}
+
+export type SensitiveAskOutcome = 'provided' | 'declined' | 'timeout' | 'abandoned'
+
+/** A refusal of an answer, kept so the card can name the question and keep what was typed. */
+export interface QuestionRefusal {
+  code: string
+  message: string
+  questionId?: string
 }
 
 // Reaction types
@@ -248,6 +339,10 @@ export interface ChatMessage {
     // A call the agent made to a tool this client (or another) declared. The entry's uid is
     // the call id; `outcome` and `state` are filled in by the server on every read.
     ClientToolCall?: ClientToolCallEntry
+    // A question set the agent asked, drawn as a card in the turn (spec 042).
+    QuestionSet?: QuestionSetEntry
+    // That a value was requested and what came of it. Never the value itself.
+    SensitiveAsk?: { ask_id: string; purpose: string; label?: string | null; state: string }
   }
   reactions?: ReactionEntry[]
   // False for a live reply that arrived without the server's history uid (an older server):
@@ -295,6 +390,8 @@ export interface Turn {
   live: boolean
   // The client tool calls the turn made, in order. Drawn inside the turn's reply bubble.
   clientCalls: ClientCallView[]
+  // The question sets the turn asked, in order. Drawn after the reply text they ended it with.
+  questions: ChatMessage[]
   // True when the person aborted the turn: no outcome, closed by an `abort` command.
   aborted?: boolean
 }
@@ -406,7 +503,7 @@ export interface ClientToolCancelledFrame {
 }
 
 export interface ClientErrorFrame {
-  client_error: { code: string; message: string; call_id?: string; tool?: string; rule?: string }
+  client_error: { code: string; message: string; call_id?: string; tool?: string; rule?: string; set_id?: string; question_id?: string }
 }
 
 export type ClientFrame =
@@ -472,6 +569,9 @@ export type Frame =
     | { kind: 'session_file'; file: SessionFileRecord }
     | { kind: 'title'; title: string }
     | { kind: 'client'; frame: ClientFrame }
+    | { kind: 'question_set'; update: QuestionSetUpdate }
+    | { kind: 'sensitive_ask'; ask: SensitiveAsk }
+    | { kind: 'sensitive_ask_closed'; askId: string; outcome: SensitiveAskOutcome }
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
 
@@ -498,6 +598,12 @@ export function classifyFrame(raw: unknown): Frame | null {
     if ('reaction_error' in raw && isObj(raw.reaction_error)) {
         const r = raw.reaction_error as { message_uid: string; message: string }
         return { kind: 'reaction_error', messageUid: r.message_uid, message: r.message }
+    }
+    if ('question_set' in raw && isObj(raw.question_set)) return { kind: 'question_set', update: raw.question_set as unknown as QuestionSetUpdate }
+    if ('sensitive_ask' in raw && isObj(raw.sensitive_ask)) return { kind: 'sensitive_ask', ask: raw.sensitive_ask as unknown as SensitiveAsk }
+    if ('sensitive_ask_closed' in raw && isObj(raw.sensitive_ask_closed)) {
+        const closed = raw.sensitive_ask_closed as { ask_id: string; outcome: SensitiveAskOutcome }
+        return { kind: 'sensitive_ask_closed', askId: closed.ask_id, outcome: closed.outcome }
     }
     if (CLIENT_KEYS.some((k) => k in raw)) return { kind: 'client', frame: raw as unknown as ClientFrame }
     if ('content' in raw) return { kind: 'response', response: raw as unknown as WebSocketResponse }

@@ -59,6 +59,8 @@ type Props = {
     error?: ReactNode
     /** Client tool calls a turn made, drawn inside its reply (T056). */
     clientCalls?: (turn: Turn, running: boolean) => ReactNode
+    /** The question sets the turn asked, drawn after its reply text (spec 042). */
+    questions?: (turn: Turn) => ReactNode
     /** A plan card's Build this plan action (spec 041 US2). */
     onBuildPlan?: (plan: { title: string; steps: string[] }) => void
     /** Build was pressed and the chat is switching mode. */
@@ -75,7 +77,7 @@ function stopTime(entry: ChatMessage | undefined) {
     return entry?.timestamp ? time(entry.timestamp) : ''
 }
 
-export function MessageList({ state, agent, greeting, hasOlder, bottomInset = 0, insetRight = 0, loadingOlder, onLoadOlder, onReact, error, clientCalls, recalledFor, byPlatformName, emptyAction, onBuildPlan, buildingPlan }: Props) {
+export function MessageList({ state, agent, greeting, hasOlder, bottomInset = 0, insetRight = 0, loadingOlder, onLoadOlder, onReact, error, clientCalls, questions, recalledFor, byPlatformName, emptyAction, onBuildPlan, buildingPlan }: Props) {
     const { entries } = state
     const turns = useMemo(() => groupHistory(entries), [entries])
     const prices = usePrices()
@@ -170,6 +172,7 @@ export function MessageList({ state, agent, greeting, hasOlder, bottomInset = 0,
             />
             {clientCalls?.(turn, false)}
             {turn.outcome && reply(turn)}
+            {questions?.(turn)}
         </div>
     )
 
@@ -234,7 +237,7 @@ export function MessageList({ state, agent, greeting, hasOlder, bottomInset = 0,
         if (turn && (c.Response || c.Checkpoint !== undefined || c.Command !== undefined)) {
             // The finished turn settles in as one piece: the work it did and
             // what it said arrive together.
-            if (c.Response || turn.trail.length || turn.clientCalls.length) arrive(block(turn, `turn-${e.uid}`), `turn-${e.uid}`)
+            if (c.Response || turn.trail.length || turn.clientCalls.length || turn.questions.length) arrive(block(turn, `turn-${e.uid}`), `turn-${e.uid}`)
             if (c.Command === 'abort' && turn.aborted) arrive(<StoppedNote key={`stop-${e.uid}`}>Stopped by you at {stopTime(e)}</StoppedNote>, `stop-${e.uid}`)
         }
         if (c.Checkpoint !== undefined) {
@@ -243,12 +246,13 @@ export function MessageList({ state, agent, greeting, hasOlder, bottomInset = 0,
         }
     }
 
-    if (open && (running || open.trail.length || open.clientCalls.length)) {
+    if (open && (running || open.trail.length || open.clientCalls.length || open.questions.length)) {
         items.push(
             <div key="live" className="flex flex-col gap-10">
                 <AgentHeader agentId={agent.id} name={agent.name} live={agent.live} />
                 <Trail trail={open.trail} live recalled={recalledFor?.(open)} agentName={agent.name} />
                 {clientCalls?.(open, true)}
+                {questions?.(open)}
             </div>
         )
     } else if (running) {

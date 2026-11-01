@@ -15,7 +15,7 @@ function turn(key: string, report: unknown): Turn {
             },
         ],
         live: false,
-        clientCalls: [],
+        clientCalls: [], questions: [],
     }
 }
 

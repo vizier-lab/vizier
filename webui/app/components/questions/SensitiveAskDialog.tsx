@@ -1,16 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Button, Dialog, TextField } from '@vizier/design'
+import type { SensitiveAsk } from '../../api/frames'
 
-/** A sensitive-input ask as the server sends it (`specs/042-agent-asking-question`). */
-export interface SensitiveAsk {
-    ask_id: string
-    label?: string
-    purpose: string
-    protected: boolean
-    min_bytes: number
-    max_bytes: number
-    expires_at?: string
-}
+export type { SensitiveAsk } from '../../api/frames'
 
 /**
  * The masked dialog for one sensitive value (FR-035–FR-038, FR-043).
@@ -61,6 +53,9 @@ export function SensitiveAskDialog({
         }
         // Never trimmed: the value is what the person typed (FR-037).
         onAnswer(current.ask_id, value)
+        // And not kept: the field is empty before the dialog has even closed (FR-035).
+        setValue('')
+        setRevealed(false)
     }
 
     return (

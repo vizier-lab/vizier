@@ -20,6 +20,8 @@ import { ChangesPanel } from '../screens/chat/ChangesPanel'
 import { AgentStateBanner } from '../screens/chat/AgentStateBanner'
 import { BackgroundJobsPanel } from '../screens/chat/BackgroundJobsPanel'
 import { renderClientCalls } from '../screens/chat/ClientCalls'
+import { renderQuestions } from '../screens/chat/Questions'
+import { SensitiveAskDialog } from '../components/questions/SensitiveAskDialog'
 import { Composer } from '../screens/chat/Composer'
 import { SideChatPanel } from '../screens/chat/SideChatPanel'
 import { ErrorNotice } from '../screens/chat/ErrorNotice'
@@ -202,6 +204,8 @@ export default function Chat() {
         react,
         clientEvent,
         saveClientState,
+        answerQuestions,
+        answerSensitive,
         dispatch,
     } = useTurns.getState()
 
@@ -468,6 +472,11 @@ export default function Chat() {
                     clientCalls={(turn: Turn, running) =>
                         renderClientCalls(turn, running, clientContext)
                     }
+                    questions={(turn: Turn) =>
+                        renderQuestions(turn, state.refusals, (answer) =>
+                            answerQuestions(agentId, topicId ?? '', answer)
+                        )
+                    }
                     emptyAction={
                         !project && agentProjects.length === 0 ? (
                             <OpenProjectButton agentId={agentId} />
@@ -624,6 +633,10 @@ export default function Chat() {
                     }
                 />
             )}
+            <SensitiveAskDialog
+                ask={Object.values(state.asks)[0] ?? null}
+                onAnswer={(askId, value) => answerSensitive(agentId, topicId ?? '', askId, value)}
+            />
             {mobile && (
                 <SlideOver
                     open={sheet}
