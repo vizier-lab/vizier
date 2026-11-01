@@ -52,6 +52,13 @@
   --vz-failed-hover: #a92e18; /* state/failed-hover */
   --vz-failed-pressed: #8f2513; /* state/failed-pressed */
 
+  /* Selected text: emerald with white letters, in both themes. Deliberately not a
+     per-theme pair — a selection is the same mark wherever it is made — and
+     emerald-700 rather than state/live so white stays readable on it (5.5:1; on
+     the dark ground the block itself is 3.6:1). */
+  --vz-selection: #047857; /* state/selection */
+  --vz-selection-text: #ffffff; /* state/selection-text */
+
   --vz-graph-edge: #dcdce1; /* data/graph-edge */
   --vz-graph-edge-strong: #b4b4bc; /* data/graph-edge-strong */
   --vz-chart-1: #9b87f5; /* data/chart-1 */

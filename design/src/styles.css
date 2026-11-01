@@ -167,8 +167,11 @@
     outline-offset: var(--vz-space-2);
   }
 
+  /* Selected text is emerald with white letters, in both themes: one mark wherever
+     it is made (see the token's note for the contrast it was picked for). */
   ::selection {
-    background: var(--vz-raised);
+    background: var(--vz-selection);
+    color: var(--vz-selection-text);
   }
 
   /* The theme cross-fade: when the view transition runs, the old and new
