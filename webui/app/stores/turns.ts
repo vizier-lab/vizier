@@ -7,7 +7,7 @@ import {
     topicJobs,
 } from '../api/endpoints/chat'
 import { classifyFrame, type ChatMessage, type QuestionAnswerPayload, type VizierRequestContent } from '../api/frames'
-import { emptyTopic, nextQueued, reduce, type Action, type TopicState } from '../lib/frames'
+import { emptyTopic, reduce, type Action, type TopicState } from '../lib/frames'
 import { handleClientCall } from '../lib/clientTools'
 import { playNotify } from '../lib/sound'
 import { topicKey, useConnection } from './connection'
@@ -110,11 +110,6 @@ export const useTurns = create<TurnStore>()((set, get) => {
             setTimeout(() => void refreshHealth(), 1000)
         }
         if (before !== 'idle' && state.phase === 'idle') void refreshHistory(agentId, topicId)
-        const next = nextQueued(state)
-        if (next) {
-            const sent = useConnection.getState().send(agentId, topicId, request({ chat: next.text }, next.attachments, next.spoken))
-            if (sent) update(key, (s) => reduce(s, { type: 'dequeue', now: new Date().toISOString() }))
-        }
     }
 
     const dispatch: TurnStore['dispatch'] = (agentId, topicId, action) => {
@@ -167,6 +162,14 @@ export const useTurns = create<TurnStore>()((set, get) => {
                         const content = frame.response.content
                         if (typeof content === 'object' && ('message' in content || 'audio_reply' in content)) playNotify()
                     }
+                    // The agent stored a message this page was drawing as waiting: the wait is over.
+                    if (frame.kind === 'history_entry' && frame.entry.content.Request) {
+                        dispatch(agentId, topicId, {
+                            type: 'sent',
+                            request: frame.entry.content.Request.content,
+                            timestamp: frame.entry.content.Request.timestamp,
+                        })
+                    }
                     // A call for a tool this client declared: run it here and answer on this socket.
                     if (frame.kind === 'client' && 'client_tool_call' in frame.frame && frame.frame.client_tool_call.answer) {
                         const call = frame.frame.client_tool_call
@@ -207,20 +210,18 @@ export const useTurns = create<TurnStore>()((set, get) => {
         },
 
         send: (agentId, topicId, text, attachments, spoken, mentions) => {
-            const key = topicKey(agentId, topicId)
-            const state = get().topics[key] ?? emptyTopic()
             const id = String(nextId++)
-            if (state.phase !== 'idle') {
-                dispatch(agentId, topicId, { type: 'send', id, text, attachments: attachments as never, spoken })
-                return
-            }
+            const now = new Date().toISOString()
+            // Sent whether or not a turn is running: the agent queues it the same way, and a
+            // message held in this tab is gone the moment the page is left. The wait is drawn
+            // until the server stores it (`sent`, or the next history read).
             const sent = useConnection.getState().send(agentId, topicId, request({ chat: text }, attachments, spoken, mentions))
-            if (sent) dispatch(agentId, topicId, { type: 'send', id, text, attachments: attachments as never, now: new Date().toISOString() })
+            if (sent) dispatch(agentId, topicId, { type: 'send', id, text, attachments: attachments as never, spoken, now })
         },
 
         sendAudio: (agentId, topicId, attachment) => {
-            const key = topicKey(agentId, topicId)
-            if ((get().topics[key]?.phase ?? 'idle') !== 'idle') return
+            // A recording is a message like any other: it goes now, and waits its turn at the agent.
+            const now = new Date().toISOString()
             const frame = { ...request({ audio_chat: [attachment, null] } as never), expect_audio_reply: true }
             if (useConnection.getState().send(agentId, topicId, frame)) {
                 dispatch(agentId, topicId, {
@@ -228,7 +229,7 @@ export const useTurns = create<TurnStore>()((set, get) => {
                     id: String(nextId++),
                     text: '',
                     attachments: [attachment as never],
-                    now: new Date().toISOString(),
+                    now,
                 })
             }
         },
@@ -239,18 +240,17 @@ export const useTurns = create<TurnStore>()((set, get) => {
 
         clientEvent: (agentId, topicId, text, data, sourceCallId) => {
             const content = { client_event: { text, data, source_call_id: sourceCallId } } as VizierRequestContent
-            const key = topicKey(agentId, topicId)
-            const idle = (get().topics[key]?.phase ?? 'idle') === 'idle'
-            if (useConnection.getState().send(agentId, topicId, request(content)) && idle) {
-                dispatch(agentId, topicId, { type: 'send', id: String(nextId++), text, now: new Date().toISOString() })
+            const now = new Date().toISOString()
+            // A click inside a page the agent drew is a request like any other: queued at the
+            // agent if it is busy, not dropped here.
+            if (useConnection.getState().send(agentId, topicId, request(content))) {
+                dispatch(agentId, topicId, { type: 'send', id: String(nextId++), text, now })
             }
         },
 
         answerQuestions: (agentId, topicId, answer) => {
             const content = { question_answer: answer } as VizierRequestContent
-            const key = topicKey(agentId, topicId)
-            const idle = (get().topics[key]?.phase ?? 'idle') === 'idle'
-            if (useConnection.getState().send(agentId, topicId, request(content)) && idle) {
+            if (useConnection.getState().send(agentId, topicId, request(content))) {
                 // Drawn at once as the person's message; the stored request, with the server's own
                 // summary, replaces it when it arrives.
                 dispatch(agentId, topicId, {
@@ -273,10 +273,13 @@ export const useTurns = create<TurnStore>()((set, get) => {
         },
 
         command: (agentId, topicId, command) => {
-            useConnection.getState().send(agentId, topicId, request({ command }))
-            // The abort is drawn where it happened, so a message sent next lands below the
-            // trail it ended, without waiting for a reload to put it there.
-            if (command === 'abort') dispatch(agentId, topicId, { type: 'abort', now: new Date().toISOString() })
+            const now = new Date().toISOString()
+            if (!useConnection.getState().send(agentId, topicId, request({ command }))) return
+            // Drawn where it was run, so it shows at once instead of only after a reload: the
+            // abort where it happened (a message sent next lands below the trail it ended), and
+            // checkpoint/lobotomy as the line they are.
+            if (command === 'abort') dispatch(agentId, topicId, { type: 'abort', now })
+            else dispatch(agentId, topicId, { type: 'command', command, now })
         },
 
         loadOlder: async (agentId, topicId) => {
