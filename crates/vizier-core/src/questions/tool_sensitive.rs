@@ -159,3 +159,150 @@ impl VizierTool for AskSensitiveInput {
         .map_err(|e| VizierError(e.to_string()))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use parking_lot::Mutex;
+
+    use super::*;
+    use crate::{
+        schema::{VizierChannelId, VizierSession},
+        storage::{document::LocalDocumentStore, sqlite::SqliteStorage},
+    };
+
+    fn tool() -> (AskSensitiveInput, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        crate::storage::sqlite::init_question_schema(&conn).unwrap();
+        crate::storage::sqlite::init_sensitive_ask_schema(&conn).unwrap();
+        let storage = SqliteStorage::new(
+            Arc::new(Mutex::new(conn)),
+            Arc::new(LocalDocumentStore::new(dir.path().to_path_buf())),
+        );
+        (
+            AskSensitiveInput::new(Arc::new(VizierStorage::new(storage)), VizierTransport::new()),
+            dir,
+        )
+    }
+
+    fn ctx(channel: VizierChannelId, interactive: bool) -> ToolContext {
+        ToolContext {
+            session: VizierSession("agent-1".into(), channel, Some("t".into())),
+            pending_attachments: Default::default(),
+            hooks: None,
+            background_depth: 0,
+            loaded_images: Default::default(),
+            recalled: Default::default(),
+            deadline: None,
+            client: None,
+            questions: crate::questions::QuestionsHandle::new(Default::default()),
+            interactive,
+            secret_redactor: Arc::new(crate::secrets::SecretRedactor::default()),
+            dream_sources: vec![],
+            project: None,
+        }
+    }
+
+    fn web() -> VizierChannelId {
+        VizierChannelId::HTTP("alice".into(), "webui".into())
+    }
+
+    fn input() -> AskSensitiveInputInput {
+        AskSensitiveInputInput { purpose: "to push the branch".into(), label: None }
+    }
+
+    /// What the agent reads has to say where the value goes and what the guarantee does not cover
+    /// (FR-040, FR-057, FR-058).
+    #[test]
+    fn the_description_states_the_guarantee_and_its_limits() {
+        let d = description();
+        for needle in [
+            // where the value goes
+            "this script only",
+            "you will not see it",
+            "[redacted]",
+            // it keeps the turn running, and the result shapes
+            "does NOT end your turn",
+            "`provided`",
+            "`declined`",
+            "`timeout`",
+            "reject the dialog",
+            // the length limits
+            &format!("{} to {} bytes", MIN_VALUE_BYTES, MAX_VALUE_BYTES),
+            "`protected: false`",
+            // exact-string only, and what is outside it (FR-057)
+            "exact-string only",
+            "base64",
+            "a hash",
+            "a file, memory, a scratch file, an artifact, an outbound body",
+            // a person can still type it into a message (FR-058)
+            "ordinary message",
+            "rather than in prose",
+            // availability
+            "Only available in the WebUI",
+            "Discord",
+            "Telegram",
+            "unattended",
+            // pointers to the neighbouring tools
+            "ask_question",
+            "set_secret",
+        ] {
+            // The sentence may wrap in the source, so compare on collapsed whitespace.
+            let flat = d.split_whitespace().collect::<Vec<_>>().join(" ");
+            assert!(flat.contains(needle), "the description lacks {needle:?}:\n{d}");
+        }
+    }
+
+    /// It is a plain tool: the turn goes on while the person decides (FR-033).
+    #[test]
+    fn the_call_does_not_end_the_turn_and_sits_beside_the_secret_tools() {
+        assert!(!AskSensitiveInput::ends_turn());
+        assert_eq!(AskSensitiveInput::category(), Some(ToolCategory::Secrets));
+        assert_eq!(AskSensitiveInput::name(), "ask_sensitive_input");
+    }
+
+    /// Offered in the WebUI and in a project chat while somebody is waiting, and nowhere else
+    /// (FR-046, SC-017).
+    #[test]
+    fn it_is_offered_only_where_a_masked_input_can_be_shown() {
+        let (tool, _dir) = tool();
+        assert!(tool.available(&ctx(web(), true)));
+        assert!(tool.available(&ctx(VizierChannelId::Project("alice".into(), "p1".into()), true)));
+
+        // A channel whose servers would keep the value.
+        assert!(!tool.available(&ctx(VizierChannelId::DiscordChanel(1), true)));
+        assert!(!tool.available(&ctx(VizierChannelId::TelegramChannel(1), true)));
+        // An unattended turn, even in a WebUI conversation.
+        assert!(!tool.available(&ctx(web(), false)));
+        assert!(!tool.available(&ctx(VizierChannelId::Subagent, false)));
+    }
+
+    /// A direct call where the tool is not offered says why and fails the call, not the turn
+    /// (FR-047).
+    #[tokio::test]
+    async fn a_call_where_it_is_not_offered_names_the_reason() {
+        let (tool, _dir) = tool();
+
+        let err = tool
+            .call(input(), &ctx(VizierChannelId::DiscordChanel(1), true))
+            .await
+            .unwrap_err();
+        assert!(err.0.contains("WebUI"), "{}", err.0);
+
+        let err = tool.call(input(), &ctx(web(), false)).await.unwrap_err();
+        assert!(err.0.contains("unattended"), "{}", err.0);
+    }
+
+    /// A call that is malformed is refused before any dialog opens.
+    #[tokio::test]
+    async fn a_missing_purpose_is_refused_before_any_dialog_opens() {
+        let (tool, _dir) = tool();
+        let ctx = ctx(web(), true);
+        let err = tool
+            .call(AskSensitiveInputInput { purpose: "  ".into(), label: None }, &ctx)
+            .await
+            .unwrap_err();
+        assert!(err.0.contains("purpose"), "{}", err.0);
+        assert!(ctx.questions.service().open_asks(&ctx.session).is_empty());
+    }
+}

@@ -269,7 +269,7 @@ impl QuestionState {
 
     /// Read a stored state back. An unknown value is treated as closed rather than pending, so a
     /// row written by a newer build cannot be answered by this one.
-    pub fn from_str(value: &str) -> Self {
+    pub fn from_stored(value: &str) -> Self {
         match value {
             "pending" => Self::Pending,
             "answered" => Self::Answered,
@@ -362,7 +362,7 @@ impl AskState {
     }
 
     /// Read a stored state back; an unknown value is reported as abandoned, i.e. closed.
-    pub fn from_str(value: &str) -> Self {
+    pub fn from_stored(value: &str) -> Self {
         match value {
             "provided" => Self::Provided,
             "declined" => Self::Declined,
@@ -665,14 +665,14 @@ mod tests {
     /// An unknown stored state is closed, so a row written by a newer build cannot be answered.
     #[test]
     fn an_unknown_state_reads_back_as_closed() {
-        assert_eq!(QuestionState::from_str("pending"), QuestionState::Pending);
-        assert!(QuestionState::from_str("pending").is_open());
+        assert_eq!(QuestionState::from_stored("pending"), QuestionState::Pending);
+        assert!(QuestionState::from_stored("pending").is_open());
         for closed in ["answered", "declined", "withdrawn", "some-future-state"] {
-            assert!(!QuestionState::from_str(closed).is_open(), "{closed}");
+            assert!(!QuestionState::from_stored(closed).is_open(), "{closed}");
         }
-        assert_eq!(AskState::from_str("timed_out"), AskState::TimedOut);
+        assert_eq!(AskState::from_stored("timed_out"), AskState::TimedOut);
         for closed in ["provided", "declined", "abandoned", "some-future-state"] {
-            assert!(!AskState::from_str(closed).is_open(), "{closed}");
+            assert!(!AskState::from_stored(closed).is_open(), "{closed}");
         }
     }
 

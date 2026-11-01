@@ -140,6 +140,27 @@ What "not saved" means depends on the channel:
 
 The same call is available to other clients as [`POST /agents/{id}/btw`](../api-integration/rest-api.md#side-chat).
 
+## Questions and sensitive input
+
+An agent can ask the people in a conversation structured questions (`ask_question`), and ask the person in a WebUI conversation for a credential (`ask_sensitive_input`). The tools, their limits and the redaction guarantee are in [Asking the person](./questions.md); this is how each channel shows them.
+
+| | WebUI | Discord | Telegram |
+|---|---|---|---|
+| `ask_question` | a card in the conversation | one message of buttons, selects and a text-entry form | one message per question, each with an inline keyboard |
+| Choose one | radio buttons | buttons (up to 5 options), a select menu (up to 25) | one button per option |
+| Choose several | checkboxes | a select menu that allows several | toggle buttons (☐/☑) and **Done** |
+| Yes / no | two buttons | two buttons | two buttons |
+| Free text | a text field | a button that opens a form | reply to the question's message |
+| Submitting | **Submit** / **Dismiss** | **Submit** (sets of several questions) / **Dismiss** | **Submit** (sets of several questions) / **Dismiss** on the last message |
+| `ask_sensitive_input` | a masked dialog | **never offered** | **never offered** |
+
+- **Anyone who can see the conversation can answer.** The first answer wins; a second press on a set that has been answered, dismissed or withdrawn is refused with a short private notice (Discord) or callback notice (Telegram) and starts no turn.
+- **Who answered** is recorded as the platform identifies them and shown on the closed question: the message is edited into a record of the answers, and its buttons go.
+- **A set a platform cannot hold** (more than four questions on Discord, more than ten on Telegram, a choice with more than 25 options, or text too long for one message) is posted as a **reply form** instead: the questions numbered with their ids, and one line to write per question. Reply to that message with one `id: value` line per question; a wrong line refuses the whole reply and says why, and the set stays open. Nothing is dropped.
+- **Answers are text.** An answer is never read as markup or a mention: Discord messages are sent with mentions switched off, and Telegram messages carry no parse mode.
+- **A half-made answer is held in memory.** If vizier restarts while someone is part-way through a set of several questions, their ticks are lost but the set is not: its controls still work.
+- **Sensitive input never goes through Discord or Telegram.** Those servers would keep the value, so the tool is not offered to an agent in a channel conversation at all; an agent that needs a credential there is told to ask for it another way.
+
 ## Sessions and topics
 
 A session is `(agent, channel, topic)`. Each Discord channel / Telegram chat / WebUI `channel_id` has a default topic plus any number of named topics created with `/new`. History is per session. See [Agents → Checkpoints](./agents.md#checkpoints) for how long sessions are compacted.

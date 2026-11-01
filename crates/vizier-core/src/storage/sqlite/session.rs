@@ -365,6 +365,8 @@ impl SessionStorage for SqliteStorage {
             "DELETE FROM client_tool_call WHERE agent_id = ?1 AND channel = ?2 AND topic IS ?3",
             rusqlite::params![agent_id, channel.to_slug(), topic],
         )?;
+        // The questions it asked, and the values it asked for.
+        super::question::delete_session(&conn, &agent_id, &channel.to_slug(), &topic)?;
         // So do its scratch files.
         conn.execute(
             "DELETE FROM scratch_file WHERE agent_id = ?1 AND channel = ?2 AND topic = ?3",

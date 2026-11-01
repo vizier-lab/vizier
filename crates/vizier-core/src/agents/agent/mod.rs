@@ -1374,7 +1374,7 @@ impl VizierAgent {
                     && response.get("ok") == Some(&serde_json::Value::Bool(false))
                     && let Some(set_id) = ctx.questions.asked()
                 {
-                    self.withdraw_question_set(&ctx, &set_id).await;
+                    self.withdraw_question_set(ctx, &set_id).await;
                 }
 
                 let response_content = tool_res

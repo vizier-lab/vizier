@@ -103,13 +103,13 @@ mod tests {
     /// Discord's select menu caps a question's options, so nothing may exceed it.
     #[test]
     fn no_question_offers_more_options_than_a_platform_control_holds() {
-        assert!(MAX_OPTIONS <= 25);
+        const { assert!(MAX_OPTIONS <= 25) };
     }
 
     /// Discord's modal input, the smallest text-entry ceiling of the two platforms.
     #[test]
     fn a_text_answer_fits_a_platform_text_input() {
-        assert!(MAX_TEXT_ANSWER_BYTES <= 4_000);
+        const { assert!(MAX_TEXT_ANSWER_BYTES <= 4_000) };
     }
 
     /// A control carries `<short>.q<index>.<action>`: the set's short reference, the question's
@@ -143,6 +143,6 @@ mod tests {
     fn the_sensitive_value_bounds_are_the_redaction_bounds() {
         assert_eq!(MIN_VALUE_BYTES, 8);
         assert_eq!(MAX_VALUE_BYTES, 65_536);
-        assert!(MIN_VALUE_BYTES < MAX_VALUE_BYTES);
+        const { assert!(MIN_VALUE_BYTES < MAX_VALUE_BYTES) };
     }
 }

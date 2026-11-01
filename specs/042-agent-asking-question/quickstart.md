@@ -7,12 +7,18 @@ End-to-end checks against a running binary with an agent on the offline `dummypl
 `specs/030-standalone-dummyplug-server/`). Steps marked **LIVE** need a real provider, a Discord
 bot, a Telegram bot or a browser, and are not part of the offline gate.
 
+> **Scripts return their last expression.** The sandbox returns the value of the script's final
+> *expression*, so end a script with the value on a line of its own (`out`, not `out = …`). A turn
+> that ends on `ask_question` returns no reply text; read the script's `stdout` from the stored
+> tool result (`HIST <topic> | jq -r '.data[].content.ToolResult.content? | select(.!=null)'`).
+> Use a scratch directory instead of `/tmp` if your machine keeps it small.
+
 ## Setup
 
 ```sh
 just dummyplug    # terminal 1: the dummyplug server on 127.0.0.1:9998
 rm -rf /tmp/vizier-ask
-cargo run -- run --workspace /tmp/vizier-ask --port 9999 2>&1 | tee /tmp/vizier-ask.log   # terminal 2
+VIZIER_JWT_SECRET=any-long-random-string cargo run -- run --workspace /tmp/vizier-ask --port 9999 2>&1 | tee /tmp/vizier-ask.log   # terminal 2
 ```
 
 ```sh
@@ -41,7 +47,7 @@ HIST() { curl -s "${auth[@]}" "$API/agents/dp-ask/channel/webui/topic/$1/history
 ## 1. Both tools are offered in an interactive turn (US6-1, US7-1, FR-007, FR-009)
 
 ```sh
-printf 'result = sorted({t["category"] for t in list_tools()})\n' > /tmp/cats.py
+printf 'sorted({t["category"] for t in list_tools()})\n' > /tmp/cats.py
 ASK ask1 /tmp/cats.py 'list the tool categories this turn is offered'
 ```
 
@@ -60,7 +66,7 @@ to `ask_sensitive_input` for credentials (FR-009, US6-2, FR-066).
 
 ```sh
 cat > /tmp/q1.py <<'PY'
-result = ask_question(
+ask_question(
     title="Pick one",
     questions=[{
         "id": "db", "prompt": "Database", "type": "choice",
@@ -78,30 +84,43 @@ completion for the turn. `HIST ask2` then holds a `QuestionSet` entry in state `
 
 ## 3. Answering it delivers a structured answer turn (US1-2, FR-013, FR-015, SC-004)
 
+The answer is an ordinary **request over the topic WebSocket** (`contracts/questions-wire.md`
+§2); the REST `chat` route takes string content only. Any WebSocket client works. This one
+uses Node's built-in `WebSocket`:
+
 ```sh
-SET=$(HIST ask2 | jq -r '[.content.QuestionSet? | select(.state=="pending") | .set_id] | last')
-curl -s "${auth[@]}" "$API/agents/dp-ask/chat" -d "$(jq -n --arg s "$SET" '{
-  channel_id:"webui", topic_id:"ask2",
-  content:{question_answer:{set_id:$s,answers:[{question_id:"db",state:"answered",value:"sqlite"}]}}
-}')" | jq -r .data.content
+cat > /tmp/ws.mjs <<'JS'
+// node ws.mjs <topic> <seconds> '<json request>' …  — prints each frame received
+const [topic, secs, ...sends] = process.argv.slice(2)
+const ws = new WebSocket(`ws://localhost:9999/api/v1/agents/dp-ask/channel/webui/topic/${topic}/chat?token=${process.env.TOKEN}`)
+ws.onopen = () => sends.forEach((s) => ws.send(s))
+ws.onmessage = (m) => console.log(m.data)
+setTimeout(() => { ws.close(); process.exit(0) }, Number(secs) * 1000)
+JS
+SET=$(HIST ask2 | jq -r '[.data[] | .content.QuestionSet? | select(. != null and .state=="pending") | .set_id] | last')
+MSG=$(jq -nc --arg s "$SET" '{timestamp:"2026-11-01T10:31:00Z",user:"admin",metadata:{},
+  content:{question_answer:{set_id:$s,declined:false,
+  answers:[{question_id:"db",state:"answered",value:"sqlite"}]}}}')
+TOKEN=$TOKEN node /tmp/ws.mjs ask2 6 "$MSG"
 ```
 
-Expect a reply from the agent (dummyplug echoes the tool result it saw). `HIST ask2` now shows
-that set as `answered` with `answers[0].value == "sqlite"`, plus a `Request` entry whose
-content is the `question_answer`, and the `question_answer` reached the agent as JSON, not as an
-opaque string (FR-062).
+Expect a `question_set` frame with `state: "answered"`, then the agent's turn (`thinking_start`,
+then a `message`). `HIST ask2` shows that set as `answered` with `answers[0].value == "sqlite"`,
+plus a `Request` entry whose content is the `question_answer`, and the `question_answer`
+reached the agent as JSON, not as an opaque string (FR-062).
 
 ## 4. An invalid set is refused and the turn continues (US1-8, FR-005)
 
 ```sh
 cat > /tmp/q2.py <<'PY'
 try:
-    result = ask_question(questions=[
+    out = ask_question(questions=[
         {"id": "a", "prompt": "A", "type": "choice", "options": []},
         {"id": "a", "prompt": "", "type": "text"},
     ])
 except Exception as e:
-    result = str(e)
+    out = str(e)
+out
 PY
 ASK ask3 /tmp/q2.py 'ask a deliberately broken question set'
 ```
@@ -169,7 +188,7 @@ v = ask_sensitive_input(
     label="GitHub token",
 )
 print(v["value"])
-result = v["status"]
+v["status"]
 PY
 ASK ask5 /tmp/s1.py 'ask for a token and use it'
 ```
@@ -179,10 +198,28 @@ With a WebUI socket open on `ask5`, the `sensitive_ask` frame arrives; type
 
 ```sh
 grep -c 'quickstart-token-abc123' /tmp/vizier-ask.log        # 0
-sqlite3 /tmp/vizier-ask/vizier.db \
-  "select count(*) from session_history where data like '%quickstart-token-abc123%'"   # 0
+# (the database is /tmp/vizier-ask/.runtime/vizier.db)
 HIST ask5 | grep -c quickstart-token-abc123                  # 0
 ```
+
+The same check, scripted so it can be re-run (SC-022). The value must be absent from **every
+text column of every table**, not only `session_history`:
+
+```sh
+VALUE=quickstart-token-abc123
+DB=/tmp/vizier-ask/.runtime/vizier.db     # the live database is under the workspace's .runtime/
+echo "log:     $(grep -c "$VALUE" /tmp/vizier-ask.log)"
+echo "history: $(HIST ask5 | grep -c "$VALUE")"
+total=0
+for t in $(sqlite3 $DB "select name from sqlite_master where type='table' and name not like 'sqlite_%'"); do
+  cols=$(sqlite3 $DB "select group_concat('coalesce(cast(\"'||name||'\" as text),\"\")', '||') from pragma_table_info('$t')")
+  n=$(sqlite3 $DB "select count(*) from \"$t\" where ($cols) like '%$VALUE%'" 2>/dev/null || echo 0)
+  total=$((total + ${n:-0}))
+done
+echo "tables:  $total"          # all three are 0
+```
+
+(`sqlite3` reports `no such module: vec0` for the vector-index table; it holds embeddings only.)
 
 and `HIST ask5` shows `[redacted]` where the script printed the value, a `SensitiveAsk` entry in
 state `provided`, and no value anywhere. The turn is still running when the ask closes
@@ -217,9 +254,9 @@ With a Discord bot and a Telegram bot attached to the same agent, ask the same t
 ## 11. Cleanup
 
 ```sh
-curl -s "${auth[@]}" -X DELETE "$API/agents/dp-ask/topic/webui/ask6" | jq .
-sqlite3 /tmp/vizier-ask/vizier.db "select count(*) from question_set where topic='ask6'"   # 0
-sqlite3 /tmp/vizier-ask/vizier.db "select count(*) from sensitive_ask where topic='ask5'"  # 0
+curl -s "${auth[@]}" -X DELETE "$API/agents/dp-ask/channel/webui/topic/ask6" | jq .
+sqlite3 /tmp/vizier-ask/.runtime/vizier.db "select count(*) from question_set where topic='ask6'"   # 0
+sqlite3 /tmp/vizier-ask/.runtime/vizier.db "select count(*) from sensitive_ask where topic='ask5'"  # 0
 ```
 
 Deleting the conversation removes its sets and asks with it (FR/US9 #9).

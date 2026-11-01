@@ -26,6 +26,16 @@ pub struct Problem {
 }
 
 impl Problem {
+    /// A problem on one question, for the tests of crates that format it.
+    #[doc(hidden)]
+    pub fn question_for_test(
+        question_id: impl Into<String>,
+        rule: &'static str,
+        message: impl Into<String>,
+    ) -> Self {
+        Self::question(question_id, rule, message)
+    }
+
     fn set(rule: &'static str, message: impl Into<String>) -> Self {
         Self {
             question_id: None,
@@ -117,6 +127,21 @@ pub fn validate_set(set: &QuestionSet) -> Result<(), Vec<Problem>> {
     let mut seen: Vec<String> = Vec::with_capacity(set.questions.len());
     for question in &set.questions {
         validate_question(question, &mut seen, &mut problems);
+    }
+
+    // The sum of limits that each hold on their own can still be more than a card, a history
+    // entry and a platform message can carry (FR-004).
+    if let Ok(encoded) = serde_json::to_vec(set)
+        && encoded.len() > limits::MAX_SET_PAYLOAD_BYTES
+    {
+        problems.push(Problem::set(
+            "set_too_large",
+            format!(
+                "the whole set is {} bytes; the limit is {}",
+                encoded.len(),
+                limits::MAX_SET_PAYLOAD_BYTES
+            ),
+        ));
     }
 
     if problems.is_empty() {
@@ -403,6 +428,18 @@ fn is_valid_id(id: &str) -> bool {
 /// Every way this answer is not acceptable for `set`, or `Ok` when it may be submitted (FR-012).
 pub fn validate_answer(set: &QuestionSet, answers: &[Answer]) -> Result<(), Vec<Problem>> {
     let mut problems: Vec<Problem> = Vec::new();
+    if let Ok(encoded) = serde_json::to_vec(answers)
+        && encoded.len() > limits::MAX_ANSWER_PAYLOAD_BYTES
+    {
+        problems.push(Problem::set(
+            "answer_too_large",
+            format!(
+                "the answers are {} bytes; the limit is {}",
+                encoded.len(),
+                limits::MAX_ANSWER_PAYLOAD_BYTES
+            ),
+        ));
+    }
     let mut seen: Vec<&str> = Vec::with_capacity(answers.len());
 
     for answer in answers {
@@ -973,5 +1010,56 @@ mod tests {
             set_problem.to_string(),
             "no_questions: a set needs at least one question"
         );
+    }
+
+    /// A choose-several answer: values distinct, inside the bounds, all offered (US2, T028).
+    #[test]
+    fn a_choose_several_answer_is_checked_for_distinct_values_and_bounds() {
+        let set = set_of(vec![multi("f", &["a", "b", "c"], Some(1), Some(2))]);
+        let check = |values: &[&str]| {
+            let chosen = AnswerValue::Choices(values.iter().map(|v| v.to_string()).collect());
+            validate_answer(&set, &answers(vec![("f", chosen)])).map_err(|p| rules(&p))
+        };
+        assert_eq!(check(&["a"]), Ok(()));
+        assert_eq!(check(&["a", "b"]), Ok(()));
+        assert_eq!(check(&["a", "a"]), Err(vec!["duplicate_selection"]));
+        assert_eq!(check(&[]), Err(vec!["too_few_selections"]));
+        assert_eq!(check(&["a", "b", "c"]), Err(vec!["too_many_selections"]));
+        assert_eq!(check(&["z"]), Err(vec!["value_not_offered"]));
+    }
+
+    /// The limits that hold per field also hold in sum: a set can be made only of fields under
+    /// their own limit and still be more than a card, a history entry or a message can carry.
+    #[test]
+    fn a_whole_set_over_the_payload_limit_is_refused() {
+        let many_options = |id: &str| {
+            let mut q = choice(id, &[]);
+            q.options = (0..crate::questions::limits::MAX_OPTIONS)
+                .map(|n| crate::questions::model::ChoiceOption {
+                    value: format!("{}{n}", "v".repeat(90)),
+                    label: "l".repeat(crate::questions::limits::MAX_LABEL_BYTES),
+                    description: Some("d".repeat(crate::questions::limits::MAX_OPTION_DESCRIPTION_BYTES)),
+                })
+                .collect();
+            q.prompt = "p".repeat(crate::questions::limits::MAX_PROMPT_BYTES);
+            q.help = Some("h".repeat(crate::questions::limits::MAX_HELP_BYTES));
+            q
+        };
+        let ids = ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j"];
+        let set = set_of(ids.iter().map(|id| many_options(id)).collect());
+        // Every field is within its own limit, so the only fault is the total.
+        assert_eq!(rules(&validate_set(&set).unwrap_err()), ["set_too_large"]);
+
+        // One such question is a perfectly good set.
+        assert_eq!(validate_set(&set_of(vec![many_options("a")])), Ok(()));
+    }
+
+    /// An answer whose total is over the limit is refused whole.
+    #[test]
+    fn answers_over_the_payload_limit_are_refused() {
+        let set = set_of(vec![text("a", false)]);
+        let huge = vec![answered("a", AnswerValue::Text("x".repeat(70 * 1024)))];
+        let rules = rules(&validate_answer(&set, &huge).unwrap_err());
+        assert!(rules.contains(&"answer_too_large"), "{rules:?}");
     }
 }

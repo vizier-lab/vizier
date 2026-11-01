@@ -434,6 +434,18 @@ impl VizierRequest {
             return Ok(serde_yaml::to_string(&frontmatter)?);
         }
 
+        // A question answer is still the person's reply, so `sender` stays theirs; `via` and the
+        // set say it answered the agent's questions rather than being typed
+        // (`specs/042-agent-asking-question` FR-062).
+        if let VizierRequestContent::QuestionAnswer(answer) = &self.content {
+            let mut frontmatter = serde_json::Map::new();
+            frontmatter.insert("sender".into(), json!(self.user));
+            frontmatter.insert("via".into(), json!("question_answer"));
+            frontmatter.insert("question_set".into(), json!(answer.set_id));
+            frontmatter.insert("metadata".into(), self.metadata.clone());
+            return Ok(serde_yaml::to_string(&frontmatter)?);
+        }
+
         Ok(serde_yaml::to_string(&json!({
             "sender": self.user,
             "metadata": self.metadata,
@@ -745,5 +757,58 @@ mod tests {
         for key in ["client_tools", "client_categories", "client"] {
             assert!(out.get(key).is_none(), "{key} was serialised: {out}");
         }
+    }
+
+    /// What the next turn reads for an answered set: it is attributed to the person, marked as an
+    /// answer to the set, and carries each question, the answer, the option's label and value, and
+    /// who answered — different from the same words typed (FR-062, US6 #5).
+    #[test]
+    fn a_question_answer_reads_as_an_answer_not_as_typing() {
+        use crate::questions::model::{Answer, AnswerState, AnswerValue, QuestionAnswer};
+
+        let answer = QuestionAnswer {
+            set_id: "set-123".into(),
+            text: "Database: SQLite · Name: skipped".into(),
+            answers: vec![
+                Answer {
+                    question_id: "db".into(),
+                    state: AnswerState::Answered,
+                    value: Some(AnswerValue::Text("sqlite".into())),
+                    label: Some("SQLite".into()),
+                },
+                Answer::skipped("name"),
+            ],
+            answerer: Some("alice".into()),
+            declined: false,
+        };
+        let request = VizierRequest {
+            user: "alice".into(),
+            content: VizierRequestContent::QuestionAnswer(answer),
+            ..Default::default()
+        };
+        let prompt = request.to_prompt().unwrap();
+        for needle in [
+            "sender: alice",
+            "via: question_answer",
+            "question_set: set-123",
+            "Database: SQLite",
+            "\"question_id\":\"db\"",
+            "\"value\":\"sqlite\"",
+            "\"label\":\"SQLite\"",
+            "\"state\":\"skipped\"",
+            "\"answerer\":\"alice\"",
+            "\"declined\":false",
+        ] {
+            assert!(prompt.contains(needle), "the prompt lacks {needle:?}:\n{prompt}");
+        }
+
+        // The same words typed by the person carry none of that.
+        let typed = VizierRequest {
+            user: "alice".into(),
+            content: VizierRequestContent::Chat("Database: SQLite".into()),
+            ..Default::default()
+        };
+        let typed = typed.to_prompt().unwrap();
+        assert!(!typed.contains("question_answer") && !typed.contains("set-123"), "{typed}");
     }
 }

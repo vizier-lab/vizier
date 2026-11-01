@@ -899,6 +899,7 @@ fn start_session_job(
                 | VizierRequestContent::AudioChat(_, _)
                 | VizierRequestContent::BackgroundReport(_)
                 | VizierRequestContent::ClientEvent(_)
+                | VizierRequestContent::QuestionAnswer(_)
         ) {
             if let Some(ref tx) = thinking_response_tx {
                 let _ = tx
@@ -1493,22 +1494,8 @@ pub async fn handle_request(
                 }
             }
 
-            let prompt = match &request.content {
-                // Retrieval looks for what the skill is being asked to do, not the command.
-                VizierRequestContent::Chat(_) if let Some(invoked) = &invoked => {
-                    if invoked.input.is_empty() {
-                        invoked.skill.description.clone()
-                    } else {
-                        invoked.input.clone()
-                    }
-                }
-                VizierRequestContent::Chat(p) => p.clone(),
-                VizierRequestContent::ClientEvent(event) => event.text.clone(),
-                VizierRequestContent::AudioChat(_, Some(text)) => text.clone(),
-                VizierRequestContent::AudioChat(_, None) => "[Voice message]".to_string(),
-                VizierRequestContent::BackgroundReport(report) => report.to_string(),
-                _ => unreachable!(),
-            };
+            let prompt = chat_turn_prompt(&request.content, invoked.as_ref())
+                .ok_or_else(|| anyhow::anyhow!("a {} request has no prompt to start a turn with", request.content.kind()))?;
             // A report is a poor retrieval query — it is mostly other turns' answers — so it
             // gets no automatic passages. Skill recommendation still sees its text.
             let passage_budget = match &request.content {
@@ -1543,6 +1530,7 @@ pub async fn handle_request(
                     VizierRequestContent::Chat(_)
                         | VizierRequestContent::AudioChat(..)
                         | VizierRequestContent::ClientEvent(_)
+                        | VizierRequestContent::QuestionAnswer(_)
                 );
             let res = agent
                 .chat(
@@ -1913,6 +1901,34 @@ async fn save_dream_entry(
             e
         );
     }
+}
+
+/// What retrieval and skill matching read for a turn started by a person's own message, or `None`
+/// for a kind of request that does not start one. The chat arm lists these kinds in one place and
+/// this answers for each, so adding a kind to that arm without a prompt is a test failure, not a
+/// panic on the first real use.
+fn chat_turn_prompt(
+    content: &VizierRequestContent,
+    invoked: Option<&crate::skill::invocation::Invoked>,
+) -> Option<String> {
+    Some(match content {
+        // Retrieval looks for what the skill is being asked to do, not the command.
+        VizierRequestContent::Chat(_) if let Some(invoked) = invoked => {
+            if invoked.input.is_empty() {
+                invoked.skill.description.clone()
+            } else {
+                invoked.input.clone()
+            }
+        }
+        VizierRequestContent::Chat(p) => p.clone(),
+        VizierRequestContent::ClientEvent(event) => event.text.clone(),
+        VizierRequestContent::AudioChat(_, Some(text)) => text.clone(),
+        VizierRequestContent::AudioChat(_, None) => "[Voice message]".to_string(),
+        VizierRequestContent::BackgroundReport(report) => report.to_string(),
+        // The person's summary of their answers: what retrieval and skill matching read.
+        VizierRequestContent::QuestionAnswer(answer) => answer.text.clone(),
+        _ => return None,
+    })
 }
 
 #[cfg(test)]
@@ -2673,5 +2689,39 @@ mod btw_tests {
             question: "aside".into(),
             turns: vec![],
         })));
+    }
+
+    /// Every kind the chat arm accepts has a prompt. A new kind added to that arm without one was
+    /// an `unreachable!()` panic on its first real use (a question answer did exactly that).
+    #[test]
+    fn every_kind_the_chat_arm_accepts_has_a_prompt() {
+        use crate::questions::model::QuestionAnswer;
+        let answer = |text: &str| {
+            VizierRequestContent::QuestionAnswer(QuestionAnswer {
+                set_id: "s".into(),
+                text: text.into(),
+                answers: vec![],
+                answerer: None,
+                declined: false,
+            })
+        };
+        assert_eq!(chat_turn_prompt(&answer("Database: SQLite"), None).as_deref(), Some("Database: SQLite"));
+        assert_eq!(chat_turn_prompt(&VizierRequestContent::Chat("hi".into()), None).as_deref(), Some("hi"));
+        assert_eq!(
+            chat_turn_prompt(
+                &VizierRequestContent::ClientEvent(ClientEvent { text: "click".into(), data: None, source_call_id: None }),
+                None
+            )
+            .as_deref(),
+            Some("click")
+        );
+        // Not turns a person's message starts.
+        for content in [
+            VizierRequestContent::Prompt("p".into()),
+            VizierRequestContent::SilentRead("s".into()),
+            VizierRequestContent::Command("c".into()),
+        ] {
+            assert_eq!(chat_turn_prompt(&content, None), None, "{content:?}");
+        }
     }
 }

@@ -5,6 +5,7 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use teloxide::Bot;
 pub mod questions;
+mod questions_handlers;
 
 use teloxide::prelude::*;
 use teloxide::types::{
@@ -70,133 +71,6 @@ pub struct TelegramChannelReader {
 }
 
 impl TelegramChannelReader {
-    /// One press on a question's inline keyboard (`specs/042-agent-asking-question` FR-026).
-    async fn handle_question_press(&self, query: teloxide::types::CallbackQuery) {
-        use crate::questions::{model::QuestionType, submit, surface::Refusal};
-
-        let Some(data) = query.data.clone() else { return };
-        let Some(pressed) = crate::channels::discord::questions::Pressed::parse(&data) else {
-            return;
-        };
-        let Some(record) = crate::storage::question::QuestionStorage::question_set_by_short_id(
-            &*self.deps.storage,
-            &pressed.short_id,
-        )
-        .await
-        .ok()
-        .flatten()
-        .filter(|record| record.session.0 == self.agent_id)
-        else {
-            return;
-        };
-        if !record.state.is_open() {
-            self.tell(query.chat_id().unwrap_or(teloxide::types::ChatId(0)), Refusal::AlreadyAnswered.message()).await;
-            return;
-        }
-
-        let who = query.from.full_name();
-        if pressed.action == "dismiss" {
-            let declined = crate::questions::model::QuestionAnswer {
-                set_id: record.set_id.clone(),
-                text: String::new(),
-                answers: vec![],
-                answerer: Some(who.clone()),
-                declined: true,
-            };
-            self.submit_question(record, declined, &who, &query).await;
-            return;
-        }
-        let Some(question) = record.set.questions.get(pressed.question) else {
-            return;
-        };
-        let Some(option) = pressed
-            .option_index()
-            .and_then(|index| question.options.get(index))
-        else {
-            return;
-        };
-        let value = match question.kind {
-            QuestionType::Choice => crate::questions::model::AnswerValue::Text(option.value.clone()),
-            QuestionType::MultiChoice => {
-                let mut chosen: Vec<String> = record
-                    .answers
-                    .as_ref()
-                    .and_then(|answers| {
-                        answers.iter().find(|a| a.question_id == question.id)
-                    })
-                    .and_then(|a| match &a.value {
-                        Some(crate::questions::model::AnswerValue::Choices(values)) => {
-                            Some(values.clone())
-                        }
-                        _ => None,
-                    })
-                    .unwrap_or_default();
-                if let Some(at) = chosen.iter().position(|v| *v == option.value) {
-                    chosen.remove(at);
-                } else {
-                    chosen.push(option.value.clone());
-                }
-                crate::questions::model::AnswerValue::Choices(chosen)
-            }
-            _ => return,
-        };
-        let answer = crate::questions::model::QuestionAnswer {
-            set_id: record.set_id.clone(),
-            text: String::new(),
-            answers: vec![crate::questions::model::Answer {
-                question_id: question.id.clone(),
-                state: crate::questions::model::AnswerState::Answered,
-                value: Some(value),
-                label: Some(option.label.clone()),
-            }],
-            answerer: Some(who.clone()),
-            declined: false,
-        };
-        self.submit_question(record, answer, &who, &query).await;
-    }
-
-    /// Submit an answer and start the turn it becomes, or say why it was refused.
-    async fn submit_question(
-        &self,
-        record: crate::questions::model::QuestionSetRecord,
-        answer: crate::questions::model::QuestionAnswer,
-        who: &str,
-        query: &teloxide::types::CallbackQuery,
-    ) {
-        match crate::questions::submit::submit(
-            &self.deps.storage,
-            &self.deps.transport,
-            &self.deps.questions,
-            &record.session,
-            answer,
-            who,
-        )
-        .await
-        {
-            Ok(request) => {
-                let _ = self
-                    .deps
-                    .transport
-                    .send_request(record.session.clone(), request, None)
-                    .await;
-            }
-            Err(error) => {
-                let _ = self
-                    .bot
-                    .answer_callback_query(query.id.clone())
-                    .text(error.message())
-                    .await;
-            }
-        }
-    }
-
-    /// A short notice for a press that changed nothing (FR-024).
-    async fn tell(&self, chat_id: teloxide::types::ChatId, message: String) {
-        let _ = self.bot.send_message(chat_id, message).await;
-    }
-}
-
-impl TelegramChannelReader {
     pub fn new(agent_id: String, token: String, deps: VizierDependencies) -> Self {
         let bot = Bot::new(token.clone());
         let commands = std::sync::Arc::new(CommandSync::new(
@@ -243,8 +117,8 @@ impl VizierChannel for TelegramChannelReader {
 
         // Announced while this reader runs and dropped with it, so `ask_question` posts through
         // the bot and reports a failure it can act on (`specs/042-agent-asking-question` R4).
-        let question_surface: Arc<dyn crate::questions::QuestionSurface> =
-            Arc::new(questions::TelegramQuestionSurface {
+        let question_surface: std::sync::Arc<dyn crate::questions::QuestionSurface> =
+            std::sync::Arc::new(questions::TelegramQuestionSurface {
                 bot: self.bot.clone(),
                 storage: self.deps.storage.clone(),
             });
@@ -368,13 +242,9 @@ impl TelegramChannelReader {
                 self.handle_reaction(update).await;
             }
             teloxide::types::UpdateKind::CallbackQuery(query) => {
-                // Answered before any work, so the person never sees a spinner that times out
-                // (FR-023).
-                let _ = self
-                    .bot
-                    .answer_callback_query(query.id.clone())
-                    .await;
-                self.handle_question_press(query).await;
+                // Answered inside the handler, once the press is understood, so a refusal can be
+                // its text (FR-023).
+                self.handle_question_press(query.clone()).await;
             }
             _ => return Ok(()),
         }
@@ -470,6 +340,12 @@ impl TelegramChannelReader {
 
         let is_mention = text.starts_with(&format!("@{}", bot_username))
             || text.contains(&format!("@{}", bot_username));
+
+        // A reply to a question set's message answers it (`specs/042-agent-asking-question`
+        // FR-027); it is never an ordinary message.
+        if self.question_reply(&msg).await {
+            return Ok(());
+        }
 
         // `/btw` and replies to a side chat's messages come first (spec 033, R13): before the
         // attachments are fetched, before every other command, and before `Chat`/`SilentRead`,

@@ -75,8 +75,11 @@ pub trait QuestionSurface: Send + Sync {
 /// found: there is nothing to unregister, and a stale entry cannot post through a dead bot.
 #[derive(Default, Clone)]
 pub struct PlatformSurfaces {
-    surfaces: Arc<RwLock<HashMap<(String, ChannelPlatform), Weak<dyn QuestionSurface>>>>,
+    surfaces: Arc<RwLock<SurfaceMap>>,
 }
+
+/// A surface by the agent and platform it posts for, held weakly.
+type SurfaceMap = HashMap<(String, ChannelPlatform), Weak<dyn QuestionSurface>>;
 
 impl std::fmt::Debug for PlatformSurfaces {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

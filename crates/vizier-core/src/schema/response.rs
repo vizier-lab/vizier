@@ -172,3 +172,53 @@ impl VizierResponse {
         Ok(Message::ToolResult { call_id, content })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A reply's stats are counts, durations and the names of the model and the turn-ending tool.
+    /// Pinning the key list means a free-text field cannot join them unnoticed, which is what
+    /// keeps a supplied value from riding along (US5 #4).
+    #[test]
+    fn a_replys_stats_hold_counts_and_names_only() {
+        let stats = VizierResponseStats {
+            depth_exhausted: true,
+            ended_by_tool: Some("ask_question".into()),
+            current_context_size: Some(1),
+            context_window: Some(1),
+            provider: Some(crate::config::provider::ProviderId::DUMMYPLUG),
+            model: Some("m".into()),
+            ..Default::default()
+        };
+        let value = serde_json::to_value(stats).unwrap();
+        let mut keys: Vec<&str> = value.as_object().unwrap().keys().map(String::as_str).collect();
+        keys.sort_unstable();
+        assert_eq!(
+            keys,
+            [
+                "cache_creation_input_tokens",
+                "cached_input_tokens",
+                "context_window",
+                "current_context_size",
+                "depth_exhausted",
+                "duration",
+                "ended_by_tool",
+                "input_tokens",
+                "model",
+                "provider",
+                "total_cache_creation_input_tokens",
+                "total_cached_input_tokens",
+                "total_input_tokens",
+                "total_output_tokens",
+                "total_tokens",
+            ]
+        );
+        for (key, v) in value.as_object().unwrap() {
+            assert!(
+                v.is_number() || v.is_boolean() || v.is_object() || matches!(key.as_str(), "ended_by_tool" | "model" | "provider"),
+                "{key} is free text"
+            );
+        }
+    }
+}

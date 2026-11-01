@@ -26,6 +26,7 @@ use crate::schema::{ChannelPlatform, VizierSession};
 
 pub mod limits;
 pub mod model;
+pub mod press;
 pub mod sensitive;
 pub mod submit;
 pub mod surface;
@@ -65,6 +66,8 @@ pub struct Questions {
     waits: Arc<Mutex<HashMap<String, oneshot::Sender<AskReply>>>>,
     /// The one ask a conversation may have open (FR-053), by ask id.
     slots: Arc<Mutex<HashMap<VizierSession, String>>>,
+    /// Half-made answers to a set a channel shows over several controls, by set id.
+    drafts: Arc<Mutex<HashMap<String, press::Draft>>>,
 }
 
 impl std::fmt::Debug for Questions {
@@ -144,6 +147,23 @@ impl Questions {
             .get(session)
             .map(|ask_id| vec![ask_id.clone()])
             .unwrap_or_default()
+    }
+
+    /// Change a set's half-made answer and return what it is afterwards. Held in memory only: a
+    /// restart loses a half-made answer, never the set (FR-025).
+    pub fn with_draft<R>(&self, set_id: &str, change: impl FnOnce(&mut press::Draft) -> R) -> R {
+        let mut drafts = self.drafts.lock();
+        change(drafts.entry(set_id.to_string()).or_default())
+    }
+
+    /// A set's half-made answer, as it stands.
+    pub fn draft(&self, set_id: &str) -> press::Draft {
+        self.drafts.lock().get(set_id).cloned().unwrap_or_default()
+    }
+
+    /// Forget a set's half-made answer, because the set closed.
+    pub fn clear_draft(&self, set_id: &str) {
+        self.drafts.lock().remove(set_id);
     }
 
     /// Whether this ask is still waiting.

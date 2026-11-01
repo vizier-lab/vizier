@@ -177,10 +177,14 @@ pub(super) fn fill_question_sets(
     entries: &mut [SessionHistory],
 ) -> rusqlite::Result<()> {
     const CHUNK: usize = 500;
+    // Keyed by the set's own id, which the entry carries: the entry's `uid` is the history row's
+    // and is not the set's.
     let set_ids: Vec<String> = entries
         .iter()
-        .filter(|entry| matches!(entry.content, SessionHistoryContent::QuestionSet { .. }))
-        .map(|entry| entry.uid.clone())
+        .filter_map(|entry| match &entry.content {
+            SessionHistoryContent::QuestionSet { set_id, .. } => Some(set_id.clone()),
+            _ => None,
+        })
         .collect();
     if set_ids.is_empty() {
         return Ok(());
@@ -209,15 +213,16 @@ pub(super) fn fill_question_sets(
     let parse = |text: Option<String>| text.and_then(|text| serde_json::from_str(&text).ok());
     for entry in entries.iter_mut() {
         if let SessionHistoryContent::QuestionSet {
+            set_id,
             state,
             answers,
             answerer,
             ..
         } = &mut entry.content
         {
-            match by_id.remove(&entry.uid) {
+            match by_id.get(set_id.as_str()).cloned() {
                 Some((stored, recorded, who)) => {
-                    *state = crate::questions::model::QuestionState::from_str(&stored);
+                    *state = crate::questions::model::QuestionState::from_stored(&stored);
                     *answers = parse(recorded);
                     *answerer = who;
                 }

@@ -21,7 +21,7 @@ use vizier_core::{
 use crate::{
     api::v1::agents::channel::{
         ClientLimits, WebSocketReactionMessage, bind_client_tools, check_client_event, client_call_state,
-        client_error, client_tool_result, spawn_delivery, webui_reaction,
+        client_error, client_tool_result, question_error, spawn_delivery, webui_reaction,
     },
     state::HTTPState,
 };
@@ -211,7 +211,15 @@ impl TopicConnection {
                                     None => None,
                                 }
                             };
-                            let answered = reply.is_some_and(|reply| self.questions.answer(ask_id, reply));
+                            // Only an ask open in *this* conversation can be answered from this socket: an
+                            // id from another conversation reads as not open (contract §4).
+                            let here = self
+                                .questions
+                                .open_asks(&self.session)
+                                .iter()
+                                .any(|open| open == ask_id);
+                            let answered = here
+                                && reply.is_some_and(|reply| self.questions.answer(ask_id, reply));
                             if !answered {
                                 send_frame(client_error(
                                     "sensitive_ask_not_open",
@@ -307,6 +315,7 @@ impl TopicConnection {
                                 else {
                                     unreachable!("just matched a question answer")
                                 };
+                                let set_id = answer.set_id.clone();
                                 match vizier_core::questions::submit::submit(
                                     &self.storage,
                                     &self.transport,
@@ -319,12 +328,7 @@ impl TopicConnection {
                                 {
                                     Ok(prepared) => request = prepared,
                                     Err(error) => {
-                                        send_frame(client_error(
-                                            error.code(),
-                                            None,
-                                            error.message(),
-                                        ))
-                                        .await;
+                                        send_frame(question_error(&set_id, &error)).await;
                                         return;
                                     }
                                 }

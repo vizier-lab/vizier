@@ -34,7 +34,7 @@ fn row_to_record(row: &Row<'_>) -> rusqlite::Result<QuestionSetRecord> {
         set_id: row.get(0)?,
         short_id: row.get(1)?,
         session: VizierSession(agent_id, channel, topic),
-        state: QuestionState::from_str(&state),
+        state: QuestionState::from_stored(&state),
         set: serde_json::from_str::<QuestionSet>(&questions).map_err(|e| {
             rusqlite::Error::FromSqlConversionFailure(6, rusqlite::types::Type::Text, Box::new(e))
         })?,
@@ -53,6 +53,34 @@ const IN_SESSION: &str = "agent_id = ?2 AND channel = ?3 AND topic IS ?4";
 
 fn millis(t: DateTime<Utc>) -> i64 {
     t.timestamp_millis()
+}
+
+/// Delete a conversation's question sets and sensitive asks, on a connection the caller already
+/// holds (`delete_session`). Reference-only: nothing else points at them (FR-064).
+pub(super) fn delete_session(
+    conn: &rusqlite::Connection,
+    agent_id: &str,
+    channel_slug: &str,
+    topic: &str,
+) -> Result<()> {
+    for table in ["question_set", "sensitive_ask"] {
+        conn.execute(
+            &format!("DELETE FROM {table} WHERE agent_id = ?1 AND channel = ?2 AND topic IS ?3"),
+            rusqlite::params![agent_id, channel_slug, topic],
+        )?;
+    }
+    Ok(())
+}
+
+/// Delete everything an agent asked, with the agent (`delete_agent`).
+pub(super) fn delete_agent(conn: &rusqlite::Connection, agent_id: &str) -> Result<()> {
+    for table in ["question_set", "sensitive_ask"] {
+        conn.execute(
+            &format!("DELETE FROM {table} WHERE agent_id = ?1"),
+            rusqlite::params![agent_id],
+        )?;
+    }
+    Ok(())
 }
 
 #[async_trait::async_trait]
@@ -224,6 +252,129 @@ impl QuestionStorage for SqliteStorage {
 }
 
 
+
+/// The columns a sensitive ask is read from, matching [`ask_row`].
+const ASK_COLUMNS: &str = "ask_id, agent_id, channel_json, topic, purpose, label, state, \
+                           requested_at, closed_at";
+
+fn ask_row(row: &Row<'_>) -> rusqlite::Result<crate::questions::model::SensitiveAskRecord> {
+    use crate::questions::model::{AskState, SensitiveAskRecord};
+
+    let agent_id: String = row.get(1)?;
+    let channel_json: String = row.get(2)?;
+    let topic: Option<String> = row.get(3)?;
+    let state: String = row.get(6)?;
+    let requested_at: i64 = row.get(7)?;
+    let closed_at: Option<i64> = row.get(8)?;
+
+    let channel = serde_json::from_str(&channel_json).map_err(|e| {
+        rusqlite::Error::FromSqlConversionFailure(2, rusqlite::types::Type::Text, Box::new(e))
+    })?;
+
+    Ok(SensitiveAskRecord {
+        ask_id: row.get(0)?,
+        purpose: row.get(4)?,
+        label: row.get(5)?,
+        session: VizierSession(agent_id, channel, topic),
+        state: AskState::from_stored(&state),
+        requested_at: DateTime::from_timestamp_millis(requested_at).unwrap_or_else(Utc::now),
+        closed_at: closed_at.and_then(DateTime::from_timestamp_millis),
+    })
+}
+
+#[async_trait::async_trait]
+impl crate::storage::question::SensitiveAskStorage for SqliteStorage {
+    async fn open_sensitive_ask(
+        &self,
+        record: &crate::questions::model::SensitiveAskRecord,
+    ) -> Result<()> {
+        let channel_json = serde_json::to_string(&record.session.1)?;
+        let conn = self.conn.lock();
+        conn.execute(
+            "INSERT INTO sensitive_ask
+                (ask_id, agent_id, channel, channel_json, topic, purpose, label, state,
+                 requested_at, closed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, NULL)",
+            rusqlite::params![
+                record.ask_id,
+                record.session.0,
+                record.session.1.to_slug(),
+                channel_json,
+                record.session.2,
+                record.purpose,
+                record.label,
+                record.state.as_str(),
+                millis(record.requested_at),
+            ],
+        )?;
+        Ok(())
+    }
+
+    async fn close_sensitive_ask(
+        &self,
+        ask_id: &str,
+        state: crate::questions::model::AskState,
+    ) -> Result<bool> {
+        let conn = self.conn.lock();
+        // Only an open ask changes: a late submission after a timeout, or a second tab's answer,
+        // finds nothing to update (FR-049).
+        let changed = conn.execute(
+            "UPDATE sensitive_ask SET state = ?1, closed_at = ?2
+              WHERE ask_id = ?3 AND state = 'open'",
+            rusqlite::params![state.as_str(), millis(Utc::now()), ask_id],
+        )?;
+        Ok(changed > 0)
+    }
+
+    async fn get_sensitive_ask(
+        &self,
+        ask_id: &str,
+    ) -> Result<Option<crate::questions::model::SensitiveAskRecord>> {
+        let conn = self.conn.lock();
+        Ok(conn
+            .query_row(
+                &format!("SELECT {ASK_COLUMNS} FROM sensitive_ask WHERE ask_id = ?1"),
+                [ask_id],
+                ask_row,
+            )
+            .optional()?)
+    }
+
+    async fn sensitive_asks(
+        &self,
+        session: &VizierSession,
+        state: crate::questions::model::AskState,
+    ) -> Result<Vec<crate::questions::model::SensitiveAskRecord>> {
+        let conn = self.conn.lock();
+        let mut stmt = conn.prepare(&format!(
+            "SELECT {ASK_COLUMNS} FROM sensitive_ask
+              WHERE state = ?1 AND agent_id = ?2 AND channel = ?3 AND topic IS ?4
+              ORDER BY requested_at, rowid"
+        ))?;
+        let records = stmt
+            .query_map(
+                rusqlite::params![state.as_str(), session.0, session.1.to_slug(), session.2],
+                ask_row,
+            )?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(records)
+    }
+
+    async fn open_sensitive_asks_all(
+        &self,
+    ) -> Result<Vec<crate::questions::model::SensitiveAskRecord>> {
+        let conn = self.conn.lock();
+        let mut stmt = conn.prepare(&format!(
+            "SELECT {ASK_COLUMNS} FROM sensitive_ask WHERE state = 'open' ORDER BY requested_at"
+        ))?;
+        let records = stmt
+            .query_map([], ask_row)?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(records)
+    }
+
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -367,6 +518,20 @@ mod tests {
         );
     }
 
+    /// An id that names no set claims nothing and writes nothing (FR-017, T015).
+    #[tokio::test]
+    async fn an_unknown_set_id_is_refused() {
+        let (storage, _dir) = setup();
+        assert_eq!(
+            storage
+                .claim_question_set("nope", &session(), &[answer()], "alice")
+                .await
+                .unwrap(),
+            Claim::AlreadyClosed
+        );
+        assert!(storage.get_question_set("nope").await.unwrap().is_none());
+    }
+
     /// A dismissal closes the set with no answers, and an answered set cannot then be declined
     /// (FR-014, FR-017).
     #[tokio::test]
@@ -496,125 +661,117 @@ mod tests {
         let after = storage.get_question_set("s1").await.unwrap().unwrap();
         assert_eq!(after.controls, Some(controls));
     }
-}
 
-/// The columns a sensitive ask is read from, matching [`ask_row`].
-const ASK_COLUMNS: &str = "ask_id, agent_id, channel_json, topic, purpose, label, state, \
-                           requested_at, closed_at";
+    /// A conversation's sets and asks go with the conversation, and an agent's with the agent;
+    /// another conversation's are left alone (FR-064).
+    #[test]
+    fn sets_and_asks_are_deleted_with_their_conversation_and_agent() {
+        use crate::storage::question::SensitiveAskStorage;
+        let (storage, _dir) = setup();
+        crate::storage::sqlite::init_sensitive_ask_schema(&storage.conn.lock()).unwrap();
+        let rt = tokio::runtime::Builder::new_current_thread().build().unwrap();
+        rt.block_on(async {
+            storage.create_question_set(&record("keep", other_session())).await.unwrap();
+            storage.create_question_set(&record("gone", session())).await.unwrap();
+        });
+        let ask = |id: &str, s: &VizierSession| crate::questions::model::SensitiveAskRecord {
+            ask_id: id.into(),
+            purpose: "p".into(),
+            label: None,
+            session: s.clone(),
+            state: crate::questions::model::AskState::Open,
+            requested_at: Utc::now(),
+            closed_at: None,
+        };
+        rt.block_on(async {
+            storage.open_sensitive_ask(&ask("a-keep", &other_session())).await.unwrap();
+            storage.open_sensitive_ask(&ask("a-gone", &session())).await.unwrap();
+        });
 
-fn ask_row(row: &Row<'_>) -> rusqlite::Result<crate::questions::model::SensitiveAskRecord> {
-    use crate::questions::model::{AskState, SensitiveAskRecord};
+        let s = session();
+        {
+            let conn = storage.conn.lock();
+            delete_session(&conn, &s.0, &s.1.to_slug(), s.2.as_deref().unwrap()).unwrap();
+        }
+        rt.block_on(async {
+            assert!(storage.get_question_set("gone").await.unwrap().is_none());
+            assert!(storage.get_question_set("keep").await.unwrap().is_some());
+            assert_eq!(storage.open_sensitive_asks_all().await.unwrap().len(), 1);
+        });
 
-    let agent_id: String = row.get(1)?;
-    let channel_json: String = row.get(2)?;
-    let topic: Option<String> = row.get(3)?;
-    let state: String = row.get(6)?;
-    let requested_at: i64 = row.get(7)?;
-    let closed_at: Option<i64> = row.get(8)?;
-
-    let channel = serde_json::from_str(&channel_json).map_err(|e| {
-        rusqlite::Error::FromSqlConversionFailure(2, rusqlite::types::Type::Text, Box::new(e))
-    })?;
-
-    Ok(SensitiveAskRecord {
-        ask_id: row.get(0)?,
-        purpose: row.get(4)?,
-        label: row.get(5)?,
-        session: VizierSession(agent_id, channel, topic),
-        state: AskState::from_str(&state),
-        requested_at: DateTime::from_timestamp_millis(requested_at).unwrap_or_else(Utc::now),
-        closed_at: closed_at.and_then(DateTime::from_timestamp_millis),
-    })
-}
-
-#[async_trait::async_trait]
-impl crate::storage::question::SensitiveAskStorage for SqliteStorage {
-    async fn open_sensitive_ask(
-        &self,
-        record: &crate::questions::model::SensitiveAskRecord,
-    ) -> Result<()> {
-        let channel_json = serde_json::to_string(&record.session.1)?;
-        let conn = self.conn.lock();
-        conn.execute(
-            "INSERT INTO sensitive_ask
-                (ask_id, agent_id, channel, channel_json, topic, purpose, label, state,
-                 requested_at, closed_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, NULL)",
-            rusqlite::params![
-                record.ask_id,
-                record.session.0,
-                record.session.1.to_slug(),
-                channel_json,
-                record.session.2,
-                record.purpose,
-                record.label,
-                record.state.as_str(),
-                millis(record.requested_at),
-            ],
-        )?;
-        Ok(())
+        delete_agent(&storage.conn.lock(), "agent-1").unwrap();
+        rt.block_on(async {
+            assert!(storage.get_question_set("keep").await.unwrap().is_none());
+            assert!(storage.open_sensitive_asks_all().await.unwrap().is_empty());
+        });
     }
 
-    async fn close_sensitive_ask(
-        &self,
-        ask_id: &str,
-        state: crate::questions::model::AskState,
-    ) -> Result<bool> {
-        let conn = self.conn.lock();
-        // Only an open ask changes: a late submission after a timeout, or a second tab's answer,
-        // finds nothing to update (FR-049).
-        let changed = conn.execute(
-            "UPDATE sensitive_ask SET state = ?1, closed_at = ?2
-              WHERE ask_id = ?3 AND state = 'open'",
-            rusqlite::params![state.as_str(), millis(Utc::now()), ask_id],
-        )?;
-        Ok(changed > 0)
-    }
+    /// A pending card is still there, still pending and still answerable after the process that
+    /// asked has gone and a new one opens the same database; and a history entry written while it
+    /// was pending reads back with the state the table now holds (FR-016, FR-025).
+    #[tokio::test]
+    async fn a_pending_set_and_its_card_survive_a_restart() {
+        use crate::schema::SessionHistory;
 
-    async fn get_sensitive_ask(
-        &self,
-        ask_id: &str,
-    ) -> Result<Option<crate::questions::model::SensitiveAskRecord>> {
-        let conn = self.conn.lock();
-        Ok(conn
-            .query_row(
-                &format!("SELECT {ASK_COLUMNS} FROM sensitive_ask WHERE ask_id = ?1"),
-                [ask_id],
-                ask_row,
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("vizier.db");
+        let open = || {
+            let conn = Connection::open(&db).unwrap();
+            crate::storage::sqlite::init_question_schema(&conn).unwrap();
+            SqliteStorage::new(
+                Arc::new(Mutex::new(conn)),
+                Arc::new(LocalDocumentStore::new(dir.path().to_path_buf())),
             )
-            .optional()?)
-    }
+        };
 
-    async fn sensitive_asks(
-        &self,
-        session: &VizierSession,
-        state: crate::questions::model::AskState,
-    ) -> Result<Vec<crate::questions::model::SensitiveAskRecord>> {
-        let conn = self.conn.lock();
-        let mut stmt = conn.prepare(&format!(
-            "SELECT {ASK_COLUMNS} FROM sensitive_ask
-              WHERE state = ?1 AND agent_id = ?2 AND channel = ?3 AND topic IS ?4
-              ORDER BY requested_at, rowid"
-        ))?;
-        let records = stmt
-            .query_map(
-                rusqlite::params![state.as_str(), session.0, session.1.to_slug(), session.2],
-                ask_row,
-            )?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        Ok(records)
-    }
+        // The process that asked.
+        let asked = open();
+        asked.create_question_set(&record("s1", session())).await.unwrap();
+        let card = || SessionHistory {
+            // The history row's own id, which is not the set's.
+            uid: "history-row-uid".into(),
+            vizier_session: session(),
+            content: crate::schema::SessionHistoryContent::QuestionSet {
+                set_id: "s1".into(),
+                title: None,
+                description: None,
+                questions: vec![],
+                submit_label: None,
+                dismiss_label: None,
+                state: QuestionState::Pending,
+                answers: None,
+                answerer: None,
+            },
+            timestamp: Utc::now(),
+            reactions: vec![],
+            seq: None,
+        };
+        drop(asked);
 
-    async fn open_sensitive_asks_all(
-        &self,
-    ) -> Result<Vec<crate::questions::model::SensitiveAskRecord>> {
-        let conn = self.conn.lock();
-        let mut stmt = conn.prepare(&format!(
-            "SELECT {ASK_COLUMNS} FROM sensitive_ask WHERE state = 'open' ORDER BY requested_at"
-        ))?;
-        let records = stmt
-            .query_map([], ask_row)?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        Ok(records)
+        // A new process finds it, shows it pending, and the person answers it.
+        let restarted = open();
+        let found = restarted.question_set_by_short_id("shorts1").await.unwrap().expect("still there");
+        assert_eq!(found.state, QuestionState::Pending);
+        let mut cards = [card()];
+        super::super::history::fill_question_sets(&restarted.conn.lock(), &mut cards).unwrap();
+        let crate::schema::SessionHistoryContent::QuestionSet { state, .. } = &cards[0].content else {
+            panic!()
+        };
+        assert_eq!(*state, QuestionState::Pending, "a pending card must not read as withdrawn");
+
+        assert_eq!(
+            restarted.claim_question_set("s1", &session(), &[answer()], "alice").await.unwrap(),
+            Claim::Won
+        );
+        let mut cards = [card()];
+        super::super::history::fill_question_sets(&restarted.conn.lock(), &mut cards).unwrap();
+        let crate::schema::SessionHistoryContent::QuestionSet { state, answers, answerer, .. } =
+            &cards[0].content
+        else {
+            panic!()
+        };
+        assert_eq!(*state, QuestionState::Answered);
+        assert_eq!(answerer.as_deref(), Some("alice"));
+        assert_eq!(answers.as_ref().map(Vec::len), Some(1));
     }
 }

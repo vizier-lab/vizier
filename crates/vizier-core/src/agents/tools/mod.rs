@@ -377,14 +377,28 @@ pub(crate) fn record_tool_arguments(
     arguments: &str,
     redactor: Option<&crate::secrets::SecretRedactor>,
 ) {
-    if !crate::llm::telemetry::capture_content() {
-        return;
+    if let Some(recorded) =
+        arguments_to_record(crate::llm::telemetry::capture_content(), arguments, redactor)
+    {
+        span.record("gen_ai.tool.call.arguments", recorded);
     }
-    let recorded = match redactor {
+}
+
+/// What an `execute_tool` span records for the call's arguments: nothing at all unless content
+/// capture is on, and with it on, the arguments with the turn's secrets scrubbed. One decision,
+/// so the gate and the scrub cannot drift apart (FR-042).
+fn arguments_to_record(
+    capture: bool,
+    arguments: &str,
+    redactor: Option<&crate::secrets::SecretRedactor>,
+) -> Option<String> {
+    if !capture {
+        return None;
+    }
+    Some(match redactor {
         Some(redactor) if redactor.is_armed() => redact_arguments(arguments, redactor),
         _ => arguments.to_string(),
-    };
-    span.record("gen_ai.tool.call.arguments", recorded);
+    })
 }
 
 /// A JSON argument object scrubbed value-by-value, so a secret containing quotes or line
@@ -406,26 +420,28 @@ pub(crate) fn record_tool_result(
     redactor: Option<&crate::secrets::SecretRedactor>,
 ) {
     let capture = crate::llm::telemetry::capture_content();
-    match result {
-        Ok(response) => {
-            if capture {
-                span.record(
-                    "gen_ai.tool.call.result",
-                    recorded_tool_result(response, redactor),
-                );
-            }
-        }
-        Err(err) => {
-            span.record("otel.status_code", "ERROR");
-            span.record("error.type", "tool_error");
-            if capture {
-                span.record(
-                    "gen_ai.tool.call.result",
-                    recorded_tool_error(&err.to_string(), redactor),
-                );
-            }
-        }
+    if result.is_err() {
+        span.record("otel.status_code", "ERROR");
+        span.record("error.type", "tool_error");
     }
+    if let Some(recorded) = result_to_record(capture, result, redactor) {
+        span.record("gen_ai.tool.call.result", recorded);
+    }
+}
+
+/// What a call records as its result, under the same gate and scrub as the arguments.
+fn result_to_record(
+    capture: bool,
+    result: &Result<VizierResponse>,
+    redactor: Option<&crate::secrets::SecretRedactor>,
+) -> Option<String> {
+    if !capture {
+        return None;
+    }
+    Some(match result {
+        Ok(response) => recorded_tool_result(response, redactor),
+        Err(err) => recorded_tool_error(&err.to_string(), redactor),
+    })
 }
 
 /// What a successful call records as its result: the model's copy, without the response
@@ -1699,6 +1715,8 @@ mod tests {
             entry::<self_integrations::DeleteIntegration>(),
             entry::<SetSecret>(),
             entry::<GetSecret>(),
+            entry::<crate::questions::tool_question::AskQuestion>(),
+            entry::<crate::questions::tool_sensitive::AskSensitiveInput>(),
             entry::<ThinkTool>(),
             entry::<ExecutePython>(),
             entry::<ListToolFunctions>(),
@@ -1792,6 +1810,9 @@ mod tests {
             ("delete_integration", Integrations),
             ("set_secret", Secrets),
             ("get_secret", Secrets),
+            // Beside `set_secret`/`get_secret`: the value goes to a script (spec 042).
+            ("ask_sensitive_input", Secrets),
+            ("ask_question", Questions),
         ];
         // Listed under their addon's id rather than a built-in category (research R12).
         const ADDON: &[(&str, &str)] = &[
@@ -1976,6 +1997,40 @@ mod tests {
             recorded_tool_error(&err.to_string(), Some(&plain)),
             err.to_string()
         );
+    }
+
+    /// With content capture off — the default — a span records no argument or result at all, so a
+    /// secret has nowhere to be; with it on, only the marker (FR-042, US5 #2).
+    #[test]
+    fn execute_tool_telemetry_records_the_marker_with_capture_on_and_nothing_off() {
+        const TOKEN: &str = "agent-token-abc123";
+        let redactor = crate::secrets::SecretRedactor::default();
+        redactor.arm(TOKEN);
+        let arguments = format!(r#"{{"header":"Bearer {TOKEN}"}}"#);
+        let ok: Result<VizierResponse> = Ok(VizierResponse {
+            timestamp: Utc::now(),
+            content: crate::schema::VizierResponseContent::ToolResponse {
+                response: serde_json::json!({ "value": TOKEN }),
+            },
+            attachments: vec![],
+            ..Default::default()
+        });
+        let failed: Result<VizierResponse> = Err(VizierError(format!("refused {TOKEN}")).into());
+
+        assert_eq!(arguments_to_record(false, &arguments, Some(&redactor)), None);
+        assert_eq!(result_to_record(false, &ok, Some(&redactor)), None);
+        assert_eq!(result_to_record(false, &failed, Some(&redactor)), None);
+
+        let recorded = [
+            arguments_to_record(true, &arguments, Some(&redactor)),
+            result_to_record(true, &ok, Some(&redactor)),
+            result_to_record(true, &failed, Some(&redactor)),
+        ];
+        for recorded in recorded {
+            let recorded = recorded.expect("capture is on");
+            assert!(!recorded.contains(TOKEN), "{recorded}");
+            assert!(recorded.contains("[redacted]"), "{recorded}");
+        }
     }
 
     #[test]

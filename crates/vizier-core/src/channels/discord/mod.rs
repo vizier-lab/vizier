@@ -487,19 +487,14 @@ impl Handler {
     }
 
     async fn interaction(&self, interaction: Interaction) {
-        // A question's control (`specs/042-agent-asking-question`): acknowledge first, then
-        // resolve the set from storage — a press must never show a failed interaction (FR-023).
+        // A question's control (`specs/042-agent-asking-question`): acknowledged first, then
+        // resolved from storage — a press must never show a failed interaction (FR-023).
         if let Some(InteractionData::MessageComponent(data)) = &interaction.data {
-            let custom_id = data.custom_id.clone();
-            self.acknowledge(&interaction).await;
-            self.question_press(&interaction, &custom_id).await;
+            self.question_press(&interaction, &data.custom_id, &data.values).await;
             return;
         }
         if let Some(InteractionData::ModalSubmit(data)) = &interaction.data {
-            let custom_id = data.custom_id.clone();
-            let values = modal_values(&data.components);
-            self.acknowledge(&interaction).await;
-            self.question_modal(&interaction, &custom_id, values).await;
+            self.question_modal(&interaction, data).await;
             return;
         }
 
@@ -1339,6 +1334,12 @@ If I am halucinating, feel free to `/lobotomy` me
                 }
                 ReplyKind::NotSideChat => {}
             }
+        }
+
+        // A reply to a question set's text form answers the set (`specs/042-agent-asking-question`
+        // FR-027); it is never an ordinary message.
+        if self.question_reply(&msg).await {
+            return;
         }
 
         let ChannelState {

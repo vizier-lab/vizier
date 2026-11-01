@@ -103,7 +103,7 @@ fn description() -> String {
          together and answered in one submission, in the order you give them.\n\n\
          Every question is required unless you set `optional: true`; an optional question left \
          blank comes back as `skipped`. A `default` counts as an answer. Question ids are unique \
-         within the set, 1–{max_id} bytes of lowercase letters, digits, `-` and `_`.\
+         within the set, 1–{max_id} bytes of lowercase letters, digits, `-` and `_`. \
          Limits: prompts and help ≤ {max_prompt} bytes, option labels ≤ {max_label}, text answers \
          ≤ {max_text}, and at most {max_options} options per choice.\n\n\
          On success you get `{{\"status\": \"pending\", \"question_set_id\": \"…\", \
@@ -227,5 +227,128 @@ impl VizierTool for AskQuestion {
         ctx.questions.record_asked(&record.set_id);
 
         Ok(asked)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use parking_lot::Mutex;
+
+    use super::*;
+    use crate::{
+        agents::tools::{ENDS_TURN_NOTICE, with_ends_turn_notice},
+        storage::{document::LocalDocumentStore, sqlite::SqliteStorage},
+    };
+
+    fn tool() -> (AskQuestion, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        crate::storage::sqlite::init_question_schema(&conn).unwrap();
+        let storage = SqliteStorage::new(
+            Arc::new(Mutex::new(conn)),
+            Arc::new(LocalDocumentStore::new(dir.path().to_path_buf())),
+        );
+        (
+            AskQuestion::new(
+                Arc::new(VizierStorage::new(storage)),
+                VizierTransport::new(),
+                Arc::new(Questions::new()),
+            ),
+            dir,
+        )
+    }
+
+    fn ctx(interactive: bool) -> ToolContext {
+        ToolContext {
+            session: VizierSession(
+                "agent-1".into(),
+                VizierChannelId::HTTP("alice".into(), "webui".into()),
+                Some("t".into()),
+            ),
+            pending_attachments: Default::default(),
+            hooks: None,
+            background_depth: 0,
+            loaded_images: Default::default(),
+            recalled: Default::default(),
+            deadline: None,
+            client: None,
+            questions: crate::questions::QuestionsHandle::new(Default::default()),
+            interactive,
+            secret_redactor: Arc::new(crate::secrets::SecretRedactor::default()),
+            dream_sources: vec![],
+            project: None,
+        }
+    }
+
+    fn one_question() -> AskQuestionInput {
+        serde_json::from_value(serde_json::json!({
+            "questions": [{"id": "name", "prompt": "Name?", "type": "text"}]
+        }))
+        .unwrap()
+    }
+
+    /// The agent reads this and nothing else, so it has to carry the whole contract (FR-009, FR-066).
+    #[test]
+    fn the_description_states_the_whole_contract() {
+        let d = description();
+        for needle in [
+            "structured questions",
+            "`text`",
+            "`choice`",
+            "`multi_choice`",
+            "`confirm`",
+            "up to 10 questions",
+            "end your turn",
+            "next turn",
+            "`skipped`",
+            "`default`",
+            "unattended",
+            "ask_sensitive_input",
+        ] {
+            assert!(d.contains(needle), "the description lacks {needle:?}:\n{d}");
+        }
+        // The limits are the constants, not copies of them.
+        assert!(d.contains(&limits::MAX_TEXT_ANSWER_BYTES.to_string()));
+        assert!(d.contains(&limits::MAX_OPTIONS.to_string()));
+        // A sentence boundary is not run together.
+        assert!(!d.contains("`_`.Limits"));
+    }
+
+    /// The notice is added where the definition is built, once, and is not part of the budget the
+    /// author's own text is held to (FR-009, US6 #2).
+    #[test]
+    fn the_turn_ending_notice_is_appended_exactly_once() {
+        let own = description();
+        assert!(!own.contains(ENDS_TURN_NOTICE), "the author's text must not carry it");
+        let shown = with_ends_turn_notice(own.clone(), AskQuestion::ends_turn());
+        assert_eq!(shown.matches(ENDS_TURN_NOTICE).count(), 1);
+        // Applying it again changes nothing.
+        assert_eq!(with_ends_turn_notice(shown.clone(), true), shown);
+        assert!(AskQuestion::ends_turn());
+    }
+
+    /// Where nobody can answer the tool is not offered, and a direct call says so and fails — the
+    /// turn continues (FR-007, FR-063).
+    #[tokio::test]
+    async fn an_unattended_turn_is_refused_without_ending_it() {
+        let (tool, _dir) = tool();
+        let unattended = ctx(false);
+        assert!(!tool.available(&unattended));
+        let err = tool.call(one_question(), &unattended).await.unwrap_err();
+        assert!(err.0.contains("unattended"), "{}", err.0);
+        // Nothing was recorded for the turn, so it may still ask in a later, attended turn.
+        assert!(unattended.questions.may_ask());
+        assert!(tool.available(&ctx(true)));
+    }
+
+    /// A refused set uses up nothing: the turn may correct the call (FR-005, FR-008).
+    #[tokio::test]
+    async fn an_invalid_set_is_refused_and_the_turns_one_set_is_kept() {
+        let (tool, _dir) = tool();
+        let attended = ctx(true);
+        let empty: AskQuestionInput =
+            serde_json::from_value(serde_json::json!({ "questions": [] })).unwrap();
+        assert!(tool.call(empty, &attended).await.is_err());
+        assert!(attended.questions.may_ask());
     }
 }
