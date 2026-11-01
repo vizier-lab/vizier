@@ -21,18 +21,20 @@ const draw = (project = true) =>
     )
 
 describe("the composer's own controls", () => {
-    it('puts the Plan/Build switch in the tool row, left of Send', () => {
+    it('draws the tool row left to right: attach, slash, mic, context, speaker, then mode, Send', () => {
         const html = draw()
-        const mode = html.indexOf('aria-label="Plan or Build"')
-        expect(mode).toBeGreaterThan(-1)
-        expect(mode).toBeLessThan(html.indexOf('aria-label="Send"'))
-    })
-
-    it('puts the spoken-reply toggle after the tools, before the mode switch', () => {
-        const html = draw()
-        const spoken = html.indexOf('aria-label="Ask for a spoken reply"')
-        expect(spoken).toBeGreaterThan(html.indexOf('aria-label="Skills"'))
-        expect(spoken).toBeLessThan(html.indexOf('aria-label="Plan or Build"'))
+        // Document order is the drawn order: the row is one flex line.
+        const at = [
+            'Attach files',
+            'Skills',
+            'Record a voice message',
+            'Context used',
+            'Ask for a spoken reply',
+            'Plan or Build',
+            'Send',
+        ].map((label) => html.indexOf(`aria-label="${label}"`))
+        expect(at.every((i) => i > -1)).toBe(true)
+        expect(at).toEqual([...at].sort((a, b) => a - b))
     })
 
     it('draws one row only: no hint under the box', () => {
