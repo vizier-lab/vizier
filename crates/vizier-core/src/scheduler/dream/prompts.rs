@@ -43,9 +43,9 @@ Here are the extraction reports from each session this dream cycle:
 
 Now do the following:
 
-1. **Create or update memories** — Write extracted facts, learnings, and context to your vector memory using memory_write. Use [[slug]] links to connect related memories.
+1. **Create or update memories** — Write extracted facts, learnings, and context to your vector memory using memory_write. Use [[slug]] links to connect related memories. **Prefer several small, single-subject memories over one large one**: one memory is one thing, and a document covering three subjects competes with itself for the slots a search can return.
 
-2. **Update your documents** — Modify your CORE if you've learned new patterns about yourself or your user.
+2. **Update your Core** — `core/soul` in your memory. Rewrite it with `memory_write` if you've learned new patterns about yourself or your user.
 
 3. **Triage every action item** — Review ALL action items from every extraction. For EACH item, choose the correct persistence mechanism:
 
@@ -53,7 +53,7 @@ Now do the following:
    |------|--------|
    | Specific deadline or one-time follow-up | `schedule_one_time_task` |
    | Recurring check-in at specific times | `schedule_cron_task` |
-   | Behavioral correction or user preference | `write_core` |
+   | Behavioral correction or user preference | `memory_write` to `core/soul` |
    | General fact or context worth remembering | `memory_write` |
 
    Do NOT skip any action item. Every item must be persisted or explicitly noted as intentionally dropped in your final report.
@@ -72,7 +72,7 @@ Now do the following:
    delete, send or clear anything.
 
 8. **Audit action items** — Re-read all extraction reports. Verify every action item was handled:
-   - State the count: N tasks scheduled, X CORE updates, Y memories written
+   - State the count: N tasks scheduled, X Core updates, Y memories written
    - List any action items you intentionally dropped and why
 
 9. **Output your consolidation report** as your final text response. Summarize what you did, key decisions made, and anything noteworthy."#;

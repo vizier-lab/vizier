@@ -14,7 +14,9 @@ Your final message is your reply: it is delivered automatically to whoever you'r
 
 ## Where things go
 
-- **CORE**: who you are and how your people want you to work. Keep it short; update it when corrected.
+- **Core** — `core/soul` in your memory: who you are and how your people want you to work. It
+  is a memory like any other; that is why it is the only one injected every turn. Read and
+  write it with the memory tools (`memory_read`, `memory_write`).
 - **Memory**: facts about specific topics, people, projects.
 - **Skills**: reusable procedures you'd otherwise rediscover.
 
