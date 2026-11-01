@@ -1,6 +1,6 @@
 import { useState, type HTMLAttributes, type ReactNode } from "react";
 import { cx } from "../../lib/cx";
-import { CodeBlock } from "../CodeBlock/CodeBlock";
+import { CodeBlock, type CodeLine } from "../CodeBlock/CodeBlock";
 import { Eyebrow } from "../Eyebrow/Eyebrow";
 import { TextLink } from "../TextLink/TextLink";
 
@@ -8,6 +8,8 @@ export type RunDetailProps = {
   /** What the model said the script was for. */
   description?: ReactNode;
   code: string;
+  /** The script, highlighted. Left out, the source is drawn plain. */
+  codeTokens?: CodeLine[];
   /** ScriptCalls made from inside the script. */
   calls?: ReactNode;
   callCount?: number;
@@ -15,6 +17,8 @@ export type RunDetailProps = {
   output?: string;
   /** What it returned. */
   result?: string;
+  /** The result, highlighted as JSON. */
+  resultTokens?: CodeLine[];
   /** A raised exception: shows the traceback block instead of a result. */
   traceback?: { where: string; message: string; full?: string };
   /** A sandbox limit stopped it: amber, which limit and how far it got. */
@@ -31,24 +35,39 @@ function Section({ label, children }: { label: ReactNode; children: ReactNode })
 }
 
 /** Everything a python run did (X48): the script, the calls it made, what it printed and returned. */
-export function RunDetail({ description, code, calls, callCount, output, result, traceback, limit, className, ...rest }: RunDetailProps) {
+export function RunDetail({
+  description,
+  code,
+  codeTokens,
+  calls,
+  callCount,
+  output,
+  result,
+  resultTokens,
+  traceback,
+  limit,
+  className,
+  ...rest
+}: RunDetailProps) {
   const [full, setFull] = useState(false);
   const lines = code.replace(/\n$/, "").split("\n").length;
   return (
     <div className={cx("flex flex-col gap-16", className)} {...rest}>
       {description && <p className="type-ui-para text-soft">{description}</p>}
       <Section label={`Code · ${lines} lines`}>
-        <CodeBlock code={code} language="python" lineNumbers />
+        <CodeBlock code={code} tokens={codeTokens} language="python" lineNumbers />
       </Section>
       {calls && <Section label={callCount != null ? `Calls inside · ${callCount}` : "Calls inside"}>{calls}</Section>}
       {output && (
         <Section label={`Output · ${output.replace(/\n$/, "").split("\n").length} lines`}>
-          <pre className="overflow-x-auto rounded-md bg-ground px-12 py-10 type-code-block text-soft">{output}</pre>
+          <pre className="whitespace-pre-wrap break-words rounded-md bg-ground px-12 py-10 type-code-block text-soft">{output}</pre>
         </Section>
       )}
       {traceback && (
         <div role="alert" className="flex flex-col gap-4 rounded-md border border-failed-line bg-failed-bg px-12 py-10">
-          <pre className="overflow-x-auto type-code-block text-soft">{full && traceback.full ? traceback.full : traceback.where}</pre>
+          <pre className="whitespace-pre-wrap break-words type-code-block text-soft">
+            {full && traceback.full ? traceback.full : traceback.where}
+          </pre>
           <p className="type-code text-failed">{traceback.message}</p>
           {traceback.full && (
             <div>
@@ -70,7 +89,7 @@ export function RunDetail({ description, code, calls, callCount, output, result,
       )}
       {result && !traceback && (
         <Section label="Result">
-          <CodeBlock code={result} language="json" />
+          <CodeBlock code={result} tokens={resultTokens} language="json" />
         </Section>
       )}
     </div>

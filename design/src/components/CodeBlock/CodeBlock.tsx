@@ -2,8 +2,32 @@ import { useState, type HTMLAttributes } from "react";
 import { Icon } from "../../icons/Icon";
 import { cx } from "../../lib/cx";
 
+/**
+ * What a token is, not what colour it is. The block maps a tone to a token of its own, so the
+ * highlighter decides meaning and the design system decides palette (FR-015).
+ */
+export type CodeTone = "keyword" | "string" | "number" | "comment" | "function" | "punctuation";
+
+/** A run of source text that shares one tone. `tone` left out means ordinary code colour. */
+export type CodeToken = { text: string; tone?: CodeTone };
+
+/** One line of a highlighted block: its tokens, in reading order. Empty is a blank line. */
+export type CodeLine = CodeToken[];
+
+// Every tone is an existing token: nothing here invents a colour for code.
+const TONE: Record<CodeTone, string> = {
+  keyword: "text-rank-text",
+  string: "text-live-text",
+  number: "text-retrying",
+  comment: "text-faint",
+  function: "text-fg",
+  punctuation: "text-muted",
+};
+
 export type CodeBlockProps = {
   code: string;
+  /** Highlighted, one entry per line. Without it the source is drawn plain, as it always was. */
+  tokens?: CodeLine[];
   /** Shown top left: "python", "diff". `diff` colours + and − lines. */
   language?: string;
   /** Shown instead of the language: "SKILL.md". */
@@ -13,10 +37,17 @@ export type CodeBlockProps = {
   onCopy?: () => void;
 } & HTMLAttributes<HTMLDivElement>;
 
-/** Fenced code with its language and a copy button (D41). Highlighting is the caller's. */
-export function CodeBlock({ code, language, filename, lineNumbers, onCopy, className, ...rest }: CodeBlockProps) {
+/**
+ * Fenced code with its language and a copy button (D41). Lines wrap instead of scrolling: an
+ * agent's one-line script is common, and a horizontal scrollbar hides most of it (the activity
+ * trail is where that hurt). The grid's code column is `minmax(0, 1fr)` so one unbroken token
+ * can still shrink, and `break-words` breaks it rather than overflow.
+ */
+export function CodeBlock({ code, tokens, language, filename, lineNumbers, onCopy, className, ...rest }: CodeBlockProps) {
   const [copied, setCopied] = useState(false);
-  const lines = code.replace(/\n$/, "").split("\n");
+  const lines: CodeLine[] = tokens?.length
+    ? tokens
+    : code.replace(/\n$/, "").split("\n").map((line) => [{ text: line }]);
   const diff = language === "diff";
   const copy = async () => {
     try {
@@ -29,7 +60,7 @@ export function CodeBlock({ code, language, filename, lineNumbers, onCopy, class
     }
   };
   return (
-    <div className={cx("flex flex-col gap-10 rounded-md border border-border bg-surface px-16 pt-10 pb-14", className)} {...rest}>
+    <div className={cx("flex min-w-0 flex-col gap-10 rounded-md border border-border bg-surface px-16 pt-10 pb-14", className)} {...rest}>
       <div className="flex items-center justify-between gap-12">
         <span className="type-mono-sm text-faint">{filename ?? language}</span>
         <button
@@ -41,10 +72,11 @@ export function CodeBlock({ code, language, filename, lineNumbers, onCopy, class
           <span aria-live="polite">{copied ? "Copied" : "Copy"}</span>
         </button>
       </div>
-      <pre className="overflow-x-auto type-code-block text-soft">
-        <code className="grid" style={{ gridTemplateColumns: lineNumbers ? "max-content 1fr" : "1fr" }}>
+      <pre className="overflow-hidden whitespace-pre-wrap break-words type-code-block text-soft">
+        <code className="grid" style={{ gridTemplateColumns: lineNumbers ? "max-content minmax(0, 1fr)" : "minmax(0, 1fr)" }}>
           {lines.map((line, i) => {
-            const tone = diff && line.startsWith("+") ? "text-live-text" : diff && line.startsWith("-") ? "text-failed" : "";
+            const text = line.map((token) => token.text).join("");
+            const tone = diff && text.startsWith("+") ? "text-live-text" : diff && text.startsWith("-") ? "text-failed" : "";
             return (
               <span key={i} className="contents">
                 {lineNumbers && (
@@ -52,7 +84,19 @@ export function CodeBlock({ code, language, filename, lineNumbers, onCopy, class
                     {i + 1}
                   </span>
                 )}
-                <span className={tone}>{line || " "}</span>
+                <span className={tone}>
+                  {text === ""
+                    ? " "
+                    : line.map((token, j) =>
+                        token.tone ? (
+                          <span key={j} className={TONE[token.tone]}>
+                            {token.text}
+                          </span>
+                        ) : (
+                          token.text
+                        )
+                      )}
+                </span>
               </span>
             );
           })}
