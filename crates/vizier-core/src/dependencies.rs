@@ -76,6 +76,10 @@ pub struct VizierDependencies {
     /// The stale-read guard for project coding tools (`specs/041-project-coding-workspace`
     /// R8): `(session slug, path) → sha256` of what the chat last read or wrote.
     pub project_ledger: Arc<crate::projects::ledger::ProjectReadLedger>,
+    /// Asking the person (`specs/042-agent-asking-question`): each channel's question surfaces and
+    /// the sensitive-input asks waiting on somebody. Process-wide, because a surface outlives a
+    /// turn and an ask is answered by a socket that is not running one.
+    pub questions: Arc<crate::questions::Questions>,
 }
 
 /// Old (pre-bundle) memory frontmatter shape, kept only so `migrate_memory_to_bundles` can parse
@@ -291,6 +295,7 @@ impl VizierDependencies {
                 crate::channels::side_chat::ASK_WINDOW,
             )),
             project_ledger: Default::default(),
+            questions: Arc::new(crate::questions::Questions::new()),
         };
         #[cfg(feature = "documents")]
         deps.seed_office_defaults().await;

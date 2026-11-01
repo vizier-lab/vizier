@@ -598,6 +598,9 @@ async fn refresh_session_detail(
         loaded_images: Default::default(),
         recalled: Default::default(),
         client: None,
+        questions: crate::questions::QuestionsHandle::new(
+            crate::questions::Questions::new().into(),
+        ),
         // Titling runs a prompt of its own; nobody answers it.
         interactive: false,
         session,
@@ -1061,6 +1064,9 @@ async fn run_checkpoint(
         loaded_images: Default::default(),
         recalled: Default::default(),
         client: None,
+        questions: crate::questions::QuestionsHandle::new(
+            crate::questions::Questions::new().into(),
+        ),
         // A handover summarises the conversation; nobody answers it.
         interactive: false,
         session: session.clone(),

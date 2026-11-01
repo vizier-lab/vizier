@@ -244,6 +244,9 @@ pub struct ToolContext {
     /// only for a chat turn whose request came over a WebSocket that declared some and is
     /// still open, `None` everywhere else.
     pub client: Option<Arc<crate::agents::client::ClientTools>>,
+    /// Asking the person (`specs/042-agent-asking-question`): the shared service plus this
+    /// turn's own one-set slot. Both tools read it; nothing else does.
+    pub questions: crate::questions::QuestionsHandle,
     /// Whether somebody is there to answer this turn (`specs/042-agent-asking-question`,
     /// research R2): a chat, voice or client-event turn in a conversation a person can see.
     /// False for every unattended turn — a dream, a task run, a background piece, an
@@ -2132,6 +2135,7 @@ mod tests {
             loaded_images: Default::default(),
             recalled: Default::default(),
             client,
+            questions: crate::questions::QuestionsHandle::new(Default::default()),
             interactive: false,
             dream_sources: vec![],
             secret_redactor: Arc::new(crate::secrets::SecretRedactor::default()),
