@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.14.1] - 2026-11-01
+
+### 🚀 Features
+
+- *(ui)* Pin the composer with its controls in the tool row
+- *(ui)* Reorder the composer's tool row
+- *(ui)* End the composer's left group with the context ring
+
+### 🐛 Bug Fixes
+
+- *(app)* Stop the Windows release opening a console window
+
+### 📚 Documentation
+
+- Add a contributing guide and a code of conduct
 ## [0.14.0] - 2026-11-01
 
 ### 🚀 Features
@@ -74,6 +89,7 @@ All notable changes to this project will be documented in this file.
 - Bump design and webui for the MiddleTruncate class fix
 - Remove the unreachable documents router (SOUL/IDENTITY/HEARTBEAT)
 - Drop an unneeded `mut` the CI lint set rejects (043)
+- Bump version to 0.14.0
 ## [0.14.0-rc.2] - 2026-10-31
 
 ### 🚀 Features
