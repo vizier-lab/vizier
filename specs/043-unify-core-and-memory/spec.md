@@ -95,7 +95,7 @@ A person responsible for an agent can read its soul, see how it changed over tim
 - An agent's pre-existing identity content is larger than the soul's own ceiling: the upgrade must still succeed. The content is migrated as it is — never refused and never split — and the agent's next edit of it is what brings it within the limit.
 - The comfortable size and ceiling are changed for an agent after the fact: subsequent writes are judged against the new values, and no existing memory becomes unreadable.
 - The core bundle is empty because its soul was removed: memory listing still shows the core bundle as reserved rather than dropping it.
-- An install still has a file left over from the retired document model: nothing reads it, nothing is promised about it, and no upgrade path is offered for it — the only document an agent has is its soul in the core bundle.
+- An install still holds files written by the earlier per-document model: nothing reads them, nothing is promised about them, and no upgrade path is offered for them — the only document an agent has is its soul in the core bundle.
 - An agent writes a memory just under the ceiling that is a single indivisible block, such as a large pasted table: it is accepted, and the warning still applies if it is above the comfortable size.
 
 ## Requirements *(mandatory)*
@@ -169,7 +169,7 @@ A person responsible for an agent can read its soul, see how it changed over tim
 ## Assumptions
 
 - The reserved bundle is named `core` and its soul document lives at path `soul`, giving the address `core/soul`. This is the requested naming; `core` is reserved and is not a valid destination for general memories.
-- "Soul" is a restoration, not a new coinage: the document was called a soul before it was renamed to a core document, and the file-based soul, identity and heartbeat documents were retired at that point. A management interface for them survived as unreachable code that nothing called and nothing documented; it is removed by this feature rather than kept, because a second, unguarded identity surface is a trap.
+- "Soul" is a restoration, not a new coinage: the identity document was called a soul before it was renamed to a core document, and the file-based soul, identity and heartbeat documents were retired at that point. A management interface for them survived as unreachable code that nothing called and nothing documented; it is removed by this feature rather than kept, because a second, unguarded identity surface is a trap.
 - The default agent bundle for ordinary memories is unchanged, so no existing memory is re-addressed and no existing search or link path is invalidated.
 - Default limits: 8 KiB hard ceiling and 4 KiB soft limit for ordinary memories; 4 KiB hard ceiling and 1.5 KiB soft limit for the soul. These come from measurement of a real agent corpus of 34 memories (median 3.2 KiB, four documents above 8 KiB) rather than from a round number, and are expected to be adjusted after real use.
 - The hard ceiling exists to enforce addressing — one memory, one thing — not to bound per-turn cost, which is already bounded separately by how much automatic context may inject. This is recorded so the ceiling is not later tightened on cost grounds it does not serve.
