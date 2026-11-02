@@ -247,7 +247,7 @@ pub async fn build_report(
     kinds: &IntegrationKinds,
     q: UsageQuery,
 ) -> Result<UsageReport> {
-    let mut pricer = Pricer::new(catalogue);
+    let mut pricer = Pricer::with_entries(catalogue, saved_entries(storage).await);
 
     let activity_groups = storage.usage_groups(&q, UsageGrouping::Activity).await?;
     let all = tally(&mut pricer, &activity_groups);
@@ -521,7 +521,7 @@ pub async fn conversation_usage(
     limit: usize,
 ) -> Result<ConversationUsage> {
     let (channel, topic) = q.conversation.clone().unwrap_or_default();
-    let mut pricer = Pricer::new(catalogue);
+    let mut pricer = Pricer::with_entries(catalogue, saved_entries(storage).await);
 
     let all = tally(&mut pricer, &storage.usage_groups(&q, UsageGrouping::Activity).await?);
     let rows = storage.conversation_usage(&q, limit.saturating_mul(4)).await?;
@@ -1135,7 +1135,8 @@ mod tests {
                 "CREATE TABLE state (key TEXT PRIMARY KEY, value TEXT NOT NULL);
                  CREATE TABLE session_detail (id TEXT PRIMARY KEY, agent_id TEXT NOT NULL,
                      channel TEXT NOT NULL, topic TEXT, data TEXT NOT NULL);
-                 CREATE TABLE task (agent_id TEXT, slug TEXT, data TEXT);",
+                 CREATE TABLE task (agent_id TEXT, slug TEXT, data TEXT);
+                 CREATE TABLE provider_config (variant TEXT PRIMARY KEY, data TEXT NOT NULL);",
             )
             .unwrap();
             let storage = VizierStorage::new(SqliteStorage::new(
@@ -1194,6 +1195,46 @@ mod tests {
                 activity: None,
                 conversation: None,
             }
+        }
+
+        /// T038: a report prices a saved profile by its ARN — the report's own pricer, not the
+        /// catalogue alone (FR-034, FR-034a.1).
+        #[tokio::test]
+        async fn a_report_prices_a_saved_arns_entry() {
+            use crate::schema::{ProviderCredentials, ProviderEntry};
+
+            let (s, _d) = storage();
+            let catalogue = super::bedrock_catalogue();
+            let arn = "arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/abc";
+            s.upsert_provider(&ProviderEntry {
+                id: ProviderId::AMAZON_BEDROCK_SSO,
+                credentials: ProviderCredentials {
+                    profiles: vec![ProfileEntry {
+                        arn: arn.into(),
+                        price: Some(Cost {
+                            input: 2.0,
+                            output: 8.0,
+                            cache_read: None,
+                            cache_write: None,
+                        }),
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                },
+            })
+            .await
+            .unwrap();
+            s.record_usage(event(DAY, "discord__1", "amazon-bedrock-sso", arn, 1_000_000))
+                .await
+                .unwrap();
+
+            let r = build_report(&s, &catalogue, &IntegrationKinds::builtin(), q())
+                .await
+                .unwrap();
+            let cost = r.summary.cost_usd.expect("priced from the entry");
+            // 1M input at 2.0/M and 100k output at 8.0/M — the hand-entered figure, not 0.
+            assert!((cost - (2.0 + 0.8)).abs() < 1e-9, "{cost}");
+            assert!(r.unpriced.models.is_empty(), "the ARN is priced: {:?}", r.unpriced.models);
         }
 
         #[tokio::test]
