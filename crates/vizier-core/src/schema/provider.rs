@@ -200,8 +200,23 @@ impl ProviderCredentials {
             .all(|v| v.as_deref().is_none_or(str::is_empty))
     }
 
-    /// `other`'s set fields over `self`'s.
+    /// `other`'s set fields over `self`'s. The inference-profile entry list is **not** taken from
+    /// `other`: an entry list cannot tell "omitted" from "emptied", so the caller decides it with
+    /// [`merged_with_profiles`](Self::merged_with_profiles). This keeps the environment and
+    /// test-overlay callers (which never carry entries) from wiping a saved list.
     pub fn merged_with(&self, other: &ProviderCredentials) -> ProviderCredentials {
+        self.merged_with_profiles(other, None)
+    }
+
+    /// [`merged_with`](Self::merged_with) with the entry list decided by the caller: `None` keeps
+    /// the stored list, `Some(list)` replaces it — `Some(vec![])` included, which **clears** it.
+    /// That is what `PUT /providers/{id} {"profiles": []}` means: an emptied list, not an omitted
+    /// one (`contracts/provider-credentials-api.md` §4, FR-021).
+    pub fn merged_with_profiles(
+        &self,
+        other: &ProviderCredentials,
+        profiles: Option<Vec<ProfileEntry>>,
+    ) -> ProviderCredentials {
         let pick = |a: &Option<String>, b: &Option<String>| {
             b.clone().filter(|s| !s.is_empty()).or_else(|| a.clone())
         };
@@ -219,13 +234,9 @@ impl ProviderCredentials {
             sso_region: pick(&self.sso_region, &other.sso_region),
             role_name: pick(&self.role_name, &other.role_name),
             sso_profile: pick(&self.sso_profile, &other.sso_profile),
-            // The entry list is one operation: a list given replaces it, an omitted (empty) one
-            // keeps what is stored, so a save can never wipe entries by leaving them out.
-            profiles: if other.profiles.is_empty() {
-                self.profiles.clone()
-            } else {
-                other.profiles.clone()
-            },
+            // One operation, decided by the caller rather than guessed from the list: omitted
+            // keeps the stored entries, an empty list clears them (FR-021).
+            profiles: profiles.unwrap_or_else(|| self.profiles.clone()),
         }
     }
 }
@@ -349,6 +360,34 @@ mod credential_tests {
         assert_eq!(merged.secret_access_key.as_deref(), Some("old-secret"));
         assert_eq!(merged.session_token.as_deref(), Some("old-token"));
         assert_eq!(merged.region.as_deref(), Some("eu-west-1"));
+    }
+
+    #[test]
+    fn an_omitted_entry_list_keeps_the_stored_entries_and_an_empty_one_clears_them() {
+        let entry = |arn: &str| ProfileEntry {
+            arn: arn.into(),
+            ..Default::default()
+        };
+        let stored = ProviderCredentials {
+            sso_profile: Some("acme".into()),
+            profiles: vec![entry("arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/a")],
+            ..Default::default()
+        };
+        let other = ProviderCredentials {
+            profiles: vec![entry("arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/b")],
+            ..Default::default()
+        };
+
+        // Omitted keeps; `[]` clears; a list replaces.
+        assert_eq!(stored.merged_with_profiles(&other, None).profiles, stored.profiles);
+        assert!(stored.merged_with_profiles(&other, Some(Vec::new())).profiles.is_empty());
+        assert_eq!(
+            stored.merged_with_profiles(&other, Some(other.profiles.clone())).profiles,
+            other.profiles
+        );
+        // The plain merge never guesses from the list, so an overlay without entries cannot wipe it.
+        assert_eq!(stored.merged_with(&ProviderCredentials::default()).profiles, stored.profiles);
+        assert_eq!(stored.merged_with(&other).profiles, stored.profiles);
     }
 
     #[test]

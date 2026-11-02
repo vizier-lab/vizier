@@ -1,14 +1,20 @@
 //! Provider credentials (contract `http-api.md` § Providers): any selectable provider can be
 //! connected with a saved key, and keys found in the environment are shown alongside.
 
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::{
     auth::Principal,
-    catalogue::{ProviderOrigin, builtin::CredentialField, data::ProviderKind},
+    catalogue::{
+        ProviderOrigin,
+        builtin::CredentialField,
+        data::{Cost, ProviderKind},
+    },
     config::provider::ProviderId,
     dependencies::VizierDependencies,
-    schema::{ProviderCredentials, ProviderEntry},
+    llm::sso::{SsoSessions, expires_at, session_state},
+    schema::{ProfileEntry, ProviderCredentials, ProviderEntry, SsoSessionState},
     service::{
         ServiceError,
         usage::{self, AffectedAgent, TestResult, UsedBy},
@@ -48,6 +54,105 @@ pub struct ProviderResponse {
     pub used_by: UsedBy,
     /// Local and custom providers only; checked in the background.
     pub reachable: Option<bool>,
+    // ---- Amazon Bedrock over IAM Identity Center (spec 044, `contracts/provider-credentials-api.md` §4).
+    // Non-secret only: the session itself never leaves its encrypted row (FR-009b).
+    /// `configured`, `signed-in`, `expired` or `unreadable`; `null` for every other provider.
+    pub sso_state: Option<SsoSessionState>,
+    /// A session row exists and decrypts with this workspace key.
+    pub has_sso_session: bool,
+    /// The non-secret handle the session is stored under (FR-009e).
+    pub sso_profile: Option<String>,
+    /// The Identity Center start URL, shown in clear (FR-009b).
+    pub start_url: Option<String>,
+    /// The Identity Center's region — not the Bedrock region (FR-010).
+    pub sso_region: Option<String>,
+    /// The role chosen from the portal.
+    pub role_name: Option<String>,
+    /// When the stored session's access token expires.
+    pub session_expires_at: Option<DateTime<Utc>>,
+    /// The saved inference-profile entries, as saved: no price is invented here (FR-026, FR-028).
+    pub profiles: Vec<ProfileEntryResponse>,
+}
+
+/// One saved inference-profile entry as the settings row shows it (contracts §4): the ARN the
+/// person pasted, the limits they set, the optional pricing pairing, and a name to show for it.
+#[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+pub struct ProfileEntryResponse {
+    /// The ARN exactly as saved (FR-027).
+    pub arn: String,
+    pub name: Option<String>,
+    /// Unknown when unset — never "unsupported", never copied from the paired model (FR-028,
+    /// FR-034a.6).
+    pub context: Option<u64>,
+    pub output: Option<u64>,
+    pub tool_call: Option<bool>,
+    pub image_input: Option<bool>,
+    /// The catalogue model id the entry is priced from, when the person paired one (FR-034a.1).
+    pub model: Option<String>,
+    /// The hand-entered cost, when there is one (FR-034a.4).
+    pub price: Option<Cost>,
+    pub edited: bool,
+    /// The entry's name, or the profile id from its ARN when it has none (FR-026).
+    pub display_name: String,
+}
+
+impl ProfileEntryResponse {
+    fn from_entry(entry: &ProfileEntry) -> Self {
+        let display_name = match entry.name.as_deref().map(str::trim).filter(|n| !n.is_empty()) {
+            Some(name) => name.to_string(),
+            // An entry validated on save always parses; a hand-edited row may not, and the ARN is
+            // still the most useful thing to show.
+            None => crate::llm::bedrock::parse_inference_profile_arn(&entry.arn)
+                .map(|arn| arn.id)
+                .unwrap_or_else(|_| entry.arn.clone()),
+        };
+        Self {
+            arn: entry.arn.clone(),
+            name: entry.name.clone(),
+            context: entry.context,
+            output: entry.output,
+            tool_call: entry.tool_call,
+            image_input: entry.image_input,
+            model: entry.model.clone(),
+            price: entry.price.clone(),
+            edited: entry.edited,
+            display_name,
+        }
+    }
+}
+
+/// What the settings row reports about a connection's session, read from the encrypted row on
+/// every request: never a cached copy, never a token (contracts §4, FR-009b).
+struct SsoView {
+    state: SsoSessionState,
+    has_session: bool,
+    expires_at: Option<DateTime<Utc>>,
+}
+
+/// The session half of an SSO connection, or the reason it cannot be shown (FR-009f).
+async fn sso_view(deps: &VizierDependencies, credentials: &ProviderCredentials) -> SsoView {
+    let configured = SsoView {
+        state: SsoSessionState::Configured,
+        has_session: false,
+        expires_at: None,
+    };
+    let Some(profile) = credentials.sso_profile.as_deref().filter(|p| !p.is_empty()) else {
+        return configured;
+    };
+    match SsoSessions::new(&*deps.storage).load(profile).await {
+        Ok(session) => SsoView {
+            state: session_state(session.as_ref(), Utc::now()),
+            has_session: session.is_some(),
+            expires_at: expires_at(session.as_ref()),
+        },
+        // A row this key cannot open is reported as such, never as "signed out": the fix is a
+        // re-sign-in, and nothing was deleted (FR-009f, SC-019).
+        Err(_) => SsoView {
+            state: SsoSessionState::Unreadable,
+            ..configured
+        },
+    }
 }
 
 fn set(v: &Option<String>) -> bool {
@@ -76,6 +181,30 @@ pub async fn connected(deps: &VizierDependencies) -> Vec<ProviderResponse> {
             .await
             .map(|(c, _)| c)
             .unwrap_or_default();
+        let sso = if p.id == ProviderId::AMAZON_BEDROCK_SSO {
+            Some(sso_view(deps, &creds).await)
+        } else {
+            None
+        };
+        let profiles = if p.id == ProviderId::AMAZON_BEDROCK_SSO {
+            creds
+                .profiles
+                .iter()
+                .map(ProfileEntryResponse::from_entry)
+                .collect()
+        } else {
+            Vec::new()
+        };
+        let (sso_profile, start_url, sso_region, role_name) = if p.id == ProviderId::AMAZON_BEDROCK_SSO {
+            (
+                creds.sso_profile.clone(),
+                creds.start_url.clone(),
+                creds.sso_region.clone(),
+                creds.role_name.clone(),
+            )
+        } else {
+            (None, None, None, None)
+        };
         out.push(ProviderResponse {
             variant: p.id.clone(),
             migrated_from: migrated.get(p.id.as_str()).cloned(),
@@ -98,6 +227,14 @@ pub async fn connected(deps: &VizierDependencies) -> Vec<ProviderResponse> {
             region: creds.region.filter(|v| !v.is_empty()),
             used_by,
             id: p.id,
+            sso_state: sso.as_ref().map(|view| view.state),
+            has_sso_session: sso.as_ref().is_some_and(|view| view.has_session),
+            session_expires_at: sso.as_ref().and_then(|view| view.expires_at),
+            sso_profile,
+            start_url,
+            sso_region,
+            role_name,
+            profiles,
         });
     }
     out
@@ -119,8 +256,20 @@ pub struct UpsertProviderRequest {
     pub secret_access_key: Option<String>,
     /// AWS Bedrock temporary-credential session token (write-only after saving).
     pub session_token: Option<String>,
-    /// AWS region.
+    /// AWS region; for the SSO provider this is the **Bedrock** region (FR-010).
     pub region: Option<String>,
+    /// Amazon Bedrock (SSO): the Identity Center start URL (FR-005).
+    pub start_url: Option<String>,
+    /// Amazon Bedrock (SSO): the region the Identity Center instance lives in; defaults from
+    /// `region` when only that one is given (FR-010).
+    pub sso_region: Option<String>,
+    /// Amazon Bedrock (SSO): the role chosen from the portal.
+    pub role_name: Option<String>,
+    /// Amazon Bedrock (SSO): the non-secret handle the session is stored under (FR-009e).
+    pub sso_profile: Option<String>,
+    /// Amazon Bedrock (SSO): the whole inference-profile list, one operation — omitted keeps the
+    /// stored list, `[]` clears it (FR-021).
+    pub profiles: Option<Vec<ProfileEntry>>,
 }
 
 impl UpsertProviderRequest {
@@ -137,6 +286,10 @@ impl UpsertProviderRequest {
             (SecretAccessKey, &self.secret_access_key),
             (SessionToken, &self.session_token),
             (Region, &self.region),
+            (StartUrl, &self.start_url),
+            (SsoRegion, &self.sso_region),
+            (RoleName, &self.role_name),
+            (SsoProfile, &self.sso_profile),
         ]
         .into_iter()
         .filter(|(_, v)| v.is_some())
@@ -155,13 +308,11 @@ impl UpsertProviderRequest {
             secret_access_key: self.secret_access_key,
             session_token: self.session_token,
             region: self.region,
-            // The SSO half of the connection is not part of this request body yet (spec 044
-            // T026 adds it): a request must never invent a profile name or an entry list.
-            start_url: None,
-            sso_region: None,
-            role_name: None,
-            sso_profile: None,
-            profiles: Vec::new(),
+            start_url: self.start_url,
+            sso_region: self.sso_region,
+            role_name: self.role_name,
+            sso_profile: self.sso_profile,
+            profiles: self.profiles.unwrap_or_default(),
         }
     }
 }
@@ -222,6 +373,132 @@ fn check_bedrock_pair(
         )),
         _ => Ok(()),
     }
+}
+
+/// The five non-secret fields an SSO connection is made of (data-model "SSO connection").
+const SSO_FIELDS: [CredentialField; 5] = [
+    CredentialField::StartUrl,
+    CredentialField::SsoRegion,
+    CredentialField::AccountId,
+    CredentialField::RoleName,
+    CredentialField::SsoProfile,
+];
+
+/// The value of one SSO field, `None` when it is absent or empty.
+fn sso_value<'a>(creds: &'a ProviderCredentials, field: CredentialField) -> Option<&'a str> {
+    let value = match field {
+        CredentialField::StartUrl => &creds.start_url,
+        CredentialField::SsoRegion => &creds.sso_region,
+        CredentialField::AccountId => &creds.account_id,
+        CredentialField::RoleName => &creds.role_name,
+        CredentialField::SsoProfile => &creds.sso_profile,
+        _ => return None,
+    };
+    value.as_deref().filter(|v| !v.is_empty())
+}
+
+/// The rules an SSO connection is saved under (data-model "SSO connection", FR-009e, FR-010,
+/// FR-011), applied to the **merged** credentials so a partial update cannot slip past them:
+///
+/// - `base_url` and `api_key` are refused: the endpoint follows the regions, and the sign-in
+///   replaces the key form entirely;
+/// - the two regions default to each other when only one is supplied, and are never equalised
+///   afterwards — an Identity Center instance and the Bedrock runtime may sit in different
+///   regions — with each message naming which of the two it concerns;
+/// - the five fields are all present or all absent, and a refusal names the missing one;
+/// - `sso_profile` is unique in the workspace, and a clash names the row that owns it.
+///
+/// `others` is every stored provider row, for the uniqueness rule. `credentials` is edited in
+/// place for the defaulting only.
+pub fn check_sso_connection(
+    id: &ProviderId,
+    credentials: &mut ProviderCredentials,
+    others: &[ProviderEntry],
+) -> Result<(), (u16, String)> {
+    if *id != ProviderId::AMAZON_BEDROCK_SSO {
+        if !credentials.profiles.is_empty() {
+            return Err((
+                400u16,
+                format!(
+                    "\"{id}\" does not use inference profile entries; they belong to \"{}\"",
+                    ProviderId::AMAZON_BEDROCK_SSO
+                ),
+            ));
+        }
+        return Ok(());
+    }
+    if set(&credentials.base_url) {
+        return Err((
+            400u16,
+            format!("\"{id}\" does not take a base_url; its endpoint follows the region"),
+        ));
+    }
+    if set(&credentials.api_key) {
+        return Err((
+            400u16,
+            format!("\"{id}\" does not use api_key; sign in through IAM Identity Center instead"),
+        ));
+    }
+
+    // FR-010: fill whichever region is missing from the other, never overwrite a present one.
+    if !set(&credentials.sso_region) && set(&credentials.region) {
+        credentials.sso_region = credentials.region.clone();
+    } else if !set(&credentials.region) && set(&credentials.sso_region) {
+        credentials.region = credentials.sso_region.clone();
+    }
+    for (label, region) in [
+        ("AWS region", credentials.region.as_deref()),
+        ("SSO region", credentials.sso_region.as_deref()),
+    ] {
+        if let Some(region) = region.filter(|r| !r.is_empty())
+            && !crate::llm::bedrock::valid_region(region)
+        {
+            return Err((
+                400u16,
+                format!("invalid {label} {region:?}: use a form like us-east-1"),
+            ));
+        }
+    }
+
+    // All five or none: half a connection cannot be signed in with, so it is not saved either.
+    let present: Vec<CredentialField> = SSO_FIELDS
+        .iter()
+        .copied()
+        .filter(|field| sso_value(credentials, *field).is_some())
+        .collect();
+    if !present.is_empty() && present.len() < SSO_FIELDS.len() {
+        let missing: Vec<&str> = SSO_FIELDS
+            .iter()
+            .copied()
+            .filter(|field| !present.contains(field))
+            .map(field_name)
+            .collect();
+        return Err((
+            400u16,
+            format!(
+                "the SSO connection is incomplete: {} {} missing — save start_url, sso_region, \
+                 account_id, role_name and sso_profile together",
+                missing.join(", "),
+                if missing.len() == 1 { "is" } else { "are" }
+            ),
+        ));
+    }
+
+    // FR-009e: a profile name addresses exactly one stored session, so it is unique per workspace.
+    if let Some(profile) = sso_value(credentials, CredentialField::SsoProfile)
+        && let Some(owner) = others
+            .iter()
+            .find(|entry| entry.id != *id && entry.credentials.sso_profile.as_deref() == Some(profile))
+    {
+        return Err((
+            400u16,
+            format!(
+                "the profile name {profile:?} is already used by \"{}\"; choose another",
+                owner.id
+            ),
+        ));
+    }
+    Ok(())
 }
 
 /// The provider's connect fields, or why credentials can't be saved for it.
@@ -315,28 +592,35 @@ pub async fn upsert(
         Ok(entry) => entry.map(|e| e.credentials).unwrap_or_default(),
         Err(e) => return Err(ServiceError::Internal(e.to_string())),
     };
+    let update = ProviderCredentials {
+        api_key: body.api_key,
+        endpoint: body.endpoint,
+        base_url: body.base_url,
+        access_token: body.access_token,
+        account_id: body.account_id,
+        access_key_id: body.access_key_id,
+        secret_access_key: body.secret_access_key,
+        session_token: body.session_token,
+        region: body.region,
+        start_url: body.start_url,
+        sso_region: body.sso_region,
+        role_name: body.role_name,
+        sso_profile: body.sso_profile,
+        // Omitted keeps the stored list; `[]` is an emptied list and clears it (FR-021).
+        profiles: body.profiles.clone().unwrap_or_default(),
+    };
+    let mut credentials = stored.merged_with_profiles(&update, body.profiles);
+    check_bedrock_pair(&id, &credentials).map_err(fail)?;
+    let rows = deps
+        .storage
+        .list_providers()
+        .await
+        .map_err(|e| ServiceError::Internal(e.to_string()))?;
+    check_sso_connection(&id, &mut credentials, &rows).map_err(fail)?;
     let entry = ProviderEntry {
         id: id.clone(),
-        credentials: ProviderCredentials {
-            api_key: apply(stored.api_key, body.api_key),
-            endpoint: apply(stored.endpoint, body.endpoint),
-            base_url: apply(stored.base_url, body.base_url),
-            access_token: apply(stored.access_token, body.access_token),
-            account_id: apply(stored.account_id, body.account_id),
-            access_key_id: apply(stored.access_key_id, body.access_key_id),
-            secret_access_key: apply(stored.secret_access_key, body.secret_access_key),
-            session_token: apply(stored.session_token, body.session_token),
-            region: apply(stored.region, body.region),
-            // Carried through from the stored row, so saving a static field can never wipe the
-            // SSO half of the connection or its inference-profile entries.
-            start_url: stored.start_url,
-            sso_region: stored.sso_region,
-            role_name: stored.role_name,
-            sso_profile: stored.sso_profile,
-            profiles: stored.profiles,
-        },
+        credentials,
     };
-    check_bedrock_pair(&id, &entry.credentials).map_err(fail)?;
     let saved = if entry.credentials.is_empty() {
         deps.storage.delete_provider(&id).await
     } else {
@@ -407,4 +691,171 @@ pub async fn test(
             error: Some(e.to_string()),
         },
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const ARN: &str = "arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/abc123";
+
+    /// A fully filled SSO connection, with the two legs in two different regions on purpose.
+    fn full() -> ProviderCredentials {
+        ProviderCredentials {
+            start_url: Some("https://acme.awsapps.com/start".into()),
+            sso_region: Some("us-east-1".into()),
+            account_id: Some("123456789012".into()),
+            role_name: Some("BedrockOperator".into()),
+            sso_profile: Some("acme-bedrock".into()),
+            region: Some("eu-west-1".into()),
+            ..Default::default()
+        }
+    }
+
+    fn check(creds: &mut ProviderCredentials) -> Result<(), (u16, String)> {
+        check_sso_connection(&ProviderId::AMAZON_BEDROCK_SSO, creds, &[])
+    }
+
+    fn message(result: Result<(), (u16, String)>) -> String {
+        let (status, message) = result.expect_err("the save is refused");
+        assert_eq!(status, 400);
+        message
+    }
+
+    #[test]
+    fn the_two_regions_default_to_each_other_and_are_never_equalised() {
+        let mut bedrock_only = full();
+        bedrock_only.sso_region = None;
+        check(&mut bedrock_only).unwrap();
+        assert_eq!(
+            bedrock_only.sso_region.as_deref(),
+            Some("eu-west-1"),
+            "the missing SSO region defaults from the Bedrock region"
+        );
+
+        let mut sso_only = full();
+        sso_only.region = None;
+        check(&mut sso_only).unwrap();
+        assert_eq!(
+            sso_only.region.as_deref(),
+            Some("us-east-1"),
+            "the missing Bedrock region defaults from the SSO region"
+        );
+
+        // Both given and different: neither is rewritten (FR-010).
+        let mut both = full();
+        check(&mut both).unwrap();
+        assert_eq!(both.region.as_deref(), Some("eu-west-1"));
+        assert_eq!(both.sso_region.as_deref(), Some("us-east-1"));
+    }
+
+    #[test]
+    fn a_region_is_validated_and_the_message_names_which_one() {
+        let mut bad_sso = full();
+        bad_sso.sso_region = Some("eu-west".into());
+        assert!(message(check(&mut bad_sso)).contains("invalid SSO region"));
+
+        let mut bad_bedrock = full();
+        bad_bedrock.region = Some("us east 1".into());
+        assert!(message(check(&mut bad_bedrock)).contains("invalid AWS region"));
+    }
+
+    #[test]
+    fn a_half_filled_connection_is_refused_and_the_missing_field_is_named() {
+        let mut half = full();
+        half.role_name = None;
+        let error = message(check(&mut half));
+        // The list of missing fields carries the one that is missing and nothing else.
+        assert!(
+            error.contains("incomplete: role_name is missing"),
+            "only the missing field is named: {error}"
+        );
+
+        // Nothing of the five at all is a connection that was never filled in: not an error.
+        let mut untouched = ProviderCredentials::default();
+        check(&mut untouched).unwrap();
+        assert!(untouched.region.is_none() && untouched.sso_region.is_none());
+    }
+
+    #[test]
+    fn a_profile_name_in_use_by_another_row_is_refused_by_name() {
+        let mut creds = full();
+        let other = ProviderEntry {
+            id: ProviderId::OPENAI,
+            credentials: ProviderCredentials {
+                sso_profile: Some("acme-bedrock".into()),
+                ..Default::default()
+            },
+        };
+        let error = message(check_sso_connection(
+            &ProviderId::AMAZON_BEDROCK_SSO,
+            &mut creds,
+            std::slice::from_ref(&other),
+        ));
+        assert!(error.contains("acme-bedrock"), "{error}");
+        assert!(error.contains("openai"), "the owner is named: {error}");
+
+        // The row's own saved name is not a clash.
+        let own = ProviderEntry {
+            id: ProviderId::AMAZON_BEDROCK_SSO,
+            credentials: full(),
+        };
+        check_sso_connection(
+            &ProviderId::AMAZON_BEDROCK_SSO,
+            &mut creds,
+            std::slice::from_ref(&own),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn an_sso_connection_takes_no_base_url_and_no_api_key() {
+        let mut with_base = full();
+        with_base.base_url = Some("https://elsewhere.example".into());
+        assert!(message(check(&mut with_base)).contains("base_url"));
+
+        let mut with_key = full();
+        with_key.api_key = Some("bearer".into());
+        assert!(message(check(&mut with_key)).contains("api_key"));
+    }
+
+    #[test]
+    fn another_provider_takes_no_inference_profile_entries() {
+        let mut creds = ProviderCredentials {
+            access_key_id: Some("AKIAEXAMPLE".into()),
+            secret_access_key: Some("secret".into()),
+            profiles: vec![ProfileEntry {
+                arn: ARN.into(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let error = check_sso_connection(&ProviderId::AMAZON_BEDROCK, &mut creds, &[])
+            .expect_err("the static-key provider has no entries");
+        assert!(error.1.contains("inference profile entries"), "{:?}", error.1);
+    }
+
+    #[test]
+    fn an_entry_is_shown_by_its_name_or_by_the_profile_id_from_its_arn() {
+        let named = ProfileEntry {
+            arn: ARN.into(),
+            name: Some("Acme Prod — Claude".into()),
+            ..Default::default()
+        };
+        assert_eq!(ProfileEntryResponse::from_entry(&named).display_name, "Acme Prod — Claude");
+
+        let unnamed = ProfileEntry {
+            arn: ARN.into(),
+            name: Some("   ".into()),
+            ..Default::default()
+        };
+        assert_eq!(ProfileEntryResponse::from_entry(&unnamed).display_name, "abc123");
+
+        // A row edited by hand to hold something that is not an ARN still shows what it holds.
+        let broken = ProfileEntry {
+            arn: "not-an-arn".into(),
+            ..Default::default()
+        };
+        assert_eq!(ProfileEntryResponse::from_entry(&broken).display_name, "not-an-arn");
+    }
 }
