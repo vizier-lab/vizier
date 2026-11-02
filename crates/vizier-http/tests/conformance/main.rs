@@ -84,7 +84,10 @@ async fn desktop_dispatch_matches_the_network_router() {
     config.channels.http.as_mut().unwrap().jwt_secret = "conformance-secret".into();
     // No network from a test: a catalogue read would otherwise refresh from models.dev.
     config.catalogue.refresh = false;
-    let runtime = VizierRuntime::start(RuntimeOptions { config }).await.unwrap();
+    let runtime = VizierRuntime::start(RuntimeOptions {
+        config,
+        ..Default::default()
+    }).await.unwrap();
     let storage = runtime.deps().storage.clone();
     let http_cfg = runtime.deps().config.channels.http.clone().unwrap();
     let auth = AuthService::new(&http_cfg);

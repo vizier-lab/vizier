@@ -190,7 +190,10 @@ impl Engine {
                 return;
             }
         }
-        let runtime = match VizierRuntime::start(RuntimeOptions { config }).await {
+        let runtime = match VizierRuntime::start(RuntimeOptions {
+        config,
+        ..Default::default()
+    }).await {
             Ok(rt) => rt,
             Err(e) => {
                 let message = e.0;

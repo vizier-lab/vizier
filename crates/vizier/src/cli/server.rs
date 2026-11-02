@@ -9,9 +9,10 @@ use vizier_core::{
     config::VizierConfig,
     error::VizierError,
     runtime::{RuntimeExit, RuntimeOptions, Subsystems, VizierRuntime},
+    server_role::{ServerRole, ServerRoleSet},
 };
 
-pub fn run_server(config: VizierConfig) -> Result<()> {
+pub fn run_server(config: VizierConfig, roles: ServerRoleSet) -> Result<()> {
     let mut builder = tokio::runtime::Builder::new_multi_thread();
     builder.worker_threads(config.worker_threads);
 
@@ -20,27 +21,35 @@ pub fn run_server(config: VizierConfig) -> Result<()> {
     runtime.block_on(async move {
         let mut engine = VizierRuntime::start(RuntimeOptions {
             config: config.clone(),
+            roles,
+            ..Default::default()
         })
         .await?;
 
         // The binary's own subsystems, next to the engine's.
         let mut servers = Subsystems::default();
-        match config.channels.http.clone() {
-            Some(http_config) => {
-                let serve = vizier_http::serve(&engine, http_config);
-                servers.spawn("http channel", async move {
-                    serve.await?;
-                    Err::<(), _>(VizierError("the http server stopped".into()))
-                });
+        if roles.contains(ServerRole::GatewayHttp) {
+            match config.channels.http.clone() {
+                Some(http_config) => {
+                    let serve = vizier_http::serve(&engine, http_config);
+                    servers.spawn("http channel", async move {
+                        serve.await?;
+                        Err::<(), _>(VizierError("the http server stopped".into()))
+                    });
+                }
+                // Without an HTTP channel configured nothing is served, as before.
+                None => {}
             }
-            // Without an HTTP channel configured nothing is served, as before.
-            None => {}
+        } else {
+            // A process without the gateway answers nobody over HTTP; the WebUI and the API
+            // are served by whichever node runs it (#169).
+            tracing::info!("the gateway-http role is not in this process: nothing is served");
         }
 
-        let commands = VizierCommandServer::new(engine.deps().clone())?;
+        let commands = VizierCommandServer::new(engine.deps().clone(), roles)?;
         servers.spawn("command server", async move { commands.run().await });
 
-        tracing::info!("vizier is running!");
+        tracing::info!(roles = %roles, "vizier is running!");
 
         // Every subsystem runs for the life of the process, so one that stops, for whatever
         // reason, leaves vizier half-working. Exit instead, and let whatever runs vizier

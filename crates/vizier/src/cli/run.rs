@@ -1,13 +1,16 @@
 use std::{fs, path::PathBuf};
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 use clap::{Args, ValueEnum};
 use daemonize::Daemonize;
 
 use super::server::run_server;
-use vizier_core::config::{
-    RunOverrides,
-    storage::{ObjectsConfig, PostgresConfig, S3Config, StorageConfig},
+use vizier_core::{
+    config::{
+        RunOverrides,
+        storage::{ObjectsConfig, PostgresConfig, S3Config, StorageConfig},
+    },
+    server_role::{ServerRole, ServerRoleSet},
 };
 
 /// `filesystem` is intentionally not a valid value here (research.md §10, FR-025). An operator
@@ -138,6 +141,73 @@ pub struct RunArgs {
         help = "how long a catalogue check stays fresh, e.g. 24h"
     )]
     catalogue_ttl: Option<duration_string::DurationString>,
+
+    #[arg(
+        long,
+        value_name = "ROLE[,ROLE]",
+        value_parser = parse_server_role_set,
+        help = "server roles to run: all (default), or a comma list of gateway-http, gateway-grpc, worker, channels, control; env VIZIER_ROLE"
+    )]
+    role: Option<ServerRoleSet>,
+}
+
+/// `--role` as a [`ServerRoleSet`]: `all`, one role, or a comma list.
+fn parse_server_role_set(raw: &str) -> Result<ServerRoleSet, String> {
+    raw.parse()
+}
+
+/// The roles this binary carries, from its `role-*` features. A role left out of the build is
+/// refused with the flag to rebuild with, rather than starting a process that silently does less.
+fn compiled_roles() -> ServerRoleSet {
+    let mut roles = ServerRoleSet::none();
+    #[cfg(feature = "role-gateway-http")]
+    roles.insert(ServerRole::GatewayHttp);
+    #[cfg(feature = "role-gateway-grpc")]
+    roles.insert(ServerRole::GatewayGrpc);
+    #[cfg(feature = "role-worker")]
+    roles.insert(ServerRole::Worker);
+    #[cfg(feature = "role-channels")]
+    roles.insert(ServerRole::Channels);
+    #[cfg(feature = "role-control")]
+    roles.insert(ServerRole::Control);
+    roles
+}
+
+/// Refuses what this process cannot be: a role the binary was not built with, or one whose
+/// sub-issue has not landed yet (#166–#170). `all` is today's single node and is accepted as
+/// long as the build carries every role.
+fn check_roles(requested: ServerRoleSet, compiled: ServerRoleSet) -> Result<ServerRoleSet> {
+    if let Some(missing) = requested.iter().find(|role| !compiled.contains(*role)) {
+        bail!(
+            "this build has no {missing} role: rebuild with --no-default-features --features {}",
+            missing.feature()
+        );
+    }
+    if requested.is_all() {
+        return Ok(requested);
+    }
+    for role in requested.iter() {
+        if let Some(issue) = vizier_fleet::pending(role) {
+            bail!("the {role} role is not implemented yet ({issue}); run with --role all");
+        }
+    }
+    Ok(requested)
+}
+
+/// `--role`, else `VIZIER_ROLE`, else every role. A present but invalid `VIZIER_ROLE` is an
+/// error, never a silent fallback to the single-node default.
+fn resolve_roles(flag: Option<ServerRoleSet>) -> Result<ServerRoleSet> {
+    let requested = match flag {
+        Some(roles) => roles,
+        None => match std::env::var("VIZIER_ROLE") {
+            Ok(raw) if !raw.trim().is_empty() => raw
+                .trim()
+                .parse::<ServerRoleSet>()
+                .map_err(|e| anyhow::anyhow!("VIZIER_ROLE: {e}"))?,
+            _ => ServerRoleSet::all(),
+        },
+    };
+    check_roles(requested, compiled_roles())
 }
 
 pub fn run(args: RunArgs) -> Result<()> {
@@ -175,6 +245,11 @@ pub fn run(args: RunArgs) -> Result<()> {
     };
     config.apply_overrides(&overrides);
 
+    // Before anything is started: a role this process cannot be is a startup error, not a
+    // server that comes up doing less than it was asked to.
+    let roles = resolve_roles(args.role)?;
+    tracing::info!(roles = %roles, "starting vizier");
+
     let workspace = PathBuf::from(&config.workspace);
     let config = config.clone();
 
@@ -211,10 +286,63 @@ pub fn run(args: RunArgs) -> Result<()> {
         daemonize.start()?;
     }
 
-    if let Err(err) = run_server(config) {
+    if let Err(err) = run_server(config, roles) {
         tracing::error!("server exited with error: {}", err);
         return Err(err);
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod role_tests {
+    use super::*;
+
+    #[test]
+    fn all_is_one_process_doing_everything_and_needs_no_sub_issue() {
+        let roles = check_roles(ServerRoleSet::all(), ServerRoleSet::all()).unwrap();
+        assert!(roles.is_all());
+    }
+
+    #[test]
+    fn a_selected_role_is_refused_with_its_sub_issue() {
+        let error = check_roles(ServerRoleSet::only(ServerRole::Worker), ServerRoleSet::all())
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("worker"), "{error}");
+        assert!(error.contains("issues/168"), "{error}");
+        assert!(error.contains("--role all"), "{error}");
+    }
+
+    #[test]
+    fn a_role_the_build_lacks_says_how_to_rebuild() {
+        let error = check_roles(
+            ServerRoleSet::only(ServerRole::Channels),
+            ServerRoleSet::only(ServerRole::Worker),
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("role-channels"), "{error}");
+    }
+
+    #[test]
+    fn a_build_with_role_all_carries_every_role() {
+        if cfg!(feature = "role-all") {
+            assert!(compiled_roles().is_all());
+        }
+    }
+
+    #[test]
+    fn the_role_flag_takes_all_a_role_or_a_list() {
+        assert_eq!(parse_server_role_set("all").unwrap(), ServerRoleSet::all());
+        assert_eq!(
+            parse_server_role_set("worker").unwrap(),
+            ServerRoleSet::only(ServerRole::Worker)
+        );
+        assert_eq!(
+            parse_server_role_set("worker, control").unwrap(),
+            ServerRoleSet::only(ServerRole::Worker).with(ServerRole::Control)
+        );
+        assert!(parse_server_role_set("gateway").is_err());
+    }
 }

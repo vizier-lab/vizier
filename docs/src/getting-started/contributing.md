@@ -63,14 +63,18 @@ The Rust code is a Cargo workspace of four crates under `crates/`. A bare `cargo
 | `vizier-derive` | Derive macros | A new derive |
 | `vizier-core` | The agent engine as a library: agents, tools, memory, storage, providers, scheduler, `VizierRuntime`. It has no web framework, command-line or terminal-UI dependency | A new tool, provider, storage backend, integration kind or channel reader |
 | `vizier-http` | The REST/WebSocket server, authentication, OpenAPI and the embedded WebUI | A new route or payload |
+| `vizier-fleet` | The Fleet roles (`gateway-http`, `gateway-grpc`, `worker`, `channels`, `control`): one piece of the server that can run on its own node. A skeleton until [#162](https://github.com/vizier-lab/vizier/issues/162) lands the bus traits | Role logic: leader election, placement, leases, role wiring |
 | `vizier` | The command-line binary: `run`, `shutdown`, `onboard`, `skill`, `agent`, config-file resolution, logging | A new CLI flag or subcommand |
 
-Dependencies point one way: `vizier` → `vizier-http` → `vizier-core` → `vizier-derive`. The `policy` CI job
-fails when a crate declares a dependency that belongs to a layer above it.
+Dependencies point one way: `vizier` → `vizier-http`, `vizier-fleet` → `vizier-core` → `vizier-derive`. The
+`policy` CI job fails when a crate declares a dependency that belongs to a layer above it, and when one
+Fleet role reaches into another's module.
 
 `vizier-core` runs without the optional parts of the server. Its feature flags (`channel-discord`,
 `channel-telegram`, `provider-media`, `addon-docker`, `addon-documents`, `utoipa`, `telemetry`; `full` turns them all on, see [Build Flavours](../configuration/build-flavours.md))
-are off by default, so an app that embeds the engine pays for what it uses. Its stable API is
+are off by default, so an app that embeds the engine pays for what it uses. The binary has its own
+`role-*` flags (one per Fleet role; `role-all` is the default), so
+`cargo test -p vizier --no-default-features --features role-worker` builds and tests it alone. Its stable API is
 `VizierRuntime` with the config, schema, auth and transport types; the other modules are visible
 only because `vizier-http` and `vizier` need them, and are not part of the API. To try the engine
 without the server, run `cargo run -p vizier-core --example headless -- --workspace /tmp/ws` with

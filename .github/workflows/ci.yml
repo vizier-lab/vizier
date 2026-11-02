@@ -36,6 +36,7 @@ jobs:
       rust: ${{ steps.plan.outputs.rust }}
       core: ${{ steps.plan.outputs.core }}
       flags: ${{ steps.plan.outputs.flags }}
+      roles: ${{ steps.plan.outputs.roles }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -55,6 +56,29 @@ jobs:
             bin:
               - 'crates/vizier/**'
               - 'dummyplug'
+            fleet:
+              - 'crates/vizier-fleet/**'
+            # The files that decide every role's build: a change to the binary, the engine or
+            # the role table (lib.rs) turns every role job on.
+            role-shared:
+              - 'crates/vizier/**'
+              - 'crates/vizier-core/**'
+              - 'crates/vizier-fleet/src/lib.rs'
+              - 'crates/vizier-fleet/Cargo.toml'
+            role-gateway-http:
+              - 'crates/vizier-fleet/src/gateway_http.rs'
+              - 'crates/vizier-http/**'
+            role-gateway-grpc:
+              - 'crates/vizier-fleet/src/gateway_grpc.rs'
+            role-worker:
+              - 'crates/vizier-fleet/src/worker.rs'
+              - 'crates/vizier-core/src/agents/**'
+            role-channels:
+              - 'crates/vizier-fleet/src/channels.rs'
+              - 'crates/vizier-core/src/channels/**'
+            role-control:
+              - 'crates/vizier-fleet/src/control.rs'
+              - 'crates/vizier-core/src/scheduler/**'
             channel-discord:
               - 'crates/vizier-core/src/channels/**'
               - 'crates/vizier-core/src/integrations/**'
@@ -91,6 +115,13 @@ jobs:
           CORE: ${{ steps.filter.outputs.core }}
           HTTP: ${{ steps.filter.outputs.http }}
           BIN: ${{ steps.filter.outputs.bin }}
+          FLEET: ${{ steps.filter.outputs.fleet }}
+          ROLE_SHARED: ${{ steps.filter.outputs.role-shared }}
+          ROLE_role_gateway_http: ${{ steps.filter.outputs.role-gateway-http }}
+          ROLE_role_gateway_grpc: ${{ steps.filter.outputs.role-gateway-grpc }}
+          ROLE_role_worker: ${{ steps.filter.outputs.role-worker }}
+          ROLE_role_channels: ${{ steps.filter.outputs.role-channels }}
+          ROLE_role_control: ${{ steps.filter.outputs.role-control }}
           FLAG_channel_discord: ${{ steps.filter.outputs.channel-discord }}
           FLAG_channel_telegram: ${{ steps.filter.outputs.channel-telegram }}
           FLAG_provider_media: ${{ steps.filter.outputs.provider-media }}
@@ -106,7 +137,7 @@ jobs:
           fi
           if [ "$SHARED" = true ]; then full=true; fi
           rust=false
-          if [ "$full" = true ] || [ "$CORE" = true ] || [ "$HTTP" = true ] || [ "$BIN" = true ]; then rust=true; fi
+          if [ "$full" = true ] || [ "$CORE" = true ] || [ "$HTTP" = true ] || [ "$BIN" = true ] || [ "$FLEET" = true ]; then rust=true; fi
           core=false
           if [ "$full" = true ] || [ "$CORE" = true ]; then core=true; fi
           # One matrix entry per flag, each built and tested alone. Keep in step with the
@@ -117,10 +148,20 @@ jobs:
             if [ "$full" = true ] || [ "${!var}" = true ]; then flags+=("\"$name\""); fi
           done
           list=$(IFS=,; echo "${flags[*]:-}")
+          # One matrix entry per role the binary can carry (#161), each built alone. Keep in
+          # step with the [features] table of crates/vizier/Cargo.toml (the policy job checks
+          # that `role-all` lists exactly these).
+          roles=()
+          for name in role-gateway-http role-gateway-grpc role-worker role-channels role-control; do
+            var="ROLE_${name//-/_}"
+            if [ "$full" = true ] || [ "$ROLE_SHARED" = true ] || [ "${!var}" = true ]; then roles+=("\"$name\""); fi
+          done
+          rlist=$(IFS=,; echo "${roles[*]:-}")
           {
             echo "rust=$rust"
             echo "core=$core"
             echo "flags=[${list}]"
+            echo "roles=[${rlist}]"
           } >> "$GITHUB_OUTPUT"
 
   rust:
@@ -203,6 +244,40 @@ jobs:
         env:
           CI: 'true'
         run: cargo test -p vizier-core --no-default-features --features ${{ matrix.flag }}
+
+  # Every role the binary can carry, built and tested alone (#161): a role that only compiles
+  # next to another one is caught here, and a build must refuse a role it does not carry.
+  role:
+    name: role (${{ matrix.role }})
+    needs: changes
+    if: needs.changes.outputs.roles != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        role: ${{ fromJSON(needs.changes.outputs.roles) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: role-${{ matrix.role }}
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libssl-dev python3-dev libclang-dev clang perl make
+      - name: Stub the WebUI
+        run: |
+          mkdir -p crates/vizier-http/webui-dist
+          echo '<!doctype html><title>vizier</title>' > crates/vizier-http/webui-dist/index.html
+      - name: Clippy
+        run: cargo clippy -p vizier --no-default-features --features ${{ matrix.role }} --all-targets -- $CLIPPY_LINTS
+      - name: Test
+        env:
+          CI: 'true'
+        run: cargo test -p vizier --no-default-features --features ${{ matrix.role }}
 
   # The managed deployment backends: every parametrised storage test runs again against an
   # isolated PostgreSQL schema, and the blob conformance test runs against a real MinIO bucket.
@@ -303,8 +378,11 @@ jobs:
           }
           # argon2 is allowed in the engine: password hashing is part of the service layer (spec 038),
           # shared by the server and the desktop app. JWT issuing stays in the HTTP adapter.
-          check vizier-core axum axum-extra tower-http utoipa-axum utoipa-swagger-ui clap inquire termimad daemonize dotenvy opentelemetry-otlp jsonwebtoken tracing-subscriber
+          # Fleet (#161): the engine gets the bus traits from vizier-schema and never a bus or
+          # gRPC implementation; the roles are built from core's seams and nothing above them.
+          check vizier-core axum axum-extra tower-http utoipa-axum utoipa-swagger-ui clap inquire termimad daemonize dotenvy opentelemetry-otlp jsonwebtoken tracing-subscriber async-nats tonic
           check vizier-http clap inquire termimad daemonize dotenvy opentelemetry-otlp
+          check vizier-fleet clap inquire termimad daemonize dotenvy async-nats tonic
           exit $fail
       - name: Optional dependencies stay behind their flag
         # Every optional dependency of vizier-core must be absent from the feature-less build,
@@ -327,6 +405,37 @@ jobs:
             fail=1
           done
           exit $fail
+      - name: Roles stay independent
+        # One role's code may not reach into another's (#161, #159): each is built from the bus
+        # traits, the storage traits and its own config, so a role stays testable alone. Only a
+        # module *path* counts; a doc comment may name a peer freely.
+        run: |
+          set -euo pipefail
+          cd crates/vizier-fleet/src
+          fail=0
+          for file in *.rs; do
+            module="${file%.rs}"
+            [ "$module" = lib ] && continue
+            others=$(ls *.rs | sed 's/\.rs$//' | grep -vx -e "$module" -e lib | paste -sd'|')
+            if grep -nE "(crate|super)::(${others})\b" "$file"; then
+              echo "::error::crates/vizier-fleet/src/$file reaches into another role"
+              fail=1
+            fi
+          done
+          exit $fail
+      - name: Role flags are declared consistently
+        # `role-all` must list exactly the binary's `role-*` flags: a build that asks for every
+        # role must not silently leave one out (#161).
+        run: |
+          set -euo pipefail
+          meta=$(cargo metadata --format-version 1 --locked --no-deps)
+          roles=$(echo "$meta" | jq -r '.packages[] | select(.name=="vizier") | .features | keys[] | select(startswith("role-") and . != "role-all")' | sort)
+          all=$(echo "$meta" | jq -r '.packages[] | select(.name=="vizier") | .features["role-all"][]' | sort)
+          if [ "$roles" != "$all" ]; then
+            echo "::error::role-all does not list exactly the role-* flags of the binary"
+            diff <(echo "$roles") <(echo "$all") || true
+            exit 1
+          fi
       - name: Dependencies unchanged
         # Existing version/source pairs must not change. New crate names are review notices;
         # additive versions of existing names require an exact allow-list entry below.
@@ -335,7 +444,7 @@ jobs:
           triples() {
             cargo metadata --format-version 1 --locked --manifest-path "$1/Cargo.toml" \
               | jq -r '.packages[] | "\(.name) \(.version) \(.source)"' \
-              | grep -vE '^vizier(-core|-http|-derive)? ' | sort -u
+              | grep -vE '^vizier(-core|-fleet|-http|-derive)? ' | sort -u
           }
           git worktree add ../master origin/master
           triples ../master > /tmp/master.txt
@@ -484,7 +593,7 @@ jobs:
   gate:
     name: gate
     if: always()
-    needs: [changes, rust, core-minimal, flag, managed-storage, policy, app]
+    needs: [changes, rust, core-minimal, flag, role, managed-storage, policy, app]
     runs-on: ubuntu-latest
     steps:
       - name: Check results

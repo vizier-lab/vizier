@@ -1,0 +1,18 @@
+[package]
+name = "vizier-fleet"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Vizier's Fleet roles: the same engine, split into roles that talk over a bus and share storage"
+keywords = ["ai", "agent", "cluster"]
+categories = ["asynchronous"]
+readme = "README.md"
+include = ["/src/**/*", "/Cargo.toml", "/README.md"]
+
+# Role logic lives here, never in vizier-core (vizier-lab/vizier#161, #159). Core is the engine
+# and the seams; this crate is what a deployment of it does. Nothing here is behind a flag yet:
+# the roles arrive one sub-issue at a time (#166, #167, #168, #169, #170).
+[dependencies]
+vizier-core.workspace = true

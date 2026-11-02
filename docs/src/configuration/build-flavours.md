@@ -26,6 +26,25 @@ Names are grouped as `channel-*`, `addon-*`, `provider-*`, `gateway-*`, `bus-nat
 `default = []` for `vizier-core`, so an app that embeds the engine pays only for what it asks for.
 The `vizier` binary and the desktop app depend on `vizier-core` with `full`.
 
+### The binary's role flags
+
+The `vizier` binary carries one flag per Fleet role ([#161](https://github.com/vizier-lab/vizier/issues/161)):
+
+| Flag | Adds |
+|---|---|
+| `role-gateway-http` | The HTTP gateway (REST, WebSocket, the WebUI) |
+| `role-gateway-grpc` | The gRPC gateway |
+| `role-worker` | The workers that run agents |
+| `role-channels` | The Discord and Telegram readers |
+| `role-control` | The scheduler and the other housekeeping |
+| `role-all` | The five above: **the default**, and today's single node |
+
+They decide which roles a build *carries*. `vizier run --role <role>` refuses a role the binary does
+not have, naming the flag to rebuild with. They do not remove any code yet: the role crates land with
+[#166](https://github.com/vizier-lab/vizier/issues/166)–[#170](https://github.com/vizier-lab/vizier/issues/170),
+and until then **`--role all` is the only role that runs** — every other one is refused with the
+sub-issue that wires it in.
+
 ## What the default build includes
 
 All of the flags above (`full`).
@@ -37,6 +56,12 @@ directly and pick flags:
 
 ```sh
 cargo build -p vizier-core --no-default-features --features channel-discord,addon-documents
+```
+
+The binary's roles are flags of their own, and each one must build alone (CI checks every one):
+
+```sh
+cargo build -p vizier --no-default-features --features role-worker
 ```
 
 Check one flag on its own the way CI does:
