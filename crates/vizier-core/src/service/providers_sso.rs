@@ -18,13 +18,17 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 
 use crate::auth::Principal;
+use crate::catalogue::data::Cost;
 use crate::config::provider::ProviderId;
 use crate::dependencies::VizierDependencies;
 use crate::llm::sso::{
     self, ClientRegistration, DeviceFlow, SsoError, SsoClient, SsoPortal, SsoSessions,
 };
-use crate::schema::ProviderCredentials;
+use crate::schema::{ProfileEntry, ProviderCredentials, ProviderEntry};
+use crate::service::providers::ProfileEntryResponse;
+use crate::service::usage::{self, AffectedAgent};
 use crate::service::ServiceError;
+use crate::storage::agent::AgentStorage;
 use crate::storage::provider::ProviderStorage;
 
 const PERMISSION: &str = "settings:providers";
@@ -509,6 +513,318 @@ fn valid_account_id(account_id: &str) -> bool {
     account_id.len() == 12 && account_id.chars().all(|c| c.is_ascii_digit())
 }
 
+// ---------------------------------------------------------------- inference profile entries
+
+/// Validate one connection's whole inference-profile list, in one place (data-model "profile
+/// entry", FR-021, FR-024, FR-025).
+///
+/// Every write path runs this before storing anything — `PUT /providers/{id}`'s whole-list save
+/// and the add/edit/remove below — so a list one route refuses cannot be stored by another. The
+/// passes follow the data model's numbered rules **in its order**: the ARN's shape, then
+/// duplicates, then the region, then the display name, the pricing model and the hand-entered
+/// price. The order is load-bearing: a list with two faults always reports the same one first —
+/// the one a person has to fix before the other becomes visible.
+///
+/// `connection_region` is the connection's **Bedrock** region, never the SSO region. `None` is a
+/// connection whose region is not filled in yet: the ARN's region then has nothing to disagree
+/// with, so rule 3 has nothing to compare.
+///
+/// The pricing pairing (`model`, `price`) is checked here for shape only and takes no part in the
+/// ARN rules: it never accepts, rejects, rewrites or region-checks an ARN, and it never fills
+/// `context`, `output`, `tool_call` or `image_input` (FR-034a.6, SC-022).
+pub fn validate_entries(
+    entries: &mut [ProfileEntry],
+    connection_region: Option<&str>,
+) -> Result<(), ServiceError> {
+    // Rule 1: the shape. Every ARN is parsed before anything else is judged, so a bad ARN in the
+    // second row is never hidden behind a duplicate or a region problem in the first.
+    let mut parsed = Vec::with_capacity(entries.len());
+    for entry in entries.iter() {
+        let arn = crate::llm::bedrock::parse_inference_profile_arn(&entry.arn).map_err(|error| {
+            ServiceError::invalid(format!(
+                "{:?} is not an inference profile ARN: {error}",
+                entry.arn.trim()
+            ))
+        })?;
+        parsed.push(arn);
+    }
+
+    // Rule 2: one ARN, one entry. Compared on the parsed value, so the same ARN with different
+    // surrounding whitespace is still the same profile — and the existing entry is left alone
+    // (FR-025).
+    for (index, arn) in parsed.iter().enumerate() {
+        if parsed[..index].iter().any(|seen| seen.raw == arn.raw) {
+            return Err(ServiceError::invalid(format!(
+                "the ARN {} is already one of this connection's profiles; edit that entry instead \
+                 of adding it again",
+                arn.raw
+            )));
+        }
+    }
+
+    // Rule 3: the ARN's region is the connection's Bedrock region (FR-024, SC-009).
+    if let Some(region) = connection_region.filter(|region| !region.is_empty()) {
+        for arn in &parsed {
+            if arn.region != region {
+                return Err(ServiceError::invalid(format!(
+                    "the ARN names region {:?} but this connection uses {:?}",
+                    arn.region, region
+                )));
+            }
+        }
+    }
+
+    // Rules 4, 4a and 4b: the things a person typed beside the ARN.
+    for entry in entries.iter() {
+        if let Some(name) = entry.name.as_deref() {
+            let length = name.trim().chars().count();
+            if length > 100 {
+                return Err(ServiceError::invalid(format!(
+                    "an entry's name is at most 100 characters; this one is {length}"
+                )));
+            }
+        }
+        if let Some(model) = entry
+            .model
+            .as_deref()
+            .map(str::trim)
+            .filter(|model| !model.is_empty())
+            && !valid_model_id(model)
+        {
+            return Err(ServiceError::invalid(format!(
+                "invalid model id {model:?}: use the catalogue's id, e.g. \
+                 anthropic.claude-sonnet-4-5-20250929-v1:0 (lowercase letters, digits, '.', ':' \
+                 and '-')"
+            )));
+        }
+        if let Some(price) = &entry.price
+            && !valid_price(price)
+        {
+            return Err(ServiceError::invalid(
+                "an entry's price must be a finite, non-negative rate per million tokens: check \
+                 the input and output figures (and cache read/write, when set)",
+            ));
+        }
+    }
+
+    // Normalise what a person pasted: the ARN is stored trimmed — still the ARN they saved, with
+    // no segment rewritten (FR-027) — and an empty name or model means "not set" (FR-026).
+    for (entry, arn) in entries.iter_mut().zip(parsed) {
+        entry.arn = arn.raw;
+        entry.name = entry
+            .name
+            .take()
+            .map(|name| name.trim().to_string())
+            .filter(|name| !name.is_empty());
+        entry.model = entry
+            .model
+            .take()
+            .map(|model| model.trim().to_string())
+            .filter(|model| !model.is_empty());
+    }
+    Ok(())
+}
+
+/// A catalogue Bedrock id's charset, checked for shape only: an id that has left the catalogue
+/// must stay savable and be reported as "pricing not resolved" when used (FR-034a.3, FR-034a.5).
+fn valid_model_id(model: &str) -> bool {
+    let mut bytes = model.bytes();
+    let Some(first) = bytes.next() else {
+        return false;
+    };
+    (first.is_ascii_lowercase() || first.is_ascii_digit())
+        && bytes.all(|b| {
+            b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'.' | b':' | b'-')
+        })
+}
+
+/// A hand-entered cost: finite and non-negative, with no upper bound — a person may know an
+/// enterprise rate the catalogue does not carry (FR-034a.4).
+fn valid_price(price: &Cost) -> bool {
+    let ok = |value: f64| value.is_finite() && value >= 0.0;
+    ok(price.input)
+        && ok(price.output)
+        && price.cache_read.is_none_or(ok)
+        && price.cache_write.is_none_or(ok)
+}
+
+/// The connection's saved entries, as the settings row shows them (contracts §4).
+pub async fn entries(
+    deps: &VizierDependencies,
+    user: &Principal,
+    id: &str,
+) -> Result<Vec<ProfileEntryResponse>, ServiceError> {
+    crate::access::require(user, PERMISSION)?;
+    let id = sso_id(id)?;
+    let credentials = saved_credentials(deps, &id).await?;
+    Ok(response(&credentials.profiles))
+}
+
+/// Add one entry. The whole list is validated, so a duplicate is refused with the existing entry
+/// and its name untouched (FR-025).
+pub async fn add_entry(
+    deps: &VizierDependencies,
+    user: &Principal,
+    id: &str,
+    entry: ProfileEntry,
+) -> Result<Vec<ProfileEntryResponse>, ServiceError> {
+    crate::access::require(user, PERMISSION)?;
+    let id = sso_id(id)?;
+    let saved = saved_entry(deps, &id).await?;
+    let mut profiles = saved.credentials.profiles.clone();
+    profiles.push(entry);
+    validate_entries(&mut profiles, saved.credentials.region.as_deref())?;
+    store_entries(deps, saved, profiles).await
+}
+
+/// Replace the entry saved under `arn`. Editing the ARN itself is a removal of the old profile,
+/// so an agent still pointing at it is named first, exactly as a removal would (FR-029).
+pub async fn update_entry(
+    deps: &VizierDependencies,
+    user: &Principal,
+    id: &str,
+    arn: &str,
+    entry: ProfileEntry,
+    confirm: bool,
+) -> Result<Vec<ProfileEntryResponse>, ServiceError> {
+    crate::access::require(user, PERMISSION)?;
+    let id = sso_id(id)?;
+    let saved = saved_entry(deps, &id).await?;
+    let wanted = arn.trim();
+    let Some(index) = saved
+        .credentials
+        .profiles
+        .iter()
+        .position(|existing| existing.arn.trim() == wanted)
+    else {
+        return Err(missing_entry(wanted));
+    };
+    let previous = saved.credentials.profiles[index].arn.clone();
+    let mut profiles = saved.credentials.profiles.clone();
+    profiles[index] = entry;
+    validate_entries(&mut profiles, saved.credentials.region.as_deref())?;
+    if profiles[index].arn != previous {
+        check_agents_use(deps, &previous, confirm).await?;
+    }
+    store_entries(deps, saved, profiles).await
+}
+
+/// Remove one entry. An agent that still chats through it is named in a `409` unless the removal
+/// is confirmed — the same shape `usage::check_in_use` gives a provider delete (FR-029).
+pub async fn remove_entry(
+    deps: &VizierDependencies,
+    user: &Principal,
+    id: &str,
+    arn: &str,
+    confirm: bool,
+) -> Result<Vec<ProfileEntryResponse>, ServiceError> {
+    crate::access::require(user, PERMISSION)?;
+    let id = sso_id(id)?;
+    let saved = saved_entry(deps, &id).await?;
+    let wanted = arn.trim();
+    let Some(index) = saved
+        .credentials
+        .profiles
+        .iter()
+        .position(|existing| existing.arn.trim() == wanted)
+    else {
+        return Err(missing_entry(wanted));
+    };
+    let mut profiles = saved.credentials.profiles.clone();
+    let removed = profiles.remove(index);
+    check_agents_use(deps, &removed.arn, confirm).await?;
+    validate_entries(&mut profiles, saved.credentials.region.as_deref())?;
+    store_entries(deps, saved, profiles).await
+}
+
+/// The saved connection row an entry belongs to. Entries are never stored on their own: a row
+/// holding only a profile list would be a connection missing its five fields, so the form is
+/// saved first and the entries are edited beside it (data-model "SSO connection").
+async fn saved_entry(
+    deps: &VizierDependencies,
+    id: &ProviderId,
+) -> Result<ProviderEntry, ServiceError> {
+    deps.storage
+        .get_provider(id)
+        .await
+        .map_err(|error| ServiceError::Internal(error.to_string()))?
+        .filter(|entry| !entry.credentials.is_empty())
+        .ok_or_else(|| {
+            ServiceError::invalid(
+                "save the Bedrock (SSO) connection before adding inference profiles: the entries \
+                 belong to a saved connection",
+            )
+        })
+}
+
+fn missing_entry(arn: &str) -> ServiceError {
+    ServiceError::NotFound(format!(
+        "this connection has no inference profile {arn:?}; add it first"
+    ))
+}
+
+async fn store_entries(
+    deps: &VizierDependencies,
+    mut entry: ProviderEntry,
+    profiles: Vec<ProfileEntry>,
+) -> Result<Vec<ProfileEntryResponse>, ServiceError> {
+    entry.credentials.profiles = profiles;
+    deps.storage
+        .upsert_provider(&entry)
+        .await
+        .map_err(|error| ServiceError::Internal(error.to_string()))?;
+    // The agents on this connection resolve their model on their next turn, so a new or edited
+    // entry takes effect now rather than at the next restart (the provider-change path, FR-019).
+    usage::restart_users(deps, &entry.id).await;
+    Ok(response(&entry.credentials.profiles))
+}
+
+fn response(profiles: &[ProfileEntry]) -> Vec<ProfileEntryResponse> {
+    profiles.iter().map(ProfileEntryResponse::from_entry).collect()
+}
+
+/// The agents that would lose a profile if `arn` went away: the chat model and the dream model,
+/// the two places an agent can name one (media refuses an ARN before the request, FR-033a).
+async fn check_agents_use(
+    deps: &VizierDependencies,
+    arn: &str,
+    confirm: bool,
+) -> Result<(), ServiceError> {
+    if confirm {
+        return Ok(());
+    }
+    let arn = arn.trim();
+    let agents: Vec<AffectedAgent> = deps
+        .storage
+        .list_agents()
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|(_, config)| {
+            (config.provider == ProviderId::AMAZON_BEDROCK_SSO && config.model.trim() == arn)
+                || (config.dream_provider.as_ref() == Some(&ProviderId::AMAZON_BEDROCK_SSO)
+                    && config.dream_model.as_deref().map(str::trim) == Some(arn))
+        })
+        .map(|(id, config)| AffectedAgent {
+            id,
+            name: config.name,
+            features: vec!["chat".into()],
+        })
+        .collect();
+    if agents.is_empty() {
+        return Ok(());
+    }
+    let names: Vec<&str> = agents.iter().map(|agent| agent.name.as_str()).collect();
+    Err(ServiceError::Conflict {
+        message: format!(
+            "inference profile {arn} is used by {}; resend with ?confirm=true to remove it anyway",
+            names.join(", ")
+        ),
+        code: None,
+        data: serde_json::to_value(usage::InUse { agents }).ok(),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -661,4 +977,180 @@ mod tests {
             Some("acme")
         );
     }
+    // ---- inference profile entries (data-model "profile entry", FR-021, FR-024, FR-025)
+
+    const ARN_A: &str =
+        "arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/abc123";
+    const ARN_B: &str = "arn:aws:bedrock:us-east-1:123456789012:inference-profile/xyz789";
+
+    fn profile_entry(arn: &str) -> ProfileEntry {
+        ProfileEntry {
+            arn: arn.into(),
+            ..Default::default()
+        }
+    }
+
+    fn price(input: f64, output: f64) -> Cost {
+        Cost {
+            input,
+            output,
+            cache_read: None,
+            cache_write: None,
+        }
+    }
+
+    #[test]
+    fn a_valid_list_is_stored_trimmed_and_an_empty_name_means_no_name() {
+        let mut entries = vec![
+            ProfileEntry {
+                arn: format!("  {ARN_A}  "),
+                name: Some("  Acme Prod  ".into()),
+                context: Some(200_000),
+                output: Some(64_000),
+                tool_call: Some(true),
+                image_input: Some(false),
+                model: Some("  anthropic.claude-sonnet-4-5-20250929-v1:0  ".into()),
+                price: Some(price(3.0, 15.0)),
+                edited: true,
+            },
+            ProfileEntry {
+                arn: ARN_B.into(),
+                name: Some("   ".into()),
+                ..Default::default()
+            },
+        ];
+        validate_entries(&mut entries, Some("us-east-1")).unwrap();
+
+        assert_eq!(entries[0].arn, ARN_A, "trimmed, and no segment rewritten");
+        assert_eq!(entries[0].name.as_deref(), Some("Acme Prod"));
+        assert_eq!(
+            entries[0].model.as_deref(),
+            Some("anthropic.claude-sonnet-4-5-20250929-v1:0")
+        );
+        // The entry's own limits are untouched by the pairing (FR-034a.6).
+        assert_eq!(entries[0].context, Some(200_000));
+        assert_eq!(entries[0].output, Some(64_000));
+        assert_eq!(entries[0].tool_call, Some(true));
+        assert_eq!(entries[0].image_input, Some(false));
+        assert_eq!(entries[1].name, None, "an empty name is no name");
+    }
+
+    #[test]
+    fn the_shape_is_judged_before_the_duplicate_which_is_judged_before_the_region() {
+        // Three faults at once, one per rule: the ARN's shape is the one reported, in the second
+        // row and after the duplicate (FR-023, FR-025, FR-024).
+        let mut entries = vec![
+            profile_entry(ARN_A),
+            profile_entry(ARN_A),
+            profile_entry("arn:aws:bedrock:eu-west-1:123456789012:inference-profile/x"),
+            profile_entry("not-an-arn"),
+        ];
+        let error = validate_entries(&mut entries, Some("us-east-1")).unwrap_err();
+        assert_eq!(error.status(), 400);
+        assert!(
+            error
+                .message()
+                .starts_with("\"not-an-arn\" is not an inference profile ARN"),
+            "{error}"
+        );
+
+        // Every ARN well formed: the duplicate wins over the region mismatch, and the message
+        // names the ARN rather than blaming the region.
+        let mut entries = vec![
+            profile_entry(ARN_A),
+            profile_entry(ARN_A),
+            profile_entry("arn:aws:bedrock:eu-west-1:123456789012:inference-profile/x"),
+        ];
+        let error = validate_entries(&mut entries, Some("us-east-1")).unwrap_err();
+        assert!(
+            error
+                .message()
+                .contains("already one of this connection's profiles"),
+            "{error}"
+        );
+
+        // Only the region is left, and it names both regions (FR-024, SC-009).
+        let mut entries = vec![profile_entry(ARN_A)];
+        let error = validate_entries(&mut entries, Some("eu-west-1")).unwrap_err();
+        assert_eq!(
+            error.message(),
+            "the ARN names region \"us-east-1\" but this connection uses \"eu-west-1\""
+        );
+
+        // A connection with no Bedrock region yet has nothing for the ARN's region to disagree
+        // with, so the list is accepted.
+        let mut entries = vec![profile_entry(ARN_A)];
+        validate_entries(&mut entries, None).unwrap();
+    }
+
+    #[test]
+    fn the_pricing_pairing_is_shape_checked_and_never_touches_the_arn_or_the_limits() {
+        // A pair from another family and another region, over an ARN that is fine: accepted,
+        // because the pairing prices and never validates or region-checks (FR-034a.6, SC-022).
+        let mut entries = vec![ProfileEntry {
+            arn: ARN_A.into(),
+            model: Some("amazon.nova-lite-v1:0".into()),
+            price: Some(price(0.0, 0.0)),
+            ..Default::default()
+        }];
+        validate_entries(&mut entries, Some("us-east-1")).unwrap();
+        // And it filled in nothing from the paired model (SC-022).
+        assert_eq!(entries[0].context, None);
+        assert_eq!(entries[0].output, None);
+        assert_eq!(entries[0].tool_call, None);
+        assert_eq!(entries[0].image_input, None);
+
+        for bad_model in ["Anthropic.Claude", "claude sonnet", "-claude", "claude/sonnet"] {
+            let mut entries = vec![ProfileEntry {
+                arn: ARN_A.into(),
+                model: Some(bad_model.into()),
+                ..Default::default()
+            }];
+            let error = validate_entries(&mut entries, Some("us-east-1")).unwrap_err();
+            assert!(error.message().contains("invalid model id"), "{error}");
+        }
+        // An empty selection is "no model paired", not an invalid id (FR-034a.2).
+        let mut entries = vec![ProfileEntry {
+            arn: ARN_A.into(),
+            model: Some("   ".into()),
+            ..Default::default()
+        }];
+        validate_entries(&mut entries, Some("us-east-1")).unwrap();
+        assert_eq!(entries[0].model, None);
+
+        // A price is finite and non-negative, with no upper bound (FR-034a.4).
+        let mut nan = price(f64::NAN, 1.0);
+        nan.cache_read = Some(-0.5);
+        for bad in [price(-1.0, 1.0), nan, price(1.0, f64::INFINITY)] {
+            let mut entries = vec![ProfileEntry {
+                arn: ARN_A.into(),
+                price: Some(bad),
+                ..Default::default()
+            }];
+            let error = validate_entries(&mut entries, Some("us-east-1")).unwrap_err();
+            assert!(error.message().contains("finite, non-negative"), "{error}");
+        }
+        let mut entries = vec![ProfileEntry {
+            arn: ARN_A.into(),
+            price: Some(price(1_000.0, 2_000.0)),
+            ..Default::default()
+        }];
+        validate_entries(&mut entries, Some("us-east-1")).unwrap();
+
+        // The name is 1-100 characters once trimmed; longer is refused (FR-026).
+        let mut entries = vec![ProfileEntry {
+            arn: ARN_A.into(),
+            name: Some("a".repeat(101)),
+            ..Default::default()
+        }];
+        let error = validate_entries(&mut entries, Some("us-east-1")).unwrap_err();
+        assert!(error.message().contains("at most 100 characters"), "{error}");
+        let mut entries = vec![ProfileEntry {
+            arn: ARN_A.into(),
+            name: Some("a".repeat(100)),
+            ..Default::default()
+        }];
+        validate_entries(&mut entries, Some("us-east-1")).unwrap();
+    }
+
 }

@@ -16,7 +16,7 @@ use crate::{
     llm::sso::{SsoSessions, expires_at, session_state},
     schema::{ProfileEntry, ProviderCredentials, ProviderEntry, SsoSessionState},
     service::{
-        ServiceError,
+        ServiceError, providers_sso,
         usage::{self, AffectedAgent, TestResult, UsedBy},
     },
     storage::provider::{CustomProviderStorage, ProviderStorage},
@@ -98,7 +98,9 @@ pub struct ProfileEntryResponse {
 }
 
 impl ProfileEntryResponse {
-    fn from_entry(entry: &ProfileEntry) -> Self {
+    /// The entry as the settings row shows it; shared with the entry CRUD so every surface
+    /// renders one shape (spec 044, contracts §4).
+    pub(crate) fn from_entry(entry: &ProfileEntry) -> Self {
         let display_name = match entry.name.as_deref().map(str::trim).filter(|n| !n.is_empty()) {
             Some(name) => name.to_string(),
             // An entry validated on save always parses; a hand-edited row may not, and the ARN is
@@ -617,6 +619,10 @@ pub async fn upsert(
         .await
         .map_err(|e| ServiceError::Internal(e.to_string()))?;
     check_sso_connection(&id, &mut credentials, &rows).map_err(fail)?;
+    // The entry rules live in one place, `service::providers_sso::validate_entries`, and this
+    // whole-list save is the path the provider form shares with the entry editor: shape, then
+    // duplicate, then region (data-model "profile entry", FR-021, FR-024, FR-025).
+    providers_sso::validate_entries(&mut credentials.profiles, credentials.region.as_deref())?;
     let entry = ProviderEntry {
         id: id.clone(),
         credentials,
