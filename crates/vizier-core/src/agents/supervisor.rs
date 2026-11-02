@@ -23,7 +23,6 @@ use crate::config::provider::ProviderId;
 use crate::dependencies::VizierDependencies;
 use crate::embedding::VizierEmbedder;
 use crate::indexer::VizierIndexer;
-use crate::indexer::sqlite::SqliteIndexer;
 use crate::schema::{
     AgentConfig, AgentHealthStatus, AgentId, AgentRunState, ErrorKind, VizierResponse,
     VizierResponseContent,
@@ -156,21 +155,13 @@ async fn build_indexer(
         _ => return Ok(None),
     };
 
-    let conn = deps.sql.clone();
-
     let embedder = Arc::new(
         VizierEmbedder::from_agent_settings(emb_settings, deps, &deps.config.workspace, agent_id)
             .await?,
     );
-    let sqlite_idx = SqliteIndexer::new(conn, embedder).await?;
-    note_index_dimension(
-        deps,
-        agent_id,
-        sqlite_idx.dimension(),
-        sqlite_idx.keeps_legacy_table(),
-    )
-    .await;
-    Ok(Some(VizierIndexer::build(sqlite_idx)))
+    let opened = crate::indexer::open(deps.sql.clone(), embedder).await?;
+    note_index_dimension(deps, agent_id, opened.dimension, opened.keeps_legacy_table).await;
+    Ok(Some(opened.indexer))
 }
 
 /// The width this agent's memories were last embedded at. A different one means it now writes to

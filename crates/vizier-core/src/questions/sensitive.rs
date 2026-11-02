@@ -208,7 +208,7 @@ mod tests {
     use crate::{
         sandbox::{ExecutionError, ExecutionErrorKind, ExecutionReport, ToolInvocationRecord},
         schema::VizierChannelId,
-        storage::{document::LocalDocumentStore, sqlite::SqlStorage},
+        storage::{document::BlobDocumentStore, sqlite::SqlStorage},
     };
 
     const TOKEN: &str = "ghp_super-secret-token-123";
@@ -228,7 +228,7 @@ mod tests {
         crate::storage::sqlite::init_sensitive_ask_schema(&conn).unwrap();
         let storage = SqlStorage::new(
             crate::storage::sql::SqlStore::sqlite(conn),
-            Arc::new(LocalDocumentStore::new(dir.path().to_path_buf())),
+            Arc::new(BlobDocumentStore::local(dir.path().to_path_buf())),
         );
         Fixture {
             storage: Arc::new(VizierStorage::new(storage)),
@@ -483,7 +483,7 @@ mod tests {
         let conn = rusqlite::Connection::open_in_memory().unwrap(); // no sensitive_ask table
         f.storage = Arc::new(VizierStorage::new(SqlStorage::new(
             crate::storage::sql::SqlStore::sqlite(conn),
-            Arc::new(LocalDocumentStore::new(dir.path().to_path_buf())),
+            Arc::new(BlobDocumentStore::local(dir.path().to_path_buf())),
         )));
 
         let result = spawn_ask(&f, None).await.unwrap();

@@ -425,4 +425,9 @@ mod encryption_tests {
         assert!(!raw.contains("telegram_token"));
         assert!(!raw.contains("mcp_servers"));
     }
+
+    crate::postgres_tests!(
+        shell_env_is_protected_but_the_rest_of_the_config_is_readable,
+        saving_an_agent_drops_legacy_credential_keys,
+    );
 }

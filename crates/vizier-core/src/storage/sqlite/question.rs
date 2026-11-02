@@ -54,9 +54,9 @@ fn row_to_record(row: &Row) -> crate::storage::sql::Result<QuestionSetRecord> {
     })
 }
 
-/// The predicate that scopes a row to one conversation. `topic IS ?` matches a NULL topic, which
-/// is what a session without one stores.
-const IN_SESSION: &str = "agent_id = ?2 AND channel = ?3 AND topic IS ?4";
+/// The predicate that scopes a row to one conversation. `IS NOT DISTINCT FROM` matches a NULL
+/// topic, which is what a session without one stores.
+const IN_SESSION: &str = "agent_id = ?2 AND channel = ?3 AND topic IS NOT DISTINCT FROM ?4";
 
 fn millis(t: DateTime<Utc>) -> i64 {
     t.timestamp_millis()
@@ -72,7 +72,10 @@ pub(super) fn delete_session(
 ) -> Result<()> {
     for table in ["question_set", "sensitive_ask"] {
         conn.execute(
-            &format!("DELETE FROM {table} WHERE agent_id = ?1 AND channel = ?2 AND topic IS ?3"),
+            &format!(
+                "DELETE FROM {table} WHERE agent_id = ?1 AND channel = ?2 \
+                 AND topic IS NOT DISTINCT FROM ?3"
+            ),
             params![agent_id, channel_slug, topic],
         )?;
     }
@@ -234,7 +237,8 @@ impl QuestionStorage for SqlStorage {
         // Its own predicate, so the numbering starts at ?1 rather than sharing `IN_SESSION`'s.
         let mut stmt = conn.prepare(&format!(
             "SELECT {COLUMNS} FROM question_set
-              WHERE state = 'pending' AND agent_id = ?1 AND channel = ?2 AND topic IS ?3
+              WHERE state = 'pending' AND agent_id = ?1 AND channel = ?2
+                AND topic IS NOT DISTINCT FROM ?3
               ORDER BY created_at, rowid"
         ))?;
         let records = stmt
@@ -357,7 +361,8 @@ impl crate::storage::question::SensitiveAskStorage for SqlStorage {
         let conn = self.conn.lock()?;
         let mut stmt = conn.prepare(&format!(
             "SELECT {ASK_COLUMNS} FROM sensitive_ask
-              WHERE state = ?1 AND agent_id = ?2 AND channel = ?3 AND topic IS ?4
+              WHERE state = ?1 AND agent_id = ?2 AND channel = ?3
+                AND topic IS NOT DISTINCT FROM ?4
               ORDER BY requested_at, rowid"
         ))?;
         let records = stmt
@@ -393,16 +398,20 @@ mod tests {
     use crate::{
         questions::model::{AnswerState, AnswerValue, ChoiceOption, Question, QuestionType},
         schema::VizierChannelId,
-        storage::document::LocalDocumentStore,
+        storage::document::BlobDocumentStore,
     };
 
     fn setup() -> (SqlStorage, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
-        let conn = Connection::open_in_memory().unwrap();
-        crate::storage::sqlite::init_question_schema(&conn).unwrap();
+        let store = crate::tests_support::test_store(|| {
+            let conn = Connection::open_in_memory().unwrap();
+            crate::storage::sqlite::init_question_schema(&conn).unwrap();
+            crate::storage::sqlite::init_sensitive_ask_schema(&conn).unwrap();
+            crate::storage::sql::SqlStore::sqlite(conn)
+        });
         let storage = SqlStorage::new(
-            crate::storage::sql::SqlStore::sqlite(conn),
-            Arc::new(LocalDocumentStore::new(dir.path().to_path_buf())),
+            store,
+            Arc::new(BlobDocumentStore::local(dir.path().to_path_buf())),
         );
         (storage, dir)
     }
@@ -713,13 +722,6 @@ mod tests {
     fn sets_and_asks_are_deleted_with_their_conversation_and_agent() {
         use crate::storage::question::SensitiveAskStorage;
         let (storage, _dir) = setup();
-        storage
-            .conn
-            .lock()
-            .unwrap()
-            .with_rusqlite(crate::storage::sqlite::init_sensitive_ask_schema)
-            .unwrap()
-            .unwrap();
         let rt = tokio::runtime::Builder::new_current_thread()
             .build()
             .unwrap();
@@ -785,7 +787,7 @@ mod tests {
             crate::storage::sqlite::init_question_schema(&conn).unwrap();
             SqlStorage::new(
                 crate::storage::sql::SqlStore::sqlite(conn),
-                Arc::new(LocalDocumentStore::new(dir.path().to_path_buf())),
+                Arc::new(BlobDocumentStore::local(dir.path().to_path_buf())),
             )
         };
 
@@ -860,4 +862,17 @@ mod tests {
         assert_eq!(answerer.as_deref(), Some("alice"));
         assert_eq!(answers.as_ref().map(Vec::len), Some(1));
     }
+
+    crate::postgres_tests!(
+        two_submissions_of_one_set_leave_exactly_one_winner,
+        a_set_cannot_be_claimed_from_another_conversation,
+        an_unknown_set_id_is_refused,
+        a_dismissal_closes_the_set_without_answers,
+        a_pending_set_is_found_by_its_short_id_and_survives_a_rebuild,
+        a_short_id_cannot_be_reused,
+        withdrawing_takes_an_unanswered_set_away,
+        only_open_sets_of_one_conversation_are_listed,
+        controls_are_stored_with_the_set,
+        sets_and_asks_are_deleted_with_their_conversation_and_agent,
+    );
 }

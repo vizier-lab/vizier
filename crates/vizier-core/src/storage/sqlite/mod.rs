@@ -167,13 +167,10 @@ pub fn init_revision_schema(conn: &Connection) -> Result<()> {
 }
 
 impl SqlStorage {
-    pub fn open_connection(workspace: &str) -> Result<Connection> {
-        let db_path = build_path(workspace, &[".runtime"]);
-        std::fs::create_dir_all(&db_path)?;
-
-        let db_file = db_path.join("vizier.db");
-
-        // Register sqlite-vec extension before opening any connection
+    /// Register sqlite-vec for every connection opened after this call. Idempotent.
+    fn register_sqlite_vec() {
+        // SAFETY: `sqlite3_vec_init` has exactly the signature SQLite expects of an auto-loaded
+        // extension entry point; registering the same pointer twice is a no-op.
         unsafe {
             rusqlite::ffi::sqlite3_auto_extension(Some(std::mem::transmute::<
                 *const (),
@@ -186,7 +183,15 @@ impl SqlStorage {
                 sqlite_vec::sqlite3_vec_init as *const (),
             )));
         }
+    }
 
+    pub fn open_connection(workspace: &str) -> Result<Connection> {
+        let db_path = build_path(workspace, &[".runtime"]);
+        std::fs::create_dir_all(&db_path)?;
+
+        let db_file = db_path.join("vizier.db");
+
+        Self::register_sqlite_vec();
         let conn = Connection::open(&db_file)?;
 
         conn.execute_batch("PRAGMA journal_mode=WAL;")?;
@@ -195,6 +200,31 @@ impl SqlStorage {
 
         Self::init_schema(&conn)?;
 
+        Ok(conn)
+    }
+
+    /// Open an existing workspace database without writing to it (no schema init, no WAL
+    /// switch), for `vizier storage migrate`. `None` when the workspace has no database.
+    pub(crate) fn open_read_only(workspace: &std::path::Path) -> Result<Option<Connection>> {
+        let db_file = workspace.join(".runtime").join("vizier.db");
+        if !db_file.is_file() {
+            return Ok(None);
+        }
+        Self::register_sqlite_vec();
+        let conn = Connection::open_with_flags(
+            &db_file,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )?;
+        conn.execute_batch("PRAGMA busy_timeout=5000;")?;
+        Ok(Some(conn))
+    }
+
+    /// The schema this binary creates on SQLite, on a scratch in-memory database: what a
+    /// migration source must match.
+    pub(crate) fn expected_schema() -> Result<Connection> {
+        Self::register_sqlite_vec();
+        let conn = Connection::open_in_memory()?;
+        Self::init_schema(&conn)?;
         Ok(conn)
     }
 

@@ -18,12 +18,18 @@ use crate::{
 /// The only insert into `session_history`, shared by `save_session_history` and
 /// `save_checkpoint` so neither can write a row without a `seq`.
 ///
-/// `seq` is assigned by the statement rather than by a caller (FR-001). The read-then-write
-/// of `MAX(seq)` is safe because every insert runs under `self.conn.lock()`, and `idx_sh_seq`
-/// makes the maximum an index lookup rather than a scan.
-const INSERT_HISTORY_SQL: &str = "INSERT INTO session_history \
-     (uid, agent_id, channel, topic, timestamp, content_type, data, seq) \
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, (SELECT IFNULL(MAX(seq), 0) + 1 FROM session_history))";
+/// `seq` is assigned by the statement rather than by a caller (FR-001). On SQLite the
+/// read-then-write of `MAX(seq)` is safe because every insert runs under `self.conn.lock()`,
+/// and `idx_sh_seq` makes the maximum an index lookup rather than a scan; on PostgreSQL the
+/// column is an identity.
+fn insert_history_sql(dialect: &dyn sql::Dialect) -> String {
+    format!(
+        "INSERT INTO session_history \
+         (uid, agent_id, channel, topic, timestamp, content_type, data, seq) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, {})",
+        dialect.next_sequence_value("session_history", "seq")
+    )
+}
 
 /// `(data, seq)` as every ordered read selects it. `seq` lives on the column, not inside the
 /// serialized `data` blob, so it has to be read back and set on the deserialized entry.
@@ -316,7 +322,7 @@ impl HistoryStorage for SqlStorage {
         let conn = self.conn.lock()?;
         let tx = conn.unchecked_transaction()?;
         tx.execute(
-            INSERT_HISTORY_SQL,
+            &insert_history_sql(tx.dialect()),
             params![
                 uid,
                 session.0,
@@ -329,9 +335,13 @@ impl HistoryStorage for SqlStorage {
         )?;
         for (agent_id, artifact_id) in references {
             tx.execute(
-                "INSERT OR REPLACE INTO artifact_reference \
+                "INSERT INTO artifact_reference \
                  (artifact_id, agent_id, kind, target, session_slug, history_uid, channel, topic, bundle, path, label, created_at) \
-                 VALUES (?1, ?2, 'message', ?3, ?4, ?5, ?6, ?7, NULL, NULL, ?8, ?9)",
+                 VALUES (?1, ?2, 'message', ?3, ?4, ?5, ?6, ?7, NULL, NULL, ?8, ?9) \
+                 ON CONFLICT (artifact_id, kind, target) DO UPDATE SET agent_id = excluded.agent_id, \
+                 session_slug = excluded.session_slug, history_uid = excluded.history_uid, \
+                 channel = excluded.channel, topic = excluded.topic, bundle = excluded.bundle, \
+                 path = excluded.path, label = excluded.label, created_at = excluded.created_at",
                 params![
                     artifact_id,
                     agent_id,
@@ -612,7 +622,7 @@ impl HistoryStorage for SqlStorage {
         let data = serde_json::to_string(&entry)?;
         let conn = self.conn.lock()?;
         conn.execute(
-            INSERT_HISTORY_SQL,
+            &insert_history_sql(conn.dialect()),
             params![
                 uid,
                 session.0,
@@ -630,7 +640,8 @@ impl HistoryStorage for SqlStorage {
         let conn = self.conn.lock()?;
         let count: i64 = conn.query_row(
             "SELECT COUNT(*) FROM session_history \
-             WHERE agent_id = ?1 AND channel = ?2 AND topic IS ?3 AND content_type = 'Request'",
+             WHERE agent_id = ?1 AND channel = ?2 AND topic IS NOT DISTINCT FROM ?3 \
+             AND content_type = 'Request'",
             params![session.0, session.1.to_slug(), session.2],
             |row| row.get(0),
         )?;
@@ -647,18 +658,21 @@ mod tests {
 
     use super::*;
     use crate::schema::{VizierChannelId, VizierRequest, VizierRequestContent};
-    use crate::storage::document::LocalDocumentStore;
+    use crate::storage::document::BlobDocumentStore;
 
     fn setup() -> (SqlStorage, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
-        let conn = Connection::open_in_memory().unwrap();
-        crate::storage::sqlite::init_artifact_schema(&conn).unwrap();
-        crate::storage::sqlite::init_history_schema(&conn).unwrap();
-        crate::storage::sqlite::init_reaction_schema(&conn).unwrap();
-        crate::storage::sqlite::init_client_call_schema(&conn).unwrap();
+        let store = crate::tests_support::test_store(|| {
+            let conn = Connection::open_in_memory().unwrap();
+            crate::storage::sqlite::init_artifact_schema(&conn).unwrap();
+            crate::storage::sqlite::init_history_schema(&conn).unwrap();
+            crate::storage::sqlite::init_reaction_schema(&conn).unwrap();
+            crate::storage::sqlite::init_client_call_schema(&conn).unwrap();
+            SqlStore::sqlite(conn)
+        });
         let storage = SqlStorage::new(
-            SqlStore::sqlite(conn),
-            Arc::new(LocalDocumentStore::new(dir.path().to_path_buf())),
+            store,
+            Arc::new(BlobDocumentStore::local(dir.path().to_path_buf())),
         );
         (storage, dir)
     }
@@ -711,18 +725,29 @@ mod tests {
     /// the entries by accident and the test would pass against the defect.
     fn collapse_timestamps(storage: &SqlStorage) {
         let conn = storage.conn.lock().unwrap();
-        conn.execute_batch(
+        conn.execute_batch(if crate::tests_support::testing_postgres() {
             "UPDATE session_history
                 SET timestamp = 1700000000000,
-                    data = json_set(data, '$.timestamp', '2023-11-14T22:13:20Z');",
-        )
+                    data = jsonb_set(data::jsonb, '{timestamp}', '\"2023-11-14T22:13:20Z\"')::text;"
+        } else {
+            "UPDATE session_history
+                SET timestamp = 1700000000000,
+                    data = json_set(data, '$.timestamp', '2023-11-14T22:13:20Z');"
+        })
         .unwrap();
     }
 
+    /// Every row's `seq`, in insertion order (SQLite's rowid; PostgreSQL's `seq` is itself the
+    /// insertion order).
     fn seqs(storage: &SqlStorage) -> Vec<Option<i64>> {
         let conn = storage.conn.lock().unwrap();
+        let order = if crate::tests_support::testing_postgres() {
+            "seq"
+        } else {
+            "rowid"
+        };
         let mut stmt = conn
-            .prepare("SELECT seq FROM session_history ORDER BY rowid")
+            .prepare(&format!("SELECT seq FROM session_history ORDER BY {order}"))
             .unwrap();
         let rows = stmt
             .query_map([], |row| row.get::<_, Option<i64>>(0))
@@ -899,7 +924,7 @@ mod tests {
 
         // A row written after the upgrade gets a position, starting from one.
         conn.execute(
-            INSERT_HISTORY_SQL,
+            &insert_history_sql(&crate::storage::sql::SqliteDialect),
             rusqlite::params![
                 "new-1",
                 "a",
@@ -1036,4 +1061,61 @@ mod tests {
             "{blob}"
         );
     }
+
+    /// SC-004: PostgreSQL identities allocate one ordered history position under 50 concurrent
+    /// writers; no process-wide lock participates because every clone checks out its own pooled
+    /// connection.
+    #[test]
+    fn fifty_postgres_writers_allocate_contiguous_history_positions() {
+        let Some(store) = crate::tests_support::postgres_store() else {
+            return;
+        };
+        const WRITERS: usize = 50;
+        const EACH: usize = 200;
+        let dir = tempfile::tempdir().unwrap();
+        let storage = SqlStorage::new(
+            store,
+            Arc::new(BlobDocumentStore::local(dir.path().to_path_buf())),
+        );
+
+        std::thread::scope(|scope| {
+            for writer in 0..WRITERS {
+                let storage = storage.clone();
+                scope.spawn(move || {
+                    let runtime = tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()
+                        .unwrap();
+                    runtime.block_on(async move {
+                        for entry in 0..EACH {
+                            storage
+                                .save_session_history(
+                                    session(),
+                                    request(&format!("{writer}:{entry}")),
+                                )
+                                .await
+                                .unwrap();
+                        }
+                    });
+                });
+            }
+        });
+
+        let conn = storage.conn.lock().unwrap();
+        let actual: Vec<i64> = conn
+            .query_all("SELECT seq FROM session_history ORDER BY seq", ())
+            .unwrap()
+            .iter()
+            .map(|row| row.get(0).unwrap())
+            .collect();
+        let expected: Vec<i64> = (1..=(WRITERS * EACH) as i64).collect();
+        assert_eq!(actual, expected);
+    }
+
+    crate::postgres_tests!(
+        seq_is_strictly_increasing_and_orders_entries_sharing_a_timestamp,
+        the_replay_read_is_ordered_when_entries_share_a_timestamp,
+        count_session_requests_counts_only_that_sessions_requests,
+        a_client_tool_call_reads_back_with_its_outcome_and_state,
+    );
 }

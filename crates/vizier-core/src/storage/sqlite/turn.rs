@@ -75,9 +75,9 @@ impl TurnStorage for SqlStorage {
     async fn accept_turn(&self, session: &VizierSession, request: &VizierRequest) -> Result<i64> {
         let (agent_id, channel, topic) = key(session);
         let conn = self.conn.lock()?;
-        conn.execute(
+        let id = conn.query_row(
             "INSERT INTO session_turn (agent_id, channel, topic, session, request, state, accepted_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, 'queued', ?6)",
+             VALUES (?1, ?2, ?3, ?4, ?5, 'queued', ?6) RETURNING id",
             params![
                 agent_id,
                 channel,
@@ -86,8 +86,9 @@ impl TurnStorage for SqlStorage {
                 serde_json::to_string(request)?,
                 Utc::now().to_rfc3339()
             ],
+            |row| row.get(0),
         )?;
-        Ok(conn.last_insert_rowid())
+        Ok(id)
     }
 
     async fn start_turn(&self, id: i64) -> Result<()> {
@@ -168,15 +169,18 @@ mod tests {
     use rusqlite::Connection;
 
     use super::*;
-    use crate::{schema::VizierChannelId, storage::document::LocalDocumentStore};
+    use crate::{schema::VizierChannelId, storage::document::BlobDocumentStore};
 
     fn setup() -> (SqlStorage, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
-        let conn = Connection::open_in_memory().unwrap();
-        crate::storage::sqlite::init_turn_schema(&conn).unwrap();
+        let store = crate::tests_support::test_store(|| {
+            let conn = Connection::open_in_memory().unwrap();
+            crate::storage::sqlite::init_turn_schema(&conn).unwrap();
+            SqlStore::sqlite(conn)
+        });
         let storage = SqlStorage::new(
-            SqlStore::sqlite(conn),
-            Arc::new(LocalDocumentStore::new(dir.path().to_path_buf())),
+            store,
+            Arc::new(BlobDocumentStore::local(dir.path().to_path_buf())),
         );
         (storage, dir)
     }
@@ -271,4 +275,11 @@ mod tests {
         assert_eq!(storage.cancel_session_turns(&s).await.unwrap(), 1);
         assert_eq!(storage.pending_turns("a").await.unwrap().len(), 1);
     }
+
+    crate::postgres_tests!(
+        a_turn_goes_queued_running_deleted,
+        pending_turns_come_in_acceptance_order,
+        note_resume_counts_only_without_progress,
+        cancel_and_session_delete_remove_rows,
+    );
 }

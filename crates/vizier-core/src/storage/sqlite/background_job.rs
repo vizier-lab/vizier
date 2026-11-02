@@ -284,7 +284,8 @@ impl BackgroundJobStorage for SqlStorage {
         load_jobs(
             &conn,
             &format!(
-                "origin_agent = ?1 AND origin_channel = ?2 AND origin_topic IS ?3 AND {IN_FLIGHT}"
+                "origin_agent = ?1 AND origin_channel = ?2 AND origin_topic IS NOT DISTINCT FROM ?3 \
+                 AND {IN_FLIGHT}"
             ),
             &[&origin.0, &channel, &origin.2],
         )
@@ -394,16 +395,19 @@ mod tests {
     use crate::storage::sql::SqlStore;
 
     use super::*;
-    use crate::storage::document::LocalDocumentStore;
+    use crate::storage::document::BlobDocumentStore;
 
     fn setup() -> (SqlStorage, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
-        let conn = rusqlite::Connection::open_in_memory().unwrap();
-        conn.execute_batch("PRAGMA foreign_keys=ON;").unwrap();
-        crate::storage::sqlite::init_background_job_schema(&conn).unwrap();
+        let store = crate::tests_support::test_store(|| {
+            let conn = rusqlite::Connection::open_in_memory().unwrap();
+            conn.execute_batch("PRAGMA foreign_keys=ON;").unwrap();
+            crate::storage::sqlite::init_background_job_schema(&conn).unwrap();
+            SqlStore::sqlite(conn)
+        });
         let storage = SqlStorage::new(
-            SqlStore::sqlite(conn),
-            Arc::new(LocalDocumentStore::new(dir.path().to_path_buf())),
+            store,
+            Arc::new(BlobDocumentStore::local(dir.path().to_path_buf())),
         );
         (storage, dir)
     }
@@ -648,4 +652,68 @@ mod tests {
             .unwrap();
         assert_eq!(c.state, JobState::Reported);
     }
+
+    /// SC-004: 10,000 racing compare-and-set attempts still have exactly one winner.
+    #[test]
+    fn ten_thousand_postgres_transitions_have_one_winner() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let Some(store) = crate::tests_support::postgres_store() else {
+            return;
+        };
+        const WRITERS: usize = 50;
+        const EACH: usize = 200;
+        let dir = tempfile::tempdir().unwrap();
+        let storage = SqlStorage::new(
+            store,
+            Arc::new(BlobDocumentStore::local(dir.path().to_path_buf())),
+        );
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        runtime
+            .block_on(storage.open_background_job(job("b-race-10000", 1)))
+            .unwrap();
+
+        let winners = AtomicUsize::new(0);
+        std::thread::scope(|scope| {
+            for _ in 0..WRITERS {
+                let storage = storage.clone();
+                let winners = &winners;
+                scope.spawn(move || {
+                    let runtime = tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()
+                        .unwrap();
+                    runtime.block_on(async move {
+                        for _ in 0..EACH {
+                            if storage
+                                .transition_background_job(
+                                    "b-race-10000",
+                                    JobState::Running,
+                                    JobState::Reporting,
+                                    None,
+                                    None,
+                                    Utc::now(),
+                                )
+                                .await
+                                .unwrap()
+                            {
+                                winners.fetch_add(1, Ordering::Relaxed);
+                            }
+                        }
+                    });
+                });
+            }
+        });
+        assert_eq!(winners.load(Ordering::Relaxed), 1);
+    }
+
+    crate::postgres_tests!(
+        open_then_get_round_trips_the_pieces_in_order,
+        the_running_guard_has_exactly_one_winner,
+        cancelling_closes_running_pieces_only,
+        the_sweep_interrupts_running_and_reporting_jobs_and_their_running_pieces,
+    );
 }

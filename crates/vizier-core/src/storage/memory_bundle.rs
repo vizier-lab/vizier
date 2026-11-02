@@ -452,9 +452,13 @@ impl BundleMemoryStore {
             let tx = conn.transaction()?;
             for span in &spans {
                 tx.execute(
-                    "INSERT OR REPLACE INTO memory_passage
+                    "INSERT INTO memory_passage
                         (agent_id, bundle, path, ordinal, line_start, line_end, char_start, char_end, continues, content_hash)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+                     ON CONFLICT (agent_id, bundle, path, ordinal) DO UPDATE SET
+                        line_start = excluded.line_start, line_end = excluded.line_end,
+                        char_start = excluded.char_start, char_end = excluded.char_end,
+                        continues = excluded.continues, content_hash = excluded.content_hash",
                     params![
                         agent_id,
                         bundle,
@@ -1463,9 +1467,13 @@ impl BundleMemoryStore {
             for attachment in attachments {
                 if let MemoryAttachment::Artifact { artifact_id, .. } = attachment {
                     tx.execute(
-                        "INSERT OR REPLACE INTO artifact_reference \
+                        "INSERT INTO artifact_reference \
                          (artifact_id, agent_id, kind, target, session_slug, history_uid, channel, topic, bundle, path, label, created_at) \
-                         VALUES (?1, ?2, 'memory', ?3, NULL, NULL, NULL, NULL, ?4, ?5, ?6, ?7)",
+                         VALUES (?1, ?2, 'memory', ?3, NULL, NULL, NULL, NULL, ?4, ?5, ?6, ?7) \
+                         ON CONFLICT (artifact_id, kind, target) DO UPDATE SET agent_id = excluded.agent_id, \
+                         session_slug = excluded.session_slug, history_uid = excluded.history_uid, \
+                         channel = excluded.channel, topic = excluded.topic, bundle = excluded.bundle, \
+                         path = excluded.path, label = excluded.label, created_at = excluded.created_at",
                         params![artifact_id, agent_id, target, bundle, path, title, now],
                     )?;
                 }
@@ -2910,7 +2918,7 @@ impl BundleMemoryStore {
 mod tests {
     use super::*;
     use crate::indexer::noop::NoopIndexer;
-    use crate::storage::document::LocalDocumentStore;
+    use crate::storage::document::BlobDocumentStore;
 
     /// Default chunk limits for the tests. A real agent carries its own on `AgentConfig`.
     fn limits() -> ChunkLimits {
@@ -2921,15 +2929,21 @@ mod tests {
         RevisionOrigin::system(RevisionTrigger::Baseline)
     }
 
+    /// The SQLite store the bundle tests run on, or PostgreSQL inside `on_postgres`.
+    fn sql_store() -> crate::storage::sql::SqlStore {
+        crate::tests_support::test_store(|| {
+            let conn = rusqlite::Connection::open_in_memory().unwrap();
+            crate::storage::sqlite::init_memory_graph_schema(&conn).unwrap();
+            crate::storage::sqlite::init_revision_schema(&conn).unwrap();
+            crate::storage::sql::SqlStore::sqlite(conn)
+        })
+    }
+
     fn setup() -> (BundleMemoryStore, tempfile::TempDir, VizierIndexer) {
         let dir = tempfile::tempdir().unwrap();
         let doc_store: Arc<dyn DocumentStore> =
-            Arc::new(LocalDocumentStore::new(dir.path().to_path_buf()));
-        let conn = rusqlite::Connection::open_in_memory().unwrap();
-        crate::storage::sqlite::init_memory_graph_schema(&conn).unwrap();
-        crate::storage::sqlite::init_revision_schema(&conn).unwrap();
-        let conn = crate::storage::sql::SqlStore::sqlite(conn);
-        let store = BundleMemoryStore::new(doc_store, conn);
+            Arc::new(BlobDocumentStore::local(dir.path().to_path_buf()));
+        let store = BundleMemoryStore::new(doc_store, sql_store());
         let indexer = VizierIndexer::build(NoopIndexer);
         (store, dir, indexer)
     }
@@ -3426,7 +3440,7 @@ mod tests {
     async fn reconciliation_picks_up_documents_copied_from_elsewhere() {
         let dir = tempfile::tempdir().unwrap();
         let doc_store: Arc<dyn DocumentStore> =
-            Arc::new(LocalDocumentStore::new(dir.path().to_path_buf()));
+            Arc::new(BlobDocumentStore::local(dir.path().to_path_buf()));
         let conn = rusqlite::Connection::open_in_memory().unwrap();
         crate::storage::sqlite::init_memory_graph_schema(&conn).unwrap();
         let conn = crate::storage::sql::SqlStore::sqlite(conn);
@@ -3827,11 +3841,8 @@ mod tests {
     ) {
         let dir = tempfile::tempdir().unwrap();
         let doc_store: Arc<dyn DocumentStore> =
-            Arc::new(LocalDocumentStore::new(dir.path().to_path_buf()));
-        let conn = rusqlite::Connection::open_in_memory().unwrap();
-        crate::storage::sqlite::init_memory_graph_schema(&conn).unwrap();
-        crate::storage::sqlite::init_revision_schema(&conn).unwrap();
-        let store = BundleMemoryStore::new(doc_store, crate::storage::sql::SqlStore::sqlite(conn));
+            Arc::new(BlobDocumentStore::local(dir.path().to_path_buf()));
+        let store = BundleMemoryStore::new(doc_store, sql_store());
         let recorder = Arc::new(RecordingIndexer::default());
         let indexer = VizierIndexer::build(recorder.clone());
         (store, dir, indexer, recorder)
@@ -4113,7 +4124,7 @@ mod tests {
 
         let dir = tempfile::tempdir().unwrap();
         let doc_store: Arc<dyn DocumentStore> =
-            Arc::new(LocalDocumentStore::new(dir.path().to_path_buf()));
+            Arc::new(BlobDocumentStore::local(dir.path().to_path_buf()));
         let conn = rusqlite::Connection::open_in_memory().unwrap();
         crate::storage::sqlite::init_memory_graph_schema(&conn).unwrap();
         crate::storage::sqlite::init_revision_schema(&conn).unwrap();
@@ -4852,4 +4863,49 @@ mod tests {
         let warning = written.warning.expect("over the identity soft limit");
         assert_eq!(warning.limit, 1536);
     }
+
+    crate::postgres_tests!(
+        collision_rejected_on_create_only,
+        update_same_path_is_allowed_when_not_create_only,
+        implicit_bundle_and_subdirectory_creation,
+        same_bundle_and_cross_bundle_links_resolve,
+        same_bundle_link_without_md_extension_still_resolves,
+        extensionless_link_is_ignored_when_it_has_a_different_extension,
+        stale_relations_self_heal_on_read,
+        get_related_memories_self_heals_without_a_prior_detail_call,
+        cross_bundle_reference_written_as_a_same_bundle_style_path_still_resolves,
+        bare_wikilink_falls_back_to_same_bundle_concept_when_no_such_bundle_exists,
+        broken_links_are_tolerated_not_errors,
+        index_and_log_documents_reflect_bundle_contents,
+        delete_bundle_rejected_when_not_empty,
+        delete_bundle_succeeds_when_empty,
+        delete_bundle_with_force_removes_remaining_concepts_too,
+        every_save_records_a_revision_with_its_origin_and_no_op_saves_are_skipped,
+        delete_records_a_deletion_entry_and_a_pre_history_document_gets_a_baseline,
+        a_write_produces_passage_rows_and_one_index_entry_per_passage,
+        a_second_write_replaces_passages_rather_than_appending,
+        a_document_shrinking_from_twelve_passages_to_four_leaves_no_orphaned_index_rows,
+        deleting_a_memory_clears_both_the_passage_rows_and_the_index,
+        deleting_a_bundle_clears_passages_for_every_concept_in_it,
+        importing_a_bundle_produces_passages_for_every_document,
+        reconcile_converts_only_what_needs_it_and_rebuilds_on_drift,
+        resetting_passages_makes_the_next_reconcile_reindex_the_corpus,
+        the_identity_document_is_an_ordinary_round_tripping_memory,
+        the_reserved_bundle_refuses_a_foreign_document,
+        an_import_into_the_reserved_bundle_is_refused_but_an_export_is_allowed,
+        a_pre_reservation_document_in_a_legacy_core_bundle_stays_maintainable,
+        the_reserved_bundle_cannot_be_deleted_even_with_force,
+        the_soul_is_deletable_and_the_bundle_survives_it,
+        below_the_soft_limit_a_write_carries_no_warning,
+        between_the_soft_limit_and_the_ceiling_a_write_succeeds_with_a_warning,
+        exactly_at_the_ceiling_is_accepted_and_one_byte_over_is_refused,
+        the_refusal_states_size_ceiling_overage_and_a_split_pattern,
+        a_refusal_leaves_the_document_its_history_and_its_passages_untouched,
+        a_legacy_over_cap_document_accepts_a_shorter_write_and_refuses_a_longer_one,
+        the_seed_carries_the_legacy_identity_verbatim_with_a_provenance_line,
+        the_seed_falls_back_to_the_template_and_is_idempotent,
+        an_over_ceiling_legacy_identity_still_migrates_in_full,
+        the_identity_document_is_judged_against_the_tighter_pair,
+        the_identity_document_warns_at_its_own_soft_limit,
+    );
 }

@@ -45,9 +45,13 @@ impl CatalogueCacheStorage for SqlStorage {
         let conn = self.conn.lock()?;
         let tx = conn.transaction()?;
         tx.execute(
-            "INSERT OR REPLACE INTO catalogue_snapshot \
+            "INSERT INTO catalogue_snapshot \
              (id, schema, source_url, etag, fetched_at, checked_at, last_error, failed_at, data) \
-             VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+             VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8) \
+             ON CONFLICT (id) DO UPDATE SET schema = excluded.schema, \
+             source_url = excluded.source_url, etag = excluded.etag, \
+             fetched_at = excluded.fetched_at, checked_at = excluded.checked_at, \
+             last_error = excluded.last_error, failed_at = excluded.failed_at, data = excluded.data",
             params![
                 row.schema,
                 row.source_url,
@@ -95,7 +99,8 @@ impl CatalogueCacheStorage for SqlStorage {
     async fn put_logo(&self, id: &str, svg: Option<&[u8]>) -> Result<()> {
         let conn = self.conn.lock()?;
         conn.execute(
-            "INSERT OR REPLACE INTO catalogue_logo (id, svg, fetched_at) VALUES (?1, ?2, ?3)",
+            "INSERT INTO catalogue_logo (id, svg, fetched_at) VALUES (?1, ?2, ?3) \
+             ON CONFLICT (id) DO UPDATE SET svg = excluded.svg, fetched_at = excluded.fetched_at",
             params![id, svg, ms(Utc::now())],
         )?;
         Ok(())

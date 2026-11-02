@@ -55,9 +55,9 @@ impl TaskRunStorage for SqlStorage {
         session_key: String,
     ) -> Result<i64> {
         let conn = self.conn.lock()?;
-        conn.execute(
+        let id = conn.query_row(
             "INSERT INTO task_run (agent_id, task_slug, ran_at, finished_at, session_key, state) \
-             VALUES (?1, ?2, ?3, NULL, ?4, ?5)",
+             VALUES (?1, ?2, ?3, NULL, ?4, ?5) RETURNING id",
             params![
                 agent_id,
                 task_slug,
@@ -65,9 +65,10 @@ impl TaskRunStorage for SqlStorage {
                 session_key,
                 TaskRunState::Running.as_str(),
             ],
+            |row| row.get(0),
         )?;
 
-        Ok(conn.last_insert_rowid())
+        Ok(id)
     }
 
     async fn close_task_run(
@@ -259,15 +260,18 @@ mod tests {
     use rusqlite::Connection;
 
     use super::*;
-    use crate::storage::document::LocalDocumentStore;
+    use crate::storage::document::BlobDocumentStore;
 
     fn setup() -> (SqlStorage, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
-        let conn = Connection::open_in_memory().unwrap();
-        crate::storage::sqlite::init_task_run_schema(&conn).unwrap();
+        let store = crate::tests_support::test_store(|| {
+            let conn = Connection::open_in_memory().unwrap();
+            crate::storage::sqlite::init_task_run_schema(&conn).unwrap();
+            SqlStore::sqlite(conn)
+        });
         let storage = SqlStorage::new(
-            SqlStore::sqlite(conn),
-            Arc::new(LocalDocumentStore::new(dir.path().to_path_buf())),
+            store,
+            Arc::new(BlobDocumentStore::local(dir.path().to_path_buf())),
         );
         (storage, dir)
     }
@@ -556,4 +560,14 @@ mod tests {
             1
         );
     }
+
+    crate::postgres_tests!(
+        page_cursor_over_runs_sharing_one_millisecond_neither_duplicates_nor_skips,
+        has_more_is_false_only_on_the_last_page,
+        runs_come_back_newest_first,
+        at_most_one_running_row_per_task,
+        the_sweep_turns_every_running_row_into_interrupted,
+        a_closed_run_is_not_reopened_by_a_late_close,
+        deleting_a_tasks_runs_leaves_other_tasks_alone,
+    );
 }

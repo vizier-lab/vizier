@@ -324,7 +324,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let conn = SqlStorage::open_connection(dir.path().to_str().unwrap()).unwrap();
         let document_store: Arc<dyn crate::storage::document::DocumentStore> = Arc::new(
-            crate::storage::document::LocalDocumentStore::new(dir.path().join("agents")),
+            crate::storage::document::BlobDocumentStore::local(dir.path().join("agents")),
         );
         (
             SqlStorage::with_secrets(

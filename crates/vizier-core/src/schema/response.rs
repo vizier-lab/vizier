@@ -149,10 +149,9 @@ pub enum VizierResponseContent {
 
 impl VizierResponse {
     /// This tool response as the result of call `call_id`.
-    pub fn to_tool_result(
+    pub async fn to_tool_result(
         &self,
         call_id: String,
-        workspace: &str,
         resolver: &dyn crate::schema::request::AttachmentResolver,
     ) -> Result<Message> {
         let text = match &self.content {
@@ -167,7 +166,7 @@ impl VizierResponse {
         };
         let mut content = vec![Part::Text(text)];
         for attachment in &self.attachments {
-            content.push(attachment.to_part(workspace, resolver)?);
+            content.push(attachment.to_part(resolver).await?);
         }
         Ok(Message::ToolResult { call_id, content })
     }

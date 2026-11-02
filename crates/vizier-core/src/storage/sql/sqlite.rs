@@ -109,10 +109,6 @@ impl RawConn for SqliteConn<'_> {
         self.conn.execute_batch(sql).map_err(map_err)
     }
 
-    fn last_insert_rowid(&mut self) -> Result<i64> {
-        Ok(self.conn.last_insert_rowid())
-    }
-
     fn as_rusqlite(&self) -> Option<&rusqlite::Connection> {
         Some(&self.conn)
     }
@@ -133,7 +129,11 @@ impl Dialect for SqliteDialect {
         format!("date({column} / 1000, 'unixepoch')")
     }
 
-    fn lock_for_update(&self) -> &'static str {
-        ""
+    fn key_lock_sql(&self) -> Option<&'static str> {
+        None
+    }
+
+    fn next_sequence_value(&self, table: &str, column: &str) -> String {
+        format!("(SELECT IFNULL(MAX({column}), 0) + 1 FROM {table})")
     }
 }

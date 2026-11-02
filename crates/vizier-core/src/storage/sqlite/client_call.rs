@@ -13,9 +13,10 @@ impl ClientCallStorage for SqlStorage {
     async fn open_client_call(&self, uid: &str, session: &VizierSession) -> Result<()> {
         let conn = self.conn.lock()?;
         conn.execute(
-            "INSERT OR IGNORE INTO client_tool_call
+            "INSERT INTO client_tool_call
                 (history_uid, agent_id, channel, topic, status, created_at)
-             VALUES (?1, ?2, ?3, ?4, 'pending', ?5)",
+             VALUES (?1, ?2, ?3, ?4, 'pending', ?5)
+             ON CONFLICT DO NOTHING",
             params![
                 uid,
                 session.0,
@@ -75,7 +76,7 @@ impl ClientCallStorage for SqlStorage {
         let conn = self.conn.lock()?;
         let mut stmt = conn.prepare(
             "SELECT history_uid FROM client_tool_call
-             WHERE agent_id = ?1 AND channel = ?2 AND topic IS ?3 AND status = 'deferred'
+             WHERE agent_id = ?1 AND channel = ?2 AND topic IS NOT DISTINCT FROM ?3 AND status = 'deferred'
              ORDER BY created_at, rowid",
         )?;
         let uids = stmt
@@ -96,15 +97,18 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::{schema::VizierChannelId, storage::document::LocalDocumentStore};
+    use crate::{schema::VizierChannelId, storage::document::BlobDocumentStore};
 
     fn setup() -> (SqlStorage, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
-        let conn = Connection::open_in_memory().unwrap();
-        crate::storage::sqlite::init_client_call_schema(&conn).unwrap();
+        let store = crate::tests_support::test_store(|| {
+            let conn = Connection::open_in_memory().unwrap();
+            crate::storage::sqlite::init_client_call_schema(&conn).unwrap();
+            SqlStore::sqlite(conn)
+        });
         let storage = SqlStorage::new(
-            SqlStore::sqlite(conn),
-            Arc::new(LocalDocumentStore::new(dir.path().to_path_buf())),
+            store,
+            Arc::new(BlobDocumentStore::local(dir.path().to_path_buf())),
         );
         (storage, dir)
     }
@@ -244,4 +248,11 @@ mod tests {
             ("error".into(), Some(r#""no""#.into()), None)
         );
     }
+
+    crate::postgres_tests!(
+        an_outcome_is_recorded_once,
+        state_saves_in_any_status,
+        a_deferred_call_survives_the_sweep_and_finishes_once,
+        the_sweep_only_interrupts_pending_calls,
+    );
 }

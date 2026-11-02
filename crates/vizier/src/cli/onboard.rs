@@ -97,6 +97,7 @@ pub fn onboard(args: OnboardArgs) -> Result<()> {
         workspace: workspace.clone(),
         providers: None,
         storage: StorageConfig::Sqlite,
+        objects: Default::default(),
         channels: ChannelsConfig {
             http: Some(HTTPChannelConfig {
                 port,

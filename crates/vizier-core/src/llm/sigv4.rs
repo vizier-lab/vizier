@@ -60,9 +60,13 @@ fn hex(bytes: &[u8]) -> String {
     out
 }
 
-/// SigV4's canonical URI: encode the sent path a second time, so `%` becomes `%25`. Unreserved
+/// SigV4's canonical URI. With `double` (Bedrock), the sent path is encoded a second time, so
+/// `%` becomes `%25`; without it (S3), the already-encoded path is used as sent. Unreserved
 /// bytes and `/` pass through; anything else becomes uppercase `%XX`.
-fn canonical_uri(path: &str) -> String {
+fn canonical_uri(path: &str, double: bool) -> String {
+    if !double {
+        return path.to_string();
+    }
     let mut out = String::with_capacity(path.len());
     for b in path.bytes() {
         match b {
@@ -73,6 +77,45 @@ fn canonical_uri(path: &str) -> String {
         }
     }
     out
+}
+
+/// Per-service signing differences. The default is Bedrock's: double-encoded path, payload hash
+/// computed from `body`, no extra signed headers.
+pub struct SignOptions<'a> {
+    /// Extra headers to sign, lowercase names (e.g. `x-amz-content-sha256`, `range`).
+    pub extra_headers: &'a [(&'a str, &'a str)],
+    /// The payload hash to sign instead of hashing `body` (S3 sends it as
+    /// `x-amz-content-sha256`).
+    pub payload_hash: Option<&'a str>,
+    pub double_encode_path: bool,
+}
+
+impl Default for SignOptions<'_> {
+    fn default() -> Self {
+        Self {
+            extra_headers: &[],
+            payload_hash: None,
+            double_encode_path: true,
+        }
+    }
+}
+
+fn signed_header_list(req: &SigV4Request, opts: &SignOptions) -> Vec<(String, String)> {
+    let mut headers: Vec<(String, String)> = vec![
+        ("host".into(), req.host.trim().to_string()),
+        ("x-amz-date".into(), req.now.format("%Y%m%dT%H%M%SZ").to_string()),
+    ];
+    if let Some(content_type) = req.content_type {
+        headers.push(("content-type".into(), content_type.trim().to_string()));
+    }
+    if let Some(token) = req.session_token {
+        headers.push(("x-amz-security-token".into(), token.to_string()));
+    }
+    for (name, value) in opts.extra_headers {
+        headers.push((name.to_ascii_lowercase(), value.trim().to_string()));
+    }
+    headers.sort_unstable_by(|a, b| a.0.cmp(&b.0));
+    headers
 }
 
 /// The canonical query: parameters sorted by name then value. The caller supplies them already
@@ -86,19 +129,13 @@ fn canonical_query(query: &str) -> String {
 impl SigV4Request<'_> {
     /// The canonical request, exposed for the tests and for tracing a signature mismatch.
     pub fn canonical_request(&self) -> String {
-        let amz_date = self.now.format("%Y%m%dT%H%M%SZ").to_string();
-        let mut headers: Vec<(&str, String)> = vec![
-            ("host", self.host.trim().to_string()),
-            ("x-amz-date", amz_date),
-        ];
-        if let Some(content_type) = self.content_type {
-            headers.push(("content-type", content_type.trim().to_string()));
-        }
-        if let Some(token) = self.session_token {
-            headers.push(("x-amz-security-token", token.to_string()));
-        }
-        headers.sort_unstable_by(|a, b| a.0.cmp(b.0));
-        let signed: Vec<&str> = headers.iter().map(|(name, _)| *name).collect();
+        self.canonical_request_with(&SignOptions::default())
+    }
+
+    /// The canonical request under `opts`.
+    pub fn canonical_request_with(&self, opts: &SignOptions) -> String {
+        let headers = signed_header_list(self, opts);
+        let signed: Vec<&str> = headers.iter().map(|(name, _)| name.as_str()).collect();
 
         let mut canonical_headers = String::new();
         for (name, value) in &headers {
@@ -108,36 +145,41 @@ impl SigV4Request<'_> {
             canonical_headers.push('\n');
         }
 
+        let payload_hash = match opts.payload_hash {
+            Some(hash) => hash.to_string(),
+            None => sha256_hex(self.body),
+        };
         format!(
             "{}\n{}\n{}\n{}\n{}\n{}",
             self.method,
-            canonical_uri(self.path),
+            canonical_uri(self.path, opts.double_encode_path),
             canonical_query(self.query),
             canonical_headers,
             signed.join(";"),
-            sha256_hex(self.body),
+            payload_hash,
         )
     }
 }
 
 /// Sign one request (contract `bedrock-wire.md` §2).
 pub fn sign(req: &SigV4Request) -> SigV4Signature {
+    sign_with(req, &SignOptions::default())
+}
+
+/// Sign one request with per-service options (S3: single-encoded path, signed
+/// `x-amz-content-sha256`).
+pub fn sign_with(req: &SigV4Request, opts: &SignOptions) -> SigV4Signature {
     let amz_date = req.now.format("%Y%m%dT%H%M%SZ").to_string();
     let date = &amz_date[..8];
     let scope = format!("{date}/{}/{}/aws4_request", req.region, req.service);
 
-    let mut names = vec!["host", "x-amz-date"];
-    if req.content_type.is_some() {
-        names.push("content-type");
-    }
-    if req.session_token.is_some() {
-        names.push("x-amz-security-token");
-    }
-    // `x-amz-security-token` sorts after `x-amz-date`; keep the list sorted byte-wise.
-    names.sort_unstable();
-    let signed_headers = names.join(";");
+    let signed_headers = signed_header_list(req, opts)
+        .into_iter()
+        .map(|(name, _)| name)
+        .collect::<Vec<_>>()
+        .join(";");
 
-    let canonical = req.canonical_request();
+    let canonical = req.canonical_request_with(opts);
     let string_to_sign = format!(
         "AWS4-HMAC-SHA256\n{amz_date}\n{scope}\n{}",
         sha256_hex(canonical.as_bytes())
@@ -322,9 +364,9 @@ mod tests {
     #[test]
     fn canonical_uri_double_encodes_percent_and_keeps_slashes_and_unreserved() {
         assert_eq!(
-            canonical_uri("/model/a.b_c-d~e%3A0/converse"),
+            canonical_uri("/model/a.b_c-d~e%3A0/converse", true),
             "/model/a.b_c-d~e%253A0/converse"
         );
-        assert_eq!(canonical_uri("/foundation-models"), "/foundation-models");
+        assert_eq!(canonical_uri("/foundation-models", true), "/foundation-models");
     }
 }

@@ -207,7 +207,7 @@ mod tests {
     use crate::{
         schema::{VizierChannelId, VizierSession},
         storage::{
-            document::LocalDocumentStore,
+            document::BlobDocumentStore,
             secret::SecretStorage,
             sqlite::{SqlStorage, init_secret_schema},
         },
@@ -221,7 +221,7 @@ mod tests {
         init_secret_schema(&conn).unwrap();
         let storage = SqlStorage::new(
             crate::storage::sql::SqlStore::sqlite(conn),
-            Arc::new(LocalDocumentStore::new(dir.path().to_path_buf())),
+            Arc::new(BlobDocumentStore::local(dir.path().to_path_buf())),
         );
         (Arc::new(VizierStorage::new(storage)), dir)
     }

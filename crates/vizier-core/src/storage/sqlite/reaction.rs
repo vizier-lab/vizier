@@ -18,9 +18,10 @@ impl ReactionStorage for SqlStorage {
     async fn add_reaction(&self, history_uid: &str, reactor: &Reactor, emoji: &str) -> Result<()> {
         let conn = self.conn.lock()?;
         conn.execute(
-            "INSERT OR IGNORE INTO message_reaction
+            "INSERT INTO message_reaction
                 (history_uid, reactor_id, reactor_name, emoji, added_at)
-             VALUES (?1, ?2, ?3, ?4, ?5)",
+             VALUES (?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT DO NOTHING",
             params![
                 history_uid,
                 reactor.id,
@@ -92,9 +93,11 @@ impl ReactionStorage for SqlStorage {
         let tx = conn.unchecked_transaction()?;
         for message_id in message_ids {
             tx.execute(
-                "INSERT OR REPLACE INTO platform_message_link
+                "INSERT INTO platform_message_link
                     (agent_id, platform, chat_id, message_id, history_uid)
-                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                 VALUES (?1, ?2, ?3, ?4, ?5)
+                 ON CONFLICT (agent_id, platform, chat_id, message_id)
+                 DO UPDATE SET history_uid = excluded.history_uid",
                 params![
                     agent_id,
                     platform.as_str(),
@@ -167,20 +170,23 @@ mod tests {
         VizierSession,
     };
     use crate::storage::{
-        document::LocalDocumentStore,
+        document::BlobDocumentStore,
         history::HistoryStorage,
         sqlite::{init_history_schema, init_reaction_schema},
     };
 
     fn setup() -> (SqlStorage, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
-        let conn = Connection::open_in_memory().unwrap();
-        conn.execute_batch("PRAGMA foreign_keys=ON;").unwrap();
-        init_history_schema(&conn).unwrap();
-        init_reaction_schema(&conn).unwrap();
+        let store = crate::tests_support::test_store(|| {
+            let conn = Connection::open_in_memory().unwrap();
+            conn.execute_batch("PRAGMA foreign_keys=ON;").unwrap();
+            init_history_schema(&conn).unwrap();
+            init_reaction_schema(&conn).unwrap();
+            SqlStore::sqlite(conn)
+        });
         let storage = SqlStorage::new(
-            SqlStore::sqlite(conn),
-            Arc::new(LocalDocumentStore::new(dir.path().to_path_buf())),
+            store,
+            Arc::new(BlobDocumentStore::local(dir.path().to_path_buf())),
         );
         (storage, dir)
     }
@@ -366,4 +372,11 @@ mod tests {
         assert_eq!(list[0].reactions[0].emoji, "👍");
         assert_eq!(list[0].reactions[0].user_name, None);
     }
+
+    crate::postgres_tests!(
+        adding_twice_keeps_one_row,
+        removing_an_absent_reaction_never_adds_one,
+        clearing_one_emoji_leaves_the_others,
+        platform_links_resolve_to_their_entry,
+    );
 }

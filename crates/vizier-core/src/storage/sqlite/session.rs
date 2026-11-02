@@ -28,7 +28,9 @@ impl SessionStorage for SqlStorage {
         let data = serde_json::to_string(&session)?;
         let conn = self.conn.lock()?;
         conn.execute(
-            "INSERT OR REPLACE INTO session_detail (id, agent_id, channel, topic, data) VALUES (?1, ?2, ?3, ?4, ?5)",
+            "INSERT INTO session_detail (id, agent_id, channel, topic, data) VALUES (?1, ?2, ?3, ?4, ?5) \
+             ON CONFLICT (id) DO UPDATE SET agent_id = excluded.agent_id, channel = excluded.channel, \
+             topic = excluded.topic, data = excluded.data",
             params![id, session.agent_id, session.channel.to_slug(), session.topic, data],
         )?;
         Ok(())
@@ -89,7 +91,8 @@ impl SessionStorage for SqlStorage {
             // The text lives in the entry's JSON; the bound keeps this a bounded scan, newest first.
             let mut stmt = conn.prepare(
                 "SELECT DISTINCT channel, COALESCE(topic, '') FROM (SELECT channel, topic, data FROM session_history \
-                 WHERE agent_id = ?1 ORDER BY timestamp DESC LIMIT ?2) WHERE data LIKE ?3 ESCAPE '\\'",
+                 WHERE agent_id = ?1 ORDER BY timestamp DESC LIMIT ?2) AS recent \
+                 WHERE lower(data) LIKE ?3 ESCAPE '\\'",
             )?;
             let like = format!(
                 "%{}%",
@@ -192,9 +195,12 @@ impl SessionStorage for SqlStorage {
 
     async fn thinking_agents(&self) -> Result<std::collections::HashSet<String>> {
         let conn = self.conn.lock()?;
-        let mut stmt = conn.prepare(
-            "SELECT DISTINCT agent_id FROM session_detail WHERE json_extract(data, '$.is_thinking') = 1",
-        )?;
+        // A JSON `true` reads back as 1 on SQLite and as 'true' on PostgreSQL.
+        let mut stmt = conn.prepare(&format!(
+            "SELECT DISTINCT agent_id FROM session_detail \
+             WHERE CAST({} AS TEXT) IN ('1', 'true')",
+            conn.dialect().json_text("data", &["is_thinking"])
+        ))?;
         let ids = stmt
             .query_map([], |row| row.get::<_, String>(0))?
             .filter_map(|r| r.ok())
@@ -233,7 +239,8 @@ impl SessionStorage for SqlStorage {
             }
             detail.is_thinking = false;
             conn.execute(
-                "UPDATE session_detail SET data = ?1 WHERE agent_id = ?2 AND channel = ?3 AND topic IS ?4",
+                "UPDATE session_detail SET data = ?1 WHERE agent_id = ?2 AND channel = ?3 \
+                 AND topic IS NOT DISTINCT FROM ?4",
                 params![serde_json::to_string(&detail)?, agent, channel, topic],
             )?;
             reset += 1;
@@ -347,18 +354,19 @@ impl SessionStorage for SqlStorage {
         let origin_channel = serde_json::to_string(&channel)?;
         conn.execute(
             "DELETE FROM background_piece WHERE job_id IN (SELECT id FROM background_job \
-             WHERE origin_agent = ?1 AND origin_channel = ?2 AND origin_topic IS ?3)",
+             WHERE origin_agent = ?1 AND origin_channel = ?2 AND origin_topic IS NOT DISTINCT FROM ?3)",
             params![agent_id, origin_channel, topic],
         )?;
         conn.execute(
             "DELETE FROM background_job \
-             WHERE origin_agent = ?1 AND origin_channel = ?2 AND origin_topic IS ?3",
+             WHERE origin_agent = ?1 AND origin_channel = ?2 AND origin_topic IS NOT DISTINCT FROM ?3",
             params![agent_id, origin_channel, topic],
         )?;
 
         // The topic's client tool calls, and the state its pages saved, go with it.
         conn.execute(
-            "DELETE FROM client_tool_call WHERE agent_id = ?1 AND channel = ?2 AND topic IS ?3",
+            "DELETE FROM client_tool_call WHERE agent_id = ?1 AND channel = ?2 \
+             AND topic IS NOT DISTINCT FROM ?3",
             params![agent_id, channel.to_slug(), topic],
         )?;
         // The questions it asked, and the values it asked for.
@@ -423,21 +431,24 @@ mod tests {
     use rusqlite::Connection;
 
     use super::*;
-    use crate::storage::document::LocalDocumentStore;
+    use crate::storage::document::BlobDocumentStore;
 
     fn setup() -> (SqlStorage, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
-        let conn = Connection::open_in_memory().unwrap();
-        crate::storage::sqlite::init_artifact_schema(&conn).unwrap();
-        crate::storage::sqlite::init_history_schema(&conn).unwrap();
-        conn.execute_batch(
-            "CREATE TABLE session_detail (id TEXT PRIMARY KEY, agent_id TEXT NOT NULL, channel TEXT NOT NULL, \
-             topic TEXT, data TEXT NOT NULL);",
-        )
-        .unwrap();
+        let store = crate::tests_support::test_store(|| {
+            let conn = Connection::open_in_memory().unwrap();
+            crate::storage::sqlite::init_artifact_schema(&conn).unwrap();
+            crate::storage::sqlite::init_history_schema(&conn).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE session_detail (id TEXT PRIMARY KEY, agent_id TEXT NOT NULL, channel TEXT NOT NULL, \
+                 topic TEXT, data TEXT NOT NULL);",
+            )
+            .unwrap();
+            SqlStore::sqlite(conn)
+        });
         let storage = SqlStorage::new(
-            SqlStore::sqlite(conn),
-            Arc::new(LocalDocumentStore::new(dir.path().to_path_buf())),
+            store,
+            Arc::new(BlobDocumentStore::local(dir.path().to_path_buf())),
         );
         (storage, dir)
     }
@@ -452,15 +463,16 @@ mod tests {
         text: &str,
     ) {
         *n += 1;
-        s.conn
-            .lock()
-            .unwrap()
-            .execute(
+        let conn = s.conn.lock().unwrap();
+        conn.execute(
+            &format!(
                 "INSERT INTO session_history (uid, agent_id, channel, topic, timestamp, content_type, data, seq) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, 'Request', ?6, ?1)",
-                params![n.to_string(), agent, channel, topic, ts, serde_json::json!({ "text": text }).to_string()],
-            )
-            .unwrap();
+                 VALUES (?1, ?2, ?3, ?4, ?5, 'Request', ?6, {})",
+                conn.dialect().next_sequence_value("session_history", "seq")
+            ),
+            params![n.to_string(), agent, channel, topic, ts, serde_json::json!({ "text": text }).to_string()],
+        )
+        .unwrap();
     }
 
     fn title(s: &SqlStorage, agent: &str, channel: VizierChannelId, topic: &str, title: &str) {
@@ -484,11 +496,14 @@ mod tests {
     #[tokio::test]
     async fn deleting_a_session_deletes_its_messages_and_nothing_else() {
         let dir = tempfile::tempdir().unwrap();
-        let conn = Connection::open_in_memory().unwrap();
-        SqlStorage::init_schema(&conn).unwrap();
+        let store = crate::tests_support::test_store(|| {
+            let conn = Connection::open_in_memory().unwrap();
+            SqlStorage::init_schema(&conn).unwrap();
+            SqlStore::sqlite(conn)
+        });
         let s = SqlStorage::new(
-            SqlStore::sqlite(conn),
-            Arc::new(LocalDocumentStore::new(dir.path().to_path_buf())),
+            store,
+            Arc::new(BlobDocumentStore::local(dir.path().to_path_buf())),
         );
         let mut n = 0;
         let web = "http__ana__vizier-webui";
@@ -708,4 +723,11 @@ mod tests {
                 .all(|r| !r.channel.starts_with("project__"))
         );
     }
+
+    crate::postgres_tests!(
+        deleting_a_session_deletes_its_messages_and_nothing_else,
+        conversations_are_channels_newest_first_without_the_ones_nobody_talks_on,
+        q_finds_a_title_or_a_message_and_treats_wildcards_as_text,
+        project_chats_stay_out_of_the_regular_list_and_search,
+    );
 }

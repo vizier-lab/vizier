@@ -319,7 +319,8 @@ impl UserStorage for SqlStorage {
         let data = serde_json::to_string(profile)?;
         let conn = self.conn.lock()?;
         conn.execute(
-            "INSERT OR REPLACE INTO user_profile (user_id, data) VALUES (?1, ?2)",
+            "INSERT INTO user_profile (user_id, data) VALUES (?1, ?2) \
+             ON CONFLICT (user_id) DO UPDATE SET data = excluded.data",
             params![user_id, data],
         )?;
         Ok(())
@@ -415,4 +416,110 @@ impl UserStorage for SqlStorage {
         )?;
         Ok(())
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use super::*;
+    use crate::storage::{document::BlobDocumentStore, sql::SqlStore};
+
+    fn setup() -> (SqlStorage, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        let store = crate::tests_support::test_store(|| {
+            let conn = rusqlite::Connection::open_in_memory().unwrap();
+            SqlStorage::init_schema(&conn).unwrap();
+            SqlStore::sqlite(conn)
+        });
+        let storage = SqlStorage::new(
+            store,
+            Arc::new(BlobDocumentStore::local(dir.path().to_path_buf())),
+        );
+        (storage, dir)
+    }
+
+    #[tokio::test]
+    async fn users_roles_and_visits_round_trip() {
+        let (s, _dir) = setup();
+        assert!(!s.user_exists().await.unwrap());
+        let role = s
+            .create_role("admin", vec!["*".into()], true)
+            .await
+            .unwrap();
+        assert_eq!(
+            s.get_system_role().await.unwrap().unwrap().role_id,
+            role.role_id
+        );
+
+        let user = s.create_user("ana", "hash", &role.role_id).await.unwrap();
+        assert!(s.user_exists().await.unwrap());
+        assert!(
+            s.create_user("ana", "other", &role.role_id).await.is_err(),
+            "usernames are unique"
+        );
+        s.update_user(&user.user_id, Some("ana2"), None)
+            .await
+            .unwrap();
+        s.update_password(&user.user_id, "hash2").await.unwrap();
+        let got = s.get_user_by_id(&user.user_id).await.unwrap().unwrap();
+        assert_eq!(got.username, "ana2");
+        assert_eq!(got.password_hash, "hash2");
+        assert_eq!(s.list_users().await.unwrap().len(), 1);
+
+        assert_eq!(s.get_visit(&user.user_id).await.unwrap().last_seen_at, None);
+        let now = Utc::now();
+        let visit = s.record_visit(&user.user_id, now).await.unwrap();
+        let stored = s.get_visit(&user.user_id).await.unwrap();
+        assert_eq!(
+            stored.last_seen_at.map(|t| t.timestamp_millis()),
+            visit.last_seen_at.map(|t| t.timestamp_millis())
+        );
+
+        s.delete_user(&user.user_id).await.unwrap();
+        assert!(s.get_user_by_id(&user.user_id).await.unwrap().is_none());
+        assert!(s.delete_user(&user.user_id).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn profiles_upsert_and_api_keys_resolve_by_hash() {
+        let (s, _dir) = setup();
+        let mut profile = UserProfile {
+            user_id: "u1".into(),
+            discord_id: Some("d1".into()),
+            discord_username: None,
+            telegram_id: None,
+            telegram_username: None,
+            alias: vec![],
+        };
+        s.upsert_user_profile("u1", &profile).await.unwrap();
+        profile.alias = vec!["annie".into()];
+        s.upsert_user_profile("u1", &profile).await.unwrap();
+        assert_eq!(
+            s.get_user_profile("u1").await.unwrap().unwrap().alias,
+            vec!["annie".to_string()]
+        );
+
+        let key = s
+            .create_api_key("u1", "ci", "hash-1", "vz_1", None)
+            .await
+            .unwrap();
+        assert_eq!(
+            s.get_api_key_by_hash("hash-1").await.unwrap().unwrap().id,
+            key.id
+        );
+        s.update_api_key_last_used(&key.id).await.unwrap();
+        assert!(
+            s.list_api_keys("u1").await.unwrap()[0]
+                .last_used_at
+                .is_some()
+        );
+        s.delete_api_key(&key.id).await.unwrap();
+        assert!(s.list_api_keys("u1").await.unwrap().is_empty());
+    }
+
+    crate::postgres_tests!(
+        users_roles_and_visits_round_trip,
+        profiles_upsert_and_api_keys_resolve_by_hash,
+    );
 }

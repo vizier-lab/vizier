@@ -37,7 +37,9 @@ impl SessionFileStorage for SqlStorage {
         let data = serde_json::to_string(&record)?;
         let conn = self.conn.lock()?;
         conn.execute(
-            "INSERT OR REPLACE INTO session_file (id, session_slug, agent_id, data) VALUES (?1, ?2, ?3, ?4)",
+            "INSERT INTO session_file (id, session_slug, agent_id, data) VALUES (?1, ?2, ?3, ?4) \
+             ON CONFLICT (id) DO UPDATE SET session_slug = excluded.session_slug, \
+             agent_id = excluded.agent_id, data = excluded.data",
             params![id, session_slug, session.0, data],
         )?;
 
@@ -115,7 +117,10 @@ impl SessionFileStorage for SqlStorage {
     async fn session_file_reference_count(&self, file_id: &str) -> Result<usize> {
         let conn = self.conn.lock()?;
         let count: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM session_file WHERE json_extract(data, '$.file_id') = ?1",
+            &format!(
+                "SELECT COUNT(*) FROM session_file WHERE {} = ?1",
+                conn.dialect().json_text("data", &["file_id"])
+            ),
             params![file_id],
             |row| row.get(0),
         )?;

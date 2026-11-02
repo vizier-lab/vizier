@@ -260,15 +260,18 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use crate::storage::{document::LocalDocumentStore, sqlite::init_secret_schema};
+    use crate::storage::{document::BlobDocumentStore, sqlite::init_secret_schema};
 
     fn setup() -> (SqlStorage, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
-        let conn = rusqlite::Connection::open_in_memory().unwrap();
-        init_secret_schema(&conn).unwrap();
+        let store = crate::tests_support::test_store(|| {
+            let conn = rusqlite::Connection::open_in_memory().unwrap();
+            init_secret_schema(&conn).unwrap();
+            crate::storage::sql::SqlStore::sqlite(conn)
+        });
         let storage = SqlStorage::new(
-            crate::storage::sql::SqlStore::sqlite(conn),
-            Arc::new(LocalDocumentStore::new(dir.path().to_path_buf())),
+            store,
+            Arc::new(BlobDocumentStore::local(dir.path().to_path_buf())),
         );
         (storage, dir)
     }
@@ -654,4 +657,17 @@ mod tests {
         assert!(format!("{err}").contains("integrity check"), "{err}");
         assert!(storage.list_agent_secrets("dp-a").await.is_err());
     }
+
+    crate::postgres_tests!(
+        a_set_creates_one_row_and_reads_it_back,
+        a_replace_keeps_created_at_and_leaves_one_row,
+        a_value_round_trips_exactly,
+        list_masks_and_sorts_by_name,
+        a_delete_removes_the_row_and_records_it_once,
+        a_name_set_after_a_delete_is_created_again,
+        agents_never_see_each_others_secrets,
+        events_are_newest_first_and_hold_no_value,
+        deleting_an_agent_removes_its_secrets_and_events,
+        values_are_envelopes_at_rest_and_tampering_errors,
+    );
 }

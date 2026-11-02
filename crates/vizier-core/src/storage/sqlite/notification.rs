@@ -69,9 +69,10 @@ impl NotificationStorage for SqlStorage {
                 continue;
             }
             inserted += tx.execute(
-                "INSERT OR IGNORE INTO notification
+                "INSERT INTO notification
                     (event_key, agent_id, audience_user_id, category, tone, summary, href, created_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+                 ON CONFLICT DO NOTHING",
                 params![
                     draft.event_key.as_str(),
                     draft.agent_id.as_str(),
@@ -253,10 +254,11 @@ impl NotificationStorage for SqlStorage {
             return Ok(0);
         }
         let sql = format!(
-            "INSERT OR IGNORE INTO notification_read (user_id, notification_id, read_at) \
-             SELECT ?, n.id, ? FROM notification n \
+            "INSERT INTO notification_read (user_id, notification_id, read_at) \
+             SELECT CAST(? AS TEXT), n.id, CAST(? AS BIGINT) FROM notification n \
              WHERE n.agent_id IN ({}) AND n.created_at >= ? \
-               AND (n.audience_user_id IS NULL OR n.audience_user_id = ?)",
+               AND (n.audience_user_id IS NULL OR n.audience_user_id = ?) \
+             ON CONFLICT DO NOTHING",
             marks(agents)
         );
         let mut params: Vec<Box<dyn ToSql>> = vec![
@@ -327,20 +329,23 @@ mod tests {
     use rusqlite::Connection;
 
     use super::*;
-    use crate::storage::document::LocalDocumentStore;
+    use crate::storage::document::BlobDocumentStore;
 
     fn setup() -> (SqlStorage, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
-        let conn = Connection::open_in_memory().unwrap();
-        crate::storage::sqlite::init_notification_schema(&conn).unwrap();
-        crate::storage::sqlite::init_history_schema(&conn).unwrap();
-        conn.execute_batch(
-            "CREATE TABLE agent_config (agent_id TEXT PRIMARY KEY, data TEXT NOT NULL);",
-        )
-        .unwrap();
+        let store = crate::tests_support::test_store(|| {
+            let conn = Connection::open_in_memory().unwrap();
+            crate::storage::sqlite::init_notification_schema(&conn).unwrap();
+            crate::storage::sqlite::init_history_schema(&conn).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE agent_config (agent_id TEXT PRIMARY KEY, data TEXT NOT NULL);",
+            )
+            .unwrap();
+            SqlStore::sqlite(conn)
+        });
         let storage = SqlStorage::new(
-            SqlStore::sqlite(conn),
-            Arc::new(LocalDocumentStore::new(dir.path().to_path_buf())),
+            store,
+            Arc::new(BlobDocumentStore::local(dir.path().to_path_buf())),
         );
         (storage, dir)
     }
@@ -350,7 +355,7 @@ mod tests {
             .lock()
             .unwrap()
             .execute(
-                "INSERT OR IGNORE INTO agent_config (agent_id, data) VALUES (?1, '{}')",
+                "INSERT INTO agent_config (agent_id, data) VALUES (?1, '{}') ON CONFLICT DO NOTHING",
                 params![id],
             )
             .unwrap();
@@ -806,14 +811,16 @@ mod tests {
         let hour = HOUR_MS;
         {
             let conn = s.conn.lock().unwrap();
+            let insert = format!(
+                "INSERT INTO session_history (uid, agent_id, channel, topic, timestamp, content_type, data, seq) \
+                 VALUES (CAST(?1 AS TEXT), 'a', ?2, NULL, ?3, ?4, '{{}}', {})",
+                conn.dialect().next_sequence_value("session_history", "seq")
+            );
             let mut n = 0;
             let mut put = |channel: &str, ts: i64, kind: &str| {
                 n += 1;
-                conn.execute(
-                    "INSERT INTO session_history (uid, agent_id, channel, topic, timestamp, content_type, data, seq) VALUES (?1, 'a', ?2, NULL, ?3, ?4, '{}', ?1)",
-                    params![n, channel, ts, kind],
-                )
-                .unwrap();
+                conn.execute(&insert, params![n, channel, ts, kind])
+                    .unwrap();
             };
             put("discord__1", 10 * hour + 5, "Response");
             put("discord__1", 10 * hour + 9, "Response");
@@ -837,4 +844,18 @@ mod tests {
         );
         assert!(s.channel_reply_batches(12, 11).await.unwrap().is_empty());
     }
+
+    crate::postgres_tests!(
+        a_duplicate_event_key_inserts_once_and_never_updates,
+        a_draft_for_a_missing_agent_is_skipped,
+        list_and_counts_honour_visibility_filter_and_ties,
+        pages_use_the_cursor_without_gaps_or_repeats,
+        read_state_is_per_person_and_idempotent,
+        mark_all_covers_unread_rows_beyond_the_page,
+        rows_outside_the_retention_window_are_neither_listed_nor_counted_and_are_purged,
+        deleting_an_agent_removes_its_notifications_and_read_rows_only,
+        an_addressed_row_is_listed_counted_and_read_only_by_its_person,
+        orphan_cleanup_drops_rows_for_agents_that_no_longer_exist,
+        channel_replies_group_per_conversation_hour_and_skip_other_channels,
+    );
 }

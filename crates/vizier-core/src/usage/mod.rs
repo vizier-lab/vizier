@@ -1190,7 +1190,7 @@ mod tests {
         use super::super::*;
         use crate::{
             schema::usage::UsageEvent,
-            storage::{document::LocalDocumentStore, sqlite::SqlStorage},
+            storage::{document::BlobDocumentStore, sqlite::SqlStorage},
         };
 
         const DAY: i64 = 86_400_000;
@@ -1209,7 +1209,7 @@ mod tests {
             .unwrap();
             let storage = VizierStorage::new(SqlStorage::new(
                 crate::storage::sql::SqlStore::sqlite(conn),
-                Arc::new(LocalDocumentStore::new(dir.path().to_path_buf())),
+                Arc::new(BlobDocumentStore::local(dir.path().to_path_buf())),
             ));
             (storage, dir)
         }

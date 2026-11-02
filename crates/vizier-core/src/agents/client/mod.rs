@@ -595,7 +595,7 @@ pub(crate) fn test_storage() -> Arc<VizierStorage> {
     crate::storage::sqlite::init_client_call_schema(&conn).unwrap();
     Arc::new(VizierStorage::new(crate::storage::sqlite::SqlStorage::new(
         crate::storage::sql::SqlStore::sqlite(conn),
-        Arc::new(crate::storage::document::LocalDocumentStore::new(
+        Arc::new(crate::storage::document::BlobDocumentStore::local(
             std::env::temp_dir(),
         )),
     )))

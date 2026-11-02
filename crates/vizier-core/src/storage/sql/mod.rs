@@ -480,8 +480,14 @@ pub trait Dialect: Send + Sync {
     fn json_array_len(&self, column: &str) -> String;
     /// The UTC calendar day (`YYYY-MM-DD`) of a millisecond timestamp column.
     fn day_of_millis(&self, column: &str) -> String;
-    /// Appended to a `SELECT` that must lock the rows it reads for the rest of the transaction.
-    fn lock_for_update(&self) -> &'static str;
+    /// A statement taking an exclusive lock on the text key `?1` until the transaction ends, so
+    /// read-then-insert sequences (revision numbers) cannot interleave. `None` where the
+    /// transaction itself already excludes other writers (SQLite's `BEGIN IMMEDIATE`).
+    fn key_lock_sql(&self) -> Option<&'static str>;
+    /// The value an `INSERT` writes into `column` of `table` so it numbers rows in insertion
+    /// order: `MAX + 1` on SQLite (safe under its single writer), `DEFAULT` on PostgreSQL, where
+    /// the column is an identity.
+    fn next_sequence_value(&self, table: &str, column: &str) -> String;
 }
 
 /// Which backend a store runs on, for diagnostics and backend-specific setup only.
@@ -502,9 +508,6 @@ pub trait RawConn {
     fn query(&mut self, sql: &str, params: Vec<SqlValue>) -> Result<Vec<Row>>;
     /// Several statements without parameters (schema, `BEGIN`, `SAVEPOINT`, …).
     fn execute_batch(&mut self, sql: &str) -> Result<()>;
-    /// The id of the last row inserted on this connection (SQLite only; PostgreSQL code uses
-    /// `RETURNING`).
-    fn last_insert_rowid(&mut self) -> Result<i64>;
     /// The underlying SQLite connection, for SQLite-only schema setup and legacy migrations.
     fn as_rusqlite(&self) -> Option<&rusqlite::Connection> {
         None
@@ -575,13 +578,6 @@ impl<'c> Connection<'c> {
         self.prepare(sql)
     }
 
-    pub fn last_insert_rowid(&self) -> i64 {
-        self.raw
-            .borrow_mut()
-            .last_insert_rowid()
-            .unwrap_or_default()
-    }
-
     /// Start a transaction (a savepoint when one is already open). It rolls back on drop unless
     /// [`Transaction::commit`] is called.
     pub fn transaction(&self) -> Result<Transaction<'_, 'c>> {
@@ -607,6 +603,15 @@ impl<'c> Connection<'c> {
     /// Same as [`Self::transaction`]; `rusqlite` distinguishes them only by borrow.
     pub fn unchecked_transaction(&self) -> Result<Transaction<'_, 'c>> {
         self.transaction()
+    }
+
+    /// Lock `key` until the current transaction ends (see [`Dialect::key_lock_sql`]). Call it
+    /// inside a transaction.
+    pub fn lock_key(&self, key: &str) -> Result<()> {
+        if let Some(sql) = self.dialect().key_lock_sql() {
+            self.execute(sql, [key])?;
+        }
+        Ok(())
     }
 
     /// Run `f` inside a transaction: commit on `Ok`, roll back on `Err`.

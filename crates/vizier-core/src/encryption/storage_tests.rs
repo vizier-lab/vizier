@@ -58,16 +58,14 @@ pub(crate) fn file_backed_with(
     secret_paths: Arc<dyn IntegrationSecretPaths>,
 ) -> Harness {
     let dir = tempfile::tempdir().unwrap();
-    let conn = SqlStorage::open_connection(dir.path().to_str().unwrap()).unwrap();
+    let workspace = dir.path().to_str().unwrap().to_string();
+    let store = crate::tests_support::test_store(|| {
+        crate::storage::sql::SqlStore::sqlite(SqlStorage::open_connection(&workspace).unwrap())
+    });
     let document_store: Arc<dyn crate::storage::document::DocumentStore> = Arc::new(
-        crate::storage::document::LocalDocumentStore::new(dir.path().join("agents")),
+        crate::storage::document::BlobDocumentStore::local(dir.path().join("agents")),
     );
-    let storage = SqlStorage::with_secrets(
-        crate::storage::sql::SqlStore::sqlite(conn),
-        document_store,
-        cipher,
-        secret_paths,
-    );
+    let storage = SqlStorage::with_secrets(store, document_store, cipher, secret_paths);
     Harness { storage, dir }
 }
 

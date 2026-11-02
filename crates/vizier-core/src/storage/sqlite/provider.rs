@@ -66,7 +66,8 @@ impl ProviderStorage for SqlStorage {
         let data = serde_json::to_string(&protected)?;
         let conn = self.conn.lock()?;
         conn.execute(
-            "INSERT OR REPLACE INTO provider_config (variant, data) VALUES (?1, ?2)",
+            "INSERT INTO provider_config (variant, data) VALUES (?1, ?2) \
+             ON CONFLICT (variant) DO UPDATE SET data = excluded.data",
             params![entry.id.as_str(), data],
         )?;
         Ok(())
@@ -150,7 +151,8 @@ impl CustomProviderStorage for SqlStorage {
         let data = serde_json::to_string(&protected)?;
         let conn = self.conn.lock()?;
         conn.execute(
-            "INSERT OR REPLACE INTO custom_provider (id, data) VALUES (?1, ?2)",
+            "INSERT INTO custom_provider (id, data) VALUES (?1, ?2) \
+             ON CONFLICT (id) DO UPDATE SET data = excluded.data",
             params![provider.id.as_str(), data],
         )?;
         Ok(())
@@ -257,4 +259,9 @@ mod tests {
             models_fetched_at: None,
         }
     }
+
+    crate::postgres_tests!(
+        provider_secrets_are_envelopes_and_siblings_are_readable,
+        custom_provider_headers_and_key_are_envelopes,
+    );
 }

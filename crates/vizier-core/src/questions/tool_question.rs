@@ -239,7 +239,7 @@ mod tests {
     use super::*;
     use crate::{
         agents::tools::{ENDS_TURN_NOTICE, with_ends_turn_notice},
-        storage::{document::LocalDocumentStore, sqlite::SqlStorage},
+        storage::{document::BlobDocumentStore, sqlite::SqlStorage},
     };
 
     fn tool() -> (AskQuestion, tempfile::TempDir) {
@@ -248,7 +248,7 @@ mod tests {
         crate::storage::sqlite::init_question_schema(&conn).unwrap();
         let storage = SqlStorage::new(
             crate::storage::sql::SqlStore::sqlite(conn),
-            Arc::new(LocalDocumentStore::new(dir.path().to_path_buf())),
+            Arc::new(BlobDocumentStore::local(dir.path().to_path_buf())),
         );
         (
             AskQuestion::new(

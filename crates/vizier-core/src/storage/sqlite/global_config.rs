@@ -64,7 +64,8 @@ impl GlobalConfigStorage for SqlStorage {
         let data = serde_json::to_string(&protected)?;
         let conn = self.conn.lock()?;
         conn.execute(
-            "INSERT OR REPLACE INTO global_config (key, data) VALUES (?1, ?2)",
+            "INSERT INTO global_config (key, data) VALUES (?1, ?2) \
+             ON CONFLICT (key) DO UPDATE SET data = excluded.data",
             params![entry.key, data],
         )?;
         Ok(())
@@ -115,4 +116,6 @@ mod tests {
         assert!(s.get_global_config("default").await.is_err());
         assert!(s.list_global_configs().await.is_err());
     }
+
+    crate::postgres_tests!(shell_env_values_are_protected_and_the_rest_is_readable);
 }

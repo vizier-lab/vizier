@@ -13,7 +13,9 @@ impl TaskStorage for SqlStorage {
         let data = serde_json::to_string(&task)?;
         let conn = self.conn.lock()?;
         conn.execute(
-            "INSERT OR REPLACE INTO task (id, agent_id, slug, is_active, data) VALUES (?1, ?2, ?3, ?4, ?5)",
+            "INSERT INTO task (id, agent_id, slug, is_active, data) VALUES (?1, ?2, ?3, ?4, ?5) \
+             ON CONFLICT (id) DO UPDATE SET agent_id = excluded.agent_id, slug = excluded.slug, \
+             is_active = excluded.is_active, data = excluded.data",
             params![id, task.agent_id, task.slug, task.is_active as i32, data],
         )?;
         Ok(())

@@ -154,7 +154,7 @@ mod tests {
     use crate::storage::sql::SqlStore;
 
     use super::*;
-    use crate::storage::{document::LocalDocumentStore, sqlite::SqlStorage};
+    use crate::storage::{document::BlobDocumentStore, sqlite::SqlStorage};
 
     fn storage() -> (Arc<VizierStorage>, SqlStore, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
@@ -163,7 +163,7 @@ mod tests {
         let conn = SqlStore::sqlite(conn);
         let storage = VizierStorage::new(SqlStorage::new(
             conn.clone(),
-            Arc::new(LocalDocumentStore::new(dir.path().to_path_buf())),
+            Arc::new(BlobDocumentStore::local(dir.path().to_path_buf())),
         ));
         (Arc::new(storage), conn, dir)
     }

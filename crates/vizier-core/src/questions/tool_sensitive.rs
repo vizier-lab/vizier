@@ -170,7 +170,7 @@ mod tests {
     use super::*;
     use crate::{
         schema::{VizierChannelId, VizierSession},
-        storage::{document::LocalDocumentStore, sqlite::SqlStorage},
+        storage::{document::BlobDocumentStore, sqlite::SqlStorage},
     };
 
     fn tool() -> (AskSensitiveInput, tempfile::TempDir) {
@@ -180,7 +180,7 @@ mod tests {
         crate::storage::sqlite::init_sensitive_ask_schema(&conn).unwrap();
         let storage = SqlStorage::new(
             crate::storage::sql::SqlStore::sqlite(conn),
-            Arc::new(LocalDocumentStore::new(dir.path().to_path_buf())),
+            Arc::new(BlobDocumentStore::local(dir.path().to_path_buf())),
         );
         (
             AskSensitiveInput::new(

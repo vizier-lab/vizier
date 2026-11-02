@@ -235,10 +235,14 @@ impl ProjectStorage for SqlStorage {
         // still. A worktree chat knows its exact creation time; for the rest it is the first
         // message (`session_detail` has no created_at of its own), and a session that has never
         // been messaged yet has none, so it sorts last. Both sides are Unix milliseconds.
-        let mut stmt = conn.prepare(
+        // `MAX` over the session_detail columns: each topic has one detail row, repeated by the
+        // joins, and PostgreSQL wants every selected column grouped or aggregated. A JSON `true`
+        // reads back as 1 on SQLite and as 'true' on PostgreSQL.
+        let json = conn.dialect();
+        let mut stmt = conn.prepare(&format!(
             "SELECT sd.topic, \
-                    COALESCE(json_extract(sd.data, '$.title'), sd.topic), \
-                    COALESCE(json_extract(sd.data, '$.is_thinking'), 0), \
+                    COALESCE(MAX({}), sd.topic), \
+                    MAX(CASE WHEN CAST({} AS TEXT) IN ('1', 'true') THEN 1 ELSE 0 END), \
                     MAX(sh.timestamp), \
                     MAX(COALESCE(pc.mode, 'plan')), \
                     MAX(pw.id), MAX(pw.name), MAX(pw.branch) \
@@ -257,7 +261,9 @@ impl ProjectStorage for SqlStorage {
              ORDER BY COALESCE(MAX(pw.created_at), MIN(sh.timestamp)) IS NULL, \
                       COALESCE(MAX(pw.created_at), MIN(sh.timestamp)) DESC, \
                       sd.topic",
-        )?;
+            json.json_text("sd.data", &["title"]),
+            json.json_text("sd.data", &["is_thinking"]),
+        ))?;
         let rows = stmt.query_map(params![agent_id, channel_slug, project_id], |row| {
             let mode: String = row.get(4)?;
             let worktree_id: Option<String> = row.get(5)?;
@@ -285,7 +291,7 @@ impl ProjectStorage for SqlStorage {
         let pattern = format!("project\\_\\_%\\_\\_{project_id}");
         let count: i64 = self.conn.lock()?.query_row(
             "SELECT COUNT(*) FROM (SELECT DISTINCT topic FROM session_detail \
-             WHERE agent_id = ?1 AND topic IS NOT NULL AND channel LIKE ?2 ESCAPE '\\')",
+             WHERE agent_id = ?1 AND topic IS NOT NULL AND channel LIKE ?2 ESCAPE '\\') AS topics",
             params![agent_id, pattern],
             |row| row.get(0),
         )?;
@@ -368,8 +374,10 @@ impl ProjectStorage for SqlStorage {
             detail.topic.clone().unwrap_or("DEFAULT".into())
         );
         tx.execute(
-            "INSERT OR REPLACE INTO session_detail (id, agent_id, channel, topic, data) \
-             VALUES (?1, ?2, ?3, ?4, ?5)",
+            "INSERT INTO session_detail (id, agent_id, channel, topic, data) \
+             VALUES (?1, ?2, ?3, ?4, ?5) \
+             ON CONFLICT (id) DO UPDATE SET agent_id = excluded.agent_id, \
+             channel = excluded.channel, topic = excluded.topic, data = excluded.data",
             params![
                 id,
                 detail.agent_id,
@@ -441,25 +449,34 @@ mod tests {
     use crate::storage::session::SessionStorage;
 
     fn storage() -> SqlStorage {
-        let conn = rusqlite::Connection::open_in_memory().unwrap();
-        init_project_schema(&conn).unwrap();
-        conn.execute_batch(
-            "CREATE TABLE session_detail (id TEXT PRIMARY KEY, agent_id TEXT NOT NULL, \
-             channel TEXT NOT NULL, topic TEXT, data TEXT NOT NULL); \
-             CREATE TABLE session_history (uid TEXT PRIMARY KEY, agent_id TEXT NOT NULL, \
-             channel TEXT NOT NULL, topic TEXT, timestamp INTEGER NOT NULL, \
-             content_type TEXT NOT NULL, data TEXT NOT NULL, seq INTEGER); \
-             CREATE TABLE session_turn (id INTEGER PRIMARY KEY, agent_id TEXT NOT NULL, \
-             channel TEXT NOT NULL, topic TEXT NOT NULL DEFAULT '');",
-        )
-        .unwrap();
+        let store = crate::tests_support::test_store(|| {
+            let conn = rusqlite::Connection::open_in_memory().unwrap();
+            init_project_schema(&conn).unwrap();
+            crate::storage::sqlite::init_history_schema(&conn).unwrap();
+            crate::storage::sqlite::init_turn_schema(&conn).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE session_detail (id TEXT PRIMARY KEY, agent_id TEXT NOT NULL, \
+                 channel TEXT NOT NULL, topic TEXT, data TEXT NOT NULL);",
+            )
+            .unwrap();
+            crate::storage::sql::SqlStore::sqlite(conn)
+        });
         let dir = tempfile::tempdir().unwrap();
         SqlStorage::new(
-            crate::storage::sql::SqlStore::sqlite(conn),
-            Arc::new(crate::storage::document::LocalDocumentStore::new(
+            store,
+            Arc::new(crate::storage::document::BlobDocumentStore::local(
                 dir.path().to_path_buf(),
             )),
         )
+    }
+
+    fn turn(conn: &Connection, topic: &str) {
+        conn.execute(
+            "INSERT INTO session_turn (agent_id, channel, topic, session, request, state, accepted_at) \
+             VALUES ('dp-a', 'project__alice__p3xY9aQ2mZ', ?1, '{}', '{}', 'queued', '')",
+            params![topic],
+        )
+        .unwrap();
     }
 
     fn project(folder: &std::path::Path) -> Project {
@@ -487,8 +504,11 @@ mod tests {
 
     fn history(conn: &Connection, topic: &str, timestamp: i64) {
         conn.execute(
-            "INSERT INTO session_history (uid, agent_id, channel, topic, timestamp, content_type, data, seq) \
-             VALUES (?1, 'dp-a', 'project__alice__p3xY9aQ2mZ', ?2, ?3, 'request', '{}', 1)",
+            &format!(
+                "INSERT INTO session_history (uid, agent_id, channel, topic, timestamp, content_type, data, seq) \
+                 VALUES (?1, 'dp-a', 'project__alice__p3xY9aQ2mZ', ?2, ?3, 'request', '{{}}', {})",
+                conn.dialect().next_sequence_value("session_history", "seq")
+            ),
             params![format!("u-{topic}-{timestamp}"), topic, timestamp],
         )
         .unwrap();
@@ -818,30 +838,14 @@ mod tests {
             .insert_worktree(&worktree("wt1"), detail("wt1", "wt-wt1"))
             .await
             .unwrap();
-        {
-            let conn = storage.conn.lock().unwrap();
-            conn.execute(
-                "INSERT INTO session_turn (agent_id, channel, topic) \
-                 VALUES ('dp-a', 'project__alice__p3xY9aQ2mZ', 'wt1')",
-                [],
-            )
-            .unwrap();
-        }
+        turn(&storage.conn.lock().unwrap(), "wt1");
         assert!(
             !storage
                 .project_has_main_turn("dp-a", "p3xY9aQ2mZ")
                 .await
                 .unwrap()
         );
-        {
-            let conn = storage.conn.lock().unwrap();
-            conn.execute(
-                "INSERT INTO session_turn (agent_id, channel, topic) \
-                 VALUES ('dp-a', 'project__alice__p3xY9aQ2mZ', 'main')",
-                [],
-            )
-            .unwrap();
-        }
+        turn(&storage.conn.lock().unwrap(), "main");
         assert!(
             storage
                 .project_has_main_turn("dp-a", "p3xY9aQ2mZ")
@@ -849,4 +853,19 @@ mod tests {
                 .unwrap()
         );
     }
+
+    crate::postgres_tests!(
+        opening_the_same_folder_twice_reuses_the_row,
+        removal_is_soft_and_reopening_restores_the_same_id,
+        another_agent_gets_its_own_project_for_the_same_folder,
+        rename_and_the_shell_switch_persist,
+        sessions_keep_their_creation_order_and_an_empty_one_is_last,
+        a_worktree_chat_is_placed_by_its_own_creation_time,
+        deleting_an_agent_leaves_no_project_rows,
+        the_session_count_covers_every_owner,
+        a_chat_starts_in_plan_and_the_mode_upserts,
+        a_worktree_and_its_chat_are_written_together_and_listed_with_their_mode,
+        deleting_an_agent_leaves_no_chat_or_worktree_rows,
+        a_main_turn_ignores_worktree_chats,
+    );
 }

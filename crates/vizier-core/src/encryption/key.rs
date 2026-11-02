@@ -14,7 +14,7 @@ use std::{
 use anyhow::{Result, anyhow, bail};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use ring::rand::{SecureRandom, SystemRandom};
-use rusqlite::{Connection, OptionalExtension};
+use crate::storage::sql::{Connection, OptionalExtension, params};
 use zeroize::Zeroizing;
 
 use crate::encryption::cipher::{SecretCipher, envelope_key_id};
@@ -259,7 +259,7 @@ pub fn read_key_id(conn: &Connection) -> Result<Option<String>> {
     let value: Option<String> = conn
         .query_row(
             "SELECT value FROM state WHERE key = ?1",
-            rusqlite::params![KEY_ID_STATE_KEY],
+            params![KEY_ID_STATE_KEY],
             |row| row.get(0),
         )
         .optional()?;
@@ -272,8 +272,9 @@ pub fn read_key_id(conn: &Connection) -> Result<Option<String>> {
 
 fn write_key_id(conn: &Connection, key_id: &str) -> Result<()> {
     conn.execute(
-        "INSERT OR REPLACE INTO state (key, value) VALUES (?1, ?2)",
-        rusqlite::params![KEY_ID_STATE_KEY, serde_json::to_string(key_id)?],
+        "INSERT INTO state (key, value) VALUES (?1, ?2)
+         ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+        params![KEY_ID_STATE_KEY, serde_json::to_string(key_id)?],
     )?;
     Ok(())
 }
@@ -318,11 +319,15 @@ mod tests {
 
     const KEY: [u8; 32] = [3u8; 32];
 
-    fn conn() -> Connection {
-        let conn = Connection::open_in_memory().unwrap();
-        conn.execute_batch("CREATE TABLE state (key TEXT PRIMARY KEY, value TEXT NOT NULL);")
+    /// An in-memory store with just the `state` table; tests lock it for a connection.
+    fn store() -> crate::storage::sql::SqlStore {
+        let store = crate::storage::sql::SqlStore::sqlite_in_memory().unwrap();
+        store
+            .lock()
+            .unwrap()
+            .execute_batch("CREATE TABLE state (key TEXT PRIMARY KEY, value TEXT NOT NULL);")
             .unwrap();
-        conn
+        store
     }
 
     fn workspace() -> tempfile::TempDir {
@@ -350,7 +355,8 @@ mod tests {
 
     #[test]
     fn a_fresh_workspace_generates_a_key_file_and_state_id() {
-        let conn = conn();
+        let store = store();
+        let conn = store.lock().unwrap();
         let dir = workspace();
         let cipher = load_or_generate(&workspace_str(&dir), &conn, &KeyRequest::default()).unwrap();
         assert!(cipher.is_enabled());
@@ -372,7 +378,8 @@ mod tests {
 
     #[test]
     fn an_existing_key_file_is_loaded_not_replaced() {
-        let conn = conn();
+        let store = store();
+        let conn = store.lock().unwrap();
         let dir = workspace();
         let path = default_key_path(&workspace_str(&dir));
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -388,7 +395,8 @@ mod tests {
 
     #[test]
     fn a_supplied_env_key_wins_over_a_key_file() {
-        let conn = conn();
+        let store = store();
+        let conn = store.lock().unwrap();
         let dir = workspace();
         let default = default_key_path(&workspace_str(&dir));
         std::fs::create_dir_all(default.parent().unwrap()).unwrap();
@@ -412,7 +420,8 @@ mod tests {
 
     #[test]
     fn an_explicit_key_file_wins_over_the_default_one() {
-        let conn = conn();
+        let store = store();
+        let conn = store.lock().unwrap();
         let dir = workspace();
         let default = default_key_path(&workspace_str(&dir));
         std::fs::create_dir_all(default.parent().unwrap()).unwrap();
@@ -432,7 +441,8 @@ mod tests {
 
     #[test]
     fn a_missing_explicit_key_file_never_generates_one() {
-        let conn = conn();
+        let store = store();
+        let conn = store.lock().unwrap();
         let dir = workspace();
         let missing = dir.path().join("missing.key");
         let err = load_or_generate(&workspace_str(&dir), &conn, &request(None, Some(&missing)))
@@ -443,7 +453,8 @@ mod tests {
 
     #[test]
     fn an_empty_env_value_is_malformed_not_unset() {
-        let conn = conn();
+        let store = store();
+        let conn = store.lock().unwrap();
         let dir = workspace();
         let err = load_or_generate(
             &workspace_str(&dir),
@@ -460,10 +471,11 @@ mod tests {
 
     #[test]
     fn a_malformed_key_is_refused() {
+        let store = store();
         for value in ["not base64!!!", "AAAA", &STANDARD.encode([1u8; 31])] {
             let err = load_or_generate(
                 "/tmp/irrelevant",
-                &conn(),
+                &store.lock().unwrap(),
                 &KeyRequest {
                     env_key: Some(value.to_string()),
                     env_file: None,
@@ -476,7 +488,8 @@ mod tests {
 
     #[test]
     fn a_wrong_key_is_detected_before_any_write() {
-        let conn = conn();
+        let store = store();
+        let conn = store.lock().unwrap();
         let dir = workspace();
         let first = load_or_generate(&workspace_str(&dir), &conn, &KeyRequest::default()).unwrap();
         let state_before: String = conn
@@ -503,7 +516,8 @@ mod tests {
 
     #[test]
     fn a_missing_key_with_protected_data_aborts_and_generates_nothing() {
-        let conn = conn();
+        let store = store();
+        let conn = store.lock().unwrap();
         let dir = workspace();
         let cipher = load_or_generate(&workspace_str(&dir), &conn, &KeyRequest::default()).unwrap();
         let path = default_key_path(&workspace_str(&dir));
@@ -518,7 +532,7 @@ mod tests {
         let envelope = cipher.encrypt("x", "aad").unwrap();
         conn.execute(
             "UPDATE agent_secret SET value = ?1",
-            rusqlite::params![envelope],
+            params![envelope],
         )
         .unwrap();
 
@@ -533,7 +547,8 @@ mod tests {
 
     #[test]
     fn restoring_the_correct_key_succeeds() {
-        let conn = conn();
+        let store = store();
+        let conn = store.lock().unwrap();
         let dir = workspace();
         let cipher = load_or_generate(&workspace_str(&dir), &conn, &KeyRequest::default()).unwrap();
         let path = default_key_path(&workspace_str(&dir));
@@ -554,7 +569,8 @@ mod tests {
 
     #[test]
     fn the_state_key_is_written_once_and_reused() {
-        let conn = conn();
+        let store = store();
+        let conn = store.lock().unwrap();
         let dir = workspace();
         let first = load_or_generate(&workspace_str(&dir), &conn, &KeyRequest::default()).unwrap();
         let stored = read_key_id(&conn).unwrap().unwrap();
@@ -567,7 +583,8 @@ mod tests {
     #[test]
     fn a_generated_key_file_is_owner_only() {
         use std::os::unix::fs::PermissionsExt;
-        let conn = conn();
+        let store = store();
+        let conn = store.lock().unwrap();
         let dir = workspace();
         load_or_generate(&workspace_str(&dir), &conn, &KeyRequest::default()).unwrap();
         let mode = std::fs::metadata(default_key_path(&workspace_str(&dir)))
@@ -582,7 +599,8 @@ mod tests {
     #[test]
     fn a_permissive_key_file_is_tightened_on_read() {
         use std::os::unix::fs::PermissionsExt;
-        let conn = conn();
+        let store = store();
+        let conn = store.lock().unwrap();
         let dir = workspace();
         let path = default_key_path(&workspace_str(&dir));
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -597,7 +615,8 @@ mod tests {
 
     #[test]
     fn an_unwritable_workspace_reports_a_clear_error() {
-        let conn = conn();
+        let store = store();
+        let conn = store.lock().unwrap();
         let dir = workspace();
         // A regular file where `.runtime` must be a directory forces the write to fail.
         std::fs::write(dir.path().join(".runtime"), b"not a directory").unwrap();
@@ -626,9 +645,8 @@ mod tests {
     /// data tolerates missing tables, and only the `state` row the key id lives in is required.
     #[test]
     fn a_connection_with_only_the_state_table_can_still_load_a_key() {
-        let conn = Connection::open_in_memory().unwrap();
-        conn.execute_batch("CREATE TABLE state (key TEXT PRIMARY KEY, value TEXT NOT NULL);")
-            .unwrap();
+        let store = store();
+        let conn = store.lock().unwrap();
         let dir = workspace();
         let request = KeyRequest {
             env_key: Some(STANDARD.encode(KEY)),

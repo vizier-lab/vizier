@@ -92,15 +92,18 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use crate::storage::document::LocalDocumentStore;
+    use crate::storage::document::BlobDocumentStore;
 
     fn setup() -> (SqlStorage, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
-        let conn = rusqlite::Connection::open_in_memory().unwrap();
-        crate::storage::sqlite::init_media_catalogue_schema(&conn).unwrap();
+        let store = crate::tests_support::test_store(|| {
+            let conn = rusqlite::Connection::open_in_memory().unwrap();
+            crate::storage::sqlite::init_media_catalogue_schema(&conn).unwrap();
+            crate::storage::sql::SqlStore::sqlite(conn)
+        });
         let storage = SqlStorage::new(
-            crate::storage::sql::SqlStore::sqlite(conn),
-            Arc::new(LocalDocumentStore::new(dir.path().to_path_buf())),
+            store,
+            Arc::new(BlobDocumentStore::local(dir.path().to_path_buf())),
         );
         (storage, dir)
     }
@@ -181,4 +184,9 @@ mod tests {
         assert_eq!(fresh.failed_at, None);
         assert_eq!(fresh.data, b"second");
     }
+
+    crate::postgres_tests!(
+        a_row_round_trips_and_an_unknown_capability_is_none,
+        a_success_clears_the_failure_and_a_failure_keeps_the_data,
+    );
 }

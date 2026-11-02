@@ -176,15 +176,18 @@ mod tests {
     use rusqlite::Connection;
 
     use super::*;
-    use crate::{schema::VizierChannelId, storage::document::LocalDocumentStore};
+    use crate::{schema::VizierChannelId, storage::document::BlobDocumentStore};
 
     fn setup() -> (SqlStorage, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
-        let conn = Connection::open_in_memory().unwrap();
-        crate::storage::sqlite::init_scratch_schema(&conn).unwrap();
+        let store = crate::tests_support::test_store(|| {
+            let conn = Connection::open_in_memory().unwrap();
+            crate::storage::sqlite::init_scratch_schema(&conn).unwrap();
+            SqlStore::sqlite(conn)
+        });
         let storage = SqlStorage::new(
-            SqlStore::sqlite(conn),
-            Arc::new(LocalDocumentStore::new(dir.path().to_path_buf())),
+            store,
+            Arc::new(BlobDocumentStore::local(dir.path().to_path_buf())),
         );
         (storage, dir)
     }
@@ -482,4 +485,16 @@ mod tests {
         assert!(storage.scratch_names(&session()).await.unwrap().is_empty());
         assert!(storage.scratch_names(&other).await.unwrap().is_empty());
     }
+
+    crate::postgres_tests!(
+        a_write_replaces_the_content,
+        a_missing_topic_upserts_one_row,
+        an_oversized_write_changes_nothing,
+        a_new_name_past_the_count_is_refused_but_overwrites_work,
+        sizes_are_utf8_bytes,
+        sessions_and_agents_never_share_files,
+        appends_join_exactly,
+        an_append_past_the_limits_changes_nothing,
+        clears_empty_sessions_and_reset_the_count,
+    );
 }

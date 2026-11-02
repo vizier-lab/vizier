@@ -228,20 +228,28 @@ pub(crate) fn record(
     if path.is_empty() {
         return Err(anyhow!("cannot record a memory revision for an empty path"));
     }
-    ensure_baseline(conn, agent_id, bundle, path, current_before_save)?;
-    let next_seq = match latest(conn, agent_id, bundle, path)? {
+    // Numbering is read-then-insert: hold the document's key so two writers cannot both pick the
+    // same next number (FR-011).
+    let tx = conn.transaction()?;
+    tx.lock_key(&format!("memory_revision:{agent_id}/{bundle}/{path}"))?;
+    ensure_baseline(&tx, agent_id, bundle, path, current_before_save)?;
+    let next_seq = match latest(&tx, agent_id, bundle, path)? {
         Some(latest)
             if latest.deleted == content.is_none() && latest.content.as_deref() == content =>
         {
-            return Ok(None);
+            None
         }
-        Some(latest) => latest.seq + 1,
+        Some(latest) => Some(latest.seq + 1),
         // Nothing to record: the document never existed and this is a delete.
-        None if content.is_none() => return Ok(None),
-        None => 1,
+        None if content.is_none() => None,
+        None => Some(1),
     };
-    insert(conn, agent_id, bundle, path, next_seq, content, origin)?;
-    Ok(Some(next_seq))
+    if let Some(seq) = next_seq {
+        insert(&tx, agent_id, bundle, path, seq, content, origin)?;
+    }
+    // Commit even for a no-op: `ensure_baseline` may have just written the baseline.
+    tx.commit()?;
+    Ok(next_seq)
 }
 
 pub(crate) fn delete_agent(conn: &Connection, agent_id: &str) -> Result<()> {
@@ -261,9 +269,11 @@ mod tests {
     };
 
     fn store() -> SqlStore {
-        let conn = rusqlite::Connection::open_in_memory().unwrap();
-        init_revision_schema(&conn).unwrap();
-        SqlStore::sqlite(conn)
+        crate::tests_support::test_store(|| {
+            let conn = rusqlite::Connection::open_in_memory().unwrap();
+            init_revision_schema(&conn).unwrap();
+            SqlStore::sqlite(conn)
+        })
     }
 
     fn agent_origin() -> RevisionOrigin {
@@ -417,4 +427,14 @@ mod tests {
         let c = memory_canonical("T", &["y".into()], &[], "body").unwrap();
         assert_ne!(a, c);
     }
+
+    crate::postgres_tests!(
+        first_record_with_prior_content_seeds_a_baseline,
+        identical_content_is_a_no_op,
+        empty_path_is_rejected,
+        deletion_then_content_then_deletion_sequence,
+        deleting_a_never_recorded_document_records_nothing,
+        list_is_newest_first_with_total,
+        delete_agent_empties_the_table_for_that_agent,
+    );
 }

@@ -235,7 +235,7 @@ mod tests {
             Answer, AnswerState, AnswerValue, ChoiceOption, Question, QuestionSet, QuestionType,
         },
         schema::VizierChannelId,
-        storage::{document::LocalDocumentStore, sqlite::SqlStorage},
+        storage::{document::BlobDocumentStore, sqlite::SqlStorage},
     };
 
     fn session(topic: &str) -> VizierSession {
@@ -286,7 +286,7 @@ mod tests {
         crate::storage::sqlite::init_question_schema(&conn).unwrap();
         let storage = Arc::new(VizierStorage::new(SqlStorage::new(
             crate::storage::sql::SqlStore::sqlite(conn),
-            Arc::new(LocalDocumentStore::new(dir.path().to_path_buf())),
+            Arc::new(BlobDocumentStore::local(dir.path().to_path_buf())),
         )));
         let f = Fixture {
             storage,

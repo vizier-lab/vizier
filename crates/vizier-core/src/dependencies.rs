@@ -18,7 +18,7 @@ use crate::{
         agent::AgentStorage,
         background_job::BackgroundJobStorage,
         client_call::ClientCallStorage,
-        document::LocalDocumentStore,
+        document::BlobDocumentStore,
         dream::DreamStorage,
         dream_journal::DreamJournalStorage,
         fs::FileSystemStorage,
@@ -49,7 +49,10 @@ pub struct VizierDependencies {
     pub sql: SqlStore,
     pub transport: VizierTransport,
     pub file_manager: FileManager,
-    /// Permanent artifacts (`specs/035-add-artifacts`): metadata in SQLite, content on disk,
+    /// Where uploads, artifact versions and memory documents live (`specs/045-pluggable-storage`
+    /// contracts/blob-store.md).
+    pub blobs: Arc<dyn crate::storage::blob::BlobStore>,
+    /// Permanent artifacts (`specs/035-add-artifacts`): metadata in SQLite, content in `blobs`,
     /// and the one resolver for artifact attachment bytes.
     pub artifacts: Arc<crate::artifacts::Artifacts>,
     /// The transient session-file tier's one clear/delete service.
@@ -117,22 +120,23 @@ struct LegacyMemoryRow {
 
 impl VizierDependencies {
     pub async fn new(config: VizierConfig) -> Result<Self> {
-        let sql = SqlStore::sqlite(SqlStorage::open_connection(&config.workspace)?);
+        let sql = crate::storage::open_store(&config)?;
 
-        let document_store: Arc<dyn crate::storage::document::DocumentStore> = Arc::new(
-            LocalDocumentStore::new(build_path(&config.workspace, &["agents"])),
-        );
+        let blobs = crate::storage::blob::open(&config).await?;
+        let document_store: Arc<dyn crate::storage::document::DocumentStore> =
+            Arc::new(BlobDocumentStore::new(
+                blobs.clone(),
+                crate::storage::blob::BlobKey::new("agents")?,
+            ));
 
         // The workspace key must exist and match before anything can write a secret. Loading it
         // here also means a missing/wrong/malformed key fails before the filesystem import adds
         // any plaintext (specs/031-encrypt-agent-secrets contracts/migration.md §1).
-        let cipher = Self::on_sqlite(&sql, |c| {
-            crate::encryption::load_or_generate(
-                &config.workspace,
-                c,
-                &crate::encryption::KeyRequest::from_env(),
-            )
-        })?;
+        let cipher = crate::encryption::load_or_generate(
+            &config.workspace,
+            &sql.lock()?,
+            &crate::encryption::KeyRequest::from_env(),
+        )?;
         let integration_kinds = Arc::new(crate::integrations::IntegrationKinds::builtin());
         let secret_paths: Arc<dyn crate::encryption::IntegrationSecretPaths> =
             integration_kinds.clone();
@@ -159,16 +163,23 @@ impl VizierDependencies {
         .await?;
 
         let catalogue = crate::catalogue::Catalogue::new(crate::catalogue::seed::load_seed());
-        Self::on_sqlite(&sql, |c| {
-            crate::provider_migration::migrate_provider_ids_v1(c, &catalogue.snapshot())
-        })?;
+        // SQLite-only one-shots: a PostgreSQL database is always created at the current layout,
+        // either fresh or by `vizier storage migrate` after these ran on its SQLite source.
+        let on_sqlite = sql.backend() == Backend::Sqlite;
+        if on_sqlite {
+            Self::on_sqlite(&sql, |c| {
+                crate::provider_migration::migrate_provider_ids_v1(c, &catalogue.snapshot())
+            })?;
+        }
         Self::warn_about_yaml_providers(&config, &catalogue);
 
         // One-time plaintext conversion, before the main storage exists. No agent, channel
         // reader or scheduler can read a value mid-conversion (FR-017).
-        Self::on_sqlite(&sql, |c| {
-            crate::encryption::migrate::migrate_secrets_to_encrypted(c, &cipher, &*secret_paths)
-        })?;
+        if on_sqlite {
+            Self::on_sqlite(&sql, |c| {
+                crate::encryption::migrate::migrate_secrets_to_encrypted(c, &cipher, &*secret_paths)
+            })?;
+        }
 
         let storage = VizierStorage::new(SqlStorage::with_secrets(
             sql.clone(),
@@ -183,7 +194,9 @@ impl VizierDependencies {
         // 040 stored project chats as `HTTP(user, "project__<id>")`; move every stored slug
         // and serialised channel to the `Project` variant before agents start
         // (`specs/041-project-coding-workspace` FR-015).
-        Self::on_sqlite(&sql, crate::projects::migrate::migrate_project_channels)?;
+        if on_sqlite {
+            Self::on_sqlite(&sql, crate::projects::migrate::migrate_project_channels)?;
+        }
         let interrupted_runs = Self::interrupt_orphaned_task_runs(&storage).await?;
         let interrupted_jobs = Self::interrupt_orphaned_background_jobs(&storage).await;
         Self::interrupt_orphaned_client_calls(&storage).await;
@@ -199,7 +212,7 @@ impl VizierDependencies {
         }
 
         let transport = VizierTransport::durable(storage.clone());
-        let file_manager = FileManager::new(config.workspace.clone());
+        let file_manager = FileManager::new(config.workspace.clone(), blobs.clone());
 
         let fm = file_manager.clone();
         let file_transport = transport.clone();
@@ -219,7 +232,6 @@ impl VizierDependencies {
         // Artifacts and session files are constructed once; the file manager gets the artifact
         // resolver installed after construction because the two cannot own each other (R3).
         let artifacts = Arc::new(crate::artifacts::Artifacts::new(
-            config.workspace.clone(),
             storage.clone(),
             file_manager.clone(),
         ));
@@ -280,6 +292,7 @@ impl VizierDependencies {
             sql,
             transport,
             file_manager,
+            blobs,
             artifacts,
             session_files,
             background_jobs,
@@ -679,6 +692,8 @@ impl VizierDependencies {
                     touched.insert((target_agent, "default".to_string()));
                 }
             }
+            // Unreachable: the function returns early on any backend but SQLite.
+            StorageConfig::Postgres(_) => return Ok(()),
             StorageConfig::Filesystem => {
                 let pattern = crate::utils::build_glob_path(
                     &config.workspace,
@@ -824,7 +839,7 @@ impl VizierDependencies {
 
         let fs = FileSystemStorage::new(config.workspace.clone()).await?;
         let document_store: Arc<dyn crate::storage::document::DocumentStore> = Arc::new(
-            LocalDocumentStore::new(build_path(&config.workspace, &["agents"])),
+            BlobDocumentStore::local(build_path(&config.workspace, &["agents"])),
         );
         let sql = SqlStorage::with_secrets(store.clone(), document_store, cipher, secret_paths);
 
@@ -1437,7 +1452,7 @@ mod usage_migration_tests {
             VizierSession, usage::UsageActivity,
         },
         storage::{
-            document::LocalDocumentStore,
+            document::BlobDocumentStore,
             history::HistoryStorage,
             sqlite::SqlStorage,
             usage::{UsageGrouping, UsageQuery, UsageStorage},
@@ -1456,7 +1471,7 @@ mod usage_migration_tests {
         let conn = SqlStore::sqlite(conn);
         let storage = VizierStorage::new(SqlStorage::new(
             conn.clone(),
-            Arc::new(LocalDocumentStore::new(dir.path().to_path_buf())),
+            Arc::new(BlobDocumentStore::local(dir.path().to_path_buf())),
         ));
         (storage, conn, dir)
     }

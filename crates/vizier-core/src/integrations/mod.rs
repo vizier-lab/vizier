@@ -260,7 +260,7 @@ mod tests {
     use super::*;
     use crate::{
         agents::tools::{BaseTools, compose},
-        storage::{VizierStorage, document::LocalDocumentStore, sqlite::SqlStorage},
+        storage::{VizierStorage, document::BlobDocumentStore, sqlite::SqlStorage},
     };
 
     fn ctx() -> AgentToolContext {
@@ -269,11 +269,12 @@ mod tests {
             agent_id: "dp-a".into(),
             storage: Arc::new(VizierStorage::new(SqlStorage::new(
                 crate::storage::sql::SqlStore::sqlite(conn),
-                Arc::new(LocalDocumentStore::new(std::env::temp_dir())),
+                Arc::new(BlobDocumentStore::local(std::env::temp_dir())),
             ))),
             health: IntegrationHealth::default(),
             file_manager: crate::file_manager::FileManager::new(
-                std::env::temp_dir().to_string_lossy().into_owned(),
+                std::env::temp_dir(),
+                Arc::new(crate::storage::blob::LocalBlobStore::new(std::env::temp_dir())),
             ),
         }
     }

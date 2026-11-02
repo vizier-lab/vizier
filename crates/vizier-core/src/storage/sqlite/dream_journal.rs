@@ -13,7 +13,11 @@ impl DreamJournalStorage for SqlStorage {
         let data = serde_json::to_string(&entry)?;
         let conn = self.conn.lock()?;
         conn.execute(
-            "INSERT OR REPLACE INTO dream_journal (id, agent_id, dream_cycle_id, stage, timestamp, data) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            "INSERT INTO dream_journal (id, agent_id, dream_cycle_id, stage, timestamp, data) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6) \
+             ON CONFLICT (id) DO UPDATE SET agent_id = excluded.agent_id, \
+             dream_cycle_id = excluded.dream_cycle_id, stage = excluded.stage, \
+             timestamp = excluded.timestamp, data = excluded.data",
             params![
                 entry.id,
                 entry.agent_id,
@@ -33,8 +37,9 @@ impl DreamJournalStorage for SqlStorage {
         offset: Option<usize>,
     ) -> Result<Vec<DreamJournalEntry>> {
         let conn = self.conn.lock()?;
-        // SQLite rejects OFFSET without LIMIT; a negative LIMIT means no limit.
-        let limit_val = limit.map_or(-1, |l| l as i64);
+        // SQLite rejects OFFSET without LIMIT, and PostgreSQL a negative LIMIT; the largest
+        // integer means no limit on both.
+        let limit_val = limit.map_or(i64::MAX, |l| l as i64);
         let offset_val = offset.unwrap_or(0) as i64;
 
         let mut stmt = conn.prepare(
@@ -141,14 +146,16 @@ impl DreamJournalStorage for SqlStorage {
         since: chrono::DateTime<chrono::Utc>,
     ) -> Result<Vec<DreamEntryStub>> {
         let conn = self.conn.lock()?;
-        let mut stmt = conn.prepare(
-            "SELECT dream_cycle_id, stage, timestamp,
-                    json_extract(data, '$.source_sessions'),
-                    json_extract(data, '$.provider_used'), json_extract(data, '$.model_used')
+        let json = conn.dialect();
+        let mut stmt = conn.prepare(&format!(
+            "SELECT dream_cycle_id, stage, timestamp, {}, {}, {}
              FROM dream_journal
              WHERE agent_id = ?1 AND dream_cycle_id IS NOT NULL AND timestamp >= ?2
              ORDER BY timestamp ASC",
-        )?;
+            json.json_text("data", &["source_sessions"]),
+            json.json_text("data", &["provider_used"]),
+            json.json_text("data", &["model_used"]),
+        ))?;
         let rows = stmt
             .query_map(params![agent_id, since.timestamp_millis()], |row| {
                 Ok((

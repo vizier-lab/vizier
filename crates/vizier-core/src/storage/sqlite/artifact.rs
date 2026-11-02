@@ -80,7 +80,11 @@ fn filter_conditions(filters: &ArtifactFilters, cursor: bool) -> (String, Vec<Bo
     let mut p: Vec<Box<dyn ToSql>> = vec![Box::new(filters.agent_id.clone())];
     if let Some(q) = &filters.q {
         p.push(Box::new(q.clone()));
-        sql.push_str(&format!(" AND name LIKE '%' || ?{} || '%'", p.len()));
+        // `lower` on both sides: SQLite's LIKE ignores ASCII case, PostgreSQL's does not.
+        sql.push_str(&format!(
+            " AND lower(name) LIKE '%' || lower(?{}) || '%'",
+            p.len()
+        ));
     }
     if let Some(kind) = filters.kind {
         p.push(Box::new(kind.as_str().to_string()));
@@ -381,9 +385,13 @@ impl ArtifactStorage for SqlStorage {
     async fn upsert_artifact_reference(&self, reference: &ArtifactReference) -> Result<()> {
         let conn = self.conn.lock()?;
         conn.execute(
-            "INSERT OR REPLACE INTO artifact_reference \
+            "INSERT INTO artifact_reference \
              (artifact_id, agent_id, kind, target, session_slug, history_uid, channel, topic, bundle, path, label, created_at) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12) \
+             ON CONFLICT (artifact_id, kind, target) DO UPDATE SET agent_id = excluded.agent_id, \
+             session_slug = excluded.session_slug, history_uid = excluded.history_uid, \
+             channel = excluded.channel, topic = excluded.topic, bundle = excluded.bundle, \
+             path = excluded.path, label = excluded.label, created_at = excluded.created_at",
             params![
                 reference.artifact_id,
                 reference.agent_id,
@@ -457,7 +465,7 @@ impl ArtifactStorage for SqlStorage {
         Ok(())
     }
 
-    fn artifact_content_file(&self, agent_id: &str, id: &str) -> Result<Option<String>> {
+    async fn artifact_content_file(&self, agent_id: &str, id: &str) -> Result<Option<String>> {
         let conn = self.conn.lock()?;
         Ok(conn
             .query_row(
@@ -491,17 +499,20 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use crate::storage::document::LocalDocumentStore;
+    use crate::storage::document::BlobDocumentStore;
     use crate::storage::sql::SqlStore;
 
     fn storage() -> (SqlStorage, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
-        let conn = rusqlite::Connection::open_in_memory().unwrap();
-        crate::storage::sqlite::init_artifact_schema(&conn).unwrap();
+        let store = crate::tests_support::test_store(|| {
+            let conn = rusqlite::Connection::open_in_memory().unwrap();
+            crate::storage::sqlite::init_artifact_schema(&conn).unwrap();
+            SqlStore::sqlite(conn)
+        });
         (
             SqlStorage::new(
-                SqlStore::sqlite(conn),
-                Arc::new(LocalDocumentStore::new(dir.path().to_path_buf())),
+                store,
+                Arc::new(BlobDocumentStore::local(dir.path().to_path_buf())),
             ),
             dir,
         )
@@ -621,7 +632,7 @@ mod tests {
         assert_eq!(updated.size, 22);
         assert_eq!(updated.content_file, "content.v2");
         assert_eq!(
-            s.artifact_content_file("a", &a.id).unwrap().unwrap(),
+            s.artifact_content_file("a", &a.id).await.unwrap().unwrap(),
             "content.v2"
         );
 
@@ -824,4 +835,13 @@ mod tests {
         assert_eq!(s.count_artifact_references("a", &a.id).await.unwrap(), 0);
         assert!(s.get_artifact("a", &a.id).await.unwrap().is_none());
     }
+
+    crate::postgres_tests!(
+        create_get_duplicate_and_case_sensitive_names,
+        replacement_switches_version_and_records_an_event,
+        delete_removes_refs_but_keeps_the_event,
+        paging_is_stable_with_tied_timestamps,
+        filters_and_stats_are_independent_of_the_cursor,
+        session_and_memory_reference_cleanup_are_scoped,
+    );
 }

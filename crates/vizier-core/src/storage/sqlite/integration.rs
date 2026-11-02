@@ -551,8 +551,8 @@ impl IntegrationStorage for SqlStorage {
         let tx = conn.transaction()?;
         let changed = if on {
             tx.execute(
-                "INSERT OR IGNORE INTO integration_grant (agent_id, family, granted_by, granted_at) \
-                 VALUES (?1, ?2, ?3, ?4)",
+                "INSERT INTO integration_grant (agent_id, family, granted_by, granted_at) \
+                 VALUES (?1, ?2, ?3, ?4) ON CONFLICT DO NOTHING",
                 params![agent_id, family.as_str(), granted_by, Utc::now().to_rfc3339()],
             )?
         } else {
@@ -596,8 +596,8 @@ impl IntegrationStorage for SqlStorage {
         let mut stmt = conn.prepare(
             "SELECT id, agent_id, integration_id, integration_name, family, actor, action, fields, \
              session, at FROM integration_event WHERE agent_id = ?1 \
-             AND (?2 IS NULL OR integration_id = ?2) \
-             AND (?3 IS NULL OR at < ?3 OR (at = ?3 AND id < ?4)) \
+             AND (CAST(?2 AS TEXT) IS NULL OR integration_id = ?2) \
+             AND (CAST(?3 AS TEXT) IS NULL OR at < ?3 OR (at = ?3 AND id < ?4)) \
              ORDER BY at DESC, id DESC LIMIT ?5",
         )?;
         let events = stmt
@@ -617,15 +617,18 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::storage::{document::LocalDocumentStore, sqlite::init_integration_schema};
+    use crate::storage::{document::BlobDocumentStore, sqlite::init_integration_schema};
 
     fn storage() -> SqlStorage {
-        let conn = rusqlite::Connection::open_in_memory().unwrap();
-        conn.execute_batch("PRAGMA foreign_keys=ON;").unwrap();
-        init_integration_schema(&conn).unwrap();
+        let store = crate::tests_support::test_store(|| {
+            let conn = rusqlite::Connection::open_in_memory().unwrap();
+            conn.execute_batch("PRAGMA foreign_keys=ON;").unwrap();
+            init_integration_schema(&conn).unwrap();
+            crate::storage::sql::SqlStore::sqlite(conn)
+        });
         SqlStorage::new(
-            crate::storage::sql::SqlStore::sqlite(conn),
-            Arc::new(LocalDocumentStore::new(std::env::temp_dir())),
+            store,
+            Arc::new(BlobDocumentStore::local(std::env::temp_dir())),
         )
     }
 
@@ -1111,4 +1114,20 @@ mod tests {
         assert!(v.get_integration("t1").await.is_err());
         assert!(v.list_integrations().await.is_err());
     }
+
+    crate::postgres_tests!(
+        round_trip_on_one_agent,
+        creating_an_existing_id_is_refused,
+        a_legacy_creator_reads_as_a_user,
+        delete_reports_agents_and_records_it,
+        a_deleted_agent_takes_its_integrations_and_only_unlinks_legacy_ones,
+        unlink_is_only_for_legacy_rows,
+        a_token_is_used_once_per_platform,
+        one_connection_per_platform_per_agent,
+        mcp_names_are_unique_per_agent_only,
+        a_second_configuration_of_an_addon_is_refused,
+        grants_switch_once_and_record_it,
+        events_page_newest_first,
+        settings_are_protected_at_rest_and_tampering_errors,
+    );
 }

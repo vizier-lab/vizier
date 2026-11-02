@@ -78,7 +78,10 @@ fn filter(q: &UsageQuery) -> (String, Vec<Box<dyn ToSql>>) {
         params.push(Box::new(channel.clone()));
         sql.push_str(&format!(" AND e.channel = ?{}", params.len()));
         params.push(Box::new(topic.clone()));
-        sql.push_str(&format!(" AND e.topic IS ?{}", params.len()));
+        sql.push_str(&format!(
+            " AND e.topic IS NOT DISTINCT FROM ?{}",
+            params.len()
+        ));
     }
     (sql, params)
 }
@@ -176,7 +179,7 @@ impl UsageStorage for SqlStorage {
         let conn = self.conn.lock()?;
         let mut stmt = conn.prepare(&format!(
             "SELECT activity, COUNT(*) FROM ( \
-                SELECT e.activity AS activity, e.agent_id, e.turn_id \
+                SELECT MIN(e.activity) AS activity, e.agent_id, e.turn_id \
                 FROM usage_event e WHERE e.turn_id IS NOT NULL AND {where_sql} \
                 GROUP BY e.agent_id, e.turn_id \
              ) GROUP BY activity"
@@ -255,7 +258,8 @@ impl UsageStorage for SqlStorage {
     ) -> Result<()> {
         let conn = self.conn.lock()?;
         conn.execute(
-            "INSERT OR IGNORE INTO usage_failed_turn (turn_id, agent_id, at) VALUES (?1, ?2, ?3)",
+            "INSERT INTO usage_failed_turn (turn_id, agent_id, at) VALUES (?1, ?2, ?3) \
+             ON CONFLICT DO NOTHING",
             params![turn.as_str(), agent_id, at.timestamp_millis()],
         )?;
         Ok(())
@@ -266,11 +270,15 @@ impl UsageStorage for SqlStorage {
         q: &UsageQuery,
         grouping: UsageGrouping,
     ) -> Result<Vec<UsageGroup>> {
+        let conn = self.conn.lock()?;
         // Every grouping selects the same six key columns, NULL where unused, so one row
         // reader serves them all.
-        let day = "date(e.at / 1000, 'unixepoch')";
+        let day = conn.dialect().day_of_millis("e.at");
         let (keys, group_by): ([&str; 6], &str) = match grouping {
-            UsageGrouping::Day => ([day, "e.activity", "NULL", "NULL", "NULL", "NULL"], "1, 2"),
+            UsageGrouping::Day => (
+                [day.as_str(), "e.activity", "NULL", "NULL", "NULL", "NULL"],
+                "1, 2",
+            ),
             UsageGrouping::Activity => {
                 (["NULL", "e.activity", "NULL", "NULL", "NULL", "NULL"], "2")
             }
@@ -294,7 +302,6 @@ impl UsageStorage for SqlStorage {
             keys[0], keys[1], keys[2], keys[3], keys[4], keys[5],
         );
 
-        let conn = self.conn.lock()?;
         let mut stmt = conn.prepare(&sql)?;
         let rows = stmt
             .query_map(params_from_iter(params.iter()), |row| {
@@ -374,7 +381,7 @@ impl UsageStorage for SqlStorage {
         let conn = self.conn.lock()?;
         Ok(conn.query_row(
             "SELECT EXISTS(SELECT 1 FROM session_history \
-             WHERE agent_id = ?1 AND channel = ?2 AND topic IS ?3)",
+             WHERE agent_id = ?1 AND channel = ?2 AND topic IS NOT DISTINCT FROM ?3)",
             params![agent_id, channel, topic],
             |row| row.get(0),
         )?)
@@ -389,7 +396,7 @@ impl UsageStorage for SqlStorage {
         let conn = self.conn.lock()?;
         Ok(conn.query_row(
             "SELECT EXISTS(SELECT 1 FROM session_detail \
-             WHERE agent_id = ?1 AND channel = ?2 AND topic IS ?3)",
+             WHERE agent_id = ?1 AND channel = ?2 AND topic IS NOT DISTINCT FROM ?3)",
             params![agent_id, channel, topic],
             |row| row.get(0),
         )?)
@@ -404,7 +411,8 @@ impl UsageStorage for SqlStorage {
         let conn = self.conn.lock()?;
         let data: Option<String> = conn
             .query_row(
-                "SELECT data FROM session_detail WHERE agent_id = ?1 AND channel = ?2 AND topic IS ?3",
+                "SELECT data FROM session_detail WHERE agent_id = ?1 AND channel = ?2 \
+                 AND topic IS NOT DISTINCT FROM ?3",
                 params![agent_id, channel, topic],
                 |row| row.get(0),
             )
@@ -433,16 +441,19 @@ mod tests {
     use crate::storage::sql::SqlStore;
 
     use super::*;
-    use crate::storage::document::LocalDocumentStore;
+    use crate::storage::document::BlobDocumentStore;
 
     fn setup() -> (SqlStorage, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
-        let conn = rusqlite::Connection::open_in_memory().unwrap();
-        crate::storage::sqlite::init_history_schema(&conn).unwrap();
-        crate::storage::sqlite::init_usage_schema(&conn).unwrap();
+        let store = crate::tests_support::test_store(|| {
+            let conn = rusqlite::Connection::open_in_memory().unwrap();
+            crate::storage::sqlite::init_history_schema(&conn).unwrap();
+            crate::storage::sqlite::init_usage_schema(&conn).unwrap();
+            SqlStore::sqlite(conn)
+        });
         let storage = SqlStorage::new(
-            SqlStore::sqlite(conn),
-            Arc::new(LocalDocumentStore::new(dir.path().to_path_buf())),
+            store,
+            Arc::new(BlobDocumentStore::local(dir.path().to_path_buf())),
         );
         (storage, dir)
     }
@@ -836,4 +847,14 @@ mod tests {
         assert_eq!((ok.tokens.input, failed.tokens.input), (100, 100));
         assert!(s.usage_groups_since(&[], at(0)).await.unwrap().is_empty());
     }
+
+    crate::postgres_tests!(
+        groups_sum_by_their_dimension_and_split_by_model,
+        a_failed_mark_counts_whether_it_lands_before_or_after_the_turns_rows,
+        conversation_rows_are_bounded_and_counted,
+        delete_agent_removes_only_that_agents_rows,
+        legacy_rows_insert_in_one_batch,
+        turns_count_once_in_the_hour_of_their_first_call,
+        priced_groups_span_agents_and_split_failed_turns,
+    );
 }

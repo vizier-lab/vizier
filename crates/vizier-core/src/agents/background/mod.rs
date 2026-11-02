@@ -964,7 +964,7 @@ mod tests {
         crate::storage::sqlite::init_background_job_schema(&conn).unwrap();
         let storage = VizierStorage::new(crate::storage::sqlite::SqlStorage::new(
             crate::storage::sql::SqlStore::sqlite(conn),
-            Arc::new(crate::storage::document::LocalDocumentStore::new(
+            Arc::new(crate::storage::document::BlobDocumentStore::local(
                 dir.path().to_path_buf(),
             )),
         ));

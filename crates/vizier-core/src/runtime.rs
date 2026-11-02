@@ -324,10 +324,10 @@ impl Subsystems {
 
 /// An exclusive lock on `{workspace}/.runtime/vizier.lock`, held for the runtime's life: two
 /// engines on one workspace would race on the same database and documents.
-struct WorkspaceLock(#[allow(dead_code)] File);
+pub(crate) struct WorkspaceLock(#[allow(dead_code)] File);
 
 impl WorkspaceLock {
-    fn acquire(workspace: &Path) -> crate::Result<Self> {
+    pub(crate) fn acquire(workspace: &Path) -> crate::Result<Self> {
         let dir: PathBuf = workspace.join(".runtime");
         std::fs::create_dir_all(&dir).map_err(|e| {
             VizierError(format!("cannot create {}: {e}", dir.display()))

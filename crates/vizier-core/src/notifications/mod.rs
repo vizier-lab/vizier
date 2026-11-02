@@ -394,7 +394,7 @@ mod tests {
     use crate::{
         schema::NotificationFilter,
         storage::{
-            document::LocalDocumentStore,
+            document::BlobDocumentStore,
             notification::NotificationStorage,
             sqlite::{SqlStorage, init_history_schema, init_notification_schema},
         },
@@ -414,7 +414,7 @@ mod tests {
         let conn = SqlStore::sqlite(conn);
         let storage = VizierStorage::new(SqlStorage::new(
             conn.clone(),
-            Arc::new(LocalDocumentStore::new(dir.path().to_path_buf())),
+            Arc::new(BlobDocumentStore::local(dir.path().to_path_buf())),
         ));
         (Notifications::new(Arc::new(storage)), conn, dir)
     }

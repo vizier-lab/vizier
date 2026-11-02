@@ -12,7 +12,8 @@ impl StateStorage for SqlStorage {
     async fn save_state(&self, key: String, value: serde_json::Value) -> Result<()> {
         let conn = self.conn.lock()?;
         conn.execute(
-            "INSERT OR REPLACE INTO state (key, value) VALUES (?1, ?2)",
+            "INSERT INTO state (key, value) VALUES (?1, ?2) \
+             ON CONFLICT (key) DO UPDATE SET value = excluded.value",
             params![key, serde_json::to_string(&value)?],
         )?;
         Ok(())

@@ -7,6 +7,7 @@
 //! keep binding plain integers, strings and NULLs.
 
 use std::collections::HashMap;
+use std::mem::ManuallyDrop;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -20,6 +21,9 @@ use r2d2_postgres::PostgresConnectionManager;
 use tokio_postgres_rustls::MakeRustlsConnect;
 
 use super::{Backend, Dialect, Error, Pool, RawConn, Result, Row, SqlValue};
+
+mod migrate;
+pub use migrate::migrate;
 
 type Manager = PostgresConnectionManager<MakeRustlsConnect>;
 
@@ -43,9 +47,18 @@ impl Default for PgOptions {
 }
 
 pub struct PgPool {
-    pool: r2d2::Pool<Manager>,
+    /// Dropped in [`Drop`] through [`blocking`]: closing a client blocks on its own runtime.
+    pool: ManuallyDrop<r2d2::Pool<Manager>>,
     /// `?N` → `$N` rewrites, keyed by the original statement text.
     rewrites: Mutex<HashMap<String, Arc<str>>>,
+}
+
+impl Drop for PgPool {
+    fn drop(&mut self) {
+        // SAFETY: `pool` is taken exactly once, here, and never touched again.
+        let pool = unsafe { ManuallyDrop::take(&mut self.pool) };
+        blocking(move || drop(pool));
+    }
 }
 
 impl PgPool {
@@ -54,6 +67,18 @@ impl PgPool {
         let config: postgres::Config = url.parse().map_err(|_| {
             anyhow::anyhow!("storage: VIZIER_DATABASE_URL is not a valid PostgreSQL URL")
         })?;
+        // r2d2 reports every failed initial connection as a timeout, discarding PostgreSQL's
+        // SQLSTATE. Probe once directly so startup can name an authentication or database error
+        // without exposing the URL, username or password.
+        let probe_config = config.clone();
+        let probe_tls = MakeRustlsConnect::new(tls_config(options.ca_pem.as_deref())?);
+        let probe = blocking(move || probe_config.connect(probe_tls)).map_err(|e| {
+            anyhow::anyhow!(
+                "storage: cannot connect to PostgreSQL ({})",
+                describe_postgres_error(&e)
+            )
+        })?;
+        blocking(move || drop(probe));
         let tls = MakeRustlsConnect::new(tls_config(options.ca_pem.as_deref())?);
         let manager = PostgresConnectionManager::new(config, tls);
         let pool = blocking(|| {
@@ -69,7 +94,7 @@ impl PgPool {
             )
         })?;
         Ok(Self {
-            pool,
+            pool: ManuallyDrop::new(pool),
             rewrites: Mutex::new(HashMap::new()),
         })
     }
@@ -128,6 +153,25 @@ fn rustls_pemfile_certs(
         .map_err(|e| anyhow::anyhow!("storage: ca_file is not a PEM certificate bundle: {e}"))
 }
 
+/// The SQLSTATE or I/O kind of a direct connection failure, never its message.
+fn describe_postgres_error(error: &postgres::Error) -> String {
+    if let Some(db) = error.as_db_error() {
+        return db.code().code().to_string();
+    }
+    let mut source = std::error::Error::source(error);
+    while let Some(error) = source {
+        if let Some(io) = error.downcast_ref::<std::io::Error>() {
+            return match io.kind() {
+                std::io::ErrorKind::ConnectionRefused => "connection refused".into(),
+                std::io::ErrorKind::TimedOut => "timed out".into(),
+                kind => format!("{kind:?}").to_ascii_lowercase(),
+            };
+        }
+        source = error.source();
+    }
+    "connection failed".into()
+}
+
 /// The SQLSTATE or I/O kind of a connection failure, never the message (which can echo the
 /// host and user).
 fn describe_pool_error(e: &r2d2::Error) -> String {
@@ -149,13 +193,20 @@ fn describe_pool_error(e: &r2d2::Error) -> String {
 }
 
 /// Run `f` where blocking is allowed: inside `block_in_place` on a multi-thread runtime
-/// worker, directly elsewhere.
-pub(crate) fn blocking<T>(f: impl FnOnce() -> T) -> T {
+/// worker, on a scoped thread under a current-thread runtime, directly elsewhere.
+pub(crate) fn blocking<T: Send>(f: impl FnOnce() -> T + Send) -> T {
     match tokio::runtime::Handle::try_current() {
         Ok(h) if h.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread => {
             tokio::task::block_in_place(f)
         }
-        _ => f(),
+        // The client blocks on its own runtime, which tokio refuses to start on a thread that is
+        // already driving one (a current-thread runtime cannot `block_in_place`), so the call
+        // runs on a short-lived thread with no runtime context.
+        Ok(_) => std::thread::scope(|s| match s.spawn(f).join() {
+            Ok(out) => out,
+            Err(panic) => std::panic::resume_unwind(panic),
+        }),
+        Err(_) => f(),
     }
 }
 
@@ -173,7 +224,7 @@ impl Pool for PgPool {
         })?;
         Ok(Box::new(PgConn {
             pool: self,
-            client,
+            client: ManuallyDrop::new(client),
             in_tx: false,
         }))
     }
@@ -181,7 +232,8 @@ impl Pool for PgPool {
 
 struct PgConn<'p> {
     pool: &'p PgPool,
-    client: PooledConnection<Manager>,
+    /// Returned to the pool in [`Drop`] through [`blocking`]: a broken client is closed there.
+    client: ManuallyDrop<PooledConnection<Manager>>,
     in_tx: bool,
 }
 
@@ -195,11 +247,16 @@ impl PgConn<'_> {
 
 impl Drop for PgConn<'_> {
     fn drop(&mut self) {
-        // Never hand a connection with an open transaction back to the pool.
-        if self.in_tx {
-            let client: &mut Client = &mut self.client;
-            let _ = blocking(|| client.batch_execute("ROLLBACK"));
-        }
+        // SAFETY: `client` is taken exactly once, here, and never touched again.
+        let mut client = unsafe { ManuallyDrop::take(&mut self.client) };
+        let in_tx = self.in_tx;
+        blocking(move || {
+            // Never hand a connection with an open transaction back to the pool.
+            if in_tx {
+                let _ = client.batch_execute("ROLLBACK");
+            }
+            drop(client);
+        });
     }
 }
 
@@ -241,12 +298,6 @@ impl RawConn for PgConn<'_> {
         }
         let client: &mut Client = &mut self.client;
         blocking(|| client.batch_execute(sql)).map_err(map_err)
-    }
-
-    fn last_insert_rowid(&mut self) -> Result<i64> {
-        Err(Error::backend(anyhow::anyhow!(
-            "last_insert_rowid is SQLite-only; use INSERT … RETURNING"
-        )))
     }
 }
 
@@ -581,8 +632,12 @@ impl Dialect for PgDialect {
         format!("to_char(to_timestamp(({column}) / 1000.0) AT TIME ZONE 'UTC', 'YYYY-MM-DD')")
     }
 
-    fn lock_for_update(&self) -> &'static str {
-        " FOR UPDATE"
+    fn key_lock_sql(&self) -> Option<&'static str> {
+        Some("SELECT pg_advisory_xact_lock(hashtext(?1))")
+    }
+
+    fn next_sequence_value(&self, _table: &str, _column: &str) -> String {
+        "DEFAULT".into()
     }
 }
 

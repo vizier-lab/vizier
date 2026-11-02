@@ -15,7 +15,7 @@ pub mod tools;
 
 use crate::{
     config::{
-        storage::StorageConfig,
+        storage::{ObjectsConfig, StorageConfig},
     },
     constant,
 };
@@ -160,6 +160,9 @@ pub struct VizierConfig {
     #[serde(default, skip_serializing)]
     pub providers: Option<serde_yaml::Value>,
     pub storage: StorageConfig,
+    /// Where file bytes live (spec 045); local workspace files unless configured.
+    #[serde(default)]
+    pub objects: ObjectsConfig,
     pub channels: ChannelsConfig,
     #[serde(default = "default_worker_threads")]
     pub worker_threads: usize,
@@ -217,6 +220,7 @@ pub struct RunOverrides {
     pub workspace: Option<PathBuf>,
     pub port: Option<u32>,
     pub storage: Option<StorageConfig>,
+    pub objects: Option<ObjectsConfig>,
     pub workers: Option<usize>,
     pub ws_idle_timeout: Option<u64>,
     pub catalogue_refresh: Option<bool>,
@@ -294,6 +298,9 @@ impl VizierConfig {
         if let Some(ref s) = overrides.storage {
             self.storage = s.clone();
         }
+        if let Some(o) = &overrides.objects {
+            self.objects = o.clone();
+        }
         if let Some(w) = overrides.workers {
             self.worker_threads = w;
         }
@@ -326,6 +333,7 @@ impl Default for VizierConfig {
         VizierConfig {
             workspace: String::new(),
             storage: StorageConfig::Sqlite,
+            objects: ObjectsConfig::Local,
             providers: None,
             channels: ChannelsConfig {
                 http: Some(default_http_channel()),

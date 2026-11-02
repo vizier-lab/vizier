@@ -210,7 +210,7 @@ mod tests {
             SessionHistory, SessionHistoryContent, VizierChannelId, VizierSession,
             history_entries_to_messages,
         },
-        storage::{VizierStorage, document::LocalDocumentStore, sqlite::SqlStorage},
+        storage::{VizierStorage, document::BlobDocumentStore, sqlite::SqlStorage},
         transport::VizierTransport,
     };
 
@@ -235,7 +235,7 @@ mod tests {
         crate::storage::sqlite::init_sensitive_ask_schema(&conn).unwrap();
         let storage = Arc::new(VizierStorage::new(SqlStorage::new(
             crate::storage::sql::SqlStore::sqlite(conn),
-            Arc::new(LocalDocumentStore::new(dir.path().to_path_buf())),
+            Arc::new(BlobDocumentStore::local(dir.path().to_path_buf())),
         )));
         let questions = Arc::new(Questions::new());
 

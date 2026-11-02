@@ -683,11 +683,14 @@ mod tests {
         .unwrap();
         let storage = VizierStorage::new(crate::storage::sqlite::SqlStorage::new(
             crate::storage::sql::SqlStore::sqlite(conn),
-            Arc::new(crate::storage::document::LocalDocumentStore::new(
+            Arc::new(crate::storage::document::BlobDocumentStore::local(
                 dir.path().to_path_buf(),
             )),
         ));
-        let manager = FileManager::new(dir.path().to_string_lossy().to_string());
+        let manager = FileManager::new(
+            dir.path(),
+            Arc::new(crate::storage::blob::LocalBlobStore::new(dir.path())),
+        );
         (Arc::new(storage), manager, dir)
     }
 
