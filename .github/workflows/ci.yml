@@ -101,6 +101,9 @@ jobs:
         with:
           go-version: '1.24.x'
       - name: Build and start MinIO
+        env:
+          MINIO_ROOT_USER: vizier
+          MINIO_ROOT_PASSWORD: vizier-test-secret
         run: |
           # MinIO Community Edition no longer publishes public container images. Build the
           # last release used by this suite from its immutable upstream source revision.
