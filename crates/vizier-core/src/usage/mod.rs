@@ -14,17 +14,20 @@ use crate::{
     schema::{
         VizierChannelId,
         metrics::{TokenCounts, add_cost, estimate_cost},
+        provider::ProfileEntry,
         usage::{
             BreakdownRow, CallRow, ConversationRow, ConversationUsage, DailyUsage, DayActivity,
             FailedTotals, ModelRow, NoLinkReason, PeriodTotals, UnpricedNote, UsageActivity,
             UsageLink, UsageLinkKind, UsageRange, UsageReport, UsageSummary,
         },
     },
+    service::catalogue::entry_pricing,
     storage::{
         VizierStorage,
         background_job::BackgroundJobStorage,
         integration::IntegrationStorage,
         project::ProjectStorage,
+        provider::ProviderStorage,
         state::StateStorage,
         task::TaskStorage,
         usage::{UsageGroup, UsageGrouping, UsageQuery, UsageStorage},
@@ -37,14 +40,30 @@ const COSTLIEST: usize = 10;
 /// Catalogue prices, looked up once per `(provider, model)` per report.
 pub struct Pricer<'a> {
     catalogue: &'a Catalogue,
+    /// The saved inference-profile entries, by `(provider, arn)`, read once per report. An ARN is
+    /// priced from its entry before the catalogue is asked (FR-034, FR-034b).
+    entries: HashMap<(String, String), ProfileEntry>,
     prices: HashMap<(String, String), Option<Cost>>,
     outside: HashMap<String, bool>,
 }
 
 impl<'a> Pricer<'a> {
     pub fn new(catalogue: &'a Catalogue) -> Self {
+        Self::with_entries(catalogue, HashMap::new())
+    }
+
+    /// A pricer that knows the saved inference-profile entries. An ARN row is priced by its entry
+    /// — the hand-entered price, then the paired model — before the catalogue is consulted for the
+    /// model string, so a report prices an ARN the way the settings row describes it (FR-034,
+    /// research D13). An entry with nothing to price from yields the `None` that already means
+    /// unpriced, never zero (FR-034b).
+    pub fn with_entries(
+        catalogue: &'a Catalogue,
+        entries: HashMap<(String, String), ProfileEntry>,
+    ) -> Self {
         Self {
             catalogue,
+            entries,
             prices: HashMap::new(),
             outside: HashMap::new(),
         }
@@ -71,11 +90,18 @@ impl<'a> Pricer<'a> {
         if let Some(c) = self.prices.get(&key) {
             return c.clone();
         }
-        let c = provider
-            .parse::<ProviderId>()
-            .ok()
-            .and_then(|id| self.catalogue.model(&id, model))
-            .and_then(|m| m.cost);
+        // An ARN's own entry comes first and decides alone: it has no catalogue row, and the order
+        // — explicit price, then the paired model, then unpriced — is the one `entry_pricing`
+        // fixes, so a report and the settings row can never disagree (FR-034, FR-034b).
+        let c = if let Some(entry) = self.entries.get(&key) {
+            entry_pricing(self.catalogue, entry).cost().cloned()
+        } else {
+            provider
+                .parse::<ProviderId>()
+                .ok()
+                .and_then(|id| self.catalogue.model(&id, model))
+                .and_then(|m| m.cost)
+        };
         self.prices.insert(key, c.clone());
         c
     }
@@ -96,6 +122,21 @@ impl<'a> Pricer<'a> {
         (tokens.cached, whole)
     }
 }
+
+/// Every saved inference-profile entry, keyed by `(provider, arn)`, from one read of the provider
+/// rows. A report builds this once, so the turn itself does no pricing work at all (FR-034a.5,
+/// research D13 §3).
+pub async fn saved_entries(storage: &VizierStorage) -> HashMap<(String, String), ProfileEntry> {
+    let mut entries = HashMap::new();
+    for provider in storage.list_providers().await.unwrap_or_default() {
+        let id = provider.id.as_str().to_string();
+        for entry in provider.credentials.profiles {
+            entries.insert((id.clone(), entry.arn.clone()), entry);
+        }
+    }
+    entries
+}
+
 
 /// Running totals for one bucket of groups.
 #[derive(Debug, Default, Clone)]
@@ -1180,6 +1221,57 @@ mod tests {
             c.model(&ProviderId::AMAZON_BEDROCK, "amazon.nova-canvas-v1:0")
                 .is_none()
         );
+    }
+
+    /// FR-034, FR-034b: an ARN's saved entry decides its price before the catalogue is asked —
+    /// the hand-entered figure, then the paired model, then the existing unpriced `None`.
+    #[test]
+    fn an_arn_is_priced_from_its_entry_before_the_catalogue() {
+        let c = bedrock_catalogue();
+        let arn = "arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/abc";
+        let key = ("amazon-bedrock-sso".to_string(), arn.to_string());
+        let tokens = TokenCounts {
+            input: 1_000_000,
+            output: 500_000,
+            ..Default::default()
+        };
+        let entry = |price: Option<Cost>, model: Option<&str>| ProfileEntry {
+            arn: arn.into(),
+            price,
+            model: model.map(str::to_string),
+            ..Default::default()
+        };
+        let hand = Cost { input: 2.0, output: 8.0, cache_read: None, cache_write: None };
+
+        // The hand-entered price wins over the paired model, which the catalogue would price.
+        let mut priced = Pricer::with_entries(
+            &c,
+            HashMap::from([(key.clone(), entry(Some(hand), Some("amazon.nova-lite-v1:0")))]),
+        );
+        let cost = priced.cost("amazon-bedrock-sso", arn, &tokens).unwrap();
+        assert!((cost - (2.0 + 4.0)).abs() < 1e-9, "{cost}");
+
+        // No hand-entered price: the paired model's catalogue cost, through the provider alias.
+        let mut paired = Pricer::with_entries(
+            &c,
+            HashMap::from([(key.clone(), entry(None, Some("amazon.nova-lite-v1:0")))]),
+        );
+        let cost = paired.cost("amazon-bedrock-sso", arn, &tokens).unwrap();
+        assert!((cost - (0.06 + 0.12)).abs() < 1e-9, "{cost}");
+
+        // Nothing to price from — no pairing, and a pair the catalogue carries without a price —
+        // is unpriced, never zero.
+        for model in [None, Some("amazon.nova-pro-v1:0")] {
+            let mut unpriced = Pricer::with_entries(
+                &c,
+                HashMap::from([(key.clone(), entry(None, model))]),
+            );
+            assert_eq!(unpriced.cost("amazon-bedrock-sso", arn, &tokens), None, "{model:?}");
+        }
+
+        // A catalogue model id is untouched by the entry map.
+        let mut plain = Pricer::with_entries(&c, HashMap::from([(key, entry(None, None))]));
+        assert!(plain.cost("amazon-bedrock", "amazon.nova-lite-v1:0", &tokens).is_some());
     }
 
     mod report {
