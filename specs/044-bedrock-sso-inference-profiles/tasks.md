@@ -139,7 +139,7 @@ One phase = one commit, conventional format, explicit paths (`git add crates/...
 - [X] T054 [US3] Report the failure on agent health in `crates/vizier-core/src/service/providers.rs` and the agent status surface, clearing it on the next successful sign-in without a Vizier restart (FR-018).
 - [X] T055 [US3] Make re-sign-in reuse the saved start URL, regions, account and role so only the confirmation code is asked for, and restart exactly the agents on this connection through the existing provider-change path (this id only) in `crates/vizier-core/src/service/providers.rs` (FR-008, FR-019, US3 acceptance 5).
 - [X] T056 [US3] Implement the compare-and-swap write in `crates/vizier-core/src/storage/sqlite/sso_session.rs` so two processes on one workspace renewing at once stay idempotent against the store, and unit-test the losing writer's retry (FR-014, spec edge case "two Vizier processes").
-- [ ] T057 [P] [US3] Unit-test credential caching in `crates/vizier-core/src/llm/auth.rs` under `#[cfg(test)]`: valid cache means no portal call; near-expiry means one renewal; concurrent callers mean one renewal; a rejection means exactly one retry then the provider's error (FR-013, FR-014, FR-015).
+- [X] T057 [P] [US3] Unit-test credential caching in `crates/vizier-core/src/llm/auth.rs` under `#[cfg(test)]`: valid cache means no portal call; near-expiry means one renewal; concurrent callers mean one renewal; a rejection means exactly one retry then the provider's error (FR-013, FR-014, FR-015).
 
 **Checkpoint**: expiry is unremarkable, and an ended session is self-explaining. Commit — `feat(bedrock-sso): renew role credentials and report an ended session`
 

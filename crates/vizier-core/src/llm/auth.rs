@@ -1074,6 +1074,148 @@ mod tests {
         )
     }
 
+    /// A portal answer carrying `key`, good for `life_seconds` from now.
+    fn role_credentials_reply(
+        key: &str,
+        life_seconds: i64,
+    ) -> crate::llm::sso::tests_support::Reply {
+        crate::llm::sso::tests_support::Reply::ok(serde_json::json!({
+            "roleCredentials": {
+                "accessKeyId": key,
+                "secretAccessKey": "secret-access-value",
+                "sessionToken": "session-token-value",
+                "expiration": (chrono::Utc::now() + chrono::TimeDelta::seconds(life_seconds))
+                    .timestamp_millis(),
+            }
+        }))
+    }
+
+    #[tokio::test]
+    async fn a_cache_that_is_still_valid_makes_no_portal_request() {
+        use crate::llm::sso::tests_support::Stub;
+
+        // Six minutes of life: outside the five-minute renewal window for the whole test.
+        let stub = Stub::start_replies(vec![(
+            "/federation/credentials",
+            vec![role_credentials_reply("ASIACACHEDKEYID", 360)],
+        )])
+        .await;
+        let credential = credential_against(&stub).await;
+        let url = format!("{}/model/arn/converse", stub.base());
+
+        for _ in 0..5 {
+            let authorization = signed(&credential, &url).await;
+            assert!(
+                authorization.starts_with("AWS4-HMAC-SHA256 Credential=ASIACACHEDKEYID/"),
+                "{authorization}"
+            );
+        }
+
+        assert_eq!(
+            stub.path_count("/federation/credentials"),
+            1,
+            "one renewal for five turns: the cache answers the rest (FR-013)"
+        );
+        assert_eq!(
+            stub.seen().len(),
+            1,
+            "zero extra requests while the cache is valid (FR-013)"
+        );
+        assert_eq!(
+            stub.path_count("/token"),
+            0,
+            "the session token was still good"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_credential_inside_the_renewal_window_is_renewed_exactly_once() {
+        use crate::llm::sso::tests_support::Stub;
+
+        let stub = Stub::start_replies(vec![(
+            "/federation/credentials",
+            vec![
+                // Four minutes of life: inside the five-minute window, so the next turn renews.
+                role_credentials_reply("ASIASHORTKEYID", 240),
+                role_credentials_reply("ASIAFRESHKEYID", 3600),
+            ],
+        )])
+        .await;
+        let credential = credential_against(&stub).await;
+        let url = format!("{}/model/arn/converse", stub.base());
+
+        let first = signed(&credential, &url).await;
+        assert!(
+            first.starts_with("AWS4-HMAC-SHA256 Credential=ASIASHORTKEYID/"),
+            "{first}"
+        );
+
+        let renewed = signed(&credential, &url).await;
+        assert!(
+            renewed.starts_with("AWS4-HMAC-SHA256 Credential=ASIAFRESHKEYID/"),
+            "approaching expiry renews rather than signing with a dying credential: {renewed}"
+        );
+        assert_eq!(
+            stub.path_count("/federation/credentials"),
+            2,
+            "one renewal at the threshold (FR-013)"
+        );
+
+        // The renewed credential is an hour from expiry, so the turns after it are quiet again.
+        for _ in 0..3 {
+            let authorization = signed(&credential, &url).await;
+            assert!(
+                authorization.starts_with("AWS4-HMAC-SHA256 Credential=ASIAFRESHKEYID/"),
+                "{authorization}"
+            );
+        }
+        assert_eq!(
+            stub.path_count("/federation/credentials"),
+            2,
+            "exactly one renewal, not one per turn (FR-013, FR-014)"
+        );
+    }
+
+    #[tokio::test]
+    async fn concurrent_turns_on_a_cold_cache_share_one_renewal() {
+        use crate::llm::sso::tests_support::Stub;
+
+        let stub = Stub::start_replies(vec![(
+            "/federation/credentials",
+            vec![role_credentials_reply("ASIAFIRSTKEYID", 3600)],
+        )])
+        .await;
+        let credential = std::sync::Arc::new(credential_against(&stub).await);
+        let url = format!("{}/model/arn/converse", stub.base());
+
+        // Eight turns race into an empty cache: the per-connection mutex lets one renew and the
+        // rest sign with its result (FR-014).
+        let mut handles = Vec::new();
+        for _ in 0..8 {
+            let credential = credential.clone();
+            let url = url.clone();
+            handles.push(tokio::spawn(async move { signed(&credential, &url).await }));
+        }
+        for handle in handles {
+            let authorization = handle.await.unwrap();
+            assert!(
+                authorization.starts_with("AWS4-HMAC-SHA256 Credential=ASIAFIRSTKEYID/"),
+                "every turn signs with the one renewal: {authorization}"
+            );
+        }
+
+        assert_eq!(
+            stub.path_count("/federation/credentials"),
+            1,
+            "one renewal for eight concurrent turns (FR-014)"
+        );
+        assert_eq!(
+            stub.path_count("/token"),
+            0,
+            "the session token was still good"
+        );
+    }
+
     #[test]
     fn only_a_credential_fault_is_a_rejection() {
         let http = |status: u16, body: &str| LlmError::Http {
@@ -1244,6 +1386,11 @@ mod tests {
             stub.path_count("/model/arn/converse"),
             2,
             "at most one retry: no third attempt"
+        );
+        assert_eq!(
+            stub.path_count("/federation/credentials"),
+            2,
+            "the rejected credential was renewed once for the retry, and not again (FR-015)"
         );
         assert!(
             matches!(error, LlmError::Http { status: 403, .. }),
