@@ -6,12 +6,12 @@ use crate::{channels::connections::ChannelConnections, dependencies::VizierDepen
 
 pub mod commands;
 pub mod connections;
-#[cfg(feature = "discord")]
+#[cfg(feature = "channel-discord")]
 pub mod discord;
 pub mod reactions;
 pub mod readers;
 pub mod side_chat;
-#[cfg(feature = "telegram")]
+#[cfg(feature = "channel-telegram")]
 pub mod telegram;
 pub mod woken;
 
