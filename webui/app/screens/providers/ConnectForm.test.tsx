@@ -1,7 +1,8 @@
 import { renderToString } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import type { ProviderSummary } from '../../api/endpoints/catalogue'
-import { ConnectForm } from './ConnectForm'
+import type { SignInResponse, SignInStarted } from '../../api/endpoints/providers'
+import { ConnectForm, SignInPanel, signInStep, type SignInPanelState } from './ConnectForm'
 
 type Provider = Parameters<typeof ConnectForm>[0]['provider']
 
@@ -82,5 +83,129 @@ describe('the provider setup guide', () => {
         const html = draw(false, null)
         expect(html).not.toContain('How to connect')
         expect(html).toContain('Region')
+    })
+})
+
+/** What must never reach a screen (FR-035), on any body this contract or a later one carries. */
+const SECRETS = {
+    device_code: 'DEVICE-CODE-4c1f',
+    access_token: 'ACCESS-TOKEN-9a2b',
+    refresh_token: 'REFRESH-TOKEN-77e0',
+    id_token: 'ID-TOKEN-5d31',
+    client_secret: 'CLIENT-SECRET-0f8e',
+    role_credentials: 'ROLE-CREDENTIALS-aa11',
+}
+
+/** The pending answer, contract §3, widened with the secrets a wrong body would add. */
+const STARTED: SignInStarted = {
+    user_code: 'ABCD-EFGH',
+    verification_uri: 'https://device.sso.us-east-1.amazonaws.com/',
+    verification_uri_complete: 'https://device.sso.us-east-1.amazonaws.com/?user_code=ABCD-EFGH',
+    expires_at: '2026-11-02T05:12:00Z',
+    interval_seconds: 5,
+}
+const STARTED_WITH_SECRETS: SignInStarted & typeof SECRETS = { ...STARTED, ...SECRETS }
+
+/** The approved answer, likewise widened: what the panel drops is the point of the test. */
+const ANSWER: Extract<SignInResponse, { state: 'signed-in' }> & typeof SECRETS = {
+    state: 'signed-in',
+    account_id: '123456789012',
+    role_name: 'BedrockOperator',
+    expires_at: '2026-11-02T13:12:00Z',
+    ...SECRETS,
+}
+
+const DENIED = 'the sign-in was denied in the browser'
+
+function drawSignIn(state: Partial<SignInPanelState> = {}) {
+    const full: SignInPanelState = { phase: 'idle', account: '', role: '', ...state }
+    return renderToString(<SignInPanel state={full} onStart={() => {}} onPick={() => {}} />)
+}
+
+/** No token, code or secret reaches the HTML, by value or by field name (FR-009b, FR-035). */
+function expectNoSecrets(html: string) {
+    for (const [field, value] of Object.entries(SECRETS)) {
+        expect(html).not.toContain(value)
+        expect(html).not.toContain(field)
+    }
+}
+
+describe('the sign-in panel', () => {
+    it('reads a fresh code, still waiting and done apart', () => {
+        expect(signInStep(STARTED)).toEqual({ kind: 'started', started: STARTED })
+        expect(signInStep({ state: 'pending', expires_at: STARTED.expires_at })).toEqual({ kind: 'pending' })
+        // The approved answer is narrowed to the three fields the contract may show (FR-035).
+        const step = signInStep(ANSWER)
+        expect(step.kind).toBe('signed-in')
+        if (step.kind !== 'signed-in') return
+        expect(step.session).toEqual({
+            state: 'signed-in',
+            account_id: '123456789012',
+            role_name: 'BedrockOperator',
+            expires_at: '2026-11-02T13:12:00Z',
+        })
+    })
+
+    it('pending: shows the code and where to type it, and no token or secret', () => {
+        const html = drawSignIn({ phase: 'waiting', started: STARTED_WITH_SECRETS })
+        expect(html).toContain('Type this code at')
+        expect(html).toContain('ABCD-EFGH')
+        expect(html).toContain(STARTED.verification_uri)
+        expect(html).toContain(STARTED.verification_uri_complete)
+        expect(html).toContain('Waiting for the confirmation')
+        // The interval is its own text node; the sentence is asserted in two halves.
+        expect(html).toContain('Checking back every')
+        expect(html).toContain('seconds.')
+        expect(html).toContain('Start again')
+        // Nothing of an answer that has not resolved yet.
+        expect(html).not.toContain('the session ends')
+        expect(html).not.toContain('Sign-in did not complete')
+        expectNoSecrets(html)
+    })
+
+    it('success: states the account, the role and the expiry, and forgets the code', () => {
+        const step = signInStep(ANSWER)
+        const session = step.kind === 'signed-in' ? step.session : undefined
+        const html = drawSignIn({
+            phase: 'signed-in',
+            session,
+            accounts: { accounts: [{ account_id: '123456789012', account_name: 'Acme Prod' }], fallback: false },
+            roles: { roles: [{ role_name: 'BedrockOperator', account_id: '123456789012' }], fallback: false },
+            account: '123456789012',
+            role: 'BedrockOperator',
+        })
+        expect(html).toContain('Signed in')
+        expect(html).toContain('account 123456789012')
+        expect(html).toContain('role BedrockOperator')
+        expect(html).toContain('the session ends')
+        expect(html).toContain('AWS account')
+        expect(html).toContain('Sign in again')
+        // The waiting code is gone once the sign-in is answered.
+        expect(html).not.toContain('ABCD-EFGH')
+        expect(html).not.toContain('Sign-in did not complete')
+        expectNoSecrets(html)
+    })
+
+    it('denied: says so in plain words, with no code, token or secret', () => {
+        const html = drawSignIn({ phase: 'failed', failure: DENIED })
+        expect(html).toContain('Sign-in did not complete')
+        expect(html).toContain(DENIED)
+        expect(html).toContain('Sign in')
+        expect(html).not.toContain('ABCD-EFGH')
+        expect(html).not.toContain('the session ends')
+        expectNoSecrets(html)
+    })
+})
+describe('the sign-in form', () => {
+    it('draws the sign-in half only for a provider that asks for a start url and an sso region', () => {
+        // The listing's own field union lags the endpoint's (catalogue.ts:22); the server does
+        // send these four for the SSO provider (contract section 1).
+        const ssoFields = ['start_url', 'sso_region', 'sso_profile', 'region', 'role_name'] as ProviderSummary['fields']
+        const sso: Provider = { ...bedrock(GUIDE), id: 'amazon-bedrock-sso', fields: ssoFields }
+        const drawn = renderToString(<ConnectForm provider={sso} onDone={() => {}} onCancel={() => {}} />)
+        expect(drawn).toContain('aria-label="Sign in"')
+        expect(drawn).toContain('Identity Center start URL')
+        // The key-based form keeps no sign-in half (constitution II: the fields decide, not the id).
+        expect(draw(false)).not.toContain('aria-label="Sign in"')
     })
 })

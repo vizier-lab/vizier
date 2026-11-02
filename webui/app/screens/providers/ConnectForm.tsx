@@ -12,6 +12,7 @@ import {
     type RoleList,
     type SignInProgress,
     type SignInRequest,
+    type SignInResponse,
     type SignInStarted,
     type TestResult,
 } from '../../api/endpoints/providers'
@@ -104,7 +105,37 @@ function Guide({ guide, editing }: { guide: ProviderGuide; editing?: boolean }) 
 const SIGN_IN_FIELDS: CredentialField[] = ['start_url', 'sso_region']
 
 /** `signed-in` is the one progress answer that carries a resolved session. */
-type SignedIn = Extract<SignInProgress, { state: 'signed-in' }>
+export type SignedIn = Extract<SignInProgress, { state: 'signed-in' }>
+
+/** The panel's phase, from the first click to the answer it settles on. */
+export type SignInPhase = 'idle' | 'starting' | 'waiting' | 'signed-in' | 'failed'
+
+/** What one answer to the sign-in call means, read before any panel state is touched. */
+export type SignInStep =
+    | { kind: 'started'; started: SignInStarted }
+    | { kind: 'pending' }
+    | { kind: 'signed-in'; session: SignedIn }
+
+/**
+ * Reads one answer to the sign-in call: a fresh code, still waiting, or done. The session carries
+ * only the three non-secret fields the contract allows, so a body that grew a token could not
+ * reach the screen (FR-009b, FR-035).
+ */
+export function signInStep(answer: SignInResponse): SignInStep {
+    if ('user_code' in answer) return { kind: 'started', started: answer }
+    if (answer.state === 'signed-in') {
+        return {
+            kind: 'signed-in',
+            session: {
+                state: 'signed-in',
+                account_id: answer.account_id,
+                role_name: answer.role_name,
+                expires_at: answer.expires_at,
+            },
+        }
+    }
+    return { kind: 'pending' }
+}
 
 /**
  * The form's values as a sign-in request: an empty field is omitted, so the server falls back to
@@ -181,14 +212,14 @@ function SignIn({
         const request = signInRequest(values)
         setSent(request)
         try {
-            const answer = await ssoSignIn(providerId, request)
-            if ('user_code' in answer) {
-                setStarted(answer)
+            const step = signInStep(await ssoSignIn(providerId, request))
+            if (step.kind === 'started') {
+                setStarted(step.started)
                 setPhase('waiting')
                 return
             }
-            if (answer.state === 'signed-in') {
-                signedIn(answer)
+            if (step.kind === 'signed-in') {
+                signedIn(step.session)
                 return
             }
             failed('The sign-in is already in progress somewhere else. Start again.')
@@ -211,15 +242,15 @@ function SignIn({
                 return
             }
             try {
-                const answer = await ssoSignIn(providerId, sent)
+                const step = signInStep(await ssoSignIn(providerId, sent))
                 if (cancelled) return
-                if ('user_code' in answer) {
+                if (step.kind === 'started') {
                     // A new code is never what a poll should return; stop rather than loop on it.
                     failed('The sign-in restarted. Confirm the new code.')
                     return
                 }
-                if (answer.state === 'signed-in') {
-                    signedIn(answer)
+                if (step.kind === 'signed-in') {
+                    signedIn(step.session)
                     return
                 }
                 void poll()
@@ -271,6 +302,42 @@ function SignIn({
         }
     }, [account, sent, providerId])
 
+    return (
+        <SignInPanel
+            state={{ phase, started, session, failure, accounts, roles, account, role }}
+            onStart={() => void start()}
+            onPick={pick}
+        />
+    )
+}
+
+/** Everything the panel draws, and nothing the sign-in call returns besides (FR-035). */
+export type SignInPanelState = {
+    phase: SignInPhase
+    started?: SignInStarted
+    session?: SignedIn
+    failure?: string
+    accounts?: AccountList
+    roles?: RoleList
+    account: string
+    role: string
+}
+
+/**
+ * The panel itself, drawn from a state rather than from effects: waiting, signed in, denied and
+ * the pickers of an answered sign-in. Every state the flow can reach is drawable on its own, so a
+ * test can read exactly what reaches the screen (FR-009b, FR-035).
+ */
+export function SignInPanel({
+    state,
+    onStart,
+    onPick,
+}: {
+    state: SignInPanelState
+    onStart: () => void
+    onPick: (accountId: string, roleName: string) => void
+}) {
+    const { phase, started, session, failure, accounts, roles, account, role } = state
     const listedNothing = phase === 'signed-in' && accounts && (accounts.fallback || accounts.accounts.length === 0)
     const noRoles = phase === 'signed-in' && account !== '' && roles && (roles.fallback || roles.roles.length === 0)
 
@@ -284,7 +351,7 @@ function SignIn({
                         and role to use.
                     </p>
                 </div>
-                <Button type="button" variant="ghost" loading={phase === 'starting'} onClick={() => void start()}>
+                <Button type="button" variant="ghost" loading={phase === 'starting'} onClick={onStart}>
                     {phase === 'waiting' ? 'Start again' : session ? 'Sign in again' : 'Sign in'}
                 </Button>
             </div>
@@ -333,7 +400,7 @@ function SignIn({
                             value: a.account_id,
                             label: a.account_name ? `${a.account_name} · ${a.account_id}` : a.account_id,
                         }))}
-                        onChange={(next) => pick(next, '')}
+                        onChange={(next) => onPick(next, '')}
                     />
                     <Select
                         label="Role"
@@ -341,7 +408,7 @@ function SignIn({
                         placeholder={roles && roles.roles.length > 0 ? 'Choose the role' : 'Choose an account first'}
                         disabled={!roles || roles.roles.length === 0}
                         options={(roles?.roles ?? []).map((r) => ({ value: r.role_name, label: r.role_name }))}
-                        onChange={(next) => pick(account, next)}
+                        onChange={(next) => onPick(account, next)}
                     />
                 </div>
             )}
