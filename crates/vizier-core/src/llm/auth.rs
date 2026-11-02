@@ -13,7 +13,8 @@ use tokio::sync::Mutex;
 use super::error::LlmError;
 use super::http;
 use super::sigv4::{self, SigV4Request};
-use super::sso::{RoleCredentials, SsoClient, SsoError, SsoPortal, SsoSessions};
+use super::sso::session::needs_renewal;
+use super::sso::{RoleCredentials, SsoClient, SsoError, SsoSessions};
 use crate::storage::sso_session::SsoSessionStorage;
 
 /// What a credential source may need to know about the request it authorises.
@@ -233,9 +234,9 @@ pub struct SsoRoleTarget {
 /// A Bedrock credential whose three halves are derived from an IAM Identity Center session
 /// (FR-002, FR-009d, research D5).
 ///
-/// The role credentials live in [`SsoRoleCredential::cache`] — one mutex per connection, so
-/// concurrent turns collapse into one renewal (FR-014) — and nowhere else: nothing here can be
-/// written to disk. Signing is delegated to the same [`SigV4Credential`] the static-keys provider
+/// The role credentials live in [`SsoRoleCredential::cache`] — one mutex per connection, and the
+/// lock is what serializes renewal, so concurrent turns collapse into one renewal (FR-014) — and
+/// nowhere else: nothing here can be written to disk. Signing is delegated to the same [`SigV4Credential`] the static-keys provider
 /// uses, so the wire behaviour is shared rather than copied.
 pub struct SsoRoleCredential {
     client: SsoClient,
@@ -258,19 +259,17 @@ impl SsoRoleCredential {
         }
     }
 
-    /// How long before expiry a cached credential is renewed: one call every five minutes at
-    /// most, and zero calls while the cache is good (FR-013).
-    const RENEW_BEFORE: chrono::TimeDelta = chrono::TimeDelta::minutes(5);
-
-    /// The role's three halves, from the cache or one portal call.
+    /// The role's three halves, from the cache or exactly one renewal.
     ///
-    /// The whole path runs under the cache mutex, so two turns near expiry make one renewal and
-    /// the second uses its result. An expired access token is refreshed through the session's own
-    /// refresh token first (`SsoSessions::access_token`, §5).
+    /// The guard is the **first** statement: a turn with a credential that is still more than five
+    /// minutes from expiry ([`needs_renewal`]) makes no request at all (FR-013). Everything past
+    /// the check runs with the guard held — reading the session, the token half and the portal
+    /// call — so N turns that arrive together at an expiry queue behind one renewal and every one
+    /// of them signs with its result (FR-014, US3 acceptance 2).
     async fn role_credentials(&self) -> Result<RoleCredentials, LlmError> {
         let mut cache = self.cache.lock().await;
         if let Some(cached) = cache.as_ref()
-            && cached.expires_at - Self::RENEW_BEFORE > chrono::Utc::now()
+            && !needs_renewal(cached, chrono::Utc::now())
         {
             return Ok(cached.clone());
         }
@@ -280,12 +279,11 @@ impl SsoRoleCredential {
             .load(&self.target.profile)
             .await?
             .ok_or(SsoError::SessionExpired)?;
-        let session = sessions
-            .access_token(&self.client, &self.target.profile, session)
-            .await?;
-        let credentials = SsoPortal::new(self.client.clone())
-            .role_credentials(
-                &session.access_token,
+        let credentials = sessions
+            .renew(
+                &self.client,
+                &self.target.profile,
+                session,
                 &self.target.account_id,
                 &self.target.role_name,
             )
@@ -815,6 +813,111 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(stub.path_count("/federation/credentials"), 2);
+    }
+
+    /// One signed-and-built request through the credential, as a turn would send it: the
+    /// `Authorization` header it would put on the wire.
+    async fn signed(credential: &SsoRoleCredential, url: &str) -> String {
+        credential
+            .authorize_with_body(
+                reqwest::Client::new().post(url),
+                &RequestInfo::default(),
+                "POST",
+                url,
+                br#"{"messages":[]}"#,
+            )
+            .await
+            .unwrap()
+            .build()
+            .unwrap()
+            .headers()
+            .get(reqwest::header::AUTHORIZATION)
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_string()
+    }
+
+    #[tokio::test]
+    async fn turns_that_arrive_together_at_an_expiry_share_one_renewal() {
+        use crate::llm::sso::tests_support::{MemSessions, Reply, Stub};
+
+        let credentials = |key: &str, life_seconds: i64| {
+            Reply::ok(serde_json::json!({
+                "roleCredentials": {
+                    "accessKeyId": key,
+                    "secretAccessKey": "secret-access-value",
+                    "sessionToken": "session-token-value",
+                    "expiration": (chrono::Utc::now() + chrono::TimeDelta::seconds(life_seconds))
+                        .timestamp_millis(),
+                }
+            }))
+        };
+        let stub = Stub::start_replies(vec![(
+            "/federation/credentials",
+            vec![
+                // The first turn's answer: already inside the five-minute window.
+                credentials("ASIASTALEKEYID", 60),
+                // The renewal the concurrent turns must share.
+                credentials("ASIAFRESHKEYID", 3600),
+            ],
+        )])
+        .await;
+        let storage = std::sync::Arc::new(MemSessions::default());
+        storage
+            .put_sso_session(
+                "acme-bedrock",
+                &sso_session(chrono::Utc::now() + chrono::TimeDelta::hours(1)),
+                None,
+            )
+            .await
+            .unwrap();
+        let credential = std::sync::Arc::new(SsoRoleCredential::new(
+            SsoClient::at(reqwest::Client::new(), stub.base()),
+            storage,
+            SsoRoleTarget {
+                profile: "acme-bedrock".into(),
+                account_id: "123456789012".into(),
+                role_name: "BedrockOperator".into(),
+                region: "us-east-1".into(),
+            },
+        ));
+        let url = "https://bedrock-runtime.us-east-1.amazonaws.com/model/arn/converse";
+
+        let first = signed(&credential, url).await;
+        assert!(
+            first.starts_with("AWS4-HMAC-SHA256 Credential=ASIASTALEKEYID/"),
+            "{first}"
+        );
+        assert_eq!(stub.path_count("/federation/credentials"), 1);
+
+        // Eight turns reach the expiry at the same moment.
+        let mut handles = Vec::new();
+        for _ in 0..8 {
+            let credential = credential.clone();
+            handles.push(tokio::spawn(async move { signed(&credential, url).await }));
+        }
+        for handle in handles {
+            let authorization = handle.await.unwrap();
+            assert!(
+                authorization.starts_with("AWS4-HMAC-SHA256 Credential=ASIAFRESHKEYID/"),
+                "every turn uses the fresh credentials: {authorization}"
+            );
+        }
+
+        assert_eq!(
+            stub.path_count("/federation/credentials"),
+            2,
+            "N turns at an expiry make one renewal (FR-014)"
+        );
+        // And a turn that finds the fresh cache does not call anything at all (FR-013).
+        assert!(
+            signed(&credential, url)
+                .await
+                .starts_with("AWS4-HMAC-SHA256 Credential=ASIAFRESHKEYID/")
+        );
+        assert_eq!(stub.path_count("/federation/credentials"), 2);
+        assert_eq!(stub.path_count("/token"), 0, "the access token was still good");
     }
 
     #[tokio::test]
