@@ -142,7 +142,7 @@ pub fn sso_bedrock() -> BuiltinProvider {
     use CredentialField::*;
     BuiltinProvider {
         id: ProviderId::AMAZON_BEDROCK_SSO,
-        name: "Amazon Bedrock (SSO)",
+        name: crate::config::provider::AMAZON_BEDROCK_SSO_NAME,
         kind: ProviderKind::Cloud,
         dialect: Some(DialectKind::Bedrock),
         // The five a connection needs, then the Bedrock region, not the SSO region

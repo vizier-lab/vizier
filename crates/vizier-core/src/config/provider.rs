@@ -12,6 +12,11 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ProviderId(Cow<'static, str>);
 
+/// The display name of [`ProviderId::AMAZON_BEDROCK_SSO`]. One constant, because two surfaces
+/// name it: the catalogue row every provider list renders, and the session failure every ended
+/// session renders (contracts §6, FR-016).
+pub const AMAZON_BEDROCK_SSO_NAME: &str = "Amazon Bedrock (SSO)";
+
 impl ProviderId {
     pub const OPENAI: ProviderId = ProviderId::new_static("openai");
     pub const ANTHROPIC: ProviderId = ProviderId::new_static("anthropic");
@@ -29,8 +34,7 @@ impl ProviderId {
     pub const AMAZON_BEDROCK: ProviderId = ProviderId::new_static("amazon-bedrock");
     /// The same models as [`ProviderId::AMAZON_BEDROCK`], reached with an IAM Identity Center
     /// sign-in instead of a static key pair (spec 044, research D1). Shown as
-    /// "Amazon Bedrock (SSO)"; the name itself lives with the built-in entry
-    /// (`catalogue::builtin::sso_bedrock`), where every provider display name lives.
+    /// [`AMAZON_BEDROCK_SSO_NAME`], which the catalogue entry and the session wording both read.
     pub const AMAZON_BEDROCK_SSO: ProviderId = ProviderId::new_static("amazon-bedrock-sso");
 
     pub const OPENCODE_GO: ProviderId = ProviderId::new_static("opencode-go");

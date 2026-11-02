@@ -11,11 +11,19 @@
 //! cipher's failure (FR-009f) and [`SsoError::AlreadyConfirmed`] is a device code confirmed twice
 //! (contracts/bedrock-sso-wire.md §3), which is neither a denial nor an expiry.
 //!
+//! One cause is special-cased by the spec, and by this module: an **ended session** (FR-016).
+//! [`SsoError::SessionExpired`] and [`SsoError::SessionUnreadable`] read as the session and the
+//! re-sign-in action, never as a wrong key, a wrong region or a wrong model, and
+//! [`SsoError::is_session_failure`] names them without reading the text. A path that only has the
+//! rendered message — a turn's error frame — still recognises one through
+//! [`is_session_failure_message`], whose stems are the messages' own first words.
+//!
 //! The two conversions below are the whole boundary: [`SsoError`] never reaches a caller as
 //! itself. `to_llm_error` is for the request path (a credential could not be produced),
 //! `to_service_error` for the settings surface (a person has an action to take). One message per
 //! cause, and no two messages share wording (SC-015).
 
+use crate::config::provider::AMAZON_BEDROCK_SSO_NAME;
 use crate::llm::error::LlmError;
 use crate::service::ServiceError;
 
@@ -67,14 +75,16 @@ impl std::fmt::Display for SsoError {
                 f,
                 "this sign-in code was already confirmed; start a new sign-in for a fresh code"
             ),
+            // FR-016, contracts §6: the session is the cause and signing in again is the
+            // action. The connection is named so the person knows which form to open.
             Self::SessionExpired => write!(
                 f,
-                "the SSO session has ended; sign in again to continue"
+                "{SESSION_ENDED}; sign in again to reconnect {AMAZON_BEDROCK_SSO_NAME:?}"
             ),
             Self::SessionUnreadable { profile } => write!(
                 f,
-                "the stored session for profile {profile:?} cannot be read with this workspace key \
-                 (nothing was deleted); sign in again"
+                "the stored session for profile {profile:?} {SESSION_UNREADABLE}; sign in again \
+                 (nothing was deleted)"
             ),
             Self::RoleNotAssigned {
                 account_id,
@@ -119,7 +129,29 @@ impl std::fmt::Display for SsoError {
 
 impl std::error::Error for SsoError {}
 
+/// The first words of the ended-session message (contracts §6). A caller that only has the
+/// rendered text recognises the cause by this stem rather than by guessing (FR-016, FR-017).
+pub const SESSION_ENDED: &str = "the AWS SSO session has ended";
+
+/// The stem every unreadable-session message carries: the envelope, not the credentials, is what
+/// failed (FR-009f, FR-016).
+pub const SESSION_UNREADABLE: &str = "cannot be read with this workspace key";
+
+/// Whether a rendered message is a session failure — the ended session or the unreadable one
+/// (FR-016). The one way a path without the typed error (a turn's `Error` frame) can tell a
+/// session cause from a key, a region or a model one.
+pub fn is_session_failure_message(message: &str) -> bool {
+    message.contains(SESSION_ENDED) || message.contains(SESSION_UNREADABLE)
+}
+
 impl SsoError {
+    /// Whether this failure is about the **session** itself rather than a key, a region or a
+    /// model (FR-016): the causes a person fixes by signing in again, and the ones a background
+    /// path must report rather than retry (FR-017, FR-018).
+    pub fn is_session_failure(&self) -> bool {
+        matches!(self, Self::SessionExpired | Self::SessionUnreadable { .. })
+    }
+
     /// A stable machine-readable code for the settings surface, one per cause (SC-015). The
     /// WebUI branches on this, never on the message.
     pub fn code(&self) -> &'static str {
@@ -340,11 +372,73 @@ mod tests {
 
     #[test]
     fn an_expired_session_points_at_signing_in_again() {
-        // FR-016: never at a key, a region or a model.
+        // FR-016, contracts §6 — the exact wording, the connection by name so the person knows
+        // which form to open.
+        assert_eq!(
+            SsoError::SessionExpired.to_string(),
+            "the AWS SSO session has ended; sign in again to reconnect \"Amazon Bedrock (SSO)\""
+        );
         let text = SsoError::SessionExpired.to_string();
-        assert!(text.contains("sign in again"), "{text}");
         for wrong in ["key", "region", "model"] {
             assert!(!text.contains(wrong), "{text}");
         }
+        assert!(SsoError::SessionExpired.is_session_failure());
+        assert!(SsoError::SessionUnreadable {
+            profile: "acme-bedrock".into()
+        }
+        .is_session_failure());
+        // A wrong key, a wrong region and a wrong model keep their own variants (SC-015).
+        for other in every_variant() {
+            if !matches!(
+                other,
+                SsoError::SessionExpired | SsoError::SessionUnreadable { .. }
+            ) {
+                assert!(!other.is_session_failure(), "{other:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn every_session_failure_reads_as_a_session_and_offers_the_way_back() {
+        let session_failures = [
+            SsoError::SessionExpired,
+            SsoError::SessionUnreadable {
+                profile: "acme-bedrock".into(),
+            },
+        ];
+        for error in &session_failures {
+            // Every rendering a person or a log line can receive: the cause and the action are
+            // there, and none of the three wrong causes is named.
+            for rendered in [
+                error.to_string(),
+                error.to_llm_error().to_string(),
+                error.to_service_error().message().to_string(),
+            ] {
+                assert!(rendered.contains("session"), "{error:?}: {rendered}");
+                assert!(rendered.contains("sign in again"), "{error:?}: {rendered}");
+                for wrong in ["API key", "region", "model"] {
+                    assert!(
+                        !rendered.contains(wrong),
+                        "{error:?} is reported as a wrong {wrong}: {rendered}"
+                    );
+                }
+                assert!(
+                    is_session_failure_message(&rendered),
+                    "{error:?} must be recognisable from its text: {rendered}"
+                );
+            }
+        }
+
+        // The text classifier names only a session failure: a refusal about a key, a region or a
+        // model is not one, whatever the status it maps to.
+        for other in every_variant() {
+            if !other.is_session_failure() {
+                assert!(
+                    !is_session_failure_message(&other.to_string()),
+                    "{other:?} was read as a session failure"
+                );
+            }
+        }
+        assert!(!is_session_failure_message("HTTP 401 Unauthorized: Incorrect API key"));
     }
 }
