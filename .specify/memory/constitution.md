@@ -20,7 +20,10 @@ Templates requiring updates:
     Check reads the gates from this file)
   - .specify/templates/spec-template.md, tasks-template.md,
     checklist-template.md ✅ no change
-Follow-up TODOs: none
+Follow-up TODOs:
+  - The Spec Kit `speckit.git.feature` hook (create-new-feature.sh) creates
+    the branch in the workspace only; run `just checkout <branch>` after it
+    to create the submodule branches. Not scripted yet.
 -->
 
 # Vizier Constitution
