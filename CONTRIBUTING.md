@@ -180,9 +180,11 @@ The types are the ones in
 [Conventional Commits v1.0.0](https://www.conventionalcommits.org/en/v1.0.0/): `feat:`, `fix:`,
 `build:`, `chore:`, `ci:`, `docs:`, `style:`, `refactor:`, `perf:`, `test:`. A scope in parentheses
 is optional; a breaking change is `!` before the colon (`feat!:`) or a `BREAKING CHANGE:` footer,
-and shows up as `[**breaking**]` in the generated changelog. Add the spec number in parentheses when
-the commit belongs to one. `CHANGELOG.md` is generated from history by `git-cliff` — don't edit it
-by hand.
+and shows up as `[**breaking**]` in the generated changelog. The format is enforced by
+`.githooks/commit-msg` locally (run `just hooks` once per clone) and, for pull request titles, by
+the `policy` job in CI — a title squashed from the web never goes through a local hook. Add the spec
+number in parentheses when the commit belongs to one. `CHANGELOG.md` is generated from history by
+`git-cliff` — don't edit it by hand.
 
 ### Across the submodules
 
@@ -191,6 +193,7 @@ Cross-repo git goes through the Justfile, not hand-rolled per-submodule commands
 ```sh
 just checkout <branch>      # create or switch the branch everywhere
 just status                 # workspace and every submodule
+just hooks                  # install the commit-msg hook (workspace and every submodule)
 just pull                   # fast-forward everywhere
 just commit "<message>"     # commit in each submodule with changes, then the workspace (records the pins)
 just push                   # submodules first, then the workspace

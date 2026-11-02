@@ -75,6 +75,23 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - name: Pull request title
+        # A squash merge makes the PR title the commit subject, and a title edited in the web UI
+        # never passes the local commit-msg hook, so the same hook runs here on the title.
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          set -euo pipefail
+          title_file=$(mktemp)
+          trap 'rm -f "$title_file"' EXIT
+          printf '%s\n' "$PR_TITLE" > "$title_file"
+          if ! sh .githooks/commit-msg "$title_file"; then
+            echo "::error::the pull request title must be a Conventional Commits subject, e.g. 'fix(agents): publish the entries a reset saves'. Rename the PR (its title becomes the squashed commit subject); the rule is .githooks/commit-msg."
+            exit 1
+          fi
+          echo "pull request title is a conventional commit"
       - uses: dtolnay/rust-toolchain@stable
       - name: Layering
         # The engine must not declare the web framework, the CLI or the terminal UI, and the
