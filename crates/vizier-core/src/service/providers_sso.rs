@@ -657,7 +657,7 @@ pub async fn entries(
     crate::access::require(user, PERMISSION)?;
     let id = sso_id(id)?;
     let credentials = saved_credentials(deps, &id).await?;
-    Ok(response(&credentials.profiles))
+    Ok(response(deps, &credentials.profiles))
 }
 
 /// Add one entry. The whole list is validated, so a duplicate is refused with the existing entry
@@ -776,11 +776,14 @@ async fn store_entries(
     // The agents on this connection resolve their model on their next turn, so a new or edited
     // entry takes effect now rather than at the next restart (the provider-change path, FR-019).
     usage::restart_users(deps, &entry.id).await;
-    Ok(response(&entry.credentials.profiles))
+    Ok(response(deps, &entry.credentials.profiles))
 }
 
-fn response(profiles: &[ProfileEntry]) -> Vec<ProfileEntryResponse> {
-    profiles.iter().map(ProfileEntryResponse::from_entry).collect()
+fn response(deps: &VizierDependencies, profiles: &[ProfileEntry]) -> Vec<ProfileEntryResponse> {
+    profiles
+        .iter()
+        .map(|entry| ProfileEntryResponse::from_entry(&deps.catalogue, entry))
+        .collect()
 }
 
 /// The agents that would lose a profile if `arn` went away: the chat model and the dream model,

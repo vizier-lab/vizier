@@ -290,6 +290,10 @@ pub struct ModelSummary {
     /// Custom providers: the fields filled in from the catalogue (FR-024).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub filled_from_catalogue: Option<Vec<String>>,
+    /// An inference-profile entry's computed pricing (contracts §5); absent for catalogue
+    /// models, which carry their own `cost`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pricing: Option<EntryPricingView>,
 }
 
 fn summarize(provider: &str, m: &CatalogueModel) -> ModelSummary {
@@ -317,6 +321,7 @@ fn summarize(provider: &str, m: &CatalogueModel) -> ModelSummary {
         knowledge: m.knowledge.clone(),
         origin: None,
         filled_from_catalogue: None,
+        pricing: None,
     }
 }
 
@@ -343,6 +348,7 @@ fn bare(provider: &str, id: &str, context: Option<u64>, origin: &str) -> ModelSu
         knowledge: None,
         origin: Some(origin.into()),
         filled_from_catalogue: None,
+        pricing: None,
     }
 }
 
@@ -397,6 +403,7 @@ pub fn custom_models(deps: &VizierDependencies, custom: &CustomProvider) -> Vec<
                 knowledge: b.and_then(|m| m.knowledge.clone()),
                 origin: None,
                 filled_from_catalogue: Some(filled),
+                pricing: None,
             }
         })
         .collect()
@@ -446,10 +453,69 @@ pub async fn models_for(deps: &VizierDependencies, id: &ProviderId, all: bool) -
     if *id == ProviderId::DUMMYPLUG {
         models.push(bare("dummyplug", "dummyplug", None, "builtin"));
     }
-    if let Some(first) = models.first_mut() {
-        first.default = true;
+    if *id == ProviderId::AMAZON_BEDROCK_SSO {
+        // Entries come first: they are the reason the person is here (contracts §5). They are the
+        // connection's own rows, so no AWS call and no second list is involved (FR-034c).
+        let entries: Vec<ModelSummary> = saved_profile_entries(deps)
+            .await
+            .iter()
+            .map(|entry| entry_model(&deps.catalogue, entry))
+            .collect();
+        models.splice(0..0, entries);
+    }
+    // The default stays the first catalogue model, so adding entries changes no existing picker's
+    // default; when the list holds nothing but entries, the first of those is the default.
+    if let Some(index) = models
+        .iter()
+        .position(|m| m.origin.as_deref() != Some(INFERENCE_PROFILE_ORIGIN))
+        .or_else(|| (!models.is_empty()).then_some(0))
+    {
+        models[index].default = true;
     }
     Some(models)
+}
+
+/// One entry's `pricing` as the API reports it (contracts §4a): the state, the figure when there
+/// is one, and — for every absence — the label plus a cause-specific reason that carries the way
+/// out. Computed per request from the entry's current state, never stored (FR-034a.2, FR-034b,
+/// SC-021). Fields that do not belong to an outcome are omitted, so the three absence shapes stay
+/// distinct without a stored column.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+pub struct EntryPricingView {
+    /// `explicit`, `from_catalogue`, `not_resolved`, `not_set` or `no_catalogue`.
+    pub state: &'static str,
+    /// The resolved figure, for the two priced states.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cost: Option<Cost>,
+    /// The paired catalogue id, for `from_catalogue` and `not_resolved`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    /// Where the figure came from, for `explicit` (`entered price`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<&'static str>,
+    /// The label a person sees for an absence: `pricing not set` or `pricing not resolved`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub flag: Option<&'static str>,
+    /// Why it is unpriced and the way out: never empty, never shared between causes.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+impl EntryPricingView {
+    pub fn of(pricing: &EntryPricing) -> Self {
+        Self {
+            state: pricing.state(),
+            cost: pricing.cost().cloned(),
+            model: pricing.model().map(str::to_string),
+            source: match pricing {
+                EntryPricing::Explicit(_) => Some("entered price"),
+                _ => None,
+            },
+            flag: pricing.flag(),
+            reason: pricing.reason(),
+        }
+    }
 }
 
 /// What an entry's usage will cost right now: the five outcomes of data-model "profile entry",
@@ -459,10 +525,13 @@ pub enum EntryPricing {
     /// A hand-entered price, used as given: no catalogue lookup happens (FR-034a.4).
     Explicit(Cost),
     /// The paired model's cost, re-resolved from the catalogue as it stands now (FR-034a.1).
-    FromCatalogue(Cost),
-    /// The paired id is not in the catalogue: withdrawn, or the catalogue has not caught up
-    /// (FR-034a.3).
-    NotResolved { model: String },
+    /// The id rides along so the response can name the model it was priced from (contracts §4a).
+    FromCatalogue { cost: Cost, model: String },
+    /// The paired id yields no price. `in_catalogue` says which of the two causes it is — the id
+    /// is gone (withdrawn, or the catalogue has not caught up, FR-034a.3), or it is still listed
+    /// and carries no cost. The state is the same; the reason must not claim an absence that is
+    /// not there.
+    NotResolved { model: String, in_catalogue: bool },
     /// No model was paired, so there is nothing to price from (FR-034a.2).
     NotSet,
     /// The catalogue carries no Bedrock list at all, so `model` could not be checked (FR-034b).
@@ -473,8 +542,16 @@ impl EntryPricing {
     /// The cost a report adds, or `None` when the entry is unpriced — never zero (FR-034b).
     pub fn cost(&self) -> Option<&Cost> {
         match self {
-            Self::Explicit(cost) | Self::FromCatalogue(cost) => Some(cost),
+            Self::Explicit(cost) | Self::FromCatalogue { cost, .. } => Some(cost),
             Self::NotResolved { .. } | Self::NotSet | Self::NoCatalogue => None,
+        }
+    }
+
+    /// The paired catalogue id, when there is one.
+    pub fn model(&self) -> Option<&str> {
+        match self {
+            Self::FromCatalogue { model, .. } | Self::NotResolved { model, .. } => Some(model),
+            _ => None,
         }
     }
 
@@ -482,7 +559,7 @@ impl EntryPricing {
     pub fn state(&self) -> &'static str {
         match self {
             Self::Explicit(_) => "explicit",
-            Self::FromCatalogue(_) => "from_catalogue",
+            Self::FromCatalogue { .. } => "from_catalogue",
             Self::NotResolved { .. } => "not_resolved",
             Self::NotSet => "not_set",
             Self::NoCatalogue => "no_catalogue",
@@ -492,7 +569,7 @@ impl EntryPricing {
     /// The label the settings row shows; `None` once the entry is priced.
     pub fn flag(&self) -> Option<&'static str> {
         match self {
-            Self::Explicit(_) | Self::FromCatalogue(_) => None,
+            Self::Explicit(_) | Self::FromCatalogue { .. } => None,
             Self::NotResolved { .. } => Some("pricing not resolved"),
             Self::NotSet | Self::NoCatalogue => Some("pricing not set"),
         }
@@ -503,10 +580,16 @@ impl EntryPricing {
     /// FR-034b, SC-021). `None` once the entry is priced.
     pub fn reason(&self) -> Option<String> {
         match self {
-            Self::Explicit(_) | Self::FromCatalogue(_) => None,
-            Self::NotResolved { model } => Some(format!(
+            Self::Explicit(_) | Self::FromCatalogue { .. } => None,
+            Self::NotResolved { model, in_catalogue: false } => Some(format!(
                 "no price for {model}: it is no longer in the catalogue — pick another model \
                  or enter a price by hand"
+            )),
+            // The id is still listed, so the contract's gone-case wording would be false. Same
+            // state and label (there is no price), its own reason (the catalogue carries none).
+            Self::NotResolved { model, in_catalogue: true } => Some(format!(
+                "no price for {model}: the catalogue lists it without a cost — pick another \
+                 model or enter a price by hand"
             )),
             Self::NotSet => Some(
                 "no model is paired with this ARN, so there is nothing to price it from — pick \
@@ -547,13 +630,74 @@ pub fn entry_pricing(catalogue: &Catalogue, entry: &ProfileEntry) -> EntryPricin
     let Some(model) = entry.model.as_deref().map(str::trim).filter(|m| !m.is_empty()) else {
         return EntryPricing::NotSet;
     };
-    match catalogue
-        .model(&ProviderId::AMAZON_BEDROCK_SSO, model)
-        .and_then(|m| m.cost)
-    {
-        Some(cost) => EntryPricing::FromCatalogue(cost),
-        None => EntryPricing::NotResolved { model: model.to_string() },
+    match catalogue.model(&ProviderId::AMAZON_BEDROCK_SSO, model) {
+        Some(found) => match found.cost {
+            Some(cost) => EntryPricing::FromCatalogue { cost, model: model.to_string() },
+            // Listed, but the catalogue carries no figure for it: still unpriced, but not gone.
+            None => EntryPricing::NotResolved { model: model.to_string(), in_catalogue: true },
+        },
+        None => EntryPricing::NotResolved { model: model.to_string(), in_catalogue: false },
     }
+}
+
+/// The name an entry is shown by: its own, or the profile id from its ARN (FR-026).
+pub fn entry_display_name(entry: &ProfileEntry) -> String {
+    match entry.name.as_deref().map(str::trim).filter(|n| !n.is_empty()) {
+        Some(name) => name.to_string(),
+        // A saved entry is validated, so this parses; a row edited by hand may not, and the ARN
+        // is still the most useful thing to show.
+        None => crate::llm::bedrock::parse_inference_profile_arn(&entry.arn)
+            .map(|arn| arn.id)
+            .unwrap_or_else(|_| entry.arn.clone()),
+    }
+}
+
+/// The origin every saved inference-profile entry carries in the model list (contracts §5).
+pub const INFERENCE_PROFILE_ORIGIN: &str = "inference_profile";
+
+/// One saved entry as a selectable model (contracts §5): the ARN is the id, so the string an
+/// agent selects is the string the runtime is asked for; the limits are only the entry's own
+/// (never the paired model's, FR-034a.6); `cost` is its resolved price, `null` when it has none,
+/// and `pricing` says which absence that is.
+fn entry_model(catalogue: &Catalogue, entry: &ProfileEntry) -> ModelSummary {
+    let pricing = entry_pricing(catalogue, entry);
+    ModelSummary {
+        id: entry.arn.clone(),
+        name: entry_display_name(entry),
+        default: false,
+        logo: None,
+        logo_full_color: false,
+        limit: Limits {
+            context: entry.context,
+            input: None,
+            output: entry.output,
+        },
+        caps: ModelCaps {
+            tool_call: entry.tool_call,
+            reasoning: None,
+            image_input: entry.image_input,
+            attachment: None,
+        },
+        cost: pricing.cost().cloned(),
+        status: ModelStatus::Active,
+        release_date: None,
+        knowledge: None,
+        origin: Some(INFERENCE_PROFILE_ORIGIN.into()),
+        filled_from_catalogue: None,
+        pricing: Some(EntryPricingView::of(&pricing)),
+    }
+}
+
+/// The SSO connection's saved entries, read per request. Never from the session: the entries are
+/// part of the connection and price it before signing in too (contracts §5a).
+async fn saved_profile_entries(deps: &VizierDependencies) -> Vec<ProfileEntry> {
+    deps.storage
+        .get_provider(&ProviderId::AMAZON_BEDROCK_SSO)
+        .await
+        .ok()
+        .flatten()
+        .map(|entry| entry.credentials.profiles)
+        .unwrap_or_default()
 }
 
 fn invalid(message: impl Into<String>) -> ServiceError {
@@ -747,7 +891,7 @@ mod tests {
 
         // 3. A paired id the catalogue carries is priced from it, as it stands now.
         let from_catalogue = entry_pricing(&seeded, &entry(None, Some("amazon.nova-lite-v1:0")));
-        assert!(matches!(from_catalogue, EntryPricing::FromCatalogue(_)));
+        assert!(matches!(from_catalogue, EntryPricing::FromCatalogue { .. }));
         assert_eq!(from_catalogue.state(), "from_catalogue");
         assert!(from_catalogue.cost().is_some());
         assert_eq!(from_catalogue.flag(), None);
@@ -757,7 +901,10 @@ mod tests {
         let gone = entry_pricing(&seeded, &entry(None, Some("anthropic.retired-model-v1")));
         assert_eq!(
             gone,
-            EntryPricing::NotResolved { model: "anthropic.retired-model-v1".into() }
+            EntryPricing::NotResolved {
+                model: "anthropic.retired-model-v1".into(),
+                in_catalogue: false,
+            }
         );
         assert_eq!(gone.state(), "not_resolved");
         assert_eq!(gone.flag(), Some("pricing not resolved"));
@@ -803,5 +950,158 @@ mod tests {
                 assert_ne!(reasons[a], reasons[b], "two absences share wording");
             }
         }
+    }
+
+    /// T039: an id the catalogue still lists but carries no cost for is *not* "gone". Only the
+    /// five wire states exist, so it stays `not_resolved`; the reason must name the real cause
+    /// instead of repeating the contract's gone-case sentence.
+    #[test]
+    fn a_listed_model_with_no_cost_is_not_reported_as_gone() {
+        use crate::catalogue::data::{
+            Capabilities, CatalogueData, CatalogueModel, CatalogueProvider, Limits as CatalogueLimits,
+        };
+        use std::collections::BTreeMap;
+
+        let id = "amazon.example-unpriced-v1:0";
+        let mut data = CatalogueData::empty();
+        data.providers.insert(
+            ProviderId::AMAZON_BEDROCK,
+            CatalogueProvider {
+                id: ProviderId::AMAZON_BEDROCK,
+                name: "Amazon Bedrock".into(),
+                env: vec![],
+                api: None,
+                npm: "ai-sdk".into(),
+                doc: None,
+                models: BTreeMap::from([(
+                    id.to_string(),
+                    CatalogueModel {
+                        id: id.to_string(),
+                        name: "Unpriced".into(),
+                        family: None,
+                        caps: Capabilities::default(),
+                        limit: CatalogueLimits::default(),
+                        cost: None,
+                        status: ModelStatus::Active,
+                        release_date: None,
+                        knowledge: None,
+                        lab: None,
+                        route: None,
+                    },
+                )]),
+                dialect: Some(DialectKind::Bedrock),
+                kind: ProviderKind::Cloud,
+            },
+        );
+        let catalogue = Catalogue::new(data);
+        let entry = ProfileEntry {
+            arn: "arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/abc".into(),
+            model: Some(id.into()),
+            ..Default::default()
+        };
+
+        let priced = entry_pricing(&catalogue, &entry);
+        assert!(
+            matches!(priced, EntryPricing::NotResolved { in_catalogue: true, .. }),
+            "{priced:?}"
+        );
+        assert_eq!(priced.state(), "not_resolved");
+        assert_eq!(priced.flag(), Some("pricing not resolved"));
+        assert_eq!(priced.cost(), None, "unpriced, never zero");
+        let reason = priced.reason().expect("an absence always has a reason");
+        assert!(reason.contains(id), "the id is inside the reason: {reason}");
+        assert!(
+            !reason.contains("no longer in the catalogue"),
+            "it is still listed, so the gone wording would be false: {reason}"
+        );
+        assert!(reason.contains("without a cost"), "{reason}");
+        assert!(reason.contains("enter a price by hand"), "{reason}");
+
+        // The same state, but the two causes never share wording.
+        let gone = entry_pricing(
+            &catalogue,
+            &ProfileEntry { model: Some("amazon.withdrawn-v1:0".into()), ..entry.clone() },
+        );
+        assert!(matches!(gone, EntryPricing::NotResolved { in_catalogue: false, .. }));
+        assert_ne!(gone.reason(), priced.reason());
+    }
+
+    /// T039: the settings row and the model list publish the entry's pricing from its current
+    /// state, and the list puts entries first with the catalogue's own Bedrock models after them.
+    /// No AWS call and no session: the entries are the connection's own row (contracts §5, §5a).
+    #[tokio::test]
+    async fn the_sso_model_list_puts_entries_first_with_their_pricing() {
+        use crate::config::VizierConfig;
+        use crate::schema::{ProviderCredentials, ProviderEntry};
+        use crate::storage::provider::ProviderStorage;
+
+        let dir = tempfile::tempdir().unwrap();
+        let deps = VizierDependencies::new(VizierConfig {
+            workspace: dir.path().to_string_lossy().to_string(),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+        let arn = "arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/abc";
+        let other = "arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/def";
+        deps.storage
+            .upsert_provider(&ProviderEntry {
+                id: ProviderId::AMAZON_BEDROCK_SSO,
+                credentials: ProviderCredentials {
+                    profiles: vec![
+                        ProfileEntry {
+                            arn: arn.into(),
+                            name: Some("Acme Prod — Claude".into()),
+                            model: Some("amazon.nova-lite-v1:0".into()),
+                            ..Default::default()
+                        },
+                        ProfileEntry { arn: other.into(), ..Default::default() },
+                    ],
+                    ..Default::default()
+                },
+            })
+            .await
+            .unwrap();
+
+        let models = models_for(&deps, &ProviderId::AMAZON_BEDROCK_SSO, true)
+            .await
+            .expect("the SSO id lists models");
+
+        // Entries first, each identified by its ARN and shown by its own name.
+        assert_eq!(models[0].id, arn);
+        assert_eq!(models[0].name, "Acme Prod — Claude");
+        assert_eq!(models[0].origin.as_deref(), Some(INFERENCE_PROFILE_ORIGIN));
+        assert_eq!(models[1].id, other);
+        assert_eq!(models[1].name, "def", "no name falls back to the ARN's profile id");
+
+        // The paired entry is priced from the catalogue and carries no label or reason.
+        let paired = models[0].pricing.clone().expect("pricing is published");
+        assert_eq!(paired.state, "from_catalogue");
+        assert_eq!(paired.model.as_deref(), Some("amazon.nova-lite-v1:0"));
+        assert!(paired.cost.is_some() && models[0].cost.is_some());
+        assert_eq!(paired.flag, None);
+        assert_eq!(paired.reason, None);
+
+        // The unpaired one is unpriced, with a cause and the way out — never a bare label.
+        let unpaired = models[1].pricing.clone().expect("pricing is published");
+        assert_eq!(unpaired.state, "not_set");
+        assert!(models[1].cost.is_none(), "unpriced, not zero");
+        assert_eq!(unpaired.flag, Some("pricing not set"));
+        let reason = unpaired.reason.expect("an absence always has a reason");
+        assert!(reason.contains("no model is paired with this ARN"), "{reason}");
+        assert!(reason.contains("enter a price by hand"), "{reason}");
+
+        // Limits are the entry's own: unset stays unknown, never the paired model's values
+        // (FR-034a.6, SC-022).
+        assert_eq!(models[0].limit.context, None);
+        assert_eq!(models[0].caps.tool_call, None);
+
+        // Then the catalogue's Bedrock list, unchanged, and it keeps the default.
+        assert!(models.len() > 100, "the catalogue's Bedrock models follow the entries");
+        assert!(models.iter().skip(2).any(|m| m.id == "amazon.nova-lite-v1:0"));
+        assert!(!models[0].default && !models[1].default);
+        let defaults: Vec<&str> =
+            models.iter().filter(|m| m.default).map(|m| m.id.as_str()).collect();
+        assert_eq!(defaults, vec![models[2].id.as_str()], "the first catalogue model is the default");
     }
 }
