@@ -43,7 +43,7 @@ Codebase facts come from the storage inventory of `upstream/master` at `2fa1eee`
 
 ## R5. Ordered sequences and one-winner transitions
 
-**Decision**: `session_history.seq` uses `BIGINT GENERATED ALWAYS AS IDENTITY` on PostgreSQL; on SQLite the existing `MAX(seq)+1` stays inside the write transaction (SQLite's database-level write lock serialises it). Revision ordinals (`core_revision`, `memory_revision`) are allocated with `SELECT … FOR UPDATE` on the parent row in PostgreSQL via `dialect.lock_for_update()` (empty on SQLite). Guarded transitions keep their `UPDATE … WHERE state = ?` form and check the affected-row count.
+**Decision**: `session_history.seq` uses `BIGINT GENERATED ALWAYS AS IDENTITY` on PostgreSQL; on SQLite the existing `MAX(seq)+1` stays inside the write transaction (SQLite's database-level write lock serialises it). Revision ordinals (`core_revision`, `memory_revision`) stay read-then-insert inside a transaction that first takes a per-document key lock (`Connection::lock_key` → `dialect.key_lock_sql()`: `pg_advisory_xact_lock(hashtext(key))` on PostgreSQL, nothing on SQLite, whose `BEGIN IMMEDIATE` already excludes writers). Guarded transitions keep their `UPDATE … WHERE state = ?` form and check the affected-row count.
 
 **Rationale**: FR-011/FR-012 need database-level guarantees, not the process mutex.
 
@@ -53,7 +53,7 @@ Codebase facts come from the storage inventory of `upstream/master` at `2fa1eee`
 
 ## R7. Full-text memory search
 
-**Decision**: SQLite keeps FTS5. PostgreSQL uses a `tsvector` generated column on `memory` plus a GIN index, queried through `dialect.memory_text_search(...)`. Ranking may differ; SC-005 measures top-5 agreement on a fixed query set.
+**Decision**: Nothing to port. FTS5 `memory_fts` indexes only the legacy flat `memory` table and no storage statement queries it (memory search is passage + vector based, R6), so PostgreSQL gets no full-text index. SC-005 compares vector search only.
 
 ## R8. Files: one `BlobStore`, hand-rolled S3
 
@@ -77,11 +77,11 @@ Codebase facts come from the storage inventory of `upstream/master` at `2fa1eee`
 
 ## R12. Migration command
 
-**Decision**: `vizier storage migrate --from-workspace <dir> [--to-postgres-env VIZIER_DATABASE_URL] [--objects s3]`: acquires the source workspace lock (stopped source), opens source SQLite read-only and runs its pending legacy startup migrations first, creates the destination schema, then copies tables in foreign-key order with generic `SELECT *` / `INSERT` through `SqlConn` (values move as typed `SqlValue`, so encryption envelopes copy byte-for-byte), copies vectors table by table, uploads blobs with size + SHA-256 verification, records progress in `storage_migration` for resume, and prints a counts/checksum report. Refuses a completed source fingerprint unless `--reset-destination`.
+**Decision**: `vizier storage migrate --workspace <dir> --storage postgres [--objects s3]`: acquires the source workspace lock (stopped source), opens SQLite read-only and verifies that it already has this binary's schema (otherwise instructing the operator to start it once before migration), creates the destination schema, then copies tables in foreign-key order through `SqlConn` (values move as typed `SqlValue`, so encryption envelopes copy byte-for-byte), copies vectors table by table, uploads blobs with size + SHA-256 verification, records progress in `storage_migration` for resume, and prints a counts/checksum report. Refuses a completed source fingerprint unless `--reset-destination`.
 
 ## R13. Conformance tests
 
-**Decision**: Backend-agnostic storage tests use `tests_support::storages()` which yields SQLite always and PostgreSQL when `VIZIER_TEST_DATABASE_URL` is set (each test in its own schema); blob tests run against local and, when `VIZIER_TEST_S3_ENDPOINT` is set, MinIO. CI adds a job with `pgvector/pgvector` and `minio` service containers. The existing in-memory SQLite harnesses keep working through `SqlStorage::sqlite_in_memory()`.
+**Decision**: Backend-agnostic storage tests use `tests_support::test_store()` and `postgres_tests!`; SQLite always runs and PostgreSQL runs when `VIZIER_TEST_DATABASE_URL` is set, with each test in its own schema. Blob tests run against local storage and, when `VIZIER_TEST_S3_ENDPOINT` is set, MinIO. CI adds a managed-storage job with `pgvector/pgvector` and MinIO. Existing in-memory SQLite harnesses keep working through `SqlStore::sqlite`.
 
 ## R14. Configuration
 

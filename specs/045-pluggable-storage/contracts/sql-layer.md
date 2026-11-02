@@ -46,8 +46,8 @@ pub trait Dialect: Sync {
     fn json_text(&self, column: &str, path: &[&str]) -> String;   // SQL expression yielding TEXT or NULL
     fn json_array_len(&self, column: &str) -> String;
     fn day_of_millis(&self, column: &str) -> String;                // 'YYYY-MM-DD'
-    fn lock_for_update(&self) -> &'static str;                      // "" | " FOR UPDATE"
-    fn memory_text_match(&self) -> MemoryTextMatch;                 // FTS5 vs tsvector query shapes
+    fn key_lock_sql(&self) -> Option<&'static str>;                 // None | "SELECT pg_advisory_xact_lock(hashtext(?1))"
+    fn next_sequence_value(&self, table: &str, column: &str) -> String; // "(SELECT IFNULL(MAX(col),0)+1 FROM t)" | "DEFAULT" (identity)
 }
 ```
 
@@ -55,10 +55,10 @@ New dialect methods are added only when a statement cannot be written portably.
 
 ## Storage type
 
-`SqliteStorage` is renamed `SqlStorage { sql: SqlStore, documents: Arc<dyn DocumentStore>, cipher, secret_paths, session_files }`. Constructors:
+`SqliteStorage` is renamed `SqlStorage { conn: SqlStore, document_store: Arc<dyn DocumentStore>, cipher, secret_paths, session_files }`. `SqlStorage::new` constructs the shared trait implementation from an already-open store and document adapter; `with_secrets` enables production encryption. Backend construction is centralized:
 
-- `SqlStorage::sqlite(conn: rusqlite::Connection, …)` — today's behavior (runs `init_schema`).
-- `SqlStorage::postgres(pool, …)` — runs PostgreSQL migrations.
-- `SqlStorage::sqlite_in_memory()` — tests.
+- `storage::open_store(config)` opens SQLite and runs its idempotent initialization, or opens PostgreSQL and runs ordered migrations.
+- `SqlStorage::open_read_only(workspace)` and `expected_schema()` exist only for the offline migration.
+- Test harnesses construct `SqlStore::sqlite(conn)` or a schema-scoped `PgPool`.
 
 `BundleMemoryStore` takes `SqlStore` instead of `Arc<Mutex<Connection>>`.

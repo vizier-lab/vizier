@@ -30,7 +30,7 @@ Existing configs (`type: sqlite`, no `objects`) are unchanged. `type: filesystem
 | — | `VIZIER_S3_BUCKET`, `VIZIER_S3_REGION`, `VIZIER_S3_ENDPOINT`, `VIZIER_S3_PATH_STYLE`, `VIZIER_S3_PREFIX` | override YAML |
 | — | `VIZIER_S3_ACCESS_KEY_ID`, `VIZIER_S3_SECRET_ACCESS_KEY`, `VIZIER_S3_SESSION_TOKEN` | credentials (fallback `AWS_*`) |
 
-Credentials and URLs are never accepted as CLI arguments and are redacted from `Debug` and serialized config.
+Database URLs and credentials are never accepted as CLI arguments and are redacted from `Debug` and serialized config. The non-secret S3 service endpoint may be configured in YAML.
 
 ## Startup validation (FR-004)
 
@@ -50,7 +50,7 @@ Refuse to start, exit code 1, with one of these stable messages (no URL, user, p
 ## Migration command
 
 ```text
-vizier storage migrate --workspace <dir> [--reset-destination] [--dry-run]
+vizier storage migrate --workspace <dir> [--reset-destination]
 ```
 
 Destination comes from the same `storage`/`objects` configuration and environment (must be `postgres`, and `s3` or `local`). Progress lines go to stderr; the final report is JSON on stdout:

@@ -75,7 +75,7 @@ crates/vizier-core/src/
 │   │   ├── sqlite.rs            # SqliteConn / SqlitePool over rusqlite
 │   │   ├── postgres.rs          # PgConn / PgPool over postgres + r2d2
 │   │   └── postgres/migrations/NNNN_*.sql
-│   ├── sqlite/ → sql_impl/      # the 29 trait impls, converted to SqlConn (module keeps its files)
+│   ├── sqlite/                 # the shared storage trait impls, converted to SqlConn
 │   ├── memory_bundle.rs         # over SqlStore
 │   ├── blob/                    # NEW: BlobStore, BlobKey, local.rs, s3.rs
 │   └── document/mod.rs          # DocumentStore over BlobStore
@@ -84,12 +84,12 @@ crates/vizier-core/src/
 ├── artifacts/{mod,paths}.rs     # versions via BlobStore
 ├── service/files.rs             # streaming locate
 ├── dependencies.rs              # backend construction, as_sqlite() legacy gate
-└── storage/migrate/             # NEW: sqlite+local → postgres+objects copier
+└── storage/migrate.rs          # NEW: sqlite+local → postgres+objects copier
 crates/vizier-http/src/api/v1/{files.rs, agents/artifacts.rs}   # Body::from_stream
 crates/vizier/src/cli/{run.rs, storage.rs}                       # --storage/--objects, storage migrate
 app/src-tauri/src/engine.rs                                      # pin Sqlite + Local
 .github/workflows/ci.yml                                         # postgres + minio job
-docs/src/configuration/storage.md                                # NEW
+docs/src/configuration/storage-shell.md                          # backend and migration guide
 ```
 
 **Structure Decision**: No new crate. The shared implementation keeps its per-domain files; only the connection type underneath changes.
@@ -97,7 +97,7 @@ docs/src/configuration/storage.md                                # NEW
 ## Phase Sequencing
 
 1. **SQL layer** (`refactor: run storage over a backend-neutral connection`): `storage/sql` with `SqliteConn`; convert every `storage/sqlite/*.rs`, `memory_bundle.rs`, the indexer and outside-storage SQL to `SqlConn`. SQLite behavior identical; existing tests green. Parallelisable per file once `sql/mod.rs` exists.
-2. **PostgreSQL backend** (`feat: add a PostgreSQL storage backend`): `PgConn`, migrations, dialect, `PgIndexer`, tsvector search, identity `seq`, config/CLI, startup validation, parametrised tests.
+2. **PostgreSQL backend** (`feat: add a PostgreSQL storage backend`): `PgConn`, migrations, dialect, `PgIndexer`, identity `seq`, per-document revision locks, config/CLI, startup validation, parametrised tests.
 3. **BlobStore** (`feat: store files through a pluggable blob store`): trait, local, S3, consumers, streaming HTTP.
 4. **Migration command** (`feat: migrate a workspace to PostgreSQL and object storage`).
 5. **CI + docs** (`doc: document storage backends`).

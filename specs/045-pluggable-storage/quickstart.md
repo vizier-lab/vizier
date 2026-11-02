@@ -18,8 +18,11 @@ export VIZIER_S3_ACCESS_KEY_ID=vizier VIZIER_S3_SECRET_ACCESS_KEY=vizier-secret
 
 ```sh
 cargo test --workspace                       # SQLite + local only
-VIZIER_TEST_DATABASE_URL=$VIZIER_DATABASE_URL VIZIER_TEST_S3_ENDPOINT=$VIZIER_S3_ENDPOINT \
-  cargo test -p vizier-core storage::         # same suite on PostgreSQL + MinIO
+VIZIER_TEST_DATABASE_URL=$VIZIER_DATABASE_URL \
+VIZIER_TEST_S3_ENDPOINT=$VIZIER_S3_ENDPOINT \
+VIZIER_TEST_S3_ACCESS_KEY_ID=$VIZIER_S3_ACCESS_KEY_ID \
+VIZIER_TEST_S3_SECRET_ACCESS_KEY=$VIZIER_S3_SECRET_ACCESS_KEY \
+  cargo test -p vizier-core --lib             # storage suite again on PostgreSQL + MinIO
 cargo test -p vizier-core --no-default-features
 cargo clippy --workspace --all-targets
 ```
@@ -78,7 +81,15 @@ Interrupt a second, fresh run (`--reset-destination`) with Ctrl-C during blob up
 
 ## 6. Concurrency (SC-004)
 
-`cargo test -p vizier-core storage::sql::tests::concurrent_history_seq -- --ignored` with `VIZIER_TEST_DATABASE_URL` set: 50 writers × 200 inserts, zero duplicate or missing `seq`; 10,000 racing `running → reporting` transitions, exactly one winner each.
+With `VIZIER_TEST_DATABASE_URL` set, run:
+
+```sh
+cargo test -p vizier-core fifty_postgres_writers_allocate_contiguous_history_positions -- --nocapture
+cargo test -p vizier-core ten_thousand_postgres_transitions_have_one_winner -- --nocapture
+cargo test -p vizier-core concurrent_writers_get_contiguous_numbers -- --nocapture
+```
+
+The managed-storage CI job also covers all three through the full library suite. They exercise 50 concurrent history writers × 200 inserts, 10,000 racing `running → reporting` transitions with exactly one winner, and 50 concurrent revision writers.
 
 ## Cleanup
 

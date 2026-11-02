@@ -1,29 +1,26 @@
 <!--
 Sync Impact Report
 ==================
-Version change: 1.2.0 → 1.3.0
-Modified principles: none
+Version change: 1.3.0 → 2.0.0
+Modified principles:
+  - III. Self-Contained, Zero-Dependency Runtime — embedded SQLite/local
+    storage remains the mandatory zero-setup default; PostgreSQL and
+    S3-compatible storage are now permitted as strictly opt-in server
+    deployment backends.
 Added sections: none
+Removed sections: none
 Modified sections:
-  - Development Workflow & Quality Gates — added "Matching submodule
-    branches, driven by `just`" (every spec branch MUST exist under the same
-    name in the workspace and in every submodule; cross-repo git work goes
-    through the Justfile recipes) and widened "Conventional commits" from
-    commits to commit messages AND pull request titles, in every repo
-    (workspace and submodules), including Spec Kit auto-commits.
+  - Distribution & Technology Constraints — documents the embedded default
+    and the optional managed-storage topology.
 Templates requiring updates:
-  - .specify/templates/tasks-template.md ✅ updated (commit guidance names
-    `just commit` and conventional format)
-  - .specify/extensions/git/git-config.yml ✅ updated (auto-commit and init
-    messages were "[Spec Kit] ..."; now conventional commits)
   - .specify/templates/plan-template.md ✅ no change needed (Constitution
     Check reads the gates from this file)
-  - .specify/templates/spec-template.md, checklist-template.md ✅ no change
-  - CLAUDE.md ✅ updated (Commands section lists the branch/commit recipes)
-Follow-up TODOs:
-  - The Spec Kit `speckit.git.feature` hook (create-new-feature.sh) creates
-    the branch in the workspace only; run `just checkout <branch>` after it
-    to create the submodule branches. Not scripted yet.
+  - .specify/templates/spec-template.md ✅ no change needed
+  - .specify/templates/tasks-template.md ✅ no change needed
+  - AGENTS.md ✅ updated with the shared SQL and blob-store architecture
+  - docs/src/configuration/storage-shell.md ✅ updated with backend setup,
+    topology, backups and migration
+Follow-up TODOs: none
 -->
 
 # Vizier Constitution
@@ -63,21 +60,24 @@ storage, and tool matrices (`VizierStorageProvider`, `VizierTool`,
 threat to long-term leanness — every duplicated branch is a second place a
 future bug fix or provider quirk must be remembered and applied.
 
-### III. Self-Contained, Zero-Dependency Runtime
+### III. Self-Contained Default, Optional Managed Services
 A built release binary MUST run without requiring the user to install,
 configure, or connect to any external service — no external database,
-message broker, cache, or reverse proxy. Storage MUST remain embedded
-(bundled SQLite); the WebUI's static assets MUST be embedded into the
-binary at build time, not fetched or served from a separate deployment. Configuration MUST have working built-in defaults
-("config-less mode") so `vizier run` with zero setup is always a valid
-starting point. Any feature that inherently needs a network resource at
-runtime (a model provider API, an optional embedding-model download) MUST
-be opt-in and clearly degrade — never a requirement for the default path.
+message broker, cache, or reverse proxy. The default database and file
+backends MUST remain bundled SQLite and the local workspace, and the WebUI's
+static assets MUST remain embedded into the binary. Configuration MUST have
+working built-in defaults ("config-less mode") so `vizier run` with zero
+setup is always a valid starting point. Server operators MAY explicitly
+select managed PostgreSQL and S3-compatible storage; those backends MUST be
+strictly opt-in, independently selectable, and MUST NOT affect the default
+path or the desktop app. Any other feature that inherently needs a network
+resource at runtime (a model provider API, an optional embedding-model
+download) MUST likewise be opt-in and clearly degrade.
 
 **Rationale**: The project ships as `curl | sh` and `cargo install`
-one-binary installs. Any hidden runtime dependency (a required external DB,
-an assumed sidecar process, non-embedded static assets) breaks that promise
-and pushes operational burden onto the user.
+one-binary installs, while server operators also need durable managed
+storage. Preserving embedded defaults protects the zero-operations promise;
+making managed services explicit avoids hidden runtime dependencies.
 
 ### IV. Portability by Default
 Code MUST NOT assume a specific OS, filesystem layout, or CPU
@@ -113,16 +113,14 @@ instead of each module reinventing its own convention.
 
 ## Distribution & Technology Constraints
 
-- **No required external services**: the only supported storage backend is
-  embedded SQLite (`rusqlite` with the `bundled` feature — statically
-  linked, no system SQLite dependency). A prior filesystem-based backend
-  was removed once agent memory itself moved onto a pluggable
-  `DocumentStore` abstraction writing human-readable documents to disk
-  (see `specs/004-memory-open-format/`), leaving no remaining entity that
-  needed a second, flat-file storage backend. Adding a storage backend
-  that requires a running external server (Postgres, Redis, etc.) as the
-  *only* option is out of scope for this project; such a backend, if ever
-  added, MUST remain strictly opt-in and additive.
+- **No required external services**: embedded SQLite (`rusqlite` with the
+  `bundled` feature) and local workspace files are the default and MUST
+  remain fully supported without system services. PostgreSQL with pgvector
+  and S3-compatible object storage are supported only as explicit,
+  additive server choices; neither may become the sole backend or a desktop
+  dependency. The prior flat-file entity backend survives only as a
+  migration source; human-readable memory documents now use the shared
+  `DocumentStore`/`BlobStore` abstraction on either local or S3 storage.
 - **Single-binary output**: `cargo build --release` (with the WebUI
   pre-built or `webui/node_modules` present) MUST produce one self-contained
   executable capable of serving the WebUI, running channels, and persisting
@@ -226,4 +224,4 @@ service or non-embedded runtime dependency). Deviations MUST be justified
 in the PR description (equivalent to the plan template's Complexity
 Tracking table) or the change MUST be revised before merge.
 
-**Version**: 1.3.0 | **Ratified**: 2026-08-13 | **Last Amended**: 2026-10-30
+**Version**: 2.0.0 | **Ratified**: 2026-08-13 | **Last Amended**: 2026-11-02

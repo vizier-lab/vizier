@@ -7,9 +7,9 @@ Commands:
   run       Run vizier agents, servers and channels
   shutdown  Stop a running instance
   onboard   Interactive wizard that writes a seed .vizier.yaml
+  storage   Move an embedded workspace to managed storage
   skill     Manage skills (install, list, uninstall, update)
   agent     Manage and inspect agents
-```
 
 `vizier --version` / `vizier <cmd> --help` work as usual.
 
@@ -31,7 +31,8 @@ vizier run --port 8080 --data-dir /srv/vizier --workers 8
 | `--port <PORT>` | HTTP port (overrides config) |
 | `--workspace <PATH>` | Workspace directory (overrides config and `VIZIER_DATA_DIR`) |
 | `--data-dir <PATH>` | Alias of `--workspace`; wins if both are given |
-| `--storage <STORAGE>` | `sqlite` is the only accepted value (`filesystem` is rejected by clap) |
+| `--storage <STORAGE>` | Database: `sqlite` (default) or `postgres` (URL from `VIZIER_DATABASE_URL`); `filesystem` is rejected. See [Storage](./storage-shell.md#storage) |
+| `--objects <OBJECTS>` | Files: `local` (default) or `s3` (`VIZIER_S3_*` variables) |
 | `--workers <N>` | Tokio worker threads |
 | `--ws-idle-timeout <SECS>` | WebSocket idle timeout |
 | `--catalogue-refresh <true\|false>` | Allow the lazy models.dev catalogue check (default `true`) |
@@ -64,6 +65,15 @@ vizier onboard [-p <PATH>]
 Prompts for: HTTP port, JWT secret (random default), worker threads, WebSocket idle timeout. Shows a preview and asks to confirm before writing. Storage is always SQLite; providers are connected in the WebUI (Settings › Providers) or through their environment variables.
 
 It does **not** create users, providers or agents — do that in the WebUI after `vizier run`. Embedding is configured per agent, not here.
+
+## `vizier storage`
+
+```sh
+vizier storage migrate --workspace <SOURCE> [-c <DEST_CONFIG>] \
+  [--storage postgres] [--objects local|s3] [--reset-destination]
+```
+
+Copies a stopped SQLite/local workspace into PostgreSQL and the configured file backend. The PostgreSQL URL and S3 credentials come from environment variables, never arguments. Progress and errors go to stderr; success prints one JSON report to stdout. Exit `0` means complete, `1` means failed but resumable, and `2` means refused without changing the destination. A completed source fingerprint is refused unless `--reset-destination` is passed. See [Moving an existing workspace](./storage-shell.md#moving-an-existing-workspace).
 
 ## `vizier agent`
 
@@ -104,7 +114,8 @@ The image (`blinfoldking/vizier`, also `ghcr.io/vizier-lab/vizier`) runs `vizier
 | `VIZIER_CONFIG` | `-c` | unset (config-less) |
 | `VIZIER_DATA_DIR` / `VIZIER_WORKSPACE` | `--data-dir` | `$HOME/.vizier` inside the container — mount a volume |
 | `VIZIER_PORT` | `--port` | `9999` |
-| `VIZIER_STORAGE` | `--storage` | `sqlite` (only valid value) |
+| `VIZIER_STORAGE` | `--storage` | `sqlite` |
+| `VIZIER_OBJECTS` | `--objects` | `local` |
 | `VIZIER_WORKERS` | `--workers` | `4` |
 | `VIZIER_WS_IDLE_TIMEOUT` | `--ws-idle-timeout` | `300` |
 | `VIZIER_CATALOGUE_REFRESH` | `--catalogue-refresh` | `true` |

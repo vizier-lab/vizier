@@ -14,6 +14,12 @@ No domain entity changes meaning. Every existing table exists on both backends w
 
 Booleans stay integers (0/1) on PostgreSQL so row mapping is shared.
 
+Every PostgreSQL text column is `COLLATE "C"`, so ordering, comparison and uniqueness are byte-wise like SQLite's `BINARY` collation regardless of the database locale.
+
+## New: `rowid` (PostgreSQL only)
+
+`message_reaction`, `client_tool_call`, `question_set`, `sensitive_ask` and `agent_secret_event` have `rowid BIGINT GENERATED ALWAYS AS IDENTITY`, standing in for SQLite's implicit rowid, so the `ORDER BY …, rowid` insertion-order tie-breaks read the same on both backends.
+
 ## New: `vizier_schema_migrations` (PostgreSQL only)
 
 | Field | Type | Rules |
@@ -28,9 +34,9 @@ Applied in order under `pg_advisory_xact_lock(hashtext('vizier_schema'))`. Start
 
 PostgreSQL: `BIGINT GENERATED ALWAYS AS IDENTITY`, unique. SQLite: unchanged (`MAX(seq)+1` inside the write transaction).
 
-## New: `memory.search_tsv` (PostgreSQL only)
+## Not ported: `memory_fts`
 
-`tsvector GENERATED ALWAYS AS (to_tsvector('simple', coalesce(title,'') || ' ' || coalesce(body,''))) STORED` with a GIN index; replaces FTS5 `memory_fts` on that backend.
+SQLite's FTS5 table and its triggers index only the legacy flat `memory` table, which nothing queries any more (memory search goes through passages and vectors). PostgreSQL gets no full-text equivalent.
 
 ## New: `document_index_d<N>` (PostgreSQL)
 
