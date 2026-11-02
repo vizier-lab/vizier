@@ -11,6 +11,22 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::VizierError;
 
+/// A read returns at most this many characters when the caller names no budget.
+pub const DEFAULT_MAX_CHARS: usize = 100_000;
+/// Rendering scale bounds; 1.0 is 72 DPI.
+pub const MIN_SCALE: f32 = 0.1;
+pub const MAX_SCALE: f32 = 4.0;
+pub const DEFAULT_SCALE: f32 = 1.5;
+
+/// The scale a render will really use: the default when none (or a non-number) is given,
+/// otherwise the request held to the supported range.
+pub fn effective_scale(scale: Option<f32>) -> f32 {
+    match scale {
+        Some(s) if s.is_finite() => s.clamp(MIN_SCALE, MAX_SCALE),
+        _ => DEFAULT_SCALE,
+    }
+}
+
 /// Structured result of reading a PDF document as Markdown.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 pub struct PdfRead {
@@ -54,16 +70,17 @@ pub fn to_markdown(
         opts = opts.with_pages(1, limit);
     }
 
-    if let Some(chars) = max_chars {
-        opts = opts.with_max_chars(chars);
-    }
+    opts = opts.with_max_chars(max_chars.unwrap_or(DEFAULT_MAX_CHARS));
 
     if let Some(pwd) = password {
         opts = opts.with_password(pwd);
     }
 
-    let res = pdf_agent::PdfReader::read(bytes, Some(opts))
-        .map_err(|e| VizierError(format!("Failed to read PDF: {e}")))?;
+    let res = pdf_agent::PdfReader::read(bytes, Some(opts)).map_err(|e| {
+        // The library names its own option; the agent's argument is called `password`.
+        let message = e.to_string().replace("`password` in PdfReadOptions", "the `password` argument");
+        VizierError(format!("Failed to read PDF: {message}"))
+    })?;
 
     Ok(PdfRead {
         markdown: res.markdown,
@@ -74,7 +91,8 @@ pub fn to_markdown(
         truncated: res.truncated,
         failed_pages: res.failed_pages,
         scanned_likely: res.scanned_likely,
-        note: res.note,
+        // The library points at its own render function; the agent has a tool for it.
+        note: res.note.map(|n| n.replace("`pdf_render`", "office_pdf_render_page_as_png")),
     })
 }
 
@@ -85,7 +103,7 @@ pub fn render_page(
     page_number: usize,
     scale: Option<f32>,
 ) -> Result<(Vec<u8>, u32, u32), VizierError> {
-    let s = scale.unwrap_or(1.5).clamp(0.1, 4.0);
+    let s = effective_scale(scale);
     let page_img = pdf_agent::PdfRasterizer::render_page(bytes, page_number, s)
         .map_err(|e| VizierError(format!("Failed to render PDF page {page_number}: {e}")))?;
 
@@ -129,7 +147,13 @@ pub fn from_docx(docx_bytes: &[u8], title: Option<&str>) -> Result<Vec<u8>, Vizi
     let mut parser_opts = pulldown_cmark::Options::empty();
     parser_opts.insert(pulldown_cmark::Options::ENABLE_TABLES);
     parser_opts.insert(pulldown_cmark::Options::ENABLE_STRIKETHROUGH);
-    let parser = pulldown_cmark::Parser::new_ext(&docx_read.markdown, parser_opts);
+    // Word text is text: a paragraph that reads `<b>x</b>` must print that, not become markup.
+    let parser = pulldown_cmark::Parser::new_ext(&docx_read.markdown, parser_opts).map(|event| match event {
+        pulldown_cmark::Event::Html(raw) | pulldown_cmark::Event::InlineHtml(raw) => {
+            pulldown_cmark::Event::Text(raw)
+        }
+        other => other,
+    });
 
     let mut body_html = String::new();
     pulldown_cmark::html::push_html(&mut body_html, parser);

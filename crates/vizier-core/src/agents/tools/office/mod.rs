@@ -22,6 +22,8 @@ pub mod pdf;
 pub mod xlsx;
 #[cfg(test)]
 mod fixture_tests;
+#[cfg(test)]
+mod pdf_tests;
 
 pub use crate::agents::tools::session_files::{DOCX_MIME, PDF_MIME, PNG_MIME, XLS_MIME, XLSX_MIME};
 
@@ -172,6 +174,17 @@ fn wrong_tool(filename: &str, format: Format, wanted: &str) -> VizierError {
         }
     };
     VizierError(format!("{wanted} cannot read '{filename}': {hint}."))
+}
+
+/// Runs CPU-bound work (rendering, layout, parsing a large PDF) off the async runtime.
+async fn blocking<T, F>(work: F) -> Result<T, VizierError>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, VizierError> + Send + 'static,
+{
+    tokio::task::spawn_blocking(work)
+        .await
+        .map_err(|e| VizierError(format!("The PDF operation could not finish: {e}")))?
 }
 
 /// A session file's media type and bytes, or an error that names the files that do exist.
@@ -545,7 +558,7 @@ impl VizierTool for OfficePdfRead {
     }
 
     fn description(&self) -> String {
-        "Read a PDF document (.pdf) as structured Markdown with pagination and safety guards. Returns headings, paragraphs, lists, and tables as markdown text, along with page metadata (total_pages, page_start, page_end, next_page_start). Long documents can be paged with page_start and page_limit (default 10 pages). For scanned documents (images without a selectable text layer), scanned_likely is true; use office_pdf_render_page_as_png to view them visually."
+        "Read a PDF document (.pdf) as Markdown: headings, paragraphs, lists and tables. It reads page_limit pages (default 10) from page_start (default 1) and returns total_pages, page_start, page_end and, when pages remain, next_page_start: call again with that page to continue. Output is also cut at max_chars (default 100000, at most 200000); the result says truncated when it was cut. Images and drawings are skipped. A document with no selectable text sets scanned_likely: render its pages with office_pdf_render_page_as_png and look at them with read_image_file. Pages that could not be parsed are listed in failed_pages while the others are returned. For an encrypted file pass password. This only reads: no tool here edits, merges or fills in an existing PDF."
             .to_string()
     }
 
@@ -556,13 +569,10 @@ impl VizierTool for OfficePdfRead {
             return Err(wrong_tool(&args.filename, format, Self::name().as_str()));
         }
         let max_chars = args.max_chars.map(|c| c.clamp(1, READ_MAX_CHARS));
-        pdf::to_markdown(
-            &bytes,
-            args.page_start,
-            args.page_limit,
-            max_chars,
-            args.password.as_deref(),
-        )
+        blocking(move || {
+            pdf::to_markdown(&bytes, args.page_start, args.page_limit, max_chars, args.password.as_deref())
+        })
+        .await
     }
 }
 
@@ -586,6 +596,8 @@ pub struct PdfPageRendered {
     pub width: u32,
     pub height: u32,
     pub page: usize,
+    /// The scale the page was rendered at, after it was held to the supported range.
+    pub scale: f32,
 }
 
 pub struct OfficePdfRenderPage {
@@ -607,7 +619,7 @@ impl VizierTool for OfficePdfRenderPage {
     }
 
     fn description(&self) -> String {
-        "Render a single page (1-indexed) of a PDF document to a PNG image file in this conversation's files. Ideal for viewing scanned documents, visual charts, complex layouts, or diagrams with vision models via read_image_file."
+        "Render one page of a PDF (.pdf) to a PNG image saved as a file in this conversation, then look at it with read_image_file. Use it for scanned pages, charts, diagrams and layouts that text cannot show. page counts from 1 (default 1). scale is 0.1 to 4.0 (default 1.5; 1.0 is 72 DPI): a value outside that range is held to it, and the result returns the scale used with the image width and height in pixels. A page too large to render at that scale is an error: try a smaller scale. The file is named <pdf name>_page_<n>.png unless output_filename is given; a file of the same name is replaced."
             .to_string()
     }
 
@@ -618,7 +630,8 @@ impl VizierTool for OfficePdfRenderPage {
             return Err(wrong_tool(&args.filename, format, Self::name().as_str()));
         }
         let page = args.page.unwrap_or(1);
-        let (png_bytes, width, height) = pdf::render_page(&bytes, page, args.scale)?;
+        let scale = pdf::effective_scale(args.scale);
+        let (png_bytes, width, height) = blocking(move || pdf::render_page(&bytes, page, Some(scale))).await?;
 
         let default_name = {
             let base = args
@@ -648,6 +661,7 @@ impl VizierTool for OfficePdfRenderPage {
             width,
             height,
             page,
+            scale,
         })
     }
 }
@@ -681,12 +695,13 @@ impl VizierTool for OfficePdfWriteFromHtml {
     }
 
     fn description(&self) -> String {
-        "Create a PDF file from HTML and CSS styling and save it in this conversation's files. Supports full CSS layouts, typography, tables, and colors. A file of the same name is replaced."
+        "Create a new PDF file from HTML and CSS and save it as a file in this conversation. Put the styling in a <style> element: layout, typography, tables, borders and colours are supported (HTML up to 5 MB). Nothing outside the HTML is loaded: images and stylesheets by URL or from other files in the conversation are not available, and scripts do not run, so describe visuals with CSS and text. It always generates a new file and never edits an existing PDF. If a file with the same name already exists in this conversation it is replaced, so to make a version of an existing file use a new filename and the original is kept. .pdf is added to the name if missing. To deliver the result, call send_attachment with the returned filename."
             .to_string()
     }
 
     async fn call(&self, args: Self::Input, ctx: &ToolContext) -> Result<Self::Output, VizierError> {
-        let pdf_bytes = pdf::from_html(&args.html, args.title.as_deref())?;
+        let (html, title) = (args.html, args.title);
+        let pdf_bytes = blocking(move || pdf::from_html(&html, title.as_deref())).await?;
         write_session_file(
             &self.storage,
             &self.file_manager,
@@ -729,7 +744,7 @@ impl VizierTool for OfficePdfWriteFromDocx {
     }
 
     fn description(&self) -> String {
-        "Convert an existing Word document (.docx) in this conversation's files to a PDF file. Headings, lists, bold/italic, tables and links are preserved in the PDF output. A file of the same name is replaced."
+        "Convert a Word document (.docx) in this conversation to a new PDF file. Headings, bold and italic, lists, tables and links are carried over from the document's text; images, headers and footers, page numbers and tracked changes are not, and the layout is a clean document layout, not Word's own. The Word file is left unchanged. title is optional and is also shown as the first heading. It always generates a new file and never edits an existing PDF. If a file with the same name already exists in this conversation it is replaced, so use a new filename to keep the original. .pdf is added to the name if missing. To deliver the result, call send_attachment with the returned filename."
             .to_string()
     }
 
@@ -739,7 +754,8 @@ impl VizierTool for OfficePdfWriteFromDocx {
         if format != Format::Docx {
             return Err(wrong_tool(&args.docx_filename, format, Self::name().as_str()));
         }
-        let pdf_bytes = pdf::from_docx(&docx_bytes, args.title.as_deref())?;
+        let title = args.title;
+        let pdf_bytes = blocking(move || pdf::from_docx(&docx_bytes, title.as_deref())).await?;
         write_session_file(
             &self.storage,
             &self.file_manager,

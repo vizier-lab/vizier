@@ -84,4 +84,12 @@ mod tests {
         assert!(OfficeKind.validate("office", &Value::Null).is_ok());
         assert!(OfficeKind.validate("office", &json!({"x": 1})).is_err());
     }
+
+    #[test]
+    fn its_catalogue_text_covers_every_format() {
+        let description = OfficeKind.listing().description;
+        for format in ["Word", "Excel", "PDF"] {
+            assert!(description.contains(format), "{description}");
+        }
+    }
 }
