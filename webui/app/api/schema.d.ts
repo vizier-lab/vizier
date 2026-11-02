@@ -1417,6 +1417,42 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/providers/{id}/profiles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One entry. Used as the body of both the add and the replace, so a person sends exactly what a
+         *     response row holds and the ARN is always in clear (contracts §4, FR-022, FR-026).
+         */
+        get: operations["list_entries"];
+        put?: never;
+        post: operations["add_entry"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/providers/{id}/profiles/{arn}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["update_entry"];
+        post?: never;
+        delete: operations["remove_entry"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/providers/{id}/sso/accounts": {
         parameters: {
             query?: never;
@@ -2139,6 +2175,7 @@ export interface components {
                 name: string;
                 /** @description `server` for a local provider's live model the catalogue doesn't have. */
                 origin?: string | null;
+                pricing?: components["schemas"]["EntryPricingView"] | null;
                 /** Format: date */
                 release_date?: string | null;
                 status: components["schemas"]["ModelStatus"];
@@ -2785,9 +2822,43 @@ export interface components {
                 name: string;
                 /** @description `server` for a local provider's live model the catalogue doesn't have. */
                 origin?: string | null;
+                pricing?: components["schemas"]["EntryPricingView"] | null;
                 /** Format: date */
                 release_date?: string | null;
                 status: components["schemas"]["ModelStatus"];
+            }[];
+            message?: string | null;
+            /** Format: int32 */
+            status: number;
+        };
+        APIResponse_Vec_ProfileEntryResponse: {
+            data?: {
+                /** @description The ARN exactly as saved (FR-027). */
+                arn: string;
+                /**
+                 * Format: int64
+                 * @description Unknown when unset — never "unsupported", never copied from the paired model (FR-028,
+                 *     FR-034a.6).
+                 */
+                context?: number | null;
+                /** @description The entry's name, or the profile id from its ARN when it has none (FR-026). */
+                display_name: string;
+                edited: boolean;
+                image_input?: boolean | null;
+                /** @description The catalogue model id the entry is priced from, when the person paired one (FR-034a.1). */
+                model?: string | null;
+                name?: string | null;
+                /** Format: int64 */
+                output?: number | null;
+                price?: components["schemas"]["Cost"] | null;
+                /**
+                 * @description What its usage will cost right now, computed from the entry's current state — the figure,
+                 *     or the absence with a cause-specific reason and the way out (contracts §4a, FR-034a.2,
+                 *     FR-034a.3, FR-034b, SC-021). Never stored, so re-picking a model or entering a price
+                 *     clears it with no manual edit.
+                 */
+                pricing: components["schemas"]["EntryPricingView"];
+                tool_call?: boolean | null;
             }[];
             message?: string | null;
             /** Format: int32 */
@@ -3985,6 +4056,26 @@ export interface components {
         };
         /** @enum {string} */
         EmbeddingProvider: "local" | "openrouter" | "ollama" | "openai" | "gemini" | "voyageai" | "mistral" | "together" | "cohere" | "copilot" | "bedrock";
+        /**
+         * @description One entry's `pricing` as the API reports it (contracts §4a): the state, the figure when there
+         *     is one, and — for every absence — the label plus a cause-specific reason that carries the way
+         *     out. Computed per request from the entry's current state, never stored (FR-034a.2, FR-034b,
+         *     SC-021). Fields that do not belong to an outcome are omitted, so the three absence shapes stay
+         *     distinct without a stored column.
+         */
+        EntryPricingView: {
+            cost?: components["schemas"]["Cost"] | null;
+            /** @description The label a person sees for an absence: `pricing not set` or `pricing not resolved`. */
+            flag?: string | null;
+            /** @description The paired catalogue id, for `from_catalogue` and `not_resolved`. */
+            model?: string | null;
+            /** @description Why it is unpriced and the way out: never empty, never shared between causes. */
+            reason?: string | null;
+            /** @description Where the figure came from, for `explicit` (`entered price`). */
+            source?: string | null;
+            /** @description `explicit`, `from_catalogue`, `not_resolved`, `not_set` or `no_catalogue`. */
+            state: string;
+        };
         /** @enum {string} */
         ErrorKind: "completion" | "tool_timeout" | "prompt_timeout" | "rate_limited" | "provider_unavailable" | "agent_unavailable";
         /** @enum {string} */
@@ -4449,6 +4540,7 @@ export interface components {
             name: string;
             /** @description `server` for a local provider's live model the catalogue doesn't have. */
             origin?: string | null;
+            pricing?: components["schemas"]["EntryPricingView"] | null;
             /** Format: date */
             release_date?: string | null;
             status: components["schemas"]["ModelStatus"];
@@ -4622,6 +4714,13 @@ export interface components {
             /** Format: int64 */
             output?: number | null;
             price?: components["schemas"]["Cost"] | null;
+            /**
+             * @description What its usage will cost right now, computed from the entry's current state — the figure,
+             *     or the absence with a cause-specific reason and the way out (contracts §4a, FR-034a.2,
+             *     FR-034a.3, FR-034b, SC-021). Never stored, so re-picking a model or entering a price
+             *     clears it with no manual edit.
+             */
+            pricing: components["schemas"]["EntryPricingView"];
             tool_call?: boolean | null;
         };
         ProjectDetail: components["schemas"]["ProjectSummary"] & {
@@ -10620,6 +10719,183 @@ export interface operations {
                 };
             };
             /** @description Agents use this provider; `data` lists them */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_InUse"];
+                };
+            };
+        };
+    };
+    list_entries: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Provider id; only `amazon-bedrock-sso` has entries */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The saved entries, each with its ARN and computed pricing */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_Vec_ProfileEntryResponse"];
+                };
+            };
+            /** @description The provider is not an SSO connection */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_String"];
+                };
+            };
+        };
+    };
+    add_entry: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Provider id; only `amazon-bedrock-sso` has entries */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProfileEntry"];
+            };
+        };
+        responses: {
+            /** @description The whole list, now including the new entry */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_Vec_ProfileEntryResponse"];
+                };
+            };
+            /** @description The ARN, a duplicate, a region mismatch or a pricing field is refused */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_String"];
+                };
+            };
+        };
+    };
+    update_entry: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Provider id; only `amazon-bedrock-sso` has entries */
+                id: string;
+                /** @description The saved ARN, URL-encoded; it is in the path so a person can verify which entry is being replaced */
+                arn: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProfileEntry"];
+            };
+        };
+        responses: {
+            /** @description The whole list, with the entry replaced */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_Vec_ProfileEntryResponse"];
+                };
+            };
+            /** @description A validation rule is refused */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_String"];
+                };
+            };
+            /** @description No entry holds this ARN */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_String"];
+                };
+            };
+            /** @description Changing the ARN would remove the profile an agent uses; `data` lists them */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_InUse"];
+                };
+            };
+        };
+    };
+    remove_entry: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Provider id; only `amazon-bedrock-sso` has entries */
+                id: string;
+                /** @description The saved ARN, URL-encoded */
+                arn: string;
+                confirm: boolean;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The whole list, without the entry */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_Vec_ProfileEntryResponse"];
+                };
+            };
+            /** @description The provider is not an SSO connection */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_String"];
+                };
+            };
+            /** @description No entry holds this ARN */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_String"];
+                };
+            };
+            /** @description An agent still chats through it; `data` lists them */
             409: {
                 headers: {
                     [name: string]: unknown;

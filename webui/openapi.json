@@ -7163,6 +7163,253 @@
         }
       }
     },
+    "/providers/{id}/profiles": {
+      "get": {
+        "tags": [
+          "api::v1::providers"
+        ],
+        "summary": "One entry. Used as the body of both the add and the replace, so a person sends exactly what a\nresponse row holds and the ARN is always in clear (contracts §4, FR-022, FR-026).",
+        "operationId": "list_entries",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Provider id; only `amazon-bedrock-sso` has entries",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The saved entries, each with its ARN and computed pricing",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_Vec_ProfileEntryResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The provider is not an SSO connection",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "api::v1::providers"
+        ],
+        "operationId": "add_entry",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Provider id; only `amazon-bedrock-sso` has entries",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProfileEntry"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The whole list, now including the new entry",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_Vec_ProfileEntryResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The ARN, a duplicate, a region mismatch or a pricing field is refused",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/providers/{id}/profiles/{arn}": {
+      "put": {
+        "tags": [
+          "api::v1::providers"
+        ],
+        "operationId": "update_entry",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Provider id; only `amazon-bedrock-sso` has entries",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "arn",
+            "in": "path",
+            "description": "The saved ARN, URL-encoded; it is in the path so a person can verify which entry is being replaced",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProfileEntry"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The whole list, with the entry replaced",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_Vec_ProfileEntryResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A validation rule is refused",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No entry holds this ARN",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Changing the ARN would remove the profile an agent uses; `data` lists them",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_InUse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "api::v1::providers"
+        ],
+        "operationId": "remove_entry",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Provider id; only `amazon-bedrock-sso` has entries",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "arn",
+            "in": "path",
+            "description": "The saved ARN, URL-encoded",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "confirm",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The whole list, without the entry",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_Vec_ProfileEntryResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The provider is not an SSO connection",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No entry holds this ARN",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "An agent still chats through it; `data` lists them",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_InUse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/providers/{id}/sso/accounts": {
       "get": {
         "tags": [
@@ -9968,6 +10215,17 @@
                 ],
                 "description": "`server` for a local provider's live model the catalogue doesn't have."
               },
+              "pricing": {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/EntryPricingView",
+                    "description": "An inference-profile entry's computed pricing (contracts §5); absent for catalogue\nmodels, which carry their own `cost`."
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "release_date": {
                 "type": [
                   "string",
@@ -12388,6 +12646,17 @@
                   ],
                   "description": "`server` for a local provider's live model the catalogue doesn't have."
                 },
+                "pricing": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/EntryPricingView",
+                      "description": "An inference-profile entry's computed pricing (contracts §5); absent for catalogue\nmodels, which carry their own `cost`."
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
                 "release_date": {
                   "type": [
                     "string",
@@ -12397,6 +12666,108 @@
                 },
                 "status": {
                   "$ref": "#/components/schemas/ModelStatus"
+                }
+              }
+            }
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "APIResponse_Vec_ProfileEntryResponse": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "One saved inference-profile entry as the settings row shows it (contracts §4): the ARN the\nperson pasted, the limits they set, the optional pricing pairing, and a name to show for it.",
+              "required": [
+                "arn",
+                "edited",
+                "display_name",
+                "pricing"
+              ],
+              "properties": {
+                "arn": {
+                  "type": "string",
+                  "description": "The ARN exactly as saved (FR-027)."
+                },
+                "context": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "int64",
+                  "description": "Unknown when unset — never \"unsupported\", never copied from the paired model (FR-028,\nFR-034a.6).",
+                  "minimum": 0
+                },
+                "display_name": {
+                  "type": "string",
+                  "description": "The entry's name, or the profile id from its ARN when it has none (FR-026)."
+                },
+                "edited": {
+                  "type": "boolean"
+                },
+                "image_input": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
+                "model": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "The catalogue model id the entry is priced from, when the person paired one (FR-034a.1)."
+                },
+                "name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "output": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "int64",
+                  "minimum": 0
+                },
+                "price": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/Cost",
+                      "description": "The hand-entered cost, when there is one (FR-034a.4)."
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "pricing": {
+                  "$ref": "#/components/schemas/EntryPricingView",
+                  "description": "What its usage will cost right now, computed from the entry's current state — the figure,\nor the absence with a cause-specific reason and the way out (contracts §4a, FR-034a.2,\nFR-034a.3, FR-034b, SC-021). Never stored, so re-picking a model or entering a price\nclears it with no manual edit."
+                },
+                "tool_call": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
                 }
               }
             }
@@ -16761,6 +17132,58 @@
           "bedrock"
         ]
       },
+      "EntryPricingView": {
+        "type": "object",
+        "description": "One entry's `pricing` as the API reports it (contracts §4a): the state, the figure when there\nis one, and — for every absence — the label plus a cause-specific reason that carries the way\nout. Computed per request from the entry's current state, never stored (FR-034a.2, FR-034b,\nSC-021). Fields that do not belong to an outcome are omitted, so the three absence shapes stay\ndistinct without a stored column.",
+        "required": [
+          "state"
+        ],
+        "properties": {
+          "cost": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Cost",
+                "description": "The resolved figure, for the two priced states."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "flag": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The label a person sees for an absence: `pricing not set` or `pricing not resolved`."
+          },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The paired catalogue id, for `from_catalogue` and `not_resolved`."
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why it is unpriced and the way out: never empty, never shared between causes."
+          },
+          "source": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Where the figure came from, for `explicit` (`entered price`)."
+          },
+          "state": {
+            "type": "string",
+            "description": "`explicit`, `from_catalogue`, `not_resolved`, `not_set` or `no_catalogue`."
+          }
+        }
+      },
       "ErrorKind": {
         "type": "string",
         "enum": [
@@ -18461,6 +18884,17 @@
             ],
             "description": "`server` for a local provider's live model the catalogue doesn't have."
           },
+          "pricing": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/EntryPricingView",
+                "description": "An inference-profile entry's computed pricing (contracts §5); absent for catalogue\nmodels, which carry their own `cost`."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "release_date": {
             "type": [
               "string",
@@ -18891,7 +19325,8 @@
         "required": [
           "arn",
           "edited",
-          "display_name"
+          "display_name",
+          "pricing"
         ],
         "properties": {
           "arn": {
@@ -18951,6 +19386,10 @@
                 "type": "null"
               }
             ]
+          },
+          "pricing": {
+            "$ref": "#/components/schemas/EntryPricingView",
+            "description": "What its usage will cost right now, computed from the entry's current state — the figure,\nor the absence with a cause-specific reason and the way out (contracts §4a, FR-034a.2,\nFR-034a.3, FR-034b, SC-021). Never stored, so re-picking a model or entering a price\nclears it with no manual edit."
           },
           "tool_call": {
             "type": [
