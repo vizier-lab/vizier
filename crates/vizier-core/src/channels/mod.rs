@@ -2,7 +2,9 @@ use std::sync::Arc;
 
 use anyhow::Result;
 
-use crate::{channels::connections::ChannelConnections, dependencies::VizierDependencies};
+use crate::{
+    channels::connections::ChannelConnections, dependencies::VizierDependencies, runtime::Gate,
+};
 
 pub mod commands;
 pub mod connections;
@@ -43,9 +45,13 @@ pub struct ChannelReaders {
 }
 
 impl ChannelReaders {
-    pub fn new(deps: VizierDependencies) -> Self {
+    /// `gate` decides whether this node owns any reader right now: `vizier run --role all`
+    /// passes [`AlwaysYes`], a Fleet node its per-integration leases (#167).
+    ///
+    /// [`AlwaysYes`]: crate::runtime::AlwaysYes
+    pub fn new(deps: VizierDependencies, gate: Arc<dyn Gate>) -> Self {
         Self {
-            connections: Arc::new(ChannelConnections::new(deps)),
+            connections: Arc::new(ChannelConnections::new(deps, gate)),
         }
     }
 

@@ -1,4 +1,4 @@
-use std::{collections::HashMap, str::FromStr, time::Duration};
+use std::{collections::HashMap, str::FromStr, sync::Arc, time::Duration};
 
 use anyhow::Result;
 use chrono::{DateTime, TimeZone, Utc};
@@ -6,6 +6,7 @@ use croner::Cron;
 
 use crate::{
     dependencies::VizierDependencies,
+    runtime::Gate,
     schema::{
         Task, TaskRunState, TaskSchedule, VizierChannelId, VizierRequest, VizierResponse,
         VizierResponseContent, VizierSession,
@@ -20,14 +21,20 @@ use dream::DreamScheduler;
 pub struct VizierScheduler {
     deps: VizierDependencies,
     dream_scheduler: DreamScheduler,
+    /// Whether this node owns control. `vizier run --role all` asks [`AlwaysYes`], so nothing
+    /// changes there; a Fleet node asks its lease (#166).
+    ///
+    /// [`AlwaysYes`]: crate::runtime::AlwaysYes
+    gate: Arc<dyn Gate>,
 }
 
 impl VizierScheduler {
-    pub async fn new(deps: VizierDependencies) -> Result<VizierScheduler> {
+    pub async fn new(deps: VizierDependencies, gate: Arc<dyn Gate>) -> Result<VizierScheduler> {
         let dream_scheduler = DreamScheduler::new(deps.clone());
         Ok(VizierScheduler {
             deps,
             dream_scheduler,
+            gate,
         })
     }
 
@@ -72,7 +79,9 @@ impl VizierScheduler {
     }
 
     pub async fn run(&mut self) -> Result<()> {
-        self.recover().await;
+        if self.gate.may_run() {
+            self.recover().await;
+        }
         let mut schedules: HashMap<(DateTime<Utc>, String), Task> = HashMap::new();
         let mut interval = tokio::time::interval(Duration::from_mins(1));
         // Startup already purged, so the first daily purge is a day from now.
@@ -81,6 +90,12 @@ impl VizierScheduler {
         loop {
             tokio::select! {
                 _ = interval.tick() => {
+                    // A closed gate is "not now", never "stop": a standby waits for the lease
+                    // and takes over on a later tick (#159), so the subsystem keeps running.
+                    if !self.gate.may_run() {
+                        tracing::debug!("the control gate is closed; skipping this tick");
+                        continue;
+                    }
                     // Task scheduling
                     if let Err(e) = self.tick_tasks(&mut schedules).await {
                         tracing::error!("Task scheduler error: {}", e);
@@ -102,6 +117,10 @@ impl VizierScheduler {
                     }
                 }
                 cmd = self.deps.transport.recv_dream_command() => {
+                    if !self.gate.may_run() {
+                        tracing::debug!("the control gate is closed; ignoring a dream command");
+                        continue;
+                    }
                     match cmd {
                         Ok(cmd) => {
                             tracing::info!("Received dream command for agent '{}'", cmd.agent_id);

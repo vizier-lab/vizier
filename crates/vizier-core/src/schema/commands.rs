@@ -113,6 +113,9 @@ pub enum CommandRequest {
     Exit,
     Status,
     HealthCheck,
+    /// The roles the running process takes (Fleet, #161). An older daemon answers
+    /// "unsupported command", so a newer CLI prints the roles only when it gets them.
+    Roles,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
