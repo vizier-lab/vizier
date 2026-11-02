@@ -153,6 +153,17 @@ struct Target {
     sso_region: String,
 }
 
+/// Everything a re-sign-in reuses from the saved connection, so an ended session asks for the
+/// confirmation code and nothing else (FR-008, US3 acceptance 5): the start URL, the SSO region,
+/// the profile name, and the account and role that sign-in already resolved.
+#[derive(Debug)]
+struct ReSignIn {
+    target: Target,
+    start_url: String,
+    account_id: Option<String>,
+    role_name: Option<String>,
+}
+
 /// Start a sign-in and answer with the code the person types. Callable before the connection is
 /// saved (FR-012): nothing is written here except the pending flow in memory.
 pub async fn start_sign_in(
@@ -164,28 +175,12 @@ pub async fn start_sign_in(
     crate::access::require(user, PERMISSION)?;
     let id = sso_id(id)?;
     let saved = saved_credentials(deps, &id).await?;
-    let target = target(&body, &saved)?;
-    let start_url = body
-        .start_url
-        .as_deref()
-        .filter(|url| !url.trim().is_empty())
-        .or(saved.start_url.as_deref())
-        .ok_or_else(|| {
-            ServiceError::invalid(
-                "the Identity Center start URL is missing: enter it, e.g. \
-                 https://acme.awsapps.com/start",
-            )
-        })?;
-    if !valid_start_url(start_url) {
-        return Err(ServiceError::invalid(format!(
-            "invalid Identity Center start URL {start_url:?}: use an https URL such as \
-             https://acme.awsapps.com/start"
-        )));
-    }
+    let sign_in = re_sign_in(&body, &saved)?;
+    let target = &sign_in.target;
 
     let client = SsoClient::new(deps.http.clone(), &target.sso_region);
     let registration = stored_registration(deps, &target.profile).await?;
-    let flow = sso::begin_sign_in(client, registration, start_url)
+    let flow = sso::begin_sign_in(client, registration, &sign_in.start_url)
         .await
         .map_err(ServiceError::from)?;
 
@@ -196,7 +191,7 @@ pub async fn start_sign_in(
         expires_at: flow.expires_at(),
         interval_seconds: flow.interval().as_secs(),
     };
-    PENDING.lock().await.insert(target.profile, flow);
+    PENDING.lock().await.insert(target.profile.clone(), flow);
     Ok(started)
 }
 
@@ -211,7 +206,8 @@ pub async fn complete_sign_in(
     crate::access::require(user, PERMISSION)?;
     let id = sso_id(id)?;
     let saved = saved_credentials(deps, &id).await?;
-    let target = target(&body, &saved)?;
+    let sign_in = re_sign_in(&body, &saved)?;
+    let target = &sign_in.target;
 
     let mut flow = PENDING.lock().await.remove(&target.profile).ok_or_else(|| {
         ServiceError::invalid(format!(
@@ -229,9 +225,13 @@ pub async fn complete_sign_in(
             // FR-018: the session the person just renewed is what health reports again, in this
             // process and with no Vizier restart.
             deps.sso_failures.clear(&id);
+            // FR-019: a completed sign-in is a change to this connection, so exactly the agents
+            // using it restart through the existing provider-change path. Another provider's
+            // agents are untouched, and Vizier itself keeps running.
+            usage::restart_users(deps, &id).await;
             Ok(SignInProgress::SignedIn {
-                account_id: saved.account_id.filter(|v| !v.is_empty()),
-                role_name: saved.role_name.filter(|v| !v.is_empty()),
+                account_id: sign_in.account_id.clone(),
+                role_name: sign_in.role_name.clone(),
                 expires_at: persisted.expires_at(),
             })
         }
@@ -241,7 +241,7 @@ pub async fn complete_sign_in(
             PENDING
                 .lock()
                 .await
-                .entry(target.profile)
+                .entry(target.profile.clone())
                 .or_insert(flow);
             Ok(SignInProgress::Pending { expires_at })
         }
@@ -485,6 +485,40 @@ fn target(body: &SignInRequest, saved: &ProviderCredentials) -> Result<Target, S
     Ok(Target {
         profile,
         sso_region: sso_region.to_string(),
+    })
+}
+
+/// What a sign-in starts from, request over saved row, refusing a connection that cannot sign in
+/// at all — and naming the one field that is missing (FR-008, FR-010).
+fn re_sign_in(
+    body: &SignInRequest,
+    saved: &ProviderCredentials,
+) -> Result<ReSignIn, ServiceError> {
+    let target = target(body, saved)?;
+    let start_url = body
+        .start_url
+        .as_deref()
+        .filter(|url| !url.trim().is_empty())
+        .or(saved.start_url.as_deref())
+        .ok_or_else(|| {
+            ServiceError::invalid(
+                "the Identity Center start URL is missing: enter it, e.g. \
+                 https://acme.awsapps.com/start",
+            )
+        })?;
+    if !valid_start_url(start_url) {
+        return Err(ServiceError::invalid(format!(
+            "invalid Identity Center start URL {start_url:?}: use an https URL such as \
+             https://acme.awsapps.com/start"
+        )));
+    }
+    Ok(ReSignIn {
+        // The account and the role are the connection's, not the request's: that is what makes a
+        // re-sign-in ask for a confirmation code and nothing else (FR-008).
+        account_id: non_empty(saved.account_id.as_ref()).map(str::to_string),
+        role_name: non_empty(saved.role_name.as_ref()).map(str::to_string),
+        start_url: start_url.to_string(),
+        target,
     })
 }
 
@@ -891,6 +925,47 @@ mod tests {
         let overridden = target(&body, &saved()).unwrap();
         assert_eq!(overridden.profile, "acme-eu");
         assert_eq!(overridden.sso_region, "eu-west-1");
+    }
+
+    /// T055: a re-sign-in starts from the saved connection, so an ended session asks for the
+    /// confirmation code and nothing else (FR-008, US3 acceptance 5).
+    #[test]
+    fn a_re_sign_in_reuses_the_saved_connection_and_asks_for_nothing_else() {
+        // An empty body is the whole request: the start URL, the SSO region, the profile, the
+        // account and the role all come from the row.
+        let body: SignInRequest = serde_json::from_str("{}").unwrap();
+        let reuse = re_sign_in(&body, &saved()).unwrap();
+        assert_eq!(reuse.start_url, "https://acme.awsapps.com/start");
+        assert_eq!(reuse.target.sso_region, "us-east-1");
+        assert_eq!(reuse.target.profile, "acme-bedrock");
+        assert_eq!(reuse.account_id.as_deref(), Some("123456789012"));
+        assert_eq!(reuse.role_name.as_deref(), Some("BedrockOperator"));
+
+        // The account and the role are not even fields of a sign-in, so nothing can ask for
+        // them again (FR-008).
+        assert!(
+            serde_json::from_str::<SignInRequest>(r#"{"account_id":"999999999999"}"#).is_err()
+        );
+        assert!(serde_json::from_str::<SignInRequest>(r#"{"role_name":"Other"}"#).is_err());
+
+        // A request may still name another profile, and then that one is honoured.
+        let other = SignInRequest {
+            profile: Some("acme-eu".into()),
+            ..Default::default()
+        };
+        let reuse = re_sign_in(&other, &saved()).unwrap();
+        assert_eq!(reuse.target.profile, "acme-eu");
+        assert_eq!(
+            reuse.account_id.as_deref(),
+            Some("123456789012"),
+            "the account still comes from the connection"
+        );
+
+        // A connection that cannot sign in at all says which field is missing.
+        let mut no_url = saved();
+        no_url.start_url = None;
+        let error = re_sign_in(&SignInRequest::default(), &no_url).unwrap_err();
+        assert!(error.message().contains("start URL"), "{error}");
     }
 
     #[test]
