@@ -433,12 +433,18 @@ fn target(body: &SignInRequest, saved: &ProviderCredentials) -> Result<Target, S
 }
 
 fn valid_start_url(url: &str) -> bool {
-    reqwest::Url::parse(url).is_ok_and(|url| {
-        url.scheme() == "https"
-            && url.host_str().is_some_and(|host| !host.is_empty())
-            && url.username().is_empty()
-            && url.password().is_none()
-    })
+    // `Url` reads `https:///start` as host `start`, because the URL standard skips extra
+    // slashes, so the authority has to be there in the source before the parse is trusted.
+    let authority_is_there = url.split_once("://").is_some_and(|(_, rest)| {
+        !rest.is_empty() && !rest.starts_with('/') && !rest.starts_with('\\')
+    });
+    authority_is_there
+        && reqwest::Url::parse(url).is_ok_and(|url| {
+            url.scheme() == "https"
+                && url.host_str().is_some_and(|host| !host.is_empty())
+                && url.username().is_empty()
+                && url.password().is_none()
+        })
 }
 
 fn valid_profile(profile: &str) -> bool {
