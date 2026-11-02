@@ -1,29 +1,26 @@
 <!--
 Sync Impact Report
 ==================
-Version change: 1.2.0 → 1.3.0
+Version change: 1.3.0 → 1.3.1
 Modified principles: none
 Added sections: none
 Modified sections:
-  - Development Workflow & Quality Gates — added "Matching submodule
-    branches, driven by `just`" (every spec branch MUST exist under the same
-    name in the workspace and in every submodule; cross-repo git work goes
-    through the Justfile recipes) and widened "Conventional commits" from
-    commits to commit messages AND pull request titles, in every repo
-    (workspace and submodules), including Spec Kit auto-commits.
+  - Development Workflow & Quality Gates — corrected the commit type `doc`
+    to `docs:` (Conventional Commits v1.0.0 has no `doc` type), listed the
+    full valid type set, and made explicit that `[**breaking**]` is
+    git-cliff's rendering of a breaking commit, not a commit type: a
+    breaking change is `type!:` in the subject or a `BREAKING CHANGE:`
+    footer.
 Templates requiring updates:
-  - .specify/templates/tasks-template.md ✅ updated (commit guidance names
-    `just commit` and conventional format)
-  - .specify/extensions/git/git-config.yml ✅ updated (auto-commit and init
-    messages were "[Spec Kit] ..."; now conventional commits)
+  - .specify/extensions/git/git-config.yml ✅ updated (the seven spec-kit
+    auto-commit messages use `docs:`)
+  - CLAUDE.md ✅ updated (Key conventions type list)
+  - CONTRIBUTING.md ✅ updated (example and type list)
   - .specify/templates/plan-template.md ✅ no change needed (Constitution
     Check reads the gates from this file)
-  - .specify/templates/spec-template.md, checklist-template.md ✅ no change
-  - CLAUDE.md ✅ updated (Commands section lists the branch/commit recipes)
-Follow-up TODOs:
-  - The Spec Kit `speckit.git.feature` hook (create-new-feature.sh) creates
-    the branch in the workspace only; run `just checkout <branch>` after it
-    to create the submodule branches. Not scripted yet.
+  - .specify/templates/spec-template.md, tasks-template.md,
+    checklist-template.md ✅ no change
+Follow-up TODOs: none
 -->
 
 # Vizier Constitution
@@ -155,12 +152,16 @@ instead of each module reinventing its own convention.
   considered done; there is no separate `just lint`/`just test` — use these
   directly. WebUI changes MUST pass `cd webui && npm run typecheck`.
 - **Conventional commits everywhere**: every commit message AND every pull
-  request title MUST be in conventional-commit format (`feat:`, `fix:`,
-  `doc:`, `perf:`, `refactor:`, `chore:`, with `[**breaking**]` where
-  applicable), in the workspace and in every submodule. The changelog is
-  generated from history via `git-cliff`, and a squash-merged PR title
-  becomes the commit. Tool-generated messages (Spec Kit auto-commits, bots)
-  are held to the same rule; a `[Spec Kit] ...` style prefix is not allowed.
+  request title MUST be in conventional-commit format — the types of
+  Conventional Commits v1.0.0 (`feat:`, `fix:`, `build:`, `chore:`, `ci:`,
+  `docs:`, `style:`, `refactor:`, `perf:`, `test:`), optionally with a
+  `(scope)` and/or `!` before the colon, in the workspace and in every
+  submodule. `[**breaking**]` is not a commit type: it is how `git-cliff`
+  renders a breaking commit in the changelog, and a breaking change is marked
+  `type!:` in the subject or a `BREAKING CHANGE:` footer. The changelog is
+  generated from history via `git-cliff`, and a squash-merged PR title becomes
+  the commit. Tool-generated messages (Spec Kit auto-commits, bots) are held to
+  the same rule; a `[Spec Kit] ...` style prefix is not allowed.
 - **Matching submodule branches, driven by `just`**: every spec branch
   (`NNN-short-name`) MUST exist under the same name in the workspace and in
   every submodule (`design`, `webui`, `landing`, `dummyplug`), so a feature
@@ -226,4 +227,4 @@ service or non-embedded runtime dependency). Deviations MUST be justified
 in the PR description (equivalent to the plan template's Complexity
 Tracking table) or the change MUST be revised before merge.
 
-**Version**: 1.3.0 | **Ratified**: 2026-08-13 | **Last Amended**: 2026-10-30
+**Version**: 1.3.1 | **Ratified**: 2026-08-13 | **Last Amended**: 2026-11-02
