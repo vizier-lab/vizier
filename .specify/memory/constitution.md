@@ -18,7 +18,10 @@ Templates requiring updates:
   - .specify/templates/tasks-template.md ✅ no change needed
   - CLAUDE.md ✅ flag names and per-flag test command
   - docs/src/configuration/build-flavours.md ✅ new page
-Follow-up TODOs: none
+Follow-up TODOs:
+  - The Spec Kit `speckit.git.feature` hook (create-new-feature.sh) creates
+    the branch in the workspace only; run `just checkout <branch>` after it
+    to create the submodule branches. Not scripted yet.
 (2.0.0, 2026-11-02: PostgreSQL and S3-compatible storage permitted as strictly
 opt-in server backends under Principle III.)
 (2026-11-03, on 2.1.0: the commit type list under Development Workflow was
