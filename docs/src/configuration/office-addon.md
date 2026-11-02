@@ -1,6 +1,6 @@
 # Office addon
 
-The **Office** addon lets an agent read and create Word (`.docx`) and Excel (`.xlsx`, `.xls` for reading) files. It has no settings and is on by default: every new agent gets it, and agents that existed when it shipped were given it once, on first start. Turn it off or remove it from the agent's **Integrations › Addons** page; nothing turns it back on.
+The **Office** addon lets an agent read and create Word (`.docx`), Excel (`.xlsx`, `.xls` for reading) and PDF (`.pdf`) files. It has no settings and is on by default: every new agent gets it, and agents that existed when it shipped were given it once, on first start. Turn it off or remove it from the agent's **Integrations › Addons** page; nothing turns it back on.
 
 Files are session files: the agent reads what a person uploaded and delivers what it writes with `send_attachment`.
 
@@ -11,6 +11,10 @@ Files are session files: the agent reads what a person uploaded and delivers wha
 | `office_xlsx_read_as_csv` | Preview every sheet of a workbook as CSV in one call. Formulas show as text, or as calculated results with `executed_formula`. The calculation is done by the addon, not by Excel, so it can differ from what Excel shows; a cell it cannot calculate (an unknown function, a circular reference, a link to another file) keeps the value saved in the file and is named in `note`. Legacy `.xls` files are never calculated. |
 | `office_docx_write_from_md` | Create a new `.docx` from Markdown, with an optional title. |
 | `office_xlsx_write_from_sheets` | Create a new `.xlsx` from sheets of rows. Text such as `=1+1` is stored as text, never as a formula. |
+| `office_pdf_read_as_md` | Read a PDF document as structured Markdown with pagination (`page_start`, `page_limit`), character limits, and password support. Returns page metadata and flags scanned documents. |
+| `office_pdf_render_page_as_png` | Render a single page (1-indexed) of a PDF to a PNG image in session files at a configurable scale (default 1.5). Ideal for inspecting diagrams, layouts or scanned pages via `read_image_file`. |
+| `office_pdf_write_from_html` | Create a new `.pdf` from HTML and CSS styling. Supports CSS layouts, typography, tables, and colors. |
+| `office_pdf_write_from_docx` | Convert an existing Word document (`.docx`) in session files into a PDF document, preserving structure, headings, tables, and formatting. |
 
 Reads are capped (20 sheets, 1 000 rows and 100 columns per sheet, 200 000 characters of Markdown); a capped result says `truncated` and reports the real size.
 

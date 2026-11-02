@@ -18,6 +18,8 @@ use crate::{
 pub const DOCX_MIME: &str = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 pub const XLSX_MIME: &str = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 pub const XLS_MIME: &str = "application/vnd.ms-excel";
+pub const PDF_MIME: &str = "application/pdf";
+pub const PNG_MIME: &str = "image/png";
 
 mod send_attachment;
 pub use send_attachment::SendAttachment;

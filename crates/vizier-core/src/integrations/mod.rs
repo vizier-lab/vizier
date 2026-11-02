@@ -329,7 +329,7 @@ mod tests {
         let on = integration("office-1", "office", IntegrationFamily::Addon, "Office", json!({}));
         let tools = IntegrationTools::build(&kinds, std::slice::from_ref(&on), &ctx(), None);
         let names: Vec<String> = tools.addons["office"].toolset.tools.keys().cloned().collect();
-        assert_eq!(names.len(), 5, "{names:?}");
+        assert_eq!(names.len(), 9, "{names:?}");
         assert!(names.iter().all(|n| n.starts_with("office_")), "{names:?}");
 
         let mut off = on;
