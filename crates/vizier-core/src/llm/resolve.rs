@@ -447,14 +447,36 @@ pub fn resolve_with(
     // the identical wire and differs only in where the signing keys come from.
     if dialect == DialectKind::Bedrock {
         if *provider == ProviderId::AMAZON_BEDROCK_SSO {
-            let sso = ctx.sso.clone().ok_or_else(|| {
-                VizierError(
-                    "the Bedrock (SSO) connection has no role credential; sign in again in \
-                     Settings › Providers"
-                        .into(),
-                )
-            })?;
-            return Ok(resolve_bedrock_sso(model, sso, resolved));
+            // The role credential reads the session store; asked for only once a model is known
+            // to exist on this connection, so a missing entry is reported as such.
+            let sso = || {
+                ctx.sso.clone().ok_or_else(|| {
+                    VizierError(
+                        "the Bedrock (SSO) connection has no role credential; sign in again in \
+                         Settings › Providers"
+                            .into(),
+                    )
+                })
+            };
+            // An inference-profile ARN names a **saved entry**, and the connection's list is the
+            // authority — not the ARN grammar (data-model "agent model selection", FR-030). The
+            // stored ARN is what goes to the runtime: unchanged, one encoded path segment, with
+            // no foundation-model id substituted for it and no region or account rewritten
+            // (FR-027). A catalogue model id falls through to the catalogue, so both stay
+            // selectable on one connection.
+            if let Ok(arn) = crate::llm::bedrock::parse_inference_profile_arn(model) {
+                let Some(entry) = creds
+                    .profiles
+                    .iter()
+                    .find(|entry| entry.arn.trim() == arn.raw)
+                else {
+                    return Err(VizierError(
+                        super::sso::SsoError::ProfileNotFound { arn: arn.raw }.to_string(),
+                    ));
+                };
+                return Ok(resolve_bedrock_sso(entry.arn.trim(), sso()?, resolved));
+            }
+            return Ok(resolve_bedrock_sso(model, sso()?, resolved));
         }
         return resolve_bedrock(model, &creds, resolved);
     }
@@ -731,7 +753,7 @@ pub async fn resolve(
 mod resolve_tests {
     use super::*;
     use crate::catalogue::data::parse;
-    use crate::schema::provider::CustomModel;
+    use crate::schema::provider::{CustomModel, ProfileEntry};
 
     fn catalogue() -> Catalogue {
         Catalogue::new(
@@ -1100,4 +1122,131 @@ mod resolve_tests {
         let r = resolve_with(&context, &id("home"), "own-model", &ModelOverrides::default()).unwrap();
         assert_eq!(r.context_window, None);
     }
+    // ---- Amazon Bedrock (SSO): the saved entry is the model (FR-027, FR-030)
+
+    const SSO_ARN: &str =
+        "arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/abc123";
+
+    /// A saved SSO connection: the five non-secret fields, a Bedrock region, and the entries.
+    fn sso_creds(profiles: Vec<ProfileEntry>) -> ProviderCredentials {
+        ProviderCredentials {
+            start_url: Some("https://acme.awsapps.com/start".into()),
+            sso_region: Some("us-east-1".into()),
+            account_id: Some("123456789012".into()),
+            role_name: Some("BedrockOperator".into()),
+            sso_profile: Some("acme-bedrock".into()),
+            region: Some("us-east-1".into()),
+            profiles,
+            ..Default::default()
+        }
+    }
+
+    /// The role credential the SSO branch needs; the value itself is never used by resolution.
+    fn sso() -> BedrockCredential {
+        BedrockCredential {
+            region: "us-east-1".into(),
+            credential: StaticKey::none(),
+        }
+    }
+
+    fn sso_context<'a>(c: &'a Catalogue, profiles: Vec<ProfileEntry>) -> ResolveContext<'a> {
+        ResolveContext {
+            sso: Some(sso()),
+            ..ctx(c, Some(sso_creds(profiles)))
+        }
+    }
+
+    #[test]
+    fn a_saved_arn_is_the_model_string_and_one_encoded_path_segment() {
+        let c = catalogue();
+        let entry = ProfileEntry {
+            arn: SSO_ARN.into(),
+            name: Some("Acme Prod — Claude".into()),
+            ..Default::default()
+        };
+        let context = sso_context(&c, vec![entry]);
+        let r = resolve_with(
+            &context,
+            &ProviderId::AMAZON_BEDROCK_SSO,
+            SSO_ARN,
+            &ModelOverrides::default(),
+        )
+        .unwrap();
+
+        // The ARN, unchanged: no foundation-model id substituted, no region or account rewritten.
+        assert_eq!(r.model, SSO_ARN);
+        assert_eq!(r.dialect, DialectKind::Bedrock);
+        assert_eq!(r.base_url, "https://bedrock-runtime.us-east-1.amazonaws.com");
+
+        // One path segment: `aws_uri_encode` turns the ARN's `:` and `/` into `%3A`/`%2F`, so the
+        // path has the three slashes of `/model/{id}/converse` and no more.
+        let path = crate::llm::bedrock::model_path(&r.model, "converse");
+        assert_eq!(
+            path,
+            format!("/model/{}/converse", crate::llm::bedrock::aws_uri_encode(SSO_ARN))
+        );
+        assert_eq!(
+            path.matches('/').count(),
+            3,
+            "the ARN is one segment, not a path: {path}"
+        );
+        assert!(!path.contains("application-inference-profile/"), "{path}");
+        assert!(path.contains("%2F") && path.contains("%3A"), "{path}");
+    }
+
+    #[test]
+    fn a_well_formed_arn_that_is_not_saved_is_refused_by_the_list_not_the_grammar() {
+        let c = catalogue();
+        let unknown =
+            "arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/not-saved";
+        let context = sso_context(
+            &c,
+            vec![ProfileEntry {
+                arn: SSO_ARN.into(),
+                ..Default::default()
+            }],
+        );
+        let error = resolve_with(
+            &context,
+            &ProviderId::AMAZON_BEDROCK_SSO,
+            unknown,
+            &ModelOverrides::default(),
+        )
+        .unwrap_err()
+        .0;
+        assert!(error.contains("no inference profile"), "{error}");
+        assert!(error.contains(unknown), "{error}");
+
+        // A saved entry still resolves, and so does a catalogue model on the same connection:
+        // the grammar decides which path is taken, the list decides whether the ARN may run
+        // (FR-030).
+        let context = sso_context(
+            &c,
+            vec![ProfileEntry {
+                arn: SSO_ARN.into(),
+                ..Default::default()
+            }],
+        );
+        assert_eq!(
+            resolve_with(
+                &context,
+                &ProviderId::AMAZON_BEDROCK_SSO,
+                SSO_ARN,
+                &ModelOverrides::default()
+            )
+            .unwrap()
+            .model,
+            SSO_ARN
+        );
+        let r = resolve_with(
+            &context,
+            &ProviderId::AMAZON_BEDROCK_SSO,
+            "amazon.nova-lite-v1:0",
+            &ModelOverrides::default(),
+        )
+        .unwrap();
+        assert_eq!(r.model, "amazon.nova-lite-v1:0");
+        assert_eq!(r.context_window, Some(300000), "from the catalogue entry");
+    }
+
 }
