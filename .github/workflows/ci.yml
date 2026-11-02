@@ -67,6 +67,62 @@ jobs:
           CI: 'true'
         run: cargo test -p vizier-core --no-default-features
 
+  # The managed deployment backends: every parametrised storage test runs again against an
+  # isolated PostgreSQL schema, and the blob conformance test runs against a real MinIO bucket.
+  managed-storage:
+    name: managed storage
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: vizier-test
+          POSTGRES_DB: vizier
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d vizier"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - run: git submodule update --init dummyplug
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: managed-storage
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libssl-dev python3-dev libclang-dev clang perl make postgresql-client
+      - name: Start MinIO
+        run: |
+          docker run --detach --rm --name vizier-minio \
+            --publish 9000:9000 \
+            --env MINIO_ROOT_USER=vizier \
+            --env MINIO_ROOT_PASSWORD=vizier-test-secret \
+            quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z server /data
+          for attempt in {1..30}; do
+            curl --fail --silent http://127.0.0.1:9000/minio/health/ready && exit 0
+            sleep 1
+          done
+          docker logs vizier-minio
+          exit 1
+      - name: Prepare PostgreSQL
+        env:
+          PGPASSWORD: vizier-test
+        run: psql -h 127.0.0.1 -U postgres -d vizier -c 'CREATE EXTENSION vector'
+      - name: Test managed backends
+        env:
+          CI: 'true'
+          VIZIER_TEST_DATABASE_URL: postgres://postgres:vizier-test@127.0.0.1:5432/vizier
+          VIZIER_TEST_S3_ENDPOINT: http://127.0.0.1:9000
+          VIZIER_TEST_S3_ACCESS_KEY_ID: vizier
+          VIZIER_TEST_S3_SECRET_ACCESS_KEY: vizier-test-secret
+        run: cargo test -p vizier-core --lib
+
   # Reads `cargo metadata` only: no compile.
   policy:
     name: policy
