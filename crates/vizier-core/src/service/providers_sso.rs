@@ -1087,6 +1087,110 @@ mod tests {
     }
 
     #[test]
+    fn every_arn_refusal_names_the_value_and_the_expected_shape() {
+        // Rule 1 walks every row before anything else is judged, so each refusal reaches the
+        // person through one message: the value they typed (trimmed, quoted) and what an
+        // inference-profile ARN would look like (FR-023, SC-008).
+        for (value, cause) in [
+            ("", "an inference profile ARN starts with \"arn:\""),
+            (
+                "anthropic.claude-sonnet-4-5-20250929-v1:0",
+                "an inference profile ARN starts with \"arn:\"",
+            ),
+            (
+                "https://console.aws.amazon.com/bedrock/home?region=us-east-1#/inference-profiles",
+                "an inference profile ARN starts with \"arn:\"",
+            ),
+            (
+                "arn:aws:s3:us-east-1:123456789012:inference-profile/x",
+                "\"s3\" is not a Bedrock ARN",
+            ),
+            (
+                "arn:aws:bedrock:us-east-1:123456789012:foundation-model/anthropic.claude-3-5-sonnet-20241022-v2:0",
+                "names \"inference-profile\" or \"application-inference-profile\"",
+            ),
+            ("arn:aws:bedrock:us-east:123456789012:inference-profile/x", "is not an AWS region"),
+            (
+                "arn:aws:bedrock:us-east-1:123:inference-profile/x",
+                "must be 12 digits",
+            ),
+            (
+                "arn:aws:bedrock:us-east-1:123456789012:inference-profile",
+                "names no profile id",
+            ),
+            (
+                "arn:aws:bedrock:us-east-1:123456789012",
+                "an inference profile ARN has the form",
+            ),
+            (
+                "arn:aws-iso-e:bedrock:us-iso-east-1:123456789012:inference-profile/x",
+                "unsupported ARN partition \"aws-iso-e\"",
+            ),
+        ] {
+            let mut entries = vec![ProfileEntry {
+                arn: value.into(),
+                name: Some("  kept  ".into()),
+                model: Some("  amazon.nova-lite-v1:0  ".into()),
+                ..Default::default()
+            }];
+            let error = validate_entries(&mut entries, Some("us-east-1")).unwrap_err();
+            assert_eq!(error.status(), 400);
+            let message = error.message();
+            assert!(
+                message.starts_with(&format!("{:?} is not an inference profile ARN: ", value.trim())),
+                "{value:?} gave {message:?}"
+            );
+            assert!(message.contains(cause), "{value:?} gave {message:?}");
+            // A refused list is not half-normalised: the row is exactly what came in.
+            assert_eq!(entries[0].arn, value);
+            assert_eq!(entries[0].name.as_deref(), Some("  kept  "));
+            assert_eq!(entries[0].model.as_deref(), Some("  amazon.nova-lite-v1:0  "));
+        }
+
+        // Two malformed rows: the first is named, not the last, and the second is never hidden
+        // behind it.
+        let mut entries = vec![
+            profile_entry(ARN_A),
+            profile_entry("bad-one"),
+            profile_entry("bad-two"),
+        ];
+        let error = validate_entries(&mut entries, Some("us-east-1")).unwrap_err();
+        assert!(error.message().contains("\"bad-one\""), "{error}");
+        assert!(!error.message().contains("\"bad-two\""), "{error}");
+    }
+
+    #[test]
+    fn the_duplicate_is_judged_on_the_parsed_arn_and_the_region_only_after_it() {
+        // Rule 2 compares parsed ARNs, so padding differs but the profile does not; the message
+        // names the trimmed ARN and says how to change it (FR-025).
+        let mut entries = vec![profile_entry(ARN_A), profile_entry(&format!("  {ARN_A}  "))];
+        let error = validate_entries(&mut entries, Some("eu-west-1")).unwrap_err();
+        assert_eq!(
+            error.message(),
+            format!(
+                "the ARN {ARN_A} is already one of this connection's profiles; edit that entry \
+                 instead of adding it again"
+            )
+        );
+
+        // Rule 3 runs on a list with no duplicate at all, and names the first ARN whose region
+        // disagrees — both rows here are out of region, so the earlier one is reported.
+        let mut entries = vec![
+            profile_entry("arn:aws:bedrock:eu-west-1:123456789012:inference-profile/a"),
+            profile_entry(ARN_B),
+        ];
+        let error = validate_entries(&mut entries, Some("us-east-1")).unwrap_err();
+        assert_eq!(
+            error.message(),
+            "the ARN names region \"eu-west-1\" but this connection uses \"us-east-1\""
+        );
+
+        // An empty connection region is no region to compare against.
+        let mut entries = vec![profile_entry("arn:aws:bedrock:eu-west-1:123456789012:inference-profile/a")];
+        validate_entries(&mut entries, Some("")).unwrap();
+    }
+
+    #[test]
     fn the_pricing_pairing_is_shape_checked_and_never_touches_the_arn_or_the_limits() {
         // A pair from another family and another region, over an ARN that is fine: accepted,
         // because the pairing prices and never validates or region-checks (FR-034a.6, SC-022).
