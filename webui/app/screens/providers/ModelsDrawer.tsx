@@ -2,18 +2,20 @@ import { Button, IconButton, Notice, SearchField, SlideOver, Skeleton } from '@v
 import { useEffect, useMemo, useState } from 'react'
 import { ApiError } from '../../api/client'
 import type { ModelSummary } from '../../api/endpoints/catalogue'
-import { allModels, fetchCustomModels, type AffectedAgent } from '../../api/endpoints/providers'
-import { capabilityLine } from '../../lib/models'
-import { toast } from '../../stores/toasts'
-import { ConfirmDialog } from '../shared/ConfirmDialog'
 import {
-    ProfileEntryForm,
+    allModels,
+    fetchCustomModels,
     profileEntries,
     removeProfileEntry,
-    SSO_PROVIDER,
+    type AffectedAgent,
     type EntryPricing,
     type ProfileEntry,
-} from './ProfileEntryForm'
+} from '../../api/endpoints/providers'
+import { capabilityLine } from '../../lib/models'
+import { entryLimits, pricingCandidates, pricingNote, SSO_PROVIDER } from '../../lib/providers'
+import { toast } from '../../stores/toasts'
+import { ConfirmDialog } from '../shared/ConfirmDialog'
+import { ProfileEntryForm } from './ProfileEntryForm'
 
 type Props = {
     /** The provider whose models are shown; null closes the drawer. */
@@ -23,28 +25,19 @@ type Props = {
     onFetched: () => void
 }
 
-/** A rate in the catalogue's dollars, at the precision the figure needs. */
-const usd = (n: number) => `$${n.toFixed(n < 1 ? 3 : 2)}`
-
 /**
  * What the entry's usage costs — or, when it costs nothing yet, the label **and** the
  * cause-specific reason the server derives on every read (contracts §4a, FR-034a.2, FR-034a.3,
- * FR-034b, SC-021). The reason is rendered as sent: this file invents no wording and shortens
- * none, so the three absences stay distinct and visible without a click.
+ * FR-034b, SC-021). The note's shape and wording are `lib/providers.ts`; this renders them as
+ * they come, so the three absences stay distinct and visible without a click.
  */
 export function PricingNote({ pricing }: { pricing: EntryPricing }) {
-    if (pricing.state === 'explicit' || pricing.state === 'from_catalogue') {
-        const source = pricing.state === 'explicit' ? (pricing.source ?? 'entered price') : `from ${pricing.model}`
-        return (
-            <span className="type-small text-muted">
-                {usd(pricing.cost.input)} in / {usd(pricing.cost.output)} out per 1M · {source}
-            </span>
-        )
-    }
+    const note = pricingNote(pricing)
+    if (note.priced) return <span className="type-small text-muted">{note.text}</span>
     return (
         <div className="flex flex-col gap-2">
-            <span className="type-ui-medium text-retrying">{pricing.flag}</span>
-            <span className="type-small text-muted">{pricing.reason}</span>
+            <span className="type-ui-medium text-retrying">{note.flag}</span>
+            <span className="type-small text-muted">{note.reason}</span>
         </div>
     )
 }
@@ -60,10 +53,7 @@ type EntryRowProps = {
  * profile it is (FR-022, FR-026), its limits, and its pricing state with the reason beside it.
  */
 export function EntryRow({ entry, onEdit, onRemove }: EntryRowProps) {
-    const limits = [
-        entry.context ? `${entry.context.toLocaleString()} context` : 'context unknown',
-        entry.output ? `${entry.output.toLocaleString()} output` : 'output unknown',
-    ].join(' · ')
+    const limits = entryLimits(entry)
     return (
         <li className="flex flex-col gap-6 border-b border-border py-12 last:border-b-0">
             <div className="flex items-start justify-between gap-8">
@@ -123,7 +113,7 @@ export function ModelsDrawer({ provider, onClose, onFetched }: Props) {
 
     // The SSO list also carries the saved entries themselves; they are the section above, not
     // models to list twice.
-    const catalogueModels = useMemo(() => (models ?? []).filter((m) => m.origin !== 'inference_profile'), [models])
+    const catalogueModels = useMemo(() => pricingCandidates(models ?? []), [models])
     const shown = useMemo(() => {
         const q = query.trim().toLowerCase()
         return catalogueModels.filter((m) => !q || m.id.toLowerCase().includes(q) || m.name.toLowerCase().includes(q))

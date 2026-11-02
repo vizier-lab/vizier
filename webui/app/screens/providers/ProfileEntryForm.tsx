@@ -1,78 +1,14 @@
 import { Button, HighlightMatch, Icon, Notice, Picker, TextField, type PickerSection } from '@vizier/design'
 import { useEffect, useMemo, useState } from 'react'
-import { api } from '../../api/client'
 import type { ModelSummary } from '../../api/endpoints/catalogue'
-import { allModels } from '../../api/endpoints/providers'
-
-/** The connection that carries inference-profile entries (spec 044, FR-022). */
-export const SSO_PROVIDER = 'amazon-bedrock-sso'
-
-// The entry's wire shape and its calls. Temporary home: T047 moves the types and calls to
-// `api/endpoints/providers.ts` (and the pricing rendering helpers to `lib/providers.ts`); this
-// batch leaves that module alone, so the form and the drawer share one local definition.
-export type EntryPrice = { input: number; output: number; cache_read?: number | null; cache_write?: number | null }
-
-/** What the entry's usage costs right now (contracts §4a). Every absence carries its own reason. */
-export type EntryPricing =
-    | { state: 'explicit'; cost: EntryPrice; source?: string }
-    | { state: 'from_catalogue'; cost: EntryPrice; model: string }
-    | { state: 'not_resolved' | 'not_set' | 'no_catalogue'; flag: string; reason: string; model?: string }
-
-/** One saved inference-profile entry as the API returns it (contracts §4). */
-export type ProfileEntry = {
-    arn: string
-    name?: string | null
-    context?: number | null
-    output?: number | null
-    tool_call?: boolean | null
-    image_input?: boolean | null
-    model?: string | null
-    price?: EntryPrice | null
-    edited?: boolean
-    display_name: string
-    pricing: EntryPricing
-}
-
-/** The whole entry, as the entry endpoints take it. */
-export type ProfileEntryBody = {
-    arn: string
-    name: string | null
-    context: number | null
-    output: number | null
-    tool_call: boolean | null
-    image_input: boolean | null
-    model: string | null
-    price: EntryPrice | null
-    edited: boolean
-}
-
-export const profileEntries = (id: string) => api.get<ProfileEntry[]>(`/providers/${encodeURIComponent(id)}/profiles`)
-
-export const addProfileEntry = (id: string, body: ProfileEntryBody) =>
-    api.post<ProfileEntry[]>(`/providers/${encodeURIComponent(id)}/profiles`, body)
-
-/** Replaces the entry saved under `arn`; the ARN rides in the path so a person can verify it. */
-export const saveProfileEntry = (id: string, arn: string, body: ProfileEntryBody, confirm = false) =>
-    api.put<ProfileEntry[]>(`/providers/${encodeURIComponent(id)}/profiles/${encodeURIComponent(arn)}${confirm ? '?confirm=true' : ''}`, body)
-
-export const removeProfileEntry = (id: string, arn: string, confirm = false) =>
-    api.delete<ProfileEntry[]>(`/providers/${encodeURIComponent(id)}/profiles/${encodeURIComponent(arn)}${confirm ? '?confirm=true' : ''}`)
-
-/** A limit as the API takes it: `null` when empty, `NaN` when it is not a positive whole number. */
-function tokens(value: string): number | null {
-    const text = value.trim()
-    if (!text) return null
-    const n = Number(text)
-    return Number.isSafeInteger(n) && n > 0 ? n : Number.NaN
-}
-
-/** A price rate: `null` when empty, `NaN` when it is not a finite, non-negative number. */
-function rate(value: string): number | null {
-    const text = value.trim()
-    if (!text) return null
-    const n = Number(text)
-    return Number.isFinite(n) && n >= 0 ? n : Number.NaN
-}
+import {
+    addProfileEntry,
+    allModels,
+    saveProfileEntry,
+    type ProfileEntry,
+    type ProfileEntryBody,
+} from '../../api/endpoints/providers'
+import { draftPrice, entryLimit, pricingCandidates } from '../../lib/providers'
 
 const trigger =
     'flex h-40 w-full items-center gap-8 rounded-md border border-border-strong bg-ground pr-10 pl-12 text-left type-body text-fg hover:border-border-hover focus-visible:border-live focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-40'
@@ -109,7 +45,7 @@ export function ProfileEntryForm({ providerId, entry, onSaved, onCancel }: Props
     useEffect(() => {
         let live = true
         allModels(providerId).then(
-            (all) => live && setModels((all ?? []).filter((m) => m.origin !== 'inference_profile')),
+            (all) => live && setModels(pricingCandidates(all ?? [])),
             () => live && setModels([])
         )
         return () => {
@@ -123,16 +59,11 @@ export function ProfileEntryForm({ providerId, entry, onSaved, onCancel }: Props
         return [{ items: (models ?? []).filter((m) => !q || m.id.toLowerCase().includes(q) || m.name.toLowerCase().includes(q)) }]
     }, [models, modelQuery])
 
-    const windowTokens = tokens(context)
-    const outputTokens = tokens(output)
-    const inputRate = rate(priceInput)
-    const outputRate = rate(priceOutput)
-    const priceTouched = priceInput.trim() !== '' || priceOutput.trim() !== ''
-    const priceInvalid = priceTouched && (inputRate === null || outputRate === null || Number.isNaN(inputRate) || Number.isNaN(outputRate))
-    const price: EntryPrice | null =
-        priceTouched && !priceInvalid && inputRate !== null && outputRate !== null
-            ? { input: inputRate, output: outputRate, cache_read: entry?.price?.cache_read ?? null, cache_write: entry?.price?.cache_write ?? null }
-            : null
+    const windowTokens = entryLimit(context)
+    const outputTokens = entryLimit(output)
+    const draft = draftPrice(priceInput, priceOutput, entry?.price ?? null)
+    const price = draft.price
+    const priceInvalid = draft.invalid
     const invalidLimit = Number.isNaN(windowTokens) || Number.isNaN(outputTokens)
     const ready = arn.trim() !== '' && !invalidLimit && !priceInvalid
 

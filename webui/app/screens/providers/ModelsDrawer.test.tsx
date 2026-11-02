@@ -1,7 +1,7 @@
 import { renderToString } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import { EntryRow } from './ModelsDrawer'
-import type { EntryPricing, ProfileEntry } from './ProfileEntryForm'
+import type { EntryPricing, ProfileEntry } from '../../api/endpoints/providers'
 
 const ARN = 'arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/abc123'
 const MISSING = 'anthropic.claude-3-5-sonnet-20240620-v1:0'

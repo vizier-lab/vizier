@@ -151,6 +151,61 @@ export const ssoRoles = (id: string, accountId: string, query: SignInRequest = {
 export const ssoSignOut = (id: string, body: SignInRequest = {}) =>
     api.post<SignOutResponse>(`/providers/${encodeURIComponent(id)}/sso/sign-out`, body)
 
+// ---- Inference-profile entries (spec 044, contracts/provider-credentials-api.md §4-§5)
+//
+// The entry's shape and the calls that carry it live here with the other provider calls; what the
+// settings row makes of them — the limits line, the price note and the reason an absence carries —
+// is `lib/providers.ts`, so no component holds a second copy (rule W5).
+
+/** USD per 1M tokens; `cache_*` are carried through untouched, never invented. */
+export type EntryPrice = { input: number; output: number; cache_read?: number | null; cache_write?: number | null }
+
+/** What the entry's usage costs right now (contracts §4a). Every absence carries its own reason. */
+export type EntryPricing =
+    | { state: 'explicit'; cost: EntryPrice; source?: string }
+    | { state: 'from_catalogue'; cost: EntryPrice; model: string }
+    | { state: 'not_resolved' | 'not_set' | 'no_catalogue'; flag: string; reason: string; model?: string }
+
+/** One saved inference-profile entry as the API returns it (contracts §4). */
+export type ProfileEntry = {
+    arn: string
+    name?: string | null
+    context?: number | null
+    output?: number | null
+    tool_call?: boolean | null
+    image_input?: boolean | null
+    model?: string | null
+    price?: EntryPrice | null
+    edited?: boolean
+    display_name: string
+    pricing: EntryPricing
+}
+
+/** The whole entry, as the entry endpoints take it. */
+export type ProfileEntryBody = {
+    arn: string
+    name: string | null
+    context: number | null
+    output: number | null
+    tool_call: boolean | null
+    image_input: boolean | null
+    model: string | null
+    price: EntryPrice | null
+    edited: boolean
+}
+
+export const profileEntries = (id: string) => api.get<ProfileEntry[]>(`/providers/${encodeURIComponent(id)}/profiles`)
+
+export const addProfileEntry = (id: string, body: ProfileEntryBody) =>
+    api.post<ProfileEntry[]>(`/providers/${encodeURIComponent(id)}/profiles`, body)
+
+/** Replaces the entry saved under `arn`; the ARN rides in the path so a person can verify it. */
+export const saveProfileEntry = (id: string, arn: string, body: ProfileEntryBody, confirm = false) =>
+    api.put<ProfileEntry[]>(`/providers/${encodeURIComponent(id)}/profiles/${encodeURIComponent(arn)}${confirm ? '?confirm=true' : ''}`, body)
+
+export const removeProfileEntry = (id: string, arn: string, confirm = false) =>
+    api.delete<ProfileEntry[]>(`/providers/${encodeURIComponent(id)}/profiles/${encodeURIComponent(arn)}${confirm ? '?confirm=true' : ''}`)
+
 export const createCustom = (body: CustomBody) => api.post<CustomProvider>('/providers/custom', body)
 export const updateCustom = (id: string, body: CustomBody) => api.put<CustomProvider>(`/providers/custom/${encodeURIComponent(id)}`, body)
 export const deleteCustom = (id: string, confirm = false) => api.delete<string>(`/providers/custom/${encodeURIComponent(id)}${confirm ? '?confirm=true' : ''}`)

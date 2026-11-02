@@ -1,6 +1,7 @@
 import { renderToString } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
-import { ProfileEntryForm, type ProfileEntry } from './ProfileEntryForm'
+import type { ProfileEntry } from '../../api/endpoints/providers'
+import { ProfileEntryForm } from './ProfileEntryForm'
 
 const ARN = 'arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/abc123'
 
