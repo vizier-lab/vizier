@@ -4,7 +4,7 @@
 use axum::{
     Extension, Json, Router,
     extract::{Path, Query, State},
-    routing::{get, post},
+    routing::{get, post, put},
 };
 use reqwest::StatusCode;
 use serde::Deserialize;
@@ -17,11 +17,14 @@ use crate::{
     },
     state::HTTPState,
 };
-use vizier_core::service::{ServiceError, providers as service, providers_sso};
+use vizier_core::{
+    schema::ProfileEntry,
+    service::{ServiceError, providers as service, providers_sso},
+};
 
 pub mod custom;
 
-pub use service::{ProviderResponse, UpsertProviderRequest};
+pub use service::{ProfileEntryResponse, ProviderResponse, UpsertProviderRequest};
 pub use vizier_core::service::usage::{self, InUse};
 
 pub fn providers() -> Router<HTTPState> {
@@ -35,6 +38,11 @@ pub fn providers() -> Router<HTTPState> {
                 .delete(delete_provider),
         )
         .route("/{id}/test", post(test_provider))
+        // The connection's inference-profile entries (contracts §4): the whole list is writable
+        // through `PUT /{id}` too, and these touch one entry at a time. The ARN is in the path and
+        // in every row of every response, so it can always be verified (FR-022, FR-026).
+        .route("/{id}/profiles", get(list_entries).post(add_entry))
+        .route("/{id}/profiles/{*arn}", put(update_entry).delete(remove_entry))
         // Amazon Bedrock over IAM Identity Center (`contracts/provider-credentials-api.md` §3):
         // the sign-in, the pickers that follow it, and signing out inside Vizier.
         .route("/{id}/sso/sign-in", post(sso_sign_in))
@@ -186,6 +194,125 @@ pub(crate) async fn test_provider(
         Ok(result) => api_response(StatusCode::OK, result),
         Err(e) => fail(e),
     }
+}
+
+// ---------------------------------------------------------------- Inference-profile entries
+
+/// One entry. Used as the body of both the add and the replace, so a person sends exactly what a
+/// response row holds and the ARN is always in clear (contracts §4, FR-022, FR-026).
+#[utoipa::path(
+    get,
+    path = "/providers/{id}/profiles",
+    params(("id" = String, Path, description = "Provider id; only `amazon-bedrock-sso` has entries")),
+    responses(
+        (status = 200, description = "The saved entries, each with its ARN and computed pricing", body = APIResponse<Vec<ProfileEntryResponse>>),
+        (status = 400, description = "The provider is not an SSO connection", body = APIResponse<String>)
+    )
+)]
+pub(crate) async fn list_entries(
+    Path(id): Path<String>,
+    State(state): State<HTTPState>,
+    Extension(user): Extension<Principal>,
+) -> models::response::Response<Vec<ProfileEntryResponse>> {
+    match providers_sso::entries(&state.deps, &user, &id).await {
+        Ok(entries) => api_response(StatusCode::OK, entries),
+        Err(e) => fail(e),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/providers/{id}/profiles",
+    params(("id" = String, Path, description = "Provider id; only `amazon-bedrock-sso` has entries")),
+    request_body = ProfileEntry,
+    responses(
+        (status = 200, description = "The whole list, now including the new entry", body = APIResponse<Vec<ProfileEntryResponse>>),
+        (status = 400, description = "The ARN, a duplicate, a region mismatch or a pricing field is refused", body = APIResponse<String>)
+    )
+)]
+pub(crate) async fn add_entry(
+    Path(id): Path<String>,
+    State(state): State<HTTPState>,
+    Extension(user): Extension<Principal>,
+    axum::Json(entry): axum::Json<ProfileEntry>,
+) -> models::response::Response<Vec<ProfileEntryResponse>> {
+    match providers_sso::add_entry(&state.deps, &user, &id, entry).await {
+        Ok(entries) => api_response(StatusCode::OK, entries),
+        Err(e) => fail(e),
+    }
+}
+
+#[utoipa::path(
+    put,
+    path = "/providers/{id}/profiles/{arn}",
+    params(
+        ("id" = String, Path, description = "Provider id; only `amazon-bedrock-sso` has entries"),
+        ("arn" = String, Path, description = "The saved ARN, URL-encoded; it is in the path so a person can verify which entry is being replaced")
+    ),
+    request_body = ProfileEntry,
+    responses(
+        (status = 200, description = "The whole list, with the entry replaced", body = APIResponse<Vec<ProfileEntryResponse>>),
+        (status = 400, description = "A validation rule is refused", body = APIResponse<String>),
+        (status = 404, description = "No entry holds this ARN", body = APIResponse<String>),
+        (status = 409, description = "Changing the ARN would remove the profile an agent uses; `data` lists them", body = APIResponse<InUse>)
+    )
+)]
+pub(crate) async fn update_entry(
+    Path((id, arn)): Path<(String, String)>,
+    State(state): State<HTTPState>,
+    Extension(user): Extension<Principal>,
+    Query(query): Query<EntryDeleteQuery>,
+    axum::Json(entry): axum::Json<ProfileEntry>,
+) -> models::response::Response<serde_json::Value> {
+    entries_response(
+        providers_sso::update_entry(&state.deps, &user, &id, &arn, entry, query.confirm).await,
+    )
+}
+
+#[utoipa::path(
+    delete,
+    path = "/providers/{id}/profiles/{arn}",
+    params(
+        ("id" = String, Path, description = "Provider id; only `amazon-bedrock-sso` has entries"),
+        ("arn" = String, Path, description = "The saved ARN, URL-encoded"),
+        EntryDeleteQuery
+    ),
+    responses(
+        (status = 200, description = "The whole list, without the entry", body = APIResponse<Vec<ProfileEntryResponse>>),
+        (status = 400, description = "The provider is not an SSO connection", body = APIResponse<String>),
+        (status = 404, description = "No entry holds this ARN", body = APIResponse<String>),
+        (status = 409, description = "An agent still chats through it; `data` lists them", body = APIResponse<InUse>)
+    )
+)]
+pub(crate) async fn remove_entry(
+    Path((id, arn)): Path<(String, String)>,
+    Query(query): Query<EntryDeleteQuery>,
+    State(state): State<HTTPState>,
+    Extension(user): Extension<Principal>,
+) -> models::response::Response<serde_json::Value> {
+    entries_response(providers_sso::remove_entry(&state.deps, &user, &id, &arn, query.confirm).await)
+}
+
+/// The whole list on success; on a failure the error envelope, keeping a `409`'s affected agents
+/// in `data` (FR-029) — the same answer shape as a provider delete.
+fn entries_response(
+    result: Result<Vec<ProfileEntryResponse>, ServiceError>,
+) -> models::response::Response<serde_json::Value> {
+    match result {
+        Ok(entries) => match serde_json::to_value(entries) {
+            Ok(value) => api_response(StatusCode::OK, value),
+            Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+        },
+        Err(e) => fail_data(e),
+    }
+}
+
+/// `confirm=true` removes or re-points an entry even though an agent still uses its ARN — the same
+/// shape `DELETE /providers/{id}` gives a provider delete (FR-029).
+#[derive(Debug, Deserialize, utoipa::IntoParams)]
+pub struct EntryDeleteQuery {
+    #[serde(default)]
+    pub confirm: bool,
 }
 
 // ---------------------------------------------------------------- Bedrock over IAM Identity Center
@@ -607,6 +734,173 @@ mod dummyplug_provider_tests {
         let parsed = optional_sign_in_body(br#"{"profile":"acme-bedrock"}"#).unwrap();
         assert_eq!(parsed.profile.as_deref(), Some("acme-bedrock"));
         assert!(optional_sign_in_body(b"{\"nope\":1}").is_err());
+    }
+
+    /// T040: one entry at a time, through the HTTP surface, with the ARN in every answer so it can
+    /// be verified; the pricing travels with the row (contracts §4, FR-022, FR-026).
+    #[tokio::test]
+    async fn entries_are_added_listed_replaced_and_removed_with_the_arn_in_clear() {
+        let (state, _dir) = state().await;
+        let saved = upsert_provider(
+            Path("amazon-bedrock-sso".into()),
+            State(state.clone()),
+            Extension(principal()),
+            axum::Json(sso_body()),
+        )
+        .await;
+        assert_eq!(saved.0, StatusCode::OK, "{:?}", saved.1.0);
+
+        let arn = "arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/abc123";
+        let added = add_entry(
+            Path("amazon-bedrock-sso".into()),
+            State(state.clone()),
+            Extension(principal()),
+            axum::Json(ProfileEntry {
+                arn: arn.into(),
+                name: Some("Acme Prod — Claude".into()),
+                model: Some("amazon.nova-lite-v1:0".into()),
+                ..Default::default()
+            }),
+        )
+        .await;
+        assert_eq!(added.0, StatusCode::OK, "{:?}", added.1.0);
+        let rows = added.1.0.data.expect("the list comes back");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].arn, arn);
+        assert_eq!(rows[0].display_name, "Acme Prod — Claude");
+        assert_eq!(rows[0].pricing.state, "from_catalogue");
+        assert!(rows[0].pricing.cost.is_some());
+
+        // A second, unpaired entry: it lists unpriced, with its reason, never as a bare label.
+        let unpaired = add_entry(
+            Path("amazon-bedrock-sso".into()),
+            State(state.clone()),
+            Extension(principal()),
+            axum::Json(ProfileEntry {
+                arn: "arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/def456"
+                    .into(),
+                ..Default::default()
+            }),
+        )
+        .await;
+        assert_eq!(unpaired.0, StatusCode::OK, "{:?}", unpaired.1.0);
+        assert_eq!(unpaired.1.0.data.as_ref().unwrap().len(), 2);
+
+        // The listing repeats both ARNs; nothing is masked.
+        let listed = list_entries(
+            Path("amazon-bedrock-sso".into()),
+            State(state.clone()),
+            Extension(principal()),
+        )
+        .await;
+        assert_eq!(listed.0, StatusCode::OK, "{:?}", listed.1.0);
+        let rows = listed.1.0.data.expect("the list");
+        assert_eq!(rows.len(), 2);
+        assert!(rows.iter().all(|row| row.arn.starts_with("arn:aws:bedrock:")));
+        assert_eq!(rows[1].pricing.state, "not_set");
+        assert_eq!(rows[1].pricing.flag.as_deref(), Some("pricing not set"));
+        assert!(rows[1].pricing.reason.as_deref().is_some_and(|r| !r.is_empty()));
+
+        // Replacing the entry answers with the whole list and keeps the ARN.
+        let replaced = update_entry(
+            Path(("amazon-bedrock-sso".to_string(), arn.to_string())),
+            State(state.clone()),
+            Extension(principal()),
+            Query(EntryDeleteQuery { confirm: false }),
+            axum::Json(ProfileEntry {
+                arn: arn.into(),
+                name: Some("Acme Prod".into()),
+                price: Some(vizier_core::catalogue::data::Cost {
+                    input: 3.0,
+                    output: 15.0,
+                    cache_read: None,
+                    cache_write: None,
+                }),
+                ..Default::default()
+            }),
+        )
+        .await;
+        assert_eq!(replaced.0, StatusCode::OK, "{:?}", replaced.1.0);
+        let value = replaced.1.0.data.expect("the list");
+        assert_eq!(value[0]["arn"], arn);
+        assert_eq!(value[0]["display_name"], "Acme Prod");
+        assert_eq!(value[0]["pricing"]["state"], "explicit");
+
+        // Removing answers with the list without it; the other entry is untouched.
+        let removed = remove_entry(
+            Path(("amazon-bedrock-sso".to_string(), arn.to_string())),
+            Query(EntryDeleteQuery { confirm: false }),
+            State(state.clone()),
+            Extension(principal()),
+        )
+        .await;
+        assert_eq!(removed.0, StatusCode::OK, "{:?}", removed.1.0);
+        let value = removed.1.0.data.expect("the list");
+        assert_eq!(value.as_array().unwrap().len(), 1);
+        assert_ne!(value[0]["arn"], arn);
+
+        // Another provider has no entries: the surface refuses by naming the form.
+        let refused = list_entries(
+            Path("openai".into()),
+            State(state.clone()),
+            Extension(principal()),
+        )
+        .await;
+        assert_eq!(refused.0, StatusCode::BAD_REQUEST);
+        assert!(
+            refused
+                .1
+                .0
+                .message
+                .as_deref()
+                .unwrap_or_default()
+                .contains("IAM Identity Center"),
+            "{:?}",
+            refused.1.0
+        );
+    }
+
+    /// T040 §5: the SSO id's models list is the one URL people and the chat picker already use —
+    /// entries first, the catalogue's Bedrock models unchanged after them (contracts §5, §5a).
+    #[tokio::test]
+    async fn the_sso_models_list_offers_the_entries_then_the_catalogue() {
+        use crate::api::v1::catalogue::{ModelsQuery, list_models};
+
+        let (state, _dir) = state().await;
+        let saved = upsert_provider(
+            Path("amazon-bedrock-sso".into()),
+            State(state.clone()),
+            Extension(principal()),
+            axum::Json(sso_body()),
+        )
+        .await;
+        assert_eq!(saved.0, StatusCode::OK, "{:?}", saved.1.0);
+        let arn = "arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/abc123";
+        let added = add_entry(
+            Path("amazon-bedrock-sso".into()),
+            State(state.clone()),
+            Extension(principal()),
+            axum::Json(ProfileEntry {
+                arn: arn.into(),
+                name: Some("Acme Prod — Claude".into()),
+                ..Default::default()
+            }),
+        )
+        .await;
+        assert_eq!(added.0, StatusCode::OK, "{:?}", added.1.0);
+
+        let models = list_models(
+            State(state.clone()),
+            Path("amazon-bedrock-sso".into()),
+            Query(ModelsQuery { all: true }),
+        )
+        .await;
+        assert_eq!(models.0, StatusCode::OK, "{:?}", models.1.0);
+        let models = models.1.0.data.expect("models");
+        assert_eq!(models[0].id, arn);
+        assert_eq!(models[0].origin.as_deref(), Some("inference_profile"));
+        assert_eq!(models[0].pricing.as_ref().map(|p| p.state), Some("not_set"));
+        assert!(models.len() > 100, "the catalogue's Bedrock models follow");
     }
 
     #[tokio::test]
