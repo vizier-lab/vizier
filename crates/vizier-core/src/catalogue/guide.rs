@@ -247,4 +247,62 @@ mod tests {
             assert!(for_provider(&id).is_none(), "{id} has no guide");
         }
     }
+
+    /// The SSO guide as the contract publishes it (contracts §2): six steps, one policy and four
+    /// links, all as data on the listing, so the generic form renders it with no provider branch
+    /// (FR-012b, FR-038).
+    #[test]
+    fn the_sso_guide_is_the_published_six_steps_one_policy_and_four_links() {
+        let guide = for_provider(&ProviderId::AMAZON_BEDROCK_SSO).expect("the SSO id has a guide");
+
+        // Six steps, in the order the form shows them.
+        let titles: Vec<&str> = guide.steps.iter().map(|step| step.title.as_str()).collect();
+        assert_eq!(
+            titles,
+            vec![
+                "Find the Identity Center start URL",
+                "Choose the SSO region",
+                "Sign in and pick account + role",
+                "Attach the minimal policy",
+                "Add your inference profiles, and price them",
+                "Test the connection",
+            ]
+        );
+        assert!(guide.steps.iter().all(|step| !step.body.trim().is_empty()));
+        // The two things a person cannot guess are spelled out, not left to the docs.
+        assert!(guide.steps[0].body.contains("awsapps.com/start"));
+        assert!(
+            guide.steps[4].body.contains("pricing not set"),
+            "the unpriced entry is named in the guide: {}",
+            guide.steps[4].body
+        );
+
+        // One policy, and it allows bedrock:InvokeModel alone: any listing permission is optional
+        // and is not required for the connection to save or for the test to pass (FR-012b).
+        let policy: serde_json::Value =
+            serde_json::from_str(&guide.policy.code).expect("the policy is JSON");
+        let statements = policy["Statement"].as_array().expect("a statement list");
+        assert_eq!(statements.len(), 1);
+        assert_eq!(statements[0]["Effect"], serde_json::json!("Allow"));
+        assert_eq!(
+            statements[0]["Action"],
+            serde_json::json!(["bedrock:InvokeModel"])
+        );
+        assert_eq!(statements[0]["Resource"], serde_json::json!("*"));
+
+        // Four links: the Identity Center console, model access, the AWS inference-profile docs
+        // and Vizier's own section of the provider documentation (FR-038).
+        let urls: Vec<&str> = guide.links.iter().map(|link| link.url.as_str()).collect();
+        assert_eq!(urls.len(), 4);
+        assert!(urls.iter().any(|url| url.contains("singlesignon")), "{urls:?}");
+        assert!(urls.iter().any(|url| url.contains("modelaccess")), "{urls:?}");
+        assert!(urls.iter().any(|url| url.contains("inference-profiles")), "{urls:?}");
+        assert!(
+            urls.contains(&"https://www.vizier.rs/docs/configuration/providers#amazon-bedrock-sso"),
+            "{urls:?}"
+        );
+        assert!(guide.links.iter().all(|link| {
+            !link.label.trim().is_empty() && link.url.starts_with("https://")
+        }));
+    }
 }
