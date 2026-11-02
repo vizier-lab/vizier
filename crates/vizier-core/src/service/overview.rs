@@ -12,7 +12,7 @@ use crate::{
     storage::{
         agent::AgentStorage, session::SessionStorage, state::StateStorage, usage::UsageStorage,
     },
-    usage::Pricer,
+    usage::{Pricer, saved_entries},
 };
 
 /// The agents `user` can see, in id order.
@@ -91,7 +91,7 @@ pub async fn counts(
 
     let since = start_of_today(Utc::now(), offset_minutes);
     let groups = deps.storage.usage_groups_since(&ids, since).await.unwrap_or_default();
-    let mut pricer = Pricer::new(&deps.catalogue);
+    let mut pricer = Pricer::with_entries(&deps.catalogue, saved_entries(&deps.storage).await);
     let cost_today_usd: f64 = groups
         .iter()
         .filter_map(|g| pricer.cost(&g.provider, &g.model, &g.tokens))
