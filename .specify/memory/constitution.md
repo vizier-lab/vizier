@@ -21,6 +21,10 @@ Templates requiring updates:
 Follow-up TODOs: none
 (2.0.0, 2026-11-02: PostgreSQL and S3-compatible storage permitted as strictly
 opt-in server backends under Principle III.)
+(2026-11-03, on 2.1.0: the commit type list under Development Workflow was
+corrected to the Conventional Commits v1.0.0 set - `doc` is not a type,
+`docs:` is - and `[**breaking**]` is git-cliff rendering, not a type;
+git-config.yml, CLAUDE.md and CONTRIBUTING.md follow the same list.)
 -->
 
 # Vizier Constitution
@@ -153,12 +157,16 @@ instead of each module reinventing its own convention.
   considered done; there is no separate `just lint`/`just test` — use these
   directly. WebUI changes MUST pass `cd webui && npm run typecheck`.
 - **Conventional commits everywhere**: every commit message AND every pull
-  request title MUST be in conventional-commit format (`feat:`, `fix:`,
-  `doc:`, `perf:`, `refactor:`, `chore:`, with `[**breaking**]` where
-  applicable), in the workspace and in every submodule. The changelog is
-  generated from history via `git-cliff`, and a squash-merged PR title
-  becomes the commit. Tool-generated messages (Spec Kit auto-commits, bots)
-  are held to the same rule; a `[Spec Kit] ...` style prefix is not allowed.
+  request title MUST be in conventional-commit format — the types of
+  Conventional Commits v1.0.0 (`feat:`, `fix:`, `build:`, `chore:`, `ci:`,
+  `docs:`, `style:`, `refactor:`, `perf:`, `test:`), optionally with a
+  `(scope)` and/or `!` before the colon, in the workspace and in every
+  submodule. `[**breaking**]` is not a commit type: it is how `git-cliff`
+  renders a breaking commit in the changelog, and a breaking change is marked
+  `type!:` in the subject or a `BREAKING CHANGE:` footer. The changelog is
+  generated from history via `git-cliff`, and a squash-merged PR title becomes
+  the commit. Tool-generated messages (Spec Kit auto-commits, bots) are held to
+  the same rule; a `[Spec Kit] ...` style prefix is not allowed.
 - **Matching submodule branches, driven by `just`**: every spec branch
   (`NNN-short-name`) MUST exist under the same name in the workspace and in
   every submodule (`design`, `webui`, `landing`, `dummyplug`), so a feature
