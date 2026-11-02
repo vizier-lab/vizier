@@ -1,6 +1,6 @@
+use crate::storage::sql::{self, OptionalExtension, params};
 use anyhow::Result;
 use chrono::{DateTime, NaiveDate, Utc};
-use rusqlite::OptionalExtension;
 use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 
@@ -11,23 +11,29 @@ use crate::{
     },
     storage::{
         history::{HistoryStorage, is_non_user_channel},
-        sqlite::SqliteStorage,
+        sqlite::SqlStorage,
     },
 };
 
 /// The only insert into `session_history`, shared by `save_session_history` and
 /// `save_checkpoint` so neither can write a row without a `seq`.
 ///
-/// `seq` is assigned by the statement rather than by a caller (FR-001). The read-then-write
-/// of `MAX(seq)` is safe because every insert runs under `self.conn.lock()`, and `idx_sh_seq`
-/// makes the maximum an index lookup rather than a scan.
-const INSERT_HISTORY_SQL: &str = "INSERT INTO session_history \
-     (uid, agent_id, channel, topic, timestamp, content_type, data, seq) \
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, (SELECT IFNULL(MAX(seq), 0) + 1 FROM session_history))";
+/// `seq` is assigned by the statement rather than by a caller (FR-001). On SQLite the
+/// read-then-write of `MAX(seq)` is safe because every insert runs under `self.conn.lock()`,
+/// and `idx_sh_seq` makes the maximum an index lookup rather than a scan; on PostgreSQL the
+/// column is an identity.
+fn insert_history_sql(dialect: &dyn sql::Dialect) -> String {
+    format!(
+        "INSERT INTO session_history \
+         (uid, agent_id, channel, topic, timestamp, content_type, data, seq) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, {})",
+        dialect.next_sequence_value("session_history", "seq")
+    )
+}
 
 /// `(data, seq)` as every ordered read selects it. `seq` lives on the column, not inside the
 /// serialized `data` blob, so it has to be read back and set on the deserialized entry.
-fn history_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<(String, Option<i64>)> {
+fn history_row(row: &sql::Row) -> sql::Result<(String, Option<i64>)> {
     Ok((row.get(0)?, row.get(1)?))
 }
 
@@ -41,9 +47,9 @@ pub(super) fn parse_history_row((data, seq): (String, Option<i64>)) -> Option<Se
 /// Read-time only; the stored JSON never carries it. One indexed artifact lookup per
 /// attachment, on the connection the history read already holds.
 pub(super) fn fill_artifact_availability(
-    conn: &rusqlite::Connection,
+    conn: &sql::Connection,
     entries: &mut [SessionHistory],
-) -> rusqlite::Result<()> {
+) -> sql::Result<()> {
     for entry in entries.iter_mut() {
         for attachment in entry.content.attachments_mut() {
             if let VizierAttachmentContent::Artifact {
@@ -55,7 +61,7 @@ pub(super) fn fill_artifact_availability(
                 let exists = conn
                     .query_row(
                         "SELECT content_file FROM artifact WHERE agent_id = ?1 AND id = ?2",
-                        rusqlite::params![agent_id.as_str(), artifact_id.as_str()],
+                        params![agent_id.as_str(), artifact_id.as_str()],
                         |row| row.get::<_, String>(0),
                     )
                     .optional()?
@@ -71,9 +77,9 @@ pub(super) fn fill_artifact_availability(
 /// `data` blob never carries them (`specs/013-reaction-awareness/research.md` Decision 1).
 /// One query per 500 entries, so a page of history costs one extra indexed lookup.
 pub(super) fn fill_reactions(
-    conn: &rusqlite::Connection,
+    conn: &sql::Connection,
     entries: &mut [SessionHistory],
-) -> rusqlite::Result<()> {
+) -> sql::Result<()> {
     const CHUNK: usize = 500;
     if entries.is_empty() {
         return Ok(());
@@ -88,7 +94,7 @@ pub(super) fn fill_reactions(
         );
         let mut stmt = conn.prepare(&sql)?;
         let rows = stmt.query_map(
-            rusqlite::params_from_iter(chunk.iter().map(|entry| entry.uid.as_str())),
+            sql::params_from_iter(chunk.iter().map(|entry| entry.uid.as_str())),
             |row| {
                 Ok((
                     row.get::<_, String>(0)?,
@@ -115,9 +121,9 @@ pub(super) fn fill_reactions(
 /// Fill each `ClientToolCall` entry's `outcome` and `state` from `client_tool_call`, their
 /// only home (`specs/019-client-tools` research R8). Costs nothing for a page without calls.
 pub(super) fn fill_client_calls(
-    conn: &rusqlite::Connection,
+    conn: &sql::Connection,
     entries: &mut [SessionHistory],
-) -> rusqlite::Result<()> {
+) -> sql::Result<()> {
     const CHUNK: usize = 500;
     let uids: Vec<String> = entries
         .iter()
@@ -136,7 +142,7 @@ pub(super) fn fill_client_calls(
              WHERE history_uid IN ({placeholders})"
         );
         let mut stmt = conn.prepare(&sql)?;
-        let rows = stmt.query_map(rusqlite::params_from_iter(chunk.iter()), |row| {
+        let rows = stmt.query_map(sql::params_from_iter(chunk.iter()), |row| {
             Ok((
                 row.get::<_, String>(0)?,
                 (row.get(1)?, row.get(2)?, row.get(3)?),
@@ -167,15 +173,14 @@ pub(super) fn fill_client_calls(
     Ok(())
 }
 
-
 /// Fill each `QuestionSet` entry's `state`, `answers` and `answerer` from `question_set`, their
 /// only home (`specs/042-agent-asking-question` research R3). Costs nothing for a page without
 /// questions, and is what makes a pending card answerable after a reload or a restart: nothing
 /// about a live set is held in memory.
 pub(super) fn fill_question_sets(
-    conn: &rusqlite::Connection,
+    conn: &sql::Connection,
     entries: &mut [SessionHistory],
-) -> rusqlite::Result<()> {
+) -> sql::Result<()> {
     const CHUNK: usize = 500;
     // Keyed by the set's own id, which the entry carries: the entry's `uid` is the history row's
     // and is not the set's.
@@ -198,7 +203,7 @@ pub(super) fn fill_question_sets(
              WHERE set_id IN ({placeholders})"
         );
         let mut stmt = conn.prepare(&sql)?;
-        let rows = stmt.query_map(rusqlite::params_from_iter(chunk.iter()), |row| {
+        let rows = stmt.query_map(sql::params_from_iter(chunk.iter()), |row| {
             Ok((
                 row.get::<_, String>(0)?,
                 (row.get(1)?, row.get(2)?, row.get(3)?),
@@ -265,11 +270,11 @@ fn content_type_discriminant(content: &SessionHistoryContent) -> &'static str {
 }
 
 #[async_trait::async_trait]
-impl HistoryStorage for SqliteStorage {
+impl HistoryStorage for SqlStorage {
     async fn last_activity_by_agent(
         &self,
     ) -> anyhow::Result<std::collections::HashMap<String, DateTime<Utc>>> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let mut stmt =
             conn.prepare("SELECT agent_id, MAX(timestamp) FROM session_history GROUP BY agent_id")?;
         let rows = stmt
@@ -314,11 +319,11 @@ impl HistoryStorage for SqliteStorage {
             })
             .collect();
 
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let tx = conn.unchecked_transaction()?;
         tx.execute(
-            INSERT_HISTORY_SQL,
-            rusqlite::params![
+            &insert_history_sql(tx.dialect()),
+            params![
                 uid,
                 session.0,
                 session.1.to_slug(),
@@ -330,10 +335,14 @@ impl HistoryStorage for SqliteStorage {
         )?;
         for (agent_id, artifact_id) in references {
             tx.execute(
-                "INSERT OR REPLACE INTO artifact_reference \
+                "INSERT INTO artifact_reference \
                  (artifact_id, agent_id, kind, target, session_slug, history_uid, channel, topic, bundle, path, label, created_at) \
-                 VALUES (?1, ?2, 'message', ?3, ?4, ?5, ?6, ?7, NULL, NULL, ?8, ?9)",
-                rusqlite::params![
+                 VALUES (?1, ?2, 'message', ?3, ?4, ?5, ?6, ?7, NULL, NULL, ?8, ?9) \
+                 ON CONFLICT (artifact_id, kind, target) DO UPDATE SET agent_id = excluded.agent_id, \
+                 session_slug = excluded.session_slug, history_uid = excluded.history_uid, \
+                 channel = excluded.channel, topic = excluded.topic, bundle = excluded.bundle, \
+                 path = excluded.path, label = excluded.label, created_at = excluded.created_at",
+                params![
                     artifact_id,
                     agent_id,
                     format!("message:{session_slug}:{uid}"),
@@ -357,7 +366,7 @@ impl HistoryStorage for SqliteStorage {
         before_seq: Option<i64>,
         limit: Option<usize>,
     ) -> Result<Vec<SessionHistory>> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let mut sql = "SELECT data, seq FROM session_history WHERE agent_id = ?1 AND channel = ?2"
             .to_string();
         let mut param_idx = 3;
@@ -393,7 +402,7 @@ impl HistoryStorage for SqliteStorage {
 
         let mut stmt = conn.prepare(&sql)?;
 
-        let mut params: Vec<Box<dyn rusqlite::types::ToSql>> =
+        let mut params: Vec<Box<dyn sql::ToSql>> =
             vec![Box::new(session.0.clone()), Box::new(session.1.to_slug())];
         if let Some(ref topic) = session.2 {
             params.push(Box::new(topic.clone()));
@@ -409,7 +418,7 @@ impl HistoryStorage for SqliteStorage {
         }
 
         let mut list: Vec<SessionHistory> = stmt
-            .query_map(rusqlite::params_from_iter(params.iter()), history_row)?
+            .query_map(sql::params_from_iter(params.iter()), history_row)?
             .filter_map(|r| r.ok())
             .filter_map(parse_history_row)
             .collect();
@@ -428,10 +437,10 @@ impl HistoryStorage for SqliteStorage {
         start_datetime: Option<DateTime<Utc>>,
         end_datetime: Option<DateTime<Utc>>,
     ) -> Result<Vec<SessionHistory>> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let mut sql = "SELECT data, seq FROM session_history WHERE agent_id = ?1 AND channel = ?2"
             .to_string();
-        let mut params: Vec<Box<dyn rusqlite::types::ToSql>> =
+        let mut params: Vec<Box<dyn sql::ToSql>> =
             vec![Box::new(session.0.clone()), Box::new(session.1.to_slug())];
         let mut param_idx = 3;
 
@@ -456,7 +465,7 @@ impl HistoryStorage for SqliteStorage {
 
         let mut stmt = conn.prepare(&sql)?;
         let mut list: Vec<SessionHistory> = stmt
-            .query_map(rusqlite::params_from_iter(params.iter()), history_row)?
+            .query_map(sql::params_from_iter(params.iter()), history_row)?
             .filter_map(|r| r.ok())
             .filter_map(parse_history_row)
             .collect();
@@ -475,14 +484,14 @@ impl HistoryStorage for SqliteStorage {
         start: DateTime<Utc>,
         end: DateTime<Utc>,
     ) -> Result<Vec<VizierSession>> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let mut stmt = conn.prepare(
             "SELECT data, seq FROM session_history WHERE agent_id = ?1 AND timestamp >= ?2 AND timestamp <= ?3 ORDER BY timestamp DESC, seq DESC",
         )?;
 
         let entries: Vec<SessionHistory> = stmt
             .query_map(
-                rusqlite::params![agent_id, start.timestamp_millis(), end.timestamp_millis()],
+                params![agent_id, start.timestamp_millis(), end.timestamp_millis()],
                 history_row,
             )?
             .filter_map(|r| r.ok())
@@ -511,11 +520,11 @@ impl HistoryStorage for SqliteStorage {
         session: VizierSession,
         before: Option<DateTime<Utc>>,
     ) -> Result<(Vec<SessionHistory>, Option<String>)> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
 
         // Find latest checkpoint
         let mut cp_sql = "SELECT data, seq FROM session_history WHERE agent_id = ?1 AND channel = ?2 AND content_type = 'Checkpoint'".to_string();
-        let mut cp_params: Vec<Box<dyn rusqlite::types::ToSql>> =
+        let mut cp_params: Vec<Box<dyn sql::ToSql>> =
             vec![Box::new(session.0.clone()), Box::new(session.1.to_slug())];
         let mut cp_param_idx = 3;
 
@@ -536,7 +545,7 @@ impl HistoryStorage for SqliteStorage {
         let checkpoint = {
             let mut stmt = conn.prepare(&cp_sql)?;
             let rows: Vec<SessionHistory> = stmt
-                .query_map(rusqlite::params_from_iter(cp_params.iter()), history_row)?
+                .query_map(sql::params_from_iter(cp_params.iter()), history_row)?
                 .filter_map(|r| r.ok())
                 .filter_map(parse_history_row)
                 .collect();
@@ -557,7 +566,7 @@ impl HistoryStorage for SqliteStorage {
         let mut hist_sql =
             "SELECT data, seq FROM session_history WHERE agent_id = ?1 AND channel = ?2"
                 .to_string();
-        let mut hist_params: Vec<Box<dyn rusqlite::types::ToSql>> =
+        let mut hist_params: Vec<Box<dyn sql::ToSql>> =
             vec![Box::new(session.0.clone()), Box::new(session.1.to_slug())];
         let mut param_idx = 3;
 
@@ -582,7 +591,7 @@ impl HistoryStorage for SqliteStorage {
 
         let mut stmt = conn.prepare(&hist_sql)?;
         let mut history: Vec<SessionHistory> = stmt
-            .query_map(rusqlite::params_from_iter(hist_params.iter()), history_row)?
+            .query_map(sql::params_from_iter(hist_params.iter()), history_row)?
             .filter_map(|r| r.ok())
             .filter_map(parse_history_row)
             .collect();
@@ -611,10 +620,10 @@ impl HistoryStorage for SqliteStorage {
         };
 
         let data = serde_json::to_string(&entry)?;
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         conn.execute(
-            INSERT_HISTORY_SQL,
-            rusqlite::params![
+            &insert_history_sql(conn.dialect()),
+            params![
                 uid,
                 session.0,
                 session.1.to_slug(),
@@ -628,11 +637,12 @@ impl HistoryStorage for SqliteStorage {
     }
 
     async fn count_session_requests(&self, session: VizierSession) -> Result<usize> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let count: i64 = conn.query_row(
             "SELECT COUNT(*) FROM session_history \
-             WHERE agent_id = ?1 AND channel = ?2 AND topic IS ?3 AND content_type = 'Request'",
-            rusqlite::params![session.0, session.1.to_slug(), session.2],
+             WHERE agent_id = ?1 AND channel = ?2 AND topic IS NOT DISTINCT FROM ?3 \
+             AND content_type = 'Request'",
+            params![session.0, session.1.to_slug(), session.2],
             |row| row.get(0),
         )?;
         Ok(count as usize)
@@ -643,23 +653,26 @@ impl HistoryStorage for SqliteStorage {
 mod tests {
     use std::sync::Arc;
 
-    use parking_lot::Mutex;
+    use crate::storage::sql::SqlStore;
     use rusqlite::Connection;
 
     use super::*;
     use crate::schema::{VizierChannelId, VizierRequest, VizierRequestContent};
-    use crate::storage::document::LocalDocumentStore;
+    use crate::storage::document::BlobDocumentStore;
 
-    fn setup() -> (SqliteStorage, tempfile::TempDir) {
+    fn setup() -> (SqlStorage, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
-        let conn = Connection::open_in_memory().unwrap();
-        crate::storage::sqlite::init_artifact_schema(&conn).unwrap();
-        crate::storage::sqlite::init_history_schema(&conn).unwrap();
-        crate::storage::sqlite::init_reaction_schema(&conn).unwrap();
-        crate::storage::sqlite::init_client_call_schema(&conn).unwrap();
-        let storage = SqliteStorage::new(
-            Arc::new(Mutex::new(conn)),
-            Arc::new(LocalDocumentStore::new(dir.path().to_path_buf())),
+        let store = crate::tests_support::test_store(|| {
+            let conn = Connection::open_in_memory().unwrap();
+            crate::storage::sqlite::init_artifact_schema(&conn).unwrap();
+            crate::storage::sqlite::init_history_schema(&conn).unwrap();
+            crate::storage::sqlite::init_reaction_schema(&conn).unwrap();
+            crate::storage::sqlite::init_client_call_schema(&conn).unwrap();
+            SqlStore::sqlite(conn)
+        });
+        let storage = SqlStorage::new(
+            store,
+            Arc::new(BlobDocumentStore::local(dir.path().to_path_buf())),
         );
         (storage, dir)
     }
@@ -710,20 +723,31 @@ mod tests {
     /// `SessionHistory::timestamp` out of the serialized `data` blob, which keeps
     /// nanoseconds. Collapsing only the column would leave the blob's nanoseconds to order
     /// the entries by accident and the test would pass against the defect.
-    fn collapse_timestamps(storage: &SqliteStorage) {
-        let conn = storage.conn.lock();
-        conn.execute_batch(
+    fn collapse_timestamps(storage: &SqlStorage) {
+        let conn = storage.conn.lock().unwrap();
+        conn.execute_batch(if crate::tests_support::testing_postgres() {
             "UPDATE session_history
                 SET timestamp = 1700000000000,
-                    data = json_set(data, '$.timestamp', '2023-11-14T22:13:20Z');",
-        )
+                    data = jsonb_set(data::jsonb, '{timestamp}', '\"2023-11-14T22:13:20Z\"')::text;"
+        } else {
+            "UPDATE session_history
+                SET timestamp = 1700000000000,
+                    data = json_set(data, '$.timestamp', '2023-11-14T22:13:20Z');"
+        })
         .unwrap();
     }
 
-    fn seqs(storage: &SqliteStorage) -> Vec<Option<i64>> {
-        let conn = storage.conn.lock();
+    /// Every row's `seq`, in insertion order (SQLite's rowid; PostgreSQL's `seq` is itself the
+    /// insertion order).
+    fn seqs(storage: &SqlStorage) -> Vec<Option<i64>> {
+        let conn = storage.conn.lock().unwrap();
+        let order = if crate::tests_support::testing_postgres() {
+            "seq"
+        } else {
+            "rowid"
+        };
         let mut stmt = conn
-            .prepare("SELECT seq FROM session_history ORDER BY rowid")
+            .prepare(&format!("SELECT seq FROM session_history ORDER BY {order}"))
             .unwrap();
         let rows = stmt
             .query_map([], |row| row.get::<_, Option<i64>>(0))
@@ -773,7 +797,7 @@ mod tests {
                 .unwrap();
         }
         {
-            let conn = storage.conn.lock();
+            let conn = storage.conn.lock().unwrap();
             conn.execute_batch("UPDATE session_history SET seq = NULL;")
                 .unwrap();
         }
@@ -900,7 +924,7 @@ mod tests {
 
         // A row written after the upgrade gets a position, starting from one.
         conn.execute(
-            INSERT_HISTORY_SQL,
+            &insert_history_sql(&crate::storage::sql::SqliteDialect),
             rusqlite::params![
                 "new-1",
                 "a",
@@ -992,7 +1016,7 @@ mod tests {
         storage.open_client_call(&uid, &session()).await.unwrap();
 
         async fn read(
-            storage: &SqliteStorage,
+            storage: &SqlStorage,
             uid: &str,
         ) -> (Option<ClientCallOutcome>, Option<serde_json::Value>) {
             let history = storage
@@ -1025,6 +1049,7 @@ mod tests {
         let blob: String = storage
             .conn
             .lock()
+            .unwrap()
             .query_row(
                 "SELECT data FROM session_history WHERE uid = ?1",
                 [&uid],
@@ -1036,4 +1061,61 @@ mod tests {
             "{blob}"
         );
     }
+
+    /// SC-004: PostgreSQL identities allocate one ordered history position under 50 concurrent
+    /// writers; no process-wide lock participates because every clone checks out its own pooled
+    /// connection.
+    #[test]
+    fn fifty_postgres_writers_allocate_contiguous_history_positions() {
+        let Some(store) = crate::tests_support::postgres_store() else {
+            return;
+        };
+        const WRITERS: usize = 50;
+        const EACH: usize = 200;
+        let dir = tempfile::tempdir().unwrap();
+        let storage = SqlStorage::new(
+            store,
+            Arc::new(BlobDocumentStore::local(dir.path().to_path_buf())),
+        );
+
+        std::thread::scope(|scope| {
+            for writer in 0..WRITERS {
+                let storage = storage.clone();
+                scope.spawn(move || {
+                    let runtime = tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()
+                        .unwrap();
+                    runtime.block_on(async move {
+                        for entry in 0..EACH {
+                            storage
+                                .save_session_history(
+                                    session(),
+                                    request(&format!("{writer}:{entry}")),
+                                )
+                                .await
+                                .unwrap();
+                        }
+                    });
+                });
+            }
+        });
+
+        let conn = storage.conn.lock().unwrap();
+        let actual: Vec<i64> = conn
+            .query_all("SELECT seq FROM session_history ORDER BY seq", ())
+            .unwrap()
+            .iter()
+            .map(|row| row.get(0).unwrap())
+            .collect();
+        let expected: Vec<i64> = (1..=(WRITERS * EACH) as i64).collect();
+        assert_eq!(actual, expected);
+    }
+
+    crate::postgres_tests!(
+        seq_is_strictly_increasing_and_orders_entries_sharing_a_timestamp,
+        the_replay_read_is_ordered_when_entries_share_a_timestamp,
+        count_session_requests_counts_only_that_sessions_requests,
+        a_client_tool_call_reads_back_with_its_outcome_and_state,
+    );
 }

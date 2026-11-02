@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-use parking_lot::Mutex;
 use rusqlite::Connection;
 
 use crate::error::VizierError;
@@ -39,8 +38,9 @@ pub(crate) mod usage;
 mod user;
 
 #[derive(Clone)]
-pub struct SqliteStorage {
-    pub conn: Arc<Mutex<Connection>>,
+pub struct SqlStorage {
+    /// Every storage method checks a connection out of here (`self.conn.lock()?`).
+    pub conn: crate::storage::sql::SqlStore,
     pub document_store: Arc<dyn DocumentStore>,
     /// Every saved or relabelled session file, for `SessionFrame::File`.
     pub session_files: tokio::sync::broadcast::Sender<(
@@ -166,14 +166,11 @@ pub fn init_revision_schema(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
-impl SqliteStorage {
-    pub fn open_connection(workspace: &str) -> Result<Connection> {
-        let db_path = build_path(workspace, &[".runtime"]);
-        std::fs::create_dir_all(&db_path)?;
-
-        let db_file = db_path.join("vizier.db");
-
-        // Register sqlite-vec extension before opening any connection
+impl SqlStorage {
+    /// Register sqlite-vec for every connection opened after this call. Idempotent.
+    fn register_sqlite_vec() {
+        // SAFETY: `sqlite3_vec_init` has exactly the signature SQLite expects of an auto-loaded
+        // extension entry point; registering the same pointer twice is a no-op.
         unsafe {
             rusqlite::ffi::sqlite3_auto_extension(Some(std::mem::transmute::<
                 *const (),
@@ -186,7 +183,15 @@ impl SqliteStorage {
                 sqlite_vec::sqlite3_vec_init as *const (),
             )));
         }
+    }
 
+    pub fn open_connection(workspace: &str) -> Result<Connection> {
+        let db_path = build_path(workspace, &[".runtime"]);
+        std::fs::create_dir_all(&db_path)?;
+
+        let db_file = db_path.join("vizier.db");
+
+        Self::register_sqlite_vec();
         let conn = Connection::open(&db_file)?;
 
         conn.execute_batch("PRAGMA journal_mode=WAL;")?;
@@ -198,7 +203,35 @@ impl SqliteStorage {
         Ok(conn)
     }
 
-    pub fn new(conn: Arc<Mutex<Connection>>, document_store: Arc<dyn DocumentStore>) -> Self {
+    /// Open an existing workspace database without writing to it (no schema init, no WAL
+    /// switch), for `vizier storage migrate`. `None` when the workspace has no database.
+    pub(crate) fn open_read_only(workspace: &std::path::Path) -> Result<Option<Connection>> {
+        let db_file = workspace.join(".runtime").join("vizier.db");
+        if !db_file.is_file() {
+            return Ok(None);
+        }
+        Self::register_sqlite_vec();
+        let conn = Connection::open_with_flags(
+            &db_file,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )?;
+        conn.execute_batch("PRAGMA busy_timeout=5000;")?;
+        Ok(Some(conn))
+    }
+
+    /// The schema this binary creates on SQLite, on a scratch in-memory database: what a
+    /// migration source must match.
+    pub(crate) fn expected_schema() -> Result<Connection> {
+        Self::register_sqlite_vec();
+        let conn = Connection::open_in_memory()?;
+        Self::init_schema(&conn)?;
+        Ok(conn)
+    }
+
+    pub fn new(
+        conn: crate::storage::sql::SqlStore,
+        document_store: Arc<dyn DocumentStore>,
+    ) -> Self {
         Self {
             conn,
             document_store,
@@ -211,7 +244,7 @@ impl SqliteStorage {
     /// The production constructor: every in-scope secret read/write goes through `cipher`, and
     /// integration settings are classified by `secret_paths`. No schema change.
     pub fn with_secrets(
-        conn: Arc<Mutex<Connection>>,
+        conn: crate::storage::sql::SqlStore,
         document_store: Arc<dyn DocumentStore>,
         cipher: crate::encryption::SecretCipher,
         secret_paths: Arc<dyn crate::encryption::IntegrationSecretPaths>,
@@ -599,7 +632,6 @@ pub fn init_client_call_schema(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
-
 /// The `question_set` table (`specs/042-agent-asking-question/data-model.md` §9): one row per set
 /// the agent asked. `questions` is the immutable set; `state`, `answers` and `answerer` change
 /// after the insert and are filled into the history entry on every read, exactly as
@@ -633,7 +665,6 @@ pub fn init_question_schema(conn: &Connection) -> Result<()> {
     )?;
     Ok(())
 }
-
 
 /// The `sensitive_ask` table (`specs/042-agent-asking-question/data-model.md` §9): one row per ask
 /// for a sensitive value. It holds **no value** — only that one was wanted, why, and what came of
@@ -1076,4 +1107,4 @@ pub fn add_column_if_missing(
     Ok(())
 }
 
-impl VizierStorageProvider for SqliteStorage {}
+impl VizierStorageProvider for SqlStorage {}

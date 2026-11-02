@@ -23,7 +23,6 @@ use crate::config::provider::ProviderId;
 use crate::dependencies::VizierDependencies;
 use crate::embedding::VizierEmbedder;
 use crate::indexer::VizierIndexer;
-use crate::indexer::sqlite::SqliteIndexer;
 use crate::schema::{
     AgentConfig, AgentHealthStatus, AgentId, AgentRunState, ErrorKind, VizierResponse,
     VizierResponseContent,
@@ -156,21 +155,13 @@ async fn build_indexer(
         _ => return Ok(None),
     };
 
-    let conn = deps.sqlite_conn.clone();
-
     let embedder = Arc::new(
         VizierEmbedder::from_agent_settings(emb_settings, deps, &deps.config.workspace, agent_id)
             .await?,
     );
-    let sqlite_idx = SqliteIndexer::new(conn, embedder).await?;
-    note_index_dimension(
-        deps,
-        agent_id,
-        sqlite_idx.dimension(),
-        sqlite_idx.keeps_legacy_table(),
-    )
-    .await;
-    Ok(Some(VizierIndexer::build(sqlite_idx)))
+    let opened = crate::indexer::open(deps.sql.clone(), embedder).await?;
+    note_index_dimension(deps, agent_id, opened.dimension, opened.keeps_legacy_table).await;
+    Ok(Some(opened.indexer))
 }
 
 /// The width this agent's memories were last embedded at. A different one means it now writes to
@@ -199,9 +190,7 @@ async fn note_index_dimension(
     // so nothing is dropped. Any other first record may have left vectors in another width's table,
     // and a new agent simply has no rows to drop.
     let fresh_on_legacy = last.is_none() && legacy_table;
-    if !fresh_on_legacy
-        && let Err(e) = deps.storage.reset_agent_passages(agent_id).await
-    {
+    if !fresh_on_legacy && let Err(e) = deps.storage.reset_agent_passages(agent_id).await {
         tracing::warn!(
             agent_id,
             "could not reset memory passages after an embedding change; semantic search stays \
@@ -209,11 +198,7 @@ async fn note_index_dimension(
         );
         return;
     }
-    if let Err(e) = deps
-        .storage
-        .save_state(key, serde_json::json!(dim))
-        .await
-    {
+    if let Err(e) = deps.storage.save_state(key, serde_json::json!(dim)).await {
         tracing::warn!(agent_id, "could not record the memory index dimension: {e}");
     }
 }

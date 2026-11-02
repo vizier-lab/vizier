@@ -5,23 +5,63 @@ use clap::{Args, ValueEnum};
 use daemonize::Daemonize;
 
 use super::server::run_server;
-use vizier_core::config::{RunOverrides, storage::StorageConfig};
+use vizier_core::config::{
+    RunOverrides,
+    storage::{ObjectsConfig, PostgresConfig, S3Config, StorageConfig},
+};
 
-/// `filesystem` is intentionally not a valid value here (research.md §10, FR-025) — sqlite is
-/// the sole runtime backend now. An operator still passing `--storage filesystem` gets clap's
-/// own "invalid value" error rather than silently falling back or crashing deep in startup.
+/// `filesystem` is intentionally not a valid value here (research.md §10, FR-025). An operator
+/// still passing `--storage filesystem` gets clap's own "invalid value" error rather than
+/// silently falling back or crashing deep in startup.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 #[clap(rename_all = "lowercase")]
-enum StorageKind {
+pub(super) enum StorageKind {
     Sqlite,
+    Postgres,
 }
 
-impl From<StorageKind> for StorageConfig {
-    fn from(kind: StorageKind) -> Self {
-        match kind {
-            StorageKind::Sqlite => StorageConfig::Sqlite,
+impl StorageKind {
+    /// The backend to use: the config's own settings when it already names this kind (so a
+    /// YAML `pool_size` or `url_env` survives `--storage postgres`), defaults otherwise.
+    pub(super) fn resolve(self, current: &StorageConfig) -> StorageConfig {
+        match (self, current) {
+            (StorageKind::Postgres, StorageConfig::Postgres(_)) => current.clone(),
+            (StorageKind::Postgres, _) => StorageConfig::Postgres(PostgresConfig::default()),
+            (StorageKind::Sqlite, _) => StorageConfig::Sqlite,
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+#[clap(rename_all = "lowercase")]
+pub(super) enum ObjectsKind {
+    Local,
+    S3,
+}
+
+impl ObjectsKind {
+    pub(super) fn resolve(self, current: &ObjectsConfig) -> ObjectsConfig {
+        match (self, current) {
+            (ObjectsKind::S3, ObjectsConfig::S3(_)) => current.clone(),
+            (ObjectsKind::S3, _) => ObjectsConfig::S3(S3Config::default()),
+            (ObjectsKind::Local, _) => ObjectsConfig::Local,
+        }
+    }
+}
+
+/// Parse `VIZIER_<NAME>` as a clap value for runs outside Docker (the entrypoint maps the same
+/// variables to flags). A present invalid value is an error, never a silent fallback to the
+/// embedded backend.
+pub(super) fn env_value<T: ValueEnum>(name: &str) -> Result<Option<T>> {
+    let Some(value) = std::env::var_os(name) else {
+        return Ok(None);
+    };
+    let value = value
+        .into_string()
+        .map_err(|_| anyhow::anyhow!("{name} is not valid UTF-8"))?;
+    T::from_str(value.trim(), true)
+        .map(Some)
+        .map_err(|_| anyhow::anyhow!("{name} has an invalid value"))
 }
 
 #[derive(Debug, Args, Clone)]
@@ -42,7 +82,11 @@ pub struct RunArgs {
     )]
     detached: bool,
 
-    #[arg(long, value_name = "PORT", help = "HTTP server port (overrides config)")]
+    #[arg(
+        long,
+        value_name = "PORT",
+        help = "HTTP server port (overrides config)"
+    )]
     port: Option<u32>,
 
     #[arg(
@@ -64,18 +108,21 @@ pub struct RunArgs {
     #[arg(
         long,
         value_name = "STORAGE",
-        help = "storage backend (sqlite is the only supported value; kept as a flag for forwards compatibility)"
+        help = "database backend: sqlite (default, embedded) or postgres (URL from VIZIER_DATABASE_URL); env VIZIER_STORAGE"
     )]
     storage: Option<StorageKind>,
+
+    #[arg(
+        long,
+        value_name = "OBJECTS",
+        help = "file backend: local (default, the workspace) or s3 (VIZIER_S3_* variables); env VIZIER_OBJECTS"
+    )]
+    objects: Option<ObjectsKind>,
 
     #[arg(long, value_name = "N", help = "tokio worker thread count")]
     workers: Option<usize>,
 
-    #[arg(
-        long,
-        value_name = "SECS",
-        help = "websocket idle timeout in seconds"
-    )]
+    #[arg(long, value_name = "SECS", help = "websocket idle timeout in seconds")]
     ws_idle_timeout: Option<u64>,
 
     #[arg(
@@ -99,10 +146,19 @@ pub fn run(args: RunArgs) -> Result<()> {
     let mut config = super::config_resolve::resolve(args.config.clone())?;
 
     let workspace_override = args.data_dir.clone().or(args.workspace.clone());
+    let storage = match args.storage {
+        Some(kind) => Some(kind),
+        None => env_value("VIZIER_STORAGE")?,
+    };
+    let objects = match args.objects {
+        Some(kind) => Some(kind),
+        None => env_value("VIZIER_OBJECTS")?,
+    };
     let overrides = RunOverrides {
         workspace: workspace_override,
         port: args.port,
-        storage: args.storage.map(Into::into),
+        storage: storage.map(|kind| kind.resolve(&config.storage)),
+        objects: objects.map(|kind| kind.resolve(&config.objects)),
         workers: args.workers,
         ws_idle_timeout: args.ws_idle_timeout,
         // The env vars work outside Docker too (the entrypoint maps them to these flags).

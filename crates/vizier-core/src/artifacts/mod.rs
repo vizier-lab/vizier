@@ -7,7 +7,6 @@
 pub mod access;
 mod paths;
 
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use chrono::Utc;
@@ -21,6 +20,7 @@ use crate::schema::{
 };
 use crate::storage::VizierStorage;
 use crate::storage::artifact::ArtifactStorage;
+use crate::storage::blob::BlobRef;
 use crate::storage::memory::MemoryStorage;
 use crate::storage::session_file::SessionFileStorage;
 
@@ -69,7 +69,6 @@ pub struct ArtifactWrite {
 }
 
 pub struct Artifacts {
-    workspace: PathBuf,
     storage: Arc<VizierStorage>,
     paths: ArtifactPaths,
     file_manager: FileManager,
@@ -79,15 +78,9 @@ pub struct Artifacts {
 }
 
 impl Artifacts {
-    pub fn new(
-        workspace: impl Into<PathBuf>,
-        storage: Arc<VizierStorage>,
-        file_manager: FileManager,
-    ) -> Self {
-        let workspace = workspace.into();
+    pub fn new(storage: Arc<VizierStorage>, file_manager: FileManager) -> Self {
         Self {
-            paths: ArtifactPaths::new(workspace.clone()),
-            workspace,
+            paths: ArtifactPaths::new(file_manager.blobs().clone()),
             storage,
             file_manager,
             mutations: tokio::sync::Mutex::new(()),
@@ -106,21 +99,24 @@ impl Artifacts {
         &self.file_manager
     }
 
-    pub fn workspace(&self) -> &PathBuf {
-        &self.workspace
-    }
-
-    /// The path of an artifact's current content, when both the row and the file exist.
-    pub fn path_for(&self, agent_id: &str, artifact_id: &str) -> crate::Result<Option<PathBuf>> {
-        let file = self
+    /// The artifact's current content object, when both the row and the object exist.
+    pub async fn content_ref(
+        &self,
+        agent_id: &str,
+        artifact_id: &str,
+    ) -> crate::Result<Option<BlobRef>> {
+        let Some(file) = self
             .storage
             .artifact_content_file(agent_id, artifact_id)
-            .map_err(|e| VizierError(e.to_string()))?;
-        Ok(file.and_then(|file| {
-            self.paths
-                .exists(agent_id, artifact_id, &file)
-                .then(|| self.paths.content_path(agent_id, artifact_id, &file))
-        }))
+            .await
+            .map_err(|e| VizierError(e.to_string()))?
+        else {
+            return Ok(None);
+        };
+        self.paths
+            .content_ref(agent_id, artifact_id, &file)
+            .await
+            .map_err(|e| VizierError(e.to_string()))
     }
 
     /// The artifact's current bytes.
@@ -128,6 +124,7 @@ impl Artifacts {
         let file = self
             .storage
             .artifact_content_file(agent_id, artifact_id)
+            .await
             .map_err(|e| VizierError(e.to_string()))?
             .ok_or_else(|| VizierError("artifact not found".into()))?;
         self.paths
@@ -183,7 +180,7 @@ impl Artifacts {
                 ))
             })?;
         let (_, bytes) =
-            crate::file_manager::read_upload(&self.workspace_string(), &record.file_id)
+            crate::file_manager::read_upload(self.file_manager.blobs().as_ref(), &record.file_id)
                 .await
                 .map_err(|e| VizierError(format!("failed to read '{}': {e}", source.filename)))?;
         if bytes.is_empty() {
@@ -200,10 +197,6 @@ impl Artifacts {
             record.mime_type
         };
         Ok((bytes, mime, record.filename))
-    }
-
-    fn workspace_string(&self) -> String {
-        self.workspace.to_string_lossy().to_string()
     }
 
     /// Promote a session file into a new artifact. Copies the bytes; the source stays where it
@@ -287,11 +280,15 @@ impl Artifacts {
         let size = bytes.len() as u64;
         let next_version = artifact.version + 1;
         let file_name = format!("content.v{next_version}");
-        let target = self.paths.content_path(agent_id, &artifact.id, &file_name);
         // A leftover from a failed earlier replacement (crash between the write and the row
         // switch) is removed rather than treated as a live version.
-        if target.exists() && file_name != artifact.content_file {
-            let _ = tokio::fs::remove_file(&target).await;
+        if file_name != artifact.content_file
+            && self.paths.exists(agent_id, &artifact.id, &file_name).await
+        {
+            let _ = self
+                .paths
+                .delete_version(agent_id, &artifact.id, &file_name)
+                .await;
         }
         let file = self
             .paths
@@ -336,9 +333,7 @@ impl Artifacts {
                 Ok(updated)
             }
             Err(e) => {
-                let _ =
-                    tokio::fs::remove_file(self.paths.content_path(agent_id, &artifact.id, &file))
-                        .await;
+                let _ = self.paths.delete_version(agent_id, &artifact.id, &file).await;
                 Err(VizierError(e.to_string()))
             }
         }
@@ -347,14 +342,16 @@ impl Artifacts {
     /// Remove version files other than the current one. Best effort; a failure is retried on
     /// the next replacement or deletion.
     async fn remove_other_versions(&self, agent_id: &str, artifact_id: &str, current: &str) {
-        let dir = self.paths.artifact_dir(agent_id, artifact_id);
-        let Ok(mut entries) = tokio::fs::read_dir(&dir).await else {
-            return;
+        let versions = match self.paths.versions(agent_id, artifact_id).await {
+            Ok(versions) => versions,
+            Err(e) => {
+                tracing::warn!(agent_id, artifact_id, "failed to list artifact versions: {e}");
+                return;
+            }
         };
-        while let Ok(Some(entry)) = entries.next_entry().await {
-            let name = entry.file_name().to_string_lossy().to_string();
-            if name.starts_with("content.v") && name != current {
-                if let Err(e) = tokio::fs::remove_file(entry.path()).await {
+        for name in versions {
+            if name != current {
+                if let Err(e) = self.paths.delete_version(agent_id, artifact_id, &name).await {
                     tracing::warn!(
                         agent_id,
                         artifact_id,
@@ -456,9 +453,10 @@ impl Artifacts {
             .map_err(|e| VizierError(e.to_string()))
     }
 
-    pub fn is_available(&self, agent_id: &str, artifact: &Artifact) -> bool {
+    pub async fn is_available(&self, agent_id: &str, artifact: &Artifact) -> bool {
         self.paths
             .exists(agent_id, &artifact.id, &artifact.content_file)
+            .await
     }
 
     /// The artifact with its references and full change history. Availability is checked
@@ -490,7 +488,7 @@ impl Artifacts {
             .filter(|event| event.artifact_id == artifact_id)
             .collect();
         Ok(Some(ArtifactDetail {
-            available: self.is_available(agent_id, &artifact),
+            available: self.is_available(agent_id, &artifact).await,
             artifact,
             references,
             events,
@@ -518,14 +516,31 @@ impl Artifacts {
     }
 }
 
+#[async_trait::async_trait]
 impl AttachmentResolver for Artifacts {
-    fn artifact_path(&self, agent_id: &str, artifact_id: &str) -> anyhow::Result<Option<PathBuf>> {
-        let file = self.storage.artifact_content_file(agent_id, artifact_id)?;
-        Ok(file.and_then(|file| {
-            self.paths
-                .exists(agent_id, artifact_id, &file)
-                .then(|| self.paths.content_path(agent_id, artifact_id, &file))
-        }))
+    async fn upload_bytes(&self, file_id: &str) -> anyhow::Result<Vec<u8>> {
+        Ok(self.file_manager.get(file_id).await?.1)
+    }
+
+    async fn artifact_bytes(
+        &self,
+        agent_id: &str,
+        artifact_id: &str,
+    ) -> anyhow::Result<Option<Vec<u8>>> {
+        let Some(file) = self
+            .storage
+            .artifact_content_file(agent_id, artifact_id)
+            .await?
+        else {
+            return Ok(None);
+        };
+        if !self.paths.exists(agent_id, artifact_id, &file).await {
+            return Ok(None);
+        }
+        self.paths
+            .read_current(agent_id, artifact_id, &file)
+            .await
+            .map(Some)
     }
 }
 
@@ -545,23 +560,21 @@ pub fn session_filename(artifact_id: &str, name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage::document::LocalDocumentStore;
-    use parking_lot::Mutex;
+    use crate::storage::blob::LocalBlobStore;
+    use crate::storage::document::BlobDocumentStore;
     use std::sync::Arc;
 
     fn service() -> (Artifacts, Arc<VizierStorage>, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
         let conn = rusqlite::Connection::open_in_memory().unwrap();
         crate::storage::sqlite::init_artifact_schema(&conn).unwrap();
-        let storage = Arc::new(VizierStorage::new(
-            crate::storage::sqlite::SqliteStorage::new(
-                Arc::new(Mutex::new(conn)),
-                Arc::new(LocalDocumentStore::new(dir.path().to_path_buf())),
-            ),
-        ));
-        let fm = FileManager::new(dir.path().to_string_lossy().to_string());
+        let storage = Arc::new(VizierStorage::new(crate::storage::sqlite::SqlStorage::new(
+            crate::storage::sql::SqlStore::sqlite(conn),
+            Arc::new(BlobDocumentStore::local(dir.path().to_path_buf())),
+        )));
+        let fm = FileManager::new(dir.path(), Arc::new(LocalBlobStore::new(dir.path())));
         (
-            Artifacts::new(dir.path(), storage.clone(), fm),
+            Artifacts::new(storage.clone(), fm),
             storage,
             dir,
         )
@@ -594,14 +607,14 @@ mod tests {
             .await
             .unwrap();
         // Row exists, file does not.
-        assert!(artifacts.path_for("a", "id").unwrap().is_none());
+        assert!(artifacts.content_ref("a", "id").await.unwrap().is_none());
         let file = artifacts
             .paths()
             .write_version("a", "id", 1, b"hi")
             .await
             .unwrap();
         assert_eq!(file, "content.v1");
-        assert!(artifacts.path_for("a", "id").unwrap().is_some());
+        assert!(artifacts.content_ref("a", "id").await.unwrap().is_some());
         assert_eq!(artifacts.read_content("a", "id").await.unwrap(), b"hi");
         // Deleting the row makes resolution unavailable even while the file exists.
         artifacts
@@ -624,6 +637,6 @@ mod tests {
             )
             .await
             .unwrap();
-        assert!(artifacts.path_for("a", "id").unwrap().is_none());
+        assert!(artifacts.content_ref("a", "id").await.unwrap().is_none());
     }
 }

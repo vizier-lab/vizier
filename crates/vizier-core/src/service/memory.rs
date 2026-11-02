@@ -257,7 +257,8 @@ async fn detail_from_memory(s: &Services, memory: &Memory) -> MemoryDetail {
                 let available = artifact.is_some()
                     && deps
                         .artifacts
-                        .path_for(&memory.agent_id, artifact_id)
+                        .content_ref(&memory.agent_id, artifact_id)
+                        .await
                         .ok()
                         .flatten()
                         .is_some();
@@ -273,7 +274,7 @@ async fn detail_from_memory(s: &Services, memory: &Memory) -> MemoryDetail {
                 let available = match &legacy.content {
                     VizierAttachmentContent::Local(url) => {
                         let file_id = url.trim_start_matches("/api/v1/files/");
-                        deps.file_manager.path_of(file_id).await.is_ok()
+                        deps.file_manager.exists(file_id).await
                     }
                     _ => true,
                 };

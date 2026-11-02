@@ -27,7 +27,7 @@ pub trait IntegrationSecretPaths: Send + Sync {
     fn secret_paths(&self, kind: &str) -> Option<Vec<String>>;
 }
 
-/// A path provider that declares no secret fields. Used by `SqliteStorage::new` for tests and
+/// A path provider that declares no secret fields. Used by `SqlStorage::new` for tests and
 /// the pre-encryption filesystem import, where no field is encrypted.
 pub struct NoIntegrationSecretPaths;
 

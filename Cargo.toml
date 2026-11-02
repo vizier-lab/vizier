@@ -67,6 +67,13 @@ flate2 = "1.1.10"
 mime_guess = "2.0.5"
 rusqlite = { version = "0.40", features = ["bundled"] }
 sqlite-vec = "0.1.9"
+# Opt-in PostgreSQL backend (spec 045): sync client + pool, rustls TLS on the existing stack.
+postgres = "0.19.14"
+r2d2 = "0.8.10"
+r2d2_postgres = "0.18.2"
+tokio-postgres-rustls = "0.14.0"
+rustls-platform-verifier = "0.7.1"
+bytes = "1"
 # Pinned (#73): newer fastembed pulls ort rc.13, which has no x86_64-apple-darwin
 # binaries. Keep the pin until that target is available.
 fastembed = "=4.9.1"

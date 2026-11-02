@@ -3,9 +3,47 @@ use std::sync::Arc;
 use anyhow::Result;
 
 pub mod noop;
+pub mod postgres;
 pub mod sqlite;
 
 use crate::schema::DocumentIndex;
+use crate::storage::sql::{Backend, SqlStore};
+
+/// A passage indexer opened on the workspace's database, with what the supervisor records about
+/// it.
+pub struct OpenedIndexer {
+    pub indexer: VizierIndexer,
+    pub dimension: usize,
+    /// The vectors live in the original single `document_index` table (SQLite installs that
+    /// predate per-width tables).
+    pub keeps_legacy_table: bool,
+}
+
+/// Open the vector index for `embedder` on `store`'s backend: sqlite-vec on SQLite, pgvector on
+/// PostgreSQL.
+pub async fn open(
+    store: SqlStore,
+    embedder: Arc<crate::embedding::VizierEmbedder>,
+) -> Result<OpenedIndexer> {
+    Ok(match store.backend() {
+        Backend::Sqlite => {
+            let idx = sqlite::SqliteIndexer::new(store, embedder).await?;
+            OpenedIndexer {
+                dimension: idx.dimension(),
+                keeps_legacy_table: idx.keeps_legacy_table(),
+                indexer: VizierIndexer::build(idx),
+            }
+        }
+        Backend::Postgres => {
+            let idx = postgres::PgIndexer::new(store, embedder).await?;
+            OpenedIndexer {
+                dimension: idx.dimension(),
+                keeps_legacy_table: false,
+                indexer: VizierIndexer::build(idx),
+            }
+        }
+    })
+}
 
 #[async_trait::async_trait]
 pub trait DocumentIndexer {

@@ -1,19 +1,24 @@
+use crate::storage::sql::params;
 use anyhow::Result;
 
 use crate::schema::{
     AgentId, DreamStage,
     dream_journal::{DreamEntryStub, DreamJournalEntry, DreamRevision, revision_kind},
 };
-use crate::storage::{dream_journal::DreamJournalStorage, sqlite::SqliteStorage};
+use crate::storage::{dream_journal::DreamJournalStorage, sqlite::SqlStorage};
 
 #[async_trait::async_trait]
-impl DreamJournalStorage for SqliteStorage {
+impl DreamJournalStorage for SqlStorage {
     async fn save_dream_entry(&self, entry: DreamJournalEntry) -> Result<()> {
         let data = serde_json::to_string(&entry)?;
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         conn.execute(
-            "INSERT OR REPLACE INTO dream_journal (id, agent_id, dream_cycle_id, stage, timestamp, data) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            rusqlite::params![
+            "INSERT INTO dream_journal (id, agent_id, dream_cycle_id, stage, timestamp, data) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6) \
+             ON CONFLICT (id) DO UPDATE SET agent_id = excluded.agent_id, \
+             dream_cycle_id = excluded.dream_cycle_id, stage = excluded.stage, \
+             timestamp = excluded.timestamp, data = excluded.data",
+            params![
                 entry.id,
                 entry.agent_id,
                 entry.dream_cycle_id,
@@ -31,16 +36,17 @@ impl DreamJournalStorage for SqliteStorage {
         limit: Option<usize>,
         offset: Option<usize>,
     ) -> Result<Vec<DreamJournalEntry>> {
-        let conn = self.conn.lock();
-        // SQLite rejects OFFSET without LIMIT; a negative LIMIT means no limit.
-        let limit_val = limit.map_or(-1, |l| l as i64);
+        let conn = self.conn.lock()?;
+        // SQLite rejects OFFSET without LIMIT, and PostgreSQL a negative LIMIT; the largest
+        // integer means no limit on both.
+        let limit_val = limit.map_or(i64::MAX, |l| l as i64);
         let offset_val = offset.unwrap_or(0) as i64;
 
         let mut stmt = conn.prepare(
             "SELECT data FROM dream_journal WHERE agent_id = ?1 ORDER BY timestamp DESC LIMIT ?2 OFFSET ?3",
         )?;
         let entries = stmt
-            .query_map(rusqlite::params![agent_id, limit_val, offset_val], |row| {
+            .query_map(params![agent_id, limit_val, offset_val], |row| {
                 let data: String = row.get(0)?;
                 Ok(data)
             })?
@@ -55,9 +61,9 @@ impl DreamJournalStorage for SqliteStorage {
         _agent_id: AgentId,
         entry_id: String,
     ) -> Result<Option<DreamJournalEntry>> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let mut stmt = conn.prepare("SELECT data FROM dream_journal WHERE id = ?1")?;
-        let mut rows = stmt.query_map(rusqlite::params![entry_id], |row| {
+        let mut rows = stmt.query_map(params![entry_id], |row| {
             let data: String = row.get(0)?;
             Ok(data)
         })?;
@@ -75,11 +81,11 @@ impl DreamJournalStorage for SqliteStorage {
         stage: DreamStage,
     ) -> Result<Option<DreamJournalEntry>> {
         let stage_str = serde_json::to_string(&stage)?.trim_matches('"').to_string();
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let mut stmt = conn.prepare(
             "SELECT data FROM dream_journal WHERE agent_id = ?1 AND stage = ?2 ORDER BY timestamp DESC LIMIT 1",
         )?;
-        let mut rows = stmt.query_map(rusqlite::params![agent_id, stage_str], |row| {
+        let mut rows = stmt.query_map(params![agent_id, stage_str], |row| {
             let data: String = row.get(0)?;
             Ok(data)
         })?;
@@ -97,14 +103,14 @@ impl DreamJournalStorage for SqliteStorage {
         cycle_id: &str,
         stage: Option<DreamStage>,
     ) -> Result<Vec<DreamJournalEntry>> {
-        let conn = self.conn.lock();
-        let (sql, params): (String, Vec<Box<dyn rusqlite::types::ToSql>>) = match stage {
+        let conn = self.conn.lock()?;
+        let (sql, params): (String, Vec<Box<dyn crate::storage::sql::ToSql>>) = match stage {
             Some(s) => {
                 let stage_str = serde_json::to_string(&s)?.trim_matches('"').to_string();
                 (
                     "SELECT data FROM dream_journal WHERE agent_id = ?1 AND dream_cycle_id = ?2 AND stage = ?3 ORDER BY timestamp ASC".to_string(),
                     vec![
-                        Box::new(agent_id) as Box<dyn rusqlite::types::ToSql>,
+                        Box::new(agent_id) as Box<dyn crate::storage::sql::ToSql>,
                         Box::new(cycle_id.to_string()),
                         Box::new(stage_str),
                     ],
@@ -113,7 +119,7 @@ impl DreamJournalStorage for SqliteStorage {
             None => (
                 "SELECT data FROM dream_journal WHERE agent_id = ?1 AND dream_cycle_id = ?2 ORDER BY timestamp ASC".to_string(),
                 vec![
-                    Box::new(agent_id) as Box<dyn rusqlite::types::ToSql>,
+                    Box::new(agent_id) as Box<dyn crate::storage::sql::ToSql>,
                     Box::new(cycle_id.to_string()),
                 ],
             ),
@@ -121,10 +127,13 @@ impl DreamJournalStorage for SqliteStorage {
 
         let mut stmt = conn.prepare(&sql)?;
         let entries = stmt
-            .query_map(rusqlite::params_from_iter(params.iter()), |row| {
-                let data: String = row.get(0)?;
-                Ok(data)
-            })?
+            .query_map(
+                crate::storage::sql::params_from_iter(params.iter()),
+                |row| {
+                    let data: String = row.get(0)?;
+                    Ok(data)
+                },
+            )?
             .filter_map(|r| r.ok())
             .filter_map(|data| serde_json::from_str::<DreamJournalEntry>(&data).ok())
             .collect();
@@ -136,17 +145,19 @@ impl DreamJournalStorage for SqliteStorage {
         agent_id: AgentId,
         since: chrono::DateTime<chrono::Utc>,
     ) -> Result<Vec<DreamEntryStub>> {
-        let conn = self.conn.lock();
-        let mut stmt = conn.prepare(
-            "SELECT dream_cycle_id, stage, timestamp,
-                    json_extract(data, '$.source_sessions'),
-                    json_extract(data, '$.provider_used'), json_extract(data, '$.model_used')
+        let conn = self.conn.lock()?;
+        let json = conn.dialect();
+        let mut stmt = conn.prepare(&format!(
+            "SELECT dream_cycle_id, stage, timestamp, {}, {}, {}
              FROM dream_journal
              WHERE agent_id = ?1 AND dream_cycle_id IS NOT NULL AND timestamp >= ?2
              ORDER BY timestamp ASC",
-        )?;
+            json.json_text("data", &["source_sessions"]),
+            json.json_text("data", &["provider_used"]),
+            json.json_text("data", &["model_used"]),
+        ))?;
         let rows = stmt
-            .query_map(rusqlite::params![agent_id, since.timestamp_millis()], |row| {
+            .query_map(params![agent_id, since.timestamp_millis()], |row| {
                 Ok((
                     row.get::<_, String>(0)?,
                     row.get::<_, String>(1)?,
@@ -178,7 +189,7 @@ impl DreamJournalStorage for SqliteStorage {
         agent_id: AgentId,
         since: chrono::DateTime<chrono::Utc>,
     ) -> Result<Vec<DreamRevision>> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let since = since.timestamp_millis();
         let mut out = Vec::new();
 
@@ -192,7 +203,7 @@ impl DreamJournalStorage for SqliteStorage {
              WHERE r.agent_id = ?1 AND r.trigger = 'dream' AND r.created_at >= ?2
              ORDER BY r.created_at ASC",
         )?;
-        let rows = stmt.query_map(rusqlite::params![agent_id, since], |row| {
+        let rows = stmt.query_map(params![agent_id, since], |row| {
             Ok((
                 row.get::<_, String>(0)?,
                 row.get::<_, String>(1)?,
@@ -203,8 +214,12 @@ impl DreamJournalStorage for SqliteStorage {
                 row.get::<_, Option<i64>>(6)?.map(|d| d != 0),
             ))
         })?;
-        for (bundle, path, seq, deleted, at, cycle_id, previous_deleted) in rows.filter_map(|r| r.ok()) {
-            let Some(at) = chrono::DateTime::from_timestamp_millis(at) else { continue };
+        for (bundle, path, seq, deleted, at, cycle_id, previous_deleted) in
+            rows.filter_map(|r| r.ok())
+        {
+            let Some(at) = chrono::DateTime::from_timestamp_millis(at) else {
+                continue;
+            };
             // Classification follows the **bundle the change lives in**, not the table it was
             // written to (FR-031). After the unification there is one place identity changes
             // are recorded, so the separate `core_revision` query that used to supply these

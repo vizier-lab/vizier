@@ -13,8 +13,7 @@ use chrono::Utc;
 
 use crate::{
     questions::{
-        AskReply, Questions,
-        limits,
+        AskReply, Questions, limits,
         model::{AskState, SensitiveAskRecord, SensitiveOutcome},
     },
     schema::{SessionHistoryContent, VizierSession},
@@ -97,7 +96,10 @@ pub async fn ask(
             // all scrubbed from here on (`specs/027-agent-secrets`).
             redactor.arm(&value);
             let protected = value.len() >= MIN_VALUE_BYTES;
-            (AskState::Provided, SensitiveOutcome::Provided { value, protected })
+            (
+                AskState::Provided,
+                SensitiveOutcome::Provided { value, protected },
+            )
         }
         Ok(Ok(AskReply::Declined)) => (AskState::Declined, SensitiveOutcome::Declined),
         // Silence is a timeout the script can branch on (FR-051).
@@ -167,7 +169,9 @@ pub async fn abandon_session(
 ) {
     for ask_id in questions.open_asks(session) {
         questions.close_ask(&ask_id);
-        let _ = storage.close_sensitive_ask(&ask_id, AskState::Abandoned).await;
+        let _ = storage
+            .close_sensitive_ask(&ask_id, AskState::Abandoned)
+            .await;
         transport.publish_session_event(SessionEvent {
             session: session.clone(),
             frame: SessionFrame::SensitiveAskClosed {
@@ -199,13 +203,12 @@ pub async fn abandon_open_asks(storage: &VizierStorage) {
 
 #[cfg(test)]
 mod tests {
-    use parking_lot::Mutex;
 
     use super::*;
     use crate::{
         sandbox::{ExecutionError, ExecutionErrorKind, ExecutionReport, ToolInvocationRecord},
         schema::VizierChannelId,
-        storage::{document::LocalDocumentStore, sqlite::SqliteStorage},
+        storage::{document::BlobDocumentStore, sqlite::SqlStorage},
     };
 
     const TOKEN: &str = "ghp_super-secret-token-123";
@@ -223,9 +226,9 @@ mod tests {
         let conn = rusqlite::Connection::open_in_memory().unwrap();
         crate::storage::sqlite::init_question_schema(&conn).unwrap();
         crate::storage::sqlite::init_sensitive_ask_schema(&conn).unwrap();
-        let storage = SqliteStorage::new(
-            Arc::new(Mutex::new(conn)),
-            Arc::new(LocalDocumentStore::new(dir.path().to_path_buf())),
+        let storage = SqlStorage::new(
+            crate::storage::sql::SqlStore::sqlite(conn),
+            Arc::new(BlobDocumentStore::local(dir.path().to_path_buf())),
         );
         Fixture {
             storage: Arc::new(VizierStorage::new(storage)),
@@ -293,7 +296,13 @@ mod tests {
         let outcome = handle.await.unwrap().unwrap();
         // The script itself received it, exactly.
         assert_eq!(outcome.value(), Some(TOKEN));
-        assert!(matches!(outcome, SensitiveOutcome::Provided { protected: true, .. }));
+        assert!(matches!(
+            outcome,
+            SensitiveOutcome::Provided {
+                protected: true,
+                ..
+            }
+        ));
 
         // The script prints it, returns it, fails with it and passes it to a nested call.
         let mut report = ExecutionReport {
@@ -319,7 +328,10 @@ mod tests {
         };
         f.redactor.report(&mut report);
         let shown = serde_json::to_string(&report).unwrap();
-        assert!(!shown.contains(TOKEN), "the report still carries the value: {shown}");
+        assert!(
+            !shown.contains(TOKEN),
+            "the report still carries the value: {shown}"
+        );
         assert!(shown.contains("[redacted]"));
     }
 
@@ -348,7 +360,10 @@ mod tests {
         let handle = spawn_ask(&f, None);
         let id = open_ask_id(&f).await;
         assert!(f.questions.answer(&id, AskReply::Declined));
-        assert!(matches!(handle.await.unwrap().unwrap(), SensitiveOutcome::Declined));
+        assert!(matches!(
+            handle.await.unwrap().unwrap(),
+            SensitiveOutcome::Declined
+        ));
         assert!(f.questions.open_asks(&session()).is_empty());
         assert!(!f.redactor.is_armed());
     }
@@ -362,8 +377,14 @@ mod tests {
         let handle = spawn_ask(&f, Some(deadline));
         let id = open_ask_id(&f).await;
 
-        assert!(matches!(handle.await.unwrap().unwrap(), SensitiveOutcome::Timeout));
-        assert!(!f.questions.answer(&id, AskReply::Value(TOKEN.into())), "a late answer was accepted");
+        assert!(matches!(
+            handle.await.unwrap().unwrap(),
+            SensitiveOutcome::Timeout
+        ));
+        assert!(
+            !f.questions.answer(&id, AskReply::Value(TOKEN.into())),
+            "a late answer was accepted"
+        );
         assert!(!f.redactor.is_armed(), "a refused value must not be armed");
         assert!(f.questions.open_asks(&session()).is_empty());
     }
@@ -377,7 +398,10 @@ mod tests {
         let id = open_ask_id(&f).await;
 
         abandon_session(&f.storage, &f.transport, &f.questions, &session()).await;
-        assert!(matches!(handle.await.unwrap().unwrap(), SensitiveOutcome::Timeout));
+        assert!(matches!(
+            handle.await.unwrap().unwrap(),
+            SensitiveOutcome::Timeout
+        ));
         assert!(!f.questions.answer(&id, AskReply::Value(TOKEN.into())));
         assert!(f.questions.open_asks(&session()).is_empty());
     }
@@ -390,13 +414,22 @@ mod tests {
         let first = spawn_ask(&f, None);
         let first_id = open_ask_id(&f).await;
         f.questions.answer(&first_id, AskReply::Declined);
-        assert!(matches!(first.await.unwrap().unwrap(), SensitiveOutcome::Declined));
+        assert!(matches!(
+            first.await.unwrap().unwrap(),
+            SensitiveOutcome::Declined
+        ));
 
         let second = spawn_ask(&f, None);
         let second_id = open_ask_id(&f).await;
         assert_ne!(first_id, second_id);
-        assert!(!f.questions.answer(&first_id, AskReply::Value(TOKEN.into())), "the old dialog answered");
-        assert!(f.questions.answer(&second_id, AskReply::Value(TOKEN.into())));
+        assert!(
+            !f.questions.answer(&first_id, AskReply::Value(TOKEN.into())),
+            "the old dialog answered"
+        );
+        assert!(
+            f.questions
+                .answer(&second_id, AskReply::Value(TOKEN.into()))
+        );
         assert_eq!(second.await.unwrap().unwrap().value(), Some(TOKEN));
     }
 
@@ -412,13 +445,19 @@ mod tests {
         assert_eq!(f.questions.open_asks(&session()), vec![first_id.clone()]);
 
         f.questions.answer(&first_id, AskReply::Declined);
-        assert!(matches!(first.await.unwrap().unwrap(), SensitiveOutcome::Declined));
+        assert!(matches!(
+            first.await.unwrap().unwrap(),
+            SensitiveOutcome::Declined
+        ));
 
         // The second takes the freed slot (polled every 100 ms).
         let second_id = open_ask_id(&f).await;
         assert_ne!(first_id, second_id);
         f.questions.answer(&second_id, AskReply::Declined);
-        assert!(matches!(second.await.unwrap().unwrap(), SensitiveOutcome::Declined));
+        assert!(matches!(
+            second.await.unwrap().unwrap(),
+            SensitiveOutcome::Declined
+        ));
     }
 
     /// The row records the outcome and never a value (FR-054).
@@ -442,13 +481,16 @@ mod tests {
         let mut f = fixture();
         let dir = tempfile::tempdir().unwrap();
         let conn = rusqlite::Connection::open_in_memory().unwrap(); // no sensitive_ask table
-        f.storage = Arc::new(VizierStorage::new(SqliteStorage::new(
-            Arc::new(Mutex::new(conn)),
-            Arc::new(LocalDocumentStore::new(dir.path().to_path_buf())),
+        f.storage = Arc::new(VizierStorage::new(SqlStorage::new(
+            crate::storage::sql::SqlStore::sqlite(conn),
+            Arc::new(BlobDocumentStore::local(dir.path().to_path_buf())),
         )));
 
         let result = spawn_ask(&f, None).await.unwrap();
         assert!(result.is_err());
-        assert!(f.questions.open_asks(&session()).is_empty(), "the slot stayed taken");
+        assert!(
+            f.questions.open_asks(&session()).is_empty(),
+            "the slot stayed taken"
+        );
     }
 }

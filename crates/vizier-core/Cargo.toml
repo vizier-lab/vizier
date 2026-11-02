@@ -77,6 +77,13 @@ reqwest.workspace = true
 ring.workspace = true
 rmcp.workspace = true
 rusqlite.workspace = true
+postgres.workspace = true
+r2d2.workspace = true
+r2d2_postgres.workspace = true
+tokio-postgres-rustls.workspace = true
+rustls.workspace = true
+rustls-platform-verifier.workspace = true
+bytes.workspace = true
 rust-embed.workspace = true
 rust_xlsxwriter = { workspace = true, optional = true }
 schemars.workspace = true

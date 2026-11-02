@@ -77,7 +77,11 @@ pub struct SecretEventItem {
 /// The agent, or the refusal: `404` when it does not exist, `403` when the person is not one of
 /// its secret managers. The permission is checked here, before any read or write — hiding the
 /// page is not the protection.
-async fn manageable_agent(s: &Services, who: &Principal, agent_id: &str) -> Result<AgentConfig, ServiceError> {
+async fn manageable_agent(
+    s: &Services,
+    who: &Principal,
+    agent_id: &str,
+) -> Result<AgentConfig, ServiceError> {
     let agent = match s.deps().storage.get_agent(agent_id).await {
         Ok(Some(agent)) => agent,
         Ok(None) => return Err(ServiceError::NotFound("agent not found".into())),
@@ -86,11 +90,17 @@ async fn manageable_agent(s: &Services, who: &Principal, agent_id: &str) -> Resu
     if access::can_manage(Caller::from(who), &agent) {
         Ok(agent)
     } else {
-        Err(ServiceError::Forbidden("you may not manage this agent's secrets".into()))
+        Err(ServiceError::Forbidden(
+            "you may not manage this agent's secrets".into(),
+        ))
     }
 }
 
-fn item(record: SecretRecord, agents: &HashMap<AgentId, AgentConfig>, users: &HashMap<String, String>) -> SecretItem {
+fn item(
+    record: SecretRecord,
+    agents: &HashMap<AgentId, AgentConfig>,
+    users: &HashMap<String, String>,
+) -> SecretItem {
     SecretItem {
         updated_by_name: requester_name(&record.updated_by, agents, users),
         name: record.name,
@@ -120,23 +130,34 @@ fn event_item(
 /// quotes a value: validation messages state the rule only.
 fn refusal(err: SecretError) -> ServiceError {
     match err {
-        SecretError::InvalidName(message) | SecretError::InvalidValue(message) => ServiceError::Invalid {
-            status: 422,
-            message,
-            code: Some("invalid".into()),
-        },
+        SecretError::InvalidName(message) | SecretError::InvalidValue(message) => {
+            ServiceError::Invalid {
+                status: 422,
+                message,
+                code: Some("invalid".into()),
+            }
+        }
         SecretError::NotFound => ServiceError::NotFound("secret not found".into()),
         SecretError::Storage(e) => ServiceError::Internal(e.to_string()),
     }
 }
 
 /// The secrets' names, masks and last change, sorted by name. Paging is the adapter's.
-pub async fn list(s: &Services, who: &Principal, agent_id: &str) -> Result<Vec<SecretItem>, ServiceError> {
+pub async fn list(
+    s: &Services,
+    who: &Principal,
+    agent_id: &str,
+) -> Result<Vec<SecretItem>, ServiceError> {
     manageable_agent(s, who, agent_id).await?;
-    let records = secret_service::list(&s.deps().storage, agent_id).await.map_err(refusal)?;
+    let records = secret_service::list(&s.deps().storage, agent_id)
+        .await
+        .map_err(refusal)?;
     let agents = agents_by_id(s).await;
     let users = usernames(s).await;
-    Ok(records.into_iter().map(|record| item(record, &agents, &users)).collect())
+    Ok(records
+        .into_iter()
+        .map(|record| item(record, &agents, &users))
+        .collect())
 }
 
 /// The change log, newest first. A huge or zero limit is clamped to 1–100, not rejected.
@@ -152,7 +173,10 @@ pub async fn events(
         .map_err(refusal)?;
     let agents = agents_by_id(s).await;
     let users = usernames(s).await;
-    Ok(events.into_iter().map(|event| event_item(event, &agents, &users)).collect())
+    Ok(events
+        .into_iter()
+        .map(|event| event_item(event, &agents, &users))
+        .collect())
 }
 
 /// The status pair a write reports: a new name is `created`, an existing one `replaced`.
@@ -185,13 +209,21 @@ pub async fn set(
     })
 }
 
-pub async fn delete(s: &Services, who: &Principal, agent_id: &str, name: &str) -> Result<SecretDeleted, ServiceError> {
+pub async fn delete(
+    s: &Services,
+    who: &Principal,
+    agent_id: &str,
+    name: &str,
+) -> Result<SecretDeleted, ServiceError> {
     manageable_agent(s, who, agent_id).await?;
     let actor = Requester::User(who.user_id.clone());
     secret_service::delete(&s.deps().storage, agent_id, name, &actor)
         .await
         .map_err(refusal)?;
-    Ok(SecretDeleted { name: name.to_string(), deleted: true })
+    Ok(SecretDeleted {
+        name: name.to_string(),
+        deleted: true,
+    })
 }
 
 #[cfg(test)]
@@ -199,15 +231,23 @@ mod tests {
     use super::*;
     use crate::storage::secret::SecretStorage;
 
-    fn storage() -> (std::sync::Arc<crate::storage::VizierStorage>, tempfile::TempDir) {
+    fn storage() -> (
+        std::sync::Arc<crate::storage::VizierStorage>,
+        tempfile::TempDir,
+    ) {
         let dir = tempfile::tempdir().unwrap();
         let conn = rusqlite::Connection::open_in_memory().unwrap();
         crate::storage::sqlite::init_secret_schema(&conn).unwrap();
-        let storage = crate::storage::sqlite::SqliteStorage::new(
-            std::sync::Arc::new(parking_lot::Mutex::new(conn)),
-            std::sync::Arc::new(crate::storage::document::LocalDocumentStore::new(dir.path().to_path_buf())),
+        let storage = crate::storage::sqlite::SqlStorage::new(
+            crate::storage::sql::SqlStore::sqlite(conn),
+            std::sync::Arc::new(crate::storage::document::BlobDocumentStore::local(
+                dir.path().to_path_buf(),
+            )),
         );
-        (std::sync::Arc::new(crate::storage::VizierStorage::new(storage)), dir)
+        (
+            std::sync::Arc::new(crate::storage::VizierStorage::new(storage)),
+            dir,
+        )
     }
 
     /// `created` for a new name, `replaced` for an existing one, and the record keeps
@@ -237,7 +277,13 @@ mod tests {
             secret_service::delete(&storage, "dp-a", "NO_SUCH", &Requester::User("u".into())).await,
             Err(SecretError::NotFound)
         ));
-        assert!(storage.list_agent_secret_events("dp-a", 20).await.unwrap().is_empty());
+        assert!(
+            storage
+                .list_agent_secret_events("dp-a", 20)
+                .await
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[tokio::test]
@@ -245,21 +291,47 @@ mod tests {
         let (storage, _dir) = storage();
         let actor = Requester::User("user-1".into());
         for name in ["A", "B", "C"] {
-            secret_service::set(&storage, "dp-a", name, "value-00000001", &actor).await.unwrap();
+            secret_service::set(&storage, "dp-a", name, "value-00000001", &actor)
+                .await
+                .unwrap();
         }
-        assert_eq!(secret_service::events(&storage, "dp-a", 20).await.unwrap().len(), 3);
-        assert_eq!(secret_service::events(&storage, "dp-a", 1000).await.unwrap().len(), 3);
-        assert_eq!(secret_service::events(&storage, "dp-a", 1).await.unwrap().len(), 1);
+        assert_eq!(
+            secret_service::events(&storage, "dp-a", 20)
+                .await
+                .unwrap()
+                .len(),
+            3
+        );
+        assert_eq!(
+            secret_service::events(&storage, "dp-a", 1000)
+                .await
+                .unwrap()
+                .len(),
+            3
+        );
+        assert_eq!(
+            secret_service::events(&storage, "dp-a", 1)
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
     }
 
     /// Validation is `422`, a missing name `404`, and a storage failure `500`.
     #[test]
     fn refusals_map_to_422_404_and_500() {
         assert_eq!(refusal(SecretError::InvalidName("no".into())).status(), 422);
-        assert_eq!(refusal(SecretError::InvalidValue("no".into())).status(), 422);
+        assert_eq!(
+            refusal(SecretError::InvalidValue("no".into())).status(),
+            422
+        );
         assert_eq!(refusal(SecretError::NotFound).status(), 404);
         assert_eq!(
-            refusal(SecretError::Storage(crate::error::VizierError("no".into()).into())).status(),
+            refusal(SecretError::Storage(
+                crate::error::VizierError("no".into()).into()
+            ))
+            .status(),
             500
         );
     }

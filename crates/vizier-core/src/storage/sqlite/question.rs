@@ -1,11 +1,11 @@
+use crate::storage::sql::{OptionalExtension, Row, params};
 use anyhow::Result;
 use chrono::{DateTime, Utc};
-use rusqlite::{OptionalExtension, Row};
 
 use crate::{
     questions::model::{Answer, Claim, Controls, QuestionSet, QuestionSetRecord, QuestionState},
     schema::VizierSession,
-    storage::{question::QuestionStorage, sqlite::SqliteStorage},
+    storage::{question::QuestionStorage, sqlite::SqlStorage},
 };
 
 /// The columns a record is read from, in the order [`row_to_record`] expects.
@@ -15,7 +15,7 @@ const COLUMNS: &str = "set_id, short_id, agent_id, channel_json, topic, state, q
 /// `channel` is the slug, for querying and for the delete that runs with the conversation;
 /// `channel_json` is the enum itself, so a row reads back into the exact session it was written
 /// for without a slug parser to get subtly wrong.
-fn row_to_record(row: &Row<'_>) -> rusqlite::Result<QuestionSetRecord> {
+fn row_to_record(row: &Row) -> crate::storage::sql::Result<QuestionSetRecord> {
     let agent_id: String = row.get(2)?;
     let channel_json: String = row.get(3)?;
     let topic: Option<String> = row.get(4)?;
@@ -27,7 +27,11 @@ fn row_to_record(row: &Row<'_>) -> rusqlite::Result<QuestionSetRecord> {
     let closed_at: Option<i64> = row.get(11)?;
 
     let channel = serde_json::from_str(&channel_json).map_err(|e| {
-        rusqlite::Error::FromSqlConversionFailure(3, rusqlite::types::Type::Text, Box::new(e))
+        crate::storage::sql::Error::FromSqlConversionFailure(
+            3,
+            crate::storage::sql::types::Type::Text,
+            Box::new(e),
+        )
     })?;
 
     Ok(QuestionSetRecord {
@@ -36,7 +40,11 @@ fn row_to_record(row: &Row<'_>) -> rusqlite::Result<QuestionSetRecord> {
         session: VizierSession(agent_id, channel, topic),
         state: QuestionState::from_stored(&state),
         set: serde_json::from_str::<QuestionSet>(&questions).map_err(|e| {
-            rusqlite::Error::FromSqlConversionFailure(6, rusqlite::types::Type::Text, Box::new(e))
+            crate::storage::sql::Error::FromSqlConversionFailure(
+                6,
+                crate::storage::sql::types::Type::Text,
+                Box::new(e),
+            )
         })?,
         answers: answers.and_then(|text| serde_json::from_str(&text).ok()),
         answerer: row.get(8)?,
@@ -46,10 +54,9 @@ fn row_to_record(row: &Row<'_>) -> rusqlite::Result<QuestionSetRecord> {
     })
 }
 
-/// The predicate that scopes a row to one conversation. `topic IS ?` matches a NULL topic, which
-/// is what a session without one stores.
-const IN_SESSION: &str = "agent_id = ?2 AND channel = ?3 AND topic IS ?4";
-
+/// The predicate that scopes a row to one conversation. `IS NOT DISTINCT FROM` matches a NULL
+/// topic, which is what a session without one stores.
+const IN_SESSION: &str = "agent_id = ?2 AND channel = ?3 AND topic IS NOT DISTINCT FROM ?4";
 
 fn millis(t: DateTime<Utc>) -> i64 {
     t.timestamp_millis()
@@ -58,33 +65,36 @@ fn millis(t: DateTime<Utc>) -> i64 {
 /// Delete a conversation's question sets and sensitive asks, on a connection the caller already
 /// holds (`delete_session`). Reference-only: nothing else points at them (FR-064).
 pub(super) fn delete_session(
-    conn: &rusqlite::Connection,
+    conn: &crate::storage::sql::Connection,
     agent_id: &str,
     channel_slug: &str,
     topic: &str,
 ) -> Result<()> {
     for table in ["question_set", "sensitive_ask"] {
         conn.execute(
-            &format!("DELETE FROM {table} WHERE agent_id = ?1 AND channel = ?2 AND topic IS ?3"),
-            rusqlite::params![agent_id, channel_slug, topic],
+            &format!(
+                "DELETE FROM {table} WHERE agent_id = ?1 AND channel = ?2 \
+                 AND topic IS NOT DISTINCT FROM ?3"
+            ),
+            params![agent_id, channel_slug, topic],
         )?;
     }
     Ok(())
 }
 
 /// Delete everything an agent asked, with the agent (`delete_agent`).
-pub(super) fn delete_agent(conn: &rusqlite::Connection, agent_id: &str) -> Result<()> {
+pub(super) fn delete_agent(conn: &crate::storage::sql::Connection, agent_id: &str) -> Result<()> {
     for table in ["question_set", "sensitive_ask"] {
         conn.execute(
             &format!("DELETE FROM {table} WHERE agent_id = ?1"),
-            rusqlite::params![agent_id],
+            params![agent_id],
         )?;
     }
     Ok(())
 }
 
 #[async_trait::async_trait]
-impl QuestionStorage for SqliteStorage {
+impl QuestionStorage for SqlStorage {
     async fn create_question_set(&self, record: &QuestionSetRecord) -> Result<()> {
         let questions = serde_json::to_string(&record.set)?;
         let controls = record
@@ -93,13 +103,13 @@ impl QuestionStorage for SqliteStorage {
             .map(serde_json::to_string)
             .transpose()?;
         let channel_json = serde_json::to_string(&record.session.1)?;
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         conn.execute(
             "INSERT INTO question_set
                 (set_id, short_id, agent_id, channel, channel_json, topic, state, questions,
                  answers, answerer, controls, created_at, closed_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, NULL, NULL, ?9, ?10, NULL)",
-            rusqlite::params![
+            params![
                 record.set_id,
                 record.short_id,
                 record.session.0,
@@ -123,7 +133,7 @@ impl QuestionStorage for SqliteStorage {
         answerer: &str,
     ) -> Result<Claim> {
         let answers = serde_json::to_string(answers)?;
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         // One statement, so the winner is decided by the database and not by the caller: a row
         // that is no longer pending, or belongs to another conversation, changes nothing.
         let changed = conn.execute(
@@ -132,7 +142,7 @@ impl QuestionStorage for SqliteStorage {
                     SET state = 'answered', answers = ?1, answerer = ?5, closed_at = ?6
                   WHERE set_id = ?7 AND state = 'pending' AND {IN_SESSION}"
             ),
-            rusqlite::params![
+            params![
                 answers,
                 session.0,
                 session.1.to_slug(),
@@ -155,14 +165,14 @@ impl QuestionStorage for SqliteStorage {
         session: &VizierSession,
         answerer: &str,
     ) -> Result<Claim> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let changed = conn.execute(
             &format!(
                 "UPDATE question_set
                     SET state = 'declined', answerer = ?1, closed_at = ?5
                   WHERE set_id = ?6 AND state = 'pending' AND {IN_SESSION}"
             ),
-            rusqlite::params![
+            params![
                 answerer,
                 session.0,
                 session.1.to_slug(),
@@ -179,27 +189,27 @@ impl QuestionStorage for SqliteStorage {
     }
 
     async fn withdraw_question_set(&self, set_id: &str) -> Result<bool> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let changed = conn.execute(
             "UPDATE question_set SET state = 'withdrawn', closed_at = ?1
               WHERE set_id = ?2 AND state = 'pending'",
-            rusqlite::params![millis(Utc::now()), set_id],
+            params![millis(Utc::now()), set_id],
         )?;
         Ok(changed > 0)
     }
 
     async fn set_question_controls(&self, set_id: &str, controls: &Controls) -> Result<()> {
         let controls = serde_json::to_string(controls)?;
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         conn.execute(
             "UPDATE question_set SET controls = ?1 WHERE set_id = ?2",
-            rusqlite::params![controls, set_id],
+            params![controls, set_id],
         )?;
         Ok(())
     }
 
     async fn get_question_set(&self, set_id: &str) -> Result<Option<QuestionSetRecord>> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let record = conn
             .query_row(
                 &format!("SELECT {COLUMNS} FROM question_set WHERE set_id = ?1"),
@@ -211,7 +221,7 @@ impl QuestionStorage for SqliteStorage {
     }
 
     async fn question_set_by_short_id(&self, short_id: &str) -> Result<Option<QuestionSetRecord>> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let record = conn
             .query_row(
                 &format!("SELECT {COLUMNS} FROM question_set WHERE short_id = ?1"),
@@ -223,41 +233,40 @@ impl QuestionStorage for SqliteStorage {
     }
 
     async fn open_question_sets(&self, session: &VizierSession) -> Result<Vec<QuestionSetRecord>> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         // Its own predicate, so the numbering starts at ?1 rather than sharing `IN_SESSION`'s.
         let mut stmt = conn.prepare(&format!(
             "SELECT {COLUMNS} FROM question_set
-              WHERE state = 'pending' AND agent_id = ?1 AND channel = ?2 AND topic IS ?3
+              WHERE state = 'pending' AND agent_id = ?1 AND channel = ?2
+                AND topic IS NOT DISTINCT FROM ?3
               ORDER BY created_at, rowid"
         ))?;
         let records = stmt
             .query_map(
-                rusqlite::params![session.0, session.1.to_slug(), session.2],
+                params![session.0, session.1.to_slug(), session.2],
                 row_to_record,
             )?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
+            .collect::<crate::storage::sql::Result<Vec<_>>>()?;
         Ok(records)
     }
 
     async fn open_question_sets_all(&self) -> Result<Vec<QuestionSetRecord>> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let mut stmt = conn.prepare(&format!(
             "SELECT {COLUMNS} FROM question_set WHERE state = 'pending' ORDER BY created_at, rowid"
         ))?;
         let records = stmt
             .query_map([], row_to_record)?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
+            .collect::<crate::storage::sql::Result<Vec<_>>>()?;
         Ok(records)
     }
 }
-
-
 
 /// The columns a sensitive ask is read from, matching [`ask_row`].
 const ASK_COLUMNS: &str = "ask_id, agent_id, channel_json, topic, purpose, label, state, \
                            requested_at, closed_at";
 
-fn ask_row(row: &Row<'_>) -> rusqlite::Result<crate::questions::model::SensitiveAskRecord> {
+fn ask_row(row: &Row) -> crate::storage::sql::Result<crate::questions::model::SensitiveAskRecord> {
     use crate::questions::model::{AskState, SensitiveAskRecord};
 
     let agent_id: String = row.get(1)?;
@@ -268,7 +277,11 @@ fn ask_row(row: &Row<'_>) -> rusqlite::Result<crate::questions::model::Sensitive
     let closed_at: Option<i64> = row.get(8)?;
 
     let channel = serde_json::from_str(&channel_json).map_err(|e| {
-        rusqlite::Error::FromSqlConversionFailure(2, rusqlite::types::Type::Text, Box::new(e))
+        crate::storage::sql::Error::FromSqlConversionFailure(
+            2,
+            crate::storage::sql::types::Type::Text,
+            Box::new(e),
+        )
     })?;
 
     Ok(SensitiveAskRecord {
@@ -283,19 +296,19 @@ fn ask_row(row: &Row<'_>) -> rusqlite::Result<crate::questions::model::Sensitive
 }
 
 #[async_trait::async_trait]
-impl crate::storage::question::SensitiveAskStorage for SqliteStorage {
+impl crate::storage::question::SensitiveAskStorage for SqlStorage {
     async fn open_sensitive_ask(
         &self,
         record: &crate::questions::model::SensitiveAskRecord,
     ) -> Result<()> {
         let channel_json = serde_json::to_string(&record.session.1)?;
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         conn.execute(
             "INSERT INTO sensitive_ask
                 (ask_id, agent_id, channel, channel_json, topic, purpose, label, state,
                  requested_at, closed_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, NULL)",
-            rusqlite::params![
+            params![
                 record.ask_id,
                 record.session.0,
                 record.session.1.to_slug(),
@@ -315,13 +328,13 @@ impl crate::storage::question::SensitiveAskStorage for SqliteStorage {
         ask_id: &str,
         state: crate::questions::model::AskState,
     ) -> Result<bool> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         // Only an open ask changes: a late submission after a timeout, or a second tab's answer,
         // finds nothing to update (FR-049).
         let changed = conn.execute(
             "UPDATE sensitive_ask SET state = ?1, closed_at = ?2
               WHERE ask_id = ?3 AND state = 'open'",
-            rusqlite::params![state.as_str(), millis(Utc::now()), ask_id],
+            params![state.as_str(), millis(Utc::now()), ask_id],
         )?;
         Ok(changed > 0)
     }
@@ -330,7 +343,7 @@ impl crate::storage::question::SensitiveAskStorage for SqliteStorage {
         &self,
         ask_id: &str,
     ) -> Result<Option<crate::questions::model::SensitiveAskRecord>> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         Ok(conn
             .query_row(
                 &format!("SELECT {ASK_COLUMNS} FROM sensitive_ask WHERE ask_id = ?1"),
@@ -345,57 +358,60 @@ impl crate::storage::question::SensitiveAskStorage for SqliteStorage {
         session: &VizierSession,
         state: crate::questions::model::AskState,
     ) -> Result<Vec<crate::questions::model::SensitiveAskRecord>> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let mut stmt = conn.prepare(&format!(
             "SELECT {ASK_COLUMNS} FROM sensitive_ask
-              WHERE state = ?1 AND agent_id = ?2 AND channel = ?3 AND topic IS ?4
+              WHERE state = ?1 AND agent_id = ?2 AND channel = ?3
+                AND topic IS NOT DISTINCT FROM ?4
               ORDER BY requested_at, rowid"
         ))?;
         let records = stmt
             .query_map(
-                rusqlite::params![state.as_str(), session.0, session.1.to_slug(), session.2],
+                params![state.as_str(), session.0, session.1.to_slug(), session.2],
                 ask_row,
             )?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
+            .collect::<crate::storage::sql::Result<Vec<_>>>()?;
         Ok(records)
     }
 
     async fn open_sensitive_asks_all(
         &self,
     ) -> Result<Vec<crate::questions::model::SensitiveAskRecord>> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let mut stmt = conn.prepare(&format!(
             "SELECT {ASK_COLUMNS} FROM sensitive_ask WHERE state = 'open' ORDER BY requested_at"
         ))?;
         let records = stmt
             .query_map([], ask_row)?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
+            .collect::<crate::storage::sql::Result<Vec<_>>>()?;
         Ok(records)
     }
-
 }
 
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
 
-    use parking_lot::Mutex;
     use rusqlite::Connection;
 
     use super::*;
     use crate::{
         questions::model::{AnswerState, AnswerValue, ChoiceOption, Question, QuestionType},
-        schema::{VizierChannelId},
-        storage::document::LocalDocumentStore,
+        schema::VizierChannelId,
+        storage::document::BlobDocumentStore,
     };
 
-    fn setup() -> (SqliteStorage, tempfile::TempDir) {
+    fn setup() -> (SqlStorage, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
-        let conn = Connection::open_in_memory().unwrap();
-        crate::storage::sqlite::init_question_schema(&conn).unwrap();
-        let storage = SqliteStorage::new(
-            Arc::new(Mutex::new(conn)),
-            Arc::new(LocalDocumentStore::new(dir.path().to_path_buf())),
+        let store = crate::tests_support::test_store(|| {
+            let conn = Connection::open_in_memory().unwrap();
+            crate::storage::sqlite::init_question_schema(&conn).unwrap();
+            crate::storage::sqlite::init_sensitive_ask_schema(&conn).unwrap();
+            crate::storage::sql::SqlStore::sqlite(conn)
+        });
+        let storage = SqlStorage::new(
+            store,
+            Arc::new(BlobDocumentStore::local(dir.path().to_path_buf())),
         );
         (storage, dir)
     }
@@ -434,13 +450,11 @@ mod tests {
                     help: None,
                     optional: false,
                     default: None,
-                    options: vec![
-                        ChoiceOption {
-                            value: "sqlite".into(),
-                            label: "SQLite".into(),
-                            description: None,
-                        },
-                    ],
+                    options: vec![ChoiceOption {
+                        value: "sqlite".into(),
+                        label: "SQLite".into(),
+                        description: None,
+                    }],
                     placeholder: None,
                     max_length: None,
                     multiline: false,
@@ -467,13 +481,15 @@ mod tests {
         }
     }
 
-
     /// The claim is the one place a race is decided: two submissions of one set, exactly one wins
     /// and the loser is told the set is closed (FR-017, SC-010).
     #[tokio::test]
     async fn two_submissions_of_one_set_leave_exactly_one_winner() {
         let (storage, _dir) = setup();
-        storage.create_question_set(&record("s1", session())).await.unwrap();
+        storage
+            .create_question_set(&record("s1", session()))
+            .await
+            .unwrap();
 
         let first = storage
             .claim_question_set("s1", &session(), &[answer()], "alice")
@@ -499,7 +515,10 @@ mod tests {
     #[tokio::test]
     async fn a_set_cannot_be_claimed_from_another_conversation() {
         let (storage, _dir) = setup();
-        storage.create_question_set(&record("s1", session())).await.unwrap();
+        storage
+            .create_question_set(&record("s1", session()))
+            .await
+            .unwrap();
 
         assert_eq!(
             storage
@@ -537,7 +556,10 @@ mod tests {
     #[tokio::test]
     async fn a_dismissal_closes_the_set_without_answers() {
         let (storage, _dir) = setup();
-        storage.create_question_set(&record("s1", session())).await.unwrap();
+        storage
+            .create_question_set(&record("s1", session()))
+            .await
+            .unwrap();
 
         assert_eq!(
             storage
@@ -560,13 +582,15 @@ mod tests {
         );
     }
 
-
     /// A set asked before a restart is still answerable afterwards, because everything a control
     /// needs is in the row — not in the process (FR-025, SC-011).
     #[tokio::test]
     async fn a_pending_set_is_found_by_its_short_id_and_survives_a_rebuild() {
         let (storage, _dir) = setup();
-        storage.create_question_set(&record("s1", session())).await.unwrap();
+        storage
+            .create_question_set(&record("s1", session()))
+            .await
+            .unwrap();
 
         let by_short = storage
             .question_set_by_short_id("shorts1")
@@ -579,7 +603,13 @@ mod tests {
         assert_eq!(by_short.session, session());
         assert_eq!(by_short.set.questions.len(), 1);
 
-        assert!(storage.question_set_by_short_id("nope").await.unwrap().is_none());
+        assert!(
+            storage
+                .question_set_by_short_id("nope")
+                .await
+                .unwrap()
+                .is_none()
+        );
     }
 
     /// A short id is unique across every conversation, because a control carries nothing else to
@@ -601,7 +631,10 @@ mod tests {
     #[tokio::test]
     async fn withdrawing_takes_an_unanswered_set_away() {
         let (storage, _dir) = setup();
-        storage.create_question_set(&record("s1", session())).await.unwrap();
+        storage
+            .create_question_set(&record("s1", session()))
+            .await
+            .unwrap();
 
         assert!(storage.withdraw_question_set("s1").await.unwrap());
         assert_eq!(
@@ -611,7 +644,10 @@ mod tests {
         // Withdrawing again changes nothing.
         assert!(!storage.withdraw_question_set("s1").await.unwrap());
 
-        storage.create_question_set(&record("s2", session())).await.unwrap();
+        storage
+            .create_question_set(&record("s2", session()))
+            .await
+            .unwrap();
         storage
             .claim_question_set("s2", &session(), &[answer()], "alice")
             .await
@@ -628,16 +664,28 @@ mod tests {
     #[tokio::test]
     async fn only_open_sets_of_one_conversation_are_listed() {
         let (storage, _dir) = setup();
-        storage.create_question_set(&record("s1", session())).await.unwrap();
-        storage.create_question_set(&record("s2", session())).await.unwrap();
-        storage.create_question_set(&record("s3", other_session())).await.unwrap();
+        storage
+            .create_question_set(&record("s1", session()))
+            .await
+            .unwrap();
+        storage
+            .create_question_set(&record("s2", session()))
+            .await
+            .unwrap();
+        storage
+            .create_question_set(&record("s3", other_session()))
+            .await
+            .unwrap();
         storage
             .claim_question_set("s2", &session(), &[answer()], "alice")
             .await
             .unwrap();
 
         let open = storage.open_question_sets(&session()).await.unwrap();
-        assert_eq!(open.iter().map(|r| r.set_id.as_str()).collect::<Vec<_>>(), ["s1"]);
+        assert_eq!(
+            open.iter().map(|r| r.set_id.as_str()).collect::<Vec<_>>(),
+            ["s1"]
+        );
         assert_eq!(storage.open_question_sets_all().await.unwrap().len(), 2);
     }
 
@@ -646,7 +694,10 @@ mod tests {
     #[tokio::test]
     async fn controls_are_stored_with_the_set() {
         let (storage, _dir) = setup();
-        storage.create_question_set(&record("s1", session())).await.unwrap();
+        storage
+            .create_question_set(&record("s1", session()))
+            .await
+            .unwrap();
 
         let controls = Controls {
             platform: "discord".into(),
@@ -656,7 +707,10 @@ mod tests {
                 question: None,
             }],
         };
-        storage.set_question_controls("s1", &controls).await.unwrap();
+        storage
+            .set_question_controls("s1", &controls)
+            .await
+            .unwrap();
 
         let after = storage.get_question_set("s1").await.unwrap().unwrap();
         assert_eq!(after.controls, Some(controls));
@@ -668,11 +722,18 @@ mod tests {
     fn sets_and_asks_are_deleted_with_their_conversation_and_agent() {
         use crate::storage::question::SensitiveAskStorage;
         let (storage, _dir) = setup();
-        crate::storage::sqlite::init_sensitive_ask_schema(&storage.conn.lock()).unwrap();
-        let rt = tokio::runtime::Builder::new_current_thread().build().unwrap();
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
         rt.block_on(async {
-            storage.create_question_set(&record("keep", other_session())).await.unwrap();
-            storage.create_question_set(&record("gone", session())).await.unwrap();
+            storage
+                .create_question_set(&record("keep", other_session()))
+                .await
+                .unwrap();
+            storage
+                .create_question_set(&record("gone", session()))
+                .await
+                .unwrap();
         });
         let ask = |id: &str, s: &VizierSession| crate::questions::model::SensitiveAskRecord {
             ask_id: id.into(),
@@ -684,13 +745,19 @@ mod tests {
             closed_at: None,
         };
         rt.block_on(async {
-            storage.open_sensitive_ask(&ask("a-keep", &other_session())).await.unwrap();
-            storage.open_sensitive_ask(&ask("a-gone", &session())).await.unwrap();
+            storage
+                .open_sensitive_ask(&ask("a-keep", &other_session()))
+                .await
+                .unwrap();
+            storage
+                .open_sensitive_ask(&ask("a-gone", &session()))
+                .await
+                .unwrap();
         });
 
         let s = session();
         {
-            let conn = storage.conn.lock();
+            let conn = storage.conn.lock().unwrap();
             delete_session(&conn, &s.0, &s.1.to_slug(), s.2.as_deref().unwrap()).unwrap();
         }
         rt.block_on(async {
@@ -699,7 +766,7 @@ mod tests {
             assert_eq!(storage.open_sensitive_asks_all().await.unwrap().len(), 1);
         });
 
-        delete_agent(&storage.conn.lock(), "agent-1").unwrap();
+        delete_agent(&storage.conn.lock().unwrap(), "agent-1").unwrap();
         rt.block_on(async {
             assert!(storage.get_question_set("keep").await.unwrap().is_none());
             assert!(storage.open_sensitive_asks_all().await.unwrap().is_empty());
@@ -718,15 +785,18 @@ mod tests {
         let open = || {
             let conn = Connection::open(&db).unwrap();
             crate::storage::sqlite::init_question_schema(&conn).unwrap();
-            SqliteStorage::new(
-                Arc::new(Mutex::new(conn)),
-                Arc::new(LocalDocumentStore::new(dir.path().to_path_buf())),
+            SqlStorage::new(
+                crate::storage::sql::SqlStore::sqlite(conn),
+                Arc::new(BlobDocumentStore::local(dir.path().to_path_buf())),
             )
         };
 
         // The process that asked.
         let asked = open();
-        asked.create_question_set(&record("s1", session())).await.unwrap();
+        asked
+            .create_question_set(&record("s1", session()))
+            .await
+            .unwrap();
         let card = || SessionHistory {
             // The history row's own id, which is not the set's.
             uid: "history-row-uid".into(),
@@ -750,23 +820,41 @@ mod tests {
 
         // A new process finds it, shows it pending, and the person answers it.
         let restarted = open();
-        let found = restarted.question_set_by_short_id("shorts1").await.unwrap().expect("still there");
+        let found = restarted
+            .question_set_by_short_id("shorts1")
+            .await
+            .unwrap()
+            .expect("still there");
         assert_eq!(found.state, QuestionState::Pending);
         let mut cards = [card()];
-        super::super::history::fill_question_sets(&restarted.conn.lock(), &mut cards).unwrap();
-        let crate::schema::SessionHistoryContent::QuestionSet { state, .. } = &cards[0].content else {
+        super::super::history::fill_question_sets(&restarted.conn.lock().unwrap(), &mut cards)
+            .unwrap();
+        let crate::schema::SessionHistoryContent::QuestionSet { state, .. } = &cards[0].content
+        else {
             panic!()
         };
-        assert_eq!(*state, QuestionState::Pending, "a pending card must not read as withdrawn");
+        assert_eq!(
+            *state,
+            QuestionState::Pending,
+            "a pending card must not read as withdrawn"
+        );
 
         assert_eq!(
-            restarted.claim_question_set("s1", &session(), &[answer()], "alice").await.unwrap(),
+            restarted
+                .claim_question_set("s1", &session(), &[answer()], "alice")
+                .await
+                .unwrap(),
             Claim::Won
         );
         let mut cards = [card()];
-        super::super::history::fill_question_sets(&restarted.conn.lock(), &mut cards).unwrap();
-        let crate::schema::SessionHistoryContent::QuestionSet { state, answers, answerer, .. } =
-            &cards[0].content
+        super::super::history::fill_question_sets(&restarted.conn.lock().unwrap(), &mut cards)
+            .unwrap();
+        let crate::schema::SessionHistoryContent::QuestionSet {
+            state,
+            answers,
+            answerer,
+            ..
+        } = &cards[0].content
         else {
             panic!()
         };
@@ -774,4 +862,17 @@ mod tests {
         assert_eq!(answerer.as_deref(), Some("alice"));
         assert_eq!(answers.as_ref().map(Vec::len), Some(1));
     }
+
+    crate::postgres_tests!(
+        two_submissions_of_one_set_leave_exactly_one_winner,
+        a_set_cannot_be_claimed_from_another_conversation,
+        an_unknown_set_id_is_refused,
+        a_dismissal_closes_the_set_without_answers,
+        a_pending_set_is_found_by_its_short_id_and_survives_a_rebuild,
+        a_short_id_cannot_be_reused,
+        withdrawing_takes_an_unanswered_set_away,
+        only_open_sets_of_one_conversation_are_listed,
+        controls_are_stored_with_the_set,
+        sets_and_asks_are_deleted_with_their_conversation_and_agent,
+    );
 }

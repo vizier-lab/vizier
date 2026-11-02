@@ -101,11 +101,18 @@ impl IntegrationHealth {
     }
 
     pub fn clear(&self, integration_id: &str) {
-        self.0.write().unwrap_or_else(|p| p.into_inner()).remove(integration_id);
+        self.0
+            .write()
+            .unwrap_or_else(|p| p.into_inner())
+            .remove(integration_id);
     }
 
     pub fn get(&self, integration_id: &str) -> Option<String> {
-        self.0.read().unwrap_or_else(|p| p.into_inner()).get(integration_id).cloned()
+        self.0
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .get(integration_id)
+            .cloned()
     }
 }
 
@@ -179,20 +186,31 @@ impl IntegrationTools {
 
             match contribution.addon {
                 Some(addon) => {
-                    let entry = tools.addons.entry(addon.to_string()).or_insert_with(|| AddonTools {
-                        description: kind.listing().description.to_string(),
-                        toolset: VizierToolSet::new(),
-                    });
-                    entry.toolset.tools.extend(contribution.native.tools.clone());
+                    let entry =
+                        tools
+                            .addons
+                            .entry(addon.to_string())
+                            .or_insert_with(|| AddonTools {
+                                description: kind.listing().description.to_string(),
+                                toolset: VizierToolSet::new(),
+                            });
+                    entry
+                        .toolset
+                        .tools
+                        .extend(contribution.native.tools.clone());
                 }
                 None => tools.native.tools.extend(contribution.native.tools.clone()),
             }
             if let Some((name, server)) = &contribution.mcp {
                 tools.mcp.insert(name.clone(), server.clone());
             }
-            tools
-                .entries
-                .insert(integration.id.clone(), Entry { fingerprint, contribution });
+            tools.entries.insert(
+                integration.id.clone(),
+                Entry {
+                    fingerprint,
+                    contribution,
+                },
+            );
         }
         tools
     }
@@ -237,31 +255,37 @@ pub fn agent_status(
 #[cfg(test)]
 mod tests {
     use chrono::Utc;
-    use parking_lot::Mutex;
     use serde_json::json;
 
     use super::*;
     use crate::{
         agents::tools::{BaseTools, compose},
-        storage::{VizierStorage, document::LocalDocumentStore, sqlite::SqliteStorage},
+        storage::{VizierStorage, document::BlobDocumentStore, sqlite::SqlStorage},
     };
 
     fn ctx() -> AgentToolContext {
         let conn = rusqlite::Connection::open_in_memory().unwrap();
         AgentToolContext {
             agent_id: "dp-a".into(),
-            storage: Arc::new(VizierStorage::new(SqliteStorage::new(
-                Arc::new(Mutex::new(conn)),
-                Arc::new(LocalDocumentStore::new(std::env::temp_dir())),
+            storage: Arc::new(VizierStorage::new(SqlStorage::new(
+                crate::storage::sql::SqlStore::sqlite(conn),
+                Arc::new(BlobDocumentStore::local(std::env::temp_dir())),
             ))),
             health: IntegrationHealth::default(),
             file_manager: crate::file_manager::FileManager::new(
-                std::env::temp_dir().to_string_lossy().into_owned(),
+                std::env::temp_dir(),
+                Arc::new(crate::storage::blob::LocalBlobStore::new(std::env::temp_dir())),
             ),
         }
     }
 
-    fn integration(id: &str, kind: &str, family: IntegrationFamily, name: &str, settings: serde_json::Value) -> Integration {
+    fn integration(
+        id: &str,
+        kind: &str,
+        family: IntegrationFamily,
+        name: &str,
+        settings: serde_json::Value,
+    ) -> Integration {
         Integration {
             id: id.into(),
             kind: kind.into(),
@@ -287,7 +311,13 @@ mod tests {
     }
 
     fn brave(key: &str) -> Integration {
-        integration("brave-1", "brave_search", IntegrationFamily::Addon, "brave", json!({"api_key": key}))
+        integration(
+            "brave-1",
+            "brave_search",
+            IntegrationFamily::Addon,
+            "brave",
+            json!({"api_key": key}),
+        )
     }
 
     #[tokio::test]
@@ -326,9 +356,20 @@ mod tests {
     #[tokio::test]
     async fn the_office_addon_contributes_its_tools_only_while_enabled() {
         let kinds = IntegrationKinds::builtin();
-        let on = integration("office-1", "office", IntegrationFamily::Addon, "Office", json!({}));
+        let on = integration(
+            "office-1",
+            "office",
+            IntegrationFamily::Addon,
+            "Office",
+            json!({}),
+        );
         let tools = IntegrationTools::build(&kinds, std::slice::from_ref(&on), &ctx(), None);
-        let names: Vec<String> = tools.addons["office"].toolset.tools.keys().cloned().collect();
+        let names: Vec<String> = tools.addons["office"]
+            .toolset
+            .tools
+            .keys()
+            .cloned()
+            .collect();
         assert_eq!(names.len(), 5, "{names:?}");
         assert!(names.iter().all(|n| n.starts_with("office_")), "{names:?}");
 
@@ -368,12 +409,19 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn identical_inputs_compose_identical_categories() {        let kinds = IntegrationKinds::builtin();
+    async fn identical_inputs_compose_identical_categories() {
+        let kinds = IntegrationKinds::builtin();
         let ctx = ctx();
         let base = BaseTools::empty_for_tests(kinds.addon_ids());
         let integrations = [fs(&["a"]), brave("key")];
-        let a = compose(&base, Arc::new(IntegrationTools::build(&kinds, &integrations, &ctx, None)));
-        let b = compose(&base, Arc::new(IntegrationTools::build(&kinds, &integrations, &ctx, None)));
+        let a = compose(
+            &base,
+            Arc::new(IntegrationTools::build(&kinds, &integrations, &ctx, None)),
+        );
+        let b = compose(
+            &base,
+            Arc::new(IntegrationTools::build(&kinds, &integrations, &ctx, None)),
+        );
         assert_eq!(a.categories, b.categories);
         let names: Vec<&str> = a.categories.iter().map(|c| c.name.as_str()).collect();
         assert_eq!(names, ["brave_search", "fs"]);
@@ -394,7 +442,11 @@ mod tests {
             let addon = integration("x", kind.id(), kind.family(), "x", settings.into());
             let contribution = kind.contribute(&addon, &ctx());
             assert_eq!(contribution.addon, Some(kind.id()));
-            assert!(!contribution.native.tools.is_empty(), "{} contributes nothing", kind.id());
+            assert!(
+                !contribution.native.tools.is_empty(),
+                "{} contributes nothing",
+                kind.id()
+            );
             // The HTTP addon deliberately keeps the names agents already call it by; every
             // other addon namespaces its tools.
             let legacy = ["fetch", "http_client"];

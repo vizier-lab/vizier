@@ -1,13 +1,12 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-use parking_lot::Mutex;
-use rusqlite::{Connection, OptionalExtension};
 
 use crate::{
     embedding::VizierEmbeddingModel,
     indexer::DocumentIndexer,
     schema::DocumentIndex,
+    storage::sql::{Connection, OptionalExtension, SqlStore, params},
 };
 
 /// The table the first embedding model in a workspace used, kept by name so an existing install
@@ -67,7 +66,7 @@ fn check_dimension(conn: &Connection, table: &str, model_dim: usize) -> Result<(
 }
 
 pub struct SqliteIndexer {
-    conn: Arc<Mutex<Connection>>,
+    conn: SqlStore,
     embedder: Arc<crate::embedding::VizierEmbedder>,
     /// The `vec0` table this agent's model writes to, one per vector width.
     table: String,
@@ -76,14 +75,14 @@ pub struct SqliteIndexer {
 
 impl SqliteIndexer {
     pub async fn new(
-        conn: Arc<Mutex<Connection>>,
+        conn: SqlStore,
         embedder: Arc<crate::embedding::VizierEmbedder>,
     ) -> Result<Self> {
         let test_embedding = embedder.embed_text("test").await?;
         let dim = test_embedding.len();
 
         let table = {
-            let conn = conn.lock();
+            let conn = conn.lock()?;
             let table = table_for(&conn, dim)?;
             check_dimension(&conn, &table, dim)?;
             conn.execute_batch(&format!(
@@ -144,17 +143,20 @@ impl DocumentIndexer for SqliteIndexer {
             score: 0.0,
         };
 
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         conn.execute(
-            &format!("DELETE FROM {} WHERE context = ?1 AND path = ?2", self.table),
-            rusqlite::params![context, path],
+            &format!(
+                "DELETE FROM {} WHERE context = ?1 AND path = ?2",
+                self.table
+            ),
+            params![context, path],
         )?;
         conn.execute(
             &format!(
                 "INSERT INTO {} (embedding, context, path) VALUES (?1, ?2, ?3)",
                 self.table
             ),
-            rusqlite::params![embedding_bytes, context, path],
+            params![embedding_bytes, context, path],
         )?;
 
         Ok(doc)
@@ -180,20 +182,23 @@ impl DocumentIndexer for SqliteIndexer {
             ));
         }
 
-        let mut conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let tx = conn.transaction()?;
         for ((path, _), embedding) in entries.iter().zip(embeddings.iter()) {
             let bytes = Self::embedding_to_bytes(embedding);
             tx.execute(
-                &format!("DELETE FROM {} WHERE context = ?1 AND path = ?2", self.table),
-                rusqlite::params![context, path],
+                &format!(
+                    "DELETE FROM {} WHERE context = ?1 AND path = ?2",
+                    self.table
+                ),
+                params![context, path],
             )?;
             tx.execute(
                 &format!(
                     "INSERT INTO {} (embedding, context, path) VALUES (?1, ?2, ?3)",
                     self.table
                 ),
-                rusqlite::params![bytes, context, path],
+                params![bytes, context, path],
             )?;
         }
         tx.commit()?;
@@ -220,22 +225,19 @@ impl DocumentIndexer for SqliteIndexer {
         let query_embedding = self.embedder.embed_text(&query).await?;
         let query_bytes = Self::embedding_to_bytes(&query_embedding);
 
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let mut stmt = conn.prepare(&format!(
             "SELECT path, context, distance FROM {} WHERE embedding MATCH ?1 AND context = ?2 ORDER BY distance LIMIT ?3",
             self.table
         ))?;
 
         let results: Vec<DocumentIndex> = stmt
-            .query_map(
-                rusqlite::params![query_bytes, context, limit as i64],
-                |row| {
-                    let path: String = row.get(0)?;
-                    let ctx: String = row.get(1)?;
-                    let distance: f64 = row.get(2)?;
-                    Ok((path, ctx, distance))
-                },
-            )?
+            .query_map(params![query_bytes, context, limit as i64], |row| {
+                let path: String = row.get(0)?;
+                let ctx: String = row.get(1)?;
+                let distance: f64 = row.get(2)?;
+                Ok((path, ctx, distance))
+            })?
             .filter_map(|r| r.ok())
             .filter_map(|(path, ctx, distance)| {
                 // The similarity was already being computed here for the threshold filter and
@@ -255,10 +257,13 @@ impl DocumentIndexer for SqliteIndexer {
     }
 
     async fn delete_index(&self, context: String, path: String) -> Result<()> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         conn.execute(
-            &format!("DELETE FROM {} WHERE context = ?1 AND path = ?2", self.table),
-            rusqlite::params![context, path],
+            &format!(
+                "DELETE FROM {} WHERE context = ?1 AND path = ?2",
+                self.table
+            ),
+            params![context, path],
         )?;
         Ok(())
     }
@@ -272,15 +277,18 @@ impl DocumentIndexer for SqliteIndexer {
 mod tests {
     use super::*;
 
-    fn connection(dir: &tempfile::TempDir) -> Connection {
-        crate::storage::sqlite::SqliteStorage::open_connection(dir.path().to_str().unwrap())
-            .unwrap()
+    fn connection(dir: &tempfile::TempDir) -> SqlStore {
+        SqlStore::sqlite(
+            crate::storage::sqlite::SqlStorage::open_connection(dir.path().to_str().unwrap())
+                .unwrap(),
+        )
     }
 
     #[test]
     fn a_fresh_workspace_names_the_index_by_dimension() {
         let dir = tempfile::tempdir().unwrap();
-        let conn = connection(&dir);
+        let store = connection(&dir);
+        let conn = store.lock().unwrap();
 
         assert_eq!(table_for(&conn, 384).unwrap(), "document_index_d384");
         assert_eq!(table_for(&conn, 768).unwrap(), "document_index_d768");
@@ -289,7 +297,8 @@ mod tests {
     #[test]
     fn an_existing_index_is_reused_for_its_own_dimension_and_keeps_its_name() {
         let dir = tempfile::tempdir().unwrap();
-        let conn = connection(&dir);
+        let store = connection(&dir);
+        let conn = store.lock().unwrap();
         conn.execute_batch(
             "CREATE VIRTUAL TABLE document_index USING vec0(
                 embedding float[768] distance_metric=cosine,
@@ -301,7 +310,10 @@ mod tests {
 
         // The install that already has vectors keeps them.
         assert_eq!(table_for(&conn, 768).unwrap(), "document_index");
-        assert_eq!(declared_dimension(&conn, "document_index").unwrap(), Some(768));
+        assert_eq!(
+            declared_dimension(&conn, "document_index").unwrap(),
+            Some(768)
+        );
         // Another model gets a table of its own rather than a refusal.
         assert_eq!(table_for(&conn, 1024).unwrap(), "document_index_d1024");
         assert_eq!(table_for(&conn, 384).unwrap(), "document_index_d384");
@@ -310,7 +322,8 @@ mod tests {
     #[test]
     fn a_table_of_another_width_is_still_refused_for_that_width() {
         let dir = tempfile::tempdir().unwrap();
-        let conn = connection(&dir);
+        let store = connection(&dir);
+        let conn = store.lock().unwrap();
         conn.execute_batch(
             "CREATE VIRTUAL TABLE document_index_d1024 USING vec0(
                 embedding float[768] distance_metric=cosine,

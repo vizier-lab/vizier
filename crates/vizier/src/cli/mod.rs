@@ -10,6 +10,7 @@ mod run;
 mod server;
 mod shutdown;
 mod skill;
+mod storage;
 pub mod telemetry_init;
 
 #[derive(Parser, Debug)]
@@ -32,6 +33,8 @@ enum Commands {
     Skill(skill::SkillArgs),
     /// Manage and inspect agents
     Agent(agent::AgentArgs),
+    /// Move a workspace between storage backends
+    Storage(storage::StorageArgs),
 }
 
 pub fn start() -> Result<()> {
@@ -43,6 +46,7 @@ pub fn start() -> Result<()> {
         Commands::Shutdown(args) => shutdown::shutdown(args.clone())?,
         Commands::Skill(args) => skill::skill(args.clone())?,
         Commands::Agent(args) => agent::agent(args.clone())?,
+        Commands::Storage(args) => storage::storage(args.clone())?,
     }
 
     Ok(())

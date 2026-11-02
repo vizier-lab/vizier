@@ -11,7 +11,10 @@ use serde::Deserialize;
 
 use crate::{
     auth::Principal,
-    models::{self, response::{APIResponse, api_response, err_response}},
+    models::{
+        self,
+        response::{APIResponse, api_response, err_response},
+    },
     state::HTTPState,
 };
 use vizier_core::service::{ServiceError, providers as service};
@@ -42,7 +45,12 @@ pub(crate) fn fail<T: serde::Serialize + Clone>(e: ServiceError) -> models::resp
 
 /// Like [`fail`], for the responses whose `data` is free-form JSON.
 pub(crate) fn fail_data(e: ServiceError) -> models::response::Response<serde_json::Value> {
-    if let ServiceError::Conflict { message, data: Some(data), .. } = &e {
+    if let ServiceError::Conflict {
+        message,
+        data: Some(data),
+        ..
+    } = &e
+    {
         return (
             StatusCode::CONFLICT,
             Json(APIResponse {
@@ -174,12 +182,12 @@ pub(crate) async fn test_provider(
 #[cfg(test)]
 mod dummyplug_provider_tests {
     use super::*;
+    use std::sync::Arc;
     use vizier_core::catalogue::builtin::CredentialField;
     use vizier_core::config::provider::ProviderId;
     use vizier_core::{
         config::VizierConfig, dependencies::VizierDependencies, storage::provider::ProviderStorage,
     };
-    use std::sync::Arc;
 
     fn principal() -> Principal {
         Principal {
@@ -233,7 +241,10 @@ mod dummyplug_provider_tests {
     async fn dummyplug_is_listed_only_while_saved_and_delete_removes_it() {
         let (state, _dir) = state().await;
         assert!(
-            !service::connected(&state.deps).await.iter().any(|p| p.id == ProviderId::DUMMYPLUG),
+            !service::connected(&state.deps)
+                .await
+                .iter()
+                .any(|p| p.id == ProviderId::DUMMYPLUG),
             "the built-in test model alone is not a connected provider"
         );
         let put = upsert_provider(
@@ -247,13 +258,31 @@ mod dummyplug_provider_tests {
         )
         .await;
         assert_eq!(put.0, StatusCode::OK);
-        assert_eq!(put.1.0.data.as_ref().unwrap().fields, vec![CredentialField::BaseUrl]);
-        assert_eq!(put.1.0.data.as_ref().unwrap().base_url.as_deref(), Some("http://127.0.0.1:19998/v1"));
-        let get = get_provider(Path("dummyplug".into()), State(state.clone()),
-            Extension(principal())).await;
+        assert_eq!(
+            put.1.0.data.as_ref().unwrap().fields,
+            vec![CredentialField::BaseUrl]
+        );
+        assert_eq!(
+            put.1.0.data.as_ref().unwrap().base_url.as_deref(),
+            Some("http://127.0.0.1:19998/v1")
+        );
+        let get = get_provider(
+            Path("dummyplug".into()),
+            State(state.clone()),
+            Extension(principal()),
+        )
+        .await;
         assert_eq!(get.0, StatusCode::OK);
-        let saved = state.storage.get_provider(&ProviderId::DUMMYPLUG).await.unwrap().unwrap();
-        assert_eq!(saved.credentials.base_url.as_deref(), Some("http://127.0.0.1:19998/v1"));
+        let saved = state
+            .storage
+            .get_provider(&ProviderId::DUMMYPLUG)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            saved.credentials.base_url.as_deref(),
+            Some("http://127.0.0.1:19998/v1")
+        );
         let deleted = delete_provider(
             Path("dummyplug".into()),
             Query(DeleteQuery { confirm: false }),
@@ -262,10 +291,23 @@ mod dummyplug_provider_tests {
         )
         .await;
         assert_eq!(deleted.0, StatusCode::OK);
-        assert!(!service::connected(&state.deps).await.iter().any(|p| p.id == ProviderId::DUMMYPLUG));
-        assert_eq!(get_provider(Path("dummyplug".into()), State(state), Extension(principal())).await.0, StatusCode::NOT_FOUND);
+        assert!(
+            !service::connected(&state.deps)
+                .await
+                .iter()
+                .any(|p| p.id == ProviderId::DUMMYPLUG)
+        );
+        assert_eq!(
+            get_provider(
+                Path("dummyplug".into()),
+                State(state),
+                Extension(principal())
+            )
+            .await
+            .0,
+            StatusCode::NOT_FOUND
+        );
     }
-
 
     #[tokio::test]
     async fn unconfigured_local_providers_are_not_connected_in_agent_picker() {
@@ -288,7 +330,10 @@ mod dummyplug_provider_tests {
         .await;
         assert_eq!(put.0, StatusCode::OK);
         let summaries = vizier_core::service::catalogue::provider_summaries(&state.deps).await;
-        let ollama = summaries.iter().find(|p| p.id == ProviderId::OLLAMA).unwrap();
+        let ollama = summaries
+            .iter()
+            .find(|p| p.id == ProviderId::OLLAMA)
+            .unwrap();
         assert_eq!(ollama.connection.source.as_deref(), Some("saved"));
         assert_eq!(ollama.connection.status, "connected");
     }
@@ -309,7 +354,11 @@ mod dummyplug_provider_tests {
         assert_eq!(put.0, StatusCode::BAD_REQUEST);
     }
 
-    fn body(access: Option<&str>, secret: Option<&str>, region: Option<&str>) -> UpsertProviderRequest {
+    fn body(
+        access: Option<&str>,
+        secret: Option<&str>,
+        region: Option<&str>,
+    ) -> UpsertProviderRequest {
         UpsertProviderRequest {
             access_key_id: access.map(str::to_string),
             secret_access_key: secret.map(str::to_string),
@@ -332,23 +381,44 @@ mod dummyplug_provider_tests {
         .await;
         assert_eq!(put.0, StatusCode::BAD_REQUEST);
         assert!(
-            put.1.0.message.as_deref().unwrap_or_default().contains("secret access key"),
+            put.1
+                .0
+                .message
+                .as_deref()
+                .unwrap_or_default()
+                .contains("secret access key"),
             "{:?}",
             put.1.0
         );
-        assert!(state.storage.get_provider(&ProviderId::AMAZON_BEDROCK).await.unwrap().is_none());
+        assert!(
+            state
+                .storage
+                .get_provider(&ProviderId::AMAZON_BEDROCK)
+                .await
+                .unwrap()
+                .is_none()
+        );
 
         // A malformed region is refused before any request.
         let put = upsert_provider(
             Path("amazon-bedrock".into()),
             State(state.clone()),
             Extension(principal()),
-            axum::Json(body(Some("AKIAEXAMPLE"), Some("secret"), Some("not-a-region"))),
+            axum::Json(body(
+                Some("AKIAEXAMPLE"),
+                Some("secret"),
+                Some("not-a-region"),
+            )),
         )
         .await;
         assert_eq!(put.0, StatusCode::BAD_REQUEST);
         assert!(
-            put.1.0.message.as_deref().unwrap_or_default().contains("invalid AWS region"),
+            put.1
+                .0
+                .message
+                .as_deref()
+                .unwrap_or_default()
+                .contains("invalid AWS region"),
             "{:?}",
             put.1.0
         );
@@ -358,7 +428,11 @@ mod dummyplug_provider_tests {
             Path("amazon-bedrock".into()),
             State(state.clone()),
             Extension(principal()),
-            axum::Json(body(Some("AKIAEXAMPLE"), Some("secret-access"), Some("us-east-1"))),
+            axum::Json(body(
+                Some("AKIAEXAMPLE"),
+                Some("secret-access"),
+                Some("us-east-1"),
+            )),
         )
         .await;
         assert_eq!(put.0, StatusCode::OK, "{:?}", put.1.0);
@@ -384,25 +458,34 @@ mod dummyplug_provider_tests {
             .await
             .unwrap()
             .unwrap();
-        assert_eq!(stored.credentials.access_key_id.as_deref(), Some("AKIAEXAMPLE"));
+        assert_eq!(
+            stored.credentials.access_key_id.as_deref(),
+            Some("AKIAEXAMPLE")
+        );
         assert_eq!(stored.credentials.region.as_deref(), Some("us-east-1"));
         // The secret is written protected: read the row without the storage decryptor.
-        let raw = vizier_core::storage::sqlite::SqliteStorage::open_connection(
-            dir.path().to_str().unwrap(),
-        )
-        .unwrap()
-        .query_row(
-            "SELECT data FROM provider_config WHERE variant = 'amazon-bedrock'",
-            [],
-            |row| row.get::<_, String>(0),
-        )
-        .unwrap();
+        let raw =
+            vizier_core::storage::sqlite::SqlStorage::open_connection(dir.path().to_str().unwrap())
+                .unwrap()
+                .query_row(
+                    "SELECT data FROM provider_config WHERE variant = 'amazon-bedrock'",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )
+                .unwrap();
         assert!(raw.contains("enc:v1:"), "{raw}");
         assert!(!raw.contains("secret-access"), "{raw}");
-        assert!(raw.contains("AKIAEXAMPLE"), "the identifier stays readable: {raw}");
+        assert!(
+            raw.contains("AKIAEXAMPLE"),
+            "the identifier stays readable: {raw}"
+        );
 
-        let get = get_provider(Path("amazon-bedrock".into()), State(state.clone()),
-            Extension(principal())).await;
+        let get = get_provider(
+            Path("amazon-bedrock".into()),
+            State(state.clone()),
+            Extension(principal()),
+        )
+        .await;
         let json = serde_json::to_value(get.1.0.data.unwrap()).unwrap();
         assert!(json.get("secret_access_key").is_none());
         assert!(!json.to_string().contains("secret-access"), "{json}");
@@ -421,7 +504,12 @@ mod dummyplug_provider_tests {
         .await;
         assert_eq!(put.0, StatusCode::BAD_REQUEST);
         assert!(
-            put.1.0.message.as_deref().unwrap_or_default().contains("does not use api_key"),
+            put.1
+                .0
+                .message
+                .as_deref()
+                .unwrap_or_default()
+                .contains("does not use api_key"),
             "{:?}",
             put.1.0
         );
@@ -439,7 +527,12 @@ mod dummyplug_provider_tests {
         .await;
         assert_eq!(put.0, StatusCode::BAD_REQUEST);
         assert!(
-            put.1.0.message.as_deref().unwrap_or_default().contains("does not take a base_url"),
+            put.1
+                .0
+                .message
+                .as_deref()
+                .unwrap_or_default()
+                .contains("does not take a base_url"),
             "{:?}",
             put.1.0
         );
@@ -453,9 +546,20 @@ mod dummyplug_provider_tests {
         )
         .await;
         assert_eq!(deleted.0, StatusCode::OK);
-        assert!(state.storage.get_provider(&ProviderId::AMAZON_BEDROCK).await.unwrap().is_none());
-        let get = get_provider(Path("amazon-bedrock".into()), State(state),
-            Extension(principal())).await;
+        assert!(
+            state
+                .storage
+                .get_provider(&ProviderId::AMAZON_BEDROCK)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        let get = get_provider(
+            Path("amazon-bedrock".into()),
+            State(state),
+            Extension(principal()),
+        )
+        .await;
         assert_eq!(get.0, StatusCode::NOT_FOUND);
     }
 }

@@ -61,12 +61,12 @@ pub struct ArtifactListView {
     pub agent_total_bytes: u64,
 }
 
-fn list_view(page: ArtifactPage, artifacts: &crate::artifacts::Artifacts) -> ArtifactListView {
-    let items = page
-        .items
-        .iter()
-        .map(|artifact| ArtifactItemView::new(artifact, artifacts.is_available(&artifact.agent_id, artifact)))
-        .collect();
+async fn list_view(page: ArtifactPage, artifacts: &crate::artifacts::Artifacts) -> ArtifactListView {
+    let mut items = Vec::with_capacity(page.items.len());
+    for artifact in &page.items {
+        let available = artifacts.is_available(&artifact.agent_id, artifact).await;
+        items.push(ArtifactItemView::new(artifact, available));
+    }
     ArtifactListView {
         items,
         next: page.next,
@@ -166,10 +166,11 @@ pub struct ArtifactQuery {
     pub limit: Option<usize>,
 }
 
-/// An artifact's current bytes with what a download needs to describe them.
-#[derive(Debug, Clone)]
+/// An artifact's current content object (stream it with [`crate::storage::blob::BlobRef::open`]) with what a
+/// download needs to describe it.
+#[derive(Clone)]
 pub struct ArtifactContent {
-    pub bytes: Vec<u8>,
+    pub blob: crate::storage::blob::BlobRef,
     pub mime_type: String,
     pub name: String,
 }
@@ -254,7 +255,7 @@ pub async fn list(
         limit: query.limit.unwrap_or(50).clamp(1, 100),
     };
     match s.deps().artifacts.list(filters).await {
-        Ok(page) => Ok(list_view(page, &s.deps().artifacts)),
+        Ok(page) => Ok(list_view(page, &s.deps().artifacts).await),
         Err(e) => Err(ServiceError::Internal(e.to_string())),
     }
 }
@@ -325,14 +326,16 @@ pub async fn content(
         Ok(None) => return Err(ServiceError::NotFound("artifact not found".into())),
         Err(e) => return Err(ServiceError::Internal(e.to_string())),
     };
-    let bytes = s
+    let unavailable = || ServiceError::NotFound("artifact content is unavailable".into());
+    let blob = s
         .deps()
         .artifacts
-        .read_content(agent_id, artifact_id)
+        .content_ref(agent_id, artifact_id)
         .await
-        .map_err(|_| ServiceError::NotFound("artifact content is unavailable".into()))?;
+        .map_err(|_| unavailable())?
+        .ok_or_else(unavailable)?;
     Ok(ArtifactContent {
-        bytes,
+        blob,
         mime_type: detail.artifact.mime_type,
         name: detail.artifact.name,
     })

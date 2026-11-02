@@ -904,9 +904,9 @@ impl VizierAgent {
                 if let VizierRequestContent::Chat(text) = &mut model_req.content {
                     *text = invoked.message().to_string();
                 }
-                model_req.to_message(&self.global_workspace, self.deps.artifacts.as_ref())?
+                model_req.to_message(self.deps.artifacts.as_ref()).await?
             }
-            None => req.to_message(&self.global_workspace, self.deps.artifacts.as_ref())?,
+            None => req.to_message(self.deps.artifacts.as_ref()).await?,
         };
         // What became of the person's files, on their own message: the ones that could not be
         // stored (loudly, #47) and the ones that did. Without the second, the model is handed a
@@ -1420,11 +1420,8 @@ impl VizierAgent {
                 }
 
                 let response_content = tool_res
-                    .to_tool_result(
-                        call_id.clone(),
-                        &self.global_workspace,
-                        self.deps.artifacts.as_ref(),
-                    )
+                    .to_tool_result(call_id.clone(), self.deps.artifacts.as_ref())
+                    .await
                     .map_err(|e| {
                         fail_turn(e, full_history.clone(), None, tool_responses.clone())
                     })?;
@@ -1459,7 +1456,8 @@ impl VizierAgent {
             for attachment in ctx.loaded_images.lock().await.drain(..) {
                 pending_images.push(
                     attachment
-                        .to_part(&self.global_workspace, self.deps.artifacts.as_ref())
+                        .to_part(self.deps.artifacts.as_ref())
+                        .await
                         .map_err(|e| {
                             fail_turn(e, full_history.clone(), None, tool_responses.clone())
                         })?,
@@ -1834,7 +1832,7 @@ impl VizierAgent {
                 &snapshot,
                 &dream_model,
                 with_context(
-                    req.to_message(&self.global_workspace, self.deps.artifacts.as_ref())?,
+                    req.to_message(self.deps.artifacts.as_ref()).await?,
                     context_md(
                         &[],
                         &[],
@@ -2078,16 +2076,16 @@ impl VizierAgent {
                         }
                     }
 
-                    tool_responses.push(tool_res.to_tool_result(
-                        call_id.clone(),
-                        &self.global_workspace,
-                        self.deps.artifacts.as_ref(),
-                    )?);
+                    tool_responses.push(
+                        tool_res
+                            .to_tool_result(call_id.clone(), self.deps.artifacts.as_ref())
+                            .await?,
+                    );
                 }
 
                 for attachment in ctx.loaded_images.lock().await.drain(..) {
                     pending_attachments.push(
-                        attachment.to_part(&self.global_workspace, self.deps.artifacts.as_ref())?,
+                        attachment.to_part(self.deps.artifacts.as_ref()).await?,
                     );
                 }
 

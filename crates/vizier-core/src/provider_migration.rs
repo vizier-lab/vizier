@@ -141,7 +141,12 @@ fn match_by_host(catalogue: &CatalogueData, url: &str, default_id: &str) -> Opti
     }
 }
 
-fn custom_provider(id: &str, name: &str, base_url: String, api_key: Option<String>) -> CustomProvider {
+fn custom_provider(
+    id: &str,
+    name: &str,
+    base_url: String,
+    api_key: Option<String>,
+) -> CustomProvider {
     CustomProvider {
         id: ProviderId::new(id.to_string()).unwrap_or(ProviderId::CUSTOM),
         name: name.to_string(),
@@ -163,7 +168,10 @@ fn upsert_custom(conn: &rusqlite::Connection, p: &CustomProvider) -> anyhow::Res
 }
 
 /// Rewrite one provider id field in an agent's JSON with the deployment's map.
-fn rewrite_field(slot: Option<&mut Value>, map: &HashMap<String, String>) -> Option<(String, String)> {
+fn rewrite_field(
+    slot: Option<&mut Value>,
+    map: &HashMap<String, String>,
+) -> Option<(String, String)> {
     let slot = slot?;
     let old = slot.as_str()?.to_string();
     let new = map
@@ -178,7 +186,7 @@ fn rewrite_field(slot: Option<&mut Value>, map: &HashMap<String, String>) -> Opt
 }
 
 pub fn migrate_provider_ids_v1(
-    conn: &mut rusqlite::Connection,
+    conn: &rusqlite::Connection,
     catalogue: &CatalogueData,
 ) -> anyhow::Result<()> {
     let done: Option<String> = conn
@@ -192,7 +200,7 @@ pub fn migrate_provider_ids_v1(
         return Ok(());
     }
 
-    let tx = conn.transaction()?;
+    let tx = conn.unchecked_transaction()?;
     // legacy name → new id, for this deployment.
     let mut map: HashMap<String, String> = HashMap::new();
     let mut renamed: BTreeMap<String, String> = BTreeMap::new();
@@ -212,20 +220,30 @@ pub fn migrate_provider_ids_v1(
         let legacy: LegacyProviderEntry = match serde_json::from_str(&data) {
             Ok(l) => l,
             Err(e) => {
-                tracing::warn!("provider_config row '{variant}' is unreadable and was left as it is: {e}");
+                tracing::warn!(
+                    "provider_config row '{variant}' is unreadable and was left as it is: {e}"
+                );
                 continue;
             }
         };
         let name = legacy.variant.clone();
 
         if REMOVED.contains(&name.as_str()) {
-            tx.execute("DELETE FROM provider_config WHERE variant = ?1", rusqlite::params![variant])?;
-            tracing::info!("provider '{name}' is no longer supported; its saved credentials were deleted");
+            tx.execute(
+                "DELETE FROM provider_config WHERE variant = ?1",
+                rusqlite::params![variant],
+            )?;
+            tracing::info!(
+                "provider '{name}' is no longer supported; its saved credentials were deleted"
+            );
             continue;
         }
 
         let (credentials, base_url) = split_legacy(legacy.config);
-        tx.execute("DELETE FROM provider_config WHERE variant = ?1", rusqlite::params![variant])?;
+        tx.execute(
+            "DELETE FROM provider_config WHERE variant = ?1",
+            rusqlite::params![variant],
+        )?;
 
         if name == "custom" {
             had_custom_row = true;
@@ -237,7 +255,10 @@ pub fn migrate_provider_ids_v1(
             );
             upsert_custom(&tx, &p)?;
             map.insert(name.clone(), "custom".into());
-            tracing::warn!("provider 'custom' is now the custom provider 'custom' (OpenAI-compatible, {})", p.base_url);
+            tracing::warn!(
+                "provider 'custom' is now the custom provider 'custom' (OpenAI-compatible, {})",
+                p.base_url
+            );
             continue;
         }
 
@@ -264,7 +285,12 @@ pub fn migrate_provider_ids_v1(
                     None if is_default => default_id.to_string(),
                     None => {
                         let id = format!("{name}-custom").replace('_', "-");
-                        let p = custom_provider(&id, &format!("{name} (custom URL)"), url.to_string(), credentials.api_key.clone());
+                        let p = custom_provider(
+                            &id,
+                            &format!("{name} (custom URL)"),
+                            url.to_string(),
+                            credentials.api_key.clone(),
+                        );
                         upsert_custom(&tx, &p)?;
                         tracing::warn!(
                             "provider '{name}' had the base URL {url}, which no catalogue provider uses; it is now the custom provider '{id}'"
@@ -292,14 +318,25 @@ pub fn migrate_provider_ids_v1(
     }
 
     if !had_custom_row
-        && let Some(base_url) = std::env::var("CUSTOM_BASE_URL").ok().filter(|u| !u.is_empty())
+        && let Some(base_url) = std::env::var("CUSTOM_BASE_URL")
+            .ok()
+            .filter(|u| !u.is_empty())
     {
         let exists: Option<String> = tx
-            .query_row("SELECT id FROM custom_provider WHERE id = 'custom'", [], |r| r.get(0))
+            .query_row(
+                "SELECT id FROM custom_provider WHERE id = 'custom'",
+                [],
+                |r| r.get(0),
+            )
             .optional()?;
         if exists.is_none() {
-            let key = std::env::var("CUSTOM_API_KEY").ok().filter(|k| !k.is_empty());
-            upsert_custom(&tx, &custom_provider("custom", "Custom (OpenAI-compatible)", base_url, key))?;
+            let key = std::env::var("CUSTOM_API_KEY")
+                .ok()
+                .filter(|k| !k.is_empty());
+            upsert_custom(
+                &tx,
+                &custom_provider("custom", "Custom (OpenAI-compatible)", base_url, key),
+            )?;
             tracing::warn!("CUSTOM_BASE_URL is now the custom provider 'custom'");
         }
     }
@@ -312,7 +349,9 @@ pub fn migrate_provider_ids_v1(
     };
     for (agent_id, data) in agents {
         let Ok(mut value) = serde_json::from_str::<Value>(&data) else {
-            tracing::warn!("agent '{agent_id}' has an unreadable config; its provider was not migrated");
+            tracing::warn!(
+                "agent '{agent_id}' has an unreadable config; its provider was not migrated"
+            );
             continue;
         };
         let mut changes = vec![];
@@ -403,7 +442,13 @@ mod tests {
         .unwrap();
     }
 
-    fn agent(conn: &rusqlite::Connection, id: &str, provider: &str, dream: Option<&str>, read_image: Option<&str>) {
+    fn agent(
+        conn: &rusqlite::Connection,
+        id: &str,
+        provider: &str,
+        dream: Option<&str>,
+        read_image: Option<&str>,
+    ) {
         let v = serde_json::json!({
             "name": id, "provider": provider, "model": "m", "dream_provider": dream,
             "tools": {"timeout": "30s", "read_image": {"enabled": true, "settings": {"provider": read_image, "model": null}}}
@@ -439,51 +484,137 @@ mod tests {
 
     fn agent_json(conn: &rusqlite::Connection, id: &str) -> Value {
         let d: String = conn
-            .query_row("SELECT data FROM agent_config WHERE agent_id = ?1", rusqlite::params![id], |r| r.get(0))
+            .query_row(
+                "SELECT data FROM agent_config WHERE agent_id = ?1",
+                rusqlite::params![id],
+                |r| r.get(0),
+            )
             .unwrap();
         serde_json::from_str(&d).unwrap()
     }
 
     #[test]
     fn rewrites_every_row_of_the_name_map_and_both_footnotes() {
-        let mut conn = db();
+        let conn = db();
         let simple = [
-            ("openai", "Openai"), ("anthropic", "Anthropic"), ("openrouter", "Openrouter"),
-            ("deepseek", "Deepseek"), ("gemini", "Gemini"), ("mimo", "Mimo"), ("groq", "Groq"),
-            ("mistral", "Mistral"), ("xai", "Xai"), ("perplexity", "Perplexity"),
-            ("together", "Together"), ("cohere", "Cohere"), ("huggingface", "Huggingface"),
-            ("copilot", "Copilot"), ("elevenlabs", "Elevenlabs"), ("voyageai", "Voyageai"),
-            ("hyperbolic", "Hyperbolic"), ("galadriel", "Galadriel"), ("mira", "Mira"),
+            ("openai", "Openai"),
+            ("anthropic", "Anthropic"),
+            ("openrouter", "Openrouter"),
+            ("deepseek", "Deepseek"),
+            ("gemini", "Gemini"),
+            ("mimo", "Mimo"),
+            ("groq", "Groq"),
+            ("mistral", "Mistral"),
+            ("xai", "Xai"),
+            ("perplexity", "Perplexity"),
+            ("together", "Together"),
+            ("cohere", "Cohere"),
+            ("huggingface", "Huggingface"),
+            ("copilot", "Copilot"),
+            ("elevenlabs", "Elevenlabs"),
+            ("voyageai", "Voyageai"),
+            ("hyperbolic", "Hyperbolic"),
+            ("galadriel", "Galadriel"),
+            ("mira", "Mira"),
         ];
         for (variant, ty) in simple {
-            legacy(&conn, variant, ty, serde_json::json!({"api_key": format!("k-{variant}")}));
+            legacy(
+                &conn,
+                variant,
+                ty,
+                serde_json::json!({"api_key": format!("k-{variant}")}),
+            );
         }
-        legacy(&conn, "ollama", "Ollama", serde_json::json!({"base_url": "http://gpu:11434"}));
-        legacy(&conn, "llama_cpp", "LlamaCpp", serde_json::json!({"base_url": "http://cpp:8080"}));
-        legacy(&conn, "chatgpt", "Chatgpt", serde_json::json!({"access_token": "t", "account_id": "a"}));
-        legacy(&conn, "azure", "Azure", serde_json::json!({"endpoint": "https://r.openai.azure.com", "api_key": "k"}));
+        legacy(
+            &conn,
+            "ollama",
+            "Ollama",
+            serde_json::json!({"base_url": "http://gpu:11434"}),
+        );
+        legacy(
+            &conn,
+            "llama_cpp",
+            "LlamaCpp",
+            serde_json::json!({"base_url": "http://cpp:8080"}),
+        );
+        legacy(
+            &conn,
+            "chatgpt",
+            "Chatgpt",
+            serde_json::json!({"access_token": "t", "account_id": "a"}),
+        );
+        legacy(
+            &conn,
+            "azure",
+            "Azure",
+            serde_json::json!({"endpoint": "https://r.openai.azure.com", "api_key": "k"}),
+        );
         // ¹ base URLs: a catalogue match, an old default, and no match.
-        legacy(&conn, "moonshot", "Moonshot", serde_json::json!({"api_key": "km", "base_url": "https://api.moonshot.cn/v1/"}));
-        legacy(&conn, "zai", "Zai", serde_json::json!({"api_key": "kz", "base_url": "https://open.bigmodel.cn/api/paas/v4"}));
-        legacy(&conn, "minimax", "Minimax", serde_json::json!({"api_key": "kmm", "base_url": "https://api.minimax.cn/v1"}));
-        legacy(&conn, "opencode_zen", "OpencodeZen", serde_json::json!({"api_key": "ko", "base_url": "https://opencode.ai/zen/v1"}));
-        legacy(&conn, "opencode_go", "OpencodeGo", serde_json::json!({"api_key": "kg", "base_url": "https://proxy.example/go/v1"}));
+        legacy(
+            &conn,
+            "moonshot",
+            "Moonshot",
+            serde_json::json!({"api_key": "km", "base_url": "https://api.moonshot.cn/v1/"}),
+        );
+        legacy(
+            &conn,
+            "zai",
+            "Zai",
+            serde_json::json!({"api_key": "kz", "base_url": "https://open.bigmodel.cn/api/paas/v4"}),
+        );
+        legacy(
+            &conn,
+            "minimax",
+            "Minimax",
+            serde_json::json!({"api_key": "kmm", "base_url": "https://api.minimax.cn/v1"}),
+        );
+        legacy(
+            &conn,
+            "opencode_zen",
+            "OpencodeZen",
+            serde_json::json!({"api_key": "ko", "base_url": "https://opencode.ai/zen/v1"}),
+        );
+        legacy(
+            &conn,
+            "opencode_go",
+            "OpencodeGo",
+            serde_json::json!({"api_key": "kg", "base_url": "https://proxy.example/go/v1"}),
+        );
         // ² the legacy custom provider.
-        legacy(&conn, "custom", "Custom", serde_json::json!({"api_key": "kc", "base_url": "http://127.0.0.1:18080/v1"}));
+        legacy(
+            &conn,
+            "custom",
+            "Custom",
+            serde_json::json!({"api_key": "kc", "base_url": "http://127.0.0.1:18080/v1"}),
+        );
 
-        agent(&conn, "gem-old", "gemini", Some("together"), Some("copilot"));
+        agent(
+            &conn,
+            "gem-old",
+            "gemini",
+            Some("together"),
+            Some("copilot"),
+        );
         agent(&conn, "moon-old", "moonshot", None, None);
         agent(&conn, "cus-old", "custom", None, None);
         agent(&conn, "gal-old", "galadriel", None, None);
         agent(&conn, "go-old", "opencode_go", None, None);
         agent(&conn, "new", "anthropic", None, None);
 
-        migrate_provider_ids_v1(&mut conn, &catalogue()).unwrap();
+        migrate_provider_ids_v1(&conn, &catalogue()).unwrap();
 
         for (old, new) in [
-            ("openai", "openai"), ("anthropic", "anthropic"), ("gemini", "google"), ("mimo", "xiaomi"),
-            ("together", "togetherai"), ("copilot", "github-copilot"), ("llama_cpp", "llama-cpp"),
-            ("moonshot", "moonshotai-cn"), ("zai", "zhipuai"), ("minimax", "minimax-cn"), ("opencode_zen", "opencode"),
+            ("openai", "openai"),
+            ("anthropic", "anthropic"),
+            ("gemini", "google"),
+            ("mimo", "xiaomi"),
+            ("together", "togetherai"),
+            ("copilot", "github-copilot"),
+            ("llama_cpp", "llama-cpp"),
+            ("moonshot", "moonshotai-cn"),
+            ("zai", "zhipuai"),
+            ("minimax", "minimax-cn"),
+            ("opencode_zen", "opencode"),
         ] {
             let entry = provider(&conn, new).unwrap_or_else(|| panic!("{old} → {new} missing"));
             assert_eq!(entry.id.as_str(), new);
@@ -491,43 +622,99 @@ mod tests {
                 assert!(provider(&conn, old).is_none(), "{old} left behind");
             }
         }
-        assert_eq!(provider(&conn, "google").unwrap().credentials.api_key.as_deref(), Some("k-gemini"));
-        assert_eq!(provider(&conn, "ollama").unwrap().credentials.base_url.as_deref(), Some("http://gpu:11434"));
-        assert_eq!(provider(&conn, "chatgpt").unwrap().credentials.account_id.as_deref(), Some("a"));
-        assert_eq!(provider(&conn, "azure").unwrap().credentials.endpoint.as_deref(), Some("https://r.openai.azure.com"));
+        assert_eq!(
+            provider(&conn, "google")
+                .unwrap()
+                .credentials
+                .api_key
+                .as_deref(),
+            Some("k-gemini")
+        );
+        assert_eq!(
+            provider(&conn, "ollama")
+                .unwrap()
+                .credentials
+                .base_url
+                .as_deref(),
+            Some("http://gpu:11434")
+        );
+        assert_eq!(
+            provider(&conn, "chatgpt")
+                .unwrap()
+                .credentials
+                .account_id
+                .as_deref(),
+            Some("a")
+        );
+        assert_eq!(
+            provider(&conn, "azure")
+                .unwrap()
+                .credentials
+                .endpoint
+                .as_deref(),
+            Some("https://r.openai.azure.com")
+        );
         assert!(provider(&conn, "galadriel").is_none() && provider(&conn, "mira").is_none());
 
         let go = custom(&conn, "opencode-go-custom").unwrap();
         assert_eq!(go.base_url, "https://proxy.example/go/v1");
         assert_eq!(go.api_key.as_deref(), Some("kg"));
         let c = custom(&conn, "custom").unwrap();
-        assert_eq!((c.base_url.as_str(), c.protocol), ("http://127.0.0.1:18080/v1", CustomProtocol::OpenaiCompatible));
+        assert_eq!(
+            (c.base_url.as_str(), c.protocol),
+            (
+                "http://127.0.0.1:18080/v1",
+                CustomProtocol::OpenaiCompatible
+            )
+        );
 
         let gem = agent_json(&conn, "gem-old");
         assert_eq!(gem["provider"], "google");
         assert_eq!(gem["dream_provider"], "togetherai");
-        assert_eq!(gem["tools"]["read_image"]["settings"]["provider"], "github-copilot");
+        assert_eq!(
+            gem["tools"]["read_image"]["settings"]["provider"],
+            "github-copilot"
+        );
         assert_eq!(agent_json(&conn, "moon-old")["provider"], "moonshotai-cn");
         assert_eq!(agent_json(&conn, "cus-old")["provider"], "custom");
-        assert_eq!(agent_json(&conn, "gal-old")["provider"], "galadriel", "left to fail at build");
-        assert_eq!(agent_json(&conn, "go-old")["provider"], "opencode-go-custom");
+        assert_eq!(
+            agent_json(&conn, "gal-old")["provider"],
+            "galadriel",
+            "left to fail at build"
+        );
+        assert_eq!(
+            agent_json(&conn, "go-old")["provider"],
+            "opencode-go-custom"
+        );
 
         let from = migrated_from(&conn);
         assert_eq!(from.get("google").map(String::as_str), Some("gemini"));
-        assert_eq!(from.get("moonshotai-cn").map(String::as_str), Some("moonshot"));
+        assert_eq!(
+            from.get("moonshotai-cn").map(String::as_str),
+            Some("moonshot")
+        );
     }
 
     #[test]
     fn is_idempotent() {
-        let mut conn = db();
-        legacy(&conn, "gemini", "Gemini", serde_json::json!({"api_key": "k"}));
-        migrate_provider_ids_v1(&mut conn, &catalogue()).unwrap();
+        let conn = db();
+        legacy(
+            &conn,
+            "gemini",
+            "Gemini",
+            serde_json::json!({"api_key": "k"}),
+        );
+        migrate_provider_ids_v1(&conn, &catalogue()).unwrap();
         // A row written afterwards in the legacy shape is not touched again: the marker is set.
         legacy(&conn, "groq", "Groq", serde_json::json!({"api_key": "k"}));
-        migrate_provider_ids_v1(&mut conn, &catalogue()).unwrap();
+        migrate_provider_ids_v1(&conn, &catalogue()).unwrap();
         assert!(provider(&conn, "google").is_some());
         let raw: String = conn
-            .query_row("SELECT data FROM provider_config WHERE variant = 'groq'", [], |r| r.get(0))
+            .query_row(
+                "SELECT data FROM provider_config WHERE variant = 'groq'",
+                [],
+                |r| r.get(0),
+            )
             .unwrap();
         assert!(raw.contains("\"Groq\""));
     }

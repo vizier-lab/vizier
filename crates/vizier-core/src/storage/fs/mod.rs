@@ -4,7 +4,7 @@ use anyhow::Result;
 // the sole runtime backend, research.md §10 / FR-025) — it survives here only so
 // `VizierDependencies::new`'s one-time `migrate_filesystem_backend_to_sqlite` migration can read
 // a pre-existing `--storage filesystem` deployment's data via these trait impls before copying
-// it into `SqliteStorage`. Its `MemoryStorage` impl is gone entirely: Part A of that migration
+// it into `SqlStorage`. Its `MemoryStorage` impl is gone entirely: Part A of that migration
 // reads legacy flat memory files directly (the visibility model they were written under no
 // longer exists), not through this struct.
 pub mod agent;
