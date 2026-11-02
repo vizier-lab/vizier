@@ -186,12 +186,13 @@ pub fn decrypt_provider_entry(
 
 // ---------------------------------------------------------------- bedrock sso sessions
 
-/// The associated data one session envelope is bound to: `vizier:bedrock-sso:v1|session|<profile>`.
+/// The associated data one session envelope is bound to: `vizier:bedrock-sso:v1\x1fsession\x1f<profile>`.
 ///
-/// Separators are `|` (tasks.md T010) rather than the unit separator `aad()` uses; the value is
-/// internal to this pair of functions, so only these two strings have to agree.
+/// The separators are the unit separator, exactly as [`aad`] uses and as `data-model.md:66`
+/// writes it (`\u{241f}` there is the printed form of `0x1F`), so a profile name can never shift
+/// the boundary between segments.
 fn sso_session_aad(profile: &str) -> String {
-    format!("vizier:bedrock-sso:v1|session|{profile}")
+    format!("vizier:bedrock-sso:v1\x1fsession\x1f{profile}")
 }
 
 /// Why a session envelope cannot be opened, in the words the contract fixes
