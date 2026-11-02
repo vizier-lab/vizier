@@ -58,9 +58,16 @@ impl SsoSessionStorage for SqliteStorage {
             crate::encryption::fields::protect_sso_session(&self.cipher, profile, &written.to_json())?;
 
         let conn = self.conn.lock();
-        let tx = conn.unchecked_transaction()?;
-        // Read and write inside one transaction, so a concurrent writer either commits first
-        // (and this one sees it) or waits — never both believing they were second (FR-014).
+        // `IMMEDIATE` takes the write lock *before* the read below, so a second process on the
+        // same workspace queues here rather than reading the old revision alongside this one and
+        // then failing on the upgrade with "database is locked". The loser waits, re-reads, sees
+        // a newer revision and is told to re-read the winner — a clean `Conflict`, which is what
+        // makes renewal idempotent across processes (FR-014, spec edge case "two Vizier
+        // processes"). `busy_timeout` is what turns the wait into patience instead of an error.
+        let tx = rusqlite::Transaction::new_unchecked(
+            &conn,
+            rusqlite::TransactionBehavior::Immediate,
+        )?;
         let current = tx
             .query_row(
                 "SELECT data FROM bedrock_sso_session WHERE profile = ?1",
@@ -165,6 +172,27 @@ mod tests {
             |row| row.get(0),
         )
         .unwrap()
+    }
+
+    /// Two storage handles over one file, the way two Vizier processes share a workspace: separate
+    /// connections, one workspace key, one busy timeout each (FR-014, spec edge case "two Vizier
+    /// processes").
+    fn two_processes() -> (SqliteStorage, SqliteStorage, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("vizier.sqlite3");
+        let open = || {
+            let conn = rusqlite::Connection::open(&path).unwrap();
+            conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;")
+                .unwrap();
+            SqliteStorage::init_schema(&conn).unwrap();
+            SqliteStorage::with_secrets(
+                Arc::new(Mutex::new(conn)),
+                Arc::new(LocalDocumentStore::new(dir.path().to_path_buf())),
+                SecretCipher::from_key_for_test([7u8; 32]),
+                Arc::new(NoSecretPaths),
+            )
+        };
+        (open(), open(), dir)
     }
 
     #[tokio::test]
@@ -294,5 +322,135 @@ mod tests {
         assert!(storage.get_sso_session("acme-bedrock").await.unwrap().is_none());
         // Already signed out: still fine (FR-009c).
         storage.delete_sso_session("acme-bedrock").await.unwrap();
+    }
+
+    /// T056: two processes on one workspace renew at once. Each read the same revision, one wins,
+    /// and the loser is told to re-read instead of overwriting the winner — and its retry with the
+    /// winner's revision writes (FR-014, spec edge case "two Vizier processes").
+    #[tokio::test]
+    async fn the_losing_writer_rereads_the_winner_and_its_retry_writes() {
+        let (first, second, _dir) = two_processes();
+        assert_eq!(
+            first
+                .put_sso_session("acme-bedrock", &secret("first"), None)
+                .await
+                .unwrap(),
+            SsoWrite::Written(1)
+        );
+
+        // Both processes hold revision 1, as they would after both reading the same row.
+        assert_eq!(
+            first
+                .get_sso_session("acme-bedrock")
+                .await
+                .unwrap()
+                .unwrap()
+                .revision,
+            1
+        );
+        assert_eq!(
+            second
+                .get_sso_session("acme-bedrock")
+                .await
+                .unwrap()
+                .unwrap()
+                .revision,
+            1
+        );
+
+        // The first process renews and wins.
+        assert_eq!(
+            first
+                .put_sso_session("acme-bedrock", &secret("renewed-by-first"), Some(1))
+                .await
+                .unwrap(),
+            SsoWrite::Written(2)
+        );
+
+        // The other process, still holding revision 1, writes nothing and is told to re-read.
+        assert_eq!(
+            second
+                .put_sso_session("acme-bedrock", &secret("renewed-by-second"), Some(1))
+                .await
+                .unwrap(),
+            SsoWrite::Conflict
+        );
+        let winner = second.get_sso_session("acme-bedrock").await.unwrap().unwrap();
+        assert_eq!(winner.access_token, "renewed-by-first");
+        assert_eq!(winner.revision, 2);
+
+        // Its retry, with the winner's revision, writes: the store has one row, one step on.
+        assert_eq!(
+            second
+                .put_sso_session("acme-bedrock", &secret("retried-by-second"), Some(2))
+                .await
+                .unwrap(),
+            SsoWrite::Written(3)
+        );
+        let after = first.get_sso_session("acme-bedrock").await.unwrap().unwrap();
+        assert_eq!(after.access_token, "retried-by-second");
+        assert_eq!(after.revision, 3);
+    }
+
+    /// T056: a write racing across two processes waits on the lock instead of failing at it, so
+    /// exactly one writer wins and the other gets `Conflict` — never "database is locked" (FR-014).
+    #[test]
+    fn a_racing_write_across_two_processes_waits_instead_of_failing() {
+        let (first, second, _dir) = two_processes();
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        runtime
+            .block_on(first.put_sso_session("acme-bedrock", &secret("first"), None))
+            .unwrap();
+
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
+        let outcomes = std::thread::scope(|scope| {
+            let handles: Vec<_> = [(&first, "renewed-by-first"), (&second, "renewed-by-second")]
+                .into_iter()
+                .map(|(storage, token)| {
+                    let barrier = std::sync::Arc::clone(&barrier);
+                    scope.spawn(move || {
+                        let runtime = tokio::runtime::Builder::new_current_thread()
+                            .enable_all()
+                            .build()
+                            .unwrap();
+                        // Both processes hold revision 1 and write at the same instant.
+                        barrier.wait();
+                        runtime
+                            .block_on(storage.put_sso_session(
+                                "acme-bedrock",
+                                &secret(token),
+                                Some(1),
+                            ))
+                            .unwrap()
+                    })
+                })
+                .collect();
+            handles
+                .into_iter()
+                .map(|handle| handle.join().unwrap())
+                .collect::<Vec<_>>()
+        });
+
+        assert_eq!(
+            outcomes.iter().filter(|out| **out == SsoWrite::Written(2)).count(),
+            1,
+            "{outcomes:?}"
+        );
+        assert_eq!(
+            outcomes.iter().filter(|out| **out == SsoWrite::Conflict).count(),
+            1,
+            "{outcomes:?}"
+        );
+        assert_eq!(
+            runtime
+                .block_on(first.get_sso_session("acme-bedrock"))
+                .unwrap()
+                .unwrap()
+                .revision,
+            2
+        );
     }
 }
