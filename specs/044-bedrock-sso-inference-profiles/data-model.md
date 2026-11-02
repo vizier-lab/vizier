@@ -117,20 +117,27 @@ Validation (one place: `service::providers_sso::validate_entries`):
 
 | # | Condition | Outcome | Usage cost | Entry flag | Requirement |
 |---|---|---|---|---|---|
-| 1 | `price` is set | `Explicit(cost)` — used as given, no catalogue lookup | the figure | none | FR-034a.4 |
-| 2 | `model` is set **and** resolves through the provider alias (D2) | `FromCatalogue(cost)`, re-resolved now | the chosen model's cost | none | FR-034a.1, FR-034a.3 |
-| 3 | `model` is set, id **no longer** in the catalogue | `NotResolved { model }` | `None` (unpriced) | **pricing not resolved**, with the stored id **inside the reason** plus the two ways out | FR-034a.3, FR-034b, SC-021 |
-| 4 | `model` empty | `NotSet` | `None` (unpriced) | **pricing not set**, with a reason saying no model is paired and that picking one or entering a price fixes it | FR-034a.2, FR-034b, SC-021 |
-| 5 | the catalogue has not loaded yet (cold start before its seed) | `NoCatalogue` | `None` (unpriced) | **pricing not set**, with its own reason: nothing to price against yet, it resolves itself | FR-034b, SC-021 |
+| 1 | `price` is set | `Explicit(cost)` — used as given, no catalogue lookup happens, so it wins over every absence below | the figure | none | FR-034a.4 |
+| 2 | the catalogue carries **no Bedrock list** for this provider (the alias of D2 resolves to no provider row) | `NoCatalogue` | `None` (unpriced) | **pricing not set**, with its own reason: nothing to price against yet, it resolves itself | FR-034b, SC-021 |
+| 3 | `model` is set **and** resolves through the provider alias (D2) | `FromCatalogue(cost)`, re-resolved now | the chosen model's cost | none | FR-034a.1, FR-034a.3 |
+| 4 | `model` is set, id **no longer** in the catalogue | `NotResolved { model }` | `None` (unpriced) | **pricing not resolved**, with the stored id **inside the reason** plus the two ways out | FR-034a.3, FR-034b, SC-021 |
+| 5 | `model` empty | `NotSet` | `None` (unpriced) | **pricing not set**, with a reason saying no model is paired and that picking one or entering a price fixes it | FR-034a.2, FR-034b, SC-021 |
 
-Row 3 also covers the third absence FR-034b names: **the catalogue not yet loaded** on a cold start before its seed is read. The resolver cannot distinguish "withdrawn" from "not loaded yet" and does not try — both report the id that failed, and both resolve themselves once the catalogue is there, because nothing was written down.
+**The row numbers are a precedence, and row 2 is why it had to be stated rather than left to reading order.** Row 2 is checked **before** `model` is looked at, so **`NoCatalogue` wins whenever the Bedrock list is absent, whatever `model` holds** — and it has to, because neither of the other two absences can be acted on there:
+
+- with **no model paired**, `NotSet`'s way out is "pick one from the list" — and the list is precisely the thing that is missing, so that reason would tell a person to do something they cannot do;
+- with **a model paired**, `NotResolved` would assert that the id was withdrawn. Nothing was withdrawn: there is nothing to look in, so the id has not been checked at all. Collapsing the two would report a cause the resolver cannot distinguish, which is exactly what FR-034b forbids ("identifiable from the reason alone", in all three cases).
+
+So a cold start is **`NoCatalogue` — never `NotResolved` and never `NotSet`** — and once the list is present the remaining three states are mutually exclusive: a model either resolves, or is gone, or was never picked.
+
+**What "no Bedrock list" means, concretely.** The seed is embedded at build time and parsed synchronously when the catalogue is built (`crates/vizier-core/src/dependencies.rs:163`), so a running binary has no "before its seed" window to race: the state is observable exactly when `catalogue.provider(&model_source(ProviderId::AMAZON_BEDROCK_SSO))` finds **no provider row** — an empty catalogue, whether from a corrupt seed or from a test that builds `Catalogue::new(CatalogueData::default())`. That is the predicate `entry_pricing` tests, and it is why `NoCatalogue` gets an automated test (tasks.md T043) instead of a boot-timing note: nothing about this state depends on timing.
 
 Rules the table encodes:
 
 - **`None` means unpriced, never zero.** It reuses the representation `Pricer::price` already returns (`crates/vizier-core/src/usage/mod.rs:69`), so no new concept enters the usage schema (FR-034b).
 - **Re-resolved at display and at use.** Only the id is stored, and `usage_event` has no cost column, so every report recomputes the price from the catalogue as it stands now (FR-034a.1). A catalogue refresh therefore relabels and reprices existing entries and orphans none.
 - **Nothing is derived from the ARN.** No parsing of the ARN feeds the price, in any branch (FR-034a, SC-020).
-- **The flag and its reason are a rendering of the enum, not stored fields.** `sso_state`-style reporting: the entry's API row carries `pricing` with `flag` **and a required non-empty `reason`** (see `contracts/provider-credentials-api.md` §4a–§5), computed per request from the entry's current state. The reason names the cause and the way out, the gone case carries the missing id inside the reason, and the two causes never share wording — that is what makes SC-021 measurable. Because nothing is stored, re-picking a model or entering a price clears the reason with no manual edit, and a price entered later also reprices turns already recorded. No column, no migration.
+- **The flag and its reason are a rendering of the enum, not stored fields.** `sso_state`-style reporting: the entry's API row carries `pricing` with `flag` **and a required non-empty `reason`** (see `contracts/provider-credentials-api.md` §4a–§5), computed per request from the entry's current state. The reason names the cause and the way out, the gone case carries the missing id inside the reason, and the three causes never share wording — that is what makes SC-021 measurable. Because nothing is stored, re-picking a model or entering a price clears the reason with no manual edit, and a price entered later also reprices turns already recorded. No column, no migration.
 - **A price never blocks a turn.** `resolve` and the media path never call the resolver: a turn builds its model from the ARN and the entry's limits, and the price is attached afterwards, when a report prices that ARN by looking the entry up (research D13 §3). There is therefore no code path in which a missing, stale or absurd price could refuse, retry or disable anything — FR-034a.5 holds structurally, not by review.
 
 **Resolution order for limits and capabilities** (FR-028) is the existing one, unchanged:

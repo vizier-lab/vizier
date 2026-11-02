@@ -140,24 +140,25 @@ Two **optional** request/response fields on each entry, both non-secret, both me
 | `price` | `Cost ∣ null` | request + response | a hand-entered cost, the catalogue's own `Cost` shape (`input`, `output`, optional `cache_read`/`cache_write`, per-million rates). Set ⇒ no catalogue lookup happens and a later refresh never overwrites it (FR-034a.4) |
 | `pricing` | object | **response only, computed** | what the entry's usage will cost right now. Never stored, never accepted on input |
 
-`pricing` is one of four shapes, in this order of precedence:
+`pricing` is one of **five** shapes, listed in order of precedence — **first match wins**, and the order is load-bearing (see the precedence bullet below):
 
 ```json
 { "state": "explicit",       "cost": { "input": 3.0, "output": 15.0 }, "source": "entered price" }
+{ "state": "no_catalogue",   "flag": "pricing not set",
+  "reason": "the model catalogue has not loaded yet, so no price is available — this resolves itself; or enter a price by hand" }
 { "state": "from_catalogue", "cost": { "input": 3.0, "output": 15.0 }, "model": "anthropic.claude-sonnet-4-5-20250929-v1:0" }
 { "state": "not_resolved",   "model": "anthropic.retired-model-v1", "flag": "pricing not resolved",
   "reason": "no price for anthropic.retired-model-v1: it is no longer in the catalogue — pick another model or enter a price by hand" }
 { "state": "not_set",        "flag": "pricing not set",
   "reason": "no model is paired with this ARN, so there is nothing to price it from — pick one from the list or enter a price by hand" }
-{ "state": "no_catalogue",   "flag": "pricing not set",
-  "reason": "the model catalogue has not loaded yet, so no price is available — this resolves itself; or enter a price by hand" }
 ```
 
 - `not_set` still chats and still records its tokens; its usage row is **unpriced**, not zero (FR-034a.2, FR-034b).
 - `not_resolved` names the stored id **inside the reason** so the person can re-pick it; the entry is not refused, not disabled and not re-pointed at another model (FR-034a.3).
-- **`reason` is required on every absence state and is never empty, never a placeholder, and never shared between two causes.** It states the cause *and* the way out. This is the shape decision the spec left to planning (spec.md validation run 7: *"pricing not set diterima jika ada reason itu"*): the reason rides beside `flag` rather than replacing it, so an existing client that reads only `flag` keeps working and SC-021 becomes checkable on one field.
-- **`no_catalogue` is FR-034b's third absence** — a cold start before the catalogue seed loads. It renders as "pricing not set" to the person (there is nothing to pick yet) but carries its own reason, because the fix is "wait", not "pick a model". It is distinguishable from `not_set` by `reason` alone, which is what SC-021 counts.
-- Neither absence state blocks anything: `pricing` is read from a report, never from the turn path (FR-034a.5, SC-021).
+- **The order is precedence, and it decides the two cases the shapes alone leave ambiguous.** An explicit price wins over everything: no catalogue lookup happens, so no absence can apply. **`no_catalogue` is checked before `model`**, so it wins both when the list is absent *and* no model is paired (nothing can be picked from a list that is not there, so `not_set`'s way out would be unactionable) and when the list is absent *and* a model is paired (nothing is "gone" — there is nothing to look in, so `not_resolved` would misname the cause). With the list present the other three are mutually exclusive: a model resolves, is gone, or was never picked. Precedence in full: [data-model.md](../data-model.md) "profile entry".
+- **`reason` is required on every absence state and is never empty, never a placeholder, and never shared between any two of the three causes.** It states the cause *and* the way out. This is the shape decision the spec left to planning (spec.md validation run 7: *"pricing not set diterima jika ada reason itu"*): the reason rides beside `flag` rather than replacing it, so an existing client that reads only `flag` keeps working and SC-021 becomes checkable on one field.
+- **`no_catalogue` is FR-034b's third absence** — the catalogue carries no Bedrock list, which is what a cold start without its seed leaves behind (the seed is embedded and parsed synchronously at boot, `crates/vizier-core/src/dependencies.rs:163`, so the state is "no provider row", never a race with a load). It renders as "pricing not set" to the person (there is nothing to pick yet) but carries its own reason, because the fix is "wait", not "pick a model". It is distinguishable from `not_set` **and from `not_resolved`** by `reason` alone, which is what SC-021 counts — and it outranks both, per the precedence bullet above.
+- None of the three absence states blocks anything: `pricing` is read from a report, never from the turn path (FR-034a.5, SC-021).
 - The flag, the reason and this whole object are a **rendering**, computed per request from the entry's current state — not a stored column. A price entered after the fact therefore also reprices turns already recorded, exactly as a catalogue price change already does, and re-picking or pricing an entry clears its reason with no manual edit (research D13 §4, SC-021).
 
 `DELETE /{id}`: `409` naming the agents in use unless `confirm=true` (existing `usage::check_in_use`), then deletes the row **and** the session row (FR-040).
