@@ -27,6 +27,12 @@ impl ProviderId {
     pub const GITHUB_COPILOT: ProviderId = ProviderId::new_static("github-copilot");
     pub const AZURE: ProviderId = ProviderId::new_static("azure");
     pub const AMAZON_BEDROCK: ProviderId = ProviderId::new_static("amazon-bedrock");
+    /// The same models as [`ProviderId::AMAZON_BEDROCK`], reached with an IAM Identity Center
+    /// sign-in instead of a static key pair (spec 044, research D1). Shown as
+    /// "Amazon Bedrock (SSO)"; the name itself lives with the built-in entry
+    /// (`catalogue::builtin::sso_bedrock`), where every provider display name lives.
+    pub const AMAZON_BEDROCK_SSO: ProviderId = ProviderId::new_static("amazon-bedrock-sso");
+
     pub const OPENCODE_GO: ProviderId = ProviderId::new_static("opencode-go");
     pub const OLLAMA: ProviderId = ProviderId::new_static("ollama");
     pub const LLAMA_CPP: ProviderId = ProviderId::new_static("llama-cpp");

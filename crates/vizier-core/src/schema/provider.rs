@@ -1,9 +1,10 @@
 use serde::{Deserialize, Serialize};
 
+use crate::catalogue::data::Cost;
 use crate::config::provider::ProviderId;
 
 /// A provider's saved credentials, keyed by its id (`provider_config`).
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct ProviderEntry {
     pub id: ProviderId,
     pub credentials: ProviderCredentials,
@@ -128,7 +129,7 @@ pub enum LegacyProviderEntryConfig {
 /// A provider's stored credentials (data-model §4): one generic shape for every catalogue and
 /// built-in provider, replacing the per-provider `ProviderEntryConfig` variants. Only the
 /// fields a provider uses are accepted by the API.
-#[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct ProviderCredentials {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -157,23 +158,46 @@ pub struct ProviderCredentials {
     /// AWS region.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub region: Option<String>,
+    // ---- Amazon Bedrock (SSO): the non-secret half (spec 044, data-model "SSO connection").
+    // The session itself is a separate encrypted row (`bedrock_sso_session`), never a field here.
+    /// The Identity Center start URL the person's organisation gave them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start_url: Option<String>,
+    /// The region the Identity Center instance lives in — not the Bedrock region.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sso_region: Option<String>,
+    /// The role chosen from the portal.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role_name: Option<String>,
+    /// The non-secret handle the stored session is keyed by (FR-009e).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sso_profile: Option<String>,
+    /// The saved Application Inference Profile entries, each with its optional pricing
+    /// pairing (FR-020, FR-034a).
+    #[serde(default)]
+    pub profiles: Vec<ProfileEntry>,
 }
 
 impl ProviderCredentials {
     pub fn is_empty(&self) -> bool {
-        [
-            &self.api_key,
-            &self.endpoint,
-            &self.base_url,
-            &self.access_token,
-            &self.account_id,
-            &self.access_key_id,
-            &self.secret_access_key,
-            &self.session_token,
-            &self.region,
-        ]
-        .iter()
-        .all(|v| v.as_deref().is_none_or(str::is_empty))
+        self.profiles.is_empty()
+            && [
+                &self.api_key,
+                &self.endpoint,
+                &self.base_url,
+                &self.access_token,
+                &self.account_id,
+                &self.access_key_id,
+                &self.secret_access_key,
+                &self.session_token,
+                &self.region,
+                &self.start_url,
+                &self.sso_region,
+                &self.role_name,
+                &self.sso_profile,
+            ]
+            .iter()
+            .all(|v| v.as_deref().is_none_or(str::is_empty))
     }
 
     /// `other`'s set fields over `self`'s.
@@ -191,8 +215,57 @@ impl ProviderCredentials {
             secret_access_key: pick(&self.secret_access_key, &other.secret_access_key),
             session_token: pick(&self.session_token, &other.session_token),
             region: pick(&self.region, &other.region),
+            start_url: pick(&self.start_url, &other.start_url),
+            sso_region: pick(&self.sso_region, &other.sso_region),
+            role_name: pick(&self.role_name, &other.role_name),
+            sso_profile: pick(&self.sso_profile, &other.sso_profile),
+            // The entry list is one operation: a list given replaces it, an omitted (empty) one
+            // keeps what is stored, so a save can never wipe entries by leaving them out.
+            profiles: if other.profiles.is_empty() {
+                self.profiles.clone()
+            } else {
+                other.profiles.clone()
+            },
         }
     }
+}
+
+/// One Application Inference Profile a connection may chat through (spec 044, data-model
+/// "profile entry"). Non-secret: the ARN as saved, an optional display name and optional
+/// limits, plus the optional pricing pairing (`model` + `price`, FR-034a).
+#[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+pub struct ProfileEntry {
+    /// The ARN exactly as saved; sent to the runtime unchanged (FR-027).
+    pub arn: String,
+    /// Shown instead of the profile id when set (FR-026).
+    #[serde(default)]
+    pub name: Option<String>,
+    /// Context window; unset is unknown, never "unsupported" (FR-028).
+    #[serde(default)]
+    pub context: Option<u64>,
+    /// Output limit; unset is unknown.
+    #[serde(default)]
+    pub output: Option<u64>,
+    /// Whether the profile takes tools; unset is unknown.
+    #[serde(default)]
+    pub tool_call: Option<bool>,
+    /// Whether the profile takes images; unset is unknown.
+    #[serde(default)]
+    pub image_input: Option<bool>,
+    /// The pricing pairing: one catalogue Bedrock model id, re-resolved on every read so a
+    /// catalogue refresh reprices the entry and an id that has left the catalogue stays saved
+    /// (FR-034a.1, FR-034a.3).
+    #[serde(default)]
+    pub model: Option<String>,
+    /// A hand-entered cost, in the catalogue's per-million rates; set means no catalogue lookup
+    /// happens and a refresh never overwrites it (FR-034a.4).
+    #[serde(default)]
+    pub price: Option<Cost>,
+    /// Set once a person changed the row, so a future fetch never overwrites it (the
+    /// `CustomModel.edited` convention).
+    #[serde(default)]
+    pub edited: bool,
 }
 
 /// The wire protocol an operator-defined provider speaks.
