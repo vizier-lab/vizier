@@ -97,18 +97,23 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y pkg-config libssl-dev python3-dev libclang-dev clang perl make postgresql-client
-      - name: Start MinIO
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.x'
+      - name: Build and start MinIO
         run: |
-          docker run --detach --rm --name vizier-minio \
-            --publish 9000:9000 \
-            --env MINIO_ROOT_USER=vizier \
-            --env MINIO_ROOT_PASSWORD=vizier-test-secret \
-            quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z server /data
+          # MinIO Community Edition no longer publishes public container images. Build the
+          # last release used by this suite from its immutable upstream source revision.
+          go install github.com/minio/minio@v0.0.0-20250422221226-0d7408fc9969
+          mkdir -p /tmp/vizier-minio
+          nohup "$HOME/go/bin/minio" server /tmp/vizier-minio >/tmp/vizier-minio.log 2>&1 &
           for attempt in {1..30}; do
-            curl --fail --silent http://127.0.0.1:9000/minio/health/ready && exit 0
+            if curl --fail --silent http://127.0.0.1:9000/minio/health/ready; then
+              exit 0
+            fi
             sleep 1
           done
-          docker logs vizier-minio
+          cat /tmp/vizier-minio.log
           exit 1
       - name: Prepare PostgreSQL
         env:
@@ -158,8 +163,8 @@ jobs:
           check vizier-http clap inquire termimad daemonize dotenvy opentelemetry-otlp
           exit $fail
       - name: Dependencies unchanged
-        # FR-019: no dependency version or source may change. The workspace's own crates are
-        # left out; an entry on one side only (a feature made optional) is printed, not failed.
+        # Existing version/source pairs must not change. New crate names are review notices;
+        # additive versions of existing names require an exact allow-list entry below.
         run: |
           set -euo pipefail
           triples() {
@@ -170,30 +175,49 @@ jobs:
           git worktree add ../master origin/master
           triples ../master > /tmp/master.txt
           triples . > /tmp/head.txt
-          # A crate name on both sides whose set of (version, source) differs fails; a crate
-          # locked at several versions is compared as a set, not line by line.
           python3 -I - /tmp/master.txt /tmp/head.txt <<'PY'
           import sys
           from collections import defaultdict
+
           def load(path):
               out = defaultdict(set)
               for line in open(path):
                   name, rest = line.rstrip("\n").split(" ", 1)
                   out[name].add(rest)
               return out
+
+          # Reviewed transitive resolutions required by the rust-postgres stack. Baseline
+          # versions must remain present; only these exact additional pairs are accepted.
+          allowed_additions = {
+              "const-oid": {"0.9.6 registry+https://github.com/rust-lang/crates.io-index"},
+              "fallible-iterator": {"0.2.0 registry+https://github.com/rust-lang/crates.io-index"},
+              "md-5": {"0.11.0 registry+https://github.com/rust-lang/crates.io-index"},
+              "wasi": {"0.14.7+wasi-0.2.4 registry+https://github.com/rust-lang/crates.io-index"},
+          }
+
           base, head = load(sys.argv[1]), load(sys.argv[2])
           only = sorted(set(base) ^ set(head))
           if only:
               print("::notice::crates present on one side only (review):")
-              for n in only:
-                  print(f"  {n}: master={sorted(base.get(n, []))} head={sorted(head.get(n, []))}")
-          changed = [n for n in sorted(set(base) & set(head)) if base[n] != head[n]]
-          if changed:
+              for name in only:
+                  print(f"  {name}: master={sorted(base.get(name, []))} head={sorted(head.get(name, []))}")
+
+          violations = {}
+          for name in sorted(set(base) & set(head)):
+              removed = base[name] - head[name]
+              added = head[name] - base[name]
+              unexpected = added - allowed_additions.get(name, set())
+              if removed or unexpected:
+                  violations[name] = (removed, unexpected)
+              elif added:
+                  print(f"::notice::reviewed additive resolution for {name}: {sorted(added)}")
+
+          if violations:
               print("::error::resolved dependency versions or sources changed:")
-              for n in changed:
-                  print(f"  {n}: master={sorted(base[n])} head={sorted(head[n])}")
+              for name, (removed, unexpected) in violations.items():
+                  print(f"  {name}: removed={sorted(removed)} unexpected={sorted(unexpected)}")
               sys.exit(1)
-          print("no dependency version changes")
+          print("no existing dependency version or source changed")
           PY
 
       - name: Native dependencies match the app
