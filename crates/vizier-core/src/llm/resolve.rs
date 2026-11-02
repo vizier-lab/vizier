@@ -1352,4 +1352,78 @@ mod resolve_tests {
         assert_eq!(r.cost, None);
     }
 
+    /// T044 (FR-034a.5, FR-034b, SC-021): a price is a fact a report states, never an input to a
+    /// turn. [`ResolveContext`] carries the catalogue, the connection's credentials and the role
+    /// credential — no pricer and no entry price — so an entry with nothing to price from, a
+    /// pairing the catalogue has since dropped, and a hand-entered price all build the same
+    /// model, with `cost` `None` in every case. Only `usage::Pricer` prices a row, afterwards.
+    #[test]
+    fn a_missing_or_stale_price_never_blocks_a_turn() {
+        use crate::service::catalogue::{entry_pricing, EntryPricing};
+
+        let c = catalogue();
+        let hand = Cost { input: 2.0, output: 8.0, cache_read: None, cache_write: None };
+        let entry = |model: Option<&str>, price: Option<Cost>| ProfileEntry {
+            arn: SSO_ARN.into(),
+            name: Some("Acme Prod — Claude".into()),
+            model: model.map(str::to_string),
+            price,
+            ..Default::default()
+        };
+
+        // The three absences a settings row names, each genuinely unpriced before resolving:
+        // nothing paired, a pairing the catalogue no longer lists, a pairing it lists unpriced.
+        let nothing_paired = entry(None, None);
+        let gone = entry(Some("anthropic.claude-3-5-sonnet-20240620-v1:0"), None);
+        let no_figure = entry(Some("amazon.nova-lite-v1:0"), None);
+        assert!(matches!(entry_pricing(&c, &nothing_paired), EntryPricing::NotSet));
+        assert!(matches!(
+            entry_pricing(&c, &gone),
+            EntryPricing::NotResolved { in_catalogue: false, .. }
+        ));
+        assert!(matches!(
+            entry_pricing(&c, &no_figure),
+            EntryPricing::NotResolved { in_catalogue: true, .. }
+        ));
+
+        let resolved = |entry: &ProfileEntry| {
+            let context = sso_context(&c, vec![entry.clone()]);
+            resolve_with(
+                &context,
+                &ProviderId::AMAZON_BEDROCK_SSO,
+                SSO_ARN,
+                &ModelOverrides::default(),
+            )
+            .expect("pricing never refuses a turn (FR-034a.5)")
+        };
+        let shape = |r: &ResolvedModel| {
+            (
+                r.provider.to_string(),
+                r.model.clone(),
+                r.dialect,
+                r.base_url.clone(),
+                r.context_window,
+                r.max_output,
+                r.caps.tool_call,
+                r.cost.clone(),
+            )
+        };
+
+        let unpriced: Vec<ResolvedModel> =
+            [&nothing_paired, &gone, &no_figure].into_iter().map(resolved).collect();
+        for r in &unpriced {
+            assert_eq!(r.model, SSO_ARN, "the saved ARN is still the model");
+            assert_eq!(r.cost, None, "an absent price is `None`, never 0 (FR-034b)");
+        }
+        // The three absences are one outcome at resolution: same provider, ARN, dialect, endpoint
+        // and limits. The pairing is a reporting detail, so a stale one changes nothing here.
+        assert_eq!(shape(&unpriced[0]), shape(&unpriced[1]));
+        assert_eq!(shape(&unpriced[0]), shape(&unpriced[2]));
+
+        // A hand-entered price resolves identically, to the same `None` cost: the path never
+        // consults `entry_pricing`, which is exactly why no price can block a turn.
+        let priced = resolved(&entry(Some("amazon.nova-lite-v1:0"), Some(hand)));
+        assert_eq!(shape(&priced), shape(&unpriced[0]));
+    }
+
 }
