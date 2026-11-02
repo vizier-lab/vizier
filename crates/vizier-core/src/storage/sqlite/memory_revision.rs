@@ -1,6 +1,6 @@
 //! Memory concept-document version history — the `memory_revision` table.
 //!
-//! Synchronous helpers over a `&rusqlite::Connection`, called from `BundleMemoryStore`
+//! Synchronous helpers over a `&sql::Connection`, called from `BundleMemoryStore`
 //! (`write_memory` / `delete_memory` / `delete_bundle` / `import_bundle` /
 //! `write_migrated_memory`) and the `MemoryStorage` history methods. CORE has its own,
 //! separate module (`core_revision`); the two share only the value types in
@@ -12,9 +12,9 @@
 //! are deliberately excluded so an unchanged save compares equal and a diff only shows what
 //! the author changed.
 
+use crate::storage::sql::{self, Connection, OptionalExtension, Row, params};
 use anyhow::{Result, anyhow};
 use chrono::Utc;
-use rusqlite::{Connection, OptionalExtension, Row, params};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -73,7 +73,7 @@ fn clamp_limit(limit: usize) -> usize {
 const SELECT_COLUMNS: &str =
     "seq, content, deleted, actor_kind, actor_id, actor_name, trigger, restored_from, created_at";
 
-fn map_row(row: &Row) -> rusqlite::Result<MemoryRevisionRow> {
+fn map_row(row: &Row) -> sql::Result<MemoryRevisionRow> {
     let deleted: i64 = row.get(2)?;
     let actor_kind: String = row.get(3)?;
     let trigger: String = row.get(6)?;
@@ -146,7 +146,7 @@ pub(crate) fn list(
             params![agent_id, bundle, path, limit as i64, offset as i64],
             map_row,
         )?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
+        .collect::<sql::Result<Vec<_>>>()?;
     Ok((rows, total as usize))
 }
 
@@ -257,13 +257,13 @@ mod tests {
     use super::*;
     use crate::{
         schema::{VizierAttachment, VizierAttachmentContent},
-        storage::sqlite::init_revision_schema,
+        storage::{sql::SqlStore, sqlite::init_revision_schema},
     };
 
-    fn conn() -> Connection {
-        let conn = Connection::open_in_memory().unwrap();
+    fn store() -> SqlStore {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
         init_revision_schema(&conn).unwrap();
-        conn
+        SqlStore::sqlite(conn)
     }
 
     fn agent_origin() -> RevisionOrigin {
@@ -280,7 +280,8 @@ mod tests {
 
     #[test]
     fn first_record_with_prior_content_seeds_a_baseline() {
-        let c = conn();
+        let store = store();
+        let c = store.lock().unwrap();
         let seq = record(&c, A, B, P, Some("new"), &agent_origin(), Some("old")).unwrap();
         assert_eq!(seq, Some(2));
         let (rows, total) = list(&c, A, B, P, 0, 50).unwrap();
@@ -296,7 +297,8 @@ mod tests {
 
     #[test]
     fn identical_content_is_a_no_op() {
-        let c = conn();
+        let store = store();
+        let c = store.lock().unwrap();
         assert_eq!(
             record(&c, A, B, P, Some("x"), &agent_origin(), None).unwrap(),
             Some(1)
@@ -310,13 +312,15 @@ mod tests {
 
     #[test]
     fn empty_path_is_rejected() {
-        let c = conn();
+        let store = store();
+        let c = store.lock().unwrap();
         assert!(record(&c, A, B, "", Some("x"), &agent_origin(), None).is_err());
     }
 
     #[test]
     fn deletion_then_content_then_deletion_sequence() {
-        let c = conn();
+        let store = store();
+        let c = store.lock().unwrap();
         assert_eq!(
             record(&c, A, B, P, Some("v1"), &agent_origin(), None).unwrap(),
             Some(1)
@@ -349,7 +353,8 @@ mod tests {
 
     #[test]
     fn deleting_a_never_recorded_document_records_nothing() {
-        let c = conn();
+        let store = store();
+        let c = store.lock().unwrap();
         assert_eq!(
             record(&c, A, B, P, None, &agent_origin(), None).unwrap(),
             None
@@ -359,7 +364,8 @@ mod tests {
 
     #[test]
     fn list_is_newest_first_with_total() {
-        let c = conn();
+        let store = store();
+        let c = store.lock().unwrap();
         for i in 1..=4 {
             record(&c, A, B, P, Some(&format!("v{i}")), &agent_origin(), None).unwrap();
         }
@@ -374,7 +380,8 @@ mod tests {
 
     #[test]
     fn delete_agent_empties_the_table_for_that_agent() {
-        let c = conn();
+        let store = store();
+        let c = store.lock().unwrap();
         record(&c, A, B, P, Some("v1"), &agent_origin(), None).unwrap();
         record(&c, "other-agent", B, P, Some("v1"), &agent_origin(), None).unwrap();
         delete_agent(&c, A).unwrap();

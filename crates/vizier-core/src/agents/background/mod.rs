@@ -962,8 +962,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let conn = rusqlite::Connection::open_in_memory().unwrap();
         crate::storage::sqlite::init_background_job_schema(&conn).unwrap();
-        let storage = VizierStorage::new(crate::storage::sqlite::SqliteStorage::new(
-            Arc::new(Mutex::new(conn)),
+        let storage = VizierStorage::new(crate::storage::sqlite::SqlStorage::new(
+            crate::storage::sql::SqlStore::sqlite(conn),
             Arc::new(crate::storage::document::LocalDocumentStore::new(
                 dir.path().to_path_buf(),
             )),
@@ -1018,4 +1018,3 @@ fn project_scope(ctx: &ToolContext) -> Option<crate::schema::ProjectScope> {
         mode: project.mode,
     })
 }
-

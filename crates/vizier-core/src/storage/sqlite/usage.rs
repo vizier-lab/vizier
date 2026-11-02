@@ -1,6 +1,8 @@
+use crate::storage::sql::{
+    self, Connection, OptionalExtension, Row, ToSql, params, params_from_iter,
+};
 use anyhow::Result;
 use chrono::{DateTime, NaiveDate, TimeZone, Utc};
-use rusqlite::{Connection, OptionalExtension, ToSql};
 
 use crate::{
     agents::agent::model::usage::TurnId,
@@ -9,8 +11,11 @@ use crate::{
         usage::{UsageActivity, UsageEvent},
     },
     storage::{
-        sqlite::SqliteStorage,
-        usage::{ConversationRows, HourlyTurns, UsageEventRow, UsageGroup, UsageGrouping, UsageQuery, UsageStorage},
+        sqlite::SqlStorage,
+        usage::{
+            ConversationRows, HourlyTurns, UsageEventRow, UsageGroup, UsageGrouping, UsageQuery,
+            UsageStorage,
+        },
     },
 };
 
@@ -31,10 +36,10 @@ fn millis_to_utc(ms: i64) -> DateTime<Utc> {
     Utc.timestamp_millis_opt(ms).single().unwrap_or_default()
 }
 
-fn insert(conn: &Connection, e: &UsageEvent) -> rusqlite::Result<usize> {
+fn insert(conn: &Connection, e: &UsageEvent) -> sql::Result<usize> {
     conn.execute(
         INSERT,
-        rusqlite::params![
+        params![
             e.agent_id,
             e.at.timestamp_millis(),
             e.activity.as_str(),
@@ -78,8 +83,9 @@ fn filter(q: &UsageQuery) -> (String, Vec<Box<dyn ToSql>>) {
     (sql, params)
 }
 
-fn event_from_row(row: &rusqlite::Row<'_>, offset: usize) -> rusqlite::Result<UsageEvent> {
-    let get_u64 = |i: usize| -> rusqlite::Result<u64> { Ok(row.get::<_, i64>(offset + i)?.max(0) as u64) };
+fn event_from_row(row: &Row, offset: usize) -> sql::Result<UsageEvent> {
+    let get_u64 =
+        |i: usize| -> sql::Result<u64> { Ok(row.get::<_, i64>(offset + i)?.max(0) as u64) };
     let activity: String = row.get(offset + 2)?;
     Ok(UsageEvent {
         agent_id: row.get(offset)?,
@@ -105,15 +111,21 @@ fn event_from_row(row: &rusqlite::Row<'_>, offset: usize) -> rusqlite::Result<Us
 }
 
 /// Called from `delete_agent` on the connection it already holds (FR-008).
-pub fn delete_agent(conn: &Connection, agent_id: &str) -> rusqlite::Result<()> {
+pub fn delete_agent(conn: &Connection, agent_id: &str) -> sql::Result<()> {
     conn.execute("DELETE FROM usage_event WHERE agent_id = ?1", [agent_id])?;
-    conn.execute("DELETE FROM usage_failed_turn WHERE agent_id = ?1", [agent_id])?;
+    conn.execute(
+        "DELETE FROM usage_failed_turn WHERE agent_id = ?1",
+        [agent_id],
+    )?;
     Ok(())
 }
 
 /// `?1` is `since` (ms); the agent ids follow as `?2…`.
 fn agents_clause(agents: &[String], since: DateTime<Utc>) -> (String, Vec<Box<dyn ToSql>>) {
-    let marks = (0..agents.len()).map(|i| format!("?{}", i + 2)).collect::<Vec<_>>().join(", ");
+    let marks = (0..agents.len())
+        .map(|i| format!("?{}", i + 2))
+        .collect::<Vec<_>>()
+        .join(", ");
     let mut params: Vec<Box<dyn ToSql>> = vec![Box::new(since.timestamp_millis())];
     params.extend(agents.iter().map(|a| Box::new(a.clone()) as Box<dyn ToSql>));
     (format!("e.at >= ?1 AND e.agent_id IN ({marks})"), params)
@@ -122,13 +134,17 @@ fn agents_clause(agents: &[String], since: DateTime<Utc>) -> (String, Vec<Box<dy
 const HOUR_MS: i64 = 3_600_000;
 
 #[async_trait::async_trait]
-impl UsageStorage for SqliteStorage {
-    async fn hourly_turns(&self, agents: &[String], since: DateTime<Utc>) -> Result<Vec<HourlyTurns>> {
+impl UsageStorage for SqlStorage {
+    async fn hourly_turns(
+        &self,
+        agents: &[String],
+        since: DateTime<Utc>,
+    ) -> Result<Vec<HourlyTurns>> {
         if agents.is_empty() {
             return Ok(vec![]);
         }
         let (where_sql, params) = agents_clause(agents, since);
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let mut stmt = conn.prepare(&format!(
             "SELECT agent_id, first_at / {HOUR_MS} AS hour, COUNT(*) FROM ( \
                 SELECT e.agent_id AS agent_id, e.turn_id, MIN(e.at) AS first_at \
@@ -137,14 +153,14 @@ impl UsageStorage for SqliteStorage {
              ) GROUP BY agent_id, hour ORDER BY hour"
         ))?;
         let rows = stmt
-            .query_map(rusqlite::params_from_iter(params.iter()), |row| {
+            .query_map(params_from_iter(params.iter()), |row| {
                 Ok(HourlyTurns {
                     agent_id: row.get(0)?,
                     hour: millis_to_utc(row.get::<_, i64>(1)? * HOUR_MS),
                     turns: row.get::<_, i64>(2)?.max(0) as u64,
                 })
             })?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
+            .collect::<sql::Result<Vec<_>>>()?;
         Ok(rows)
     }
 
@@ -157,7 +173,7 @@ impl UsageStorage for SqliteStorage {
             return Ok(vec![]);
         }
         let (where_sql, params) = agents_clause(agents, since);
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let mut stmt = conn.prepare(&format!(
             "SELECT activity, COUNT(*) FROM ( \
                 SELECT e.activity AS activity, e.agent_id, e.turn_id \
@@ -166,19 +182,29 @@ impl UsageStorage for SqliteStorage {
              ) GROUP BY activity"
         ))?;
         let rows = stmt
-            .query_map(rusqlite::params_from_iter(params.iter()), |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?.max(0) as u64))
+            .query_map(params_from_iter(params.iter()), |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, i64>(1)?.max(0) as u64,
+                ))
             })?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        Ok(rows.into_iter().filter_map(|(a, n)| Some((a.parse().ok()?, n))).collect())
+            .collect::<sql::Result<Vec<_>>>()?;
+        Ok(rows
+            .into_iter()
+            .filter_map(|(a, n)| Some((a.parse().ok()?, n)))
+            .collect())
     }
 
-    async fn usage_groups_since(&self, agents: &[String], since: DateTime<Utc>) -> Result<Vec<UsageGroup>> {
+    async fn usage_groups_since(
+        &self,
+        agents: &[String],
+        since: DateTime<Utc>,
+    ) -> Result<Vec<UsageGroup>> {
         if agents.is_empty() {
             return Ok(vec![]);
         }
         let (where_sql, params) = agents_clause(agents, since);
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let mut stmt = conn.prepare(&format!(
             "SELECT e.provider, e.model, \
                 (e.turn_id IS NOT NULL AND e.turn_id IN \
@@ -188,8 +214,8 @@ impl UsageStorage for SqliteStorage {
              FROM usage_event e WHERE {where_sql} GROUP BY 1, 2, 3"
         ))?;
         let rows = stmt
-            .query_map(rusqlite::params_from_iter(params.iter()), |row| {
-                let u = |i: usize| -> rusqlite::Result<u64> { Ok(row.get::<_, i64>(i)?.max(0) as u64) };
+            .query_map(params_from_iter(params.iter()), |row| {
+                let u = |i: usize| -> sql::Result<u64> { Ok(row.get::<_, i64>(i)?.max(0) as u64) };
                 Ok(UsageGroup {
                     day: None,
                     activity: None,
@@ -200,18 +226,23 @@ impl UsageStorage for SqliteStorage {
                     provider: row.get(0)?,
                     model: row.get(1)?,
                     failed: row.get(2)?,
-                    tokens: TokenCounts { input: u(3)?, cached: u(4)?, cache_write: u(5)?, output: u(6)? },
+                    tokens: TokenCounts {
+                        input: u(3)?,
+                        cached: u(4)?,
+                        cache_write: u(5)?,
+                        output: u(6)?,
+                    },
                     calls: u(7)?,
                     turns: u(8)?,
                     last_at: millis_to_utc(row.get(9)?),
                 })
             })?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
+            .collect::<sql::Result<Vec<_>>>()?;
         Ok(rows)
     }
 
     async fn record_usage(&self, event: UsageEvent) -> Result<()> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         insert(&conn, &event)?;
         Ok(())
     }
@@ -222,25 +253,31 @@ impl UsageStorage for SqliteStorage {
         agent_id: &str,
         at: DateTime<Utc>,
     ) -> Result<()> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         conn.execute(
             "INSERT OR IGNORE INTO usage_failed_turn (turn_id, agent_id, at) VALUES (?1, ?2, ?3)",
-            rusqlite::params![turn.as_str(), agent_id, at.timestamp_millis()],
+            params![turn.as_str(), agent_id, at.timestamp_millis()],
         )?;
         Ok(())
     }
 
-    async fn usage_groups(&self, q: &UsageQuery, grouping: UsageGrouping) -> Result<Vec<UsageGroup>> {
+    async fn usage_groups(
+        &self,
+        q: &UsageQuery,
+        grouping: UsageGrouping,
+    ) -> Result<Vec<UsageGroup>> {
         // Every grouping selects the same six key columns, NULL where unused, so one row
         // reader serves them all.
         let day = "date(e.at / 1000, 'unixepoch')";
         let (keys, group_by): ([&str; 6], &str) = match grouping {
-            UsageGrouping::Day => (
-                [day, "e.activity", "NULL", "NULL", "NULL", "NULL"],
-                "1, 2",
+            UsageGrouping::Day => ([day, "e.activity", "NULL", "NULL", "NULL", "NULL"], "1, 2"),
+            UsageGrouping::Activity => {
+                (["NULL", "e.activity", "NULL", "NULL", "NULL", "NULL"], "2")
+            }
+            UsageGrouping::Model => (
+                ["NULL", "NULL", "e.served_model", "NULL", "NULL", "NULL"],
+                "3",
             ),
-            UsageGrouping::Activity => (["NULL", "e.activity", "NULL", "NULL", "NULL", "NULL"], "2"),
-            UsageGrouping::Model => (["NULL", "NULL", "e.served_model", "NULL", "NULL", "NULL"], "3"),
             UsageGrouping::Place => (["NULL", "NULL", "NULL", "e.place", "NULL", "NULL"], "4"),
             UsageGrouping::Conversation => (
                 ["NULL", "e.activity", "NULL", "NULL", "e.channel", "e.topic"],
@@ -257,11 +294,11 @@ impl UsageStorage for SqliteStorage {
             keys[0], keys[1], keys[2], keys[3], keys[4], keys[5],
         );
 
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let mut stmt = conn.prepare(&sql)?;
         let rows = stmt
-            .query_map(rusqlite::params_from_iter(params.iter()), |row| {
-                let u = |i: usize| -> rusqlite::Result<u64> { Ok(row.get::<_, i64>(i)?.max(0) as u64) };
+            .query_map(params_from_iter(params.iter()), |row| {
+                let u = |i: usize| -> sql::Result<u64> { Ok(row.get::<_, i64>(i)?.max(0) as u64) };
                 let day: Option<String> = row.get(0)?;
                 let activity: Option<String> = row.get(1)?;
                 Ok(UsageGroup {
@@ -285,36 +322,39 @@ impl UsageStorage for SqliteStorage {
                     last_at: millis_to_utc(row.get(15)?),
                 })
             })?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
+            .collect::<sql::Result<Vec<_>>>()?;
         Ok(rows)
     }
 
     async fn conversation_usage(&self, q: &UsageQuery, limit: usize) -> Result<ConversationRows> {
-        anyhow::ensure!(q.conversation.is_some(), "conversation_usage needs a conversation");
+        anyhow::ensure!(
+            q.conversation.is_some(),
+            "conversation_usage needs a conversation"
+        );
         let (where_sql, params) = filter(q);
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
 
         let mut stmt = conn.prepare(&format!(
             "SELECT {FAILED} AS failed, {EVENT_COLUMNS} FROM usage_event e WHERE {where_sql} \
              ORDER BY (e.input_tokens + e.output_tokens) DESC, e.at DESC LIMIT {limit}"
         ))?;
         let rows = stmt
-            .query_map(rusqlite::params_from_iter(params.iter()), |row| {
+            .query_map(params_from_iter(params.iter()), |row| {
                 Ok(UsageEventRow {
                     failed: row.get(0)?,
                     event: event_from_row(row, 1)?,
                 })
             })?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
+            .collect::<sql::Result<Vec<_>>>()?;
 
         let total: i64 = conn.query_row(
             &format!("SELECT COUNT(*) FROM usage_event e WHERE {where_sql}"),
-            rusqlite::params_from_iter(params.iter()),
+            params_from_iter(params.iter()),
             |row| row.get(0),
         )?;
         let longest_failed_turn: Option<u32> = conn.query_row(
             &format!("SELECT MAX(e.round) FROM usage_event e WHERE {where_sql} AND {FAILED}"),
-            rusqlite::params_from_iter(params.iter()),
+            params_from_iter(params.iter()),
             |row| row.get(0),
         )?;
 
@@ -331,11 +371,11 @@ impl UsageStorage for SqliteStorage {
         channel: &str,
         topic: Option<&str>,
     ) -> Result<bool> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         Ok(conn.query_row(
             "SELECT EXISTS(SELECT 1 FROM session_history \
              WHERE agent_id = ?1 AND channel = ?2 AND topic IS ?3)",
-            rusqlite::params![agent_id, channel, topic],
+            params![agent_id, channel, topic],
             |row| row.get(0),
         )?)
     }
@@ -346,11 +386,11 @@ impl UsageStorage for SqliteStorage {
         channel: &str,
         topic: Option<&str>,
     ) -> Result<bool> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         Ok(conn.query_row(
             "SELECT EXISTS(SELECT 1 FROM session_detail \
              WHERE agent_id = ?1 AND channel = ?2 AND topic IS ?3)",
-            rusqlite::params![agent_id, channel, topic],
+            params![agent_id, channel, topic],
             |row| row.get(0),
         )?)
     }
@@ -361,11 +401,11 @@ impl UsageStorage for SqliteStorage {
         channel: &str,
         topic: Option<&str>,
     ) -> Result<Option<String>> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let data: Option<String> = conn
             .query_row(
                 "SELECT data FROM session_detail WHERE agent_id = ?1 AND channel = ?2 AND topic IS ?3",
-                rusqlite::params![agent_id, channel, topic],
+                params![agent_id, channel, topic],
                 |row| row.get(0),
             )
             .optional()?;
@@ -376,7 +416,7 @@ impl UsageStorage for SqliteStorage {
     }
 
     async fn insert_legacy_usage(&self, events: Vec<UsageEvent>) -> Result<()> {
-        let mut conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let tx = conn.transaction()?;
         for event in &events {
             insert(&tx, event)?;
@@ -390,18 +430,18 @@ impl UsageStorage for SqliteStorage {
 mod tests {
     use std::sync::Arc;
 
-    use parking_lot::Mutex;
+    use crate::storage::sql::SqlStore;
 
     use super::*;
     use crate::storage::document::LocalDocumentStore;
 
-    fn setup() -> (SqliteStorage, tempfile::TempDir) {
+    fn setup() -> (SqlStorage, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
-        let conn = Connection::open_in_memory().unwrap();
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
         crate::storage::sqlite::init_history_schema(&conn).unwrap();
         crate::storage::sqlite::init_usage_schema(&conn).unwrap();
-        let storage = SqliteStorage::new(
-            Arc::new(Mutex::new(conn)),
+        let storage = SqlStorage::new(
+            SqlStore::sqlite(conn),
             Arc::new(LocalDocumentStore::new(dir.path().to_path_buf())),
         );
         (storage, dir)
@@ -413,7 +453,13 @@ mod tests {
 
     const DAY: i64 = 86_400_000;
 
-    fn event(agent: &str, ms: i64, activity: UsageActivity, model: &str, turn: Option<&str>) -> UsageEvent {
+    fn event(
+        agent: &str,
+        ms: i64,
+        activity: UsageActivity,
+        model: &str,
+        turn: Option<&str>,
+    ) -> UsageEvent {
         UsageEvent {
             agent_id: agent.into(),
             at: at(ms),
@@ -450,12 +496,23 @@ mod tests {
     #[tokio::test]
     async fn groups_sum_by_their_dimension_and_split_by_model() {
         let (s, _d) = setup();
-        s.record_usage(event("a", DAY, UsageActivity::Chat, "sonnet", None)).await.unwrap();
-        s.record_usage(event("a", DAY + 1, UsageActivity::Chat, "sonnet", None)).await.unwrap();
-        s.record_usage(event("a", 2 * DAY, UsageActivity::Dreams, "haiku", None)).await.unwrap();
-        s.record_usage(event("b", DAY, UsageActivity::Chat, "sonnet", None)).await.unwrap();
+        s.record_usage(event("a", DAY, UsageActivity::Chat, "sonnet", None))
+            .await
+            .unwrap();
+        s.record_usage(event("a", DAY + 1, UsageActivity::Chat, "sonnet", None))
+            .await
+            .unwrap();
+        s.record_usage(event("a", 2 * DAY, UsageActivity::Dreams, "haiku", None))
+            .await
+            .unwrap();
+        s.record_usage(event("b", DAY, UsageActivity::Chat, "sonnet", None))
+            .await
+            .unwrap();
 
-        let by_activity = s.usage_groups(&query("a"), UsageGrouping::Activity).await.unwrap();
+        let by_activity = s
+            .usage_groups(&query("a"), UsageGrouping::Activity)
+            .await
+            .unwrap();
         let chat = by_activity
             .iter()
             .find(|g| g.activity == Some(UsageActivity::Chat))
@@ -464,27 +521,57 @@ mod tests {
         assert_eq!(chat.tokens.input, 200);
         assert_eq!(by_activity.len(), 2, "agent b is not counted");
 
-        let by_day = s.usage_groups(&query("a"), UsageGrouping::Day).await.unwrap();
+        let by_day = s
+            .usage_groups(&query("a"), UsageGrouping::Day)
+            .await
+            .unwrap();
         assert_eq!(by_day.len(), 2);
-        assert!(by_day.iter().all(|g| g.day.is_some() && g.activity.is_some()));
+        assert!(
+            by_day
+                .iter()
+                .all(|g| g.day.is_some() && g.activity.is_some())
+        );
 
-        let by_model = s.usage_groups(&query("a"), UsageGrouping::Model).await.unwrap();
+        let by_model = s
+            .usage_groups(&query("a"), UsageGrouping::Model)
+            .await
+            .unwrap();
         assert_eq!(by_model.len(), 2);
-        assert!(by_model.iter().any(|g| g.served_model.as_deref() == Some("haiku-2025")));
+        assert!(
+            by_model
+                .iter()
+                .any(|g| g.served_model.as_deref() == Some("haiku-2025"))
+        );
 
-        let by_place = s.usage_groups(&query("a"), UsageGrouping::Place).await.unwrap();
+        let by_place = s
+            .usage_groups(&query("a"), UsageGrouping::Place)
+            .await
+            .unwrap();
         assert_eq!(by_place.len(), 2, "one place, two models");
-        assert!(by_place.iter().all(|g| g.place.as_deref() == Some("discord:1")));
+        assert!(
+            by_place
+                .iter()
+                .all(|g| g.place.as_deref() == Some("discord:1"))
+        );
 
         let mut dreams = query("a");
         dreams.activity = Some(UsageActivity::Dreams);
-        let only = s.usage_groups(&dreams, UsageGrouping::Activity).await.unwrap();
+        let only = s
+            .usage_groups(&dreams, UsageGrouping::Activity)
+            .await
+            .unwrap();
         assert_eq!(only.len(), 1);
         assert_eq!(only[0].model, "haiku");
 
         let mut early = query("a");
         early.end = at(DAY);
-        assert_eq!(s.usage_groups(&early, UsageGrouping::Activity).await.unwrap()[0].calls, 1);
+        assert_eq!(
+            s.usage_groups(&early, UsageGrouping::Activity)
+                .await
+                .unwrap()[0]
+                .calls,
+            1
+        );
     }
 
     #[tokio::test]
@@ -493,15 +580,44 @@ mod tests {
         let early = TurnId::new();
         // The mark first, then the rounds: the order fire-and-forget writes can land in.
         s.record_failed_turn(&early, "a", at(DAY)).await.unwrap();
-        s.record_usage(event("a", DAY, UsageActivity::Chat, "m", Some(early.as_str()))).await.unwrap();
-        s.record_usage(event("a", DAY, UsageActivity::Chat, "m", Some(early.as_str()))).await.unwrap();
+        s.record_usage(event(
+            "a",
+            DAY,
+            UsageActivity::Chat,
+            "m",
+            Some(early.as_str()),
+        ))
+        .await
+        .unwrap();
+        s.record_usage(event(
+            "a",
+            DAY,
+            UsageActivity::Chat,
+            "m",
+            Some(early.as_str()),
+        ))
+        .await
+        .unwrap();
         let late = TurnId::new();
-        s.record_usage(event("a", DAY, UsageActivity::Chat, "m", Some(late.as_str()))).await.unwrap();
+        s.record_usage(event(
+            "a",
+            DAY,
+            UsageActivity::Chat,
+            "m",
+            Some(late.as_str()),
+        ))
+        .await
+        .unwrap();
         s.record_failed_turn(&late, "a", at(DAY)).await.unwrap();
         s.record_failed_turn(&late, "a", at(DAY)).await.unwrap();
-        s.record_usage(event("a", DAY, UsageActivity::Chat, "m", Some("ok-turn"))).await.unwrap();
+        s.record_usage(event("a", DAY, UsageActivity::Chat, "m", Some("ok-turn")))
+            .await
+            .unwrap();
 
-        let groups = s.usage_groups(&query("a"), UsageGrouping::Activity).await.unwrap();
+        let groups = s
+            .usage_groups(&query("a"), UsageGrouping::Activity)
+            .await
+            .unwrap();
         let failed = groups.iter().find(|g| g.failed).unwrap();
         assert_eq!(failed.calls, 3);
         assert_eq!(failed.turns, 2);
@@ -536,16 +652,34 @@ mod tests {
     #[tokio::test]
     async fn delete_agent_removes_only_that_agents_rows() {
         let (s, _d) = setup();
-        s.record_usage(event("a", DAY, UsageActivity::Chat, "m", Some("t"))).await.unwrap();
-        s.record_failed_turn(&TurnId::new(), "a", at(DAY)).await.unwrap();
-        s.record_usage(event("b", DAY, UsageActivity::Chat, "m", None)).await.unwrap();
-        delete_agent(&s.conn.lock(), "a").unwrap();
+        s.record_usage(event("a", DAY, UsageActivity::Chat, "m", Some("t")))
+            .await
+            .unwrap();
+        s.record_failed_turn(&TurnId::new(), "a", at(DAY))
+            .await
+            .unwrap();
+        s.record_usage(event("b", DAY, UsageActivity::Chat, "m", None))
+            .await
+            .unwrap();
+        delete_agent(&s.conn.lock().unwrap(), "a").unwrap();
 
-        assert!(s.usage_groups(&query("a"), UsageGrouping::Activity).await.unwrap().is_empty());
-        assert_eq!(s.usage_groups(&query("b"), UsageGrouping::Activity).await.unwrap().len(), 1);
+        assert!(
+            s.usage_groups(&query("a"), UsageGrouping::Activity)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(
+            s.usage_groups(&query("b"), UsageGrouping::Activity)
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
         let left: i64 = s
             .conn
             .lock()
+            .unwrap()
             .query_row("SELECT COUNT(*) FROM usage_failed_turn", [], |r| r.get(0))
             .unwrap();
         assert_eq!(left, 0);
@@ -559,9 +693,16 @@ mod tests {
         e.topic = Some("t1".into());
         e.place = "http:alice:t1".into();
         s.record_usage(e).await.unwrap();
-        s.record_usage(event("a", DAY, UsageActivity::Chat, "m", None)).await.unwrap();
+        s.record_usage(event("a", DAY, UsageActivity::Chat, "m", None))
+            .await
+            .unwrap();
 
-        crate::storage::sqlite::init_usage_schema(&s.conn.lock()).unwrap();
+        s.conn
+            .lock()
+            .unwrap()
+            .with_rusqlite(crate::storage::sqlite::init_usage_schema)
+            .unwrap()
+            .unwrap();
 
         let places: Vec<String> = s
             .usage_groups(&query("a"), UsageGrouping::Place)
@@ -570,8 +711,14 @@ mod tests {
             .into_iter()
             .filter_map(|g| g.place)
             .collect();
-        assert!(places.contains(&"http:http__alice__vizier-webui:t1".to_string()), "{places:?}");
-        assert!(places.contains(&"discord:1".to_string()), "other places untouched: {places:?}");
+        assert!(
+            places.contains(&"http:http__alice__vizier-webui:t1".to_string()),
+            "{places:?}"
+        );
+        assert!(
+            places.contains(&"discord:1".to_string()),
+            "other places untouched: {places:?}"
+        );
     }
 
     #[tokio::test]
@@ -581,7 +728,10 @@ mod tests {
         e.legacy = true;
         e.provider = String::new();
         s.insert_legacy_usage(vec![e.clone(), e]).await.unwrap();
-        let groups = s.usage_groups(&query("a"), UsageGrouping::Model).await.unwrap();
+        let groups = s
+            .usage_groups(&query("a"), UsageGrouping::Model)
+            .await
+            .unwrap();
         assert_eq!(groups[0].calls, 2);
         assert_eq!(groups[0].provider, "");
     }
@@ -592,16 +742,53 @@ mod tests {
         let h = 3_600_000;
         let base = 100 * DAY;
         // Turn t1 starts at 10:50 and ends in the next hour; t2 is in the next hour; b is another agent's.
-        s.record_usage(event("a", base + 10 * h + 50 * 60_000, UsageActivity::Chat, "m", Some("t1"))).await.unwrap();
-        s.record_usage(event("a", base + 11 * h + 5 * 60_000, UsageActivity::Chat, "m", Some("t1"))).await.unwrap();
-        s.record_usage(event("a", base + 11 * h + 20 * 60_000, UsageActivity::Scheduled, "m", Some("t2"))).await.unwrap();
-        s.record_usage(event("b", base + 11 * h, UsageActivity::Chat, "m", Some("t3"))).await.unwrap();
-        s.record_usage(event("a", base + 11 * h, UsageActivity::Chat, "m", None)).await.unwrap();
+        s.record_usage(event(
+            "a",
+            base + 10 * h + 50 * 60_000,
+            UsageActivity::Chat,
+            "m",
+            Some("t1"),
+        ))
+        .await
+        .unwrap();
+        s.record_usage(event(
+            "a",
+            base + 11 * h + 5 * 60_000,
+            UsageActivity::Chat,
+            "m",
+            Some("t1"),
+        ))
+        .await
+        .unwrap();
+        s.record_usage(event(
+            "a",
+            base + 11 * h + 20 * 60_000,
+            UsageActivity::Scheduled,
+            "m",
+            Some("t2"),
+        ))
+        .await
+        .unwrap();
+        s.record_usage(event(
+            "b",
+            base + 11 * h,
+            UsageActivity::Chat,
+            "m",
+            Some("t3"),
+        ))
+        .await
+        .unwrap();
+        s.record_usage(event("a", base + 11 * h, UsageActivity::Chat, "m", None))
+            .await
+            .unwrap();
 
         let agents = vec!["a".to_string(), "b".to_string()];
         let hours = s.hourly_turns(&agents, at(base)).await.unwrap();
         let get = |agent: &str, hour: i64| {
-            hours.iter().find(|r| r.agent_id == agent && r.hour == at(base + hour * h)).map(|r| r.turns)
+            hours
+                .iter()
+                .find(|r| r.agent_id == agent && r.hour == at(base + hour * h))
+                .map(|r| r.turns)
         };
         assert_eq!(get("a", 10), Some(1));
         assert_eq!(get("a", 11), Some(1));
@@ -610,19 +797,39 @@ mod tests {
 
         let mut by = s.turns_by_activity(&agents, at(base)).await.unwrap();
         by.sort_by_key(|(a, _)| a.as_str());
-        assert_eq!(by, vec![(UsageActivity::Chat, 2), (UsageActivity::Scheduled, 1)]);
+        assert_eq!(
+            by,
+            vec![(UsageActivity::Chat, 2), (UsageActivity::Scheduled, 1)]
+        );
     }
 
     #[tokio::test]
     async fn priced_groups_span_agents_and_split_failed_turns() {
         let (s, _d) = setup();
         let failed_turn = TurnId::new();
-        s.record_usage(event("a", DAY, UsageActivity::Chat, "sonnet", Some("t1"))).await.unwrap();
-        s.record_usage(event("b", DAY, UsageActivity::Chat, "sonnet", Some(failed_turn.as_str()))).await.unwrap();
-        s.record_usage(event("c", DAY, UsageActivity::Chat, "sonnet", Some("t9"))).await.unwrap();
-        s.record_failed_turn(&failed_turn, "b", at(DAY)).await.unwrap();
+        s.record_usage(event("a", DAY, UsageActivity::Chat, "sonnet", Some("t1")))
+            .await
+            .unwrap();
+        s.record_usage(event(
+            "b",
+            DAY,
+            UsageActivity::Chat,
+            "sonnet",
+            Some(failed_turn.as_str()),
+        ))
+        .await
+        .unwrap();
+        s.record_usage(event("c", DAY, UsageActivity::Chat, "sonnet", Some("t9")))
+            .await
+            .unwrap();
+        s.record_failed_turn(&failed_turn, "b", at(DAY))
+            .await
+            .unwrap();
 
-        let groups = s.usage_groups_since(&["a".into(), "b".into()], at(0)).await.unwrap();
+        let groups = s
+            .usage_groups_since(&["a".into(), "b".into()], at(0))
+            .await
+            .unwrap();
         assert_eq!(groups.len(), 2);
         let ok = groups.iter().find(|g| !g.failed).unwrap();
         let failed = groups.iter().find(|g| g.failed).unwrap();

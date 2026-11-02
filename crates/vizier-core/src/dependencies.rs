@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-use parking_lot::Mutex;
 use rusqlite::OptionalExtension;
 
 use crate::storage::turn::TurnStorage;
@@ -28,7 +27,8 @@ use crate::{
         scratch::ScratchStorage,
         session::SessionStorage,
         session_file::SessionFileStorage,
-        sqlite::SqliteStorage,
+        sql::{Backend, SqlStore},
+        sqlite::SqlStorage,
         state::StateStorage,
         task::TaskStorage,
         task_run::TaskRunStorage,
@@ -46,7 +46,7 @@ const LEGACY_GLOBAL_AGENT_ID: &str = "_global";
 pub struct VizierDependencies {
     pub config: Arc<VizierConfig>,
     pub storage: Arc<VizierStorage>,
-    pub sqlite_conn: Arc<Mutex<rusqlite::Connection>>,
+    pub sql: SqlStore,
     pub transport: VizierTransport,
     pub file_manager: FileManager,
     /// Permanent artifacts (`specs/035-add-artifacts`): metadata in SQLite, content on disk,
@@ -117,8 +117,7 @@ struct LegacyMemoryRow {
 
 impl VizierDependencies {
     pub async fn new(config: VizierConfig) -> Result<Self> {
-        let conn = SqliteStorage::open_connection(&config.workspace)?;
-        let conn = Arc::new(Mutex::new(conn));
+        let sql = SqlStore::sqlite(SqlStorage::open_connection(&config.workspace)?);
 
         let document_store: Arc<dyn crate::storage::document::DocumentStore> = Arc::new(
             LocalDocumentStore::new(build_path(&config.workspace, &["agents"])),
@@ -127,14 +126,13 @@ impl VizierDependencies {
         // The workspace key must exist and match before anything can write a secret. Loading it
         // here also means a missing/wrong/malformed key fails before the filesystem import adds
         // any plaintext (specs/031-encrypt-agent-secrets contracts/migration.md §1).
-        let cipher = {
-            let c = conn.lock();
+        let cipher = Self::on_sqlite(&sql, |c| {
             crate::encryption::load_or_generate(
                 &config.workspace,
-                &c,
+                c,
                 &crate::encryption::KeyRequest::from_env(),
-            )?
-        };
+            )
+        })?;
         let integration_kinds = Arc::new(crate::integrations::IntegrationKinds::builtin());
         let secret_paths: Arc<dyn crate::encryption::IntegrationSecretPaths> =
             integration_kinds.clone();
@@ -151,31 +149,29 @@ impl VizierDependencies {
             );
         }
 
-        Self::migrate_memory_to_bundles(&config, document_store.clone(), conn.clone()).await?;
+        Self::migrate_memory_to_bundles(&config, document_store.clone(), sql.clone()).await?;
         Self::migrate_filesystem_backend_to_sqlite(
             &config,
-            conn.clone(),
+            sql.clone(),
             cipher.clone(),
             secret_paths.clone(),
         )
         .await?;
 
         let catalogue = crate::catalogue::Catalogue::new(crate::catalogue::seed::load_seed());
-        crate::provider_migration::migrate_provider_ids_v1(
-            &mut conn.lock(),
-            &catalogue.snapshot(),
-        )?;
+        Self::on_sqlite(&sql, |c| {
+            crate::provider_migration::migrate_provider_ids_v1(c, &catalogue.snapshot())
+        })?;
         Self::warn_about_yaml_providers(&config, &catalogue);
 
         // One-time plaintext conversion, before the main storage exists. No agent, channel
         // reader or scheduler can read a value mid-conversion (FR-017).
-        {
-            let c = conn.lock();
-            crate::encryption::migrate::migrate_secrets_to_encrypted(&c, &cipher, &*secret_paths)?;
-        }
+        Self::on_sqlite(&sql, |c| {
+            crate::encryption::migrate::migrate_secrets_to_encrypted(c, &cipher, &*secret_paths)
+        })?;
 
-        let storage = VizierStorage::new(SqliteStorage::with_secrets(
-            conn.clone(),
+        let storage = VizierStorage::new(SqlStorage::with_secrets(
+            sql.clone(),
             document_store,
             cipher,
             secret_paths,
@@ -183,11 +179,11 @@ impl VizierDependencies {
 
         Self::migrate_users(&storage).await?;
         Self::migrate_agent_cores(&storage).await?;
-        Self::migrate_task_requester(conn.clone()).await?;
+        Self::migrate_task_requester(&sql).await?;
         // 040 stored project chats as `HTTP(user, "project__<id>")`; move every stored slug
         // and serialised channel to the `Project` variant before agents start
         // (`specs/041-project-coding-workspace` FR-015).
-        crate::projects::migrate::migrate_project_channels(&conn.lock())?;
+        Self::on_sqlite(&sql, crate::projects::migrate::migrate_project_channels)?;
         let interrupted_runs = Self::interrupt_orphaned_task_runs(&storage).await?;
         let interrupted_jobs = Self::interrupt_orphaned_background_jobs(&storage).await;
         Self::interrupt_orphaned_client_calls(&storage).await;
@@ -198,7 +194,7 @@ impl VizierDependencies {
         Self::clear_orphaned_scratch(&storage).await;
         crate::skill::builtin::seed_builtin_skills(&config.workspace, &storage).await;
         // Never blocks startup: it is retried on the next start until it has finished.
-        if let Err(e) = Self::migrate_reply_usage(&storage, conn.clone()).await {
+        if let Err(e) = Self::migrate_reply_usage(&storage, &sql).await {
             tracing::error!("failed to carry reply usage over into usage accounting: {e}");
         }
 
@@ -281,7 +277,7 @@ impl VizierDependencies {
         let deps = Self {
             config: Arc::new(config.clone()),
             storage,
-            sqlite_conn: conn,
+            sql,
             transport,
             file_manager,
             artifacts,
@@ -350,9 +346,7 @@ impl VizierDependencies {
                 tracing::warn!("failed to add the Office addon to agent '{agent_id}': {e}");
             }
         }
-        if complete
-            && let Err(e) = self.storage.save_state(key, serde_json::json!(true)).await
-        {
+        if complete && let Err(e) = self.storage.save_state(key, serde_json::json!(true)).await {
             tracing::warn!("failed to record the Office addon backfill: {e}");
         }
     }
@@ -442,10 +436,7 @@ impl VizierDependencies {
     /// Spec 018 (research R6): copy the usage every saved reply recorded into `usage_event`, so
     /// totals from before the upgrade are unchanged. Runs once; the state key it sets is also
     /// what tells the usage page where complete accounting starts.
-    async fn migrate_reply_usage(
-        storage: &VizierStorage,
-        conn: Arc<Mutex<rusqlite::Connection>>,
-    ) -> Result<()> {
+    async fn migrate_reply_usage(storage: &VizierStorage, sql: &SqlStore) -> Result<()> {
         use crate::storage::{state::StateStorage, usage::UsageStorage};
 
         if storage
@@ -457,21 +448,26 @@ impl VizierDependencies {
         }
 
         // A run that failed partway left some batches in: start over, so none count twice.
-        conn.lock()
-            .execute("DELETE FROM usage_event WHERE legacy = 1", [])?;
+        if sql.backend() != Backend::Sqlite {
+            return Ok(());
+        }
+        Self::on_sqlite(sql, |c| {
+            c.execute("DELETE FROM usage_event WHERE legacy = 1", [])?;
+            Ok(())
+        })?;
 
         let mut after: i64 = 0;
         let mut carried = 0usize;
         loop {
-            let batch: Vec<(i64, String)> = {
-                let conn = conn.lock();
+            let batch: Vec<(i64, String)> = Self::on_sqlite(sql, |conn| {
                 let mut stmt = conn.prepare(
                     "SELECT rowid, data FROM session_history \
                      WHERE content_type = 'Response' AND rowid > ?1 ORDER BY rowid LIMIT 1000",
                 )?;
-                stmt.query_map([after], |row| Ok((row.get(0)?, row.get(1)?)))?
-                    .collect::<rusqlite::Result<_>>()?
-            };
+                Ok(stmt
+                    .query_map([after], |row| Ok((row.get(0)?, row.get(1)?)))?
+                    .collect::<rusqlite::Result<_>>()?)
+            })?;
             let Some((last, _)) = batch.last() else {
                 break;
             };
@@ -498,6 +494,19 @@ impl VizierDependencies {
             );
         }
         Ok(())
+    }
+
+    /// Run a SQLite-only one-shot migration step on the raw `rusqlite` connection. Callers
+    /// check `SqlStore::backend()` first and skip the migration on any other backend.
+    fn on_sqlite<T>(
+        sql: &SqlStore,
+        f: impl FnOnce(&rusqlite::Connection) -> Result<T>,
+    ) -> Result<T> {
+        sql.lock()?.with_rusqlite(f).unwrap_or_else(|| {
+            Err(anyhow::anyhow!(
+                "this one-shot migration runs on SQLite only"
+            ))
+        })
     }
 
     fn migration_done(conn: &rusqlite::Connection, marker: &str) -> Result<bool> {
@@ -552,16 +561,18 @@ impl VizierDependencies {
     async fn migrate_memory_to_bundles(
         config: &VizierConfig,
         document_store: Arc<dyn crate::storage::document::DocumentStore>,
-        conn: Arc<Mutex<rusqlite::Connection>>,
+        sql: SqlStore,
     ) -> Result<()> {
-        {
-            let c = conn.lock();
-            if Self::migration_done(&c, MIGRATION_MEMORY_TO_BUNDLES)? {
-                return Ok(());
-            }
+        if sql.backend() != Backend::Sqlite {
+            return Ok(());
+        }
+        if Self::on_sqlite(&sql, |c| {
+            Self::migration_done(c, MIGRATION_MEMORY_TO_BUNDLES)
+        })? {
+            return Ok(());
         }
 
-        let bundle_store = BundleMemoryStore::new(document_store, conn.clone());
+        let bundle_store = BundleMemoryStore::new(document_store, sql.clone());
 
         // A cheap, storage-agnostic embedder placeholder for the migration loop itself — real
         // per-agent indexers are resolved lazily below once the sqlite-backed VizierStorage
@@ -571,20 +582,20 @@ impl VizierDependencies {
 
         match &config.storage {
             StorageConfig::Sqlite => {
-                let legacy_rows: Vec<String> = {
-                    let c = conn.lock();
-                    match c.prepare("SELECT data FROM memory") {
+                let legacy_rows: Vec<String> = Self::on_sqlite(&sql, |c| {
+                    Ok(match c.prepare("SELECT data FROM memory") {
                         Ok(mut stmt) => stmt
                             .query_map([], |row| row.get::<_, String>(0))?
                             .filter_map(|r| r.ok())
                             .collect(),
                         Err(_) => vec![],
-                    }
-                };
+                    })
+                })?;
 
                 if legacy_rows.is_empty() {
-                    let c = conn.lock();
-                    Self::mark_migration_done(&c, MIGRATION_MEMORY_TO_BUNDLES)?;
+                    Self::on_sqlite(&sql, |c| {
+                        Self::mark_migration_done(c, MIGRATION_MEMORY_TO_BUNDLES)
+                    })?;
                     return Ok(());
                 }
 
@@ -593,15 +604,14 @@ impl VizierDependencies {
                     legacy_rows.len()
                 );
 
-                let designated_global_agent = {
-                    let c = conn.lock();
-                    c.query_row(
+                let designated_global_agent = Self::on_sqlite(&sql, |c| {
+                    Ok(c.query_row(
                         "SELECT agent_id FROM agent_config ORDER BY agent_id LIMIT 1",
                         [],
                         |r| r.get::<_, String>(0),
                     )
-                    .optional()?
-                };
+                    .optional()?)
+                })?;
 
                 for raw in legacy_rows {
                     let parsed: LegacyMemoryRow = match serde_json::from_str(&raw) {
@@ -680,8 +690,9 @@ impl VizierDependencies {
                 };
 
                 if entries.is_empty() {
-                    let c = conn.lock();
-                    Self::mark_migration_done(&c, MIGRATION_MEMORY_TO_BUNDLES)?;
+                    Self::on_sqlite(&sql, |c| {
+                        Self::mark_migration_done(c, MIGRATION_MEMORY_TO_BUNDLES)
+                    })?;
                     return Ok(());
                 }
 
@@ -786,38 +797,36 @@ impl VizierDependencies {
             }
         }
 
-        {
-            let c = conn.lock();
-            Self::mark_migration_done(&c, MIGRATION_MEMORY_TO_BUNDLES)?;
-        }
+        Self::on_sqlite(&sql, |c| {
+            Self::mark_migration_done(c, MIGRATION_MEMORY_TO_BUNDLES)
+        })?;
 
         Ok(())
     }
 
     /// Part B (contracts/migration.md, FR-025): for a deployment that was on `--storage
-    /// filesystem`, copy every non-memory entity it holds into `SqliteStorage` via each side's
+    /// filesystem`, copy every non-memory entity it holds into `SqlStorage` via each side's
     /// already-existing trait methods. A no-op for anything else.
     async fn migrate_filesystem_backend_to_sqlite(
         config: &VizierConfig,
-        conn: Arc<Mutex<rusqlite::Connection>>,
+        store: SqlStore,
         cipher: crate::encryption::SecretCipher,
         secret_paths: Arc<dyn crate::encryption::IntegrationSecretPaths>,
     ) -> Result<()> {
-        if !matches!(config.storage, StorageConfig::Filesystem) {
+        if !matches!(config.storage, StorageConfig::Filesystem)
+            || store.backend() != Backend::Sqlite
+        {
             return Ok(());
         }
-        {
-            let c = conn.lock();
-            if Self::migration_done(&c, MIGRATION_FS_TO_SQLITE)? {
-                return Ok(());
-            }
+        if Self::on_sqlite(&store, |c| Self::migration_done(c, MIGRATION_FS_TO_SQLITE))? {
+            return Ok(());
         }
 
         let fs = FileSystemStorage::new(config.workspace.clone()).await?;
         let document_store: Arc<dyn crate::storage::document::DocumentStore> = Arc::new(
             LocalDocumentStore::new(build_path(&config.workspace, &["agents"])),
         );
-        let sql = SqliteStorage::with_secrets(conn.clone(), document_store, cipher, secret_paths);
+        let sql = SqlStorage::with_secrets(store.clone(), document_store, cipher, secret_paths);
 
         tracing::info!("migrating filesystem-backend entities into sqlite");
 
@@ -840,15 +849,17 @@ impl VizierDependencies {
 
         // Providers: copied as they are; `migrate_provider_ids_v1` rewrites them next.
         if let Ok(rows) = fs.legacy_provider_rows() {
-            let c = conn.lock();
-            for (variant, data) in rows {
-                if let Err(e) = c.execute(
-                    "INSERT OR REPLACE INTO provider_config (variant, data) VALUES (?1, ?2)",
-                    rusqlite::params![variant, data],
-                ) {
-                    tracing::error!("failed to migrate provider {variant}: {e}");
+            Self::on_sqlite(&store, |c| {
+                for (variant, data) in rows {
+                    if let Err(e) = c.execute(
+                        "INSERT OR REPLACE INTO provider_config (variant, data) VALUES (?1, ?2)",
+                        rusqlite::params![variant, data],
+                    ) {
+                        tracing::error!("failed to migrate provider {variant}: {e}");
+                    }
                 }
-            }
+                Ok(())
+            })?;
         }
 
         // Global config
@@ -869,7 +880,7 @@ impl VizierDependencies {
             }
         }
 
-        // Users, roles, API keys (best-effort: role/user ids are regenerated by SqliteStorage's
+        // Users, roles, API keys (best-effort: role/user ids are regenerated by SqlStorage's
         // create_user/create_role, so cross-references to the *old* ids among migrated data are
         // not preserved — usernames, password hashes, and permissions are).
         let mut role_id_map: std::collections::HashMap<String, String> =
@@ -942,10 +953,9 @@ impl VizierDependencies {
             }
         }
 
-        {
-            let c = conn.lock();
-            Self::mark_migration_done(&c, MIGRATION_FS_TO_SQLITE)?;
-        }
+        Self::on_sqlite(&store, |c| {
+            Self::mark_migration_done(c, MIGRATION_FS_TO_SQLITE)
+        })?;
 
         tracing::warn!(
             "filesystem-backend migration complete; 'filesystem' is no longer a valid --storage/VIZIER_STORAGE value going forward"
@@ -1128,11 +1138,17 @@ impl VizierDependencies {
     /// distinguishes a task the agent set up on its own initiative, so every pre-existing
     /// task becomes person-attributed. Guessing an agent from the string would be worse than
     /// being approximate.
-    async fn migrate_task_requester(conn: Arc<Mutex<rusqlite::Connection>>) -> Result<()> {
+    async fn migrate_task_requester(sql: &SqlStore) -> Result<()> {
+        if sql.backend() != Backend::Sqlite {
+            return Ok(());
+        }
+        Self::on_sqlite(sql, Self::migrate_task_requester_sqlite)
+    }
+
+    fn migrate_task_requester_sqlite(conn: &rusqlite::Connection) -> Result<()> {
         const MARKER: &str = "migration__task_requester__v1";
 
-        let conn = conn.lock();
-        if Self::migration_done(&conn, MARKER)? {
+        if Self::migration_done(conn, MARKER)? {
             return Ok(());
         }
 
@@ -1177,7 +1193,7 @@ impl VizierDependencies {
             }
         }
 
-        Self::mark_migration_done(&conn, MARKER)?;
+        Self::mark_migration_done(conn, MARKER)?;
 
         if migrated > 0 {
             tracing::info!("migrated {} task(s) from user to requester", migrated);
@@ -1423,16 +1439,12 @@ mod usage_migration_tests {
         storage::{
             document::LocalDocumentStore,
             history::HistoryStorage,
-            sqlite::SqliteStorage,
+            sqlite::SqlStorage,
             usage::{UsageGrouping, UsageQuery, UsageStorage},
         },
     };
 
-    fn setup() -> (
-        VizierStorage,
-        Arc<Mutex<rusqlite::Connection>>,
-        tempfile::TempDir,
-    ) {
+    fn setup() -> (VizierStorage, SqlStore, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
         let conn = rusqlite::Connection::open_in_memory().unwrap();
         crate::storage::sqlite::init_artifact_schema(&conn).unwrap();
@@ -1441,8 +1453,8 @@ mod usage_migration_tests {
         crate::storage::sqlite::init_usage_schema(&conn).unwrap();
         conn.execute_batch("CREATE TABLE state (key TEXT PRIMARY KEY, value TEXT NOT NULL);")
             .unwrap();
-        let conn = Arc::new(Mutex::new(conn));
-        let storage = VizierStorage::new(SqliteStorage::new(
+        let conn = SqlStore::sqlite(conn);
+        let storage = VizierStorage::new(SqlStorage::new(
             conn.clone(),
             Arc::new(LocalDocumentStore::new(dir.path().to_path_buf())),
         ));
@@ -1495,10 +1507,10 @@ mod usage_migration_tests {
             .await
             .unwrap();
 
-        VizierDependencies::migrate_reply_usage(&storage, conn.clone())
+        VizierDependencies::migrate_reply_usage(&storage, &conn)
             .await
             .unwrap();
-        VizierDependencies::migrate_reply_usage(&storage, conn.clone())
+        VizierDependencies::migrate_reply_usage(&storage, &conn)
             .await
             .unwrap();
 
@@ -1557,7 +1569,7 @@ mod encryption_startup_tests {
 
         // A pre-encryption workspace: schema plus one plaintext secret.
         {
-            let conn = SqliteStorage::open_connection(&workspace).unwrap();
+            let conn = SqlStorage::open_connection(&workspace).unwrap();
             conn.execute_batch(
                 "INSERT INTO agent_secret (agent_id, name, value, created_at, updated_at, updated_by)
                  VALUES ('dp-a', 'TOKEN', 'startup-secret-abc123', 'now', 'now', '\"admin\"');",
@@ -1580,7 +1592,7 @@ mod encryption_startup_tests {
             Some("startup-secret-abc123")
         );
         let raw: String = {
-            let conn = deps.sqlite_conn.lock();
+            let conn = deps.sql.lock().unwrap();
             conn.query_row(
                 "SELECT value FROM agent_secret WHERE agent_id = 'dp-a' AND name = 'TOKEN'",
                 [],
@@ -1590,7 +1602,7 @@ mod encryption_startup_tests {
         };
         assert!(raw.starts_with("enc:v1:"), "{raw}");
         let marker: Option<String> = {
-            let conn = deps.sqlite_conn.lock();
+            let conn = deps.sql.lock().unwrap();
             conn.query_row(
                 "SELECT value FROM state WHERE key = 'migration.secrets_encrypted_v1'",
                 [],
@@ -1612,7 +1624,7 @@ mod encryption_startup_tests {
             Some("startup-secret-abc123")
         );
         let raw_again: String = {
-            let conn = deps.sqlite_conn.lock();
+            let conn = deps.sql.lock().unwrap();
             conn.query_row(
                 "SELECT value FROM agent_secret WHERE agent_id = 'dp-a' AND name = 'TOKEN'",
                 [],
@@ -1626,7 +1638,9 @@ mod encryption_startup_tests {
     #[cfg(feature = "documents")]
     #[tokio::test]
     async fn the_office_backfill_seeds_each_agent_once_and_leaves_removals_alone() {
-        use crate::storage::{agent::AgentStorage, integration::IntegrationStorage, state::StateStorage};
+        use crate::storage::{
+            agent::AgentStorage, integration::IntegrationStorage, state::StateStorage,
+        };
 
         let dir = tempfile::tempdir().unwrap();
         let config = VizierConfig {
@@ -1635,22 +1649,49 @@ mod encryption_startup_tests {
         };
         let deps = VizierDependencies::new(config).await.unwrap();
         // The first start had no agents, so it only set the flag. Simulate an upgrade.
-        deps.storage.create_agent("old", &crate::tests_support::agent_config("old")).await.unwrap();
-        deps.storage.create_agent("older", &crate::tests_support::agent_config("older")).await.unwrap();
         deps.storage
-            .save_state(VizierDependencies::OFFICE_DEFAULT_SEEDED.into(), serde_json::Value::Null)
+            .create_agent("old", &crate::tests_support::agent_config("old"))
+            .await
+            .unwrap();
+        deps.storage
+            .create_agent("older", &crate::tests_support::agent_config("older"))
+            .await
+            .unwrap();
+        deps.storage
+            .save_state(
+                VizierDependencies::OFFICE_DEFAULT_SEEDED.into(),
+                serde_json::Value::Null,
+            )
             .await
             .unwrap();
         {
-            let conn = deps.sqlite_conn.lock();
-            conn.execute("DELETE FROM state WHERE key = ?1", [VizierDependencies::OFFICE_DEFAULT_SEEDED]).unwrap();
+            let conn = deps.sql.lock().unwrap();
+            conn.execute(
+                "DELETE FROM state WHERE key = ?1",
+                [VizierDependencies::OFFICE_DEFAULT_SEEDED],
+            )
+            .unwrap();
         }
 
         deps.seed_office_defaults().await;
         for id in ["old", "older"] {
-            assert_eq!(deps.storage.list_agent_integrations(id).await.unwrap().len(), 1, "{id}");
+            assert_eq!(
+                deps.storage
+                    .list_agent_integrations(id)
+                    .await
+                    .unwrap()
+                    .len(),
+                1,
+                "{id}"
+            );
         }
-        assert!(deps.storage.get_state(VizierDependencies::OFFICE_DEFAULT_SEEDED.into()).await.unwrap().is_some());
+        assert!(
+            deps.storage
+                .get_state(VizierDependencies::OFFICE_DEFAULT_SEEDED.into())
+                .await
+                .unwrap()
+                .is_some()
+        );
 
         // A second run adds nothing back after a removal.
         let added = deps.storage.list_agent_integrations("old").await.unwrap();
@@ -1658,9 +1699,18 @@ mod encryption_startup_tests {
             crate::schema::Requester::User("p".into()),
             crate::schema::EventAction::Deleted,
         );
-        deps.storage.delete_integration(&added[0].id, &event).await.unwrap();
+        deps.storage
+            .delete_integration(&added[0].id, &event)
+            .await
+            .unwrap();
         deps.seed_office_defaults().await;
-        assert!(deps.storage.list_agent_integrations("old").await.unwrap().is_empty());
+        assert!(
+            deps.storage
+                .list_agent_integrations("old")
+                .await
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[tokio::test]
@@ -1696,7 +1746,7 @@ mod encryption_startup_tests {
 
         // The first start had no agents, so it only set the flag. Simulate an upgrade.
         {
-            let conn = deps.sqlite_conn.lock();
+            let conn = deps.sql.lock().unwrap();
             conn.execute(
                 "DELETE FROM state WHERE key = ?1",
                 [VizierDependencies::TOOLS_AS_ADDONS_SEEDED],

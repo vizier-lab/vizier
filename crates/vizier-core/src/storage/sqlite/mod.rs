@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-use parking_lot::Mutex;
 use rusqlite::Connection;
 
 use crate::error::VizierError;
@@ -39,8 +38,9 @@ pub(crate) mod usage;
 mod user;
 
 #[derive(Clone)]
-pub struct SqliteStorage {
-    pub conn: Arc<Mutex<Connection>>,
+pub struct SqlStorage {
+    /// Every storage method checks a connection out of here (`self.conn.lock()?`).
+    pub conn: crate::storage::sql::SqlStore,
     pub document_store: Arc<dyn DocumentStore>,
     /// Every saved or relabelled session file, for `SessionFrame::File`.
     pub session_files: tokio::sync::broadcast::Sender<(
@@ -166,7 +166,7 @@ pub fn init_revision_schema(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
-impl SqliteStorage {
+impl SqlStorage {
     pub fn open_connection(workspace: &str) -> Result<Connection> {
         let db_path = build_path(workspace, &[".runtime"]);
         std::fs::create_dir_all(&db_path)?;
@@ -198,7 +198,10 @@ impl SqliteStorage {
         Ok(conn)
     }
 
-    pub fn new(conn: Arc<Mutex<Connection>>, document_store: Arc<dyn DocumentStore>) -> Self {
+    pub fn new(
+        conn: crate::storage::sql::SqlStore,
+        document_store: Arc<dyn DocumentStore>,
+    ) -> Self {
         Self {
             conn,
             document_store,
@@ -211,7 +214,7 @@ impl SqliteStorage {
     /// The production constructor: every in-scope secret read/write goes through `cipher`, and
     /// integration settings are classified by `secret_paths`. No schema change.
     pub fn with_secrets(
-        conn: Arc<Mutex<Connection>>,
+        conn: crate::storage::sql::SqlStore,
         document_store: Arc<dyn DocumentStore>,
         cipher: crate::encryption::SecretCipher,
         secret_paths: Arc<dyn crate::encryption::IntegrationSecretPaths>,
@@ -599,7 +602,6 @@ pub fn init_client_call_schema(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
-
 /// The `question_set` table (`specs/042-agent-asking-question/data-model.md` §9): one row per set
 /// the agent asked. `questions` is the immutable set; `state`, `answers` and `answerer` change
 /// after the insert and are filled into the history entry on every read, exactly as
@@ -633,7 +635,6 @@ pub fn init_question_schema(conn: &Connection) -> Result<()> {
     )?;
     Ok(())
 }
-
 
 /// The `sensitive_ask` table (`specs/042-agent-asking-question/data-model.md` §9): one row per ask
 /// for a sensitive value. It holds **no value** — only that one was wanted, why, and what came of
@@ -1076,4 +1077,4 @@ pub fn add_column_if_missing(
     Ok(())
 }
 
-impl VizierStorageProvider for SqliteStorage {}
+impl VizierStorageProvider for SqlStorage {}

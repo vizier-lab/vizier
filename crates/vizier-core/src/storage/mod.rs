@@ -66,6 +66,7 @@ pub mod scratch;
 pub mod secret;
 pub mod session;
 pub mod session_file;
+pub mod sql;
 pub mod state;
 pub mod task;
 pub mod task_run;

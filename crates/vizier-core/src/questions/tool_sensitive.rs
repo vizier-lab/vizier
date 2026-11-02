@@ -105,7 +105,11 @@ impl VizierTool for AskSensitiveInput {
         description()
     }
 
-    async fn call(&self, args: Self::Input, ctx: &ToolContext) -> Result<Self::Output, VizierError> {
+    async fn call(
+        &self,
+        args: Self::Input,
+        ctx: &ToolContext,
+    ) -> Result<Self::Output, VizierError> {
         if !ctx.interactive {
             return Err(VizierError(
                 "nobody can answer here: this turn is unattended, so explain what you need in \
@@ -162,12 +166,11 @@ impl VizierTool for AskSensitiveInput {
 
 #[cfg(test)]
 mod tests {
-    use parking_lot::Mutex;
 
     use super::*;
     use crate::{
         schema::{VizierChannelId, VizierSession},
-        storage::{document::LocalDocumentStore, sqlite::SqliteStorage},
+        storage::{document::LocalDocumentStore, sqlite::SqlStorage},
     };
 
     fn tool() -> (AskSensitiveInput, tempfile::TempDir) {
@@ -175,12 +178,15 @@ mod tests {
         let conn = rusqlite::Connection::open_in_memory().unwrap();
         crate::storage::sqlite::init_question_schema(&conn).unwrap();
         crate::storage::sqlite::init_sensitive_ask_schema(&conn).unwrap();
-        let storage = SqliteStorage::new(
-            Arc::new(Mutex::new(conn)),
+        let storage = SqlStorage::new(
+            crate::storage::sql::SqlStore::sqlite(conn),
             Arc::new(LocalDocumentStore::new(dir.path().to_path_buf())),
         );
         (
-            AskSensitiveInput::new(Arc::new(VizierStorage::new(storage)), VizierTransport::new()),
+            AskSensitiveInput::new(
+                Arc::new(VizierStorage::new(storage)),
+                VizierTransport::new(),
+            ),
             dir,
         )
     }
@@ -208,7 +214,10 @@ mod tests {
     }
 
     fn input() -> AskSensitiveInputInput {
-        AskSensitiveInputInput { purpose: "to push the branch".into(), label: None }
+        AskSensitiveInputInput {
+            purpose: "to push the branch".into(),
+            label: None,
+        }
     }
 
     /// What the agent reads has to say where the value goes and what the guarantee does not cover
@@ -249,7 +258,10 @@ mod tests {
         ] {
             // The sentence may wrap in the source, so compare on collapsed whitespace.
             let flat = d.split_whitespace().collect::<Vec<_>>().join(" ");
-            assert!(flat.contains(needle), "the description lacks {needle:?}:\n{d}");
+            assert!(
+                flat.contains(needle),
+                "the description lacks {needle:?}:\n{d}"
+            );
         }
     }
 
@@ -267,7 +279,10 @@ mod tests {
     fn it_is_offered_only_where_a_masked_input_can_be_shown() {
         let (tool, _dir) = tool();
         assert!(tool.available(&ctx(web(), true)));
-        assert!(tool.available(&ctx(VizierChannelId::Project("alice".into(), "p1".into()), true)));
+        assert!(tool.available(&ctx(
+            VizierChannelId::Project("alice".into(), "p1".into()),
+            true
+        )));
 
         // A channel whose servers would keep the value.
         assert!(!tool.available(&ctx(VizierChannelId::DiscordChanel(1), true)));
@@ -299,7 +314,13 @@ mod tests {
         let (tool, _dir) = tool();
         let ctx = ctx(web(), true);
         let err = tool
-            .call(AskSensitiveInputInput { purpose: "  ".into(), label: None }, &ctx)
+            .call(
+                AskSensitiveInputInput {
+                    purpose: "  ".into(),
+                    label: None,
+                },
+                &ctx,
+            )
             .await
             .unwrap_err();
         assert!(err.0.contains("purpose"), "{}", err.0);

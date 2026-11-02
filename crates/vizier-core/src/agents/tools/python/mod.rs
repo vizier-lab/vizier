@@ -46,10 +46,12 @@ pub struct ExecutePythonInput {
     /// `String`, not `Option<String>`, on purpose: a call that omits it fails
     /// deserialization and the error goes back to the agent, which may retry. It is never
     /// passed to the sandbox — see `call`.
-    #[schemars(description = "One short sentence, in plain language, saying what this \
+    #[schemars(
+        description = "One short sentence, in plain language, saying what this \
          script is for. It is shown to the person watching in place of the code — write it \
          for them, not for yourself. E.g. \"compute the 99th percentile from the last 24h \
-         of latency samples\".")]
+         of latency samples\"."
+    )]
     pub intent: String,
 }
 
@@ -70,7 +72,11 @@ impl VizierTool for ExecutePython {
         self.description.clone()
     }
 
-    async fn call(&self, args: Self::Input, ctx: &ToolContext) -> Result<Self::Output, VizierError> {
+    async fn call(
+        &self,
+        args: Self::Input,
+        ctx: &ToolContext,
+    ) -> Result<Self::Output, VizierError> {
         let span = tracing::info_span!(
             "python_exec",
             agent_id = %ctx.session.0,
@@ -78,10 +84,13 @@ impl VizierTool for ExecutePython {
             duration_ms = tracing::field::Empty,
         );
 
-        let bridge = self
-            .limits
-            .tools_enabled
-            .then(|| Arc::new(RouterBridge::new(self.router.clone(), ctx.clone(), self.limits.timeout)));
+        let bridge = self.limits.tools_enabled.then(|| {
+            Arc::new(RouterBridge::new(
+                self.router.clone(),
+                ctx.clone(),
+                self.limits.timeout,
+            ))
+        });
         let engine_bridge: Arc<dyn SandboxBridge> = match &bridge {
             Some(bridge) => bridge.clone(),
             None => Arc::new(NoToolsBridge),
@@ -110,7 +119,11 @@ impl VizierTool for ExecutePython {
         ctx.secret_redactor.report(&mut report);
 
         span.in_scope(|| match &report.error {
-            None => tracing::info!(ok = true, duration_ms = report.duration_ms, "python script finished"),
+            None => tracing::info!(
+                ok = true,
+                duration_ms = report.duration_ms,
+                "python script finished"
+            ),
             Some(err) if err.limit.is_some() => tracing::warn!(
                 ok = false,
                 error.kind = ?err.kind,
@@ -189,8 +202,6 @@ On error you get the exception and a traceback with line numbers — fix the scr
 mod tests {
     use std::time::Duration;
 
-    use parking_lot::Mutex;
-
     use super::*;
     use crate::{
         agents::tools::VizierToolSet,
@@ -199,7 +210,7 @@ mod tests {
             SessionHistory, SessionHistoryContent, VizierChannelId, VizierSession,
             history_entries_to_messages,
         },
-        storage::{VizierStorage, document::LocalDocumentStore, sqlite::SqliteStorage},
+        storage::{VizierStorage, document::LocalDocumentStore, sqlite::SqlStorage},
         transport::VizierTransport,
     };
 
@@ -222,15 +233,17 @@ mod tests {
         let conn = rusqlite::Connection::open_in_memory().unwrap();
         crate::storage::sqlite::init_question_schema(&conn).unwrap();
         crate::storage::sqlite::init_sensitive_ask_schema(&conn).unwrap();
-        let storage = Arc::new(VizierStorage::new(SqliteStorage::new(
-            Arc::new(Mutex::new(conn)),
+        let storage = Arc::new(VizierStorage::new(SqlStorage::new(
+            crate::storage::sql::SqlStore::sqlite(conn),
             Arc::new(LocalDocumentStore::new(dir.path().to_path_buf())),
         )));
         let questions = Arc::new(Questions::new());
 
         let router = ToolRouter {
-            default_toolset: VizierToolSet::new()
-                .tool(AskSensitiveInput::new(storage.clone(), VizierTransport::new())),
+            default_toolset: VizierToolSet::new().tool(AskSensitiveInput::new(
+                storage.clone(),
+                VizierTransport::new(),
+            )),
             user_toolset: VizierToolSet::new(),
             integration_toolset: VizierToolSet::new(),
             addons: Default::default(),
@@ -254,7 +267,10 @@ mod tests {
         };
         let tool = ExecutePython::new(
             router,
-            SandboxLimits { timeout: Duration::from_secs(20), tools_enabled: true },
+            SandboxLimits {
+                timeout: Duration::from_secs(20),
+                tools_enabled: true,
+            },
             "20s",
         );
 
@@ -282,7 +298,10 @@ mod tests {
         );
         let response = tool
             .call(
-                ExecutePythonInput { code, intent: "ask for a token and use it".into() },
+                ExecutePythonInput {
+                    code,
+                    intent: "ask for a token and use it".into(),
+                },
                 &ctx,
             )
             .await
@@ -298,7 +317,10 @@ mod tests {
         assert_eq!(report["result"]["exact"], true, "{report_text}");
         assert_eq!(report["result"]["protected"], true, "{report_text}");
         // ...and nothing the model reads carries it, where it was used the marker stands.
-        assert!(!report_text.contains(TOKEN), "the report carries the value: {report_text}");
+        assert!(
+            !report_text.contains(TOKEN),
+            "the report carries the value: {report_text}"
+        );
         assert!(report_text.contains("[redacted]"), "{report_text}");
 
         // What the next turn is built from: this turn's history entries, replayed.
@@ -323,10 +345,16 @@ mod tests {
                 label: None,
                 state: crate::questions::model::AskState::Provided,
             }),
-            entry(SessionHistoryContent::ToolResult { call_id: "c1".into(), content: report_text }),
+            entry(SessionHistoryContent::ToolResult {
+                call_id: "c1".into(),
+                content: report_text,
+            }),
         ];
         let next_turn = serde_json::to_string(&history_entries_to_messages(&entries)).unwrap();
-        assert!(!next_turn.contains(TOKEN), "the next turn is built with the value: {next_turn}");
+        assert!(
+            !next_turn.contains(TOKEN),
+            "the next turn is built with the value: {next_turn}"
+        );
         assert!(next_turn.contains("[redacted]"), "{next_turn}");
 
         // Neither the ask's stored record nor the open slot keeps it.

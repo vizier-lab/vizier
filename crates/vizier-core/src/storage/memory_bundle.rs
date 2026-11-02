@@ -4,9 +4,7 @@ use std::sync::Arc;
 
 use anyhow::{Result, anyhow};
 use chrono::{DateTime, Utc};
-use parking_lot::Mutex;
 use regex::Regex;
-use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use slugify::slugify;
 
@@ -14,11 +12,11 @@ use crate::{
     config::{ChunkLimits, MemoryLimits},
     indexer::VizierIndexer,
     schema::{
-        BundleSummary, ImportReport, Memory, MemoryAttachment, MemoryFrontMatter, MemoryGraph,
-        MemoryGraphEdge, MemoryGraphNode, MemoryPassageResult, MemoryQueryParams, MemoryRevision,
-        MemoryRevisionSummary, PaginatedMemory, PaginatedMemoryRevisions, RevisionDiff,
-        RevisionOrigin, RevisionTrigger, RollbackResponse, SOUL_PATH, VizierAttachment,
-        CORE_BUNDLE, default_bundle, is_core_bundle, is_identity_address,
+        BundleSummary, CORE_BUNDLE, ImportReport, Memory, MemoryAttachment, MemoryFrontMatter,
+        MemoryGraph, MemoryGraphEdge, MemoryGraphNode, MemoryPassageResult, MemoryQueryParams,
+        MemoryRevision, MemoryRevisionSummary, PaginatedMemory, PaginatedMemoryRevisions,
+        RevisionDiff, RevisionOrigin, RevisionTrigger, RollbackResponse, SOUL_PATH,
+        VizierAttachment, default_bundle, is_core_bundle, is_identity_address,
     },
     storage::{
         chunk::{chunk_markdown, embedded_text, heading_breadcrumb},
@@ -26,6 +24,7 @@ use crate::{
         document::DocumentStore,
         memory::compute_initial_slugs,
         rerank::SourceSignals,
+        sql::{self, Connection, OptionalExtension, Row, SqlStore, params},
         sqlite::memory_revision::{
             self, MemoryRevisionRow, memory_canonical, parse_memory_canonical,
         },
@@ -101,12 +100,12 @@ pub struct WrittenMemory {
     pub warning: Option<WriteWarning>,
 }
 
-/// The shared implementation behind `impl MemoryStorage for SqliteStorage`: bundle/concept
+/// The shared implementation behind `impl MemoryStorage for SqlStorage`: bundle/concept
 /// document read+write, link resolution, index/log maintenance, and the Memory Graph Index
 /// (`memory_node`/`memory_edge`) that every listing/graph read is served from.
 pub struct BundleMemoryStore {
     document_store: Arc<dyn DocumentStore>,
-    conn: Arc<Mutex<Connection>>,
+    conn: SqlStore,
 }
 
 struct NodeRow {
@@ -287,7 +286,7 @@ fn memory_from_frontmatter(fm: MemoryFrontMatter, content: String) -> Memory {
 }
 
 impl BundleMemoryStore {
-    pub fn new(document_store: Arc<dyn DocumentStore>, conn: Arc<Mutex<Connection>>) -> Self {
+    pub fn new(document_store: Arc<dyn DocumentStore>, conn: SqlStore) -> Self {
         Self {
             document_store,
             conn,
@@ -356,7 +355,7 @@ impl BundleMemoryStore {
     /// than by re-deriving spans: a document shrinking from twelve passages to four must clear
     /// all twelve index rows, and only the stored ordinals know there were twelve.
     fn stored_ordinals(&self, agent_id: &str, bundle: &str, path: &str) -> Result<Vec<usize>> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let mut stmt = conn.prepare(
             "SELECT ordinal FROM memory_passage WHERE agent_id = ?1 AND bundle = ?2 AND path = ?3 ORDER BY ordinal",
         )?;
@@ -377,7 +376,7 @@ impl BundleMemoryStore {
         bundle: &str,
         path: &str,
     ) -> Result<Option<String>> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let hash: Option<String> = conn
             .query_row(
                 "SELECT content_hash FROM memory_passage WHERE agent_id = ?1 AND bundle = ?2 AND path = ?3 LIMIT 1",
@@ -415,7 +414,7 @@ impl BundleMemoryStore {
             .delete_index("memory".into(), Self::indexer_key(agent_id, bundle, path))
             .await;
         {
-            let conn = self.conn.lock();
+            let conn = self.conn.lock()?;
             conn.execute(
                 "DELETE FROM memory_passage WHERE agent_id = ?1 AND bundle = ?2 AND path = ?3",
                 params![agent_id, bundle, path],
@@ -449,7 +448,7 @@ impl BundleMemoryStore {
         let hash = Self::content_hash(content);
 
         {
-            let mut conn = self.conn.lock();
+            let conn = self.conn.lock()?;
             let tx = conn.transaction()?;
             for span in &spans {
                 tx.execute(
@@ -544,7 +543,7 @@ impl BundleMemoryStore {
         read_count: u64,
     ) -> Result<()> {
         let tags_json = serde_json::to_string(tags)?;
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         conn.execute(
             "INSERT INTO memory_node
                 (agent_id, bundle, path, slug, title, tags_json, attachment_count, created_at, updated_at, read_count)
@@ -605,7 +604,7 @@ impl BundleMemoryStore {
         origin: &RevisionOrigin,
         current_before_save: Option<&str>,
     ) -> Result<Option<i64>> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         memory_revision::record(
             &conn,
             agent_id,
@@ -618,7 +617,7 @@ impl BundleMemoryStore {
     }
 
     fn delete_node(&self, agent_id: &str, bundle: &str, path: &str) -> Result<()> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         conn.execute(
             "DELETE FROM memory_node WHERE agent_id = ?1 AND bundle = ?2 AND path = ?3",
             params![agent_id, bundle, path],
@@ -627,8 +626,8 @@ impl BundleMemoryStore {
     }
 
     fn list_nodes(&self, agent_id: &str, bundle: Option<&str>) -> Result<Vec<NodeRow>> {
-        let conn = self.conn.lock();
-        let map_row = |row: &rusqlite::Row| -> rusqlite::Result<NodeRow> {
+        let conn = self.conn.lock()?;
+        let map_row = |row: &Row| -> sql::Result<NodeRow> {
             let tags_json: String = row.get(2)?;
             let created_at: String = row.get(4)?;
             let updated_at: String = row.get(5)?;
@@ -669,7 +668,7 @@ impl BundleMemoryStore {
     }
 
     fn relations_for(&self, agent_id: &str, bundle: &str, path: &str) -> Result<Vec<String>> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let mut stmt = conn.prepare(
             "SELECT target_bundle, target_path, target_kind FROM memory_edge
              WHERE agent_id = ?1 AND source_bundle = ?2 AND source_path = ?3",
@@ -704,7 +703,7 @@ impl BundleMemoryStore {
         source_path: &str,
         relations: &[String],
     ) -> Result<()> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         conn.execute(
             "DELETE FROM memory_edge WHERE agent_id = ?1 AND source_bundle = ?2 AND source_path = ?3",
             params![agent_id, source_bundle, source_path],
@@ -816,7 +815,7 @@ impl BundleMemoryStore {
     }
 
     fn delete_edges_from(&self, agent_id: &str, bundle: &str, path: &str) -> Result<()> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         conn.execute(
             "DELETE FROM memory_edge WHERE agent_id = ?1 AND source_bundle = ?2 AND source_path = ?3",
             params![agent_id, bundle, path],
@@ -825,7 +824,7 @@ impl BundleMemoryStore {
     }
 
     fn recompute_broken(&self, agent_id: &str) -> Result<()> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         conn.execute(
             "UPDATE memory_edge SET broken = 1 WHERE agent_id = ?1
              AND target_kind IN ('same_bundle','cross_bundle_concept')
@@ -872,7 +871,7 @@ impl BundleMemoryStore {
             .collect();
 
         let cached: Vec<String> = {
-            let conn = self.conn.lock();
+            let conn = self.conn.lock()?;
             let mut stmt =
                 conn.prepare("SELECT DISTINCT bundle FROM memory_node WHERE agent_id = ?1")?;
             stmt.query_map(params![agent_id], |row| row.get::<_, String>(0))?
@@ -905,7 +904,7 @@ impl BundleMemoryStore {
             .collect();
 
         let cached_paths: HashSet<String> = {
-            let conn = self.conn.lock();
+            let conn = self.conn.lock()?;
             let mut stmt =
                 conn.prepare("SELECT path FROM memory_node WHERE agent_id = ?1 AND bundle = ?2")?;
             stmt.query_map(params![agent_id, bundle], |row| row.get::<_, String>(0))?
@@ -940,7 +939,7 @@ impl BundleMemoryStore {
         // and is checked for drift separately, by `reconcile_passages`, which needs an indexer
         // this method does not have.
         for stale in cached_paths.difference(&doc_paths) {
-            let conn = self.conn.lock();
+            let conn = self.conn.lock()?;
             conn.execute(
                 "DELETE FROM memory_passage WHERE agent_id = ?1 AND bundle = ?2 AND path = ?3",
                 params![agent_id, bundle, stale],
@@ -1032,16 +1031,16 @@ impl BundleMemoryStore {
     /// unconverted and indexes it again. Called when the embedding model's vector width changes and
     /// the agent's vectors move to another table.
     pub async fn reset_passages(&self, agent_id: &str) -> Result<()> {
-        self.conn.lock().execute(
-            "DELETE FROM memory_passage WHERE agent_id = ?1",
-            [agent_id],
-        )?;
+        self.conn
+            .lock()?
+            .execute("DELETE FROM memory_passage WHERE agent_id = ?1", [agent_id])?;
         Ok(())
     }
 
     /// `reconcile_passages` across every bundle the agent has. This is what the per-agent
     /// conversion task at spawn calls (FR-038).
-    pub async fn reconcile_all_passages(        &self,
+    pub async fn reconcile_all_passages(
+        &self,
         agent_id: &str,
         limits: &ChunkLimits,
         indexer: &VizierIndexer,
@@ -1252,10 +1251,7 @@ impl BundleMemoryStore {
         // documents there. Refusing to *create* another one is FR-013; refusing to keep an
         // existing one maintainable would make it readable and permanently un-editable, which
         // is a data-access trap rather than protection.
-        if is_core_bundle(&bundle)
-            && !is_identity_address(&bundle, &path)
-            && existing.is_none()
-        {
+        if is_core_bundle(&bundle) && !is_identity_address(&bundle, &path) && existing.is_none() {
             return Err(anyhow!(
                 "the core bundle holds only the identity document, at path '{SOUL_PATH}' — \
                  '{path}' cannot be written there"
@@ -1409,7 +1405,10 @@ impl BundleMemoryStore {
         }
 
         let (body, source) = match legacy.filter(|l| !l.trim().is_empty()) {
-            Some(core) => (core, "the identity record this agent had before memory was unified"),
+            Some(core) => (
+                core,
+                "the identity record this agent had before memory was unified",
+            ),
             None => (
                 crate::constant::CORE_MD.to_string(),
                 "the default identity template, because this agent had none",
@@ -1452,8 +1451,8 @@ impl BundleMemoryStore {
         title: &str,
         attachments: &[MemoryAttachment],
     ) {
-        let conn = self.conn.lock();
         let result = (|| -> Result<()> {
+            let conn = self.conn.lock()?;
             let tx = conn.unchecked_transaction()?;
             tx.execute(
                 "DELETE FROM artifact_reference WHERE kind = 'memory' AND agent_id = ?1 AND bundle = ?2 AND path = ?3",
@@ -1867,7 +1866,7 @@ impl BundleMemoryStore {
         bundle: &str,
         path: &str,
     ) -> Result<Vec<crate::storage::chunk::PassageSpan>> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let mut stmt = conn.prepare(
             "SELECT ordinal, line_start, line_end, char_start, char_end, continues
              FROM memory_passage
@@ -2041,7 +2040,7 @@ impl BundleMemoryStore {
         }
 
         let outgoing: Vec<EdgeTarget> = {
-            let conn = self.conn.lock();
+            let conn = self.conn.lock()?;
             let mut stmt = conn.prepare(
                 "SELECT target_bundle, target_path, target_kind FROM memory_edge
                  WHERE agent_id = ?1 AND source_bundle = ?2 AND source_path = ?3",
@@ -2094,7 +2093,7 @@ impl BundleMemoryStore {
         }
 
         let incoming: Vec<EdgeSource> = {
-            let conn = self.conn.lock();
+            let conn = self.conn.lock()?;
             let mut stmt = conn.prepare(
                 "SELECT source_bundle, source_path FROM memory_edge
                  WHERE agent_id = ?1 AND (
@@ -2151,7 +2150,7 @@ impl BundleMemoryStore {
                     .collect();
 
                 let pairs: Vec<(String, String)> = {
-                    let conn = self.conn.lock();
+                    let conn = self.conn.lock()?;
                     let mut stmt = conn.prepare(
                         "SELECT DISTINCT source_bundle, target_bundle FROM memory_edge
                          WHERE agent_id = ?1 AND target_kind IN ('cross_bundle_concept','cross_bundle_bundle')",
@@ -2205,7 +2204,7 @@ impl BundleMemoryStore {
                     .collect();
 
                 let edge_rows: Vec<(String, String, Option<String>, String)> = {
-                    let conn = self.conn.lock();
+                    let conn = self.conn.lock()?;
                     let mut stmt = conn.prepare(
                         "SELECT source_path, target_bundle, target_path, target_kind FROM memory_edge
                          WHERE agent_id = ?1 AND source_bundle = ?2",
@@ -2280,7 +2279,7 @@ impl BundleMemoryStore {
     ) -> Result<bool> {
         let bundle = bundle.unwrap_or_else(default_bundle);
         let path = normalize_path(&path);
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let count: i64 = conn.query_row(
             "SELECT COUNT(*) FROM memory_edge WHERE agent_id = ?1 AND (
                 (target_kind IN ('same_bundle','cross_bundle_concept') AND target_bundle = ?2 AND target_path = ?3)
@@ -2381,7 +2380,7 @@ impl BundleMemoryStore {
             bundles.push(crate::schema::CORE_BUNDLE.to_string());
         }
 
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let mut result = Vec::new();
         for bundle in bundles {
             let (count, updated): (i64, Option<String>) = conn.query_row(
@@ -2480,7 +2479,7 @@ impl BundleMemoryStore {
         // Nothing should remain in memory_node/memory_edge/memory_passage for an already-empty
         // bundle, but clear defensively in case a concurrent write raced this call.
         {
-            let conn = self.conn.lock();
+            let conn = self.conn.lock()?;
             conn.execute(
                 "DELETE FROM memory_node WHERE agent_id = ?1 AND bundle = ?2",
                 params![agent_id, bundle],
@@ -2676,7 +2675,7 @@ impl BundleMemoryStore {
             .as_deref()
             .and_then(canonical_of_bytes);
 
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         memory_revision::ensure_baseline(&conn, &agent_id, &bundle, &path, current.as_deref())?;
         let latest_seq = memory_revision::latest(&conn, &agent_id, &bundle, &path)?
             .map(|r| r.seq)
@@ -2702,7 +2701,7 @@ impl BundleMemoryStore {
     ) -> Result<Option<MemoryRevision>> {
         let bundle = bundle.unwrap_or_else(default_bundle);
         let path = normalize_path(&path);
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let Some(row) = memory_revision::get(&conn, &agent_id, &bundle, &path, seq)? else {
             return Ok(None);
         };
@@ -2738,7 +2737,7 @@ impl BundleMemoryStore {
     ) -> Result<RevisionDiff> {
         let bundle = bundle.unwrap_or_else(default_bundle);
         let path = normalize_path(&path);
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let to_row = memory_revision::get(&conn, &agent_id, &bundle, &path, to)?
             .ok_or_else(|| anyhow!("unknown version {to}"))?;
         let from_seq = from.unwrap_or(to - 1);
@@ -2779,7 +2778,7 @@ impl BundleMemoryStore {
         let bundle = bundle.unwrap_or_else(default_bundle);
         let path = normalize_path(&path);
         let (row, before) = {
-            let conn = self.conn.lock();
+            let conn = self.conn.lock()?;
             let row = memory_revision::get(&conn, &agent_id, &bundle, &path, seq)?
                 .ok_or_else(|| anyhow!("unknown version {seq}"))?;
             let before = memory_revision::latest(&conn, &agent_id, &bundle, &path)?.map(|r| r.seq);
@@ -2815,7 +2814,7 @@ impl BundleMemoryStore {
         .await?;
 
         let after = {
-            let conn = self.conn.lock();
+            let conn = self.conn.lock()?;
             memory_revision::latest(&conn, &agent_id, &bundle, &path)?.map(|r| r.seq)
         };
         let no_change = after == before;
@@ -2926,10 +2925,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let doc_store: Arc<dyn DocumentStore> =
             Arc::new(LocalDocumentStore::new(dir.path().to_path_buf()));
-        let conn = Connection::open_in_memory().unwrap();
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
         crate::storage::sqlite::init_memory_graph_schema(&conn).unwrap();
         crate::storage::sqlite::init_revision_schema(&conn).unwrap();
-        let conn = Arc::new(Mutex::new(conn));
+        let conn = crate::storage::sql::SqlStore::sqlite(conn);
         let store = BundleMemoryStore::new(doc_store, conn);
         let indexer = VizierIndexer::build(NoopIndexer);
         (store, dir, indexer)
@@ -3428,9 +3427,9 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let doc_store: Arc<dyn DocumentStore> =
             Arc::new(LocalDocumentStore::new(dir.path().to_path_buf()));
-        let conn = Connection::open_in_memory().unwrap();
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
         crate::storage::sqlite::init_memory_graph_schema(&conn).unwrap();
-        let conn = Arc::new(Mutex::new(conn));
+        let conn = crate::storage::sql::SqlStore::sqlite(conn);
 
         // Simulate a bundle copied in from another deployment: write the raw markdown file
         // directly, bypassing BundleMemoryStore entirely (no memory_node row exists yet).
@@ -3646,7 +3645,7 @@ mod tests {
     }
 
     fn history(store: &BundleMemoryStore) -> Vec<memory_revision::MemoryRevisionRow> {
-        let conn = store.conn.lock();
+        let conn = store.conn.lock().unwrap();
         memory_revision::list(&conn, "a1", "default", "note", 0, 50)
             .unwrap()
             .0
@@ -3748,7 +3747,7 @@ mod tests {
 
         // Deleting the agent wipes its history.
         {
-            let conn = store.conn.lock();
+            let conn = store.conn.lock().unwrap();
             memory_revision::delete_agent(&conn, "a1").unwrap();
         }
         assert!(history(&store).is_empty());
@@ -3829,17 +3828,17 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let doc_store: Arc<dyn DocumentStore> =
             Arc::new(LocalDocumentStore::new(dir.path().to_path_buf()));
-        let conn = Connection::open_in_memory().unwrap();
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
         crate::storage::sqlite::init_memory_graph_schema(&conn).unwrap();
         crate::storage::sqlite::init_revision_schema(&conn).unwrap();
-        let store = BundleMemoryStore::new(doc_store, Arc::new(Mutex::new(conn)));
+        let store = BundleMemoryStore::new(doc_store, crate::storage::sql::SqlStore::sqlite(conn));
         let recorder = Arc::new(RecordingIndexer::default());
         let indexer = VizierIndexer::build(recorder.clone());
         (store, dir, indexer, recorder)
     }
 
     fn passage_rows(store: &BundleMemoryStore, path: &str) -> Vec<(usize, usize, usize, bool)> {
-        let conn = store.conn.lock();
+        let conn = store.conn.lock().unwrap();
         let mut stmt = conn
             .prepare(
                 "SELECT ordinal, char_start, char_end, continues FROM memory_passage
@@ -4062,7 +4061,7 @@ mod tests {
             "import indexed passages with no extra step (FR-035)"
         );
         for path in &report.imported {
-            let conn = dest.conn.lock();
+            let conn = dest.conn.lock().unwrap();
             let count: i64 = conn
                 .query_row(
                     "SELECT COUNT(*) FROM memory_passage WHERE agent_id = 'a1' AND bundle = 'imported' AND path = ?1",
@@ -4115,10 +4114,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let doc_store: Arc<dyn DocumentStore> =
             Arc::new(LocalDocumentStore::new(dir.path().to_path_buf()));
-        let conn = Connection::open_in_memory().unwrap();
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
         crate::storage::sqlite::init_memory_graph_schema(&conn).unwrap();
         crate::storage::sqlite::init_revision_schema(&conn).unwrap();
-        let store = BundleMemoryStore::new(doc_store, Arc::new(Mutex::new(conn)));
+        let store = BundleMemoryStore::new(doc_store, crate::storage::sql::SqlStore::sqlite(conn));
         let indexer = VizierIndexer::build(FailingIndexer);
 
         let saved = write_at(&store, &indexer, "note", &long_body(4)).await;
@@ -4150,7 +4149,7 @@ mod tests {
         // An unconverted document: rows removed behind the store's back, as a corpus written by
         // the previous release looks.
         {
-            let conn = store.conn.lock();
+            let conn = store.conn.lock().unwrap();
             conn.execute("DELETE FROM memory_passage", []).unwrap();
         }
         let (converted, failed) = store
@@ -4167,7 +4166,7 @@ mod tests {
         // Drift: the stored hash no longer matches the body, which is what a hand-edit on disk
         // looks like. Detected by hash comparison, not by re-deriving spans (research Decision 12).
         {
-            let conn = store.conn.lock();
+            let conn = store.conn.lock().unwrap();
             conn.execute("UPDATE memory_passage SET content_hash = 'stale'", [])
                 .unwrap();
         }
@@ -4178,7 +4177,7 @@ mod tests {
         assert_eq!((converted, failed), (1, 0), "drifted document rebuilt");
         let rows = passage_rows(&store, "note");
         assert!(!rows.is_empty());
-        let conn = store.conn.lock();
+        let conn = store.conn.lock().unwrap();
         let hash: String = conn
             .query_row("SELECT content_hash FROM memory_passage LIMIT 1", [], |r| {
                 r.get(0)
@@ -4196,7 +4195,10 @@ mod tests {
         assert!(!passage_rows(&store, "note").is_empty());
 
         store.reset_passages("a1").await.unwrap();
-        assert!(passage_rows(&store, "note").is_empty(), "coordinates dropped");
+        assert!(
+            passage_rows(&store, "note").is_empty(),
+            "coordinates dropped"
+        );
 
         let (converted, failed) = store
             .reconcile_all_passages("a1", &limits(), &indexer)
@@ -4208,14 +4210,18 @@ mod tests {
         // Another agent's passages are untouched.
         write_at(&store, &indexer, "other", &long_body(2)).await;
         {
-            let conn = store.conn.lock();
-            conn.execute("UPDATE memory_passage SET agent_id = 'a2' WHERE path = 'other'", [])
-                .unwrap();
+            let conn = store.conn.lock().unwrap();
+            conn.execute(
+                "UPDATE memory_passage SET agent_id = 'a2' WHERE path = 'other'",
+                [],
+            )
+            .unwrap();
         }
         store.reset_passages("a1").await.unwrap();
         let kept: i64 = store
             .conn
             .lock()
+            .unwrap()
             .query_row(
                 "SELECT COUNT(*) FROM memory_passage WHERE agent_id = 'a2'",
                 [],
@@ -4226,7 +4232,8 @@ mod tests {
     }
 
     #[test]
-    fn an_indexer_key_round_trips_with_and_without_an_ordinal() {        assert_eq!(
+    fn an_indexer_key_round_trips_with_and_without_an_ordinal() {
+        assert_eq!(
             BundleMemoryStore::parse_indexer_key("a1/work/ops/deploys#3"),
             Some(("a1".into(), "work".into(), "ops/deploys".into(), Some(3))),
             "a nested path keeps its slashes and gives up its ordinal"
@@ -4374,7 +4381,10 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(err.starts_with("the core bundle cannot receive"), "{err}");
-        assert!(err.contains(SOUL_PATH), "it names the path it accepts: {err}");
+        assert!(
+            err.contains(SOUL_PATH),
+            "it names the path it accepts: {err}"
+        );
 
         // The refusal changed nothing: the soul is still the bundle's only document.
         let bundles = store.list_bundles("a1".into()).await.unwrap();
@@ -4491,7 +4501,13 @@ mod tests {
             .expect("the soul is removable");
 
         let history = store
-            .list_memory_revisions("a1".into(), Some(CORE_BUNDLE.into()), SOUL_PATH.into(), 0, 10)
+            .list_memory_revisions(
+                "a1".into(),
+                Some(CORE_BUNDLE.into()),
+                SOUL_PATH.into(),
+                0,
+                10,
+            )
             .await
             .unwrap();
         assert!(
@@ -4680,7 +4696,10 @@ mod tests {
         .await
         .unwrap_err()
         .to_string();
-        assert!(err.starts_with("memory too large:"), "growing is refused: {err}");
+        assert!(
+            err.starts_with("memory too large:"),
+            "growing is refused: {err}"
+        );
 
         let written = write_with(
             &store,
@@ -4810,7 +4829,10 @@ mod tests {
         .await
         .unwrap_err()
         .to_string();
-        assert!(err.contains("4096-byte limit"), "quotes the identity ceiling: {err}");
+        assert!(
+            err.contains("4096-byte limit"),
+            "quotes the identity ceiling: {err}"
+        );
     }
 
     #[tokio::test]

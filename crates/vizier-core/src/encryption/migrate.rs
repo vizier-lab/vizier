@@ -305,13 +305,11 @@ fn row_error(table: &str, record: &str) -> anyhow::Error {
 mod tests {
     use std::sync::Arc;
 
-    use parking_lot::Mutex;
-
     use super::*;
     use crate::{
         encryption::{IntegrationSecretPaths, SecretCipher, cipher::key_id_for},
         integrations::IntegrationKinds,
-        storage::{agent::AgentStorage, sqlite::SqliteStorage},
+        storage::{agent::AgentStorage, sqlite::SqlStorage},
     };
 
     fn paths() -> Arc<dyn IntegrationSecretPaths> {
@@ -322,15 +320,15 @@ mod tests {
         SecretCipher::from_key_for_test([0x31; 32])
     }
 
-    fn harness() -> (SqliteStorage, tempfile::TempDir) {
+    fn harness() -> (SqlStorage, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
-        let conn = SqliteStorage::open_connection(dir.path().to_str().unwrap()).unwrap();
+        let conn = SqlStorage::open_connection(dir.path().to_str().unwrap()).unwrap();
         let document_store: Arc<dyn crate::storage::document::DocumentStore> = Arc::new(
             crate::storage::document::LocalDocumentStore::new(dir.path().join("agents")),
         );
         (
-            SqliteStorage::with_secrets(
-                Arc::new(Mutex::new(conn)),
+            SqlStorage::with_secrets(
+                crate::storage::sql::SqlStore::sqlite(conn),
                 document_store,
                 cipher(),
                 paths(),
@@ -339,8 +337,13 @@ mod tests {
         )
     }
 
-    fn seed_plaintext(storage: &SqliteStorage) {
-        let conn = storage.conn.lock();
+    /// The migration stays on `rusqlite`: run `f` on the store's raw SQLite connection.
+    fn on_raw<T>(storage: &SqlStorage, f: impl FnOnce(&Connection) -> T) -> T {
+        storage.conn.lock().unwrap().with_rusqlite(f).unwrap()
+    }
+
+    fn seed_plaintext(storage: &SqlStorage) {
+        let conn = storage.conn.lock().unwrap();
         conn.execute_batch(
             r#"
             INSERT INTO agent_secret (agent_id, name, value, created_at, updated_at, updated_by)
@@ -399,8 +402,8 @@ mod tests {
         .unwrap();
     }
 
-    fn column(storage: &SqliteStorage, sql: &str) -> String {
-        let conn = storage.conn.lock();
+    fn column(storage: &SqlStorage, sql: &str) -> String {
+        let conn = storage.conn.lock().unwrap();
         conn.query_row(sql, [], |row| row.get(0)).unwrap()
     }
 
@@ -431,8 +434,7 @@ mod tests {
     fn converts_all_six_tables_and_writes_the_marker() {
         let (storage, dir) = harness();
         seed_plaintext(&storage);
-        {
-            let conn = storage.conn.lock();
+        on_raw(&storage, |conn| {
             let counts = migrate_secrets_to_encrypted(&conn, &cipher(), &*paths()).unwrap();
             assert_eq!(counts.agent_secret, 2);
             assert_eq!(counts.provider_config, 1);
@@ -441,7 +443,7 @@ mod tests {
             assert_eq!(counts.agent_config, 1);
             assert_eq!(counts.global_config, 1);
             assert!(marker_present(&conn).unwrap());
-        }
+        });
 
         assert!(
             column(
@@ -526,49 +528,48 @@ mod tests {
     fn a_second_run_converts_nothing_and_changes_no_value() {
         let (storage, _dir) = harness();
         seed_plaintext(&storage);
-        let conn = storage.conn.lock();
-        migrate_secrets_to_encrypted(&conn, &cipher(), &*paths()).unwrap();
-        let before: Vec<String> = {
-            let mut stmt = conn
-                .prepare("SELECT value FROM agent_secret ORDER BY agent_id")
-                .unwrap();
-            stmt.query_map([], |r| r.get(0))
-                .unwrap()
-                .collect::<rusqlite::Result<_>>()
-                .unwrap()
-        };
-        let counts = migrate_secrets_to_encrypted(&conn, &cipher(), &*paths()).unwrap();
-        assert_eq!(counts, ConversionCount::default());
-        let after: Vec<String> = {
-            let mut stmt = conn
-                .prepare("SELECT value FROM agent_secret ORDER BY agent_id")
-                .unwrap();
-            stmt.query_map([], |r| r.get(0))
-                .unwrap()
-                .collect::<rusqlite::Result<_>>()
-                .unwrap()
-        };
-        assert_eq!(before, after);
+        on_raw(&storage, |conn| {
+            migrate_secrets_to_encrypted(conn, &cipher(), &*paths()).unwrap();
+            let before: Vec<String> = {
+                let mut stmt = conn
+                    .prepare("SELECT value FROM agent_secret ORDER BY agent_id")
+                    .unwrap();
+                stmt.query_map([], |r| r.get(0))
+                    .unwrap()
+                    .collect::<rusqlite::Result<_>>()
+                    .unwrap()
+            };
+            let counts = migrate_secrets_to_encrypted(conn, &cipher(), &*paths()).unwrap();
+            assert_eq!(counts, ConversionCount::default());
+            let after: Vec<String> = {
+                let mut stmt = conn
+                    .prepare("SELECT value FROM agent_secret ORDER BY agent_id")
+                    .unwrap();
+                stmt.query_map([], |r| r.get(0))
+                    .unwrap()
+                    .collect::<rusqlite::Result<_>>()
+                    .unwrap()
+            };
+            assert_eq!(before, after);
+        });
     }
 
     #[test]
     fn an_interrupted_run_resumes_without_reencrypting() {
         let (storage, dir) = harness();
         seed_plaintext(&storage);
-        {
-            let conn = storage.conn.lock();
-            migrate_secrets_to_encrypted(&conn, &cipher(), &*paths()).unwrap();
+        on_raw(&storage, |conn| {
+            migrate_secrets_to_encrypted(conn, &cipher(), &*paths()).unwrap();
             // Simulate a crash before the marker: the data is already protected.
             conn.execute(
                 "DELETE FROM state WHERE key = ?1",
                 rusqlite::params![MIGRATION_MARKER],
             )
             .unwrap();
-        }
-        let counts = {
-            let conn = storage.conn.lock();
-            migrate_secrets_to_encrypted(&conn, &cipher(), &*paths()).unwrap()
-        };
+        });
+        let counts = on_raw(&storage, |conn| {
+            migrate_secrets_to_encrypted(conn, &cipher(), &*paths()).unwrap()
+        });
         // The agent_config row may legitimately re-serialize to the same bytes, so it is not
         // counted; nothing else changes.
         assert_eq!(counts.agent_secret, 0);
@@ -589,8 +590,7 @@ mod tests {
         );
         let original = cipher();
         // Protect one value first, so the second cipher sees an envelope it cannot open.
-        {
-            let conn = storage.conn.lock();
+        on_raw(&storage, |conn| {
             let aad = crate::encryption::fields::aad("agent_secret", "dp-a", "AGENT_TOKEN");
             let envelope = original.encrypt("agent-token-abc123", &aad).unwrap();
             conn.execute(
@@ -599,7 +599,7 @@ mod tests {
             )
             .unwrap();
             let err = migrate_secrets_to_encrypted(
-                &conn,
+                conn,
                 &SecretCipher::from_key_for_test([0x32; 32]),
                 &*paths(),
             )
@@ -618,7 +618,7 @@ mod tests {
                 .unwrap(),
                 "agent-token-abc123"
             );
-        }
+        });
         let _ = before;
     }
 
@@ -626,17 +626,16 @@ mod tests {
     fn malformed_rows_abort_with_record_identity_and_no_value() {
         let (storage, _dir) = harness();
         {
-            let conn = storage.conn.lock();
+            let conn = storage.conn.lock().unwrap();
             conn.execute(
                 "INSERT INTO provider_config (variant, data) VALUES ('broken', '{not json')",
                 [],
             )
             .unwrap();
         }
-        let err = {
-            let conn = storage.conn.lock();
-            migrate_secrets_to_encrypted(&conn, &cipher(), &*paths()).unwrap_err()
-        };
+        let err = on_raw(&storage, |conn| {
+            migrate_secrets_to_encrypted(conn, &cipher(), &*paths()).unwrap_err()
+        });
         let message = format!("{err}");
         assert!(message.contains("provider_config"), "{message}");
         assert!(message.contains("broken"), "{message}");
@@ -649,10 +648,9 @@ mod tests {
 
         let (storage, _dir) = harness();
         seed_plaintext(&storage);
-        {
-            let conn = storage.conn.lock();
-            migrate_secrets_to_encrypted(&conn, &cipher(), &*paths()).unwrap();
-        }
+        on_raw(&storage, |conn| {
+            migrate_secrets_to_encrypted(conn, &cipher(), &*paths()).unwrap();
+        });
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
@@ -668,7 +666,7 @@ mod tests {
     fn fts_and_vector_tables_survive_the_vacuum() {
         let (storage, _dir) = harness();
         {
-            let conn = storage.conn.lock();
+            let conn = storage.conn.lock().unwrap();
             conn.execute_batch(
                 "INSERT INTO memory (id, agent_id, slug, visibility, data)
                  VALUES ('m1', 'dp-a', 'm1', 'private',
@@ -680,11 +678,10 @@ mod tests {
             )
             .unwrap();
         }
-        {
-            let conn = storage.conn.lock();
-            migrate_secrets_to_encrypted(&conn, &cipher(), &*paths()).unwrap();
-        }
-        let conn = storage.conn.lock();
+        on_raw(&storage, |conn| {
+            migrate_secrets_to_encrypted(conn, &cipher(), &*paths()).unwrap();
+        });
+        let conn = storage.conn.lock().unwrap();
         let hits: i64 = conn
             .query_row(
                 "SELECT count(*) FROM memory_fts WHERE memory_fts MATCH 'hello'",
@@ -703,10 +700,9 @@ mod tests {
     fn startup_sees_core_after_the_conversion() {
         let (storage, _dir) = harness();
         seed_plaintext(&storage);
-        {
-            let conn = storage.conn.lock();
-            migrate_secrets_to_encrypted(&conn, &cipher(), &*paths()).unwrap();
-        }
+        on_raw(&storage, |conn| {
+            migrate_secrets_to_encrypted(conn, &cipher(), &*paths()).unwrap();
+        });
         // This mirrors `migrate_agent_cores`: the legacy `core` field is still on the row, with
         // the shell env decrypted by the storage read path.
         let rt = tokio::runtime::Builder::new_current_thread()

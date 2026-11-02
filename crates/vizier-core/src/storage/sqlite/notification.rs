@@ -1,13 +1,15 @@
+use crate::storage::sql::{self, Connection, ToSql, params, params_from_iter};
 use anyhow::Result;
 use chrono::{DateTime, TimeZone, Utc};
-use rusqlite::{Connection, ToSql};
 
 use crate::{
     schema::{
         NotificationCategory, NotificationCounts, NotificationDraft, NotificationFilter,
         NotificationItem, NotificationTone, ReplyBatch,
     },
-    storage::{notification::RETENTION_DAYS, notification::NotificationStorage, sqlite::SqliteStorage},
+    storage::{
+        notification::NotificationStorage, notification::RETENTION_DAYS, sqlite::SqlStorage,
+    },
 };
 
 const HOUR_MS: i64 = 3_600_000;
@@ -30,18 +32,18 @@ fn marks(agents: &[String]) -> String {
 pub(super) fn delete_agent_notifications(conn: &Connection, agent_id: &str) -> Result<()> {
     conn.execute(
         "DELETE FROM notification WHERE agent_id = ?1",
-        rusqlite::params![agent_id],
+        params![agent_id],
     )?;
     Ok(())
 }
 
 #[async_trait::async_trait]
-impl NotificationStorage for SqliteStorage {
+impl NotificationStorage for SqlStorage {
     async fn insert_notifications(&self, drafts: &[NotificationDraft]) -> Result<usize> {
         if drafts.is_empty() {
             return Ok(0);
         }
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let tx = conn.unchecked_transaction()?;
         let mut inserted = 0usize;
         for draft in drafts {
@@ -59,7 +61,7 @@ impl NotificationStorage for SqliteStorage {
             let exists: Option<i64> = tx
                 .query_row(
                     "SELECT 1 FROM agent_config WHERE agent_id = ?1",
-                    rusqlite::params![draft.agent_id],
+                    params![draft.agent_id],
                     |row| row.get(0),
                 )
                 .ok();
@@ -70,7 +72,7 @@ impl NotificationStorage for SqliteStorage {
                 "INSERT OR IGNORE INTO notification
                     (event_key, agent_id, audience_user_id, category, tone, summary, href, created_at)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-                rusqlite::params![
+                params![
                     draft.event_key.as_str(),
                     draft.agent_id.as_str(),
                     draft.audience_user_id.as_deref(),
@@ -125,10 +127,10 @@ impl NotificationStorage for SqliteStorage {
         sql.push_str(" ORDER BY n.created_at DESC, n.id DESC LIMIT ?");
         params.push(Box::new(limit as i64));
 
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let mut stmt = conn.prepare(&sql)?;
         let rows = stmt
-            .query_map(rusqlite::params_from_iter(params.iter()), |row| {
+            .query_map(params_from_iter(params.iter()), |row| {
                 Ok((
                     row.get::<_, i64>(0)?,
                     row.get::<_, String>(1)?,
@@ -140,7 +142,7 @@ impl NotificationStorage for SqliteStorage {
                     row.get::<_, i64>(7)?,
                 ))
             })?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
+            .collect::<sql::Result<Vec<_>>>()?;
 
         Ok(rows
             .into_iter()
@@ -183,12 +185,11 @@ impl NotificationStorage for SqliteStorage {
         params.extend(agents.iter().map(|a| Box::new(a.clone()) as Box<dyn ToSql>));
         params.push(Box::new(cutoff()));
         params.push(Box::new(user_id.to_string()));
-        let conn = self.conn.lock();
-        let (all, unread): (i64, i64) = conn.query_row(
-            &sql,
-            rusqlite::params_from_iter(params.iter()),
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        )?;
+        let conn = self.conn.lock()?;
+        let (all, unread): (i64, i64) =
+            conn.query_row(&sql, params_from_iter(params.iter()), |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })?;
         let all = all.max(0) as u64;
         let unread = (unread.max(0) as u64).min(all);
         Ok(NotificationCounts {
@@ -209,7 +210,7 @@ impl NotificationStorage for SqliteStorage {
         if agents.is_empty() {
             return Ok(false);
         }
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let sql = format!(
             "SELECT 1 FROM notification \
              WHERE id = ? AND agent_id IN ({}) AND created_at >= ? \
@@ -221,9 +222,7 @@ impl NotificationStorage for SqliteStorage {
         params.push(Box::new(cutoff()));
         params.push(Box::new(user_id.to_string()));
         let visible: Option<i64> = conn
-            .query_row(&sql, rusqlite::params_from_iter(params.iter()), |row| {
-                row.get(0)
-            })
+            .query_row(&sql, params_from_iter(params.iter()), |row| row.get(0))
             .ok();
         if visible.is_none() {
             return Ok(false);
@@ -233,12 +232,12 @@ impl NotificationStorage for SqliteStorage {
                 "INSERT INTO notification_read (user_id, notification_id, read_at) \
                  VALUES (?1, ?2, ?3) \
                  ON CONFLICT(user_id, notification_id) DO UPDATE SET read_at = excluded.read_at",
-                rusqlite::params![user_id, notification_id, at.timestamp_millis()],
+                params![user_id, notification_id, at.timestamp_millis()],
             )?;
         } else {
             conn.execute(
                 "DELETE FROM notification_read WHERE user_id = ?1 AND notification_id = ?2",
-                rusqlite::params![user_id, notification_id],
+                params![user_id, notification_id],
             )?;
         }
         Ok(true)
@@ -267,20 +266,16 @@ impl NotificationStorage for SqliteStorage {
         params.extend(agents.iter().map(|a| Box::new(a.clone()) as Box<dyn ToSql>));
         params.push(Box::new(cutoff()));
         params.push(Box::new(user_id.to_string()));
-        let conn = self.conn.lock();
-        let inserted = conn.execute(&sql, rusqlite::params_from_iter(params.iter()))?;
+        let conn = self.conn.lock()?;
+        let inserted = conn.execute(&sql, params_from_iter(params.iter()))?;
         Ok(inserted as u64)
     }
 
-    async fn channel_reply_batches(
-        &self,
-        from_hour: i64,
-        to_hour: i64,
-    ) -> Result<Vec<ReplyBatch>> {
+    async fn channel_reply_batches(&self, from_hour: i64, to_hour: i64) -> Result<Vec<ReplyBatch>> {
         if from_hour > to_hour {
             return Ok(vec![]);
         }
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let mut stmt = conn.prepare(&format!(
             r"SELECT agent_id, channel, timestamp / {HOUR_MS} AS hour, COUNT(*), MAX(timestamp) AS at
               FROM session_history
@@ -291,7 +286,7 @@ impl NotificationStorage for SqliteStorage {
               ORDER BY hour, agent_id, channel"
         ))?;
         let rows = stmt
-            .query_map(rusqlite::params![from_hour, to_hour], |row| {
+            .query_map(params![from_hour, to_hour], |row| {
                 Ok(ReplyBatch {
                     agent_id: row.get(0)?,
                     channel: row.get(1)?,
@@ -300,21 +295,21 @@ impl NotificationStorage for SqliteStorage {
                     at: millis(row.get(4)?),
                 })
             })?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
+            .collect::<sql::Result<Vec<_>>>()?;
         Ok(rows)
     }
 
     async fn purge_notifications_before(&self, at: DateTime<Utc>) -> Result<usize> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let deleted = conn.execute(
             "DELETE FROM notification WHERE created_at < ?1",
-            rusqlite::params![at.timestamp_millis()],
+            params![at.timestamp_millis()],
         )?;
         Ok(deleted)
     }
 
     async fn purge_orphaned_notifications(&self) -> Result<usize> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let deleted = conn.execute(
             "DELETE FROM notification \
              WHERE agent_id NOT IN (SELECT agent_id FROM agent_config)",
@@ -328,13 +323,13 @@ impl NotificationStorage for SqliteStorage {
 mod tests {
     use std::sync::Arc;
 
-    use parking_lot::Mutex;
+    use crate::storage::sql::SqlStore;
     use rusqlite::Connection;
 
     use super::*;
     use crate::storage::document::LocalDocumentStore;
 
-    fn setup() -> (SqliteStorage, tempfile::TempDir) {
+    fn setup() -> (SqlStorage, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
         let conn = Connection::open_in_memory().unwrap();
         crate::storage::sqlite::init_notification_schema(&conn).unwrap();
@@ -343,19 +338,20 @@ mod tests {
             "CREATE TABLE agent_config (agent_id TEXT PRIMARY KEY, data TEXT NOT NULL);",
         )
         .unwrap();
-        let storage = SqliteStorage::new(
-            Arc::new(Mutex::new(conn)),
+        let storage = SqlStorage::new(
+            SqlStore::sqlite(conn),
             Arc::new(LocalDocumentStore::new(dir.path().to_path_buf())),
         );
         (storage, dir)
     }
 
-    fn agent(s: &SqliteStorage, id: &str) {
+    fn agent(s: &SqlStorage, id: &str) {
         s.conn
             .lock()
+            .unwrap()
             .execute(
                 "INSERT OR IGNORE INTO agent_config (agent_id, data) VALUES (?1, '{}')",
-                rusqlite::params![id],
+                params![id],
             )
             .unwrap();
     }
@@ -410,7 +406,12 @@ mod tests {
         let (s, _d) = setup();
         agent(&s, "a");
         let at = Utc::now();
-        assert_eq!(s.insert_notifications(&[draft("task_run:1", "a", at)]).await.unwrap(), 1);
+        assert_eq!(
+            s.insert_notifications(&[draft("task_run:1", "a", at)])
+                .await
+                .unwrap(),
+            1
+        );
         let mut second = draft("task_run:1", "a", at);
         second.summary = "something else".into();
         assert_eq!(s.insert_notifications(&[second]).await.unwrap(), 0);
@@ -426,8 +427,19 @@ mod tests {
     async fn a_draft_for_a_missing_agent_is_skipped() {
         let (s, _d) = setup();
         agent(&s, "a");
-        assert_eq!(s.insert_notifications(&[draft("k", "gone", Utc::now())]).await.unwrap(), 0);
-        assert_eq!(s.notification_counts("u", &["gone".into()]).await.unwrap().all, 0);
+        assert_eq!(
+            s.insert_notifications(&[draft("k", "gone", Utc::now())])
+                .await
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            s.notification_counts("u", &["gone".into()])
+                .await
+                .unwrap()
+                .all,
+            0
+        );
     }
 
     #[tokio::test]
@@ -444,7 +456,13 @@ mod tests {
         .await
         .unwrap();
         let all = s
-            .list_notifications("u", &["a".into(), "b".into()], NotificationFilter::All, None, 10)
+            .list_notifications(
+                "u",
+                &["a".into(), "b".into()],
+                NotificationFilter::All,
+                None,
+                10,
+            )
             .await
             .unwrap();
         assert_eq!(ids(&all), vec![3, 2, 1], "newest first, id breaks the tie");
@@ -520,25 +538,53 @@ mod tests {
     async fn read_state_is_per_person_and_idempotent() {
         let (s, _d) = setup();
         agent(&s, "a");
-        s.insert_notifications(&[draft("1", "a", Utc::now())]).await.unwrap();
+        s.insert_notifications(&[draft("1", "a", Utc::now())])
+            .await
+            .unwrap();
         let item = s
             .list_notifications("u", &["a".into()], NotificationFilter::All, None, 10)
             .await
             .unwrap();
         let id = item[0].id;
 
-        assert!(s.set_notification_read("u", id, true, Utc::now(), &["a".into()]).await.unwrap());
-        assert!(s.set_notification_read("u", id, true, Utc::now(), &["a".into()]).await.unwrap());
-        assert!(!s.set_notification_read("u", 9999, true, Utc::now(), &["a".into()]).await.unwrap());
-        assert!(!s.set_notification_read("u", id, true, Utc::now(), &["b".into()]).await.unwrap());
+        assert!(
+            s.set_notification_read("u", id, true, Utc::now(), &["a".into()])
+                .await
+                .unwrap()
+        );
+        assert!(
+            s.set_notification_read("u", id, true, Utc::now(), &["a".into()])
+                .await
+                .unwrap()
+        );
+        assert!(
+            !s.set_notification_read("u", 9999, true, Utc::now(), &["a".into()])
+                .await
+                .unwrap()
+        );
+        assert!(
+            !s.set_notification_read("u", id, true, Utc::now(), &["b".into()])
+                .await
+                .unwrap()
+        );
 
         let mine = s.notification_counts("u", &["a".into()]).await.unwrap();
         assert_eq!((mine.all, mine.unread, mine.read), (1, 0, 1));
         let theirs = s.notification_counts("v", &["a".into()]).await.unwrap();
         assert_eq!((theirs.all, theirs.unread, theirs.read), (1, 1, 0));
 
-        assert!(s.set_notification_read("u", id, false, Utc::now(), &["a".into()]).await.unwrap());
-        assert_eq!(s.notification_counts("u", &["a".into()]).await.unwrap().unread, 1);
+        assert!(
+            s.set_notification_read("u", id, false, Utc::now(), &["a".into()])
+                .await
+                .unwrap()
+        );
+        assert_eq!(
+            s.notification_counts("u", &["a".into()])
+                .await
+                .unwrap()
+                .unread,
+            1
+        );
     }
 
     #[tokio::test]
@@ -546,9 +592,13 @@ mod tests {
         let (s, _d) = setup();
         agent(&s, "a");
         let at = Utc::now();
-        s.insert_notifications(&[draft("1", "a", at), draft("2", "a", at), draft("3", "a", at)])
-            .await
-            .unwrap();
+        s.insert_notifications(&[
+            draft("1", "a", at),
+            draft("2", "a", at),
+            draft("3", "a", at),
+        ])
+        .await
+        .unwrap();
         let marked = s
             .mark_all_notifications_read("u", Utc::now(), &["a".into()])
             .await
@@ -570,8 +620,16 @@ mod tests {
             0
         );
         // A row created after the snapshot stays unread.
-        s.insert_notifications(&[draft("4", "a", Utc::now())]).await.unwrap();
-        assert_eq!(s.notification_counts("u", &["a".into()]).await.unwrap().unread, 1);
+        s.insert_notifications(&[draft("4", "a", Utc::now())])
+            .await
+            .unwrap();
+        assert_eq!(
+            s.notification_counts("u", &["a".into()])
+                .await
+                .unwrap()
+                .unread,
+            1
+        );
     }
 
     #[tokio::test]
@@ -588,7 +646,10 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(items.len(), 1);
-        assert_eq!(s.notification_counts("u", &["a".into()]).await.unwrap().all, 1);
+        assert_eq!(
+            s.notification_counts("u", &["a".into()]).await.unwrap().all,
+            1
+        );
 
         let purged = s
             .purge_notifications_before(Utc::now() - chrono::Duration::days(RETENTION_DAYS))
@@ -598,7 +659,9 @@ mod tests {
         assert_eq!(
             s.conn
                 .lock()
-                .query_row("SELECT COUNT(*) FROM notification", [], |r| r.get::<_, i64>(0))
+                .unwrap()
+                .query_row("SELECT COUNT(*) FROM notification", [], |r| r
+                    .get::<_, i64>(0))
                 .unwrap(),
             1
         );
@@ -613,7 +676,13 @@ mod tests {
             .await
             .unwrap();
         let items = s
-            .list_notifications("u", &["a".into(), "b".into()], NotificationFilter::All, None, 10)
+            .list_notifications(
+                "u",
+                &["a".into(), "b".into()],
+                NotificationFilter::All,
+                None,
+                10,
+            )
             .await
             .unwrap();
         let a_id = items.iter().find(|i| i.agent_id == "a").unwrap().id;
@@ -621,10 +690,16 @@ mod tests {
             .await
             .unwrap();
 
-        delete_agent_notifications(&s.conn.lock(), "a").unwrap();
+        delete_agent_notifications(&s.conn.lock().unwrap(), "a").unwrap();
 
         let left = s
-            .list_notifications("u", &["a".into(), "b".into()], NotificationFilter::All, None, 10)
+            .list_notifications(
+                "u",
+                &["a".into(), "b".into()],
+                NotificationFilter::All,
+                None,
+                10,
+            )
             .await
             .unwrap();
         assert_eq!(left.len(), 1);
@@ -632,7 +707,9 @@ mod tests {
         assert_eq!(
             s.conn
                 .lock()
-                .query_row("SELECT COUNT(*) FROM notification_read", [], |r| r.get::<_, i64>(0))
+                .unwrap()
+                .query_row("SELECT COUNT(*) FROM notification_read", [], |r| r
+                    .get::<_, i64>(0))
                 .unwrap(),
             0,
             "the read row cascaded"
@@ -656,14 +733,29 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(mine.len(), 2);
-        let chat = mine.iter().find(|i| i.category == NotificationCategory::ChatReply).unwrap();
+        let chat = mine
+            .iter()
+            .find(|i| i.category == NotificationCategory::ChatReply)
+            .unwrap();
         let theirs = s
             .list_notifications("bob", &["a".into()], NotificationFilter::All, None, 10)
             .await
             .unwrap();
         assert_eq!(theirs.len(), 1, "bob does not see ana's conversation");
-        assert_eq!(s.notification_counts("ana", &["a".into()]).await.unwrap().all, 2);
-        assert_eq!(s.notification_counts("bob", &["a".into()]).await.unwrap().all, 1);
+        assert_eq!(
+            s.notification_counts("ana", &["a".into()])
+                .await
+                .unwrap()
+                .all,
+            2
+        );
+        assert_eq!(
+            s.notification_counts("bob", &["a".into()])
+                .await
+                .unwrap()
+                .all,
+            1
+        );
 
         // Another person cannot even tell the addressed row exists.
         assert!(
@@ -685,7 +777,10 @@ mod tests {
         let counts = s.notification_counts("ana", &["a".into()]).await.unwrap();
         assert_eq!((counts.unread, counts.read), (1, 1));
         assert_eq!(
-            s.notification_counts("bob", &["a".into()]).await.unwrap().unread,
+            s.notification_counts("bob", &["a".into()])
+                .await
+                .unwrap()
+                .unread,
             0
         );
     }
@@ -694,8 +789,14 @@ mod tests {
     async fn orphan_cleanup_drops_rows_for_agents_that_no_longer_exist() {
         let (s, _d) = setup();
         agent(&s, "a");
-        s.insert_notifications(&[draft("1", "a", Utc::now())]).await.unwrap();
-        s.conn.lock().execute("DELETE FROM agent_config", []).unwrap();
+        s.insert_notifications(&[draft("1", "a", Utc::now())])
+            .await
+            .unwrap();
+        s.conn
+            .lock()
+            .unwrap()
+            .execute("DELETE FROM agent_config", [])
+            .unwrap();
         assert_eq!(s.purge_orphaned_notifications().await.unwrap(), 1);
     }
 
@@ -704,13 +805,13 @@ mod tests {
         let (s, _d) = setup();
         let hour = HOUR_MS;
         {
-            let conn = s.conn.lock();
+            let conn = s.conn.lock().unwrap();
             let mut n = 0;
             let mut put = |channel: &str, ts: i64, kind: &str| {
                 n += 1;
                 conn.execute(
                     "INSERT INTO session_history (uid, agent_id, channel, topic, timestamp, content_type, data, seq) VALUES (?1, 'a', ?2, NULL, ?3, ?4, '{}', ?1)",
-                    rusqlite::params![n, channel, ts, kind],
+                    params![n, channel, ts, kind],
                 )
                 .unwrap();
             };

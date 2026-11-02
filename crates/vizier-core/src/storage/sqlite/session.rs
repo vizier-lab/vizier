@@ -1,12 +1,14 @@
 use anyhow::Result;
 use chrono::DateTime;
 
+use crate::storage::sql::{self, params};
+
 use crate::{
     schema::{AgentId, TopicId, VizierChannelId, VizierSessionDetail},
     storage::{
         history::is_non_user_channel,
         session::{CONVERSATION_SEARCH_ROWS, ConversationRow, SessionStorage},
-        sqlite::SqliteStorage,
+        sqlite::SqlStorage,
     },
 };
 
@@ -20,24 +22,24 @@ fn session_detail_id(agent_id: &str, channel: &VizierChannelId, topic: &Option<T
 }
 
 #[async_trait::async_trait]
-impl SessionStorage for SqliteStorage {
+impl SessionStorage for SqlStorage {
     async fn save_session_detail(&self, session: VizierSessionDetail) -> Result<()> {
         let id = session_detail_id(&session.agent_id, &session.channel, &session.topic);
         let data = serde_json::to_string(&session)?;
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         conn.execute(
             "INSERT OR REPLACE INTO session_detail (id, agent_id, channel, topic, data) VALUES (?1, ?2, ?3, ?4, ?5)",
-            rusqlite::params![id, session.agent_id, session.channel.to_slug(), session.topic, data],
+            params![id, session.agent_id, session.channel.to_slug(), session.topic, data],
         )?;
         Ok(())
     }
 
     async fn update_session_detail(&self, session: VizierSessionDetail) -> Result<()> {
         let data = serde_json::to_string(&session)?;
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         conn.execute(
             "UPDATE session_detail SET data = ?1 WHERE agent_id = ?2 AND channel = ?3 AND topic = ?4",
-            rusqlite::params![data, session.agent_id, session.channel.to_slug(), session.topic],
+            params![data, session.agent_id, session.channel.to_slug(), session.topic],
         )?;
         Ok(())
     }
@@ -48,7 +50,7 @@ impl SessionStorage for SqliteStorage {
         q: Option<&str>,
     ) -> Result<Vec<ConversationRow>> {
         use std::collections::{BTreeMap, HashMap, HashSet};
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
 
         // Every (channel, topic) with when it began and last moved.
         let mut stmt = conn.prepare(
@@ -56,7 +58,7 @@ impl SessionStorage for SqliteStorage {
              WHERE agent_id = ?1 GROUP BY channel, topic",
         )?;
         let spans = stmt
-            .query_map(rusqlite::params![agent_id], |row| {
+            .query_map(params![agent_id], |row| {
                 Ok((
                     row.get::<_, String>(0)?,
                     row.get::<_, String>(1)?,
@@ -64,12 +66,12 @@ impl SessionStorage for SqliteStorage {
                     row.get::<_, i64>(3)?,
                 ))
             })?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
+            .collect::<sql::Result<Vec<_>>>()?;
 
         let mut titles: HashMap<(String, String), String> = HashMap::new();
         let mut stmt = conn.prepare("SELECT data FROM session_detail WHERE agent_id = ?1")?;
         for data in stmt
-            .query_map(rusqlite::params![agent_id], |row| row.get::<_, String>(0))?
+            .query_map(params![agent_id], |row| row.get::<_, String>(0))?
             .flatten()
         {
             if let Ok(detail) = serde_json::from_str::<VizierSessionDetail>(&data) {
@@ -98,7 +100,7 @@ impl SessionStorage for SqliteStorage {
             );
             by_message.extend(
                 stmt.query_map(
-                    rusqlite::params![agent_id, CONVERSATION_SEARCH_ROWS as i64, like],
+                    params![agent_id, CONVERSATION_SEARCH_ROWS as i64, like],
                     |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
                 )?
                 .flatten(),
@@ -189,7 +191,7 @@ impl SessionStorage for SqliteStorage {
     }
 
     async fn thinking_agents(&self) -> Result<std::collections::HashSet<String>> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let mut stmt = conn.prepare(
             "SELECT DISTINCT agent_id FROM session_detail WHERE json_extract(data, '$.is_thinking') = 1",
         )?;
@@ -201,14 +203,14 @@ impl SessionStorage for SqliteStorage {
     }
 
     async fn reset_thinking_except(&self, keep: &[crate::schema::VizierSession]) -> Result<usize> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let rows: Vec<(String, String, Option<String>, String)> = {
             let mut stmt =
                 conn.prepare("SELECT agent_id, channel, topic, data FROM session_detail")?;
             stmt.query_map([], |row| {
                 Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
             })?
-            .collect::<rusqlite::Result<_>>()?
+            .collect::<sql::Result<_>>()?
         };
         let kept: std::collections::HashSet<(String, String, String)> = keep
             .iter()
@@ -232,7 +234,7 @@ impl SessionStorage for SqliteStorage {
             detail.is_thinking = false;
             conn.execute(
                 "UPDATE session_detail SET data = ?1 WHERE agent_id = ?2 AND channel = ?3 AND topic IS ?4",
-                rusqlite::params![serde_json::to_string(&detail)?, agent, channel, topic],
+                params![serde_json::to_string(&detail)?, agent, channel, topic],
             )?;
             reset += 1;
         }
@@ -246,19 +248,16 @@ impl SessionStorage for SqliteStorage {
         topic: Option<TopicId>,
         is_thinking: bool,
     ) -> Result<()> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         // Read existing
         let data: String = {
             let mut stmt = conn.prepare(
                 "SELECT data FROM session_detail WHERE agent_id = ?1 AND channel = ?2 AND topic = ?3",
             )?;
-            let mut rows = stmt.query_map(
-                rusqlite::params![agent_id, channel.to_slug(), topic],
-                |row| {
-                    let data: String = row.get(0)?;
-                    Ok(data)
-                },
-            )?;
+            let mut rows = stmt.query_map(params![agent_id, channel.to_slug(), topic], |row| {
+                let data: String = row.get(0)?;
+                Ok(data)
+            })?;
             match rows.next() {
                 Some(Ok(d)) => d,
                 _ => return Ok(()), // Not found, nothing to update
@@ -271,7 +270,7 @@ impl SessionStorage for SqliteStorage {
         let new_data = serde_json::to_string(&detail)?;
         conn.execute(
             "UPDATE session_detail SET data = ?1 WHERE agent_id = ?2 AND channel = ?3 AND topic = ?4",
-            rusqlite::params![new_data, agent_id, channel.to_slug(), topic],
+            params![new_data, agent_id, channel.to_slug(), topic],
         )?;
         Ok(())
     }
@@ -282,17 +281,14 @@ impl SessionStorage for SqliteStorage {
         channel: VizierChannelId,
         topic: Option<TopicId>,
     ) -> Result<Option<VizierSessionDetail>> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let mut stmt = conn.prepare(
             "SELECT data FROM session_detail WHERE agent_id = ?1 AND channel = ?2 AND topic = ?3",
         )?;
-        let mut rows = stmt.query_map(
-            rusqlite::params![agent_id, channel.to_slug(), topic],
-            |row| {
-                let data: String = row.get(0)?;
-                Ok(data)
-            },
-        )?;
+        let mut rows = stmt.query_map(params![agent_id, channel.to_slug(), topic], |row| {
+            let data: String = row.get(0)?;
+            Ok(data)
+        })?;
 
         match rows.next() {
             Some(Ok(data)) => Ok(Some(serde_json::from_str(&data)?)),
@@ -306,24 +302,24 @@ impl SessionStorage for SqliteStorage {
         agent_id: AgentId,
         channel: Option<VizierChannelId>,
     ) -> Result<Vec<VizierSessionDetail>> {
-        let conn = self.conn.lock();
-        let (sql, params): (&str, Vec<Box<dyn rusqlite::types::ToSql>>) = match &channel {
+        let conn = self.conn.lock()?;
+        let (sql, params): (&str, Vec<Box<dyn sql::ToSql>>) = match &channel {
             Some(ch) => (
                 "SELECT data FROM session_detail WHERE agent_id = ?1 AND channel = ?2",
                 vec![
-                    Box::new(agent_id.clone()) as Box<dyn rusqlite::types::ToSql>,
+                    Box::new(agent_id.clone()) as Box<dyn sql::ToSql>,
                     Box::new(ch.to_slug()),
                 ],
             ),
             None => (
                 "SELECT data FROM session_detail WHERE agent_id = ?1",
-                vec![Box::new(agent_id.clone()) as Box<dyn rusqlite::types::ToSql>],
+                vec![Box::new(agent_id.clone()) as Box<dyn sql::ToSql>],
             ),
         };
 
         let mut stmt = conn.prepare(sql)?;
         let details = stmt
-            .query_map(rusqlite::params_from_iter(params.iter()), |row| {
+            .query_map(sql::params_from_iter(params.iter()), |row| {
                 let data: String = row.get(0)?;
                 Ok(data)
             })?
@@ -339,10 +335,10 @@ impl SessionStorage for SqliteStorage {
         channel: VizierChannelId,
         topic: TopicId,
     ) -> Result<()> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         conn.execute(
             "DELETE FROM session_detail WHERE agent_id = ?1 AND channel = ?2 AND topic = ?3",
-            rusqlite::params![agent_id, channel.to_slug(), topic],
+            params![agent_id, channel.to_slug(), topic],
         )?;
 
         // The jobs launched from this topic go with it, so no orphaned rows remain to
@@ -352,35 +348,35 @@ impl SessionStorage for SqliteStorage {
         conn.execute(
             "DELETE FROM background_piece WHERE job_id IN (SELECT id FROM background_job \
              WHERE origin_agent = ?1 AND origin_channel = ?2 AND origin_topic IS ?3)",
-            rusqlite::params![agent_id, origin_channel, topic],
+            params![agent_id, origin_channel, topic],
         )?;
         conn.execute(
             "DELETE FROM background_job \
              WHERE origin_agent = ?1 AND origin_channel = ?2 AND origin_topic IS ?3",
-            rusqlite::params![agent_id, origin_channel, topic],
+            params![agent_id, origin_channel, topic],
         )?;
 
         // The topic's client tool calls, and the state its pages saved, go with it.
         conn.execute(
             "DELETE FROM client_tool_call WHERE agent_id = ?1 AND channel = ?2 AND topic IS ?3",
-            rusqlite::params![agent_id, channel.to_slug(), topic],
+            params![agent_id, channel.to_slug(), topic],
         )?;
         // The questions it asked, and the values it asked for.
         super::question::delete_session(&conn, &agent_id, &channel.to_slug(), &topic)?;
         // So do its scratch files.
         conn.execute(
             "DELETE FROM scratch_file WHERE agent_id = ?1 AND channel = ?2 AND topic = ?3",
-            rusqlite::params![agent_id, channel.to_slug(), topic],
+            params![agent_id, channel.to_slug(), topic],
         )?;
         // Its saved mode goes with the topic (`specs/041-project-coding-workspace` §2).
         conn.execute(
             "DELETE FROM project_chat WHERE agent_id = ?1 AND channel = ?2 AND topic = ?3",
-            rusqlite::params![agent_id, channel.to_slug(), topic],
+            params![agent_id, channel.to_slug(), topic],
         )?;
         // And its pending turns.
         conn.execute(
             "DELETE FROM session_turn WHERE agent_id = ?1 AND channel = ?2 AND topic = COALESCE(?3, '')",
-            rusqlite::params![agent_id, channel.to_slug(), topic],
+            params![agent_id, channel.to_slug(), topic],
         )?;
 
         // Its messages go with it: the history rows, and the reactions and platform links
@@ -390,16 +386,18 @@ impl SessionStorage for SqliteStorage {
              AND (topic = ?3 OR (?3 = '' AND topic IS NULL))";
         conn.execute(
             &format!("DELETE FROM message_reaction WHERE history_uid IN ({history_of_session})"),
-            rusqlite::params![agent_id, channel.to_slug(), topic],
+            params![agent_id, channel.to_slug(), topic],
         )?;
         conn.execute(
-            &format!("DELETE FROM platform_message_link WHERE history_uid IN ({history_of_session})"),
-            rusqlite::params![agent_id, channel.to_slug(), topic],
+            &format!(
+                "DELETE FROM platform_message_link WHERE history_uid IN ({history_of_session})"
+            ),
+            params![agent_id, channel.to_slug(), topic],
         )?;
         conn.execute(
             "DELETE FROM session_history WHERE agent_id = ?1 AND channel = ?2 \
              AND (topic = ?3 OR (?3 = '' AND topic IS NULL))",
-            rusqlite::params![agent_id, channel.to_slug(), topic],
+            params![agent_id, channel.to_slug(), topic],
         )?;
 
         // Its transient session-file records and message artifact references go with it; the
@@ -407,11 +405,11 @@ impl SessionStorage for SqliteStorage {
         let session_slug = format!("{}__{}__{}", agent_id, channel.to_slug(), topic);
         conn.execute(
             "DELETE FROM session_file WHERE agent_id = ?1 AND session_slug = ?2",
-            rusqlite::params![agent_id, session_slug],
+            params![agent_id, session_slug],
         )?;
         conn.execute(
             "DELETE FROM artifact_reference WHERE kind = 'message' AND agent_id = ?1 AND session_slug = ?2",
-            rusqlite::params![agent_id, session_slug],
+            params![agent_id, session_slug],
         )?;
         Ok(())
     }
@@ -421,13 +419,13 @@ impl SessionStorage for SqliteStorage {
 mod tests {
     use std::sync::Arc;
 
-    use parking_lot::Mutex;
+    use crate::storage::sql::SqlStore;
     use rusqlite::Connection;
 
     use super::*;
     use crate::storage::document::LocalDocumentStore;
 
-    fn setup() -> (SqliteStorage, tempfile::TempDir) {
+    fn setup() -> (SqlStorage, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
         let conn = Connection::open_in_memory().unwrap();
         crate::storage::sqlite::init_artifact_schema(&conn).unwrap();
@@ -437,15 +435,15 @@ mod tests {
              topic TEXT, data TEXT NOT NULL);",
         )
         .unwrap();
-        let storage = SqliteStorage::new(
-            Arc::new(Mutex::new(conn)),
+        let storage = SqlStorage::new(
+            SqlStore::sqlite(conn),
             Arc::new(LocalDocumentStore::new(dir.path().to_path_buf())),
         );
         (storage, dir)
     }
 
     fn say(
-        s: &SqliteStorage,
+        s: &SqlStorage,
         n: &mut i64,
         agent: &str,
         channel: &str,
@@ -456,15 +454,16 @@ mod tests {
         *n += 1;
         s.conn
             .lock()
+            .unwrap()
             .execute(
                 "INSERT INTO session_history (uid, agent_id, channel, topic, timestamp, content_type, data, seq) \
                  VALUES (?1, ?2, ?3, ?4, ?5, 'Request', ?6, ?1)",
-                rusqlite::params![n.to_string(), agent, channel, topic, ts, serde_json::json!({ "text": text }).to_string()],
+                params![n.to_string(), agent, channel, topic, ts, serde_json::json!({ "text": text }).to_string()],
             )
             .unwrap();
     }
 
-    fn title(s: &SqliteStorage, agent: &str, channel: VizierChannelId, topic: &str, title: &str) {
+    fn title(s: &SqlStorage, agent: &str, channel: VizierChannelId, topic: &str, title: &str) {
         let detail = VizierSessionDetail {
             agent_id: agent.into(),
             channel: channel.clone(),
@@ -474,9 +473,10 @@ mod tests {
         };
         s.conn
             .lock()
+            .unwrap()
             .execute(
                 "INSERT INTO session_detail (id, agent_id, channel, topic, data) VALUES (?1, ?2, ?3, ?4, ?5)",
-                rusqlite::params![format!("{agent}#{}#{topic}", channel.to_slug()), agent, channel.to_slug(), topic, serde_json::to_string(&detail).unwrap()],
+                params![format!("{agent}#{}#{topic}", channel.to_slug()), agent, channel.to_slug(), topic, serde_json::to_string(&detail).unwrap()],
             )
             .unwrap();
     }
@@ -485,9 +485,9 @@ mod tests {
     async fn deleting_a_session_deletes_its_messages_and_nothing_else() {
         let dir = tempfile::tempdir().unwrap();
         let conn = Connection::open_in_memory().unwrap();
-        SqliteStorage::init_schema(&conn).unwrap();
-        let s = SqliteStorage::new(
-            Arc::new(Mutex::new(conn)),
+        SqlStorage::init_schema(&conn).unwrap();
+        let s = SqlStorage::new(
+            SqlStore::sqlite(conn),
             Arc::new(LocalDocumentStore::new(dir.path().to_path_buf())),
         );
         let mut n = 0;
@@ -498,7 +498,7 @@ mod tests {
         say(&s, &mut n, "a", "discord__1", None, 3, "kept channel");
         title(&s, "a", channel.clone(), "t1", "doomed");
         {
-            let conn = s.conn.lock();
+            let conn = s.conn.lock().unwrap();
             conn.execute(
                 "INSERT INTO message_reaction (history_uid, reactor_id, emoji, added_at) VALUES ('1', 'u', 'x', 0)",
                 [],
@@ -512,10 +512,21 @@ mod tests {
             .unwrap();
         }
 
-        s.delete_session("a".into(), channel, "t1".into()).await.unwrap();
+        s.delete_session("a".into(), channel, "t1".into())
+            .await
+            .unwrap();
 
-        let count = |sql: &str| -> i64 { s.conn.lock().query_row(sql, [], |r| r.get(0)).unwrap() };
-        assert_eq!(count("SELECT COUNT(*) FROM session_history WHERE topic = 't1'"), 0);
+        let count = |sql: &str| -> i64 {
+            s.conn
+                .lock()
+                .unwrap()
+                .query_row(sql, [], |r| r.get(0))
+                .unwrap()
+        };
+        assert_eq!(
+            count("SELECT COUNT(*) FROM session_history WHERE topic = 't1'"),
+            0
+        );
         assert_eq!(count("SELECT COUNT(*) FROM session_history"), 2);
         assert_eq!(count("SELECT COUNT(*) FROM message_reaction"), 0);
         assert_eq!(count("SELECT COUNT(*) FROM platform_message_link"), 0);
@@ -651,8 +662,24 @@ mod tests {
     async fn project_chats_stay_out_of_the_regular_list_and_search() {
         let (s, _d) = setup();
         let mut n = 0;
-        say(&s, &mut n, "a", "project__ana__p3xY9aQ2mZ", Some("t1"), 100, "rename the parser");
-        say(&s, &mut n, "a", "http__ana__vizier-webui", Some("t0"), 50, "hello");
+        say(
+            &s,
+            &mut n,
+            "a",
+            "project__ana__p3xY9aQ2mZ",
+            Some("t1"),
+            100,
+            "rename the parser",
+        );
+        say(
+            &s,
+            &mut n,
+            "a",
+            "http__ana__vizier-webui",
+            Some("t0"),
+            50,
+            "hello",
+        );
         title(
             &s,
             "a",
@@ -666,8 +693,19 @@ mod tests {
             "{rows:?}"
         );
         // Neither its title nor its message text surfaces through search.
-        assert!(s.conversation_rows("a", Some("parser work")).await.unwrap().iter().all(|r| !r.channel.starts_with("project__")));
-        assert!(s.conversation_rows("a", Some("rename the parser")).await.unwrap().iter().all(|r| !r.channel.starts_with("project__")));
+        assert!(
+            s.conversation_rows("a", Some("parser work"))
+                .await
+                .unwrap()
+                .iter()
+                .all(|r| !r.channel.starts_with("project__"))
+        );
+        assert!(
+            s.conversation_rows("a", Some("rename the parser"))
+                .await
+                .unwrap()
+                .iter()
+                .all(|r| !r.channel.starts_with("project__"))
+        );
     }
-
 }

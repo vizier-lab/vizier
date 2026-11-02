@@ -2,16 +2,16 @@
 //! delete is one transaction with its event row, `created_at` survives a replace, and the
 //! only read that returns a value is `get_agent_secret`.
 
+use crate::storage::sql::{Connection, OptionalExtension, params};
 use anyhow::Result;
 use chrono::{DateTime, Utc};
-use rusqlite::{Connection, OptionalExtension};
 use uuid::Uuid;
 
 use crate::{
     schema::{AgentSecretEvent, Requester, SecretAction},
     storage::{
         secret::{SecretOutcome, SecretRecord, SecretStorage, SecretWrite},
-        sqlite::SqliteStorage,
+        sqlite::SqlStorage,
     },
     utils::mask_secret,
 };
@@ -25,7 +25,9 @@ fn action_text(action: SecretAction) -> String {
 }
 
 fn parse_action(text: &str) -> Result<SecretAction> {
-    Ok(serde_json::from_value(serde_json::Value::String(text.to_string()))?)
+    Ok(serde_json::from_value(serde_json::Value::String(
+        text.to_string(),
+    ))?)
 }
 
 fn parse_time(text: &str) -> Result<DateTime<Utc>> {
@@ -42,7 +44,7 @@ fn event_row(
     conn.execute(
         "INSERT INTO agent_secret_event (id, agent_id, name, action, actor, at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        rusqlite::params![
+        params![
             Uuid::new_v4().to_string(),
             agent_id,
             name,
@@ -58,17 +60,17 @@ fn event_row(
 pub(crate) fn delete_agent_secrets(conn: &Connection, agent_id: &str) -> Result<()> {
     conn.execute(
         "DELETE FROM agent_secret WHERE agent_id = ?1",
-        rusqlite::params![agent_id],
+        params![agent_id],
     )?;
     conn.execute(
         "DELETE FROM agent_secret_event WHERE agent_id = ?1",
-        rusqlite::params![agent_id],
+        params![agent_id],
     )?;
     Ok(())
 }
 
 #[async_trait::async_trait]
-impl SecretStorage for SqliteStorage {
+impl SecretStorage for SqlStorage {
     async fn set_agent_secret(
         &self,
         agent_id: &str,
@@ -76,7 +78,7 @@ impl SecretStorage for SqliteStorage {
         value: &str,
         actor: &Requester,
     ) -> Result<SecretWrite> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let tx = conn.unchecked_transaction()?;
         let now = Utc::now().to_rfc3339();
 
@@ -85,7 +87,7 @@ impl SecretStorage for SqliteStorage {
         let created_at: Option<String> = tx
             .query_row(
                 "SELECT created_at FROM agent_secret WHERE agent_id = ?1 AND name = ?2",
-                rusqlite::params![agent_id, name],
+                params![agent_id, name],
                 |row| row.get(0),
             )
             .optional()?;
@@ -111,7 +113,7 @@ impl SecretStorage for SqliteStorage {
                  value = excluded.value,
                  updated_at = excluded.updated_at,
                  updated_by = excluded.updated_by",
-            rusqlite::params![agent_id, name, stored, created_at, now, actor_json],
+            params![agent_id, name, stored, created_at, now, actor_json],
         )?;
         event_row(
             &tx,
@@ -138,11 +140,11 @@ impl SecretStorage for SqliteStorage {
     }
 
     async fn get_agent_secret(&self, agent_id: &str, name: &str) -> Result<Option<String>> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let stored: Option<String> = conn
             .query_row(
                 "SELECT value FROM agent_secret WHERE agent_id = ?1 AND name = ?2",
-                rusqlite::params![agent_id, name],
+                params![agent_id, name],
                 |row| row.get(0),
             )
             .optional()?;
@@ -159,16 +161,22 @@ impl SecretStorage for SqliteStorage {
     }
 
     async fn list_agent_secrets(&self, agent_id: &str) -> Result<Vec<SecretRecord>> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let mut stmt = conn.prepare(
             "SELECT name, value, created_at, updated_at, updated_by
              FROM agent_secret WHERE agent_id = ?1 ORDER BY name",
         )?;
         let rows: Vec<(String, String, String, String, String)> = stmt
-            .query_map(rusqlite::params![agent_id], |row| {
-                Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?))
+            .query_map(params![agent_id], |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                ))
             })?
-            .collect::<rusqlite::Result<_>>()?;
+            .collect::<crate::storage::sql::Result<_>>()?;
 
         rows.into_iter()
             .map(|(name, value, created_at, updated_at, updated_by)| {
@@ -195,11 +203,11 @@ impl SecretStorage for SqliteStorage {
         name: &str,
         actor: &Requester,
     ) -> Result<bool> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let tx = conn.unchecked_transaction()?;
         let deleted = tx.execute(
             "DELETE FROM agent_secret WHERE agent_id = ?1 AND name = ?2",
-            rusqlite::params![agent_id, name],
+            params![agent_id, name],
         )?;
         if deleted > 0 {
             event_row(&tx, agent_id, name, SecretAction::Deleted, actor)?;
@@ -213,14 +221,14 @@ impl SecretStorage for SqliteStorage {
         agent_id: &str,
         limit: usize,
     ) -> Result<Vec<AgentSecretEvent>> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let mut stmt = conn.prepare(
             "SELECT id, agent_id, name, action, actor, at
              FROM agent_secret_event WHERE agent_id = ?1
              ORDER BY at DESC, rowid DESC LIMIT ?2",
         )?;
         let rows: Vec<(String, String, String, String, String, String)> = stmt
-            .query_map(rusqlite::params![agent_id, limit as i64], |row| {
+            .query_map(params![agent_id, limit as i64], |row| {
                 Ok((
                     row.get(0)?,
                     row.get(1)?,
@@ -230,7 +238,7 @@ impl SecretStorage for SqliteStorage {
                     row.get(5)?,
                 ))
             })?
-            .collect::<rusqlite::Result<_>>()?;
+            .collect::<crate::storage::sql::Result<_>>()?;
 
         rows.into_iter()
             .map(|(id, agent_id, name, action, actor, at)| {
@@ -251,17 +259,15 @@ impl SecretStorage for SqliteStorage {
 mod tests {
     use std::sync::Arc;
 
-    use parking_lot::Mutex;
-
     use super::*;
     use crate::storage::{document::LocalDocumentStore, sqlite::init_secret_schema};
 
-    fn setup() -> (SqliteStorage, tempfile::TempDir) {
+    fn setup() -> (SqlStorage, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
-        let conn = Connection::open_in_memory().unwrap();
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
         init_secret_schema(&conn).unwrap();
-        let storage = SqliteStorage::new(
-            Arc::new(Mutex::new(conn)),
+        let storage = SqlStorage::new(
+            crate::storage::sql::SqlStore::sqlite(conn),
             Arc::new(LocalDocumentStore::new(dir.path().to_path_buf())),
         );
         (storage, dir)
@@ -275,7 +281,7 @@ mod tests {
         Requester::User("user-1".into())
     }
 
-    async fn names(storage: &SqliteStorage, agent_id: &str) -> Vec<String> {
+    async fn names(storage: &SqlStorage, agent_id: &str) -> Vec<String> {
         storage
             .list_agent_secrets(agent_id)
             .await
@@ -285,7 +291,7 @@ mod tests {
             .collect()
     }
 
-    async fn actions(storage: &SqliteStorage, agent_id: &str) -> Vec<SecretAction> {
+    async fn actions(storage: &SqlStorage, agent_id: &str) -> Vec<SecretAction> {
         storage
             .list_agent_secret_events(agent_id, 100)
             .await
@@ -308,10 +314,17 @@ mod tests {
         assert_eq!(write.record.updated_by, agent());
 
         assert_eq!(
-            storage.get_agent_secret("dp-a", "TOKEN").await.unwrap().as_deref(),
+            storage
+                .get_agent_secret("dp-a", "TOKEN")
+                .await
+                .unwrap()
+                .as_deref(),
             Some("agent-token-abc123")
         );
-        assert_eq!(storage.get_agent_secret("dp-a", "OTHER").await.unwrap(), None);
+        assert_eq!(
+            storage.get_agent_secret("dp-a", "OTHER").await.unwrap(),
+            None
+        );
         assert_eq!(names(&storage, "dp-a").await, ["TOKEN"]);
         assert_eq!(actions(&storage, "dp-a").await, [SecretAction::Created]);
     }
@@ -335,7 +348,11 @@ mod tests {
         assert!(second.record.updated_at >= first.record.updated_at);
         assert_eq!(names(&storage, "dp-a").await, ["TOKEN"]);
         assert_eq!(
-            storage.get_agent_secret("dp-a", "TOKEN").await.unwrap().as_deref(),
+            storage
+                .get_agent_secret("dp-a", "TOKEN")
+                .await
+                .unwrap()
+                .as_deref(),
             Some("second-value-2")
         );
         assert_eq!(
@@ -349,9 +366,16 @@ mod tests {
     async fn a_value_round_trips_exactly() {
         let (storage, _dir) = setup();
         let value = "  line one\nline two\r\n  trailing  ";
-        storage.set_agent_secret("dp-a", "MULTI", value, &agent()).await.unwrap();
+        storage
+            .set_agent_secret("dp-a", "MULTI", value, &agent())
+            .await
+            .unwrap();
         assert_eq!(
-            storage.get_agent_secret("dp-a", "MULTI").await.unwrap().as_deref(),
+            storage
+                .get_agent_secret("dp-a", "MULTI")
+                .await
+                .unwrap()
+                .as_deref(),
             Some(value)
         );
     }
@@ -359,8 +383,15 @@ mod tests {
     #[tokio::test]
     async fn list_masks_and_sorts_by_name() {
         let (storage, _dir) = setup();
-        for (name, value) in [("zeta", "value-zeta-1"), ("Alpha", "value-alpha"), ("alpha", "value-alph2")] {
-            storage.set_agent_secret("dp-a", name, value, &agent()).await.unwrap();
+        for (name, value) in [
+            ("zeta", "value-zeta-1"),
+            ("Alpha", "value-alpha"),
+            ("alpha", "value-alph2"),
+        ] {
+            storage
+                .set_agent_secret("dp-a", name, value, &agent())
+                .await
+                .unwrap();
         }
         let list = storage.list_agent_secrets("dp-a").await.unwrap();
         let names: Vec<&str> = list.iter().map(|s| s.name.as_str()).collect();
@@ -369,17 +400,30 @@ mod tests {
         // tx-zeta-1's last four characters.
         assert_eq!(list[2].masked, "••••ta-1");
         // No record carries the value anywhere.
-        let json = serde_json::to_string(&list.iter().map(|s| s.masked.clone()).collect::<Vec<_>>()).unwrap();
+        let json =
+            serde_json::to_string(&list.iter().map(|s| s.masked.clone()).collect::<Vec<_>>())
+                .unwrap();
         assert!(!json.contains("value-zeta-1"));
     }
 
     #[tokio::test]
     async fn a_delete_removes_the_row_and_records_it_once() {
         let (storage, _dir) = setup();
-        storage.set_agent_secret("dp-a", "TOKEN", "agent-token-abc123", &agent()).await.unwrap();
+        storage
+            .set_agent_secret("dp-a", "TOKEN", "agent-token-abc123", &agent())
+            .await
+            .unwrap();
 
-        assert!(storage.delete_agent_secret("dp-a", "TOKEN", &alice()).await.unwrap());
-        assert_eq!(storage.get_agent_secret("dp-a", "TOKEN").await.unwrap(), None);
+        assert!(
+            storage
+                .delete_agent_secret("dp-a", "TOKEN", &alice())
+                .await
+                .unwrap()
+        );
+        assert_eq!(
+            storage.get_agent_secret("dp-a", "TOKEN").await.unwrap(),
+            None
+        );
         assert!(names(&storage, "dp-a").await.is_empty());
         assert_eq!(
             actions(&storage, "dp-a").await,
@@ -387,7 +431,12 @@ mod tests {
         );
 
         // A delete of a name that does not exist changes nothing and records nothing.
-        assert!(!storage.delete_agent_secret("dp-a", "TOKEN", &alice()).await.unwrap());
+        assert!(
+            !storage
+                .delete_agent_secret("dp-a", "TOKEN", &alice())
+                .await
+                .unwrap()
+        );
         assert_eq!(actions(&storage, "dp-a").await.len(), 2);
     }
 
@@ -395,13 +444,26 @@ mod tests {
     #[tokio::test]
     async fn a_name_set_after_a_delete_is_created_again() {
         let (storage, _dir) = setup();
-        let first = storage.set_agent_secret("dp-a", "T", "first-value-1", &agent()).await.unwrap();
-        storage.delete_agent_secret("dp-a", "T", &agent()).await.unwrap();
-        let again = storage.set_agent_secret("dp-a", "T", "second-value-2", &agent()).await.unwrap();
+        let first = storage
+            .set_agent_secret("dp-a", "T", "first-value-1", &agent())
+            .await
+            .unwrap();
+        storage
+            .delete_agent_secret("dp-a", "T", &agent())
+            .await
+            .unwrap();
+        let again = storage
+            .set_agent_secret("dp-a", "T", "second-value-2", &agent())
+            .await
+            .unwrap();
         assert_eq!(again.outcome, SecretOutcome::Created);
         assert!(again.record.created_at >= first.record.created_at);
         assert_eq!(
-            storage.get_agent_secret("dp-a", "T").await.unwrap().as_deref(),
+            storage
+                .get_agent_secret("dp-a", "T")
+                .await
+                .unwrap()
+                .as_deref(),
             Some("second-value-2")
         );
     }
@@ -410,15 +472,29 @@ mod tests {
     #[tokio::test]
     async fn agents_never_see_each_others_secrets() {
         let (storage, _dir) = setup();
-        storage.set_agent_secret("dp-a", "TOKEN", "agent-a-token-1", &agent()).await.unwrap();
-        storage.set_agent_secret("dp-b", "TOKEN", "agent-b-token-2", &agent()).await.unwrap();
+        storage
+            .set_agent_secret("dp-a", "TOKEN", "agent-a-token-1", &agent())
+            .await
+            .unwrap();
+        storage
+            .set_agent_secret("dp-b", "TOKEN", "agent-b-token-2", &agent())
+            .await
+            .unwrap();
 
         assert_eq!(
-            storage.get_agent_secret("dp-a", "TOKEN").await.unwrap().as_deref(),
+            storage
+                .get_agent_secret("dp-a", "TOKEN")
+                .await
+                .unwrap()
+                .as_deref(),
             Some("agent-a-token-1")
         );
         assert_eq!(
-            storage.get_agent_secret("dp-b", "TOKEN").await.unwrap().as_deref(),
+            storage
+                .get_agent_secret("dp-b", "TOKEN")
+                .await
+                .unwrap()
+                .as_deref(),
             Some("agent-b-token-2")
         );
         assert_eq!(
@@ -426,9 +502,18 @@ mod tests {
             None
         );
 
-        assert!(storage.delete_agent_secret("dp-a", "TOKEN", &agent()).await.unwrap());
+        assert!(
+            storage
+                .delete_agent_secret("dp-a", "TOKEN", &agent())
+                .await
+                .unwrap()
+        );
         assert_eq!(
-            storage.get_agent_secret("dp-b", "TOKEN").await.unwrap().as_deref(),
+            storage
+                .get_agent_secret("dp-b", "TOKEN")
+                .await
+                .unwrap()
+                .as_deref(),
             Some("agent-b-token-2")
         );
     }
@@ -438,9 +523,18 @@ mod tests {
     #[tokio::test]
     async fn events_are_newest_first_and_hold_no_value() {
         let (storage, _dir) = setup();
-        storage.set_agent_secret("dp-a", "TOKEN", "sensitive-value-1", &agent()).await.unwrap();
-        storage.set_agent_secret("dp-a", "TOKEN", "sensitive-value-2", &alice()).await.unwrap();
-        storage.delete_agent_secret("dp-a", "TOKEN", &alice()).await.unwrap();
+        storage
+            .set_agent_secret("dp-a", "TOKEN", "sensitive-value-1", &agent())
+            .await
+            .unwrap();
+        storage
+            .set_agent_secret("dp-a", "TOKEN", "sensitive-value-2", &alice())
+            .await
+            .unwrap();
+        storage
+            .delete_agent_secret("dp-a", "TOKEN", &alice())
+            .await
+            .unwrap();
 
         let events = storage.list_agent_secret_events("dp-a", 20).await.unwrap();
         assert_eq!(events.len(), 3);
@@ -455,31 +549,68 @@ mod tests {
             assert!(!json.contains("sensitive-value"), "{json}");
         }
 
-        assert_eq!(storage.list_agent_secret_events("dp-a", 1).await.unwrap().len(), 1);
-        assert!(storage.list_agent_secret_events("dp-b", 20).await.unwrap().is_empty());
+        assert_eq!(
+            storage
+                .list_agent_secret_events("dp-a", 1)
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
+        assert!(
+            storage
+                .list_agent_secret_events("dp-b", 20)
+                .await
+                .unwrap()
+                .is_empty()
+        );
     }
 
     /// Deleting an agent removes both tables' rows for it and nothing for anyone else.
     #[tokio::test]
     async fn deleting_an_agent_removes_its_secrets_and_events() {
         let (storage, _dir) = setup();
-        storage.set_agent_secret("dp-a", "TOKEN", "agent-a-token-1", &agent()).await.unwrap();
-        storage.set_agent_secret("dp-b", "TOKEN", "agent-b-token-2", &agent()).await.unwrap();
+        storage
+            .set_agent_secret("dp-a", "TOKEN", "agent-a-token-1", &agent())
+            .await
+            .unwrap();
+        storage
+            .set_agent_secret("dp-b", "TOKEN", "agent-b-token-2", &agent())
+            .await
+            .unwrap();
 
         {
-            let conn = storage.conn.lock();
+            let conn = storage.conn.lock().unwrap();
             delete_agent_secrets(&conn, "dp-a").unwrap();
             let secrets: i64 = conn
-                .query_row("SELECT count(*) FROM agent_secret WHERE agent_id = 'dp-a'", [], |r| r.get(0))
+                .query_row(
+                    "SELECT count(*) FROM agent_secret WHERE agent_id = 'dp-a'",
+                    [],
+                    |r| r.get(0),
+                )
                 .unwrap();
             let events: i64 = conn
-                .query_row("SELECT count(*) FROM agent_secret_event WHERE agent_id = 'dp-a'", [], |r| r.get(0))
+                .query_row(
+                    "SELECT count(*) FROM agent_secret_event WHERE agent_id = 'dp-a'",
+                    [],
+                    |r| r.get(0),
+                )
                 .unwrap();
             assert_eq!((secrets, events), (0, 0));
         }
-        assert!(!storage.list_agent_secret_events("dp-b", 20).await.unwrap().is_empty());
+        assert!(
+            !storage
+                .list_agent_secret_events("dp-b", 20)
+                .await
+                .unwrap()
+                .is_empty()
+        );
         assert_eq!(
-            storage.get_agent_secret("dp-b", "TOKEN").await.unwrap().as_deref(),
+            storage
+                .get_agent_secret("dp-b", "TOKEN")
+                .await
+                .unwrap()
+                .as_deref(),
             Some("agent-b-token-2")
         );
     }
@@ -505,13 +636,18 @@ mod tests {
         assert!(raw.starts_with("enc:v1:"), "{raw}");
         assert!(!raw.contains("agent-token-abc123"));
         assert_eq!(
-            storage.get_agent_secret("dp-a", "TOKEN").await.unwrap().as_deref(),
+            storage
+                .get_agent_secret("dp-a", "TOKEN")
+                .await
+                .unwrap()
+                .as_deref(),
             Some("agent-token-abc123")
         );
 
         storage
             .conn
             .lock()
+            .unwrap()
             .execute("UPDATE agent_secret SET value = value || 'x'", [])
             .unwrap();
         let err = storage.get_agent_secret("dp-a", "TOKEN").await.unwrap_err();

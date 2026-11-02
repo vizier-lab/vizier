@@ -546,19 +546,16 @@ pub fn session_filename(artifact_id: &str, name: &str) -> String {
 mod tests {
     use super::*;
     use crate::storage::document::LocalDocumentStore;
-    use parking_lot::Mutex;
     use std::sync::Arc;
 
     fn service() -> (Artifacts, Arc<VizierStorage>, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
         let conn = rusqlite::Connection::open_in_memory().unwrap();
         crate::storage::sqlite::init_artifact_schema(&conn).unwrap();
-        let storage = Arc::new(VizierStorage::new(
-            crate::storage::sqlite::SqliteStorage::new(
-                Arc::new(Mutex::new(conn)),
-                Arc::new(LocalDocumentStore::new(dir.path().to_path_buf())),
-            ),
-        ));
+        let storage = Arc::new(VizierStorage::new(crate::storage::sqlite::SqlStorage::new(
+            crate::storage::sql::SqlStore::sqlite(conn),
+            Arc::new(LocalDocumentStore::new(dir.path().to_path_buf())),
+        )));
         let fm = FileManager::new(dir.path().to_string_lossy().to_string());
         (
             Artifacts::new(dir.path(), storage.clone(), fm),

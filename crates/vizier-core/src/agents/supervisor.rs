@@ -156,7 +156,7 @@ async fn build_indexer(
         _ => return Ok(None),
     };
 
-    let conn = deps.sqlite_conn.clone();
+    let conn = deps.sql.clone();
 
     let embedder = Arc::new(
         VizierEmbedder::from_agent_settings(emb_settings, deps, &deps.config.workspace, agent_id)
@@ -199,9 +199,7 @@ async fn note_index_dimension(
     // so nothing is dropped. Any other first record may have left vectors in another width's table,
     // and a new agent simply has no rows to drop.
     let fresh_on_legacy = last.is_none() && legacy_table;
-    if !fresh_on_legacy
-        && let Err(e) = deps.storage.reset_agent_passages(agent_id).await
-    {
+    if !fresh_on_legacy && let Err(e) = deps.storage.reset_agent_passages(agent_id).await {
         tracing::warn!(
             agent_id,
             "could not reset memory passages after an embedding change; semantic search stays \
@@ -209,11 +207,7 @@ async fn note_index_dimension(
         );
         return;
     }
-    if let Err(e) = deps
-        .storage
-        .save_state(key, serde_json::json!(dim))
-        .await
-    {
+    if let Err(e) = deps.storage.save_state(key, serde_json::json!(dim)).await {
         tracing::warn!(agent_id, "could not record the memory index dimension: {e}");
     }
 }

@@ -1,17 +1,17 @@
 use std::collections::HashMap;
 
+use crate::storage::sql::{self, Connection, OptionalExtension, Row, ToSql, params};
 use anyhow::Result;
 use chrono::{DateTime, TimeZone, Utc};
-use rusqlite::{Connection, OptionalExtension};
 
 use crate::{
     schema::{
-        AgentId, BackgroundJob, BackgroundPiece, Canceller, JobKind, JobState, PieceState,
-        TopicId, VizierChannelId, VizierSession,
+        AgentId, BackgroundJob, BackgroundPiece, Canceller, JobKind, JobState, PieceState, TopicId,
+        VizierChannelId, VizierSession,
     },
     storage::{
         background_job::{BackgroundJobStorage, InterruptedJob},
-        sqlite::SqliteStorage,
+        sqlite::SqlStorage,
     },
 };
 
@@ -29,7 +29,7 @@ fn channel_to_column(channel: &VizierChannelId) -> Result<String> {
 
 /// A job row without its pieces. Rows that no longer parse (an unknown state written by a
 /// newer build, say) are skipped rather than failing the whole read.
-fn job_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Option<BackgroundJob>> {
+fn job_from_row(row: &Row) -> sql::Result<Option<BackgroundJob>> {
     let id: String = row.get(0)?;
     let kind: String = row.get(1)?;
     let origin_agent: String = row.get(2)?;
@@ -109,14 +109,9 @@ fn load_pieces(conn: &Connection, job_id: &str) -> Result<Vec<BackgroundPiece>> 
 }
 
 /// Jobs matching `filter` (a `WHERE` clause over `background_job`), oldest first, with pieces.
-fn load_jobs(
-    conn: &Connection,
-    filter: &str,
-    params: &[&dyn rusqlite::types::ToSql],
-) -> Result<Vec<BackgroundJob>> {
-    let sql = format!(
-        "SELECT {JOB_COLUMNS} FROM background_job WHERE {filter} ORDER BY created_at, id"
-    );
+fn load_jobs(conn: &Connection, filter: &str, params: &[&dyn ToSql]) -> Result<Vec<BackgroundJob>> {
+    let sql =
+        format!("SELECT {JOB_COLUMNS} FROM background_job WHERE {filter} ORDER BY created_at, id");
     let mut stmt = conn.prepare(&sql)?;
     let jobs: Vec<BackgroundJob> = stmt
         .query_map(params, job_from_row)?
@@ -135,15 +130,15 @@ fn load_jobs(
 const IN_FLIGHT: &str = "state IN ('running', 'reporting')";
 
 #[async_trait::async_trait]
-impl BackgroundJobStorage for SqliteStorage {
+impl BackgroundJobStorage for SqlStorage {
     async fn open_background_job(&self, job: BackgroundJob) -> Result<()> {
-        let mut conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let tx = conn.transaction()?;
         tx.execute(
             "INSERT INTO background_job (id, kind, origin_agent, origin_channel, origin_topic, \
              depth, timeout_secs, created_at, finished_at, state, cancelled_by, reason) \
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
-            rusqlite::params![
+            params![
                 job.id,
                 job.kind.as_str(),
                 job.origin.0,
@@ -163,7 +158,7 @@ impl BackgroundJobStorage for SqliteStorage {
                 "INSERT INTO background_piece (job_id, ordinal, prompt, executor_agent, \
                  session_channel, session_topic, started_at, finished_at, state, reason) \
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-                rusqlite::params![
+                params![
                     job.id,
                     piece.ordinal as i64,
                     piece.prompt,
@@ -189,11 +184,11 @@ impl BackgroundJobStorage for SqliteStorage {
         reason: Option<String>,
         finished_at: DateTime<Utc>,
     ) -> Result<()> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         conn.execute(
             "UPDATE background_piece SET state = ?1, reason = ?2, finished_at = ?3 \
              WHERE job_id = ?4 AND ordinal = ?5 AND state = 'running'",
-            rusqlite::params![
+            params![
                 state.as_str(),
                 reason,
                 finished_at.timestamp_millis(),
@@ -213,7 +208,7 @@ impl BackgroundJobStorage for SqliteStorage {
         reason: Option<String>,
         at: DateTime<Utc>,
     ) -> Result<bool> {
-        let mut conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let tx = conn.transaction()?;
         // `reporting` is not terminal, so it leaves `finished_at` unset.
         let finished_at = (to != JobState::Reporting).then(|| at.timestamp_millis());
@@ -223,7 +218,7 @@ impl BackgroundJobStorage for SqliteStorage {
             "UPDATE background_job SET state = ?1, finished_at = ?2, \
              cancelled_by = COALESCE(?3, cancelled_by), reason = COALESCE(?4, reason) \
              WHERE id = ?5 AND state = ?6",
-            rusqlite::params![
+            params![
                 to.as_str(),
                 finished_at,
                 cancelled_by,
@@ -236,7 +231,7 @@ impl BackgroundJobStorage for SqliteStorage {
             tx.execute(
                 "UPDATE background_piece SET state = 'cancelled', finished_at = ?1 \
                  WHERE job_id = ?2 AND state = 'running'",
-                rusqlite::params![at.timestamp_millis(), job_id],
+                params![at.timestamp_millis(), job_id],
             )?;
         }
         tx.commit()?;
@@ -249,11 +244,11 @@ impl BackgroundJobStorage for SqliteStorage {
         piece_topic: &str,
     ) -> Result<Option<BackgroundJob>> {
         let job_id: Option<String> = {
-            let conn = self.conn.lock();
+            let conn = self.conn.lock()?;
             conn.query_row(
                 "SELECT job_id FROM background_piece WHERE executor_agent = ?1 AND session_topic = ?2 \
                  LIMIT 1",
-                rusqlite::params![executor_agent, piece_topic],
+                params![executor_agent, piece_topic],
                 |row| row.get(0),
             )
             .optional()?
@@ -265,7 +260,7 @@ impl BackgroundJobStorage for SqliteStorage {
     }
 
     async fn get_background_job(&self, job_id: &str) -> Result<Option<BackgroundJob>> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let sql = format!("SELECT {JOB_COLUMNS} FROM background_job WHERE id = ?1");
         let job = conn
             .query_row(&sql, [job_id], job_from_row)
@@ -284,7 +279,7 @@ impl BackgroundJobStorage for SqliteStorage {
         &self,
         origin: VizierSession,
     ) -> Result<Vec<BackgroundJob>> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let channel = channel_to_column(&origin.1)?;
         load_jobs(
             &conn,
@@ -299,7 +294,7 @@ impl BackgroundJobStorage for SqliteStorage {
         &self,
         agent_id: AgentId,
     ) -> Result<Vec<BackgroundJob>> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         load_jobs(
             &conn,
             &format!("origin_agent = ?1 AND {IN_FLIGHT}"),
@@ -312,7 +307,7 @@ impl BackgroundJobStorage for SqliteStorage {
         agent_id: AgentId,
         channel: VizierChannelId,
     ) -> Result<HashMap<Option<TopicId>, usize>> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let sql = format!(
             "SELECT origin_topic, COUNT(*) FROM background_job \
              WHERE origin_agent = ?1 AND origin_channel = ?2 AND {IN_FLIGHT} \
@@ -320,21 +315,18 @@ impl BackgroundJobStorage for SqliteStorage {
         );
         let mut stmt = conn.prepare(&sql)?;
         let counts = stmt
-            .query_map(
-                rusqlite::params![agent_id, channel_to_column(&channel)?],
-                |row| {
-                    let topic: Option<String> = row.get(0)?;
-                    let count: i64 = row.get(1)?;
-                    Ok((topic, count.max(0) as usize))
-                },
-            )?
+            .query_map(params![agent_id, channel_to_column(&channel)?], |row| {
+                let topic: Option<String> = row.get(0)?;
+                let count: i64 = row.get(1)?;
+                Ok((topic, count.max(0) as usize))
+            })?
             .filter_map(|r| r.ok())
             .collect();
         Ok(counts)
     }
 
     async fn open_background_jobs(&self) -> Result<Vec<BackgroundJob>> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         load_jobs(&conn, IN_FLIGHT, &[])
     }
 
@@ -342,25 +334,26 @@ impl BackgroundJobStorage for SqliteStorage {
         &self,
         keep: &[String],
     ) -> Result<Vec<InterruptedJob>> {
-        let mut conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let tx = conn.transaction()?;
         let now = Utc::now().timestamp_millis();
         let open: Vec<(String, String, String)> = {
-            let mut stmt =
-                tx.prepare(&format!("SELECT id, origin_agent, kind FROM background_job WHERE {IN_FLIGHT}"))?;
+            let mut stmt = tx.prepare(&format!(
+                "SELECT id, origin_agent, kind FROM background_job WHERE {IN_FLIGHT}"
+            ))?;
             stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
-                .collect::<rusqlite::Result<_>>()?
+                .collect::<sql::Result<_>>()?
         };
         let mut swept = vec![];
         for (id, origin_agent, kind) in open.iter().filter(|(id, _, _)| !keep.contains(id)) {
             tx.execute(
                 "UPDATE background_piece SET state = 'interrupted', finished_at = ?1 \
                  WHERE job_id = ?2 AND state = 'running'",
-                rusqlite::params![now, id],
+                params![now, id],
             )?;
             tx.execute(
                 "UPDATE background_job SET state = 'interrupted', finished_at = ?1 WHERE id = ?2",
-                rusqlite::params![now, id],
+                params![now, id],
             )?;
             if let Some(kind) = crate::schema::JobKind::from_str(kind) {
                 swept.push(InterruptedJob {
@@ -375,7 +368,7 @@ impl BackgroundJobStorage for SqliteStorage {
     }
 
     async fn interrupt_open_background_jobs(&self) -> Result<usize> {
-        let mut conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let tx = conn.transaction()?;
         let now = Utc::now().timestamp_millis();
         tx.execute(
@@ -398,18 +391,18 @@ impl BackgroundJobStorage for SqliteStorage {
 mod tests {
     use std::sync::Arc;
 
-    use parking_lot::Mutex;
+    use crate::storage::sql::SqlStore;
 
     use super::*;
     use crate::storage::document::LocalDocumentStore;
 
-    fn setup() -> (SqliteStorage, tempfile::TempDir) {
+    fn setup() -> (SqlStorage, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
-        let conn = Connection::open_in_memory().unwrap();
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
         conn.execute_batch("PRAGMA foreign_keys=ON;").unwrap();
         crate::storage::sqlite::init_background_job_schema(&conn).unwrap();
-        let storage = SqliteStorage::new(
-            Arc::new(Mutex::new(conn)),
+        let storage = SqlStorage::new(
+            SqlStore::sqlite(conn),
             Arc::new(LocalDocumentStore::new(dir.path().to_path_buf())),
         );
         (storage, dir)
@@ -457,9 +450,16 @@ mod tests {
     #[tokio::test]
     async fn open_then_get_round_trips_the_pieces_in_order() {
         let (storage, _dir) = setup();
-        storage.open_background_job(job("b-000001", 3)).await.unwrap();
+        storage
+            .open_background_job(job("b-000001", 3))
+            .await
+            .unwrap();
 
-        let loaded = storage.get_background_job("b-000001").await.unwrap().unwrap();
+        let loaded = storage
+            .get_background_job("b-000001")
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(loaded.origin, origin());
         assert_eq!(loaded.state, JobState::Running);
         let ordinals: Vec<u32> = loaded.pieces.iter().map(|p| p.ordinal).collect();
@@ -471,7 +471,10 @@ mod tests {
             "the piece's own topic is kept"
         );
 
-        let running = storage.list_running_background_jobs(origin()).await.unwrap();
+        let running = storage
+            .list_running_background_jobs(origin())
+            .await
+            .unwrap();
         assert_eq!(running.len(), 1);
         let counts = storage
             .count_running_background_jobs("agent-1".into(), origin().1)
@@ -485,7 +488,10 @@ mod tests {
     #[tokio::test]
     async fn the_running_guard_has_exactly_one_winner() {
         let (storage, _dir) = setup();
-        storage.open_background_job(job("b-000002", 1)).await.unwrap();
+        storage
+            .open_background_job(job("b-000002", 1))
+            .await
+            .unwrap();
 
         let now = Utc::now();
         let (reporting, cancelled) = tokio::join!(
@@ -515,7 +521,10 @@ mod tests {
     #[tokio::test]
     async fn cancelling_closes_running_pieces_only() {
         let (storage, _dir) = setup();
-        storage.open_background_job(job("b-000003", 2)).await.unwrap();
+        storage
+            .open_background_job(job("b-000003", 2))
+            .await
+            .unwrap();
         storage
             .close_background_piece("b-000003", 0, PieceState::Answered, None, Utc::now())
             .await
@@ -534,29 +543,52 @@ mod tests {
             .unwrap();
         assert!(won);
 
-        let loaded = storage.get_background_job("b-000003").await.unwrap().unwrap();
+        let loaded = storage
+            .get_background_job("b-000003")
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(loaded.state, JobState::Cancelled);
         assert_eq!(loaded.cancelled_by, Some(Canceller::Person("dani".into())));
         assert_eq!(loaded.reason.as_deref(), Some("no longer needed"));
         assert_eq!(loaded.pieces[0].state, PieceState::Answered);
         assert_eq!(loaded.pieces[1].state, PieceState::Cancelled);
-        assert!(storage.list_running_background_jobs(origin()).await.unwrap().is_empty());
+        assert!(
+            storage
+                .list_running_background_jobs(origin())
+                .await
+                .unwrap()
+                .is_empty()
+        );
 
         // A late close of a cancelled piece cannot overwrite it.
         storage
             .close_background_piece("b-000003", 1, PieceState::Answered, None, Utc::now())
             .await
             .unwrap();
-        let loaded = storage.get_background_job("b-000003").await.unwrap().unwrap();
+        let loaded = storage
+            .get_background_job("b-000003")
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(loaded.pieces[1].state, PieceState::Cancelled);
     }
 
     #[tokio::test]
     async fn the_sweep_interrupts_running_and_reporting_jobs_and_their_running_pieces() {
         let (storage, _dir) = setup();
-        storage.open_background_job(job("b-00000a", 2)).await.unwrap();
-        storage.open_background_job(job("b-00000b", 1)).await.unwrap();
-        storage.open_background_job(job("b-00000c", 1)).await.unwrap();
+        storage
+            .open_background_job(job("b-00000a", 2))
+            .await
+            .unwrap();
+        storage
+            .open_background_job(job("b-00000b", 1))
+            .await
+            .unwrap();
+        storage
+            .open_background_job(job("b-00000c", 1))
+            .await
+            .unwrap();
         storage
             .close_background_piece("b-00000a", 0, PieceState::Answered, None, Utc::now())
             .await
@@ -595,13 +627,25 @@ mod tests {
         let swept = storage.interrupt_open_background_jobs().await.unwrap();
         assert_eq!(swept, 2);
 
-        let a = storage.get_background_job("b-00000a").await.unwrap().unwrap();
+        let a = storage
+            .get_background_job("b-00000a")
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(a.state, JobState::Interrupted);
         assert_eq!(a.pieces[0].state, PieceState::Answered);
         assert_eq!(a.pieces[1].state, PieceState::Interrupted);
-        let b = storage.get_background_job("b-00000b").await.unwrap().unwrap();
+        let b = storage
+            .get_background_job("b-00000b")
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(b.state, JobState::Interrupted);
-        let c = storage.get_background_job("b-00000c").await.unwrap().unwrap();
+        let c = storage
+            .get_background_job("b-00000c")
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(c.state, JobState::Reported);
     }
 }

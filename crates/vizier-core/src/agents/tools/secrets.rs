@@ -30,8 +30,12 @@ fn storage_failure(err: SecretError) -> VizierError {
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum SecretSetResult {
-    Created { name: String },
-    Replaced { name: String },
+    Created {
+        name: String,
+    },
+    Replaced {
+        name: String,
+    },
     Refused {
         /// `invalid_name` or `invalid_value`.
         reason: String,
@@ -45,8 +49,13 @@ pub enum SecretSetResult {
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum SecretGetResult {
-    Found { name: String, value: String },
-    NotFound { name: String },
+    Found {
+        name: String,
+        value: String,
+    },
+    NotFound {
+        name: String,
+    },
     Refused {
         reason: String,
         name: String,
@@ -86,7 +95,11 @@ impl VizierTool for SetSecret {
         )
     }
 
-    async fn call(&self, args: Self::Input, ctx: &ToolContext) -> Result<Self::Output, VizierError> {
+    async fn call(
+        &self,
+        args: Self::Input,
+        ctx: &ToolContext,
+    ) -> Result<Self::Output, VizierError> {
         let write = match service::set(
             &self.storage,
             &self.agent_id,
@@ -158,7 +171,11 @@ impl VizierTool for GetSecret {
         )
     }
 
-    async fn call(&self, args: Self::Input, ctx: &ToolContext) -> Result<Self::Output, VizierError> {
+    async fn call(
+        &self,
+        args: Self::Input,
+        ctx: &ToolContext,
+    ) -> Result<Self::Output, VizierError> {
         let value = match service::get(&self.storage, &self.agent_id, &args.name).await {
             Ok(value) => value,
             Err(SecretError::NotFound) => return Ok(SecretGetResult::NotFound { name: args.name }),
@@ -175,7 +192,10 @@ impl VizierTool for GetSecret {
         // Armed before the value is returned, so anything later in this script that echoes it
         // is scrubbed.
         ctx.secret_redactor.arm(&value);
-        Ok(SecretGetResult::Found { name: args.name, value })
+        Ok(SecretGetResult::Found {
+            name: args.name,
+            value,
+        })
     }
 }
 
@@ -183,15 +203,13 @@ impl VizierTool for GetSecret {
 mod tests {
     use std::sync::Arc;
 
-    use parking_lot::Mutex;
-
     use super::*;
     use crate::{
         schema::{VizierChannelId, VizierSession},
         storage::{
             document::LocalDocumentStore,
             secret::SecretStorage,
-            sqlite::{SqliteStorage, init_secret_schema},
+            sqlite::{SqlStorage, init_secret_schema},
         },
     };
 
@@ -201,8 +219,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let conn = rusqlite::Connection::open_in_memory().unwrap();
         init_secret_schema(&conn).unwrap();
-        let storage = SqliteStorage::new(
-            Arc::new(Mutex::new(conn)),
+        let storage = SqlStorage::new(
+            crate::storage::sql::SqlStore::sqlite(conn),
             Arc::new(LocalDocumentStore::new(dir.path().to_path_buf())),
         );
         (Arc::new(VizierStorage::new(storage)), dir)
@@ -233,10 +251,19 @@ mod tests {
         value: &str,
         ctx: &ToolContext,
     ) -> SecretSetResult {
-        SetSecret { storage: storage.clone(), agent_id: agent.into() }
-            .call(SetSecretArgs { name: name.into(), value: value.into() }, ctx)
-            .await
-            .unwrap()
+        SetSecret {
+            storage: storage.clone(),
+            agent_id: agent.into(),
+        }
+        .call(
+            SetSecretArgs {
+                name: name.into(),
+                value: value.into(),
+            },
+            ctx,
+        )
+        .await
+        .unwrap()
     }
 
     async fn get(
@@ -245,10 +272,13 @@ mod tests {
         name: &str,
         ctx: &ToolContext,
     ) -> SecretGetResult {
-        GetSecret { storage: storage.clone(), agent_id: agent.into() }
-            .call(GetSecretArgs { name: name.into() }, ctx)
-            .await
-            .unwrap()
+        GetSecret {
+            storage: storage.clone(),
+            agent_id: agent.into(),
+        }
+        .call(GetSecretArgs { name: name.into() }, ctx)
+        .await
+        .unwrap()
     }
 
     #[tokio::test]
@@ -290,7 +320,11 @@ mod tests {
         let (storage, _dir) = storage();
         let ctx = ctx();
         match set(&storage, "dp-a", "a/b", TOKEN, &ctx).await {
-            SecretSetResult::Refused { reason, name, message } => {
+            SecretSetResult::Refused {
+                reason,
+                name,
+                message,
+            } => {
                 assert_eq!(reason, "invalid_name");
                 assert_eq!(name, "a/b");
                 assert_eq!(message, crate::secrets::NAME_RULE);
@@ -301,7 +335,9 @@ mod tests {
         assert!(!ctx.secret_redactor.is_armed());
 
         match set(&storage, "dp-a", "TOKEN", "short", &ctx).await {
-            SecretSetResult::Refused { reason, message, .. } => {
+            SecretSetResult::Refused {
+                reason, message, ..
+            } => {
                 assert_eq!(reason, "invalid_value");
                 assert_eq!(message, crate::secrets::VALUE_RULE);
             }
@@ -324,7 +360,13 @@ mod tests {
             other => panic!("expected not_found, got {other:?}"),
         }
         assert!(storage.list_agent_secrets("dp-a").await.unwrap().is_empty());
-        assert!(storage.list_agent_secret_events("dp-a", 20).await.unwrap().is_empty());
+        assert!(
+            storage
+                .list_agent_secret_events("dp-a", 20)
+                .await
+                .unwrap()
+                .is_empty()
+        );
         // Nothing was returned, so nothing is armed.
         assert!(!ctx.secret_redactor.is_armed());
     }

@@ -1,18 +1,19 @@
+use crate::storage::sql::params;
 use anyhow::{Context, Result};
 
 use crate::schema::GlobalConfigEntry;
-use crate::storage::{global_config::GlobalConfigStorage, sqlite::SqliteStorage};
+use crate::storage::{global_config::GlobalConfigStorage, sqlite::SqlStorage};
 
 #[async_trait::async_trait]
-impl GlobalConfigStorage for SqliteStorage {
+impl GlobalConfigStorage for SqlStorage {
     async fn list_global_configs(&self) -> Result<Vec<GlobalConfigEntry>> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let mut stmt = conn.prepare("SELECT key, data FROM global_config")?;
         let rows = stmt
             .query_map([], |row| {
                 Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
             })?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
+            .collect::<crate::storage::sql::Result<Vec<_>>>()?;
         drop(stmt);
         drop(conn);
 
@@ -29,16 +30,16 @@ impl GlobalConfigStorage for SqliteStorage {
     }
 
     async fn get_global_config(&self, key: &str) -> Result<Option<GlobalConfigEntry>> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let data: Option<String> = conn
             .query_row(
                 "SELECT data FROM global_config WHERE key = ?1",
-                rusqlite::params![key],
+                params![key],
                 |row| row.get(0),
             )
             .map(Some)
             .or_else(|e| match e {
-                rusqlite::Error::QueryReturnedNoRows => Ok(None),
+                crate::storage::sql::Error::QueryReturnedNoRows => Ok(None),
                 e => Err(e),
             })?;
         drop(conn);
@@ -61,20 +62,17 @@ impl GlobalConfigStorage for SqliteStorage {
             crate::encryption::ProtectMode::Write,
         )?;
         let data = serde_json::to_string(&protected)?;
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         conn.execute(
             "INSERT OR REPLACE INTO global_config (key, data) VALUES (?1, ?2)",
-            rusqlite::params![entry.key, data],
+            params![entry.key, data],
         )?;
         Ok(())
     }
 
     async fn delete_global_config(&self, key: &str) -> Result<()> {
-        let conn = self.conn.lock();
-        let deleted = conn.execute(
-            "DELETE FROM global_config WHERE key = ?1",
-            rusqlite::params![key],
-        )?;
+        let conn = self.conn.lock()?;
+        let deleted = conn.execute("DELETE FROM global_config WHERE key = ?1", params![key])?;
         if deleted == 0 {
             return Err(anyhow::anyhow!("Global config '{}' not found", key));
         }
@@ -93,7 +91,11 @@ mod tests {
         let s = &h.storage;
         s.upsert_global_config(&global_config()).await.unwrap();
 
-        let raw = raw_value(s, "SELECT data FROM global_config WHERE key = 'default'", &[]);
+        let raw = raw_value(
+            s,
+            "SELECT data FROM global_config WHERE key = 'default'",
+            &[],
+        );
         assert!(raw.contains("enc:v1:"), "{raw}");
         assert!(!raw.contains("global-secret-abc123"));
         assert!(raw.contains("/bin/sh"));
@@ -104,7 +106,11 @@ mod tests {
 
         s.conn
             .lock()
-            .execute("UPDATE global_config SET data = replace(data, 'enc:v1:', 'enc:v1:x')", [])
+            .unwrap()
+            .execute(
+                "UPDATE global_config SET data = replace(data, 'enc:v1:', 'enc:v1:x')",
+                [],
+            )
             .unwrap();
         assert!(s.get_global_config("default").await.is_err());
         assert!(s.list_global_configs().await.is_err());

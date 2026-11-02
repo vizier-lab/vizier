@@ -1,7 +1,7 @@
 use anyhow::{Context, Result, anyhow};
 use chrono::{DateTime, Utc};
-use rusqlite::OptionalExtension;
 
+use crate::storage::sql::{OptionalExtension, params};
 use crate::{
     schema::{
         AgentConfig, CoreRevision, CoreRevisionSummary, PaginatedCoreRevisions, RevisionDiff,
@@ -11,7 +11,7 @@ use crate::{
         agent::AgentStorage,
         diff::diff_lines,
         sqlite::{
-            SqliteStorage,
+            SqlStorage,
             core_revision::{self, CoreRevisionRow},
             memory_revision,
         },
@@ -34,9 +34,9 @@ fn summary(row: &CoreRevisionRow, latest_seq: i64) -> CoreRevisionSummary {
 }
 
 #[async_trait::async_trait]
-impl AgentStorage for SqliteStorage {
+impl AgentStorage for SqlStorage {
     async fn list_agents(&self) -> Result<Vec<(String, AgentConfig)>> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let mut stmt = conn.prepare("SELECT agent_id, data FROM agent_config")?;
         let rows = stmt
             .query_map([], |row| {
@@ -44,7 +44,7 @@ impl AgentStorage for SqliteStorage {
                 let data: String = row.get(1)?;
                 Ok((agent_id, data))
             })?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
+            .collect::<crate::storage::sql::Result<Vec<_>>>()?;
         drop(stmt);
         drop(conn);
 
@@ -62,9 +62,9 @@ impl AgentStorage for SqliteStorage {
     }
 
     async fn get_agent(&self, agent_id: &str) -> Result<Option<AgentConfig>> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let mut stmt = conn.prepare("SELECT data FROM agent_config WHERE agent_id = ?1")?;
-        let mut rows = stmt.query_map(rusqlite::params![agent_id], |row| {
+        let mut rows = stmt.query_map(params![agent_id], |row| {
             let data: String = row.get(0)?;
             Ok(data)
         })?;
@@ -93,10 +93,10 @@ impl AgentStorage for SqliteStorage {
             crate::encryption::ProtectMode::Write,
         )?;
         let data = serde_json::to_string(&protected)?;
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         conn.execute(
             "INSERT INTO agent_config (agent_id, data) VALUES (?1, ?2)",
-            rusqlite::params![agent_id, data],
+            params![agent_id, data],
         )?;
         Ok(())
     }
@@ -109,10 +109,10 @@ impl AgentStorage for SqliteStorage {
             crate::encryption::ProtectMode::Write,
         )?;
         let data = serde_json::to_string(&protected)?;
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let updated = conn.execute(
             "UPDATE agent_config SET data = ?1 WHERE agent_id = ?2",
-            rusqlite::params![data, agent_id],
+            params![data, agent_id],
         )?;
         if updated == 0 {
             return Err(anyhow::anyhow!("Agent '{}' not found", agent_id));
@@ -121,10 +121,10 @@ impl AgentStorage for SqliteStorage {
     }
 
     async fn delete_agent(&self, agent_id: &str) -> Result<()> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         conn.execute(
             "DELETE FROM agent_core WHERE agent_id = ?1",
-            rusqlite::params![agent_id],
+            params![agent_id],
         )?;
         // History dies with the agent (FR-019): both revision tables are keyed by agent_id.
         core_revision::delete_agent(&conn, agent_id)?;
@@ -138,11 +138,11 @@ impl AgentStorage for SqliteStorage {
         super::question::delete_agent(&conn, agent_id)?;
         conn.execute(
             "DELETE FROM client_tool_call WHERE agent_id = ?1",
-            rusqlite::params![agent_id],
+            params![agent_id],
         )?;
         conn.execute(
             "DELETE FROM scratch_file WHERE agent_id = ?1",
-            rusqlite::params![agent_id],
+            params![agent_id],
         )?;
         // Secret values and their change log never outlive their agent (spec 027 FR-005).
         super::secret::delete_agent_secrets(&conn, agent_id)?;
@@ -152,35 +152,35 @@ impl AgentStorage for SqliteStorage {
         super::project::delete_agent_projects(&conn, agent_id)?;
         conn.execute(
             "DELETE FROM session_turn WHERE agent_id = ?1",
-            rusqlite::params![agent_id],
+            params![agent_id],
         )?;
         // Its Telegram side-chat deletion ledger (spec 033): message ids only, but still its own.
         conn.execute(
             "DELETE FROM state WHERE key = ?1",
-            rusqlite::params![format!("side_chat_pending__{agent_id}")],
+            params![format!("side_chat_pending__{agent_id}")],
         )?;
         // Its transient session-file records and permanent artifact metadata go with it
         // (`specs/035-add-artifacts`); blobs and content files are removed after the commit by
         // `SessionFiles` and `Artifacts`.
         conn.execute(
             "DELETE FROM session_file WHERE agent_id = ?1",
-            rusqlite::params![agent_id],
+            params![agent_id],
         )?;
         conn.execute(
             "DELETE FROM artifact_reference WHERE agent_id = ?1",
-            rusqlite::params![agent_id],
+            params![agent_id],
         )?;
         conn.execute(
             "DELETE FROM artifact_event WHERE agent_id = ?1",
-            rusqlite::params![agent_id],
+            params![agent_id],
         )?;
         conn.execute(
             "DELETE FROM artifact WHERE agent_id = ?1",
-            rusqlite::params![agent_id],
+            params![agent_id],
         )?;
         let deleted = conn.execute(
             "DELETE FROM agent_config WHERE agent_id = ?1",
-            rusqlite::params![agent_id],
+            params![agent_id],
         )?;
         if deleted == 0 {
             return Err(anyhow::anyhow!("Agent '{}' not found", agent_id));
@@ -213,19 +213,19 @@ impl AgentStorage for SqliteStorage {
         core: &str,
         origin: &RevisionOrigin,
     ) -> Result<()> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let tx = conn.unchecked_transaction()?;
         let current: Option<String> = tx
             .query_row(
                 "SELECT content FROM agent_core WHERE agent_id = ?1",
-                rusqlite::params![agent_id],
+                params![agent_id],
                 |row| row.get(0),
             )
             .optional()?;
         tx.execute(
             "INSERT INTO agent_core (agent_id, content) VALUES (?1, ?2)
              ON CONFLICT(agent_id) DO UPDATE SET content = excluded.content",
-            rusqlite::params![agent_id, core],
+            params![agent_id, core],
         )?;
         core_revision::record(&tx, agent_id, core, origin, current.as_deref())?;
         tx.commit()?;
@@ -238,13 +238,13 @@ impl AgentStorage for SqliteStorage {
         offset: usize,
         limit: usize,
     ) -> Result<PaginatedCoreRevisions> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         // A CORE that pre-dates history gets its baseline on first listing (FR-018), so the
         // list is never empty for an agent that has a CORE.
         let current: Option<String> = conn
             .query_row(
                 "SELECT content FROM agent_core WHERE agent_id = ?1",
-                rusqlite::params![agent_id],
+                params![agent_id],
                 |row| row.get(0),
             )
             .optional()?;
@@ -263,7 +263,7 @@ impl AgentStorage for SqliteStorage {
     }
 
     async fn get_core_revision(&self, agent_id: &str, seq: i64) -> Result<Option<CoreRevision>> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let Some(row) = core_revision::get(&conn, agent_id, seq)? else {
             return Ok(None);
         };
@@ -288,7 +288,7 @@ impl AgentStorage for SqliteStorage {
         from: Option<i64>,
         to: i64,
     ) -> Result<RevisionDiff> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let to_row = core_revision::get(&conn, agent_id, to)?
             .ok_or_else(|| anyhow!("unknown version {to}"))?;
         let from_seq = from.unwrap_or(to - 1);
@@ -317,7 +317,7 @@ impl AgentStorage for SqliteStorage {
         origin: &RevisionOrigin,
     ) -> Result<RollbackResponse> {
         let (target, before) = {
-            let conn = self.conn.lock();
+            let conn = self.conn.lock()?;
             let target = core_revision::get(&conn, agent_id, seq)?
                 .ok_or_else(|| anyhow!("unknown version {seq}"))?;
             let before = core_revision::latest(&conn, agent_id)?.map(|r| r.seq);
@@ -330,7 +330,7 @@ impl AgentStorage for SqliteStorage {
         self.set_agent_core(agent_id, &target.content, &origin)
             .await?;
         let after = {
-            let conn = self.conn.lock();
+            let conn = self.conn.lock()?;
             core_revision::latest(&conn, agent_id)?.map(|r| r.seq)
         };
         let no_change = after == before;
@@ -342,13 +342,13 @@ impl AgentStorage for SqliteStorage {
     }
 }
 
-impl SqliteStorage {
+impl SqlStorage {
     fn read_agent_core(&self, agent_id: &str) -> Result<Option<String>> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         Ok(conn
             .query_row(
                 "SELECT content FROM agent_core WHERE agent_id = ?1",
-                rusqlite::params![agent_id],
+                params![agent_id],
                 |row| row.get::<_, String>(0),
             )
             .optional()?)
@@ -392,6 +392,7 @@ mod encryption_tests {
 
         s.conn
             .lock()
+            .unwrap()
             .execute(
                 "UPDATE agent_config SET data = replace(data, 'enc:v1:', 'enc:v1:x')",
                 [],
@@ -412,7 +413,7 @@ mod encryption_tests {
         s.create_agent("dp-env", &config).await.unwrap();
 
         let raw = {
-            let conn = s.conn.lock();
+            let conn = s.conn.lock().unwrap();
             conn.query_row(
                 "SELECT data FROM agent_config WHERE agent_id = 'dp-env'",
                 [],

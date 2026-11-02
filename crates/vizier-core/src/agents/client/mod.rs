@@ -15,8 +15,8 @@ use tracing::Instrument;
 
 use crate::{
     agents::tools::{
-        CatalogueEntry, CategorySummary, ToolTarget, assign_names, client_category_name, with_ends_turn_notice,
-        execute_tool_span, record_tool_arguments, record_tool_result,
+        CatalogueEntry, CategorySummary, ToolTarget, assign_names, client_category_name,
+        execute_tool_span, record_tool_arguments, record_tool_result, with_ends_turn_notice,
     },
     llm::types::ToolDefinition,
     schema::{
@@ -148,7 +148,11 @@ impl ClientTools {
                     description: with_ends_turn_notice(
                         format!(
                             "{}{}",
-                            if entry.declaration.deferrable { DEFERRABLE_PREFIX } else { DESCRIPTION_PREFIX },
+                            if entry.declaration.deferrable {
+                                DEFERRABLE_PREFIX
+                            } else {
+                                DESCRIPTION_PREFIX
+                            },
                             entry.declaration.description
                         ),
                         entry.declaration.ends_turn,
@@ -245,11 +249,18 @@ impl ClientTools {
         redactor: Option<&crate::secrets::SecretRedactor>,
     ) -> (Option<String>, anyhow::Result<VizierResponse>) {
         let span = execute_tool_span(name, None);
-        if self.entries.iter().any(|entry| entry.name == name && entry.declaration.ends_turn) {
+        if self
+            .entries
+            .iter()
+            .any(|entry| entry.name == name && entry.declaration.ends_turn)
+        {
             span.record("vizier.tool.ends_turn", true);
         }
         let recorded = arguments.to_string();
-        let (call_id, result) = self.round_trip(name, arguments).instrument(span.clone()).await;
+        let (call_id, result) = self
+            .round_trip(name, arguments)
+            .instrument(span.clone())
+            .await;
         record_tool_arguments(&span, &recorded, redactor);
         record_tool_result(&span, &result, redactor);
         (call_id, result)
@@ -300,7 +311,10 @@ impl ClientTools {
                 uid
             }
         };
-        let call = ClientCallFrame { call_id: call_id.clone(), ..call };
+        let call = ClientCallFrame {
+            call_id: call_id.clone(),
+            ..call
+        };
 
         let mut pending = PendingCall {
             connection: self.connection.clone(),
@@ -327,7 +341,9 @@ impl ClientTools {
                 match tokio::time::timeout(limit, answer).await {
                     Ok(Ok(ClientAnswer::Ok(result))) => ClientCallOutcome::Ok { result },
                     Ok(Ok(ClientAnswer::Err(message))) => ClientCallOutcome::Error { message },
-                    Ok(Ok(ClientAnswer::Disconnected)) | Ok(Err(_)) => ClientCallOutcome::Disconnected,
+                    Ok(Ok(ClientAnswer::Disconnected)) | Ok(Err(_)) => {
+                        ClientCallOutcome::Disconnected
+                    }
                     Err(_) => {
                         self.connection.cancel(&call_id);
                         ClientCallOutcome::Timeout
@@ -356,7 +372,14 @@ impl ClientTools {
             );
         }
 
-        finish(&self.storage, &self.transport, &self.session, &call_id, &outcome).await;
+        finish(
+            &self.storage,
+            &self.transport,
+            &self.session,
+            &call_id,
+            &outcome,
+        )
+        .await;
 
         let result = match outcome {
             ClientCallOutcome::Ok { result } => Ok(VizierResponse {
@@ -380,7 +403,10 @@ impl ClientTools {
 impl ClientTools {
     async fn defer(&self, call_id: &str) {
         if let Err(e) = self.storage.defer_client_call(call_id).await {
-            tracing::warn!(call_id, "failed to record client tool call as deferred: {e}");
+            tracing::warn!(
+                call_id,
+                "failed to record client tool call as deferred: {e}"
+            );
         }
         for frame in [
             SessionFrame::ClientCallOutcome {
@@ -388,7 +414,9 @@ impl ClientTools {
                 outcome: ClientCallOutcome::Deferred,
             },
             // Any socket already open on the session (another tab) picks it up at once.
-            SessionFrame::ClientCallDeferred { call_id: call_id.to_string() },
+            SessionFrame::ClientCallDeferred {
+                call_id: call_id.to_string(),
+            },
         ] {
             self.transport.publish_session_event(SessionEvent {
                 session: self.session.clone(),
@@ -451,8 +479,14 @@ pub async fn deliver_deferred(
             return;
         }
     };
-    let SessionHistoryContent::ClientToolCall { name, category, tool, arguments, outcome: Some(ClientCallOutcome::Deferred), .. } =
-        entry.content
+    let SessionHistoryContent::ClientToolCall {
+        name,
+        category,
+        tool,
+        arguments,
+        outcome: Some(ClientCallOutcome::Deferred),
+        ..
+    } = entry.content
     else {
         return;
     };
@@ -460,7 +494,13 @@ pub async fn deliver_deferred(
         return;
     };
 
-    let call = ClientCallFrame { call_id: call_id.to_string(), name, category, tool, arguments };
+    let call = ClientCallFrame {
+        call_id: call_id.to_string(),
+        name,
+        category,
+        tool,
+        arguments,
+    };
     let mut frame = call.wire(true);
     frame["client_tool_call"]["deferred"] = serde_json::json!(true);
     connection.send(frame);
@@ -531,7 +571,14 @@ impl Drop for PendingCall {
             std::mem::take(&mut self.call_id),
         );
         runtime.spawn(async move {
-            finish(&storage, &transport, &session, &call_id, &ClientCallOutcome::Cancelled).await;
+            finish(
+                &storage,
+                &transport,
+                &session,
+                &call_id,
+                &ClientCallOutcome::Cancelled,
+            )
+            .await;
         });
     }
 }
@@ -542,14 +589,15 @@ const SETTLE: Duration = Duration::from_millis(200);
 
 #[cfg(test)]
 pub(crate) fn test_storage() -> Arc<VizierStorage> {
-    use parking_lot::Mutex;
     let conn = rusqlite::Connection::open_in_memory().unwrap();
     crate::storage::sqlite::init_history_schema(&conn).unwrap();
     crate::storage::sqlite::init_reaction_schema(&conn).unwrap();
     crate::storage::sqlite::init_client_call_schema(&conn).unwrap();
-    Arc::new(VizierStorage::new(crate::storage::sqlite::SqliteStorage::new(
-        Arc::new(Mutex::new(conn)),
-        Arc::new(crate::storage::document::LocalDocumentStore::new(std::env::temp_dir())),
+    Arc::new(VizierStorage::new(crate::storage::sqlite::SqlStorage::new(
+        crate::storage::sql::SqlStore::sqlite(conn),
+        Arc::new(crate::storage::document::LocalDocumentStore::new(
+            std::env::temp_dir(),
+        )),
     )))
 }
 
@@ -573,7 +621,7 @@ impl ClientTools {
                 output_schema: None,
                 timeout_secs: None,
                 deferrable: false,
-            ends_turn: false,
+                ends_turn: false,
             }],
             categories: vec![],
         };
@@ -594,10 +642,7 @@ mod tests {
     use tokio::sync::mpsc;
 
     use super::*;
-    use crate::{
-        schema::VizierChannelId,
-        storage::history::HistoryStorage,
-    };
+    use crate::{schema::VizierChannelId, storage::history::HistoryStorage};
 
     fn declaration(name: &str, category: Option<&str>) -> ClientToolDeclaration {
         ClientToolDeclaration {
@@ -642,7 +687,10 @@ mod tests {
         transport: VizierTransport,
     }
 
-    fn setup(declarations: Vec<ClientToolDeclaration>, categories: Vec<ClientCategoryDeclaration>) -> Setup {
+    fn setup(
+        declarations: Vec<ClientToolDeclaration>,
+        categories: Vec<ClientCategoryDeclaration>,
+    ) -> Setup {
         let (connection, rx) = ClientConnection::for_tests();
         let storage = test_storage();
         let transport = VizierTransport::new();
@@ -653,13 +701,22 @@ mod tests {
         };
         let tools = ClientTools::resolve(
             &binding,
-            &[native("memory_search", "memory"), native("github_create_issue", "github")],
+            &[
+                native("memory_search", "memory"),
+                native("github_create_issue", "github"),
+            ],
             &["github".to_string()],
             session(),
             storage.clone(),
             transport.clone(),
         );
-        Setup { tools, connection, rx, storage, transport }
+        Setup {
+            tools,
+            connection,
+            rx,
+            storage,
+            transport,
+        }
     }
 
     fn resolved(setup: &Setup) -> Vec<(String, String)> {
@@ -667,7 +724,12 @@ mod tests {
             .as_array()
             .unwrap()
             .iter()
-            .map(|t| (t["category_name"].as_str().unwrap().into(), t["name"].as_str().unwrap().into()))
+            .map(|t| {
+                (
+                    t["category_name"].as_str().unwrap().into(),
+                    t["name"].as_str().unwrap().into(),
+                )
+            })
             .collect()
     }
 
@@ -680,7 +742,10 @@ mod tests {
                 declaration("create_issue", Some("github")),
                 declaration("pick_color", Some("palette")),
             ],
-            vec![ClientCategoryDeclaration { name: "palette".into(), description: Some("Colour pickers".into()) }],
+            vec![ClientCategoryDeclaration {
+                name: "palette".into(),
+                description: Some("Colour pickers".into()),
+            }],
         );
         assert_eq!(
             resolved(&s),
@@ -691,15 +756,37 @@ mod tests {
                 ("palette".into(), "palette_pick_color".into()),
             ]
         );
-        assert_eq!(s.tools.resolved_frame()["client_tools_resolved"]["protocol"], 1);
+        assert_eq!(
+            s.tools.resolved_frame()["client_tools_resolved"]["protocol"],
+            1
+        );
 
-        let lines: Vec<(String, String)> =
-            s.tools.categories().iter().map(|c| (c.name.clone(), c.description.clone())).collect();
-        assert_eq!(lines[0], ("client".into(), "(provided by the person's client) Tools provided by the person's client".into()));
-        assert_eq!(lines[3], ("palette".into(), "(provided by the person's client) Colour pickers".into()));
+        let lines: Vec<(String, String)> = s
+            .tools
+            .categories()
+            .iter()
+            .map(|c| (c.name.clone(), c.description.clone()))
+            .collect();
+        assert_eq!(
+            lines[0],
+            (
+                "client".into(),
+                "(provided by the person's client) Tools provided by the person's client".into()
+            )
+        );
+        assert_eq!(
+            lines[3],
+            (
+                "palette".into(),
+                "(provided by the person's client) Colour pickers".into()
+            )
+        );
 
         let described = &s.tools.catalogue()[3].definition.description;
-        assert_eq!(described, "(Provided by the person's client.) pick_color does a thing");
+        assert_eq!(
+            described,
+            "(Provided by the person's client.) pick_color does a thing"
+        );
     }
 
     #[test]
@@ -725,18 +812,32 @@ mod tests {
 
     #[test]
     fn the_same_declaration_resolves_the_same_way() {
-        let make = || setup(vec![declaration("echo", None), declaration("pick", Some("palette"))], vec![]);
+        let make = || {
+            setup(
+                vec![
+                    declaration("echo", None),
+                    declaration("pick", Some("palette")),
+                ],
+                vec![],
+            )
+        };
         let (a, b) = (make(), make());
         assert_eq!(a.tools.resolved_frame(), b.tools.resolved_frame());
         assert_eq!(a.tools.categories(), b.tools.categories());
     }
 
     async fn outcome_of(storage: &VizierStorage, uid: &str) -> Option<ClientCallOutcome> {
-        let history = storage.list_session_history(session(), None, None, None).await.unwrap();
-        history.into_iter().find(|e| e.uid == uid).and_then(|e| match e.content {
-            SessionHistoryContent::ClientToolCall { outcome, .. } => outcome,
-            _ => None,
-        })
+        let history = storage
+            .list_session_history(session(), None, None, None)
+            .await
+            .unwrap();
+        history
+            .into_iter()
+            .find(|e| e.uid == uid)
+            .and_then(|e| match e.content {
+                SessionHistoryContent::ClientToolCall { outcome, .. } => outcome,
+                _ => None,
+            })
     }
 
     async fn next_call(rx: &mut mpsc::Receiver<serde_json::Value>) -> serde_json::Value {
@@ -753,24 +854,42 @@ mod tests {
         let mut s = setup(vec![declaration("pick", Some("palette"))], vec![]);
         let mut events = s.transport.subscribe_session_events();
         let tools = s.tools.clone();
-        let call = tokio::spawn(async move { tools.call("palette_pick", json!({ "prompt": "x" }), None).await.1 });
+        let call = tokio::spawn(async move {
+            tools
+                .call("palette_pick", json!({ "prompt": "x" }), None)
+                .await
+                .1
+        });
 
         let frame = next_call(&mut s.rx).await;
         assert_eq!(frame["answer"], true);
         assert_eq!(frame["tool"], "pick");
         assert_eq!(frame["arguments"]["prompt"], "x");
         let id = frame["call_id"].as_str().unwrap().to_string();
-        assert!(s.connection.answer(&id, ClientAnswer::Ok(json!({ "hex": "#3366ff" }))));
+        assert!(
+            s.connection
+                .answer(&id, ClientAnswer::Ok(json!({ "hex": "#3366ff" })))
+        );
 
         let response = call.await.unwrap().unwrap();
-        assert!(matches!(response.content, VizierResponseContent::ToolResponse { ref response } if response["hex"] == "#3366ff"));
+        assert!(
+            matches!(response.content, VizierResponseContent::ToolResponse { ref response } if response["hex"] == "#3366ff")
+        );
         assert_eq!(
             outcome_of(&s.storage, &id).await,
-            Some(ClientCallOutcome::Ok { result: json!({ "hex": "#3366ff" }) })
+            Some(ClientCallOutcome::Ok {
+                result: json!({ "hex": "#3366ff" })
+            })
         );
         // The display copy went out, then the outcome.
-        assert!(matches!(events.recv().await.unwrap().frame, SessionFrame::ClientToolCall { .. }));
-        assert!(matches!(events.recv().await.unwrap().frame, SessionFrame::ClientCallOutcome { .. }));
+        assert!(matches!(
+            events.recv().await.unwrap().frame,
+            SessionFrame::ClientToolCall { .. }
+        ));
+        assert!(matches!(
+            events.recv().await.unwrap().frame,
+            SessionFrame::ClientCallOutcome { .. }
+        ));
     }
 
     #[tokio::test]
@@ -778,10 +897,18 @@ mod tests {
         let mut s = setup(vec![declaration("pick", None)], vec![]);
         let tools = s.tools.clone();
         let call = tokio::spawn(async move { tools.call("client_pick", json!({}), None).await.1 });
-        let id = next_call(&mut s.rx).await["call_id"].as_str().unwrap().to_string();
+        let id = next_call(&mut s.rx).await["call_id"]
+            .as_str()
+            .unwrap()
+            .to_string();
         s.connection.answer(&id, ClientAnswer::Err("closed".into()));
         assert_eq!(call.await.unwrap().unwrap_err().to_string(), "closed");
-        assert_eq!(outcome_of(&s.storage, &id).await, Some(ClientCallOutcome::Error { message: "closed".into() }));
+        assert_eq!(
+            outcome_of(&s.storage, &id).await,
+            Some(ClientCallOutcome::Error {
+                message: "closed".into()
+            })
+        );
     }
 
     #[tokio::test]
@@ -789,11 +916,17 @@ mod tests {
         let mut s = setup(vec![declaration("pick", None)], vec![]);
         let tools = s.tools.clone();
         let call = tokio::spawn(async move { tools.call("client_pick", json!({}), None).await.1 });
-        let id = next_call(&mut s.rx).await["call_id"].as_str().unwrap().to_string();
+        let id = next_call(&mut s.rx).await["call_id"]
+            .as_str()
+            .unwrap()
+            .to_string();
         s.connection.close();
         let err = call.await.unwrap().unwrap_err().to_string();
         assert!(err.starts_with("client_disconnected"), "{err}");
-        assert_eq!(outcome_of(&s.storage, &id).await, Some(ClientCallOutcome::Disconnected));
+        assert_eq!(
+            outcome_of(&s.storage, &id).await,
+            Some(ClientCallOutcome::Disconnected)
+        );
     }
 
     #[tokio::test]
@@ -803,13 +936,19 @@ mod tests {
         let mut s = setup(vec![timed], vec![]);
         let tools = s.tools.clone();
         let call = tokio::spawn(async move { tools.call("client_pick", json!({}), None).await.1 });
-        let id = next_call(&mut s.rx).await["call_id"].as_str().unwrap().to_string();
+        let id = next_call(&mut s.rx).await["call_id"]
+            .as_str()
+            .unwrap()
+            .to_string();
 
         let err = call.await.unwrap().unwrap_err().to_string();
         assert!(err.starts_with("timeout"), "{err}");
         let cancelled = s.rx.recv().await.unwrap();
         assert_eq!(cancelled["client_tool_cancelled"]["call_id"], id.as_str());
-        assert_eq!(outcome_of(&s.storage, &id).await, Some(ClientCallOutcome::Timeout));
+        assert_eq!(
+            outcome_of(&s.storage, &id).await,
+            Some(ClientCallOutcome::Timeout)
+        );
         // A late answer is not pending.
         assert!(!s.connection.answer(&id, ClientAnswer::Ok(json!(1))));
     }
@@ -819,45 +958,89 @@ mod tests {
         let mut s = setup(vec![declaration("pick", None)], vec![]);
         let tools = s.tools.clone();
         let call = tokio::spawn(async move { tools.call("client_pick", json!({}), None).await.1 });
-        let id = next_call(&mut s.rx).await["call_id"].as_str().unwrap().to_string();
+        let id = next_call(&mut s.rx).await["call_id"]
+            .as_str()
+            .unwrap()
+            .to_string();
 
         call.abort();
         let _ = call.await;
         let cancelled = s.rx.recv().await.unwrap();
         assert_eq!(cancelled["client_tool_cancelled"]["call_id"], id.as_str());
         tokio::time::sleep(SETTLE).await;
-        assert_eq!(outcome_of(&s.storage, &id).await, Some(ClientCallOutcome::Cancelled));
+        assert_eq!(
+            outcome_of(&s.storage, &id).await,
+            Some(ClientCallOutcome::Cancelled)
+        );
         assert!(!s.connection.answer(&id, ClientAnswer::Ok(json!(1))));
     }
 
     fn deferrable(name: &str) -> ClientToolDeclaration {
-        ClientToolDeclaration { deferrable: true, ..declaration(name, None) }
+        ClientToolDeclaration {
+            deferrable: true,
+            ..declaration(name, None)
+        }
     }
 
     #[tokio::test]
     async fn a_deferrable_call_without_a_client_is_deferred_then_delivered() {
         let s = setup(vec![deferrable("pick")], vec![]);
-        assert!(s.tools.catalogue()[0].definition.description.contains("deferred"));
+        assert!(
+            s.tools.catalogue()[0]
+                .definition
+                .description
+                .contains("deferred")
+        );
         let mut events = s.transport.subscribe_session_events();
         s.connection.close();
 
-        let (call_id, result) = s.tools.call("client_pick", json!({ "prompt": "x" }), None).await;
+        let (call_id, result) = s
+            .tools
+            .call("client_pick", json!({ "prompt": "x" }), None)
+            .await;
         let call_id = call_id.unwrap();
         let response = result.unwrap();
-        assert!(matches!(response.content, VizierResponseContent::ToolResponse { ref response } if response["status"] == "deferred"));
-        assert_eq!(outcome_of(&s.storage, &call_id).await, Some(ClientCallOutcome::Deferred));
-        assert!(matches!(events.recv().await.unwrap().frame, SessionFrame::ClientCallOutcome { outcome: ClientCallOutcome::Deferred, .. }));
-        assert!(matches!(events.recv().await.unwrap().frame, SessionFrame::ClientCallDeferred { .. }));
-        assert_eq!(s.storage.deferred_client_calls(&session()).await.unwrap(), [call_id.clone()]);
+        assert!(
+            matches!(response.content, VizierResponseContent::ToolResponse { ref response } if response["status"] == "deferred")
+        );
+        assert_eq!(
+            outcome_of(&s.storage, &call_id).await,
+            Some(ClientCallOutcome::Deferred)
+        );
+        assert!(matches!(
+            events.recv().await.unwrap().frame,
+            SessionFrame::ClientCallOutcome {
+                outcome: ClientCallOutcome::Deferred,
+                ..
+            }
+        ));
+        assert!(matches!(
+            events.recv().await.unwrap().frame,
+            SessionFrame::ClientCallDeferred { .. }
+        ));
+        assert_eq!(
+            s.storage.deferred_client_calls(&session()).await.unwrap(),
+            [call_id.clone()]
+        );
 
         // A connection that drops before answering leaves it deferred.
         let claims = DeferredClaims::default();
         let (dropped, mut dropped_rx) = ClientConnection::for_tests();
         let delivery = {
-            let (storage, transport, dropped, call_id) = (s.storage.clone(), s.transport.clone(), dropped.clone(), call_id.clone());
+            let (storage, transport, dropped, call_id) = (
+                s.storage.clone(),
+                s.transport.clone(),
+                dropped.clone(),
+                call_id.clone(),
+            );
             let claims = Arc::new(claims);
             let c = claims.clone();
-            (tokio::spawn(async move { deliver_deferred(&storage, &transport, &session(), &dropped, &c, &call_id).await }), claims)
+            (
+                tokio::spawn(async move {
+                    deliver_deferred(&storage, &transport, &session(), &dropped, &c, &call_id).await
+                }),
+                claims,
+            )
         };
         let frame = next_call(&mut dropped_rx).await;
         assert_eq!(frame["deferred"], true);
@@ -866,19 +1049,41 @@ mod tests {
         assert!(delivery.1.claim(&call_id).is_none());
         dropped.close();
         delivery.0.await.unwrap();
-        assert_eq!(outcome_of(&s.storage, &call_id).await, Some(ClientCallOutcome::Deferred));
+        assert_eq!(
+            outcome_of(&s.storage, &call_id).await,
+            Some(ClientCallOutcome::Deferred)
+        );
 
         // The next connection answers it.
         let (next, mut next_rx) = ClientConnection::for_tests();
         let task = {
-            let (storage, transport, next, call_id, claims) = (s.storage.clone(), s.transport.clone(), next.clone(), call_id.clone(), delivery.1.clone());
-            tokio::spawn(async move { deliver_deferred(&storage, &transport, &session(), &next, &claims, &call_id).await })
+            let (storage, transport, next, call_id, claims) = (
+                s.storage.clone(),
+                s.transport.clone(),
+                next.clone(),
+                call_id.clone(),
+                delivery.1.clone(),
+            );
+            tokio::spawn(async move {
+                deliver_deferred(&storage, &transport, &session(), &next, &claims, &call_id).await
+            })
         };
         next_call(&mut next_rx).await;
         assert!(next.answer(&call_id, ClientAnswer::Ok(json!({ "hex": "#fff" }))));
         task.await.unwrap();
-        assert_eq!(outcome_of(&s.storage, &call_id).await, Some(ClientCallOutcome::Ok { result: json!({ "hex": "#fff" }) }));
-        assert!(s.storage.deferred_client_calls(&session()).await.unwrap().is_empty());
+        assert_eq!(
+            outcome_of(&s.storage, &call_id).await,
+            Some(ClientCallOutcome::Ok {
+                result: json!({ "hex": "#fff" })
+            })
+        );
+        assert!(
+            s.storage
+                .deferred_client_calls(&session())
+                .await
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[tokio::test]
@@ -886,18 +1091,32 @@ mod tests {
         let mut s = setup(vec![deferrable("pick")], vec![]);
         let tools = s.tools.clone();
         let call = tokio::spawn(async move { tools.call("client_pick", json!({}), None).await });
-        let id = next_call(&mut s.rx).await["call_id"].as_str().unwrap().to_string();
+        let id = next_call(&mut s.rx).await["call_id"]
+            .as_str()
+            .unwrap()
+            .to_string();
         s.connection.close();
         let (_, result) = call.await.unwrap();
-        assert!(matches!(result.unwrap().content, VizierResponseContent::ToolResponse { ref response } if response["status"] == "deferred"));
-        assert_eq!(outcome_of(&s.storage, &id).await, Some(ClientCallOutcome::Deferred));
+        assert!(
+            matches!(result.unwrap().content, VizierResponseContent::ToolResponse { ref response } if response["status"] == "deferred")
+        );
+        assert_eq!(
+            outcome_of(&s.storage, &id).await,
+            Some(ClientCallOutcome::Deferred)
+        );
     }
 
     #[tokio::test]
     async fn a_call_on_a_closed_connection_fails_at_once() {
         let s = setup(vec![declaration("pick", None)], vec![]);
         s.connection.close();
-        let err = s.tools.call("client_pick", json!({}), None).await.1.unwrap_err().to_string();
+        let err = s
+            .tools
+            .call("client_pick", json!({}), None)
+            .await
+            .1
+            .unwrap_err()
+            .to_string();
         assert!(err.starts_with("client_disconnected"), "{err}");
     }
 
@@ -905,7 +1124,10 @@ mod tests {
     fn a_flagged_client_tool_carries_the_notice_once_after_the_prefix_and_echoes_the_flag() {
         let s = setup(
             vec![
-                ClientToolDeclaration { ends_turn: true, ..declaration("render", Some("ui")) },
+                ClientToolDeclaration {
+                    ends_turn: true,
+                    ..declaration("render", Some("ui"))
+                },
                 declaration("plain", Some("ui")),
             ],
             vec![],
@@ -919,7 +1141,12 @@ mod tests {
             )
         );
         assert!(catalogue[0].ends_turn);
-        assert!(!catalogue[1].definition.description.contains(crate::agents::tools::ENDS_TURN_NOTICE));
+        assert!(
+            !catalogue[1]
+                .definition
+                .description
+                .contains(crate::agents::tools::ENDS_TURN_NOTICE)
+        );
         assert!(!catalogue[1].ends_turn);
 
         let frame = s.tools.resolved_frame();
