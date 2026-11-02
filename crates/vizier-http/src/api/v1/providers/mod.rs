@@ -17,7 +17,7 @@ use crate::{
     },
     state::HTTPState,
 };
-use vizier_core::service::{ServiceError, providers as service};
+use vizier_core::service::{ServiceError, providers as service, providers_sso};
 
 pub mod custom;
 
@@ -35,6 +35,15 @@ pub fn providers() -> Router<HTTPState> {
                 .delete(delete_provider),
         )
         .route("/{id}/test", post(test_provider))
+        // Amazon Bedrock over IAM Identity Center (`contracts/provider-credentials-api.md` §3):
+        // the sign-in, the pickers that follow it, and signing out inside Vizier.
+        .route("/{id}/sso/sign-in", post(sso_sign_in))
+        .route("/{id}/sso/accounts", get(sso_accounts))
+        .route(
+            "/{id}/sso/accounts/{account_id}/roles",
+            get(sso_roles),
+        )
+        .route("/{id}/sso/sign-out", post(sso_sign_out))
 }
 
 /// A service error in the API's envelope. A `409` that names the agents using a provider keeps
@@ -179,12 +188,140 @@ pub(crate) async fn test_provider(
     }
 }
 
+// ---------------------------------------------------------------- Bedrock over IAM Identity Center
+
+/// The `POST` bodies of this section are all-optional (contracts §3), so an empty body means "use
+/// the saved connection" rather than a deserialisation failure.
+fn optional_sign_in_body(body: &[u8]) -> Result<providers_sso::SignInRequest, ServiceError> {
+    if body.iter().all(u8::is_ascii_whitespace) {
+        return Ok(providers_sso::SignInRequest::default());
+    }
+    match serde_json::from_slice::<Option<providers_sso::SignInRequest>>(body) {
+        Ok(body) => Ok(body.unwrap_or_default()),
+        Err(error) => Err(ServiceError::invalid(error.to_string())),
+    }
+}
+
+/// The `200`/`202` the answer asks for: `202` only while the browser step is pending.
+fn sign_in_status(answer: &providers_sso::SignInResponse) -> StatusCode {
+    if answer.status() == 202 {
+        StatusCode::ACCEPTED
+    } else {
+        StatusCode::OK
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/providers/{id}/sso/sign-in",
+    params(("id" = String, Path, description = "Provider id; only `amazon-bedrock-sso` signs in")),
+    request_body(content = providers_sso::SignInRequest, description = "Optional start URL, SSO region and profile name, for a connection not saved yet"),
+    responses(
+        (status = 200, description = "A code to confirm, or the completed sign-in", body = APIResponse<providers_sso::SignInResponse>),
+        (status = 202, description = "The browser step is still pending", body = APIResponse<providers_sso::SignInResponse>),
+        (status = 400, description = "The sign-in was denied or the code expired", body = APIResponse<String>),
+        (status = 502, description = "AWS did not answer", body = APIResponse<String>)
+    )
+)]
+pub(crate) async fn sso_sign_in(
+    Path(id): Path<String>,
+    State(state): State<HTTPState>,
+    Extension(user): Extension<Principal>,
+    body: axum::body::Bytes,
+) -> models::response::Response<providers_sso::SignInResponse> {
+    let body = match optional_sign_in_body(&body) {
+        Ok(body) => body,
+        Err(e) => return fail(e),
+    };
+    match providers_sso::sign_in(&state.deps, &user, &id, body).await {
+        Ok(answer) => api_response(sign_in_status(&answer), answer),
+        Err(e) => fail(e),
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/providers/{id}/sso/accounts",
+    params(
+        ("id" = String, Path, description = "Provider id; only `amazon-bedrock-sso` has accounts"),
+        providers_sso::SignInRequest
+    ),
+    responses(
+        (status = 200, description = "The accounts the identity was assigned; `fallback` asks for free text", body = APIResponse<providers_sso::AccountList>),
+        (status = 401, description = "No usable session: sign in again", body = APIResponse<String>)
+    )
+)]
+pub(crate) async fn sso_accounts(
+    Path(id): Path<String>,
+    State(state): State<HTTPState>,
+    Extension(user): Extension<Principal>,
+    Query(query): Query<providers_sso::SignInRequest>,
+) -> models::response::Response<providers_sso::AccountList> {
+    match providers_sso::discover_accounts(&state.deps, &user, &id, query).await {
+        Ok(list) => api_response(StatusCode::OK, list),
+        Err(e) => fail(e),
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/providers/{id}/sso/accounts/{account_id}/roles",
+    params(
+        ("id" = String, Path, description = "Provider id; only `amazon-bedrock-sso` has roles"),
+        ("account_id" = String, Path, description = "AWS account id, 12 digits"),
+        providers_sso::SignInRequest
+    ),
+    responses(
+        (status = 200, description = "The roles this identity may assume in the account", body = APIResponse<providers_sso::RoleList>),
+        (status = 400, description = "The account id is not 12 digits", body = APIResponse<String>),
+        (status = 401, description = "No usable session: sign in again", body = APIResponse<String>)
+    )
+)]
+pub(crate) async fn sso_roles(
+    Path((id, account_id)): Path<(String, String)>,
+    State(state): State<HTTPState>,
+    Extension(user): Extension<Principal>,
+    Query(query): Query<providers_sso::SignInRequest>,
+) -> models::response::Response<providers_sso::RoleList> {
+    match providers_sso::discover_roles(&state.deps, &user, &id, &account_id, query).await {
+        Ok(list) => api_response(StatusCode::OK, list),
+        Err(e) => fail(e),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/providers/{id}/sso/sign-out",
+    params(("id" = String, Path, description = "Provider id; only `amazon-bedrock-sso` signs out")),
+    request_body(content = providers_sso::SignInRequest, description = "Optional profile name, when the connection is not saved yet"),
+    responses(
+        (status = 200, description = "The session row is gone and the connection is configured; never an error if it was already signed out", body = APIResponse<providers_sso::SignOutResponse>),
+        (status = 400, description = "The provider is not an SSO connection", body = APIResponse<String>)
+    )
+)]
+pub(crate) async fn sso_sign_out(
+    Path(id): Path<String>,
+    State(state): State<HTTPState>,
+    Extension(user): Extension<Principal>,
+    body: axum::body::Bytes,
+) -> models::response::Response<providers_sso::SignOutResponse> {
+    let body = match optional_sign_in_body(&body) {
+        Ok(body) => body,
+        Err(e) => return fail(e),
+    };
+    match providers_sso::sign_out(&state.deps, &user, &id, body).await {
+        Ok(answer) => api_response(StatusCode::OK, answer),
+        Err(e) => fail(e),
+    }
+}
+
 #[cfg(test)]
 mod dummyplug_provider_tests {
     use super::*;
     use std::sync::Arc;
     use vizier_core::catalogue::builtin::CredentialField;
     use vizier_core::config::provider::ProviderId;
+    use vizier_core::schema::SsoSessionState;
     use vizier_core::{
         config::VizierConfig, dependencies::VizierDependencies, storage::provider::ProviderStorage,
     };
@@ -307,6 +444,169 @@ mod dummyplug_provider_tests {
             .0,
             StatusCode::NOT_FOUND
         );
+    }
+
+
+
+    // ------------------------------------------------------------ Bedrock over IAM Identity Center
+
+    const START_URL: &str = "https://acme.awsapps.com/start";
+
+    /// The five fields a saved SSO connection needs, as the form sends them.
+    fn sso_body() -> UpsertProviderRequest {
+        UpsertProviderRequest {
+            start_url: Some(START_URL.into()),
+            sso_region: Some("us-east-1".into()),
+            account_id: Some("123456789012".into()),
+            role_name: Some("BedrockOperator".into()),
+            sso_profile: Some("acme-bedrock".into()),
+            ..Default::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn the_sso_sign_in_surface_is_for_the_sso_provider_only() {
+        let (state, _dir) = state().await;
+        for id in ["openai", "amazon-bedrock"] {
+            let answer = sso_sign_in(
+                Path(id.to_string()),
+                State(state.clone()),
+                Extension(principal()),
+                axum::body::Bytes::new(),
+            )
+            .await;
+            assert_eq!(answer.0, StatusCode::BAD_REQUEST, "{id}");
+            assert!(
+                answer
+                    .1
+                    .0
+                    .message
+                    .as_deref()
+                    .unwrap_or_default()
+                    .contains("IAM Identity Center"),
+                "{:?}",
+                answer.1.0
+            );
+
+            // The pickers and sign-out refuse the same way, so no other provider can be driven
+            // through this surface.
+            let accounts = sso_sign_out(
+                Path(id.to_string()),
+                State(state.clone()),
+                Extension(principal()),
+                axum::body::Bytes::new(),
+            )
+            .await;
+            assert_eq!(accounts.0, StatusCode::BAD_REQUEST, "{id}");
+        }
+    }
+
+    #[tokio::test]
+    async fn signing_out_when_nothing_is_signed_in_is_not_an_error_and_echoes_no_secret() {
+        let (state, _dir) = state().await;
+        let answer = sso_sign_out(
+            Path("amazon-bedrock-sso".into()),
+            State(state.clone()),
+            Extension(principal()),
+            axum::body::Bytes::new(),
+        )
+        .await;
+        assert_eq!(answer.0, StatusCode::OK, "{:?}", answer.1.0);
+        let data = answer.1.0.data.expect("a body");
+        assert_eq!(data.state, "configured");
+        let json = serde_json::to_string(&data).unwrap();
+        for forbidden in ["token", "secret", "device_code"] {
+            assert!(!json.to_lowercase().contains(forbidden), "{json}");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_saved_connection_reports_its_fields_and_a_configured_session() {
+        let (state, dir) = state().await;
+        let put = upsert_provider(
+            Path("amazon-bedrock-sso".into()),
+            State(state.clone()),
+            Extension(principal()),
+            axum::Json(sso_body()),
+        )
+        .await;
+        assert_eq!(put.0, StatusCode::OK, "{:?}", put.1.0);
+        let data = put.1.0.data.expect("a provider row");
+
+        assert_eq!(data.start_url.as_deref(), Some(START_URL));
+        assert_eq!(data.sso_region.as_deref(), Some("us-east-1"));
+        assert_eq!(data.role_name.as_deref(), Some("BedrockOperator"));
+        assert_eq!(data.sso_profile.as_deref(), Some("acme-bedrock"));
+        // The Bedrock region defaults from the SSO region when only that one is given (FR-010).
+        assert_eq!(data.region.as_deref(), Some("us-east-1"));
+        assert_eq!(data.sso_state, Some(SsoSessionState::Configured));
+        assert!(!data.has_sso_session);
+        assert!(data.session_expires_at.is_none());
+        assert!(data.profiles.is_empty());
+        assert_eq!(
+            data.fields,
+            vec![
+                CredentialField::StartUrl,
+                CredentialField::SsoRegion,
+                CredentialField::AccountId,
+                CredentialField::RoleName,
+                CredentialField::SsoProfile,
+                CredentialField::Region,
+            ]
+        );
+
+        // Nothing of it is a secret, and no session was written by saving the fields.
+        let json = serde_json::to_string(&data).unwrap();
+        // A presence flag such as `has_access_token` is a boolean, not material. Match the
+        // key/value form so only a field that actually carries one trips this.
+        for forbidden in ["access_token", "refresh_token", "client_secret", "device_code"] {
+            let echoed = format!("\"{forbidden}\":");
+            assert!(!json.contains(&echoed), "{json}");
+        }
+        let raw = vizier_core::storage::sqlite::SqliteStorage::open_connection(
+            dir.path().to_str().unwrap(),
+        )
+        .unwrap()
+        .query_row(
+            "SELECT COUNT(*) FROM bedrock_sso_session",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap();
+        assert_eq!(raw, 0, "saving the five fields signs nobody in");
+
+        // The picker endpoints answer the missing session with the re-sign-in wording and nothing
+        // else: no token, no profile id, no session material (FR-009b, contracts §3).
+        let accounts = sso_accounts(
+            Path("amazon-bedrock-sso".into()),
+            State(state.clone()),
+            Extension(principal()),
+            Query(providers_sso::SignInRequest::default()),
+        )
+        .await;
+        assert_eq!(accounts.0, StatusCode::UNAUTHORIZED, "{:?}", accounts.1.0);
+        let message = accounts.1.0.message.unwrap_or_default();
+        assert!(message.contains("sign in again"), "{message}");
+        assert!(!message.to_lowercase().contains("token"), "{message}");
+
+        let roles = sso_roles(
+            Path(("amazon-bedrock-sso".to_string(), "1234".to_string())),
+            State(state.clone()),
+            Extension(principal()),
+            Query(providers_sso::SignInRequest::default()),
+        )
+        .await;
+        assert_eq!(roles.0, StatusCode::BAD_REQUEST, "the account id is checked first");
+    }
+
+    #[tokio::test]
+    async fn an_empty_body_is_read_as_use_the_saved_connection() {
+        let body = optional_sign_in_body(b"  \n").expect("an empty body is not an error");
+        assert!(body.profile.is_none() && body.sso_region.is_none() && body.start_url.is_none());
+        assert!(optional_sign_in_body(b"null").unwrap().profile.is_none());
+        let parsed = optional_sign_in_body(br#"{"profile":"acme-bedrock"}"#).unwrap();
+        assert_eq!(parsed.profile.as_deref(), Some("acme-bedrock"));
+        assert!(optional_sign_in_body(b"{\"nope\":1}").is_err());
     }
 
     #[tokio::test]

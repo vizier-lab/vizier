@@ -41,6 +41,7 @@ static PENDING: LazyLock<Mutex<HashMap<String, DeviceFlow>>> =
 /// falls back to the saved row, so a saved connection starts a re-sign-in with an empty body
 /// (FR-008).
 #[derive(Debug, Default, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema, utoipa::IntoParams))]
 #[serde(deny_unknown_fields)]
 pub struct SignInRequest {
     pub start_url: Option<String>,
@@ -110,6 +111,28 @@ pub struct RoleView {
 pub struct RoleList {
     pub roles: Vec<RoleView>,
     pub fallback: bool,
+}
+
+/// One answer to `POST /{id}/sso/sign-in` (contracts §3): a fresh code to type, the pending state
+/// after a poll, or the completed sign-in. Untagged on the wire, exactly the three bodies the
+/// contract shows — and none of them carries the device code, a token or a secret half (FR-009b).
+#[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[serde(untagged)]
+pub enum SignInResponse {
+    Started(SignInStarted),
+    Progress(SignInProgress),
+}
+
+impl SignInResponse {
+    /// `200` for a code to show and for a completed sign-in; `202` while the browser step is still
+    /// pending, so the form knows to poll again.
+    pub fn status(&self) -> u16 {
+        match self {
+            Self::Started(_) | Self::Progress(SignInProgress::SignedIn { .. }) => 200,
+            Self::Progress(SignInProgress::Pending { .. }) => 202,
+        }
+    }
 }
 
 /// After a sign-out the connection is configured and has no session; nothing else changed.
@@ -217,6 +240,32 @@ pub async fn complete_sign_in(
         }
         // Denied, expired and already-used are terminal: the code is spent either way.
         Err(error) => Err(ServiceError::from(error)),
+    }
+}
+
+/// The one call the form's **Sign in** button makes (contracts §3): it starts a sign-in when none
+/// is pending for the profile and continues the pending one otherwise, so a poll is the same
+/// request with the same body. The answer says which of the two happened, and the code it shows is
+/// the only thing that leaves this process (FR-009b, FR-012).
+pub async fn sign_in(
+    deps: &VizierDependencies,
+    user: &Principal,
+    id: &str,
+    body: SignInRequest,
+) -> Result<SignInResponse, ServiceError> {
+    crate::access::require(user, PERMISSION)?;
+    let id = sso_id(id)?;
+    let saved = saved_credentials(deps, &id).await?;
+    let target = target(&body, &saved)?;
+    let pending = PENDING.lock().await.contains_key(&target.profile);
+    if pending {
+        complete_sign_in(deps, user, id.as_str(), body)
+            .await
+            .map(SignInResponse::Progress)
+    } else {
+        start_sign_in(deps, user, id.as_str(), body)
+            .await
+            .map(SignInResponse::Started)
     }
 }
 
@@ -542,6 +591,62 @@ mod tests {
         };
         let error = target(&SignInRequest::default(), &bad_region).unwrap_err();
         assert!(error.message().contains("invalid SSO region"), "{error}");
+    }
+
+    #[test]
+    fn no_sign_in_answer_carries_a_device_code_token_or_secret_half() {
+        let now = Utc::now();
+        let answers = [
+            SignInResponse::Started(SignInStarted {
+                user_code: "ABCD-EFGH".into(),
+                verification_uri: "https://device.sso.us-east-1.amazonaws.com/".into(),
+                verification_uri_complete: Some(
+                    "https://device.sso.us-east-1.amazonaws.com/?user_code=ABCD-EFGH".into(),
+                ),
+                expires_at: now,
+                interval_seconds: 5,
+            }),
+            SignInResponse::Progress(SignInProgress::Pending { expires_at: now }),
+            SignInResponse::Progress(SignInProgress::SignedIn {
+                account_id: Some("123456789012".into()),
+                role_name: Some("BedrockOperator".into()),
+                expires_at: now,
+            }),
+        ];
+        for answer in &answers {
+            let value = serde_json::to_value(answer).unwrap();
+            let text = value.to_string().to_lowercase();
+            for forbidden in [
+                "device_code",
+                "access_token",
+                "refresh_token",
+                "client_secret",
+                "secret_access_key",
+                "session_token",
+            ] {
+                assert!(!text.contains(forbidden), "{forbidden} in {value}");
+            }
+        }
+
+        // The statuses the form polls on: the code to show, still pending, signed in.
+        assert_eq!(answers[0].status(), 200);
+        assert_eq!(answers[1].status(), 202);
+        assert_eq!(answers[2].status(), 200);
+
+        // The wire states are the kebab-case names the contract shows.
+        assert_eq!(
+            serde_json::to_value(&answers[1]).unwrap()["state"],
+            serde_json::json!("pending")
+        );
+        assert_eq!(
+            serde_json::to_value(&answers[2]).unwrap()["state"],
+            serde_json::json!("signed-in")
+        );
+        // The user code is not a secret: it is meant to be read out.
+        assert_eq!(
+            serde_json::to_value(&answers[0]).unwrap()["user_code"],
+            serde_json::json!("ABCD-EFGH")
+        );
     }
 
     #[test]
