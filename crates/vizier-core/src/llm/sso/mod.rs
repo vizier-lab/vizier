@@ -31,7 +31,7 @@ pub use client::{
     ClientRegistration, DeviceAuthorization, DeviceFlow, SsoClient, SsoEndpoints, TokenPoll,
     TokenSet,
 };
-pub use error::SsoError;
+pub use error::{SESSION_ENDED, SsoError, is_session_failure_message};
 pub use portal::{DiscoveredAccounts, DiscoveredRoles, RoleCredentials, SsoAccount, SsoPortal, SsoRole};
 pub use session::{
     Persisted, RENEW_BEFORE, SsoSessions, expires_at, has_expired, needs_renewal,
