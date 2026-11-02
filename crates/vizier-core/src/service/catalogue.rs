@@ -11,7 +11,7 @@ use serde::Serialize;
 use crate::{
     auth::Principal,
     catalogue::{
-        POPULAR, ProviderListing, ProviderOrigin,
+        Catalogue, POPULAR, ProviderListing, ProviderOrigin,
         builtin::CredentialField,
         data::{CatalogueModel, Cost, Limits, ModelStatus, ProviderKind},
         seed,
@@ -19,7 +19,7 @@ use crate::{
     config::provider::ProviderId,
     dependencies::VizierDependencies,
     llm::DialectKind,
-    schema::CustomProvider,
+    schema::{CustomProvider, ProfileEntry},
     service::ServiceError,
     storage::provider::{CustomProviderStorage, ProviderStorage},
 };
@@ -452,6 +452,109 @@ pub async fn models_for(deps: &VizierDependencies, id: &ProviderId, all: bool) -
     Some(models)
 }
 
+/// What an entry's usage will cost right now: the five outcomes of data-model "profile entry",
+/// in their fixed precedence (research D13, FR-034a.1-a.5, FR-034b).
+#[derive(Debug, Clone, PartialEq)]
+pub enum EntryPricing {
+    /// A hand-entered price, used as given: no catalogue lookup happens (FR-034a.4).
+    Explicit(Cost),
+    /// The paired model's cost, re-resolved from the catalogue as it stands now (FR-034a.1).
+    FromCatalogue(Cost),
+    /// The paired id is not in the catalogue: withdrawn, or the catalogue has not caught up
+    /// (FR-034a.3).
+    NotResolved { model: String },
+    /// No model was paired, so there is nothing to price from (FR-034a.2).
+    NotSet,
+    /// The catalogue carries no Bedrock list at all, so `model` could not be checked (FR-034b).
+    NoCatalogue,
+}
+
+impl EntryPricing {
+    /// The cost a report adds, or `None` when the entry is unpriced — never zero (FR-034b).
+    pub fn cost(&self) -> Option<&Cost> {
+        match self {
+            Self::Explicit(cost) | Self::FromCatalogue(cost) => Some(cost),
+            Self::NotResolved { .. } | Self::NotSet | Self::NoCatalogue => None,
+        }
+    }
+
+    /// The `state` `contracts/provider-credentials-api.md` §4a reports.
+    pub fn state(&self) -> &'static str {
+        match self {
+            Self::Explicit(_) => "explicit",
+            Self::FromCatalogue(_) => "from_catalogue",
+            Self::NotResolved { .. } => "not_resolved",
+            Self::NotSet => "not_set",
+            Self::NoCatalogue => "no_catalogue",
+        }
+    }
+
+    /// The label the settings row shows; `None` once the entry is priced.
+    pub fn flag(&self) -> Option<&'static str> {
+        match self {
+            Self::Explicit(_) | Self::FromCatalogue(_) => None,
+            Self::NotResolved { .. } => Some("pricing not resolved"),
+            Self::NotSet | Self::NoCatalogue => Some("pricing not set"),
+        }
+    }
+
+    /// Why the entry is unpriced and the way out. Every absence carries its own, so no caller can
+    /// render one without a cause, and no two causes share wording (FR-034a.2, FR-034a.3,
+    /// FR-034b, SC-021). `None` once the entry is priced.
+    pub fn reason(&self) -> Option<String> {
+        match self {
+            Self::Explicit(_) | Self::FromCatalogue(_) => None,
+            Self::NotResolved { model } => Some(format!(
+                "no price for {model}: it is no longer in the catalogue — pick another model \
+                 or enter a price by hand"
+            )),
+            Self::NotSet => Some(
+                "no model is paired with this ARN, so there is nothing to price it from — pick \
+                 one from the list or enter a price by hand"
+                    .to_string(),
+            ),
+            Self::NoCatalogue => Some(
+                "the model catalogue carries no Bedrock model list, so there is nothing to \
+                 price this against yet — this resolves itself once the list is present; or \
+                 enter a price by hand"
+                    .to_string(),
+            ),
+        }
+    }
+}
+
+/// An entry's price, in the precedence data-model "profile entry" fixes — the order is
+/// load-bearing, not incidental (research D13):
+///
+/// 1. `price` is checked **first and short-circuits**, so a hand-entered figure wins over every
+///    absence below and no catalogue lookup happens at all (FR-034a.4).
+/// 2. Catalogue readiness is checked **before `model` is looked at**: with no Bedrock list there
+///    is nothing to resolve against, so `NoCatalogue` wins over both `NotSet` and `NotResolved`
+///    — neither of their reasons could be acted on, or even be true, there (FR-034b).
+/// 3. Only then is `model` resolved through the provider alias, and only then is an empty
+///    `model` a `NotSet` (FR-034a.1-a.3).
+///
+/// Nothing is ever derived from the ARN (FR-034a, SC-020).
+pub fn entry_pricing(catalogue: &Catalogue, entry: &ProfileEntry) -> EntryPricing {
+    if let Some(price) = entry.price.clone() {
+        return EntryPricing::Explicit(price);
+    }
+    // The D2 alias is applied by `Catalogue::provider`, so this asks the same question the model
+    // list and the pickers ask.
+    if catalogue.provider(&ProviderId::AMAZON_BEDROCK_SSO).is_none() {
+        return EntryPricing::NoCatalogue;
+    }
+    let Some(model) = entry.model.as_deref().map(str::trim).filter(|m| !m.is_empty()) else {
+        return EntryPricing::NotSet;
+    };
+    match catalogue
+        .model(&ProviderId::AMAZON_BEDROCK_SSO, model)
+        .and_then(|m| m.cost)
+    {
+        Some(cost) => EntryPricing::FromCatalogue(cost),
+        None => EntryPricing::NotResolved { model: model.to_string() },
+    }
+}
 
 fn invalid(message: impl Into<String>) -> ServiceError {
     ServiceError::invalid(message)
@@ -617,5 +720,88 @@ mod tests {
         assert_eq!(empty.len(), 1);
         assert_eq!(empty[0].id, "bytedance-seed/seedream-4.5");
         assert!(empty[0].default && !empty[0].listed);
+    }
+    /// FR-034a.1-a.5, FR-034b: the five outcomes and the precedence that decides between them.
+    #[test]
+    fn entry_pricing_follows_the_precedence_the_data_model_fixes() {
+        use crate::catalogue::data::CatalogueData;
+
+        let seeded = Catalogue::new(crate::catalogue::seed::load_seed());
+        let entry = |price: Option<Cost>, model: Option<&str>| ProfileEntry {
+            arn: "arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/abc".into(),
+            model: model.map(str::to_string),
+            price,
+            ..Default::default()
+        };
+        let hand = Cost { input: 1.5, output: 6.0, cache_read: None, cache_write: None };
+
+        // 1. The hand-entered figure wins and stops there, whatever `model` holds.
+        for model in [None, Some("amazon.nova-lite-v1:0"), Some("gone-model")] {
+            let priced = entry_pricing(&seeded, &entry(Some(hand.clone()), model));
+            assert_eq!(priced, EntryPricing::Explicit(hand.clone()));
+            assert_eq!(priced.state(), "explicit");
+            assert_eq!(priced.cost(), Some(&hand));
+            assert_eq!(priced.flag(), None);
+            assert_eq!(priced.reason(), None);
+        }
+
+        // 3. A paired id the catalogue carries is priced from it, as it stands now.
+        let from_catalogue = entry_pricing(&seeded, &entry(None, Some("amazon.nova-lite-v1:0")));
+        assert!(matches!(from_catalogue, EntryPricing::FromCatalogue(_)));
+        assert_eq!(from_catalogue.state(), "from_catalogue");
+        assert!(from_catalogue.cost().is_some());
+        assert_eq!(from_catalogue.flag(), None);
+        assert_eq!(from_catalogue.reason(), None);
+
+        // 4. A gone id is reported with the id itself, never refused or re-pointed.
+        let gone = entry_pricing(&seeded, &entry(None, Some("anthropic.retired-model-v1")));
+        assert_eq!(
+            gone,
+            EntryPricing::NotResolved { model: "anthropic.retired-model-v1".into() }
+        );
+        assert_eq!(gone.state(), "not_resolved");
+        assert_eq!(gone.flag(), Some("pricing not resolved"));
+        assert!(gone.reason().unwrap().contains("anthropic.retired-model-v1"));
+        assert_eq!(gone.cost(), None);
+
+        // 5. Nothing paired — an id that is only whitespace is nothing paired too.
+        for model in [None, Some("   ")] {
+            let unset = entry_pricing(&seeded, &entry(None, model));
+            assert_eq!(unset, EntryPricing::NotSet);
+            assert_eq!(unset.state(), "not_set");
+            assert_eq!(unset.flag(), Some("pricing not set"));
+            assert!(unset.reason().is_some_and(|r| !r.is_empty()));
+            assert_eq!(unset.cost(), None);
+        }
+
+        // 2. No Bedrock list wins over both `NotSet` and `NotResolved` — and the explicit price
+        //    still wins over it, because row 1 comes first.
+        let empty = Catalogue::new(CatalogueData::empty());
+        for model in [None, Some("amazon.nova-lite-v1:0"), Some("gone-model")] {
+            let no_catalogue = entry_pricing(&empty, &entry(None, model));
+            assert_eq!(no_catalogue, EntryPricing::NoCatalogue);
+            assert_eq!(no_catalogue.state(), "no_catalogue");
+            assert_eq!(no_catalogue.flag(), Some("pricing not set"));
+            assert!(no_catalogue.reason().is_some_and(|r| !r.is_empty()));
+            assert_eq!(no_catalogue.cost(), None);
+        }
+        assert_eq!(
+            entry_pricing(&empty, &entry(Some(hand.clone()), None)),
+            EntryPricing::Explicit(hand)
+        );
+
+        // SC-021: the three absences are told apart by their reason alone.
+        let reasons = [
+            entry_pricing(&seeded, &entry(None, None)).reason().unwrap(),
+            gone.reason().unwrap(),
+            entry_pricing(&empty, &entry(None, Some("amazon.nova-lite-v1:0")))
+                .reason()
+                .unwrap(),
+        ];
+        for a in 0..reasons.len() {
+            for b in a + 1..reasons.len() {
+                assert_ne!(reasons[a], reasons[b], "two absences share wording");
+            }
+        }
     }
 }
