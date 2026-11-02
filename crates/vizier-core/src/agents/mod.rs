@@ -241,7 +241,12 @@ impl VizierAgents {
                     .processes
                     .iter()
                     .map(|(id, process)| {
-                        AgentStatus::health(&process.status, &self.deps.channel_board, id)
+                        AgentStatus::health(
+                            &process.status,
+                            &self.deps.channel_board,
+                            &self.deps.sso_failures,
+                            id,
+                        )
                     })
                     .collect();
                 let _ = resp.send(statuses);

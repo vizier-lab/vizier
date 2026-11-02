@@ -14,7 +14,8 @@ use super::error::LlmError;
 use super::http;
 use super::sigv4::{self, SigV4Request};
 use super::sso::session::needs_renewal;
-use super::sso::{RoleCredentials, SsoClient, SsoError, SsoSessions};
+use super::sso::{RoleCredentials, SessionFailures, SsoClient, SsoError, SsoSessions};
+use crate::config::provider::ProviderId;
 use crate::storage::sso_session::SsoSessionStorage;
 
 /// What a credential source may need to know about the request it authorises.
@@ -324,6 +325,10 @@ pub struct SsoRoleCredential {
     storage: Arc<dyn SsoSessionStorage + Send + Sync>,
     target: SsoRoleTarget,
     cache: Mutex<Option<RoleCredentials>>,
+    /// Where a session failure is reported, when a surface asked for it (FR-018).
+    failures: Option<Arc<SessionFailures>>,
+    /// The connection the failure belongs to; only the SSO provider builds this credential.
+    provider: ProviderId,
 }
 
 impl SsoRoleCredential {
@@ -337,7 +342,17 @@ impl SsoRoleCredential {
             storage,
             target,
             cache: Mutex::new(None),
+            failures: None,
+            provider: ProviderId::AMAZON_BEDROCK_SSO,
         }
+    }
+
+    /// Report this connection's session failures to `failures`, so agent health and the provider
+    /// row can say why a turn failed until a sign-in clears it (spec 044, FR-018).
+    pub fn reporting(mut self, provider: ProviderId, failures: Arc<SessionFailures>) -> Self {
+        self.provider = provider;
+        self.failures = Some(failures);
+        self
     }
 
     /// The role's three halves, from the cache or exactly one renewal.
@@ -355,12 +370,33 @@ impl SsoRoleCredential {
             return Ok(cached.clone());
         }
 
+        match self.renew_now().await {
+            Ok(credentials) => {
+                // A renewal that worked proves the session is live again, whatever a surface last
+                // reported (FR-018). The cache is filled under the same guard, so it cannot be
+                // stale by the time this returns.
+                self.report(None);
+                *cache = Some(credentials.clone());
+                Ok(credentials)
+            }
+            Err(error) => {
+                // Only a session failure lands in the registry (FR-016); health keeps naming it
+                // until a sign-in clears it (FR-018).
+                self.report(Some(&error));
+                Err(error)
+            }
+        }
+    }
+
+    /// The renewal itself: the stored session, its token half when that expired, and exactly one
+    /// `GetRoleCredentials` — with the cache guard held by the caller (FR-013, FR-014).
+    async fn renew_now(&self) -> Result<RoleCredentials, LlmError> {
         let sessions = SsoSessions::new(self.storage.as_ref());
         let session = sessions
             .load(&self.target.profile)
             .await?
             .ok_or(SsoError::SessionExpired)?;
-        let credentials = sessions
+        sessions
             .renew(
                 &self.client,
                 &self.target.profile,
@@ -368,9 +404,20 @@ impl SsoRoleCredential {
                 &self.target.account_id,
                 &self.target.role_name,
             )
-            .await?;
-        *cache = Some(credentials.clone());
-        Ok(credentials)
+            .await
+            .map_err(LlmError::from)
+    }
+
+    /// Tell the surfaces, when one was given, what this attempt met (FR-018): a session failure
+    /// is recorded, a success clears what an earlier failure left.
+    fn report(&self, error: Option<&LlmError>) {
+        let Some(failures) = &self.failures else { return };
+        match error {
+            Some(error) => {
+                failures.record(&self.provider, &error.to_string());
+            }
+            None => failures.clear(&self.provider),
+        }
     }
 }
 

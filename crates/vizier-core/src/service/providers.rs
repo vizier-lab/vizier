@@ -71,6 +71,10 @@ pub struct ProviderResponse {
     pub role_name: Option<String>,
     /// When the stored session's access token expires.
     pub session_expires_at: Option<DateTime<Utc>>,
+    /// What the connection last failed with, when that failure was about the session itself —
+    /// a session revoked in AWS while its token still looked valid, for instance (FR-016,
+    /// FR-018). Cleared by the next successful sign-in, which needs no Vizier restart.
+    pub session_failure: Option<String>,
     /// The saved inference-profile entries, as saved: no price is invented here (FR-026, FR-028).
     pub profiles: Vec<ProfileEntryResponse>,
 }
@@ -163,6 +167,18 @@ fn set(v: &Option<String>) -> bool {
     v.as_deref().is_some_and(|s| !s.is_empty())
 }
 
+/// The session failure a provider row reports: only the SSO connection can have one, and only
+/// while it is the failure the surfaces still hold (FR-003, FR-018).
+fn reported_failure(
+    id: &ProviderId,
+    failures: &crate::llm::sso::SessionFailures,
+) -> Option<String> {
+    if *id != ProviderId::AMAZON_BEDROCK_SSO {
+        return None;
+    }
+    failures.get(id)
+}
+
 pub async fn connected(deps: &VizierDependencies) -> Vec<ProviderResponse> {
     let summaries = crate::service::catalogue::provider_summaries(deps).await;
     let mut used = usage::used_by_all(deps).await;
@@ -209,6 +225,7 @@ pub async fn connected(deps: &VizierDependencies) -> Vec<ProviderResponse> {
         } else {
             (None, None, None, None)
         };
+        let session_failure = reported_failure(&p.id, &deps.sso_failures);
         out.push(ProviderResponse {
             variant: p.id.clone(),
             migrated_from: migrated.get(p.id.as_str()).cloned(),
@@ -234,6 +251,7 @@ pub async fn connected(deps: &VizierDependencies) -> Vec<ProviderResponse> {
             sso_state: sso.as_ref().map(|view| view.state),
             has_sso_session: sso.as_ref().is_some_and(|view| view.has_session),
             session_expires_at: sso.as_ref().and_then(|view| view.expires_at),
+            session_failure,
             sso_profile,
             start_url,
             sso_region,
@@ -818,6 +836,27 @@ mod tests {
             std::slice::from_ref(&own),
         )
         .unwrap();
+    }
+
+    /// T054: the provider row names the session cause while it stands, and never on the other
+    /// Bedrock provider; a sign-in clears it (FR-003, FR-018).
+    #[test]
+    fn the_row_reports_a_session_failure_on_the_sso_connection_only() {
+        let failures = crate::llm::sso::SessionFailures::default();
+        assert_eq!(reported_failure(&ProviderId::AMAZON_BEDROCK_SSO, &failures), None);
+
+        failures.record(
+            &ProviderId::AMAZON_BEDROCK_SSO,
+            &crate::llm::sso::SsoError::SessionExpired.to_string(),
+        );
+        let message = reported_failure(&ProviderId::AMAZON_BEDROCK_SSO, &failures)
+            .expect("the ended session is reported");
+        assert!(message.contains("sign in again"), "{message}");
+        // The static-credentials provider shares the wire, not the session (FR-003).
+        assert_eq!(reported_failure(&ProviderId::AMAZON_BEDROCK, &failures), None);
+
+        failures.clear(&ProviderId::AMAZON_BEDROCK_SSO);
+        assert_eq!(reported_failure(&ProviderId::AMAZON_BEDROCK_SSO, &failures), None);
     }
 
     #[test]
