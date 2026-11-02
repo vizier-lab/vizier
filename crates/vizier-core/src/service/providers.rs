@@ -17,6 +17,7 @@ use crate::{
     schema::{ProfileEntry, ProviderCredentials, ProviderEntry, SsoSessionState},
     service::{
         ServiceError, providers_sso,
+        catalogue::{EntryPricingView, entry_display_name, entry_pricing},
         usage::{self, AffectedAgent, TestResult, UsedBy},
     },
     storage::provider::{CustomProviderStorage, ProviderStorage},
@@ -95,20 +96,20 @@ pub struct ProfileEntryResponse {
     pub edited: bool,
     /// The entry's name, or the profile id from its ARN when it has none (FR-026).
     pub display_name: String,
+    /// What its usage will cost right now, computed from the entry's current state — the figure,
+    /// or the absence with a cause-specific reason and the way out (contracts §4a, FR-034a.2,
+    /// FR-034a.3, FR-034b, SC-021). Never stored, so re-picking a model or entering a price
+    /// clears it with no manual edit.
+    pub pricing: EntryPricingView,
 }
 
 impl ProfileEntryResponse {
     /// The entry as the settings row shows it; shared with the entry CRUD so every surface
-    /// renders one shape (spec 044, contracts §4).
-    pub(crate) fn from_entry(entry: &ProfileEntry) -> Self {
-        let display_name = match entry.name.as_deref().map(str::trim).filter(|n| !n.is_empty()) {
-            Some(name) => name.to_string(),
-            // An entry validated on save always parses; a hand-edited row may not, and the ARN is
-            // still the most useful thing to show.
-            None => crate::llm::bedrock::parse_inference_profile_arn(&entry.arn)
-                .map(|arn| arn.id)
-                .unwrap_or_else(|_| entry.arn.clone()),
-        };
+    /// renders one shape (spec 044, contracts §4). `pricing` is re-derived from the catalogue as
+    /// it stands now on every call, so a refresh relabels and reprices the row and a fixed cause
+    /// clears its reason.
+    pub(crate) fn from_entry(catalogue: &crate::catalogue::Catalogue, entry: &ProfileEntry) -> Self {
+        let display_name = entry_display_name(entry);
         Self {
             arn: entry.arn.clone(),
             name: entry.name.clone(),
@@ -120,6 +121,7 @@ impl ProfileEntryResponse {
             price: entry.price.clone(),
             edited: entry.edited,
             display_name,
+            pricing: EntryPricingView::of(&entry_pricing(catalogue, entry)),
         }
     }
 }
@@ -192,7 +194,7 @@ pub async fn connected(deps: &VizierDependencies) -> Vec<ProviderResponse> {
             creds
                 .profiles
                 .iter()
-                .map(ProfileEntryResponse::from_entry)
+                .map(|entry| ProfileEntryResponse::from_entry(&deps.catalogue, entry))
                 .collect()
         } else {
             Vec::new()
@@ -705,6 +707,10 @@ mod tests {
 
     const ARN: &str = "arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/abc123";
 
+    fn catalogue() -> crate::catalogue::Catalogue {
+        crate::catalogue::Catalogue::new(crate::catalogue::seed::load_seed())
+    }
+
     /// A fully filled SSO connection, with the two legs in two different regions on purpose.
     fn full() -> ProviderCredentials {
         ProviderCredentials {
@@ -848,20 +854,90 @@ mod tests {
             name: Some("Acme Prod — Claude".into()),
             ..Default::default()
         };
-        assert_eq!(ProfileEntryResponse::from_entry(&named).display_name, "Acme Prod — Claude");
+        assert_eq!(ProfileEntryResponse::from_entry(&catalogue(), &named).display_name, "Acme Prod — Claude");
 
         let unnamed = ProfileEntry {
             arn: ARN.into(),
             name: Some("   ".into()),
             ..Default::default()
         };
-        assert_eq!(ProfileEntryResponse::from_entry(&unnamed).display_name, "abc123");
+        assert_eq!(ProfileEntryResponse::from_entry(&catalogue(), &unnamed).display_name, "abc123");
 
         // A row edited by hand to hold something that is not an ARN still shows what it holds.
         let broken = ProfileEntry {
             arn: "not-an-arn".into(),
             ..Default::default()
         };
-        assert_eq!(ProfileEntryResponse::from_entry(&broken).display_name, "not-an-arn");
+        assert_eq!(ProfileEntryResponse::from_entry(&catalogue(), &broken).display_name, "not-an-arn");
+    }
+
+    /// T039: the row publishes each outcome in the contract's own shape, values omitted where the
+    /// shape has none, and re-derives it per request — so fixing the cause clears the reason with
+    /// nothing else touched (contracts §4a, FR-034a.2, FR-034a.3, FR-034b, SC-021).
+    #[test]
+    fn the_entry_row_publishes_each_pricing_shape_and_clears_it_when_fixed() {
+        let c = catalogue();
+        let row = |entry: &ProfileEntry| {
+            serde_json::to_value(ProfileEntryResponse::from_entry(&c, entry)).unwrap()
+        };
+        let entry = || ProfileEntry { arn: ARN.into(), ..Default::default() };
+
+        // Nothing paired: unpriced, labelled, and the reason says why and what fixes it.
+        let unpaired = row(&entry());
+        assert_eq!(unpaired["pricing"]["state"], "not_set");
+        assert_eq!(unpaired["pricing"]["flag"], "pricing not set");
+        let unpaired_reason = unpaired["pricing"]["reason"].as_str().expect("a reason").to_string();
+        assert!(unpaired_reason.contains("no model is paired"));
+        assert!(unpaired_reason.contains("enter a price by hand"));
+        assert!(unpaired["pricing"].get("cost").is_none());
+        assert!(unpaired["pricing"].get("model").is_none());
+
+        // Pairing a model clears it on the next read: the same saved row, no edit.
+        let paired = row(&ProfileEntry {
+            model: Some("amazon.nova-lite-v1:0".into()),
+            ..entry()
+        });
+        assert_eq!(paired["pricing"]["state"], "from_catalogue");
+        assert_eq!(paired["pricing"]["model"], "amazon.nova-lite-v1:0");
+        assert!(paired["pricing"]["cost"]["input"].as_f64().is_some_and(|v| v > 0.0));
+        assert!(paired["pricing"].get("flag").is_none());
+        assert!(paired["pricing"].get("reason").is_none());
+
+        // An explicit price wins and says where the figure came from.
+        let entered = row(&ProfileEntry {
+            price: Some(Cost { input: 1.0, output: 2.0, cache_read: None, cache_write: None }),
+            ..entry()
+        });
+        assert_eq!(entered["pricing"]["state"], "explicit");
+        assert_eq!(entered["pricing"]["source"], "entered price");
+        assert_eq!(entered["pricing"]["cost"]["input"], 1.0);
+        assert!(entered["pricing"].get("reason").is_none());
+
+        // A gone id is named inside the reason, and no cost is invented.
+        let gone = row(&ProfileEntry {
+            model: Some("anthropic.retired-model-v1".into()),
+            ..entry()
+        });
+        assert_eq!(gone["pricing"]["state"], "not_resolved");
+        assert_eq!(gone["pricing"]["flag"], "pricing not resolved");
+        assert!(
+            gone["pricing"]["reason"]
+                .as_str()
+                .unwrap()
+                .contains("anthropic.retired-model-v1")
+        );
+        assert!(gone["pricing"].get("cost").is_none());
+
+        // No Bedrock list: its own state and its own reason, distinct from "nothing paired".
+        let empty =
+            crate::catalogue::Catalogue::new(crate::catalogue::data::CatalogueData::empty());
+        let no_list = serde_json::to_value(ProfileEntryResponse::from_entry(&empty, &entry()))
+            .unwrap();
+        assert_eq!(no_list["pricing"]["state"], "no_catalogue");
+        assert_eq!(no_list["pricing"]["flag"], "pricing not set");
+        let no_list_reason = no_list["pricing"]["reason"].as_str().expect("a reason");
+        assert!(!no_list_reason.is_empty());
+        assert_ne!(no_list_reason, unpaired_reason, "two causes share wording");
+        assert_eq!(no_list["cost"], serde_json::Value::Null, "unpriced, not zero");
     }
 }
