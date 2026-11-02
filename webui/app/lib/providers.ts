@@ -11,10 +11,26 @@ export const FIELD_LABELS: Record<CredentialField, string> = {
     secret_access_key: 'Secret access key',
     session_token: 'Session token (optional)',
     region: 'Region',
+    start_url: 'Identity Center start URL',
+    sso_region: 'SSO region',
+    role_name: 'Role name',
+    sso_profile: 'Profile name',
 }
 
 /** Fields shown in the clear (addresses, ids); the rest are secrets. */
-export const PLAIN_FIELDS: CredentialField[] = ['endpoint', 'base_url', 'account_id', 'access_key_id', 'region']
+export const PLAIN_FIELDS: CredentialField[] = [
+    'endpoint',
+    'base_url',
+    'account_id',
+    'access_key_id',
+    'region',
+    // The Identity Center connection details are addresses and names, never material
+    // (spec 044, contracts/provider-credentials-api.md §1).
+    'start_url',
+    'sso_region',
+    'role_name',
+    'sso_profile',
+]
 
 /** "3 agents · 41 models", or "not used yet". */
 export function usageText(used: UsedBy, models: number): string {
