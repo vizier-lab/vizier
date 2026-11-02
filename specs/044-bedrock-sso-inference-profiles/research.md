@@ -254,7 +254,7 @@ The workload is listed in the plan's "Deferred to tasks". Research adds three se
        FromCatalogue(Cost),             // FR-034a.1 / a.3 — the chosen model's cost, re-resolved now
        NotResolved { model: String },   // FR-034a.3 — the id is no longer in the catalogue
        NotSet,                          // FR-034a.2 — nothing was picked
-       NoCatalogue,                     // FR-034b — the catalogue has not loaded yet (cold start)
+       NoCatalogue,                     // FR-034b — no Bedrock list in the catalogue (cold start)
    }
    ```
 
