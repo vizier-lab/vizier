@@ -223,12 +223,21 @@ pub type CurrentAgent = Arc<RwLock<Option<Arc<VizierAgent>>>>;
 impl AgentStatus {
     /// `channels` are the readers of the connections attached to the agent, which run
     /// whatever state the agent is in (research R3).
+    ///
+    /// `failures` are the connections' last session failures: an agent whose model sits on such
+    /// a connection reports the cause while staying available, until a sign-in clears it
+    /// (spec 044, FR-018).
     pub fn health(
         status: &SharedStatus,
         board: &ChannelBoard,
+        failures: &crate::llm::sso::SessionFailures,
         agent_id: &AgentId,
     ) -> AgentHealthStatus {
         let status = status.read().unwrap_or_else(|p| p.into_inner()).clone();
+        let session_failure = status
+            .model
+            .as_ref()
+            .and_then(|model| failures.get(&model.provider));
         AgentHealthStatus {
             channels: health_for(board, agent_id),
             agent_id: agent_id.clone(),
@@ -240,6 +249,7 @@ impl AgentStatus {
             next_retry_at: status.next_retry_at,
             model: status.model,
             warnings: status.warnings,
+            session_failure,
         }
     }
 }
@@ -638,6 +648,81 @@ mod tests {
         assert!(
             records_ready(false, 2),
             "recovering from a failure closes the loop"
+        );
+    }
+
+    /// T054: an agent whose connection's session ended stays available and says why, and the
+    /// next successful sign-in clears it with no restart (FR-018).
+    #[test]
+    fn health_reports_an_ended_session_until_a_sign_in_clears_it() {
+        use crate::config::provider::ProviderId;
+        use crate::llm::sso::{SessionFailures, SsoError};
+
+        let board: ChannelBoard = Default::default();
+        let failures = SessionFailures::default();
+        let status: SharedStatus = Default::default();
+        let agent: AgentId = "agent-1".into();
+        set_status(&status, |s| {
+            s.state = AgentRunState::Running;
+            s.model = Some(crate::schema::AgentModelInfo {
+                provider: ProviderId::AMAZON_BEDROCK_SSO,
+                model: "amazon.nova-lite-v1:0".into(),
+                context_window: None,
+                max_output: None,
+                context_source: crate::llm::ContextSource::Catalogue,
+            });
+        });
+
+        // Nothing wrong yet: a running agent with no failure to report.
+        let healthy = AgentStatus::health(&status, &board, &failures, &agent);
+        assert!(healthy.alive && healthy.session_failure.is_none());
+
+        // The session ended: the agent is still available, and health names the cause.
+        failures.record(&ProviderId::AMAZON_BEDROCK_SSO, &SsoError::SessionExpired.to_string());
+        let broken = AgentStatus::health(&status, &board, &failures, &agent);
+        assert!(broken.alive, "an ended session never takes the agent down");
+        assert_eq!(broken.state, AgentRunState::Running);
+        let message = broken.session_failure.expect("the session cause is reported");
+        assert!(message.contains("the AWS SSO session has ended"), "{message}");
+        assert!(message.contains("sign in again"), "{message}");
+
+        // A successful sign-in clears it: the next health read is clean, no restart involved.
+        failures.clear(&ProviderId::AMAZON_BEDROCK_SSO);
+        assert!(
+            AgentStatus::health(&status, &board, &failures, &agent)
+                .session_failure
+                .is_none()
+        );
+    }
+
+    /// A failure on the other Bedrock provider is not this agent's problem (FR-003).
+    #[test]
+    fn a_failure_on_another_provider_is_not_reported_on_this_agent() {
+        use crate::config::provider::ProviderId;
+        use crate::llm::sso::{SessionFailures, SsoError};
+
+        let board: ChannelBoard = Default::default();
+        let failures = SessionFailures::default();
+        let status: SharedStatus = Default::default();
+        set_status(&status, |s| {
+            s.state = AgentRunState::Running;
+            s.model = Some(crate::schema::AgentModelInfo {
+                provider: ProviderId::AMAZON_BEDROCK,
+                model: "amazon.nova-lite-v1:0".into(),
+                context_window: None,
+                max_output: None,
+                context_source: crate::llm::ContextSource::Catalogue,
+            });
+        });
+        failures.record(
+            &ProviderId::AMAZON_BEDROCK_SSO,
+            &SsoError::SessionExpired.to_string(),
+        );
+
+        assert!(
+            AgentStatus::health(&status, &board, &failures, &"agent-1".into())
+                .session_failure
+                .is_none()
         );
     }
 

@@ -34,6 +34,11 @@ pub struct AgentHealthStatus {
     /// Configuration that works but probably isn't what was meant (FR-033).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub warnings: Vec<String>,
+    /// Why the agent's provider is refusing while the agent itself is available: the AWS SSO
+    /// session ended, and signing in again clears it (spec 044, FR-018). Never a token, never a
+    /// key or a model — only the session's own wording (FR-009b).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_failure: Option<String>,
 }
 
 /// The model an agent runs on, with its effective limits and where they came from.

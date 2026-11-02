@@ -359,11 +359,16 @@ pub fn bedrock_credentials_from(
         deps.storage.clone();
     Ok(BedrockCredential {
         region,
-        credential: Arc::new(super::auth::SsoRoleCredential::new(
-            super::sso::SsoClient::new(deps.http.clone(), &sso_region),
-            storage,
-            target,
-        )),
+        credential: Arc::new(
+            super::auth::SsoRoleCredential::new(
+                super::sso::SsoClient::new(deps.http.clone(), &sso_region),
+                storage,
+                target,
+            )
+            // A refused credential is reported where health and the provider row read it, and
+            // the next successful sign-in clears it (FR-018).
+            .reporting(id.clone(), deps.sso_failures.clone()),
+        ),
     })
 }
 

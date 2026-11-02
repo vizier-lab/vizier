@@ -226,6 +226,9 @@ pub async fn complete_sign_in(
                 .store_sign_in(&target.profile, flow.registration(), tokens)
                 .await
                 .map_err(ServiceError::from)?;
+            // FR-018: the session the person just renewed is what health reports again, in this
+            // process and with no Vizier restart.
+            deps.sso_failures.clear(&id);
             Ok(SignInProgress::SignedIn {
                 account_id: saved.account_id.filter(|v| !v.is_empty()),
                 role_name: saved.role_name.filter(|v| !v.is_empty()),
