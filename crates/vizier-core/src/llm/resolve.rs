@@ -474,6 +474,33 @@ pub fn resolve_with(
                         super::sso::SsoError::ProfileNotFound { arn: arn.raw }.to_string(),
                     ));
                 };
+                // FR-028: the entry supplies the limits and capabilities it has, and an unset
+                // field stays `None` — unknown to every consumer (checkpointing, attachments,
+                // tool warnings), never "unsupported". Nothing is inferred from the ARN and
+                // nothing is copied from the catalogue model the entry is priced from
+                // (FR-034a.6, SC-022), which is why `entry` here is the profile entry and not
+                // the catalogue's model of the same name.
+                //
+                // `limits()` is the same function every other provider goes through, so the
+                // agent's own `context_window` still wins over the entry's (`Override`); the
+                // entry's value reports as `Catalogue` — the saved selection, as opposed to a
+                // detected or listed value.
+                let saved_limits = Limits {
+                    context: entry.context,
+                    input: None,
+                    output: entry.output,
+                };
+                let (window, source, output) = limits(overrides, Some(&saved_limits));
+                resolved.context_window = window;
+                resolved.context_source = source;
+                resolved.max_output = output;
+                resolved.caps = Capabilities {
+                    tool_call: entry.tool_call,
+                    image_input_override: entry.image_input,
+                    ..Default::default()
+                };
+                // `cost` stays `None`: a turn never decides the price, a report does
+                // (FR-034a.5, data-model "resolution order for the entry's price").
                 return Ok(resolve_bedrock_sso(entry.arn.trim(), sso()?, resolved));
             }
             return Ok(resolve_bedrock_sso(model, sso()?, resolved));
@@ -1247,6 +1274,82 @@ mod resolve_tests {
         .unwrap();
         assert_eq!(r.model, "amazon.nova-lite-v1:0");
         assert_eq!(r.context_window, Some(300000), "from the catalogue entry");
+    }
+
+    #[test]
+    fn an_entry_supplies_its_own_limits_and_the_agent_override_still_wins() {
+        let c = catalogue();
+        let entry = ProfileEntry {
+            arn: SSO_ARN.into(),
+            context: Some(200_000),
+            output: Some(64_000),
+            tool_call: Some(true),
+            image_input: Some(false),
+            // The pair sits on a catalogue model with limits of its own; they must not show up.
+            model: Some("amazon.nova-lite-v1:0".into()),
+            ..Default::default()
+        };
+        let context = sso_context(&c, vec![entry]);
+        let r = resolve_with(
+            &context,
+            &ProviderId::AMAZON_BEDROCK_SSO,
+            SSO_ARN,
+            &ModelOverrides::default(),
+        )
+        .unwrap();
+        assert_eq!(r.context_window, Some(200_000), "the entry's own context window");
+        assert_eq!(r.max_output, Some(64_000), "the entry's own output limit");
+        assert_eq!(r.caps.tool_call, Some(true));
+        assert_eq!(r.caps.image_input(), Some(false));
+        assert_eq!(r.cost, None, "a turn never decides the price (FR-034a.5)");
+
+        // FR-028's order: agent override, then the entry.
+        let overridden = resolve_with(
+            &context,
+            &ProviderId::AMAZON_BEDROCK_SSO,
+            SSO_ARN,
+            &ModelOverrides {
+                context_window: Some(50_000),
+                max_tokens: Some(1_000),
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            (overridden.context_window, overridden.context_source),
+            (Some(50_000), ContextSource::Override)
+        );
+        assert_eq!(overridden.max_output, Some(64_000), "the entry's output still applies");
+        assert_eq!(overridden.max_tokens, Some(1_000));
+    }
+
+    #[test]
+    fn an_unset_entry_field_is_unknown_and_never_copied_from_the_paired_model() {
+        let c = catalogue();
+        let entry = ProfileEntry {
+            arn: SSO_ARN.into(),
+            // Paired with a catalogue model that carries 300 000 context, a 10 000 output limit,
+            // tool calling and image input. None of it may be copied onto the entry, and nothing
+            // may be inferred from the ARN (FR-034a.6, SC-022).
+            model: Some("amazon.nova-lite-v1:0".into()),
+            ..Default::default()
+        };
+        let context = sso_context(&c, vec![entry]);
+        let r = resolve_with(
+            &context,
+            &ProviderId::AMAZON_BEDROCK_SSO,
+            SSO_ARN,
+            &ModelOverrides::default(),
+        )
+        .unwrap();
+        assert_eq!(
+            (r.context_window, r.context_source),
+            (None, ContextSource::Unknown),
+            "unknown, not unsupported and not the paired model's window"
+        );
+        assert_eq!(r.max_output, None);
+        assert_eq!(r.caps.tool_call, None);
+        assert_eq!(r.caps.image_input(), None);
+        assert_eq!(r.cost, None);
     }
 
 }
