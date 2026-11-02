@@ -1,7 +1,21 @@
-import { Button, Notice, TextField } from '@vizier/design'
-import { useState } from 'react'
+import { Button, Notice, Select, TextField } from '@vizier/design'
+import { useEffect, useState } from 'react'
 import type { ProviderGuide, ProviderSummary } from '../../api/endpoints/catalogue'
-import { saveProvider, testProvider, type CredentialField, type TestResult } from '../../api/endpoints/providers'
+import {
+    saveProvider,
+    ssoAccounts,
+    ssoRoles,
+    ssoSignIn,
+    testProvider,
+    type AccountList,
+    type CredentialField,
+    type RoleList,
+    type SignInProgress,
+    type SignInRequest,
+    type SignInStarted,
+    type TestResult,
+} from '../../api/endpoints/providers'
+import { absoluteTime } from '../../lib/format'
 import { FIELD_LABELS, PLAIN_FIELDS } from '../../lib/providers'
 
 type Props = {
@@ -83,6 +97,278 @@ function Guide({ guide, editing }: { guide: ProviderGuide; editing?: boolean }) 
 }
 
 /**
+ * A provider that signs in rather than taking a key says so with the fields it asks for
+ * (spec 044, contracts §1). The form reads that capability and never the provider id
+ * (constitution II).
+ */
+const SIGN_IN_FIELDS: CredentialField[] = ['start_url', 'sso_region']
+
+/** `signed-in` is the one progress answer that carries a resolved session. */
+type SignedIn = Extract<SignInProgress, { state: 'signed-in' }>
+
+/**
+ * The form's values as a sign-in request: an empty field is omitted, so the server falls back to
+ * the saved connection and an expired session asks for a code and nothing else (FR-008).
+ */
+function signInRequest(values: Partial<Record<CredentialField, string>>): SignInRequest {
+    const body: SignInRequest = {}
+    const startUrl = (values.start_url ?? '').trim()
+    const ssoRegion = (values.sso_region ?? '').trim()
+    const profile = (values.sso_profile ?? '').trim()
+    if (startUrl) body.start_url = startUrl
+    if (ssoRegion) body.sso_region = ssoRegion
+    if (profile) body.profile = profile
+    return body
+}
+
+/**
+ * The sign-in half of a connection that uses IAM Identity Center: a code and a URL to confirm in
+ * a browser on any machine, then the account and role the person is actually entitled to
+ * (FR-007, FR-012). Only the code, the URL, the account, the role and the expiry are ever shown —
+ * no token, no device code, no secret half (FR-009b, FR-035).
+ */
+function SignIn({
+    providerId,
+    values,
+    onPicked,
+}: {
+    providerId: string
+    values: Partial<Record<CredentialField, string>>
+    /** The chosen pair, kept in the form so saving stores it with the connection (FR-007). */
+    onPicked: (accountId: string, roleName: string) => void
+}) {
+    const [phase, setPhase] = useState<'idle' | 'starting' | 'waiting' | 'signed-in' | 'failed'>('idle')
+    /** The request this attempt was started with: typed later, the form must not change it. */
+    const [sent, setSent] = useState<SignInRequest>()
+    const [started, setStarted] = useState<SignInStarted>()
+    const [session, setSession] = useState<SignedIn>()
+    const [failure, setFailure] = useState<string>()
+    const [accounts, setAccounts] = useState<AccountList>()
+    const [roles, setRoles] = useState<RoleList>()
+    const [account, setAccount] = useState('')
+    const [role, setRole] = useState('')
+
+    function pick(nextAccount: string, nextRole: string) {
+        setAccount(nextAccount)
+        setRole(nextRole)
+        onPicked(nextAccount, nextRole)
+    }
+
+    function failed(message: string) {
+        setFailure(message)
+        setStarted(undefined)
+        setPhase('failed')
+    }
+
+    function signedIn(answer: SignedIn) {
+        setSession(answer)
+        setStarted(undefined)
+        setPhase('signed-in')
+        // What the sign-in resolved is the default pair; the person may still pick another.
+        if (answer.account_id || answer.role_name) pick(answer.account_id ?? '', answer.role_name ?? '')
+    }
+
+    async function start() {
+        setFailure(undefined)
+        setSession(undefined)
+        setStarted(undefined)
+        setAccounts(undefined)
+        setRoles(undefined)
+        setAccount('')
+        setRole('')
+        onPicked('', '')
+        setPhase('starting')
+        const request = signInRequest(values)
+        setSent(request)
+        try {
+            const answer = await ssoSignIn(providerId, request)
+            if ('user_code' in answer) {
+                setStarted(answer)
+                setPhase('waiting')
+                return
+            }
+            if (answer.state === 'signed-in') {
+                signedIn(answer)
+                return
+            }
+            failed('The sign-in is already in progress somewhere else. Start again.')
+        } catch (err) {
+            failed(err instanceof Error ? err.message : 'The sign-in could not be started.')
+        }
+    }
+
+    // Poll the same call until it is approved, denied or expires (contracts §3: 202 = pending).
+    useEffect(() => {
+        if (!started || !sent) return
+        let cancelled = false
+        const interval = Math.max(started.interval_seconds, 5) * 1000
+        const deadline = Date.parse(started.expires_at)
+        const poll = async () => {
+            await new Promise((resolve) => setTimeout(resolve, interval))
+            if (cancelled) return
+            if (Date.now() > deadline) {
+                failed('The sign-in code expired. Start again.')
+                return
+            }
+            try {
+                const answer = await ssoSignIn(providerId, sent)
+                if (cancelled) return
+                if ('user_code' in answer) {
+                    // A new code is never what a poll should return; stop rather than loop on it.
+                    failed('The sign-in restarted. Confirm the new code.')
+                    return
+                }
+                if (answer.state === 'signed-in') {
+                    signedIn(answer)
+                    return
+                }
+                void poll()
+            } catch (err) {
+                if (cancelled) return
+                failed(err instanceof Error ? err.message : 'The sign-in could not be completed.')
+            }
+        }
+        void poll()
+        return () => {
+            cancelled = true
+        }
+    }, [started, sent, providerId])
+
+    // After a sign-in: the accounts it is assigned, then the roles granted in the chosen account.
+    useEffect(() => {
+        if (phase !== 'signed-in' || !sent) return
+        let cancelled = false
+        ssoAccounts(providerId, sent)
+            .then((list) => {
+                if (cancelled) return
+                setAccounts(list)
+                if (!account && list.accounts.length === 1) pick(list.accounts[0].account_id, '')
+            })
+            .catch(() => {
+                // The pickers are a convenience: a listing failure leaves the free-text fields.
+                if (!cancelled) setAccounts({ accounts: [], fallback: true })
+            })
+        return () => {
+            cancelled = true
+        }
+    }, [phase, sent, providerId])
+
+    useEffect(() => {
+        setRoles(undefined)
+        if (!account || !sent) return
+        let cancelled = false
+        ssoRoles(providerId, account, sent)
+            .then((list) => {
+                if (cancelled) return
+                setRoles(list)
+                if (!role && list.roles.length === 1) pick(account, list.roles[0].role_name)
+            })
+            .catch(() => {
+                if (!cancelled) setRoles({ roles: [], fallback: true })
+            })
+        return () => {
+            cancelled = true
+        }
+    }, [account, sent, providerId])
+
+    const listedNothing = phase === 'signed-in' && accounts && (accounts.fallback || accounts.accounts.length === 0)
+    const noRoles = phase === 'signed-in' && account !== '' && roles && (roles.fallback || roles.roles.length === 0)
+
+    return (
+        <section className="flex flex-col gap-10 rounded-lg border border-border bg-raised p-12" aria-label="Sign in">
+            <div className="flex items-center justify-between gap-12">
+                <div>
+                    <p className="type-ui-medium text-fg">Sign in</p>
+                    <p className="type-small text-muted">
+                        Vizier shows a short code. Confirm it in a browser on any machine, then choose the account
+                        and role to use.
+                    </p>
+                </div>
+                <Button type="button" variant="ghost" loading={phase === 'starting'} onClick={() => void start()}>
+                    {phase === 'waiting' ? 'Start again' : session ? 'Sign in again' : 'Sign in'}
+                </Button>
+            </div>
+
+            {started && (
+                <div className="flex flex-col gap-8 rounded-md border border-border bg-ground p-12">
+                    <p className="type-small text-muted">
+                        Type this code at{' '}
+                        <a
+                            className="text-fg underline"
+                            href={started.verification_uri_complete ?? started.verification_uri}
+                            target="_blank"
+                            rel="noreferrer"
+                        >
+                            {started.verification_uri}
+                        </a>
+                    </p>
+                    <p className="type-mono-sm-medium text-fg" aria-label="Confirmation code">
+                        {started.user_code}
+                    </p>
+                    <p className="type-small text-muted" aria-live="polite">
+                        Waiting for the confirmation… Checking back every {started.interval_seconds} seconds.
+                    </p>
+                </div>
+            )}
+
+            {session && (
+                <Notice tone="info" title="Signed in">
+                    {[
+                        session.account_id ? `account ${session.account_id}` : undefined,
+                        session.role_name ? `role ${session.role_name}` : undefined,
+                        `the session ends ${absoluteTime(session.expires_at)}`,
+                    ]
+                        .filter(Boolean)
+                        .join(' · ')}
+                </Notice>
+            )}
+
+            {phase === 'signed-in' && accounts && accounts.accounts.length > 0 && (
+                <div className="flex flex-col gap-10">
+                    <Select
+                        label="AWS account"
+                        value={account || undefined}
+                        placeholder="Choose the account"
+                        options={accounts.accounts.map((a) => ({
+                            value: a.account_id,
+                            label: a.account_name ? `${a.account_name} · ${a.account_id}` : a.account_id,
+                        }))}
+                        onChange={(next) => pick(next, '')}
+                    />
+                    <Select
+                        label="Role"
+                        value={role || undefined}
+                        placeholder={roles && roles.roles.length > 0 ? 'Choose the role' : 'Choose an account first'}
+                        disabled={!roles || roles.roles.length === 0}
+                        options={(roles?.roles ?? []).map((r) => ({ value: r.role_name, label: r.role_name }))}
+                        onChange={(next) => pick(account, next)}
+                    />
+                </div>
+            )}
+
+            {listedNothing && (
+                <Notice tone="info" title="Type the account and role">
+                    The portal listed no accounts for this identity, so type the account id and the role name in the
+                    fields above.
+                </Notice>
+            )}
+
+            {noRoles && (
+                <Notice tone="info" title="Type the role">
+                    The portal listed no roles for this account, so type the role name in the field above.
+                </Notice>
+            )}
+
+            {failure && (
+                <Notice tone="failed" title="Sign-in did not complete">
+                    {failure}
+                </Notice>
+            )}
+        </section>
+    )
+}
+
+/**
  * Connect one provider with the fields it takes (a key, an address, a token). Saving also checks
  * the connection, and says what came of it: the credentials are kept either way.
  */
@@ -95,6 +381,7 @@ export function ConnectForm({ provider, editing, onDone, onCancel, submitLabel }
     const [error, setError] = useState<string>()
     const [result, setResult] = useState<TestResult>()
 
+    const signsIn = SIGN_IN_FIELDS.every((f) => fields.includes(f))
     const ready = fields.some((f) => (values[f] ?? '').trim() !== '') || editing
 
     return (
@@ -135,6 +422,15 @@ export function ConnectForm({ provider, editing, onDone, onCancel, submitLabel }
                     onChange={(e) => setValues((v) => ({ ...v, [f]: e.target.value }))}
                 />
             ))}
+            {signsIn && (
+                <SignIn
+                    providerId={provider.id}
+                    values={values}
+                    onPicked={(accountId, roleName) =>
+                        setValues((v) => ({ ...v, account_id: accountId, role_name: roleName }))
+                    }
+                />
+            )}
             {provider.doc && (
                 <a className="type-small text-muted underline" href={provider.doc} target="_blank" rel="noreferrer">
                     {provider.name} documentation
