@@ -361,6 +361,47 @@ mod tests {
     }
 
     #[test]
+    fn the_sso_id_is_listed_with_the_bedrock_models_and_resolves_through_them() {
+        let c = catalogue();
+        let sso = c
+            .providers(&[])
+            .into_iter()
+            .find(|p| p.id == ProviderId::AMAZON_BEDROCK_SSO)
+            .expect("the SSO Bedrock provider is listed");
+        assert_eq!(sso.name, "Amazon Bedrock (SSO)");
+        assert_eq!(sso.dialect, Some(DialectKind::Bedrock));
+        assert_eq!(sso.kind, ProviderKind::Cloud);
+        assert_eq!(sso.model_count, 2, "the same count as amazon-bedrock, not a copy");
+
+        // FR-030: one catalogue entry answers under both ids, through every lookup.
+        assert!(c.provider(&ProviderId::AMAZON_BEDROCK_SSO).is_some());
+        let ids: Vec<_> = c
+            .models(&ProviderId::AMAZON_BEDROCK_SSO, false)
+            .into_iter()
+            .map(|m| m.id)
+            .collect();
+        let shared_ids: Vec<_> = c
+            .models(&ProviderId::AMAZON_BEDROCK, false)
+            .into_iter()
+            .map(|m| m.id)
+            .collect();
+        assert_eq!(ids, shared_ids);
+        let model = c
+            .model(&ProviderId::AMAZON_BEDROCK_SSO, "amazon.nova-lite-v1:0")
+            .expect("the SSO id finds the Bedrock model");
+        assert_eq!(model.limit.context, Some(300000));
+        assert!(c.model(&ProviderId::AMAZON_BEDROCK_SSO, "no-such-model").is_none());
+
+        // A built-in with no alias is untouched.
+        assert!(c.provider(&ProviderId::OLLAMA).is_none());
+        assert_eq!(super::builtin::model_source(&ProviderId::OLLAMA), None);
+        assert_eq!(
+            super::builtin::model_source(&ProviderId::AMAZON_BEDROCK_SSO),
+            Some(ProviderId::AMAZON_BEDROCK)
+        );
+    }
+
+    #[test]
     fn find_model_by_id_prefers_the_matching_dialect() {
         let c = catalogue();
         assert_eq!(

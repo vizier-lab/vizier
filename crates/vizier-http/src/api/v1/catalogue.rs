@@ -307,7 +307,9 @@ mod tests {
         assert!(
             summaries
                 .iter()
-                .filter(|p| p.id != ProviderId::AMAZON_BEDROCK)
+                .filter(|p| {
+                    p.id != ProviderId::AMAZON_BEDROCK && p.id != ProviderId::AMAZON_BEDROCK_SSO
+                })
                 .all(|p| p.guide.is_none()),
             "no other provider has a guide"
         );

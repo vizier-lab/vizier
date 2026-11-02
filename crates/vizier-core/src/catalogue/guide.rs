@@ -43,9 +43,22 @@ pub struct ProviderGuide {
 /// `InvokeModel` runs chat, embeddings and images. Copied verbatim by the form and the docs.
 pub const BEDROCK_POLICY: &str = "{\n  \"Version\": \"2012-10-17\",\n  \"Statement\": [{\n    \"Effect\": \"Allow\",\n    \"Action\": [\"bedrock:InvokeModel\", \"bedrock:ListFoundationModels\"],\n    \"Resource\": \"*\"\n  }]\n}";
 
-/// The guide for a provider, if it has one. Only Amazon Bedrock has one today.
+/// The SSO connection's policy: `bedrock:InvokeModel` is all a signed-in role needs, and the
+/// listing permission is optional here because the portal already lists accounts and roles.
+/// Copied verbatim by the form and the docs.
+pub const BEDROCK_SSO_POLICY: &str = "{\n  \"Version\": \"2012-10-17\",\n  \"Statement\": [{\n    \"Effect\": \"Allow\",\n    \"Action\": [\"bedrock:InvokeModel\"],\n    \"Resource\": \"*\"\n  }]\n}";
+
+/// The guide for a provider, if it has one: the static-key guide for `amazon-bedrock`, its own
+/// SSO guide for `amazon-bedrock-sso`, nothing else (FR-001a, FR-038). Each Bedrock id answers
+/// with its own guide — never the other's, never none.
 pub fn for_provider(id: &ProviderId) -> Option<ProviderGuide> {
-    (*id == ProviderId::AMAZON_BEDROCK).then(bedrock)
+    if *id == ProviderId::AMAZON_BEDROCK {
+        return Some(bedrock());
+    }
+    if *id == ProviderId::AMAZON_BEDROCK_SSO {
+        return Some(bedrock_sso());
+    }
+    None
 }
 
 fn step(title: &str, body: &str) -> GuideStep {
@@ -117,6 +130,69 @@ fn bedrock() -> ProviderGuide {
     }
 }
 
+fn bedrock_sso() -> ProviderGuide {
+    ProviderGuide {
+        intro: "Sign in with your organisation's IAM Identity Center account instead of an access \
+                key pair. Vizier asks the portal for a role credential and renews it itself."
+            .into(),
+        steps: vec![
+            step(
+                "Find the Identity Center start URL",
+                "Use the portal URL your organisation gave you. It looks like \
+                 https://<subdomain>.awsapps.com/start.",
+            ),
+            step(
+                "Choose the SSO region",
+                "This is the region your Identity Center instance lives in, e.g. us-east-1. It \
+                 is often not the region your models run in.",
+            ),
+            step(
+                "Sign in and pick account + role",
+                "Press Sign in, confirm the code in a browser on any machine, then choose the \
+                 account and the role you were given. Vizier never sees your password.",
+            ),
+            step(
+                "Attach the minimal policy",
+                "Allow bedrock:InvokeModel on the role. Listing permissions are optional: the \
+                 model list comes from the catalogue, not from your account.",
+            ),
+            step(
+                "Add your inference profiles, and price them",
+                "Paste each ARN and name it, then pick the model it runs from the searchable \
+                 Bedrock list so its usage is costed. This is optional: an entry with nothing \
+                 picked still chats, shown as \u{201c}pricing not set\u{201d}.",
+            ),
+            step(
+                "Test the connection",
+                "Press Test: one small billable call to the model or profile the test names, so \
+                 a bad policy or a missing model shows up here rather than mid-conversation.",
+            ),
+        ],
+        policy: GuidePolicy {
+            language: "json".into(),
+            code: BEDROCK_SSO_POLICY.into(),
+        },
+        links: vec![
+            link(
+                "IAM Identity Center",
+                "https://console.aws.amazon.com/singlesignon/home",
+            ),
+            link(
+                "Bedrock model access",
+                "https://console.aws.amazon.com/bedrock/home#/modelaccess",
+            ),
+            link(
+                "Application inference profiles",
+                "https://docs.aws.amazon.com/bedrock/latest/userguide/inference-profiles.html",
+            ),
+            link(
+                "Vizier provider docs",
+                "https://www.vizier.rs/docs/configuration/providers#amazon-bedrock-sso",
+            ),
+        ],
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -141,5 +217,34 @@ mod tests {
         );
         let json = serde_json::to_value(&guide).unwrap();
         assert_eq!(json["policy"]["code"], BEDROCK_POLICY);
+    }
+
+    #[test]
+    fn each_bedrock_id_answers_with_its_own_guide() {
+        let sso = for_provider(&ProviderId::AMAZON_BEDROCK_SSO).expect("the SSO id has a guide");
+        assert_eq!(sso.steps.len(), 6);
+        assert_eq!(sso.steps[0].title, "Find the Identity Center start URL");
+        assert_eq!(sso.policy.language, "json");
+        assert_eq!(sso.policy.code, BEDROCK_SSO_POLICY);
+        assert!(sso.policy.code.contains("bedrock:InvokeModel"));
+        assert!(
+            !sso.policy.code.contains("ListFoundationModels"),
+            "the SSO policy is InvokeModel only"
+        );
+        assert_eq!(sso.links.len(), 4);
+        assert!(sso.links.iter().any(|l| l.url.ends_with("#amazon-bedrock-sso")));
+
+        // Neither id reports the other's guide (FR-001a, FR-038).
+        let static_key = for_provider(&ProviderId::AMAZON_BEDROCK).unwrap();
+        assert_ne!(static_key.intro, sso.intro);
+        assert_ne!(static_key.policy.code, sso.policy.code);
+        assert_ne!(static_key.steps[0].title, sso.steps[0].title);
+        assert!(!static_key.links.iter().any(|l| l.url.ends_with("#amazon-bedrock-sso")));
+        assert!(!sso.links.iter().any(|l| l.url.ends_with("#amazon-bedrock")));
+
+        // Every other provider still has none.
+        for id in [ProviderId::OLLAMA, ProviderId::OPENAI, ProviderId::CUSTOM] {
+            assert!(for_provider(&id).is_none(), "{id} has no guide");
+        }
     }
 }
