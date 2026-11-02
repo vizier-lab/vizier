@@ -61,6 +61,87 @@ pub trait CredentialSource: Send + Sync {
     }
 }
 
+/// Whether `error` is the provider saying the **credentials themselves** are no longer valid —
+/// the one answer a renewal can fix (FR-015).
+///
+/// A `401` always is. AWS reports an expired or revoked session token as a `403` whose body names
+/// the fault ([`CREDENTIAL_FAULTS`]), which is why the status alone is not enough; a permission or
+/// model-access refusal is deliberately **not** a credential rejection, so a genuine `403` is not
+/// retried with freshly renewed credentials that would fail the same way.
+pub fn is_credential_rejection(error: &LlmError) -> bool {
+    let LlmError::Http { status, body, .. } = error else {
+        return false;
+    };
+    if *status == 401 {
+        return true;
+    }
+    if *status != 403 {
+        return false;
+    }
+    let body = body.to_ascii_lowercase();
+    CREDENTIAL_FAULTS
+        .iter()
+        .any(|fault| body.contains(fault))
+}
+
+/// The `403` bodies AWS uses for a dead credential, lowercased because a body's casing is not a
+/// contract. `ExpiredToken` alone covers `ExpiredTokenException`.
+const CREDENTIAL_FAULTS: [&str; 6] = [
+    "expiredtoken",
+    "unrecognizedclientexception",
+    "invalidclienttokenid",
+    "invalidaccesskeyid",
+    "security token included in the request is expired",
+    "security token included in the request is invalid",
+];
+
+/// Sign and send one request, retrying **exactly once** when the provider rejects the credentials
+/// (FR-015, US3 acceptance 7).
+///
+/// The rejection drops whatever the source cached, so the retry renews and sends with the fresh
+/// credential. A second rejection is returned untouched — the provider's own explanation ends the
+/// turn — and there is no third attempt, so a credentials fault can never become a retry storm.
+pub async fn send_signed<F>(
+    credential: &dyn CredentialSource,
+    info: &RequestInfo,
+    method: &str,
+    url: &str,
+    body: &[u8],
+    build: F,
+) -> Result<http::HttpResponse, LlmError>
+where
+    F: Fn() -> RequestBuilder,
+{
+    match send_once(credential, info, method, url, body, &build).await {
+        // `invalidate` answers whether a retry could succeed: a source that holds nothing to drop
+        // (a fixed key) is not sent twice, so its refusal is returned as it came.
+        Err(error) if is_credential_rejection(&error) && credential.invalidate().await => {
+            tracing::debug!(url = %http::redact(url), "the credentials were rejected; renewing once");
+            send_once(credential, info, method, url, body, &build).await
+        }
+        other => other,
+    }
+}
+
+/// One signed send: the builder is rebuilt for every attempt, so the second one carries the fresh
+/// credential's headers rather than the rejected one's.
+async fn send_once<F>(
+    credential: &dyn CredentialSource,
+    info: &RequestInfo,
+    method: &str,
+    url: &str,
+    body: &[u8],
+    build: &F,
+) -> Result<http::HttpResponse, LlmError>
+where
+    F: Fn() -> RequestBuilder,
+{
+    let req = credential
+        .authorize_with_body(build(), info, method, url, body)
+        .await?;
+    http::send(req).await
+}
+
 /// How a static key is sent.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KeyStyle {
@@ -918,6 +999,215 @@ mod tests {
         );
         assert_eq!(stub.path_count("/federation/credentials"), 2);
         assert_eq!(stub.path_count("/token"), 0, "the access token was still good");
+    }
+
+    /// The credential under test, over `stub`, with a session that is good for an hour.
+    async fn credential_against(stub: &crate::llm::sso::tests_support::Stub) -> SsoRoleCredential {
+        use crate::llm::sso::tests_support::MemSessions;
+        use crate::storage::sso_session::SsoSessionStorage;
+
+        let storage = std::sync::Arc::new(MemSessions::default());
+        storage
+            .put_sso_session(
+                "acme-bedrock",
+                &sso_session(chrono::Utc::now() + chrono::TimeDelta::hours(1)),
+                None,
+            )
+            .await
+            .unwrap();
+        SsoRoleCredential::new(
+            SsoClient::at(reqwest::Client::new(), stub.base()),
+            storage,
+            SsoRoleTarget {
+                profile: "acme-bedrock".into(),
+                account_id: "123456789012".into(),
+                role_name: "BedrockOperator".into(),
+                region: "us-east-1".into(),
+            },
+        )
+    }
+
+    #[test]
+    fn only_a_credential_fault_is_a_rejection() {
+        let http = |status: u16, body: &str| LlmError::Http {
+            status,
+            retry_after: None,
+            body: body.into(),
+        };
+
+        assert!(is_credential_rejection(&http(
+            401,
+            r#"{"message":"Incorrect API key provided"}"#
+        )));
+        assert!(is_credential_rejection(&http(
+            403,
+            r#"{"message":"The security token included in the request is expired"}"#
+        )));
+        assert!(is_credential_rejection(&http(
+            403,
+            r#"{"__type":"ExpiredTokenException","message":"expired"}"#
+        )));
+        assert!(is_credential_rejection(&http(
+            403,
+            r#"{"__type":"UnrecognizedClientException"}"#
+        )));
+
+        // Refusals a renewal cannot fix are not retried with credentials that would fail again.
+        assert!(!is_credential_rejection(&http(
+            403,
+            r#"{"message":"AccessDeniedException: no access to this model"}"#
+        )));
+        assert!(!is_credential_rejection(&http(
+            400,
+            r#"{"message":"ValidationException"}"#
+        )));
+        assert!(!is_credential_rejection(&http(429, "ThrottlingException")));
+        assert!(!is_credential_rejection(&LlmError::Timeout));
+    }
+
+    #[tokio::test]
+    async fn a_rejected_credential_is_renewed_and_the_request_retried_once() {
+        use crate::llm::sso::tests_support::{Reply, Stub};
+
+        let credentials = |key: &str| {
+            Reply::ok(serde_json::json!({
+                "roleCredentials": {
+                    "accessKeyId": key,
+                    "secretAccessKey": "secret-access-value",
+                    "sessionToken": "session-token-value",
+                    "expiration": (chrono::Utc::now() + chrono::TimeDelta::hours(1))
+                        .timestamp_millis(),
+                }
+            }))
+        };
+        let stub = Stub::start_replies(vec![
+            (
+                "/federation/credentials",
+                vec![
+                    credentials("ASIABEFOREKEYID"),
+                    credentials("ASIAFRESHKEYID"),
+                ],
+            ),
+            (
+                "/model/arn/converse",
+                vec![
+                    Reply {
+                        status: 403,
+                        body: serde_json::json!({
+                            "__type": "ExpiredTokenException",
+                            "message": "The security token included in the request is expired",
+                        }),
+                    },
+                    Reply::ok(serde_json::json!({"output": {}})),
+                ],
+            ),
+        ])
+        .await;
+        let credential = credential_against(&stub).await;
+        let url = format!("{}/model/arn/converse", stub.base());
+
+        let response = send_signed(
+            &credential,
+            &RequestInfo::default(),
+            "POST",
+            &url,
+            br#"{"messages":[]}"#,
+            || {
+                reqwest::Client::new()
+                    .post(&url)
+                    .body(r#"{"messages":[]}"#.to_string())
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(response.status, 200);
+        assert_eq!(
+            stub.path_count("/model/arn/converse"),
+            2,
+            "one rejection, one retry"
+        );
+        assert_eq!(
+            stub.path_count("/federation/credentials"),
+            2,
+            "the rejection dropped the cache, so the retry renewed once"
+        );
+        // The two attempts, as they were signed (the bearer calls to the portal are not SigV4).
+        let signatures: Vec<String> = stub
+            .authorizations()
+            .into_iter()
+            .filter(|authorization| authorization.starts_with("AWS4-HMAC-SHA256"))
+            .collect();
+        assert_eq!(signatures.len(), 2, "two signed attempts");
+        assert!(
+            signatures[0].contains("ASIABEFOREKEYID"),
+            "the rejected attempt signed with the old credential: {signatures:?}"
+        );
+        assert!(
+            signatures[1].contains("ASIAFRESHKEYID"),
+            "the retry signs with the renewed credential: {signatures:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_second_rejection_ends_the_turn_with_the_providers_words() {
+        use crate::llm::sso::tests_support::{Reply, Stub};
+
+        let expired = || Reply {
+            status: 403,
+            body: serde_json::json!({
+                "__type": "ExpiredTokenException",
+                "message": "The security token included in the request is expired",
+            }),
+        };
+        let stub = Stub::start_replies(vec![
+            (
+                "/federation/credentials",
+                vec![Reply::ok(serde_json::json!({
+                    "roleCredentials": {
+                        "accessKeyId": "ASIAEXAMPLEKEYID",
+                        "secretAccessKey": "secret-access-value",
+                        "sessionToken": "session-token-value",
+                        "expiration": (chrono::Utc::now() + chrono::TimeDelta::hours(1))
+                            .timestamp_millis(),
+                    }
+                }))],
+            ),
+            ("/model/arn/converse", vec![expired(), expired()]),
+        ])
+        .await;
+        let credential = credential_against(&stub).await;
+        let url = format!("{}/model/arn/converse", stub.base());
+
+        let error = match send_signed(
+            &credential,
+            &RequestInfo::default(),
+            "POST",
+            &url,
+            b"{}",
+            || reqwest::Client::new().post(&url).body("{}"),
+        )
+        .await
+        {
+            Ok(response) => panic!("the second refusal must end the turn, got {}", response.status),
+            Err(error) => error,
+        };
+
+        assert_eq!(
+            stub.path_count("/model/arn/converse"),
+            2,
+            "at most one retry: no third attempt"
+        );
+        assert!(
+            matches!(error, LlmError::Http { status: 403, .. }),
+            "{error:?}"
+        );
+        assert!(
+            error
+                .to_string()
+                .contains("The security token included in the request is expired"),
+            "the provider's own explanation ends the turn: {error}"
+        );
     }
 
     #[tokio::test]

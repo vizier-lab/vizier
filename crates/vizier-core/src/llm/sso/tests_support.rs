@@ -13,7 +13,7 @@ use anyhow::{Result, bail};
 use axum::Router;
 use axum::body::Bytes;
 use axum::extract::State;
-use axum::http::{StatusCode, Uri};
+use axum::http::{HeaderMap, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
 use serde_json::json;
 
@@ -72,16 +72,30 @@ struct Script {
     routes: HashMap<String, Vec<(u16, String)>>,
     cursors: HashMap<String, usize>,
     seen: Vec<(String, String)>,
+    /// `(path, Authorization)` per request that carried one — which credential signed it.
+    authorizations: Vec<(String, String)>,
 }
 
 type Shared = Arc<Mutex<Script>>;
 
-async fn handle(State(shared): State<Shared>, uri: Uri, body: Bytes) -> Response {
+async fn handle(
+    State(shared): State<Shared>,
+    uri: Uri,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
     let path = uri.path().to_string();
     let body = String::from_utf8_lossy(&body).to_string();
+    let authorization = headers
+        .get("authorization")
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_string);
     let reply = {
         let mut script = shared.lock().unwrap();
         script.seen.push((path.clone(), body));
+        if let Some(authorization) = authorization {
+            script.authorizations.push((path.clone(), authorization));
+        }
         let route = script.routes.get(&path).cloned();
         match route {
             None => None,
@@ -226,6 +240,18 @@ impl Stub {
     /// How many requests reached `path` — the proof that a second confirmation never went out.
     pub fn path_count(&self, path: &str) -> usize {
         self.seen().iter().filter(|(seen, _)| seen == path).count()
+    }
+
+    /// The `Authorization` header of every request that carried one, in order — which credential
+    /// signed a retried request, not just that it was sent.
+    pub fn authorizations(&self) -> Vec<String> {
+        self.shared
+            .lock()
+            .unwrap()
+            .authorizations
+            .iter()
+            .map(|(_, authorization)| authorization.clone())
+            .collect()
     }
 }
 
