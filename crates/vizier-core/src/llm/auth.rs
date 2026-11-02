@@ -54,8 +54,8 @@ pub trait CredentialSource: Send + Sync {
         Ok(None)
     }
 
-    /// Drop a cached token after a 401. Returns whether anything was dropped, i.e. whether a
-    /// retry can succeed.
+    /// Drop a cached credential after the provider rejected it ([`is_credential_rejection`]).
+    /// Returns whether anything was dropped, i.e. whether a retry can succeed.
     async fn invalidate(&self) -> bool {
         false
     }
@@ -418,7 +418,7 @@ impl CredentialSource for SsoRoleCredential {
             .await
     }
 
-    /// A 401 clears the cache so the existing `complete_once` retry renews once and retries once
+    /// A rejection clears the cache, so the retry [`send_signed`] makes renews once and sends once
     /// (FR-015). `false` when nothing was cached: a retry could not succeed.
     async fn invalidate(&self) -> bool {
         self.cache.lock().await.take().is_some()
