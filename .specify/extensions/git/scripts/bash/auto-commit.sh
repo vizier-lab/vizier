@@ -149,24 +149,40 @@ if [ "${#_stage_paths[@]}" -eq 0 ]; then
     exit 0
 fi
 
-_git_out=$(git add -- "${_stage_paths[@]}" 2>&1) || { echo "[specify] Error: git add failed: $_git_out" >&2; exit 1; }
-
 # Belt and braces: a human or another process may have staged something before
 # this hook ran. Only paths under the two roots may be committed, so bail out and
 # leave the index exactly as it is — unstaging someone else's work is not ours.
+# The scan runs BEFORE the add for exactly that reason: staging first rewrites an
+# index we are about to declare untouched — it re-stages a deliberate `git reset`
+# and completes a half-done `git add -p` — while the warning says "nothing
+# committed".
 # -z keeps the path list unquoted: `--name-only` alone escapes non-ASCII bytes as
 # "specs/044-x/rencana-\303\274.md", which would read as outside the roots.
-_stray_found=false
-while IFS= read -r -d '' _path; do
-    case "$_path" in
-        specs/*|.specify/*) ;;
-        *)
-            echo "[specify] Warning: $_path is staged but outside specs/ and .specify/; nothing committed" >&2
-            _stray_found=true
-            ;;
-    esac
-done < <(git diff --cached --name-only -z)
+_scan_strays() {
+    _stray_found=false
+    while IFS= read -r -d '' _path; do
+        case "$_path" in
+            specs/*|.specify/*) ;;
+            *)
+                echo "[specify] Warning: $_path is staged but outside specs/ and .specify/; nothing committed" >&2
+                _stray_found=true
+                ;;
+        esac
+    done < <(git diff --cached --name-only -z)
+}
 
+_scan_strays
+if $_stray_found; then
+    echo "[specify] Unstage it, or commit it yourself; the spec-kit flow continues" >&2
+    exit 0
+fi
+
+_git_out=$(git add -- "${_stage_paths[@]}" 2>&1) || { echo "[specify] Error: git add failed: $_git_out" >&2; exit 1; }
+
+# Invariant, not a recovery path: the index held no strays before the add, so only
+# our two roots can appear here now. Kept because it is what would catch a future
+# `specs/`-prefixed symlink, or an add that stages more than it was handed.
+_scan_strays
 if $_stray_found; then
     echo "[specify] Unstage it, or commit it yourself; the spec-kit flow continues" >&2
     exit 0

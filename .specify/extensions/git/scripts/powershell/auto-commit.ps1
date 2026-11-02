@@ -168,21 +168,43 @@ if ($stagePaths.Count -eq 0) {
 # Stage and commit
 # Relax ErrorActionPreference so CRLF warnings on stderr do not terminate,
 # while still allowing redirected error output to be captured for diagnostics.
+
+# Paths staged outside the two roots. quotepath=false keeps non-ASCII names
+# literal: the default escapes them as a quoted octal path, which would read as a
+# stray.
+function Get-StrayStagedPaths {
+    $staged = git -c core.quotepath=false diff --cached --name-only 2>$null
+    if ($LASTEXITCODE -ne 0) { throw "git diff --cached --name-only failed" }
+    return @($staged | Where-Object { $_ -and ($_ -notlike 'specs/*') -and ($_ -notlike '.specify/*') })
+}
+
 $savedEAP = $ErrorActionPreference
 $ErrorActionPreference = 'Continue'
 try {
+    # Belt and braces: a human or another process may have staged something before
+    # this hook ran. Only paths under the two roots may be committed, so bail out
+    # and leave the index exactly as it is -- unstaging someone else's work is not
+    # ours to do. The scan runs BEFORE the add for exactly that reason: staging
+    # first rewrites an index we are about to declare untouched (it re-stages a
+    # deliberate `git reset` and completes a half-done `git add -p`) while the
+    # warning says "nothing committed".
+    $offending = @(Get-StrayStagedPaths)
+    if ($offending.Count -gt 0) {
+        foreach ($stray in $offending) {
+            Write-Warning "[specify] Warning: $stray is staged but outside specs/ and .specify/; nothing committed"
+        }
+        Write-Warning "[specify] Unstage it, or commit it yourself; the spec-kit flow continues"
+        exit 0
+    }
+
     # Explicit paths only: no `--` needed because neither path starts with a dash.
     $out = git add @stagePaths 2>&1 | Out-String
     if ($LASTEXITCODE -ne 0) { throw "git add failed: $out" }
 
-    # Belt and braces: a human or another process may have staged something before
-    # this hook ran. Only paths under the two roots may be committed, so bail out
-    # and leave the index exactly as it is -- unstaging someone else's work is not
-    # ours to do. quotepath=false keeps non-ASCII names literal: the default escapes
-    # them as a quoted octal path, which would read as a stray.
-    $staged = git -c core.quotepath=false diff --cached --name-only 2>$null
-    if ($LASTEXITCODE -ne 0) { throw "git diff --cached --name-only failed" }
-    $offending = @($staged | Where-Object { $_ -and ($_ -notlike 'specs/*') -and ($_ -notlike '.specify/*') })
+    # Invariant, not a recovery path: the index held no strays before the add, so
+    # only our two roots can appear here now. Kept because it is what would catch a
+    # future `specs/`-prefixed symlink, or an add that stages more than it was handed.
+    $offending = @(Get-StrayStagedPaths)
     if ($offending.Count -gt 0) {
         foreach ($stray in $offending) {
             Write-Warning "[specify] Warning: $stray is staged but outside specs/ and .specify/; nothing committed"
