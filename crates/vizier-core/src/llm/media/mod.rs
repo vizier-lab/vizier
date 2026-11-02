@@ -65,26 +65,15 @@ pub async fn endpoint(
     id: &ProviderId,
     model: String,
 ) -> crate::Result<Endpoint> {
-    if *id == ProviderId::AMAZON_BEDROCK {
-        // One saved connection (access key pair + region) serves embeddings and images; the
-        // same region/pair rules as the chat resolver decide the host (research R6/R7).
-        let env = crate::llm::resolve::provider_env(&deps.catalogue, id);
-        let credentials = crate::provider_keys::resolve_credentials(&deps.storage, id, &env)
-            .await
-            .map(|(c, _)| c)
-            .unwrap_or_default();
-        let region = crate::llm::resolve::bedrock_region(&credentials)?;
-        let (access_key_id, secret_access_key, session_token) =
-            crate::llm::resolve::bedrock_keys(&credentials)?;
+    if *id == ProviderId::AMAZON_BEDROCK || *id == ProviderId::AMAZON_BEDROCK_SSO {
+        // One saved connection serves embeddings and images with the same region rules as chat
+        // (research R6/R7). The credential comes from the shared helper, so the static pair and
+        // the SSO session differ in exactly one place (FR-002, FR-009d).
+        let bedrock = crate::llm::resolve::bedrock_role_credentials(deps, id, None).await?;
         return Ok(Endpoint {
             http: deps.http.clone(),
-            base_url: crate::llm::bedrock::runtime_endpoint(&region),
-            credential: crate::llm::auth::SigV4Credential::bedrock(
-                access_key_id,
-                secret_access_key,
-                session_token,
-                region,
-            ),
+            base_url: crate::llm::bedrock::runtime_endpoint(&bedrock.region),
+            credential: bedrock.credential,
             model,
         });
     }

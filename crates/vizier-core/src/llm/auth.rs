@@ -13,6 +13,8 @@ use tokio::sync::Mutex;
 use super::error::LlmError;
 use super::http;
 use super::sigv4::{self, SigV4Request};
+use super::sso::{RoleCredentials, SsoClient, SsoError, SsoPortal, SsoSessions};
+use crate::storage::sso_session::SsoSessionStorage;
 
 /// What a credential source may need to know about the request it authorises.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -170,9 +172,7 @@ impl CredentialSource for SigV4Credential {
         _req: RequestBuilder,
         _info: &RequestInfo,
     ) -> Result<RequestBuilder, LlmError> {
-        Err(LlmError::Config(
-            "SigV4 signing requires the request body; use the body-aware path".into(),
-        ))
+        Err(LlmError::Config(SIGV4_BODY_REQUIRED.into()))
     }
 
     async fn authorize_with_body(
@@ -208,6 +208,141 @@ impl CredentialSource for SigV4Credential {
             req = req.header("x-amz-security-token", token);
         }
         Ok(req)
+    }
+}
+
+// AWS Bedrock over IAM Identity Center (spec 044).
+
+/// Why a SigV4 signature cannot be computed without the body: the payload hash covers the exact
+/// bytes sent, so an unsigned-body request would be a configuration error, never a request with a
+/// missing header.
+const SIGV4_BODY_REQUIRED: &str = "SigV4 signing requires the request body; use the body-aware path";
+
+/// The half of an SSO connection a role credential needs: which stored session, which role, and
+/// the Bedrock region the signed requests go to. Every field is non-secret.
+#[derive(Debug, Clone)]
+pub struct SsoRoleTarget {
+    /// The profile name the session row is keyed by (FR-009e).
+    pub profile: String,
+    pub account_id: String,
+    pub role_name: String,
+    /// The **Bedrock** region — the SSO region lives with the client (FR-010).
+    pub region: String,
+}
+
+/// A Bedrock credential whose three halves are derived from an IAM Identity Center session
+/// (FR-002, FR-009d, research D5).
+///
+/// The role credentials live in [`SsoRoleCredential::cache`] — one mutex per connection, so
+/// concurrent turns collapse into one renewal (FR-014) — and nowhere else: nothing here can be
+/// written to disk. Signing is delegated to the same [`SigV4Credential`] the static-keys provider
+/// uses, so the wire behaviour is shared rather than copied.
+pub struct SsoRoleCredential {
+    client: SsoClient,
+    storage: Arc<dyn SsoSessionStorage + Send + Sync>,
+    target: SsoRoleTarget,
+    cache: Mutex<Option<RoleCredentials>>,
+}
+
+impl SsoRoleCredential {
+    pub fn new(
+        client: SsoClient,
+        storage: Arc<dyn SsoSessionStorage + Send + Sync>,
+        target: SsoRoleTarget,
+    ) -> Self {
+        Self {
+            client,
+            storage,
+            target,
+            cache: Mutex::new(None),
+        }
+    }
+
+    /// How long before expiry a cached credential is renewed: one call every five minutes at
+    /// most, and zero calls while the cache is good (FR-013).
+    const RENEW_BEFORE: chrono::TimeDelta = chrono::TimeDelta::minutes(5);
+
+    /// The role's three halves, from the cache or one portal call.
+    ///
+    /// The whole path runs under the cache mutex, so two turns near expiry make one renewal and
+    /// the second uses its result. An expired access token is refreshed through the session's own
+    /// refresh token first (`SsoSessions::access_token`, §5).
+    async fn role_credentials(&self) -> Result<RoleCredentials, LlmError> {
+        let mut cache = self.cache.lock().await;
+        if let Some(cached) = cache.as_ref()
+            && cached.expires_at - Self::RENEW_BEFORE > chrono::Utc::now()
+        {
+            return Ok(cached.clone());
+        }
+
+        let sessions = SsoSessions::new(self.storage.as_ref());
+        let session = sessions
+            .load(&self.target.profile)
+            .await?
+            .ok_or(SsoError::SessionExpired)?;
+        let session = sessions
+            .access_token(&self.client, &self.target.profile, session)
+            .await?;
+        let credentials = SsoPortal::new(self.client.clone())
+            .role_credentials(
+                &session.access_token,
+                &self.target.account_id,
+                &self.target.role_name,
+            )
+            .await?;
+        *cache = Some(credentials.clone());
+        Ok(credentials)
+    }
+}
+
+impl std::fmt::Debug for SsoRoleCredential {
+    /// Names the connection and the expiry, never a credential half (research D8.3, FR-035).
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SsoRoleCredential")
+            .field("profile", &self.target.profile)
+            .field("account_id", &self.target.account_id)
+            .field("role_name", &self.target.role_name)
+            .field("region", &self.target.region)
+            .field("cached", &self.cache.try_lock().map(|c| c.is_some()).unwrap_or(true))
+            .finish()
+    }
+}
+
+#[async_trait::async_trait]
+impl CredentialSource for SsoRoleCredential {
+    async fn authorize(
+        &self,
+        _req: RequestBuilder,
+        _info: &RequestInfo,
+    ) -> Result<RequestBuilder, LlmError> {
+        Err(LlmError::Config(SIGV4_BODY_REQUIRED.into()))
+    }
+
+    async fn authorize_with_body(
+        &self,
+        req: RequestBuilder,
+        info: &RequestInfo,
+        method: &str,
+        url: &str,
+        body: &[u8],
+    ) -> Result<RequestBuilder, LlmError> {
+        let credentials = self.role_credentials().await?;
+        let signer = SigV4Credential {
+            access_key_id: credentials.access_key_id,
+            secret_access_key: credentials.secret_access_key,
+            session_token: Some(credentials.session_token),
+            region: self.target.region.clone(),
+            service: super::bedrock::SERVICE,
+        };
+        signer
+            .authorize_with_body(req, info, method, url, body)
+            .await
+    }
+
+    /// A 401 clears the cache so the existing `complete_once` retry renews once and retries once
+    /// (FR-015). `false` when nothing was cached: a retry could not succeed.
+    async fn invalidate(&self) -> bool {
+        self.cache.lock().await.take().is_some()
     }
 }
 
@@ -578,6 +713,149 @@ mod tests {
             built.headers().get(reqwest::header::CONTENT_TYPE).unwrap(),
             "application/json"
         );
+    }
+
+    fn sso_session(expires_at: chrono::DateTime<chrono::Utc>) -> crate::schema::SsoSessionSecret {
+        crate::schema::SsoSessionSecret {
+            access_token: "access-token-value".into(),
+            refresh_token: Some("refresh-token-value".into()),
+            token_expires_at: expires_at,
+            client_id: "client-id".into(),
+            client_secret: "client-secret-value".into(),
+            client_secret_expires_at: None,
+            issued_at: chrono::Utc::now(),
+            revision: 0,
+        }
+    }
+
+    #[tokio::test]
+    async fn sso_role_credentials_are_fetched_once_and_reused_until_invalidated() {
+        use crate::llm::sso::tests_support::{MemSessions, Reply, Stub};
+        use crate::storage::sso_session::SsoSessionStorage;
+
+        let stub = Stub::start_portal(
+            Reply::ok(serde_json::json!({"accountList": []})),
+            Reply::ok(serde_json::json!({"roleList": []})),
+            Reply::ok(serde_json::json!({"roleCredentials": {
+                "accessKeyId": "ASIAEXAMPLEKEYID",
+                "secretAccessKey": "secret-access-value",
+                "sessionToken": "session-token-value",
+                "expiration": 4102444800000_i64
+            }})),
+        )
+        .await;
+        let storage = std::sync::Arc::new(MemSessions::default());
+        storage
+            .put_sso_session(
+                "acme-bedrock",
+                &sso_session(chrono::Utc::now() + chrono::TimeDelta::hours(1)),
+                None,
+            )
+            .await
+            .unwrap();
+        let credential = SsoRoleCredential::new(
+            SsoClient::at(reqwest::Client::new(), stub.base()),
+            storage,
+            SsoRoleTarget {
+                profile: "acme-bedrock".into(),
+                account_id: "123456789012".into(),
+                role_name: "BedrockOperator".into(),
+                region: "us-east-1".into(),
+            },
+        );
+        let url = "https://bedrock-runtime.us-east-1.amazonaws.com/model/arn/converse";
+
+        for _ in 0..2 {
+            let built = credential
+                .authorize_with_body(
+                    reqwest::Client::new().post(url),
+                    &RequestInfo::default(),
+                    "POST",
+                    url,
+                    br#"{"messages":[]}"#,
+                )
+                .await
+                .unwrap()
+                .build()
+                .unwrap();
+            let authorization = built
+                .headers()
+                .get(reqwest::header::AUTHORIZATION)
+                .unwrap()
+                .to_str()
+                .unwrap();
+            assert!(
+                authorization.starts_with("AWS4-HMAC-SHA256 Credential=ASIAEXAMPLEKEYID/"),
+                "{authorization}"
+            );
+            assert_eq!(
+                built
+                    .headers()
+                    .get("x-amz-security-token")
+                    .unwrap()
+                    .to_str()
+                    .unwrap(),
+                "session-token-value"
+            );
+        }
+        // The second call was answered from the cache: zero extra portal requests (FR-013).
+        assert_eq!(stub.path_count("/federation/credentials"), 1);
+
+        assert!(credential.invalidate().await);
+        assert!(!credential.invalidate().await, "nothing left to drop");
+
+        credential
+            .authorize_with_body(
+                reqwest::Client::new().post(url),
+                &RequestInfo::default(),
+                "POST",
+                url,
+                br#"{"messages":[]}"#,
+            )
+            .await
+            .unwrap();
+        assert_eq!(stub.path_count("/federation/credentials"), 2);
+    }
+
+    #[tokio::test]
+    async fn sso_authorize_without_a_body_is_a_configuration_error() {
+        use crate::llm::sso::tests_support::MemSessions;
+
+        let credential = SsoRoleCredential::new(
+            SsoClient::at(reqwest::Client::new(), "http://127.0.0.1:1"),
+            std::sync::Arc::new(MemSessions::default()),
+            SsoRoleTarget {
+                profile: "acme-bedrock".into(),
+                account_id: "123456789012".into(),
+                role_name: "BedrockOperator".into(),
+                region: "us-east-1".into(),
+            },
+        );
+        let error = credential
+            .authorize(reqwest::Client::new().post("https://example.test"), &RequestInfo::default())
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("body-aware"));
+    }
+
+    #[tokio::test]
+    async fn sso_debug_never_prints_a_credential_half() {
+        use crate::llm::sso::tests_support::MemSessions;
+
+        let credential = SsoRoleCredential::new(
+            SsoClient::at(reqwest::Client::new(), "http://127.0.0.1:1"),
+            std::sync::Arc::new(MemSessions::default()),
+            SsoRoleTarget {
+                profile: "acme-bedrock".into(),
+                account_id: "123456789012".into(),
+                role_name: "BedrockOperator".into(),
+                region: "us-east-1".into(),
+            },
+        );
+        let printed = format!("{credential:?}");
+        assert!(printed.contains("acme-bedrock"));
+        assert!(printed.contains("passwords") == false);
+        assert!(printed.contains("[redacted]") || printed.contains("cached"));
     }
 
     #[test]

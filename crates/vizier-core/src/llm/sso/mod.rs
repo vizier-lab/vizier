@@ -25,7 +25,7 @@ pub mod portal;
 pub mod session;
 
 #[cfg(test)]
-mod tests_support;
+pub(crate) mod tests_support;
 
 pub use client::{
     ClientRegistration, DeviceAuthorization, DeviceFlow, SsoClient, SsoEndpoints, TokenPoll,

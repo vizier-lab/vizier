@@ -293,6 +293,7 @@ pub async fn resolve_for_test(
             custom,
             credentials,
             http: deps.http.clone(),
+            sso: None,
         },
         provider,
         "",
