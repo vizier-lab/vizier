@@ -94,13 +94,25 @@ impl DreamScheduler {
         Ok(())
     }
 
+    /// Whether a frame ends a dream turn: the shared predicate, so a failed extraction is over
+    /// like an answered one and the cycle never waits on a channel that stays open (FR-017).
     fn is_final_response(response: &VizierResponse) -> bool {
-        matches!(
-            response.content,
-            VizierResponseContent::Message { .. }
-                | VizierResponseContent::Abort
-                | VizierResponseContent::Empty
-        )
+        response.ends_turn()
+    }
+
+    /// The ended-session explanation a dream turn failed with, when that is what ended it
+    /// (FR-016, FR-017). Every extraction of one cycle uses the same session, so the first one
+    /// that names it is the cycle's answer: continuing would be one failing turn per session and
+    /// a consolidation that cannot work either.
+    fn session_failure(response: &VizierResponse) -> Option<&str> {
+        match &response.content {
+            VizierResponseContent::Error { message, .. }
+                if crate::llm::sso::is_session_failure_message(message) =>
+            {
+                Some(message)
+            }
+            _ => None,
+        }
     }
 
     /// Trigger a dream cycle for a specific agent.
@@ -215,12 +227,21 @@ impl DreamScheduler {
                 response_rxs.push(resp_rx);
             }
 
-            // Await ALL extraction responses, updating progress as each completes
+            // Await ALL extraction responses, updating progress as each completes — unless one
+            // says the session ended, which fails every remaining extraction the same way.
+            let mut ended_session: Option<String> = None;
             for (i, rx) in response_rxs.iter().enumerate() {
                 while let Ok(response) = rx.recv_async().await {
+                    if let Some(message) = Self::session_failure(&response) {
+                        ended_session = Some(message.to_string());
+                    }
                     if Self::is_final_response(&response) {
                         break;
                     }
+                }
+
+                if ended_session.is_some() {
+                    break;
                 }
 
                 // Update progress
@@ -236,6 +257,21 @@ impl DreamScheduler {
                         },
                     )
                     .await;
+            }
+
+            // A cycle whose session ended stops here: nothing it could consolidate was
+            // extracted, and the people who need to know are the ones the connection's health
+            // reports it to (FR-017, FR-018).
+            if let Some(message) = ended_session {
+                tracing::warn!(
+                    agent_id,
+                    "the dream cycle for '{agent_id}' stopped: {message}"
+                );
+                let _ = deps
+                    .storage
+                    .set_dream_status(&agent_id, DreamStatus::Idle)
+                    .await;
+                return;
             }
 
             // Set status → Consolidating
@@ -441,5 +477,81 @@ impl DreamScheduler {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+    use crate::llm::sso::SsoError;
+    use crate::schema::ErrorKind;
+
+    fn frame(content: VizierResponseContent) -> VizierResponse {
+        VizierResponse {
+            content,
+            ..Default::default()
+        }
+    }
+
+    /// FR-017: the first extraction that names the ended session is the cycle's answer, and the
+    /// frame ends the turn like any other. A dream therefore fails once, promptly, instead of
+    /// one failing turn per source session.
+    #[tokio::test]
+    async fn an_ended_session_stops_a_dream_cycle_promptly() {
+        let (tx, rx) = flume::unbounded::<VizierResponse>();
+        tx.send(frame(VizierResponseContent::Error {
+            kind: ErrorKind::Completion,
+            message: SsoError::SessionExpired.to_string(),
+        }))
+        .unwrap();
+
+        let stopped = tokio::time::timeout(Duration::from_secs(1), async {
+            while let Ok(response) = rx.recv_async().await {
+                if let Some(message) = DreamScheduler::session_failure(&response) {
+                    return Some(message.to_string());
+                }
+                if DreamScheduler::is_final_response(&response) {
+                    return None;
+                }
+            }
+            None
+        })
+        .await
+        .expect("the cycle must not wait on the channel");
+
+        let message = stopped.expect("the frame names the ended session");
+        assert!(message.contains("AWS SSO session has ended"), "{message}");
+        assert!(message.contains("sign in again"), "{message}");
+        drop(tx);
+    }
+
+    /// A dream turn that failed for any other reason is not a session failure: the cycle carries
+    /// on with the other sessions rather than blaming the connection.
+    #[test]
+    fn only_a_session_failure_stops_the_cycle() {
+        for other in [
+            SsoError::Throttled,
+            SsoError::ModelAccessNotEnabled {
+                model: "anthropic.claude-sonnet-4-5".into(),
+            },
+            SsoError::RegionMismatch {
+                arn_region: "us-east-1".into(),
+                connection_region: "eu-west-1".into(),
+            },
+        ] {
+            let frame = frame(VizierResponseContent::Error {
+                kind: ErrorKind::Completion,
+                message: other.to_string(),
+            });
+            assert!(DreamScheduler::session_failure(&frame).is_none(), "{other:?}");
+        }
+        assert!(
+            DreamScheduler::session_failure(&frame(VizierResponseContent::Message {
+                content: "done".into(),
+                stats: None,
+            }))
+            .is_none()
+        );
     }
 }
