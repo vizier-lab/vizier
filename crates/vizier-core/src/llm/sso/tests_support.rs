@@ -194,6 +194,26 @@ impl Stub {
         .await
     }
 
+    /// The same script written with [`Reply`]s, for a combination this harness does not model:
+    /// a renewal's `/token` next to `/federation/credentials`, or a retried invoke.
+    pub async fn start_replies(routes: Vec<(&str, Vec<Reply>)>) -> Self {
+        Self::with_routes(
+            routes
+                .into_iter()
+                .map(|(path, replies)| {
+                    (
+                        path,
+                        replies
+                            .into_iter()
+                            .map(|reply| (reply.status, reply.body.to_string()))
+                            .collect(),
+                    )
+                })
+                .collect(),
+        )
+        .await
+    }
+
     pub fn base(&self) -> &str {
         &self.base
     }
