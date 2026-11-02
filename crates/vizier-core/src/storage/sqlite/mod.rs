@@ -31,6 +31,7 @@ mod scratch;
 mod secret;
 mod session;
 mod session_file;
+mod sso_session;
 mod state;
 mod task;
 mod task_run;
@@ -301,6 +302,13 @@ impl SqliteStorage {
 
             CREATE TABLE IF NOT EXISTS provider_config (
                 variant TEXT PRIMARY KEY,
+                data TEXT NOT NULL
+            );
+
+            -- One Bedrock SSO session per profile (spec 044, research D3). `data` is the
+            -- SecretCipher envelope of the session secret, AAD-bound to the profile.
+            CREATE TABLE IF NOT EXISTS bedrock_sso_session (
+                profile TEXT PRIMARY KEY,
                 data TEXT NOT NULL
             );
 

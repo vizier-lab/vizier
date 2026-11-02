@@ -155,6 +155,13 @@ impl UpsertProviderRequest {
             secret_access_key: self.secret_access_key,
             session_token: self.session_token,
             region: self.region,
+            // The SSO half of the connection is not part of this request body yet (spec 044
+            // T026 adds it): a request must never invent a profile name or an entry list.
+            start_url: None,
+            sso_region: None,
+            role_name: None,
+            sso_profile: None,
+            profiles: Vec::new(),
         }
     }
 }
@@ -316,6 +323,13 @@ pub async fn upsert(
             secret_access_key: apply(stored.secret_access_key, body.secret_access_key),
             session_token: apply(stored.session_token, body.session_token),
             region: apply(stored.region, body.region),
+            // Carried through from the stored row, so saving a static field can never wipe the
+            // SSO half of the connection or its inference-profile entries.
+            start_url: stored.start_url,
+            sso_region: stored.sso_region,
+            role_name: stored.role_name,
+            sso_profile: stored.sso_profile,
+            profiles: stored.profiles,
         },
     };
     check_bedrock_pair(&id, &entry.credentials).map_err(fail)?;
