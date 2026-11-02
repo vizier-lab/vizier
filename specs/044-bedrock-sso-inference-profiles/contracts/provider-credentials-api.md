@@ -145,7 +145,7 @@ Two **optional** request/response fields on each entry, both non-secret, both me
 ```json
 { "state": "explicit",       "cost": { "input": 3.0, "output": 15.0 }, "source": "entered price" }
 { "state": "no_catalogue",   "flag": "pricing not set",
-  "reason": "the model catalogue has not loaded yet, so no price is available — this resolves itself; or enter a price by hand" }
+  "reason": "the model catalogue carries no Bedrock model list, so there is nothing to price this against yet — this resolves itself once the list is present; or enter a price by hand" }
 { "state": "from_catalogue", "cost": { "input": 3.0, "output": 15.0 }, "model": "anthropic.claude-sonnet-4-5-20250929-v1:0" }
 { "state": "not_resolved",   "model": "anthropic.retired-model-v1", "flag": "pricing not resolved",
   "reason": "no price for anthropic.retired-model-v1: it is no longer in the catalogue — pick another model or enter a price by hand" }
