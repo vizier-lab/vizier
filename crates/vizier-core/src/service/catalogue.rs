@@ -475,6 +475,42 @@ pub async fn models_for(deps: &VizierDependencies, id: &ProviderId, all: bool) -
     Some(models)
 }
 
+/// One option the pricing dropdown offers (contracts §5a, FR-034a.1): only what the picker
+/// shows and searches — the catalogue id and the name it displays.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PricingModel {
+    pub id: String,
+    pub name: String,
+}
+
+/// The pricing dropdown's source (contracts §5a, FR-034a.1, FR-034c): the `amazon-bedrock` models
+/// exactly as the catalogue currently holds them, reduced to name plus id, and filtered by `q`
+/// when one is given.
+///
+/// The list is read, never fetched: `Catalogue::models` answers through the D2 alias with
+/// `all = true`, so this is the same row the chat picker already offers — no AWS call, no
+/// session and no second list (FR-034c, SC-020). `all = true` is load-bearing: a person may hold
+/// an inference profile over a deprecated model and must still be able to price it, so a
+/// deprecated id stays in the list and is marked by the caller rather than hidden (contracts
+/// §5a). A blank `q` is no `q` at all, and the rule is the provider list's: a case-insensitive
+/// substring of either field, so `name` and `id` are both searchable.
+///
+/// Deliberately narrower than `models_for`, which is the picker's transport: no live listing is
+/// asked for, and the connection's own ARN entries are never mixed in — an ARN cannot be paired
+/// with an ARN, so it must never be an option here.
+pub fn pricing_models(catalogue: &Catalogue, q: Option<&str>) -> Vec<PricingModel> {
+    let q = q.map(|q| q.trim().to_lowercase()).filter(|q| !q.is_empty());
+    catalogue
+        .models(&ProviderId::AMAZON_BEDROCK_SSO, true)
+        .into_iter()
+        .filter(|m| match q.as_deref() {
+            Some(q) => m.name.to_lowercase().contains(q) || m.id.to_lowercase().contains(q),
+            None => true,
+        })
+        .map(|m| PricingModel { id: m.id, name: m.name })
+        .collect()
+}
+
 /// One entry's `pricing` as the API reports it (contracts §4a): the state, the figure when there
 /// is one, and — for every absence — the label plus a cause-specific reason that carries the way
 /// out. Computed per request from the entry's current state, never stored (FR-034a.2, FR-034b,
@@ -952,6 +988,173 @@ mod tests {
         }
     }
 
+    /// T043 / FR-034a.1, FR-034a.4, SC-020: the catalogue is re-read, never copied into the
+    /// entry. A refresh that renames or reprices a model relabels and reprices the entry that
+    /// points at it, without rewriting the entry itself — and a hand-entered price survives it.
+    #[test]
+    fn a_catalogue_refresh_relabels_and_reprices_an_entry_without_rewriting_it() {
+        use crate::catalogue::data::{
+            CatalogueData, CatalogueModel, CatalogueProvider, Limits as CatalogueLimits,
+        };
+        use std::collections::BTreeMap;
+
+        let model_id = "amazon.nova-lite-v1:0";
+        let data_with = |name: &str, input: f64| {
+            let mut data = CatalogueData::empty();
+            data.providers.insert(
+                ProviderId::AMAZON_BEDROCK,
+                CatalogueProvider {
+                    id: ProviderId::AMAZON_BEDROCK,
+                    name: "Amazon Bedrock".into(),
+                    env: vec![],
+                    api: None,
+                    npm: "ai-sdk".into(),
+                    doc: None,
+                    models: BTreeMap::from([(
+                        model_id.to_string(),
+                        CatalogueModel {
+                            id: model_id.to_string(),
+                            name: name.to_string(),
+                            family: None,
+                            caps: Default::default(),
+                            limit: CatalogueLimits::default(),
+                            cost: Some(Cost {
+                                input,
+                                output: input * 5.0,
+                                cache_read: None,
+                                cache_write: None,
+                            }),
+                            status: ModelStatus::Active,
+                            release_date: None,
+                            knowledge: None,
+                            lab: None,
+                            route: None,
+                        },
+                    )]),
+                    dialect: Some(DialectKind::Bedrock),
+                    kind: ProviderKind::Cloud,
+                },
+            );
+            data
+        };
+
+        let catalogue = Catalogue::new(data_with("Nova Lite (old name)", 1.0));
+        let entry = ProfileEntry {
+            arn: "arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/abc".into(),
+            name: Some("Acme Prod — Claude".into()),
+            model: Some(model_id.into()),
+            ..Default::default()
+        };
+        let before = entry_pricing(&catalogue, &entry);
+        assert!(matches!(&before, EntryPricing::FromCatalogue { cost, .. } if cost.input == 1.0));
+        let label = |catalogue: &Catalogue| {
+            catalogue
+                .model(&ProviderId::AMAZON_BEDROCK_SSO, model_id)
+                .expect("the model is listed")
+                .name
+        };
+        assert_eq!(label(&catalogue), "Nova Lite (old name)");
+
+        // The refresh: same id, new name, new rate. Nothing on the entry is touched to take it.
+        let unchanged = entry.clone();
+        catalogue.swap(data_with("Nova Lite (new name)", 2.0));
+        let after = entry_pricing(&catalogue, &entry);
+        assert!(
+            matches!(&after, EntryPricing::FromCatalogue { cost, .. } if cost.input == 2.0),
+            "{after:?}"
+        );
+        assert_eq!(label(&catalogue), "Nova Lite (new name)");
+        assert_eq!(entry, unchanged, "the entry is re-read, never rewritten");
+        // The dropdown relabels too: the same stored id now searches under its new name.
+        assert!(pricing_models(&catalogue, Some("new name")).iter().any(|o| o.id == model_id));
+
+        // A hand-entered price outlives a refresh: it wins and no lookup happens (FR-034a.4).
+        let hand = Cost { input: 0.5, output: 3.0, cache_read: None, cache_write: None };
+        let priced_by_hand = ProfileEntry { price: Some(hand.clone()), ..entry.clone() };
+        assert_eq!(entry_pricing(&catalogue, &priced_by_hand), EntryPricing::Explicit(hand));
+    }
+
+    /// T043 / SC-021: the three absences are told apart by their reasons alone — each non-empty,
+    /// each naming its own cause (the gone case with the missing id inside it) — and a fix
+    /// clears the reason without touching anything else.
+    #[test]
+    fn every_absence_names_its_own_cause_and_a_fix_clears_it() {
+        use crate::catalogue::data::CatalogueData;
+
+        let seeded = Catalogue::new(seed::load_seed());
+        let cold = Catalogue::new(CatalogueData::empty());
+        let entry = |price: Option<Cost>, model: Option<&str>| ProfileEntry {
+            arn: "arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/abc".into(),
+            name: Some("Acme Prod — Claude".into()),
+            model: model.map(str::to_string),
+            price,
+            ..Default::default()
+        };
+        let gone_id = "anthropic.retired-model-v1";
+
+        let unset = entry_pricing(&seeded, &entry(None, None));
+        let gone = entry_pricing(&seeded, &entry(None, Some(gone_id)));
+        // No catalogue wins over both absences, for an entry with no model and for one with a
+        // valid model paired — it is checked before `model` is read (FR-034b).
+        let absent = entry_pricing(&cold, &entry(None, None));
+        let absent_paired = entry_pricing(&cold, &entry(None, Some("amazon.nova-lite-v1:0")));
+
+        assert_eq!(unset.state(), "not_set");
+        assert_eq!(gone.state(), "not_resolved");
+        assert_eq!(absent.state(), "no_catalogue");
+        assert_eq!(absent_paired.state(), "no_catalogue");
+        assert_eq!(absent.reason(), absent_paired.reason());
+
+        let (not_set_reason, gone_reason, no_catalogue_reason) = (
+            unset.reason().expect("every absence carries a reason"),
+            gone.reason().expect("every absence carries a reason"),
+            absent.reason().expect("every absence carries a reason"),
+        );
+        assert!(!not_set_reason.is_empty() && !gone_reason.is_empty() && !no_catalogue_reason.is_empty());
+
+        // Each names its own cause, and never one of the other two.
+        let causes = ["no model is paired with this ARN", "no longer in the catalogue", "carries no Bedrock model list"];
+        for reason in [&not_set_reason, &gone_reason, &no_catalogue_reason] {
+            let own = causes.iter().filter(|cause| reason.contains(**cause)).count();
+            assert_eq!(own, 1, "{reason:?} names {own} of the three causes");
+        }
+        assert!(not_set_reason.contains(causes[0]));
+        assert!(gone_reason.contains(causes[1]));
+        assert!(no_catalogue_reason.contains(causes[2]));
+        // The gone case has the stored id inside the reason, so it can be re-picked (FR-034a.3).
+        assert!(gone_reason.contains(gone_id), "{gone_reason}");
+        assert!(!not_set_reason.contains(gone_id) && !no_catalogue_reason.contains(gone_id));
+        // No two of the three share wording, and each keeps the way out.
+        assert_ne!(not_set_reason, gone_reason);
+        assert_ne!(not_set_reason, no_catalogue_reason);
+        assert_ne!(gone_reason, no_catalogue_reason);
+        for reason in [&not_set_reason, &gone_reason, &no_catalogue_reason] {
+            assert!(
+                reason.contains("enter a price by hand") || reason.contains("pick one"),
+                "the way out is stated: {reason}"
+            );
+        }
+
+        // Re-picking a model clears the reason: the entry is priced and nothing else moves.
+        let repicked = entry(None, Some("amazon.nova-lite-v1:0"));
+        let priced = entry_pricing(&seeded, &repicked);
+        assert_eq!(priced.state(), "from_catalogue");
+        assert_eq!(priced.flag(), None);
+        assert_eq!(priced.reason(), None);
+        assert_eq!(repicked.model.as_deref(), Some("amazon.nova-lite-v1:0"));
+        assert_eq!(repicked.price, None);
+        assert_eq!(repicked.name.as_deref(), Some("Acme Prod — Claude"));
+
+        // Setting a price clears it too, even when the paired id is gone — and the absence of a
+        // sibling entry is unaffected: one entry's fix is not another's.
+        let hand = Cost { input: 2.0, output: 8.0, cache_read: None, cache_write: None };
+        let by_hand = entry_pricing(&seeded, &entry(Some(hand.clone()), Some(gone_id)));
+        assert_eq!(by_hand, EntryPricing::Explicit(hand));
+        assert_eq!(by_hand.flag(), None);
+        assert_eq!(by_hand.reason(), None);
+        assert_eq!(entry_pricing(&seeded, &entry(None, None)), EntryPricing::NotSet);
+    }
+
     /// T039: an id the catalogue still lists but carries no cost for is *not* "gone". Only the
     /// five wire states exist, so it stays `not_resolved`; the reason must name the real cause
     /// instead of repeating the contract's gone-case sentence.
@@ -1103,5 +1306,55 @@ mod tests {
         let defaults: Vec<&str> =
             models.iter().filter(|m| m.default).map(|m| m.id.as_str()).collect();
         assert_eq!(defaults, vec![models[2].id.as_str()], "the first catalogue model is the default");
+    }
+
+    /// T041 (FR-034a.1, FR-034c, contracts §5a): the pricing dropdown reads the `amazon-bedrock`
+    /// row as loaded — name plus id, searchable by either — and nothing else.
+    #[test]
+    fn the_pricing_dropdown_reads_the_loaded_bedrock_row_by_name_and_id() {
+        use crate::catalogue::data::CatalogueData;
+
+        let catalogue = Catalogue::new(seed::load_seed());
+        let options = pricing_models(&catalogue, None);
+        let loaded = catalogue.models(&ProviderId::AMAZON_BEDROCK_SSO, true);
+
+        // The one list, in its order, with both fields carried through: no copy, no re-sort.
+        assert_eq!(options.len(), loaded.len());
+        assert!(options.len() > 100, "the whole Bedrock row, the 203-model figure");
+        for (option, model) in options.iter().zip(&loaded) {
+            assert_eq!(option.id, model.id);
+            assert_eq!(option.name, model.name);
+            assert!(!option.id.is_empty() && !option.name.is_empty());
+        }
+
+        // The unfiltered list: a deprecated model stays offered (a profile may still run it)...
+        let deprecated = "anthropic.claude-sonnet-4-5-20250929-v1:0";
+        assert!(options.iter().any(|o| o.id == deprecated));
+        assert!(
+            !catalogue
+                .models(&ProviderId::AMAZON_BEDROCK_SSO, false)
+                .iter()
+                .any(|m| m.id == deprecated),
+            "the default picker list is the one that hides it"
+        );
+        // ...and no ARN entry is ever an option: an ARN cannot be paired with an ARN.
+        assert!(options.iter().all(|o| !o.id.starts_with("arn:")));
+
+        // Searchable by id and by display name, case-insensitively; a miss is empty, a blank
+        // query is no query.
+        let by_id = pricing_models(&catalogue, Some("NOVA-LITE"));
+        assert!(by_id.iter().any(|o| o.id == "amazon.nova-lite-v1:0"));
+        assert!(by_id.iter().all(|o| {
+            o.id.to_lowercase().contains("nova-lite") || o.name.to_lowercase().contains("nova-lite")
+        }));
+        let by_name = pricing_models(&catalogue, Some("  Nova 2 Lite "));
+        assert!(by_name.iter().any(|o| o.id == "amazon.nova-2-lite-v1:0"));
+        assert!(pricing_models(&catalogue, Some("no-such-bedrock-model")).is_empty());
+        assert_eq!(pricing_models(&catalogue, Some("   ")).len(), options.len());
+
+        // No AWS call, by construction: the function takes the catalogue and nothing else (no
+        // deps, no http, no session, not async), and a cold catalogue lists nothing rather than
+        // erroring — the dropdown opens before the list or a sign-in exists.
+        assert!(pricing_models(&Catalogue::new(CatalogueData::empty()), None).is_empty());
     }
 }
