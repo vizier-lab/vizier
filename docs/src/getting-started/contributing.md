@@ -68,8 +68,8 @@ The Rust code is a Cargo workspace of four crates under `crates/`. A bare `cargo
 Dependencies point one way: `vizier` → `vizier-http` → `vizier-core` → `vizier-derive`. The `policy` CI job
 fails when a crate declares a dependency that belongs to a layer above it.
 
-`vizier-core` runs without the optional parts of the server. Its feature groups (`discord`,
-`telegram`, `media`, `docker-shell`, `documents`, `utoipa`, `telemetry`; `full` turns them all on)
+`vizier-core` runs without the optional parts of the server. Its feature flags (`channel-discord`,
+`channel-telegram`, `provider-media`, `addon-docker`, `addon-documents`, `utoipa`, `telemetry`; `full` turns them all on, see [Build Flavours](../configuration/build-flavours.md))
 are off by default, so an app that embeds the engine pays for what it uses. Its stable API is
 `VizierRuntime` with the config, schema, auth and transport types; the other modules are visible
 only because `vizier-http` and `vizier` need them, and are not part of the API. To try the engine

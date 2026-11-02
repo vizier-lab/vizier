@@ -5,10 +5,16 @@ name: CI
 # `webui/` is not checked out, so a one-line stub is enough to compile and test everything.
 # Packaging and the release path are proven by a dry run of `release-and-publish.yml`.
 
+#
+# Path-aware (issue #160): a pull request runs the jobs of the crates and feature flags it
+# touches, and `gate` is the one required status. `develop`, `master` and release tags run
+# everything, including every flag alone.
+
 on:
   pull_request:
   push:
-    branches: [master]
+    branches: [master, develop]
+    tags: ['v*']
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -21,8 +27,106 @@ env:
   CLIPPY_LINTS: -D warnings -A clippy::style -A clippy::complexity -A clippy::perf
 
 jobs:
+  # Maps the changed paths to the jobs that can be affected. A full run (push to develop/master,
+  # a release tag) and a change to a shared file turn everything on.
+  changes:
+    name: changes
+    runs-on: ubuntu-latest
+    outputs:
+      rust: ${{ steps.plan.outputs.rust }}
+      core: ${{ steps.plan.outputs.core }}
+      flags: ${{ steps.plan.outputs.flags }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            shared:
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'rust-toolchain*'
+              - 'crates/vizier-derive/**'
+              - '.github/workflows/ci.yml'
+            core:
+              - 'crates/vizier-core/**'
+            http:
+              - 'crates/vizier-http/**'
+            bin:
+              - 'crates/vizier/**'
+              - 'dummyplug'
+            channel-discord:
+              - 'crates/vizier-core/src/channels/**'
+              - 'crates/vizier-core/src/integrations/**'
+              - 'crates/vizier-core/src/agents/tools/**'
+              - 'crates/vizier-core/src/utils/**'
+            channel-telegram:
+              - 'crates/vizier-core/src/channels/**'
+              - 'crates/vizier-core/src/integrations/**'
+              - 'crates/vizier-core/src/agents/tools/**'
+              - 'crates/vizier-core/src/utils/**'
+            provider-media:
+              - 'crates/vizier-core/src/stt/**'
+              - 'crates/vizier-core/src/tts/**'
+              - 'crates/vizier-core/src/llm/media/**'
+            addon-docker:
+              - 'crates/vizier-core/src/agents/shell/**'
+            addon-documents:
+              - 'crates/vizier-core/src/agents/tools/**'
+              - 'crates/vizier-core/src/integrations/**'
+              - 'crates/vizier-core/src/dependencies.rs'
+              - 'crates/vizier-core/src/agents/mod.rs'
+            telemetry:
+              - 'crates/vizier-core/src/telemetry.rs'
+              - 'crates/vizier-core/src/llm/telemetry.rs'
+            utoipa:
+              - 'crates/vizier-core/src/schema/**'
+              - 'crates/vizier-core/src/service/**'
+      - name: Plan
+        id: plan
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          SHARED: ${{ steps.filter.outputs.shared }}
+          CORE: ${{ steps.filter.outputs.core }}
+          HTTP: ${{ steps.filter.outputs.http }}
+          BIN: ${{ steps.filter.outputs.bin }}
+          FLAG_channel_discord: ${{ steps.filter.outputs.channel-discord }}
+          FLAG_channel_telegram: ${{ steps.filter.outputs.channel-telegram }}
+          FLAG_provider_media: ${{ steps.filter.outputs.provider-media }}
+          FLAG_addon_docker: ${{ steps.filter.outputs.addon-docker }}
+          FLAG_addon_documents: ${{ steps.filter.outputs.addon-documents }}
+          FLAG_telemetry: ${{ steps.filter.outputs.telemetry }}
+          FLAG_utoipa: ${{ steps.filter.outputs.utoipa }}
+        run: |
+          set -euo pipefail
+          full=false
+          if [ "$EVENT" = push ] && { [ "$REF" = refs/heads/develop ] || [ "$REF" = refs/heads/master ] || [[ "$REF" == refs/tags/* ]]; }; then
+            full=true
+          fi
+          if [ "$SHARED" = true ]; then full=true; fi
+          rust=false
+          if [ "$full" = true ] || [ "$CORE" = true ] || [ "$HTTP" = true ] || [ "$BIN" = true ]; then rust=true; fi
+          core=false
+          if [ "$full" = true ] || [ "$CORE" = true ]; then core=true; fi
+          # One matrix entry per flag, each built and tested alone. Keep in step with the
+          # [features] table of crates/vizier-core/Cargo.toml (the policy job checks `full`).
+          flags=()
+          for name in channel-discord channel-telegram provider-media addon-docker addon-documents telemetry utoipa; do
+            var="FLAG_${name//-/_}"
+            if [ "$full" = true ] || [ "${!var}" = true ]; then flags+=("\"$name\""); fi
+          done
+          list=$(IFS=,; echo "${flags[*]:-}")
+          {
+            echo "rust=$rust"
+            echo "core=$core"
+            echo "flags=[${list}]"
+          } >> "$GITHUB_OUTPUT"
+
   rust:
     name: rust
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -50,6 +154,8 @@ jobs:
   # The engine alone: no optional feature, no web or CLI crate.
   core-minimal:
     name: core-minimal
+    needs: changes
+    if: needs.changes.outputs.core == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -67,10 +173,43 @@ jobs:
           CI: 'true'
         run: cargo test -p vizier-core --no-default-features
 
+  # Every optional flag of the engine on its own, so a flag that only compiles next to another
+  # one is caught. Only the flags a change touches run; a full run runs them all.
+  flag:
+    name: flag (${{ matrix.flag }})
+    needs: changes
+    if: needs.changes.outputs.flags != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        flag: ${{ fromJSON(needs.changes.outputs.flags) }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: git submodule update --init dummyplug
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: flag-${{ matrix.flag }}
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libssl-dev python3-dev libclang-dev clang perl make
+      - name: Clippy
+        run: cargo clippy -p vizier-core --no-default-features --features ${{ matrix.flag }} --all-targets -- $CLIPPY_LINTS
+      - name: Test
+        env:
+          CI: 'true'
+        run: cargo test -p vizier-core --no-default-features --features ${{ matrix.flag }}
+
   # The managed deployment backends: every parametrised storage test runs again against an
   # isolated PostgreSQL schema, and the blob conformance test runs against a real MinIO bucket.
   managed-storage:
     name: managed storage
+    needs: changes
+    if: needs.changes.outputs.core == 'true'
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -134,6 +273,8 @@ jobs:
   # Reads `cargo metadata` only: no compile.
   policy:
     name: policy
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -164,6 +305,27 @@ jobs:
           # shared by the server and the desktop app. JWT issuing stays in the HTTP adapter.
           check vizier-core axum axum-extra tower-http utoipa-axum utoipa-swagger-ui clap inquire termimad daemonize dotenvy opentelemetry-otlp jsonwebtoken tracing-subscriber
           check vizier-http clap inquire termimad daemonize dotenvy opentelemetry-otlp
+          exit $fail
+      - name: Optional dependencies stay behind their flag
+        # Every optional dependency of vizier-core must be absent from the feature-less build,
+        # and every flag must be listed in `full`, so none is orphaned.
+        run: |
+          set -euo pipefail
+          meta=$(cargo metadata --format-version 1 --locked --no-deps)
+          optional=$(echo "$meta" | jq -r '.packages[] | select(.name=="vizier-core") | .dependencies[] | select(.optional) | .name' | sort -u)
+          bare=$(cargo tree -p vizier-core --no-default-features -e normal --depth 1 --prefix none | awk '{print $1}' | sort -u)
+          fail=0
+          for dep in $optional; do
+            if echo "$bare" | grep -qx "$dep"; then
+              echo "::error::vizier-core pulls the optional dependency $dep without its flag"
+              fail=1
+            fi
+          done
+          orphans=$(echo "$meta" | jq -r '.packages[] | select(.name=="vizier-core") | .features | (.full // []) as $full | keys[] | select(. != "default" and . != "full") | select(. as $k | $full | index($k) | not)')
+          for orphan in $orphans; do
+            echo "::error::feature $orphan is missing from full"
+            fail=1
+          done
           exit $fail
       - name: Dependencies unchanged
         # Existing version/source pairs must not change. New crate names are review notices;
@@ -248,6 +410,7 @@ jobs:
   # Only runs when something the app is built from changes; server-only PRs skip it.
   app:
     name: app (${{ matrix.os }})
+    needs: changes
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -315,3 +478,21 @@ jobs:
         run: |
           cargo clippy --all-targets -- -D warnings
           cargo test
+
+  # The one required status. Jobs a change cannot affect are skipped, and a skipped job passes;
+  # a failed or cancelled one fails the gate. Branch protection requires only this job.
+  gate:
+    name: gate
+    if: always()
+    needs: [changes, rust, core-minimal, flag, managed-storage, policy, app]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check results
+        env:
+          RESULTS: ${{ toJSON(needs.*.result) }}
+        run: |
+          echo "$RESULTS"
+          if echo "$RESULTS" | grep -qE '"(failure|cancelled)"'; then
+            echo "::error::a required job failed"
+            exit 1
+          fi

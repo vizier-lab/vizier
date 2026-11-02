@@ -13,7 +13,7 @@ A virtual Cargo workspace (`members = ["crates/*"]`, `default-members = ["crates
 | Crate | Path | Holds |
 |---|---|---|
 | `vizier-derive` | `crates/vizier-derive/` | derive macros |
-| `vizier-core` | `crates/vizier-core/` | the engine: agents, tools, storage, providers, scheduler, `VizierRuntime`, Discord/Telegram readers. No web framework, CLI or terminal UI (the `policy` CI job checks each crate's *direct* dependencies). Feature groups `discord telegram media docker-shell documents utoipa telemetry` (`full` = all, `default = []`) |
+| `vizier-core` | `crates/vizier-core/` | the engine: agents, tools, storage, providers, scheduler, `VizierRuntime`, Discord/Telegram readers. No web framework, CLI or terminal UI (the `policy` CI job checks each crate's *direct* dependencies). Feature flags `channel-discord channel-telegram provider-media addon-docker addon-documents utoipa telemetry` (`full` = all, `default = []`; naming scheme and the flag→dependency table in `docs/src/configuration/build-flavours.md`) |
 | `vizier-http` | `crates/vizier-http/` | the axum REST/WebSocket server, JWT/argon2 auth, OpenAPI, the embedded WebUI and integration icons; `serve(&runtime, config)` and `router(..)` |
 | `vizier` | `crates/vizier/` | the binary: clap CLI, onboarding, the command socket, config-file/workspace resolution, logging and OTLP export, exit codes |
 | `vizier-app` | `app/src-tauri/` | the desktop app (spec 038): a Tauri 2 shell that hosts a `VizierRuntime` in-process and serves the WebUI in a window. **Its own Cargo workspace** (`app/Cargo.toml`, own `app/Cargo.lock`, `publish = false`), not a member of the root workspace, so `cargo build --workspace` never needs webkit; its version is bumped with the root one by the release job. Native-code dependency versions must match the root lockfile (CI `policy`) |
@@ -44,7 +44,10 @@ just docker       # docker-compose down && docker-compose up -d
 cargo test --workspace     # run tests (see below)
 cargo clippy --workspace   # lint
 cargo test -p vizier-core --no-default-features   # the engine with no optional features
+cargo test -p vizier-core --no-default-features --features <flag>   # one flag alone, as CI does (channel-discord, addon-docker, …)
 ```
+
+CI is path-aware (`.github/workflows/ci.yml`): a PR runs the jobs of the crates and flags it touches and the `gate` job is the one required status; `develop`, `master` and release tags run every flag alone. A new flag needs an entry in the `changes` job (paths) and the flag list there, and must be listed in `full` (the `policy` job checks).
 
 `just test` and `just lint` run the workspace-wide versions of the two above. Tests are sparse (`crates/vizier-core/src/agents/agent/model/registry.rs`, `crates/vizier-core/src/storage/memory.rs`, `crates/vizier-core/src/skill/context.rs`); most correctness is exercised by running the binary, not by a test suite. For end-to-end checks, run the binary with an agent on the offline `dummyplug` provider (no keys needed): send `tools`, then a tool name for a sample request, then the JSON request to run the tool through the real loop (and `context` to echo the per-request context block the agent received, §6) — see `specs/008-dummyplug-provider/contracts/dummyplug-protocol.md`. The constitution requires this for any agent-observable change.
 
