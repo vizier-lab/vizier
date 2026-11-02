@@ -36,10 +36,10 @@ Add four tools to the existing `office` addon: `office_pdf_read_as_md`, `office_
 
 | Principle | Verdict | Notes |
 |---|---|---|
-| I. Lean by default | **Pass, with a recorded cost** | One new dependency, justified: nothing in the tree rasterises a PDF or lays out HTML into one; `pdf-extract` only extracts plain text. The cost is real (189 locked packages, larger binary), so it is measured and recorded (R1, task T020) rather than assumed small. No new trait, flag or config |
+| I. Lean by default | **Pass, with a recorded cost** | One new dependency, justified: nothing in the tree rasterises a PDF or lays out HTML into one; `pdf-extract` only extracts plain text. The cost is real (189 locked packages, larger binary), so it is measured and recorded (R1, task T002) rather than assumed small. No new trait, flag or config |
 | II. Trait-based extensibility | **Pass** | Four `VizierTool` impls contributed by the existing `OfficeKind::contribute`; no `match` added to dispatch. The `Format` enum in `office/mod.rs` gains a `Pdf` variant used only for the wrong-tool message, which is the existing pattern for Docx/Xlsx |
 | III. Zero-dependency runtime | **Pass** | Pure Rust, no sidecar, no network, nothing fetched at runtime (R2) |
-| IV. Portability | **Gate, verify** | Pure Rust should cross-compile, but the constitution makes a broken `Cross.toml` target blocking. Verify musl x86_64, aarch64 gnu, and the Windows desktop leg (T021). `app/` has its own lockfile, which must stay in step (CLAUDE.md, CI `policy`) |
+| IV. Portability | **Gate, verify** | Pure Rust should cross-compile, but the constitution makes a broken `Cross.toml` target blocking. Verify musl x86_64, aarch64 gnu, and the Windows desktop leg (T046). `app/` has its own lockfile, which must stay in step (CLAUDE.md, CI `policy`) |
 | V. Errors and observability | **Pass** | Every failure is `VizierError`; `unwrap`/`expect` only in tests; no `println!` |
 | E2E gate (dummyplug) | **Required** | Agent-observable tools. [quickstart.md](quickstart.md) scripts the steps |
 | Conventional commits | **Note** | Work commits use `feat:`; the Spec Kit auto-commit message the hook produced (`doc: add specification`) already complies |
@@ -74,7 +74,7 @@ crates/vizier-core/src/integrations/kinds/office.rs     # listing text + contrib
 crates/vizier-core/src/agents/tools/mod.rs              # pinned tables (done)
 docs/src/configuration/office-addon.md                  # table rows (done; limits and caveats below)
 CHANGELOG.md                                            # entry (todo)
-fixtures/office/                                        # sample PDFs (todo, FR-023)
+crates/vizier-core/tests/fixtures/office/  # sample PDFs (todo, FR-023); compiled in by office/fixture_tests.rs
 ```
 
 **Structure Decision**: extend the existing `office` module in place. A second addon or a separate `pdf` integration kind was rejected: the spec requires one addon, one switch, no backfill (FR-017), and `OfficeKind::contribute` already returns the whole toolset.
@@ -88,7 +88,7 @@ fixtures/office/                                        # sample PDFs (todo, FR-
 | G3 | HTML-to-PDF "no outside resource, no script" is true by the library's design (R2) but unproven here | FR-009, SC-009 | Add a test: HTML with a remote `<img>`, a `<link>`, a `file:///` reference and a `<script>` produces a PDF with none of them resolved, and no connection is attempted |
 | G4 | `from_docx` feeds Markdown through `pulldown_cmark`, which passes raw HTML found in the document's text through to the page as markup | FR-010, SC-002 | Escape or drop raw HTML events in `from_docx` so Word text such as `<b>` or `a < b` renders literally; test it |
 | G5 | `pdf::*` run synchronously inside `async fn call`; rasterising or laying out a large document holds a runtime worker | Performance | Run the four calls in `spawn_blocking` unless the existing docx/xlsx tools already do something equivalent (check; match it) |
-| G6 | Fixtures and tests: only generated PDFs are exercised; no committed sample for tables, scanned, encrypted, corrupt-in-the-middle or multi-page input; the password path is untested | FR-023, SC-001, SC-005, SC-006 | Add `fixtures/office/*.pdf`, compiled into the tests like 036's |
+| G6 | Fixtures and tests: only generated PDFs are exercised; no committed sample for tables, scanned, encrypted, corrupt-in-the-middle or multi-page input; the password path is untested | FR-023, SC-001, SC-005, SC-006 | Add `crates/vizier-core/tests/fixtures/office/*.pdf`, compiled into the tests like 036's |
 | G7 | No changelog entry, no limits section in the docs, no quickstart | FR-022, FR-024 | Write them |
 | G8 | Out-of-range page and `page_start` beyond the end are inconsistent: render errors, read may return an empty slice | FR-014, SC-005 | Make both state the page count in a readable error or note; test both |
 | G9 | Spec FR-006 says "a bounded range" for scale; code clamps silently to 0.1–4.0 | FR-006 | Keep the clamp, say so in the description and in the result (`scale` echoed), so the agent knows what it got |

@@ -6,7 +6,7 @@
 
 **Rationale**: it is one pure-Rust facade over `pdf_oxide` (structured Markdown with pages and passwords), `hayro` (rasteriser) and `fulgur` (HTML/CSS to PDF), with panic guards (`sandbox::guarded`) and input caps. Nothing already in the tree can rasterise a PDF or produce one from HTML; `pdf-extract` stays for the generic reader's plain text.
 
-**Cost found**: `Cargo.lock` gains 189 packages (about 2 300 lines). Principle I and the dependency-weight rule require this to be measured: record the release-binary size before and after, and the clean-build time delta, in the PR (T020). `app/Cargo.lock` must carry the same versions (CI `policy`).
+**Cost found**: `Cargo.lock` gains 189 packages (about 2 300 lines). Principle I and the dependency-weight rule require this to be measured: record the release-binary size before and after, and the clean-build time delta, in the PR (T002). `app/Cargo.lock` must carry the same versions (CI `policy`).
 
 **Alternatives considered**: `pdfium-render` (needs the native pdfium library, breaks Principle III and the static builds); `lopdf`/`printpdf` (low-level, no HTML layout, no rasteriser); shelling out to `wkhtmltopdf`/`pdftoppm` (external binaries, breaks Principle III); headless Chromium (same).
 
@@ -44,4 +44,4 @@ CPU-bound library calls move to `spawn_blocking` unless the existing office tool
 
 ## R6 — Platform evidence still owed
 
-Pure Rust, so no `Cross.toml` `pre-build` change is expected. Evidence needed before merge: `cargo build --release` for `x86_64-unknown-linux-musl` and `aarch64-unknown-linux-gnu` (or the CI jobs green), and the desktop app's Windows compile (CI `app` job). Fonts: `fulgur` falls back to a font stack that names DejaVu Sans; on a host with no fonts PDFs may render without glyphs. Verify in the Docker image, and add a font to the image only if the test shows empty text (decision deferred to T022, not assumed).
+Pure Rust, so no `Cross.toml` `pre-build` change is expected. Evidence needed before merge: `cargo build --release` for `x86_64-unknown-linux-musl` and `aarch64-unknown-linux-gnu` (or the CI jobs green), and the desktop app's Windows compile (CI `app` job). Fonts: `fulgur` falls back to a font stack that names DejaVu Sans; on a host with no fonts PDFs may render without glyphs. Verify in the Docker image, and add a font to the image only if the test shows empty text (decision deferred to T033, not assumed).

@@ -38,13 +38,13 @@ Use an agent `dp-a` created after the upgrade (addon present) and `dp-old` creat
 
 ## 6. Paging and truncation
 
-Upload `fixtures/office/long.pdf` (30 pages). `office_pdf_read_as_md` with no range: `page_end:10`, `truncated:true`, `next_page_start:11`. Follow `next_page_start` until none remains; the concatenated pages cover the document (SC-004). With `max_chars:500`: `truncated:true`.
+Upload `crates/vizier-core/tests/fixtures/office/long.pdf` (30 pages). `office_pdf_read_as_md` with no range: `page_end:10`, `truncated:true`, `next_page_start:11`. Follow `next_page_start` until none remains; the concatenated pages cover the document (SC-004). With `max_chars:500`: `truncated:true`.
 
 ## 7. Scanned, encrypted, corrupt
 
-- `fixtures/office/scanned.pdf`: `scanned_likely:true`, note names the render tool.
-- `fixtures/office/locked.pdf`: no password → readable error; wrong → readable error; `password:"vizier"` → content.
-- `fixtures/office/corrupt.pdf`: readable "not a valid PDF" error; the next call in the same script still runs.
+- `crates/vizier-core/tests/fixtures/office/scanned.pdf`: `scanned_likely:true`, note names the render tool.
+- `crates/vizier-core/tests/fixtures/office/locked.pdf`: no password → readable error; wrong → readable error; `password:"vizier"` → content.
+- `crates/vizier-core/tests/fixtures/office/corrupt.pdf`: readable "not a valid PDF" error; the next call in the same script still runs.
 
 ## 8. HTML does not reach out (SC-009)
 
