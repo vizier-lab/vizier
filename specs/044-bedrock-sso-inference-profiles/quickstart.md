@@ -21,7 +21,7 @@ The volunteer fills this in on the special release and attaches it to the releas
 | §5.5b ARN entry with no model → unpriced + "pricing not set", never $0.00 | |
 | §5.6 two entries on one model, metered and costed separately | |
 | §5.7 Test action on an ARN (billable: one call) | |
-| §2b all four pricing outcomes offline | |
+| §2b all five pricing outcomes offline, each with its reason | |
 | §5.8 memory embedding + `memory_search` on an SSO-only setup | |
 | §5.9 one image generated, no second sign-in | |
 | §5.10 `~/.aws` unchanged before/after (`diff -r`) | |
@@ -88,7 +88,7 @@ With the local stub from the unit tests promoted to a scripted mode (`crates/viz
 
 ## §2b Offline — pricing an ARN entry (no AWS)
 
-The four outcomes of FR-034a, each verified from the API and from the usage report. No AWS call is made by any of them (FR-034c), so this whole section is CI-able.
+The five outcomes of FR-034a, each verified from the API and from the usage report, together with the required reason on every absence (SC-021). No AWS call is made by any of them (FR-034c), so this whole section is CI-able.
 
 Setup: a saved connection with a session (stub, §2) and the catalogue's Bedrock row present (it ships embedded — `crates/vizier-core/assets/catalogue/api.json`).
 
@@ -97,15 +97,17 @@ Setup: a saved connection with a session (stub, §2) and the catalogue's Bedrock
    curl -s "localhost:9999/api/v1/catalogue/providers/amazon-bedrock-sso/models" -H "Authorization: Bearer $TOKEN" \
      | jq '.data[] | select(.origin=="inference_profile") | {cost, pricing}'
    ```
-   **Expected**: `cost: null` and `pricing.state: "not_set"`, `flag: "pricing not set"`. The turn **succeeded** and its usage row carries provider + ARN + tokens with no cost — not zero (FR-034a.2, FR-034a.5, FR-034b, SC-021).
+   **Expected**: `cost: null`, `pricing.state: "not_set"`, `flag: "pricing not set"` **and a non-empty `pricing.reason`** saying no model is paired and that picking one or entering a price fixes it — a bare flag, an empty reason or a placeholder is a **failure** of this step. The turn **succeeded** and its usage row carries provider + ARN + tokens with no cost — not zero (FR-034a.2, FR-034a.5, FR-034b, SC-021).
 2. **Paired entry → priced from the chosen model.** Set `model` on that entry to a Bedrock id from the list, e.g. `anthropic.claude-sonnet-4-5-20250929-v1:0`.
    **Expected**: `pricing.state: "from_catalogue"`, `pricing.model` = that id, and `cost` equal to that model's catalogue cost — the same `cost` the chat picker shows for it. The usage report's `by_model` row for the ARN now carries a figure (FR-034a, SC-020).
 3. **Explicit price wins.** Set `price` on the same entry to `{ "input": 1.0, "output": 2.0 }`.
    **Expected**: `pricing.state: "explicit"`, `cost` = the entered figures, **not** the catalogue's, and `model` unchanged (so the pairing survives). No catalogue lookup happens (FR-034a.4, SC-020).
 4. **Stale id → not resolved, naming the id.** Point the entry's `model` at an id the catalogue does not hold (e.g. `anthropic.retired-model-v1`) and keep no explicit price.
-   **Expected**: save is **accepted** (shape only — [data-model.md](./data-model.md), rule 4a), `pricing.state: "not_resolved"`, `flag: "pricing not resolved"`, `model` echoed. A turn **still succeeds** and is recorded unpriced (FR-034a.3, FR-034a.5, SC-021).
+   **Expected**: save is **accepted** (shape only — [data-model.md](./data-model.md), rule 4a), `pricing.state: "not_resolved"`, `flag: "pricing not resolved"`, `model` echoed, and `pricing.reason` **containing the missing id** and the same two ways out, reading plainly as a different cause from step 1's reason. A turn **still succeeds** and is recorded unpriced (FR-034a.3, FR-034a.5, SC-021).
 5. **A refresh reprices, never renames.** Note the entry's `name`; refresh the catalogue (`POST /api/v1/catalogue/refresh`); re-read the models.
    **Expected**: `name`, `arn` and `model` byte-identical; `cost` re-resolved from the refreshed row; an explicit price **unchanged** (FR-034a.1, FR-034a.4, SC-020).
+5b. **Cold start → its own reason.** Start the binary against a workspace whose catalogue has not loaded yet (or read the models immediately at boot, before the seed) and repeat step 1.
+   **Expected**: still `cost: null` and unpriced, with a reason saying there is nothing to price against yet and that it resolves itself — distinct from step 1's reason, so the three absences never collapse into one message (FR-034b, SC-021).
 6. **The pairing never validates or fills limits.** On an entry with no `context`/`output`, pair it with a model that has a 200 000 context window.
    **Expected**: `limit.context` stays `null` (unknown), and an ARN whose region disagrees with `region` is still refused by FR-024's message — while the same ARN's **acceptance** is unchanged by which model is picked (FR-034a.6, SC-022).
 7. **No AWS call from any of it.** Grep the trace of steps 1–6 for `bedrock-runtime` / `bedrock.{region}.amazonaws.com`:

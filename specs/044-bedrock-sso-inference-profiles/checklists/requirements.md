@@ -173,3 +173,42 @@ grammar revision was already written, so this pass refines it rather than repeat
   typed, and the dropdown shows the same models the provider's chat picker shows.
 - If the model is not in the list, the entry still works for chat, just unpriced — or a price can be typed in
   by hand, or the catalogue refreshed and the model picked again.
+
+### Validation run 7 (2026-11-02, unpriced entries must state a reason)
+
+Requester's decision, verbatim: *"pricing not set diterima jika ada reason itu"* — pricing-not-set is
+acceptable **provided the reason is there**. Verified on disk first: FR-034a.2, FR-034a.3, FR-034b and
+SC-021 required the label and (for the gone case) the id, but **not** a reason. This pass adds the
+reason; it does not reopen Q1-Q4, the ARN grammar, the dropdown, explicit-price precedence, or the
+never-blocks-inference rule.
+
+- **Is the reason required, or only the label?** PASS (now required) - FR-034a.2 must show
+  "pricing not set" **with** a non-empty reason; SC-021 makes it measurable: 100% of unpriced entries
+  carry a cause-specific reason, 0 carry a bare label or a reason that does not name its cause.
+- **Does the never-chosen reason say what to do about it?** PASS - FR-034a.2 and FR-034b require the
+  cause **and** the way out: pick a model from the list, or enter a price by hand. A reason that only
+  says "unpriced" with no next step does not satisfy it.
+- **Does the gone-model reason name the missing id inside the reason?** PASS - FR-034a.3 puts the id
+  **in the reason itself**, not merely elsewhere in the row, and SC-021 counts that case.
+- **Are the two labels distinguishable?** PASS - FR-034a.3 and FR-034b require the cause to be
+  identifiable from the reason alone; neither may borrow the other's text. SC-021 counts it.
+- **All three absence causes covered?** PASS - FR-034b enumerates them: nothing picked, picked id gone,
+  and catalogue not yet available on a cold start before its seed loads.
+- **Is the reason stored, and can it go stale?** PASS - it is **derived** from the entry's current state
+  at every display and every usage report (FR-034a.2, FR-034b, Key Entities), so no new persisted field
+  and no migration are needed, and re-picking or entering a price clears it with no manual edit.
+- **Did anything optional become required?** PASS - no. The pairing stays optional (Q3 unchanged); an
+  ARN alone still saves and still chats. Only the display of the absence gained an obligation.
+- **Did pricing start blocking inference?** PASS - no. FR-034a.5 intact; SC-021 still counts 0 turns
+  refused, retried or disabled because of pricing.
+- **Did an AWS call or permission enter through this?** PASS - no. FR-034c intact; the reason is built
+  from Vizier's own state and catalogue, not from any control-plane call.
+
+#### Consequence for planning (recorded, not executed)
+
+- **Possible DTO/API surface, planning's call**: the field that carries the unpriced marker today can
+  carry the reason alongside it, or the reason can be its own field. The spec fixes the content (cause
+  plus way out, id inside the reason in the gone case), not the shape. Because the reason is derived, no
+  stored column is needed; if it must appear beside historical usage rows, evaluation at report time is
+  a planning decision and not a new user-facing requirement.
+- The strings quoted in FR-034a.2 are illustrative; the plan may finalise wording, not content.

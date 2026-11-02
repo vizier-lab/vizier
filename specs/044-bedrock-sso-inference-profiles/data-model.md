@@ -99,7 +99,7 @@ Not a stored entity: it is the `Option<RoleCredentials>` inside `SsoRoleCredenti
 | `output` | `Option<u64>` | no | output limit; empty ⇒ unknown |
 | `tool_call` | `Option<bool>` | no | empty ⇒ unknown (FR-028) |
 | `image_input` | `Option<bool>` | no | empty ⇒ unknown |
-| `model` | `Option<String>` | no | **the pricing pairing**: one catalogue Bedrock model id, chosen from the searchable list (FR-034a, FR-034a.1). Empty ⇒ no price from the catalogue; the entry chats unpriced and shows "pricing not set" (FR-034a.2). Stored as an id, never as a name or a price, so a catalogue refresh updates every entry (FR-034a.1) |
+| `model` | `Option<String>` | no | **the pricing pairing**: one catalogue Bedrock model id, chosen from the searchable list (FR-034a, FR-034a.1). Empty ⇒ no price from the catalogue; the entry chats unpriced and shows "pricing not set" **with a cause-specific reason and the way out** (FR-034a.2, SC-021). Stored as an id, never as a name or a price, so a catalogue refresh updates every entry (FR-034a.1) |
 | `price` | `Option<Cost>` | no | **the escape hatch**: a hand-entered cost, the `Cost` type the catalogue already uses (`crates/vizier-core/src/catalogue/data.rs:142`; per-million rates, `input`/`output` required). Set ⇒ no catalogue lookup happens and a refresh never overwrites it (FR-034a.4) |
 | `edited` | `bool` | system | true once the person changed the row, so a future fetch never overwrites it (same convention as `CustomModel.edited`, `crates/vizier-core/src/schema/provider.rs:225`) |
 
@@ -119,8 +119,9 @@ Validation (one place: `service::providers_sso::validate_entries`):
 |---|---|---|---|---|---|
 | 1 | `price` is set | `Explicit(cost)` — used as given, no catalogue lookup | the figure | none | FR-034a.4 |
 | 2 | `model` is set **and** resolves through the provider alias (D2) | `FromCatalogue(cost)`, re-resolved now | the chosen model's cost | none | FR-034a.1, FR-034a.3 |
-| 3 | `model` is set, id **no longer** in the catalogue | `NotResolved { model }` | `None` (unpriced) | **pricing not resolved**, naming the stored id | FR-034a.3, FR-034b |
-| 4 | `model` empty | `NotSet` | `None` (unpriced) | **pricing not set** | FR-034a.2, FR-034b |
+| 3 | `model` is set, id **no longer** in the catalogue | `NotResolved { model }` | `None` (unpriced) | **pricing not resolved**, with the stored id **inside the reason** plus the two ways out | FR-034a.3, FR-034b, SC-021 |
+| 4 | `model` empty | `NotSet` | `None` (unpriced) | **pricing not set**, with a reason saying no model is paired and that picking one or entering a price fixes it | FR-034a.2, FR-034b, SC-021 |
+| 5 | the catalogue has not loaded yet (cold start before its seed) | `NoCatalogue` | `None` (unpriced) | **pricing not set**, with its own reason: nothing to price against yet, it resolves itself | FR-034b, SC-021 |
 
 Row 3 also covers the third absence FR-034b names: **the catalogue not yet loaded** on a cold start before its seed is read. The resolver cannot distinguish "withdrawn" from "not loaded yet" and does not try — both report the id that failed, and both resolve themselves once the catalogue is there, because nothing was written down.
 
@@ -129,7 +130,7 @@ Rules the table encodes:
 - **`None` means unpriced, never zero.** It reuses the representation `Pricer::price` already returns (`crates/vizier-core/src/usage/mod.rs:69`), so no new concept enters the usage schema (FR-034b).
 - **Re-resolved at display and at use.** Only the id is stored, and `usage_event` has no cost column, so every report recomputes the price from the catalogue as it stands now (FR-034a.1). A catalogue refresh therefore relabels and reprices existing entries and orphans none.
 - **Nothing is derived from the ARN.** No parsing of the ARN feeds the price, in any branch (FR-034a, SC-020).
-- **The flag is a rendering of the enum, not a stored field.** `sso_state`-style reporting: the entry's API row carries `pricing` (see `contracts/provider-credentials-api.md` §4a–§5), computed per request. No column, no migration.
+- **The flag and its reason are a rendering of the enum, not stored fields.** `sso_state`-style reporting: the entry's API row carries `pricing` with `flag` **and a required non-empty `reason`** (see `contracts/provider-credentials-api.md` §4a–§5), computed per request from the entry's current state. The reason names the cause and the way out, the gone case carries the missing id inside the reason, and the two causes never share wording — that is what makes SC-021 measurable. Because nothing is stored, re-picking a model or entering a price clears the reason with no manual edit, and a price entered later also reprices turns already recorded. No column, no migration.
 - **A price never blocks a turn.** `resolve` and the media path never call the resolver: a turn builds its model from the ARN and the entry's limits, and the price is attached afterwards, when a report prices that ARN by looking the entry up (research D13 §3). There is therefore no code path in which a missing, stale or absurd price could refuse, retry or disable anything — FR-034a.5 holds structurally, not by review.
 
 **Resolution order for limits and capabilities** (FR-028) is the existing one, unchanged:
@@ -211,12 +212,12 @@ Defaults are untouched: `amazon.titan-embed-text-v2:0` and `amazon.nova-canvas-v
 | FR-033, FR-033a, FR-033b | media table above |
 | FR-034 | provider id on the usage row is the new id; a catalogue-model turn is priced exactly as today |
 | FR-034a, FR-034a.1 | `ProfileEntry.model` + `entry_pricing` resolving the id through the provider alias on every display and every use; no name or price copied onto the entry |
-| FR-034a.2 | `model` empty ⇒ `NotSet` ⇒ `None` cost + "pricing not set"; the entry stays usable |
-| FR-034a.3 | `NotResolved { model }` ⇒ `None` cost + "pricing not resolved" naming the id; no re-pointing, no inference |
+| FR-034a.2 | `model` empty ⇒ `NotSet` ⇒ `None` cost + "pricing not set" **with a non-empty reason stating no model is paired and the two ways out**; the entry stays usable (SC-021) |
+| FR-034a.3 | `NotResolved { model }` ⇒ `None` cost + "pricing not resolved" with the id **inside the reason**, distinguishable from FR-034a.2's reason; no re-pointing, no inference (SC-021) |
 | FR-034a.4 | `ProfileEntry.price` (`Cost`) wins and short-circuits the lookup; no write path exists that could overwrite it |
 | FR-034a.5 | the resolver is reachable only from a report, never from `resolve` or the turn path — a missing price cannot refuse, retry or disable anything |
 | FR-034a.6 | validation rules 4a–4c: the pairing is shape-checked only and never feeds rules 1–3 or the limits fields |
-| FR-034b | the four-row table above: `None` cost, tokens and ARN still recorded, the flag naming the id |
+| FR-034b | the five-row table above: `None` cost, tokens and ARN still recorded, and a cause-specific non-empty reason on every absence (the gone case naming the id inside it), so the three causes stay distinguishable (SC-021) |
 | FR-034c | no field and no resolver path reaches an AWS endpoint; the dropdown reads `Catalogue` only |
 | SC-020 | `Explicit` / `FromCatalogue` are the only two priced outcomes; a price never comes from the ARN; a refresh reprices without touching entries |
 | SC-021 | `NotSet` / `NotResolved` still record provider + ARN + tokens with `None` cost, and no code path consults the price before invoking |

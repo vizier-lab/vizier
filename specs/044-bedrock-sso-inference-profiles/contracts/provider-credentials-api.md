@@ -145,14 +145,20 @@ Two **optional** request/response fields on each entry, both non-secret, both me
 ```json
 { "state": "explicit",       "cost": { "input": 3.0, "output": 15.0 }, "source": "entered price" }
 { "state": "from_catalogue", "cost": { "input": 3.0, "output": 15.0 }, "model": "anthropic.claude-sonnet-4-5-20250929-v1:0" }
-{ "state": "not_resolved",   "model": "anthropic.retired-model-v1", "flag": "pricing not resolved" }
-{ "state": "not_set",        "flag": "pricing not set" }
+{ "state": "not_resolved",   "model": "anthropic.retired-model-v1", "flag": "pricing not resolved",
+  "reason": "no price for anthropic.retired-model-v1: it is no longer in the catalogue — pick another model or enter a price by hand" }
+{ "state": "not_set",        "flag": "pricing not set",
+  "reason": "no model is paired with this ARN, so there is nothing to price it from — pick one from the list or enter a price by hand" }
+{ "state": "no_catalogue",   "flag": "pricing not set",
+  "reason": "the model catalogue has not loaded yet, so no price is available — this resolves itself; or enter a price by hand" }
 ```
 
 - `not_set` still chats and still records its tokens; its usage row is **unpriced**, not zero (FR-034a.2, FR-034b).
-- `not_resolved` names the stored id so the person can re-pick it; the entry is not refused, not disabled and not re-pointed at another model (FR-034a.3).
+- `not_resolved` names the stored id **inside the reason** so the person can re-pick it; the entry is not refused, not disabled and not re-pointed at another model (FR-034a.3).
+- **`reason` is required on every absence state and is never empty, never a placeholder, and never shared between two causes.** It states the cause *and* the way out. This is the shape decision the spec left to planning (spec.md validation run 7: *"pricing not set diterima jika ada reason itu"*): the reason rides beside `flag` rather than replacing it, so an existing client that reads only `flag` keeps working and SC-021 becomes checkable on one field.
+- **`no_catalogue` is FR-034b's third absence** — a cold start before the catalogue seed loads. It renders as "pricing not set" to the person (there is nothing to pick yet) but carries its own reason, because the fix is "wait", not "pick a model". It is distinguishable from `not_set` by `reason` alone, which is what SC-021 counts.
 - Neither absence state blocks anything: `pricing` is read from a report, never from the turn path (FR-034a.5, SC-021).
-- The flag is a rendering of this object, not a stored column — so a price entered after the fact also reprices turns already recorded, exactly as a catalogue price change already does (research D13 §4).
+- The flag, the reason and this whole object are a **rendering**, computed per request from the entry's current state — not a stored column. A price entered after the fact therefore also reprices turns already recorded, exactly as a catalogue price change already does, and re-picking or pricing an entry clears its reason with no manual edit (research D13 §4, SC-021).
 
 `DELETE /{id}`: `409` naming the agents in use unless `confirm=true` (existing `usage::check_in_use`), then deletes the row **and** the session row (FR-040).
 

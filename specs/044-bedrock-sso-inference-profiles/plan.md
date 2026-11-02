@@ -24,7 +24,7 @@ Technically this is one credential source behind the existing extension points, 
 
 **Storage**: one new SQLite table `bedrock_sso_session` (`profile TEXT PRIMARY KEY, data TEXT NOT NULL`), where `data` is the encryption envelope of the session secret; the connection's non-secret half (start URL, both regions, account, role, profile name, the ARN entry list) rides in the existing `provider_config` JSON row for `amazon-bedrock-sso`, exactly like the static-credentials provider's fields do. Role credentials are **never** persisted (FR-009d).
 
-**Testing**: `cargo test -p vizier-core --lib` for the device-flow state machine (against a local stub server bound on `127.0.0.1:0`, research D9), ARN parsing (both resource types, all five partitions), `entry_pricing` (all four outcomes and the explicit-price override), session storage/encryption, credential caching and the two-credentials-per-connection resolver; `cargo test -p vizier-http` for the API surface and the corrected catalogue test. WebUI: `cd webui && npm run typecheck && npm test`. End-to-end: dummyplug steps in [quickstart.md](./quickstart.md) — the provider surface is agent-observable (a turn succeeds or fails on the credential source), so the constitution's e2e gate applies; the **live** SSO/Bedrock path is a volunteer release checklist, not CI.
+**Testing**: `cargo test -p vizier-core --lib` for the device-flow state machine (against a local stub server bound on `127.0.0.1:0`, research D9), ARN parsing (both resource types, all five partitions), `entry_pricing` (all five outcomes — explicit, from-catalogue, not-resolved, not-set and the cold-start no-catalogue case — plus the explicit-price override and the required reason on every absence), session storage/encryption, credential caching and the two-credentials-per-connection resolver; `cargo test -p vizier-http` for the API surface and the corrected catalogue test. WebUI: `cd webui && npm run typecheck && npm test`. End-to-end: dummyplug steps in [quickstart.md](./quickstart.md) — the provider surface is agent-observable (a turn succeeds or fails on the credential source), so the constitution's e2e gate applies; the **live** SSO/Bedrock path is a volunteer release checklist, not CI.
 
 **Target Platform**: the same matrix as today (Linux/macOS/Windows servers, Tauri desktop, embedded WebUI). The device flow needs an outbound HTTPS client only; no keychain, no file under `$HOME/.aws`, no OS-specific path.
 
@@ -124,7 +124,7 @@ crates/vizier-core/src/
     ├── providers.rs                         # + SSO fields on upsert/response, session state
     ├── providers_sso.rs               (+)   # sign-in start/complete, accounts, roles, sign-out, entries
     ├── usage.rs                             # check() gains the invoke-based test for the SSO id
-    └── catalogue.rs                         # listing synthesised from the bedrock entry, + entry_pricing (all four outcomes)
+    └── catalogue.rs                         # listing synthesised from the bedrock entry, + entry_pricing (all five outcomes, each absence carrying its reason)
 
 crates/vizier-core/src/usage/mod.rs          # Pricer::with_entries + the per-report entry map (price + pairing) looked up before the catalogue
 crates/vizier-core/src/service/dream.rs      # price_cycles builds the pricer with the entries
@@ -175,7 +175,7 @@ Every item the Technical Context would have marked NEEDS CLARIFICATION is resolv
 - [contracts/bedrock-sso-wire.md](./contracts/bedrock-sso-wire.md) — the device flow step by step, the portal calls, renewal, and the ARN grammar.
 - [contracts/provider-credentials-api.md](./contracts/provider-credentials-api.md) — the HTTP surface: new credential fields, **the entry's `model`/`price` fields and its computed `pricing` flag**, new endpoints, which response fields may and may not carry secrets, and the error strings.
 - [contracts/media-and-test.md](./contracts/media-and-test.md) — the Test action and the ARN refusal for embedding/image (FR-012a, FR-033a/b).
-- [quickstart.md](./quickstart.md) — offline dummyplug verification, the restart check, the four pricing scenarios (paired / unpaired / stale id / explicit price), the secret-leak grep, and the live volunteer script.
+- [quickstart.md](./quickstart.md) — offline dummyplug verification, the restart check, the five pricing scenarios (paired / unpaired / stale id / explicit price / catalogue not loaded), the secret-leak grep, and the live volunteer script.
 
 ## Provider identity (the one item the spec delegated to planning)
 
@@ -209,9 +209,9 @@ The plan stops here. `speckit_tasks` decomposes, in dependency order:
 3. Credential source: `SsoRoleCredential`, the shared `bedrock_role_credentials` helper, chat + media wiring.
 4. Surface: catalogue alias + guide, `service/providers_sso.rs`, `service/providers.rs`, `service/usage.rs` test action, HTTP routes.
 5. Model list: entry CRUD, picker, ARN refusal on media, limits resolution.
-5a. Entry pricing: `ProfileEntry.model`/`.price` shape rules, `entry_pricing` (four outcomes), the pricer's per-report entry map and its four call sites, the entry's computed `pricing` flag in the API row.
+5a. Entry pricing: `ProfileEntry.model`/`.price` shape rules, `entry_pricing` (five outcomes), the pricer's per-report entry map and its four call sites, the entry's computed `pricing` flag **and its required reason** in the API row (SC-021: an absence must explain itself, never a bare label).
 6. WebUI: fields, sign-in panel, entries editor.
 7. Docs + agent context: the new `providers.md` section, the failing catalogue test correction.
-8. Verification: quickstart scripts as dummyplug steps, the four pricing scenarios, secret-leak grep, restart check.
+8. Verification: quickstart scripts as dummyplug steps, the five pricing scenarios, secret-leak grep, restart check.
 
 Estimated size: **large** — roughly **31–37 files**, one new table, one new UI panel and a multi-step interactive flow. The pricing half of the sync did not open a new phase: it adds one step inside "Model list" (5a), two optional fields, one resolver and one pricer lookup, and one more WebUI component. What it did remove is a risk rather than a phase — the old "ARN is always unpriced" note is gone. Expect the implementation phase to be the longest of the four features in flight, and to need a live Identity Center instance only at the very end.
