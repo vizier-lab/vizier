@@ -539,6 +539,43 @@ mod tests {
         assert_eq!(model.calls.load(Ordering::SeqCst), 1);
     }
 
+    /// FR-017: a session that ended is a permanent failure, so work that runs without a person
+    /// present — a scheduled task, a dream, a sub-agent — makes exactly one attempt and ends the
+    /// turn. No backoff, no second request, nothing that waits for a sign-in that nobody is there
+    /// to perform.
+    #[tokio::test]
+    async fn an_ended_session_is_attempted_once_and_ends_the_turn() {
+        use crate::llm::sso::SsoError;
+
+        let error = SsoError::SessionExpired.to_llm_error();
+        let model = Scripted::new(vec![
+            Some(Err(error)),
+            Some(Ok(())),
+            Some(Ok(())),
+        ]);
+        let started = Instant::now();
+        let err = run(&model, &fast_config(4), None).await.unwrap_err();
+
+        assert_eq!(
+            model.calls.load(Ordering::SeqCst),
+            1,
+            "a session failure must not be retried: {err}"
+        );
+        assert!(
+            err.to_string().contains("AWS SSO session has ended"),
+            "the session is the cause: {err}"
+        );
+        assert!(
+            err.to_string().contains("sign in again"),
+            "the action is named: {err}"
+        );
+        assert!(
+            started.elapsed() < Duration::from_millis(100),
+            "the turn ends promptly, without a backoff: {:?}",
+            started.elapsed()
+        );
+    }
+
     #[test]
     fn classifies() {
         assert_eq!(classify_text("upstream: 502 Bad Gateway"), Failure::Unavailable);
