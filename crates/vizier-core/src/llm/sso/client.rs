@@ -578,7 +578,7 @@ mod tests {
     /// failure below returns from `complete` first, so nothing is written (T019).
     async fn sign_in(
         flow: &mut DeviceFlow,
-        sessions: &SsoSessions<MemSessions>,
+        sessions: &SsoSessions<'_, MemSessions>,
     ) -> Result<(), SsoError> {
         let tokens = flow.complete().await?;
         sessions
@@ -591,7 +591,8 @@ mod tests {
     async fn a_confirmed_code_stores_exactly_one_session() {
         let stub = Stub::start(vec![approved()]).await;
         let mut flow = flow(&stub).await;
-        let sessions = SsoSessions::new(MemSessions::default());
+        let storage = MemSessions::default();
+        let sessions = SsoSessions::new(&storage);
 
         sign_in(&mut flow, &sessions).await.unwrap();
 
@@ -618,7 +619,8 @@ mod tests {
     async fn a_denied_sign_in_stores_nothing() {
         let stub = Stub::start(vec![denied()]).await;
         let mut flow = flow(&stub).await;
-        let sessions = SsoSessions::new(MemSessions::default());
+        let storage = MemSessions::default();
+        let sessions = SsoSessions::new(&storage);
 
         let error = sign_in(&mut flow, &sessions).await.unwrap_err();
 
@@ -633,7 +635,8 @@ mod tests {
         // and the stub never approves.
         let stub = Stub::start_with_code_life(7, vec![pending()]).await;
         let mut flow = flow(&stub).await;
-        let sessions = SsoSessions::new(MemSessions::default());
+        let storage = MemSessions::default();
+        let sessions = SsoSessions::new(&storage);
 
         let error = sign_in(&mut flow, &sessions).await.unwrap_err();
 
@@ -647,7 +650,8 @@ mod tests {
     async fn a_code_already_used_on_the_wire_is_its_own_error_and_stores_nothing() {
         let stub = Stub::start(vec![used_twice()]).await;
         let mut flow = flow(&stub).await;
-        let sessions = SsoSessions::new(MemSessions::default());
+        let storage = MemSessions::default();
+        let sessions = SsoSessions::new(&storage);
 
         let error = sign_in(&mut flow, &sessions).await.unwrap_err();
 
@@ -659,7 +663,8 @@ mod tests {
     async fn a_code_confirmed_twice_cannot_mint_a_second_session() {
         let stub = Stub::start(vec![approved()]).await;
         let mut flow = flow(&stub).await;
-        let sessions = SsoSessions::new(MemSessions::default());
+        let storage = MemSessions::default();
+        let sessions = SsoSessions::new(&storage);
 
         sign_in(&mut flow, &sessions).await.unwrap();
         let error = flow.complete().await.unwrap_err();
