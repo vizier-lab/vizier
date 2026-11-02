@@ -10,7 +10,7 @@
 
 use chrono::{DateTime, Utc};
 
-use super::client::{ClientRegistration, TokenSet};
+use super::client::{ClientRegistration, SsoClient, TokenPoll, TokenSet};
 use super::error::SsoError;
 use crate::schema::{SsoSessionSecret, SsoSessionState};
 use crate::storage::sso_session::{SsoSessionStorage, SsoWrite};
@@ -71,7 +71,12 @@ impl<'a, S: SsoSessionStorage + ?Sized> SsoSessions<'a, S> {
     }
 
     /// The session a completed sign-in produces: the tokens plus the registration that minted
-    /// them, at revision 1 (§2, §3). The store owns the revision number.
+    /// them (§2, §3). The store owns the revision number.
+    ///
+    /// A re-sign-in replaces the row a previous session left (FR-008: an expired session asks
+    /// for a code and nothing else). A row this workspace key cannot open is replaced too: the
+    /// person just completed a new sign-in, so the new session is the one that can be used, and
+    /// the connection itself is untouched (FR-009f).
     pub async fn store_sign_in(
         &self,
         profile: &str,
@@ -88,7 +93,57 @@ impl<'a, S: SsoSessionStorage + ?Sized> SsoSessions<'a, S> {
             issued_at: Utc::now(),
             revision: 0,
         };
-        self.write(profile, secret, None).await
+        let expected = match self.load(profile).await {
+            Ok(session) => session.map(|session| session.revision),
+            Err(_) => {
+                self.delete(profile).await?;
+                None
+            }
+        };
+        self.write(profile, secret, expected).await
+    }
+
+    /// The session with an access token the portal will accept: refresh it once through the same
+    /// `/token` when it has expired, and write the renewal back with the compare-and-swap of §5.
+    ///
+    /// No refresh token, or a refresh the endpoint refuses, is [`SsoError::SessionExpired`]
+    /// (FR-016) — the one cause a person acts on by signing in again.
+    pub async fn access_token(
+        &self,
+        client: &SsoClient,
+        profile: &str,
+        mut session: SsoSessionSecret,
+    ) -> Result<SsoSessionSecret, SsoError> {
+        if !has_expired(&session, Utc::now()) {
+            return Ok(session);
+        }
+        let Some(refresh_token) = session.refresh_token.clone() else {
+            return Err(SsoError::SessionExpired);
+        };
+        let registration = ClientRegistration {
+            client_id: session.client_id.clone(),
+            client_secret: session.client_secret.clone(),
+            expires_at: session.client_secret_expires_at,
+        };
+        match client
+            .refresh_access_token(&registration, &refresh_token)
+            .await?
+        {
+            TokenPoll::Approved(tokens) => {
+                session.access_token = tokens.access_token;
+                if tokens.refresh_token.is_some() {
+                    session.refresh_token = tokens.refresh_token;
+                }
+                session.token_expires_at = tokens.expires_at;
+                session.issued_at = Utc::now();
+                let revision = session.revision;
+                let persisted = self.renew(profile, session, revision).await?;
+                Ok(persisted.session)
+            }
+            // `authorization_pending`/`slow_down` on a refresh grant, a denial, or a token
+            // already used: none of them leaves a usable session behind.
+            _ => Err(SsoError::SessionExpired),
+        }
     }
 
     /// Renew `secret`: written only while the row is still at `expected_revision` (§5).

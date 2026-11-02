@@ -21,6 +21,7 @@ pub mod profile;
 pub mod projects;
 pub mod setup;
 pub mod providers;
+pub mod providers_sso;
 pub mod custom_providers;
 pub mod usage;
 pub mod catalogue;

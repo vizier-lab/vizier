@@ -186,6 +186,10 @@ fn field_name(f: CredentialField) -> &'static str {
         CredentialField::SecretAccessKey => "secret_access_key",
         CredentialField::SessionToken => "session_token",
         CredentialField::Region => "region",
+        CredentialField::StartUrl => "start_url",
+        CredentialField::SsoRegion => "sso_region",
+        CredentialField::RoleName => "role_name",
+        CredentialField::SsoProfile => "sso_profile",
     }
 }
 

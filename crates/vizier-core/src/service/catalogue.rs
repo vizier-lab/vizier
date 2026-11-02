@@ -133,7 +133,7 @@ pub struct ProviderSummary {
 const MEDIA_PROVIDERS: &[&str] = &[
     "openai", "google", "togetherai", "github-copilot", "groq", "mistral", "cohere",
     "openrouter", "huggingface", "xai", "elevenlabs", "voyageai", "hyperbolic", "ollama",
-    "amazon-bedrock",
+    "amazon-bedrock", "amazon-bedrock-sso",
 ];
 
 pub fn logo_url(id: &str) -> Option<String> {

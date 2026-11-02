@@ -114,6 +114,10 @@ pub struct ResolveContext<'a> {
     pub custom: Option<&'a CustomProvider>,
     pub credentials: Option<ProviderCredentials>,
     pub http: reqwest::Client,
+    /// The SSO provider's role credential. Built by the async caller because producing it reads
+    /// the session store (FR-009d); `None` for every other provider and in tests that never reach
+    /// the SSO provider.
+    pub sso: Option<BedrockCredential>,
 }
 
 /// Azure OpenAI's API version when `AZURE_API_VERSION` is unset (rig 0.39's default).
@@ -267,22 +271,140 @@ pub(crate) fn bedrock_keys(creds: &ProviderCredentials) -> crate::Result<(String
     ))
 }
 
+/// The one credential a Bedrock request signs with, whichever Bedrock provider it belongs to:
+/// the static pair for `amazon-bedrock`, the role credentials derived from the stored SSO session
+/// for `amazon-bedrock-sso` (FR-002, FR-009d).
+#[derive(Clone)]
+pub struct BedrockCredential {
+    /// The Bedrock region requests go to — never the SSO region (FR-010).
+    pub region: String,
+    pub credential: Arc<dyn CredentialSource>,
+}
+
+/// The credential both chat and media use for a Bedrock provider, from the saved row (FR-002).
+///
+/// This is the one place the static pair and the SSO session differ: everything past it — the
+/// dialect, the signer, the endpoint, the path encoding, the error translation — is shared.
+pub async fn bedrock_role_credentials(
+    deps: &crate::dependencies::VizierDependencies,
+    id: &ProviderId,
+    profile: Option<&str>,
+) -> crate::Result<BedrockCredential> {
+    let env = provider_env(&deps.catalogue, id);
+    let credentials = crate::provider_keys::resolve_credentials(&deps.storage, id, &env)
+        .await
+        .map(|(credentials, _)| credentials)
+        .unwrap_or_default();
+    bedrock_credentials_from(deps, id, &credentials, profile)
+}
+
+/// [`bedrock_role_credentials`] over credentials already looked up — an unsaved form's values laid
+/// over the stored row, as the Test action has them (FR-012a).
+pub fn bedrock_credentials_from(
+    deps: &crate::dependencies::VizierDependencies,
+    id: &ProviderId,
+    credentials: &ProviderCredentials,
+    profile: Option<&str>,
+) -> crate::Result<BedrockCredential> {
+    let region = bedrock_region(credentials)?;
+    if *id != ProviderId::AMAZON_BEDROCK_SSO {
+        let (access_key_id, secret_access_key, session_token) = bedrock_keys(credentials)?;
+        return Ok(BedrockCredential {
+            credential: super::auth::SigV4Credential::bedrock(
+                access_key_id,
+                secret_access_key,
+                session_token,
+                region.clone(),
+            ),
+            region,
+        });
+    }
+
+    let required = |value: &Option<String>, what: &str| {
+        value
+            .as_deref()
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+            .ok_or_else(|| {
+                VizierError(format!(
+                    "the Bedrock (SSO) connection has no {what}; complete it in Settings › \
+                     Providers and sign in again"
+                ))
+            })
+    };
+    let profile = profile
+        .filter(|profile| !profile.is_empty())
+        .or(credentials.sso_profile.as_deref().filter(|profile| !profile.is_empty()))
+        .map(str::to_string)
+        .ok_or_else(|| {
+            VizierError(
+                "the Bedrock (SSO) connection has no profile name; start a sign-in in Settings › \
+                 Providers"
+                    .into(),
+            )
+        })?;
+    let sso_region = required(&credentials.sso_region, "SSO region")?;
+    if !crate::llm::bedrock::valid_region(&sso_region) {
+        return Err(VizierError(format!(
+            "invalid SSO region {sso_region:?}: use a form like us-east-1"
+        )));
+    }
+    let target = super::auth::SsoRoleTarget {
+        profile,
+        account_id: required(&credentials.account_id, "account")?,
+        role_name: required(&credentials.role_name, "role")?,
+        region: region.clone(),
+    };
+    let storage: Arc<dyn crate::storage::sso_session::SsoSessionStorage + Send + Sync> =
+        deps.storage.clone();
+    Ok(BedrockCredential {
+        region,
+        credential: Arc::new(super::auth::SsoRoleCredential::new(
+            super::sso::SsoClient::new(deps.http.clone(), &sso_region),
+            storage,
+            target,
+        )),
+    })
+}
+
+/// Final assembly of a Bedrock model: the dialect was already chosen from the catalogue entry,
+/// and everything here is what both Bedrock providers share.
+fn resolve_bedrock_wire(
+    model: &str,
+    region: &str,
+    credential: Arc<dyn CredentialSource>,
+    mut resolved: ResolvedModel,
+) -> ResolvedModel {
+    resolved.model = model.to_string();
+    resolved.base_url = crate::llm::bedrock::runtime_endpoint(region);
+    resolved.credential = credential;
+    resolved
+}
+
 fn resolve_bedrock(
     model: &str,
     creds: &ProviderCredentials,
-    mut resolved: ResolvedModel,
+    resolved: ResolvedModel,
 ) -> crate::Result<ResolvedModel> {
     let region = bedrock_region(creds)?;
     let (access_key_id, secret_access_key, session_token) = bedrock_keys(creds)?;
-    resolved.model = model.to_string();
-    resolved.base_url = crate::llm::bedrock::runtime_endpoint(&region);
-    resolved.credential = super::auth::SigV4Credential::bedrock(
+    let credential = super::auth::SigV4Credential::bedrock(
         access_key_id,
         secret_access_key,
         session_token,
-        region,
+        region.clone(),
     );
-    Ok(resolved)
+    Ok(resolve_bedrock_wire(model, &region, credential, resolved))
+}
+
+/// The SSO twin of [`resolve_bedrock`]: identical dialect, endpoint, signer and errors, with only
+/// the credential source replaced (FR-002, FR-003).
+fn resolve_bedrock_sso(
+    model: &str,
+    credential: BedrockCredential,
+    resolved: ResolvedModel,
+) -> ResolvedModel {
+    resolve_bedrock_wire(model, &credential.region, credential.credential, resolved)
 }
 
 /// Resolve one `(provider, model)` (data-model §6). Custom providers come first, then the
@@ -296,7 +418,10 @@ pub fn resolve_with(
     if let Some(custom) = ctx.custom.filter(|c| &c.id == provider) {
         return Ok(resolve_custom(ctx, custom, model, overrides));
     }
-    if let Some(b) = builtin::builtin(provider) {
+    // A built-in that is a second identity of a catalogue provider (the SSO Bedrock one,
+    // FR-030) is *not* resolved here: it has the catalogue's entry, so it takes the same
+    // dialect, limits and caps from that entry rather than a built-in's defaults.
+    if let Some(b) = builtin::builtin(provider).filter(|b| b.model_source.is_none()) {
         return resolve_builtin(ctx, b, model, overrides);
     }
     let Some(p) = ctx.catalogue.provider(provider) else {
@@ -318,8 +443,19 @@ pub fn resolve_with(
     }
 
     // Bedrock signs with an IAM access key pair and talks to a regional host; it has no
-    // `api_key` at all (research R5, contract `provider-layer.md` §4).
+    // `api_key` at all (research R5, contract `provider-layer.md` §4). The SSO provider speaks
+    // the identical wire and differs only in where the signing keys come from.
     if dialect == DialectKind::Bedrock {
+        if *provider == ProviderId::AMAZON_BEDROCK_SSO {
+            let sso = ctx.sso.clone().ok_or_else(|| {
+                VizierError(
+                    "the Bedrock (SSO) connection has no role credential; sign in again in \
+                     Settings › Providers"
+                        .into(),
+                )
+            })?;
+            return Ok(resolve_bedrock_sso(model, sso, resolved));
+        }
         return resolve_bedrock(model, &creds, resolved);
     }
 
@@ -565,12 +701,25 @@ pub async fn resolve(
     let credentials = crate::provider_keys::resolve_credentials(&deps.storage, provider, &env)
         .await
         .map(|(c, _)| c);
+    // The SSO credential reads the session store, so it is produced here and handed to the
+    // synchronous resolver; every other provider carries `None` (FR-009d).
+    let sso = if *provider == ProviderId::AMAZON_BEDROCK_SSO {
+        Some(bedrock_credentials_from(
+            deps,
+            provider,
+            credentials.as_ref().unwrap_or(&ProviderCredentials::default()),
+            None,
+        )?)
+    } else {
+        None
+    };
     resolve_with(
         &ResolveContext {
             catalogue: &deps.catalogue,
             custom: custom.as_ref(),
             credentials,
             http: deps.http.clone(),
+            sso,
         },
         provider,
         model,
@@ -618,6 +767,7 @@ mod resolve_tests {
             custom: None,
             credentials: creds,
             http: reqwest::Client::new(),
+            sso: None,
         }
     }
 

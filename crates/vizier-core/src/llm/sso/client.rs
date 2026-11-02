@@ -473,38 +473,56 @@ impl DeviceFlow {
         &self.registration
     }
 
+    /// How long the next poll waits — what the pending panel shows as `interval_seconds`.
+    pub fn interval(&self) -> Duration {
+        self.interval
+    }
+
     /// Poll until the person answers or the code's life runs out. Never hangs: the loop checks
     /// the deadline before every poll, and each answer is its own error (§3, SC-002).
     ///
     /// A second call after a success returns [`SsoError::AlreadyConfirmed`]: one code mints one
     /// session.
     pub async fn complete(&mut self) -> Result<TokenSet, SsoError> {
+        loop {
+            match self.poll_once().await? {
+                Some(tokens) => return Ok(tokens),
+                None => tokio::time::sleep(self.interval).await,
+            }
+        }
+    }
+
+    /// One poll of `/token`, for a caller that answers the person instead of blocking the request
+    /// until they reach a browser: `Some(tokens)` means approved, `None` means not yet (the
+    /// request answers `202 pending` and the next call polls again).
+    ///
+    /// The same table as [`DeviceFlow::complete`] (§3): a denial and an expired or already-used
+    /// code are terminal, `slow_down` only grows the interval.
+    pub async fn poll_once(&mut self) -> Result<Option<TokenSet>, SsoError> {
         if self.confirmed {
             return Err(SsoError::AlreadyConfirmed);
         }
-        loop {
-            if Utc::now() >= self.deadline {
-                return Err(SsoError::CodeExpired);
+        if Utc::now() >= self.deadline {
+            return Err(SsoError::CodeExpired);
+        }
+        let poll = self
+            .client
+            .token_for_device_code(&self.registration, self.authorization.device_code())
+            .await?;
+        match poll {
+            TokenPoll::Approved(tokens) => {
+                self.confirmed = true;
+                Ok(Some(tokens))
             }
-            let poll = self
-                .client
-                .token_for_device_code(&self.registration, self.authorization.device_code())
-                .await?;
-            match poll {
-                TokenPoll::Approved(tokens) => {
-                    self.confirmed = true;
-                    return Ok(tokens);
-                }
-                TokenPoll::Pending => tokio::time::sleep(self.interval).await,
-                TokenPoll::SlowDown => {
-                    self.interval += SLOW_DOWN_STEP;
-                    tokio::time::sleep(self.interval).await;
-                }
-                TokenPoll::Denied => return Err(SsoError::SignInDenied),
-                TokenPoll::Expired => return Err(SsoError::CodeExpired),
-                TokenPoll::Used => return Err(SsoError::AlreadyConfirmed),
-                TokenPoll::Refused(reason) => return Err(self.client.unavailable(reason)),
+            TokenPoll::Pending => Ok(None),
+            TokenPoll::SlowDown => {
+                self.interval += SLOW_DOWN_STEP;
+                Ok(None)
             }
+            TokenPoll::Denied => Err(SsoError::SignInDenied),
+            TokenPoll::Expired => Err(SsoError::CodeExpired),
+            TokenPoll::Used => Err(SsoError::AlreadyConfirmed),
+            TokenPoll::Refused(reason) => Err(self.client.unavailable(reason)),
         }
     }
 }
