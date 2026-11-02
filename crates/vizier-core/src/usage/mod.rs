@@ -1237,6 +1237,75 @@ mod tests {
             assert!(r.unpriced.models.is_empty(), "the ARN is priced: {:?}", r.unpriced.models);
         }
 
+        /// T044 (FR-034a.5, FR-034b, SC-021): a missing or stale price still records the turn.
+        /// The usage row keeps the provider, the ARN as the model and the tokens, with an absent
+        /// cost — never 0, never a fabricated figure — and the report never fails over it.
+        #[tokio::test]
+        async fn an_unpriced_or_stale_arn_still_records_its_row() {
+            use crate::schema::{ProviderCredentials, ProviderEntry};
+
+            let (s, _d) = storage();
+            let catalogue = super::bedrock_catalogue();
+            let unpriced =
+                "arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/unpriced";
+            let stale =
+                "arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/stale";
+            s.upsert_provider(&ProviderEntry {
+                id: ProviderId::AMAZON_BEDROCK_SSO,
+                credentials: ProviderCredentials {
+                    profiles: vec![
+                        // Nothing paired and no hand-entered price.
+                        ProfileEntry { arn: unpriced.into(), ..Default::default() },
+                        // A pairing the catalogue has since dropped: the price is stale, the
+                        // selection and the turn are not.
+                        ProfileEntry {
+                            arn: stale.into(),
+                            model: Some("anthropic.claude-3-5-sonnet-20240620-v1:0".into()),
+                            ..Default::default()
+                        },
+                    ],
+                    ..Default::default()
+                },
+            })
+            .await
+            .unwrap();
+            s.record_usage(event(DAY, "discord__1", "amazon-bedrock-sso", unpriced, 1_000_000))
+                .await
+                .unwrap();
+            s.record_usage(event(DAY + 1, "discord__1", "amazon-bedrock-sso", stale, 500_000))
+                .await
+                .unwrap();
+
+            let r = build_report(&s, &catalogue, &IntegrationKinds::builtin(), q())
+                .await
+                .unwrap();
+
+            // Both calls are recorded: provider and ARN survive, and the tokens are the row's own.
+            assert_eq!(r.by_model.len(), 2, "{:?}", r.by_model);
+            let row = |arn: &str| r.by_model.iter().find(|row| row.model == arn).unwrap();
+            for (arn, tokens) in [(unpriced, 1_100_000), (stale, 550_000)] {
+                let row = row(arn);
+                assert_eq!(row.provider, "amazon-bedrock-sso");
+                assert_eq!(row.row.tokens, tokens, "input plus output, recorded as sent");
+                assert_eq!(row.row.cost_usd, None, "unpriced is absent, never 0 (FR-034b)");
+                assert!(!row.priced);
+            }
+
+            // The report states the absence rather than costing it: no summary figure, and both
+            // models named as unpriced with their token counts.
+            assert_eq!(r.summary.cost_usd, None, "nothing was costed at zero");
+            assert_eq!(r.unpriced.tokens, 1_650_000);
+            for arn in [unpriced, stale] {
+                assert!(
+                    r.unpriced.models.contains(&format!("amazon-bedrock-sso/{arn}")),
+                    "{} missing from {:?}",
+                    arn,
+                    r.unpriced.models
+                );
+            }
+        }
+
+
         #[tokio::test]
         async fn a_model_switch_splits_by_model_and_an_unpriced_model_is_reported() {
             let (s, _d) = storage();
