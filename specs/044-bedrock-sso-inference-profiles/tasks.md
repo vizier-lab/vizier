@@ -33,9 +33,9 @@ One phase = one commit, conventional format, explicit paths (`git add crates/...
 
 **Purpose**: establish a known-good baseline before touching a large surface.
 
-- [ ] T001 Confirm the branch and a green baseline: `just status` (root + 4 submodules on `044-bedrock-sso-inference-profiles`), then `just check` — record the result so a later failure is attributable to this feature.
-- [ ] T002 [P] Read `crates/vizier-core/src/llm/resolve.rs`, `llm/auth.rs`, `llm/bedrock.rs` and `llm/media/mod.rs` end to end and note the exact extension points named in plan.md Summary, so the new credential source is registered where credentials are built (`resolve.rs:270`, `media/mod.rs:63`) rather than in the turn path.
-- [ ] T003 [P] Read `crates/vizier-core/src/catalogue/{builtin,guide,mod}.rs` and record how the existing `amazon-bedrock` entry is declared, where `guide::for_provider` dispatches, and the four call sites that need the alias (plan.md, risk "New risk found in design").
+- [X] T001 Confirm the branch and a green baseline: `just status` (root + 4 submodules on `044-bedrock-sso-inference-profiles`), then `just check` — record the result so a later failure is attributable to this feature.
+- [X] T002 [P] Read `crates/vizier-core/src/llm/resolve.rs`, `llm/auth.rs`, `llm/bedrock.rs` and `llm/media/mod.rs` end to end and note the exact extension points named in plan.md Summary, so the new credential source is registered where credentials are built (`resolve.rs:270`, `media/mod.rs:63`) rather than in the turn path.
+- [X] T003 [P] Read `crates/vizier-core/src/catalogue/{builtin,guide,mod}.rs` and record how the existing `amazon-bedrock` entry is declared, where `guide::for_provider` dispatches, and the four call sites that need the alias (plan.md, risk "New risk found in design").
 
 **Checkpoint**: baseline green, extension points located. No commit (nothing changed).
 
