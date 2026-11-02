@@ -34,7 +34,8 @@ pub use client::{
 pub use error::SsoError;
 pub use portal::{DiscoveredAccounts, DiscoveredRoles, RoleCredentials, SsoAccount, SsoPortal, SsoRole};
 pub use session::{
-    Persisted, SsoSessions, expires_at, has_expired, state as session_state,
+    Persisted, RENEW_BEFORE, SsoSessions, expires_at, has_expired, needs_renewal,
+    state as session_state,
 };
 
 /// Start a sign-in: reuse the stored registration while it is still good, register one otherwise

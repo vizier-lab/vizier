@@ -5,13 +5,14 @@
 //! [`SsoSessionSecret`] and owns the envelope through
 //! [`protect_sso_session`](crate::encryption::fields::protect_sso_session), so the AAD is bound to
 //! the profile in exactly one place (FR-009a). This layer adds what the flow needs on top of that
-//! port: one value type for "what is now stored", the conflict rule of §5, and the expiry the
-//! settings row and the credential cache both read.
+//! port: one value type for "what is now stored", the conflict rule of §5, the five-minute renewal
+//! threshold, and [`SsoSessions::renew`] — the one definition of what a renewal costs on the wire.
 
 use chrono::{DateTime, Utc};
 
 use super::client::{ClientRegistration, SsoClient, TokenPoll, TokenSet};
 use super::error::SsoError;
+use super::portal::{RoleCredentials, SsoPortal};
 use crate::schema::{SsoSessionSecret, SsoSessionState};
 use crate::storage::sso_session::{SsoSessionStorage, SsoWrite};
 
@@ -137,7 +138,7 @@ impl<'a, S: SsoSessionStorage + ?Sized> SsoSessions<'a, S> {
                 session.token_expires_at = tokens.expires_at;
                 session.issued_at = Utc::now();
                 let revision = session.revision;
-                let persisted = self.renew(profile, session, revision).await?;
+                let persisted = self.store_renewal(profile, session, revision).await?;
                 Ok(persisted.session)
             }
             // `authorization_pending`/`slow_down` on a refresh grant, a denial, or a token
@@ -146,8 +147,30 @@ impl<'a, S: SsoSessionStorage + ?Sized> SsoSessions<'a, S> {
         }
     }
 
-    /// Renew `secret`: written only while the row is still at `expected_revision` (§5).
+    /// One renewal for one connection (FR-013, contract `bedrock-sso-wire.md` §5): a
+    /// `CreateToken` **only** when the stored access token is past its expiry, then exactly one
+    /// `GetRoleCredentials` — never two of either, whatever made the caller renew.
+    ///
+    /// The token half is [`SsoSessions::access_token`], so a refreshed access token is written back
+    /// with the compare-and-swap of §5 rather than kept in memory. Whether a renewal is needed at
+    /// all is [`needs_renewal`], and the serialization of concurrent callers is the connection's
+    /// credential (FR-014), not this layer.
     pub async fn renew(
+        &self,
+        client: &SsoClient,
+        profile: &str,
+        session: SsoSessionSecret,
+        account_id: &str,
+        role_name: &str,
+    ) -> Result<RoleCredentials, SsoError> {
+        let session = self.access_token(client, profile, session).await?;
+        SsoPortal::new(client.clone())
+            .role_credentials(&session.access_token, account_id, role_name)
+            .await
+    }
+
+    /// Write a renewed `secret`: only while the row is still at `expected_revision` (§5).
+    pub async fn store_renewal(
         &self,
         profile: &str,
         secret: SsoSessionSecret,
@@ -219,6 +242,16 @@ pub fn has_expired(session: &SsoSessionSecret, now: DateTime<Utc>) -> bool {
     session.token_expires_at <= now
 }
 
+/// How long before expiry a cached role credential is renewed: one renewal every five minutes at
+/// most, and none at all while the cache is good (FR-013, data-model "role credentials").
+pub const RENEW_BEFORE: chrono::TimeDelta = chrono::TimeDelta::minutes(5);
+
+/// Whether cached role credentials must be renewed at `now` — the single definition of the
+/// five-minute threshold (FR-013, FR-009d).
+pub fn needs_renewal(credentials: &RoleCredentials, now: DateTime<Utc>) -> bool {
+    credentials.expires_at - RENEW_BEFORE <= now
+}
+
 /// The state the settings row renders for a stored session (data-model state machine).
 ///
 /// [`SsoSessionState::Unreadable`] is not produced here: it is the answer to a failed
@@ -236,9 +269,11 @@ mod tests {
     use chrono::Duration as ChronoDuration;
 
     use super::*;
-    use crate::llm::sso::tests_support::MemSessions;
+    use crate::llm::sso::tests_support::{MemSessions, Reply, Stub};
 
     const PROFILE: &str = "acme-bedrock";
+    const ACCOUNT: &str = "123456789012";
+    const ROLE: &str = "BedrockOperator";
 
     fn registration() -> ClientRegistration {
         ClientRegistration {
@@ -254,6 +289,27 @@ mod tests {
             refresh_token: Some("refresh-token-value".into()),
             expires_at: Utc::now() + ChronoDuration::hours(1),
         }
+    }
+
+    fn tokens_expiring_in(seconds: i64) -> TokenSet {
+        TokenSet {
+            access_token: "access-token-value".to_string(),
+            refresh_token: Some("refresh-token-value".into()),
+            expires_at: Utc::now() + ChronoDuration::seconds(seconds),
+        }
+    }
+
+    /// §4.3's answer, with the key and the life the test wants.
+    fn credentials_reply(access_key_id: &str, expires_in_seconds: i64) -> Reply {
+        Reply::ok(serde_json::json!({
+            "roleCredentials": {
+                "accessKeyId": access_key_id,
+                "secretAccessKey": "secret-access-value",
+                "sessionToken": "session-token-value",
+                "expiration": (Utc::now() + ChronoDuration::seconds(expires_in_seconds))
+                    .timestamp_millis(),
+            }
+        }))
     }
 
     #[tokio::test]
@@ -286,7 +342,7 @@ mod tests {
         // A second process renews from the revision it read before the winner wrote.
         let mut stale = first.session.clone();
         stale.access_token = "stale-token".into();
-        let outcome = sessions.renew(PROFILE, stale, 0).await.unwrap();
+        let outcome = sessions.store_renewal(PROFILE, stale, 0).await.unwrap();
 
         assert!(!outcome.written);
         assert_eq!(outcome.session.access_token, "winner-token");
@@ -308,7 +364,7 @@ mod tests {
         let mut renewed = first.session.clone();
         renewed.access_token = "renewed-token".into();
         let outcome = sessions
-            .renew(PROFILE, renewed, first.session.revision)
+            .store_renewal(PROFILE, renewed, first.session.revision)
             .await
             .unwrap();
 
@@ -378,5 +434,99 @@ mod tests {
             state(Some(&session), session.token_expires_at),
             SsoSessionState::Expired
         );
+    }
+
+    #[tokio::test]
+    async fn a_renewal_under_a_live_access_token_is_one_credentials_call() {
+        let stub = Stub::start_replies(vec![(
+            "/federation/credentials",
+            vec![credentials_reply("ASIAFIRSTKEY", 3600)],
+        )])
+        .await;
+        let storage = MemSessions::default();
+        let sessions = SsoSessions::new(&storage);
+        let signed_in = sessions
+            .store_sign_in(PROFILE, &registration(), tokens("access-token-value"))
+            .await
+            .unwrap();
+        let client = SsoClient::at(reqwest::Client::new(), stub.base());
+
+        let credentials = sessions
+            .renew(&client, PROFILE, signed_in.session, ACCOUNT, ROLE)
+            .await
+            .unwrap();
+
+        assert_eq!(credentials.access_key_id, "ASIAFIRSTKEY");
+        assert_eq!(
+            stub.path_count("/token"),
+            0,
+            "a live access token is not refreshed (FR-013)"
+        );
+        assert_eq!(stub.path_count("/federation/credentials"), 1);
+        // An unexpired token leaves the stored row exactly where it was.
+        assert_eq!(sessions.load(PROFILE).await.unwrap().unwrap().revision, 1);
+    }
+
+    #[tokio::test]
+    async fn an_expired_access_token_costs_one_create_token_before_the_credentials() {
+        let stub = Stub::start_replies(vec![
+            (
+                "/token",
+                vec![Reply::ok(serde_json::json!({
+                    "accessToken": "renewed-access-token",
+                    "refreshToken": "renewed-refresh-token",
+                    "expiresIn": 3600,
+                }))],
+            ),
+            (
+                "/federation/credentials",
+                vec![credentials_reply("ASIASECONDKEY", 3600)],
+            ),
+        ])
+        .await;
+        let storage = MemSessions::default();
+        let sessions = SsoSessions::new(&storage);
+        let signed_in = sessions
+            .store_sign_in(PROFILE, &registration(), tokens_expiring_in(-60))
+            .await
+            .unwrap();
+        let client = SsoClient::at(reqwest::Client::new(), stub.base());
+
+        let credentials = sessions
+            .renew(&client, PROFILE, signed_in.session, ACCOUNT, ROLE)
+            .await
+            .unwrap();
+
+        assert_eq!(credentials.access_key_id, "ASIASECONDKEY");
+        assert_eq!(stub.path_count("/token"), 1, "one CreateToken, no more");
+        assert!(
+            stub.seen().iter().any(|(path, body)| path == "/token"
+                && body.contains("grant_type=refresh_token")
+                && body.contains("refresh_token=refresh-token-value")),
+            "the token half is the refresh grant of §5"
+        );
+        assert_eq!(stub.path_count("/federation/credentials"), 1);
+        // The refreshed token was written back through the compare-and-swap of §5.
+        let stored = sessions.load(PROFILE).await.unwrap().unwrap();
+        assert_eq!(stored.access_token, "renewed-access-token");
+        assert_eq!(stored.revision, 2);
+    }
+
+    #[test]
+    fn a_renewal_starts_five_minutes_before_expiry() {
+        let now = Utc::now();
+        let mut credentials = RoleCredentials {
+            access_key_id: "ASIAEXAMPLEKEYID".into(),
+            secret_access_key: "secret-access-value".into(),
+            session_token: "session-token-value".into(),
+            expires_at: now + ChronoDuration::minutes(5) + ChronoDuration::seconds(1),
+        };
+        assert!(!needs_renewal(&credentials, now), "five minutes and a second left");
+
+        credentials.expires_at = now + ChronoDuration::minutes(5);
+        assert!(needs_renewal(&credentials, now), "the threshold itself renews");
+
+        credentials.expires_at = now - ChronoDuration::seconds(1);
+        assert!(needs_renewal(&credentials, now), "an expired credential renews");
     }
 }
