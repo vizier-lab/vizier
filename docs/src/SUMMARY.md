@@ -42,3 +42,7 @@
 # 4. Deployment
 
 - [4.1 Kubernetes](./deployment/kubernetes.md)
+
+# Fleet
+
+- [Bus Contract](./fleet/bus-contract.md)

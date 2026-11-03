@@ -14,7 +14,7 @@ use vizier_core::{
     runtime::{RuntimeOptions, VizierRuntime},
     schema::{
         AgentCommand, AgentCommandResult, AgentConfig, AgentToolsConfig, VizierChannelId,
-        VizierRequest, VizierRequestContent, VizierResponse, VizierResponseContent,
+        VizierRequest, VizierRequestContent, VizierResponseContent,
         VizierSession,
     },
 };
@@ -62,7 +62,7 @@ async fn main() -> vizier_core::Result<()> {
         VizierChannelId::HTTP("headless".into(), "example".into()),
         Some("hello".into()),
     );
-    let (tx, rx) = flume::unbounded::<VizierResponse>();
+    let (tx, rx) = runtime.transport().reply_channel().await.map_err(err)?;
     runtime
         .transport()
         .send_request(

@@ -741,11 +741,18 @@ impl VizierAgent {
         // open now that the turn has started (specs/019-client-tools R4). They are named
         // against this snapshot's catalogue, and the client is told the names before the
         // model runs. Taken off the request so nothing downstream holds the connection.
-        ctx.client = match req.client.take() {
-            Some(binding) if binding.connection.is_open() => {
+        // The binding only names the connection; one that is not on this node, or has closed,
+        // reads as closed.
+        let live_binding = req.client.take().and_then(|binding| {
+            let connection = self.deps.client_connections.get(&binding.connection_id)?;
+            connection.is_open().then_some((binding, connection))
+        });
+        ctx.client = match live_binding {
+            Some((binding, connection)) => {
                 let catalogue = tools.router.catalogue(&ctx).await;
                 let client = crate::agents::client::ClientTools::resolve(
                     &binding,
+                    connection,
                     &catalogue,
                     &tools.router.client_reserved_categories(),
                     session.clone(),
@@ -755,7 +762,7 @@ impl VizierAgent {
                 client.announce();
                 Some(client)
             }
-            _ => None,
+            None => None,
         };
 
         let mut history = self

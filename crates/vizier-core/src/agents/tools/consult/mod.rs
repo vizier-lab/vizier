@@ -60,7 +60,7 @@ impl VizierTool for ConsultAgent {
     }
 
     async fn call(&self, args: Self::Input, _ctx: &ToolContext) -> Result<Self::Output, VizierError> {
-        let (response_tx, response_rx) = flume::unbounded();
+        let (response_tx, response_rx) = self.transport.reply_channel().await?;
 
         let curr_session = VizierSession(
             args.agent_id.clone(),

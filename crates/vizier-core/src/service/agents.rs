@@ -903,7 +903,7 @@ pub async fn chat(
         ..Default::default()
     };
 
-    let (response_tx, response_rx) = flume::unbounded();
+    let (response_tx, response_rx) = transport.reply_channel().await.map_err(|e| ServiceError::Internal(format!("failed to open a reply stream: {e}")))?;
     if let Err(err) = transport
         .send_request(session.clone(), request, Some(response_tx))
         .await

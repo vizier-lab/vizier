@@ -37,6 +37,16 @@ pub fn run_server(
         })
         .await?;
 
+        // A backend that lacks something a selected role needs is refused here, by name, rather
+        // than failing on first use.
+        for role in ServerRole::ALL {
+            if roles.contains(role) {
+                engine.transport().bus().require(&vizier_fleet::needs(role)).map_err(|e| {
+                    anyhow::anyhow!("the bus cannot serve the {} role: {e}", role.as_str())
+                })?;
+            }
+        }
+
         // The binary's own subsystems, next to the engine's.
         let mut servers = Subsystems::default();
         let health = HealthHandle::new();

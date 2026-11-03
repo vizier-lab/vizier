@@ -15,7 +15,7 @@ use tokio::sync::mpsc;
 
 use vizier_core::{
     agents::client::{
-        ClientAnswer, ClientBinding, ClientConnection, DeferredClaims, declare, deliver_deferred,
+        ClientAnswer, ClientConnection, DeferredClaims, declare, deliver_deferred,
     },
     channels::reactions::{self, ApplyOutcome, ReactionChange, ReactionKind, ReactionTarget},
     schema::{
@@ -708,6 +708,7 @@ pub(crate) fn check_client_context(request: &mut VizierRequest) -> Result<(), se
 pub(crate) fn bind_client_tools(
     request: &mut VizierRequest,
     connection: &std::sync::Arc<ClientConnection>,
+    connections: &vizier_core::agents::client::ClientConnections,
 ) -> Result<(), serde_json::Value> {
     let tools = std::mem::take(&mut request.client_tools);
     let categories = std::mem::take(&mut request.client_categories);
@@ -722,11 +723,7 @@ pub(crate) fn bind_client_tools(
         return Ok(());
     }
     declare::validate(&tools, &categories).map_err(|err| err.frame())?;
-    request.client = Some(ClientBinding {
-        connection: connection.clone(),
-        tools,
-        categories,
-    });
+    request.client = Some(connections.bind(connection, tools, categories));
     Ok(())
 }
 
