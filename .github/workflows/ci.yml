@@ -424,6 +424,14 @@ jobs:
             fi
           done
           exit $fail
+      - name: No direct read of a running agent's state
+        # The agent host is the only component allowed to read a running agent's state
+        # (#163): the gateway side reaches an agent through the seam (`AgentsClient`) or reads
+        # a published view. The check names the file and the line of a read that has no
+        # audited reason.
+        run: |
+          set -euo pipefail
+          bash scripts/163-agent-state-read-check.sh
       - name: The bus contract stays a leaf
         # `vizier-schema` is the contract every role and the engine share (#162): it may not
         # depend on a workspace crate, a broker, a web framework or a CLI crate, and the engine
