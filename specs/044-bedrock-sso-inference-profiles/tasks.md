@@ -151,7 +151,7 @@ One phase = one commit, conventional format, explicit paths (`git add crates/...
 
 **Independent Test**: with only an SSO connection, embed and search a distinctive phrase and generate one image; end the session and confirm all three capabilities report the same cause and recover together after one sign-in; then confirm the media pickers offer foundation models, not ARNs.
 
-- [ ] T058 [US4] Switch `endpoint()` at `crates/vizier-core/src/llm/media/mod.rs:63` to the shared `bedrock_role_credentials` helper so media uses the same connection and credential source as chat, with no second sign-in (FR-002, FR-033).
+- [X] T058 [US4] Switch `endpoint()` at `crates/vizier-core/src/llm/media/mod.rs:63` to the shared `bedrock_role_credentials` helper so media uses the same connection and credential source as chat, with no second sign-in (FR-002, FR-033).
 - [ ] T059 [US4] Refuse an ARN **before** the family check in `crates/vizier-core/src/llm/media/bedrock.rs`, with a message naming the capability and the models that do work — `parse_inference_profile_arn` succeeding is the test, in both resource types (FR-033a).
 - [ ] T060 [US4] Keep the documented defaults unchanged when the field is empty — `amazon.titan-embed-text-v2:0` and `amazon.nova-canvas-v1:0` at `crates/vizier-core/src/llm/media/bedrock.rs:16,18` — and let the provider's unsupported-family refusal pass through (FR-033b).
 - [ ] T061 [US4] Restrict what each capability offers in `crates/vizier-core/src/service/catalogue.rs` and the model list: chat offers catalogue models **and** saved entries; embedding and image offer the foundation-model families only; an ARN entry stays listed for chat and is never substituted (FR-033a, contracts/media-and-test.md §2-§3).

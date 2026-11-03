@@ -215,7 +215,10 @@ fn env_non_empty(name: &str) -> Option<String> {
 
 /// The region a Bedrock connection uses: the saved value, then `AWS_REGION`, then
 /// `AWS_DEFAULT_REGION`. Never guessed (FR-003).
-pub(crate) fn bedrock_region(creds: &ProviderCredentials) -> crate::Result<String> {
+pub(crate) fn bedrock_region(
+    id: &ProviderId,
+    creds: &ProviderCredentials,
+) -> crate::Result<String> {
     let region = creds
         .region
         .clone()
@@ -223,15 +226,14 @@ pub(crate) fn bedrock_region(creds: &ProviderCredentials) -> crate::Result<Strin
         .or_else(|| env_non_empty("AWS_REGION"))
         .or_else(|| env_non_empty("AWS_DEFAULT_REGION"))
         .ok_or_else(|| {
-            VizierError(
-                "no AWS region for \"amazon-bedrock\": set the region in Settings › Providers, \
+            VizierError(format!(
+                "no AWS region for \"{id}\": set the region in Settings › Providers, \
                  or set AWS_REGION (or AWS_DEFAULT_REGION)"
-                    .into(),
-            )
+            ))
         })?;
     if !crate::llm::bedrock::valid_region(&region) {
         return Err(VizierError(format!(
-            "invalid AWS region {region:?} for \"amazon-bedrock\": use a form like us-east-1"
+            "invalid AWS region {region:?} for \"{id}\": use a form like us-east-1"
         )));
     }
     Ok(region)
@@ -306,7 +308,7 @@ pub fn bedrock_credentials_from(
     credentials: &ProviderCredentials,
     profile: Option<&str>,
 ) -> crate::Result<BedrockCredential> {
-    let region = bedrock_region(credentials)?;
+    let region = bedrock_region(id, credentials)?;
     if *id != ProviderId::AMAZON_BEDROCK_SSO {
         let (access_key_id, secret_access_key, session_token) = bedrock_keys(credentials)?;
         return Ok(BedrockCredential {
@@ -391,7 +393,8 @@ fn resolve_bedrock(
     creds: &ProviderCredentials,
     resolved: ResolvedModel,
 ) -> crate::Result<ResolvedModel> {
-    let region = bedrock_region(creds)?;
+    // The static-credentials arm: the SSO row never reaches this function (FR-002).
+    let region = bedrock_region(&ProviderId::AMAZON_BEDROCK, creds)?;
     let (access_key_id, secret_access_key, session_token) = bedrock_keys(creds)?;
     let credential = super::auth::SigV4Credential::bedrock(
         access_key_id,
