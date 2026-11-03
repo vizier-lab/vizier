@@ -65,7 +65,8 @@ pub use project::{
     Worktree, WorktreeRef,
 };
 pub use provider::{
-    CustomModel, CustomProtocol, CustomProvider, ProfileEntry, ProviderCredentials, ProviderEntry,
+    CustomModel, CustomProtocol, CustomProvider, LimitsEdited, ProfileEntry, ProviderCredentials,
+    ProviderEntry,
 };
 pub use request::{
     AttachmentResolver, ClientEvent, NoopAttachmentResolver, PlatformMessageId, ReactionAction,

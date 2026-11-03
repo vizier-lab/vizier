@@ -273,10 +273,29 @@ pub struct ProfileEntry {
     /// happens and a refresh never overwrites it (FR-034a.4).
     #[serde(default)]
     pub price: Option<Cost>,
+    /// Which of the two limits the person set by hand, so a re-pairing refreshes only the others
+    /// (FR-034a.7). **Server-owned**: recomputed on every write from the stored entry and the
+    /// submitted numbers, and whatever the client sends here is ignored — that is what makes
+    /// echoing a displayed value back a no-op. `None` on an entry saved before this rule reads as
+    /// "true wherever a number is present", so no old number is mistaken for a fill.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limits_edited: Option<LimitsEdited>,
     /// Set once a person changed the row, so a future fetch never overwrites it (the
     /// `CustomModel.edited` convention).
     #[serde(default)]
     pub edited: bool,
+}
+
+/// Which of an entry's two limits the person set by hand (FR-034a.7 rule 1). Two bits, written by
+/// the server on every entry write: the numbers the person typed are never overwritten by the
+/// limit fill, and the ones they did not type are the fill's to refresh when the pair changes.
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+pub struct LimitsEdited {
+    /// The context window is the person's, not the paired model's.
+    pub context: bool,
+    /// The output limit is the person's, not the paired model's.
+    pub output: bool,
 }
 
 /// The wire protocol an operator-defined provider speaks.
