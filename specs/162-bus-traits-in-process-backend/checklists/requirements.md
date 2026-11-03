@@ -32,4 +32,4 @@
 ## Notes
 
 - This is an infrastructure feature; its "users" are operators, role authors and backend authors. Bus, subject and lease terms are domain vocabulary of the feature, not implementation choices.
-- Part of the work had already landed when the spec was written (see the spec's Overview); planning should scope only the remainder.
+- Nothing of this feature is on develop yet; planning covers all of it.

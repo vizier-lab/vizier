@@ -14,7 +14,7 @@ Vizier's subsystems talk to each other over one in-process bus, and that bus is 
 
 This feature delivers that contract, a default in-process implementation that keeps today's single-process behaviour exactly, and the test tooling that makes each later role independently verifiable. It does not introduce a networked backend or move any role into its own process.
 
-**Delivery state at the time of writing**: the contract crate, the in-process backend, the conformance suite, the role test harness, the per-role contract skeletons, the bus documentation and the client-tool binding change have landed. The turn path (agent requests, reply streams, trace propagation) already runs over the bus. What remains is moving the other internal channels (agent commands, file commands, memory operations, dream commands, process commands, session and integration events) onto the bus. This spec describes the whole capability; planning should scope the remaining work against it.
+**Delivery state at the time of writing**: none of this is on `develop`. There is no contract crate, no bus trait and no bus documentation, and the transport still runs on private channels. An earlier local attempt was discarded, so this spec describes the whole capability and planning scopes all of it.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -122,7 +122,7 @@ A maintainer or integrator reads one documentation page that states the bus sema
 - **FR-005**: The contract MUST state: delivery is at-most-once and ordered per subject and publisher; a request returns an error on timeout or no responder and never hangs; a failed lease renewal means the holder stops work immediately; fencing tokens are strictly increasing across holders; the payload limit is part of the contract.
 - **FR-006**: Backends MUST advertise their capabilities, and startup MUST refuse a role that needs a capability the configured backend lacks.
 - **FR-007**: The system MUST provide an in-process backend implementing all three contracts and preserving today's single-process behaviour.
-- **FR-008**: All inter-subsystem traffic currently carried by private channels MUST travel over the bus on the in-process backend: agent requests and reply streams, agent lifecycle commands, file commands, memory operations, dream commands, process commands, session events and integration-change events.
+- **FR-008**: All inter-subsystem traffic currently carried by private channels MUST travel over the bus on the in-process backend: agent requests and reply streams, agent lifecycle commands, file commands, memory operations, dream commands, process commands, session events and integration-change events. The process-exit signal is lifecycle of one operating-system process, not traffic between subsystems, and stays process-local.
 - **FR-009**: Messages that hold in-process-only handles (reply senders, one-shot response slots, live trace spans, live client connections) MUST be replaced by serialisable equivalents: a reply address, a request/reply pair with a serialisable result, W3C trace-context headers with a queued timestamp, and a node-plus-connection-id binding resolved locally.
 - **FR-010**: Trace continuity and queue-wait measurement MUST survive a bus hop.
 - **FR-011**: A request to an unregistered agent MUST fail at once, and requests queued during an agent restart MUST be served by the next instance.
