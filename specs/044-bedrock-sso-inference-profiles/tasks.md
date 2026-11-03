@@ -195,7 +195,7 @@ One phase = one commit, conventional format, explicit paths (`git add crates/...
 - [ ] T076 Run the dummyplug e2e steps of `specs/044-bedrock-sso-inference-profiles/quickstart.md` §3 against a running binary, scripts in `scripts/` and the harness in `dummyplug/` (deterministic order tools, tool name, JSON request, echoed result), including the scripted session-ended and ARN-named-for-embedding failures with their expected error text (constitution e2e gate).
 - [ ] T077 Run the secret-leak audit of `specs/044-bedrock-sso-inference-profiles/quickstart.md` §4: grep the workspace DB, the log and the API bodies for the session, tokens and both credential halves (SC-011, FR-035).
 - [ ] T078 Run the two-start check of `specs/044-bedrock-sso-inference-profiles/quickstart.md` §1: the session survives a restart of the real binary against the same workspace, and startup makes no AWS call (FR-009, FR-037, SC-017a).
-- [ ] T079 Record `specs/044-bedrock-sso-inference-profiles/quickstart.md` §5 (live volunteer checklist) as a release item rather than claiming it verified — the live Identity Center path is not CI (plan.md risk 2).
+- [X] T079 Record `specs/044-bedrock-sso-inference-profiles/quickstart.md` §5 (live volunteer checklist) as a release item rather than claiming it verified — the live Identity Center path is not CI (plan.md risk 2).
 
 **Checkpoint**: gates evidenced. Commits:
 1. root: `docs(configuration): document amazon bedrock sso`
