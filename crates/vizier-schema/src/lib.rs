@@ -7,10 +7,13 @@
 //! The contract is three traits ([`Messaging`], [`Leases`], [`SharedState`]) bundled in a
 //! [`Bus`] that also says which of them the backend implements.
 
+pub mod conformance;
 mod bus;
 mod capabilities;
 mod envelope;
 mod error;
+mod inprocess;
+mod inprocess_leases;
 mod leases;
 mod messaging;
 mod state;
@@ -21,6 +24,7 @@ pub use bus::Bus;
 pub use capabilities::{Capabilities, Capability};
 pub use envelope::{Envelope, Headers, MAX_PAYLOAD, WIRE_VERSION};
 pub use error::BusError;
+pub use inprocess::InProcess;
 pub use leases::{FencingToken, Lease, LeaseEvent, LeaseWatch, Leases};
 pub use messaging::{Delivery, Messaging, SUBSCRIPTION_DEPTH, Subscription, SubscriptionSender, reply};
 pub use state::{Revision, SharedState, StateEvent, StateWatch, Versioned};

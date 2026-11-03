@@ -64,14 +64,14 @@ description: "Task list for the Fleet message bus, in-process backend and role t
 
 **Independent Test**: `cargo test -p vizier-schema` runs the suite against `InProcess` (messaging and state checks pass) and against faulty decorators (each fails exactly its matching check).
 
-- [ ] T018 [US3] Implement `InProcess` messaging in `crates/vizier-schema/src/inprocess.rs`: subject-routed subscriptions (patterns via `SubjectPattern::matches`), per-subscriber unbounded-or-bounded queue that never blocks the publisher (lag reported), `request` with a unique reply subject subscribed before publish, `NoResponders` when nothing is subscribed, `Timeout` otherwise, payload-limit refusal on publish
-- [ ] T019 [US3] Implement `InProcess` shared state (revisioned `BTreeMap`, `cas`, prefix `watch` via broadcast) in `crates/vizier-schema/src/inprocess.rs`
-- [ ] T020 [US3] Add `InProcess::bus()` returning a `Bus` with the available capabilities, in `crates/vizier-schema/src/inprocess.rs` and re-export from `crates/vizier-schema/src/lib.rs`
-- [ ] T021 [US3] Implement the conformance harness types (`Report`, `CheckResult { name, outcome: Passed|Failed(String)|Skipped(Capability) }`, `run(make_backend)`) and the messaging checks 1–8 from contracts/conformance-suite.md in `crates/vizier-schema/src/conformance.rs`
-- [ ] T022 [US3] Add the shared-state checks 14–15 to `crates/vizier-schema/src/conformance.rs`
-- [ ] T023 [US3] Add `#[test] in_process_passes_messaging_and_state_conformance` in `crates/vizier-schema/tests/conformance_inprocess.rs`
-- [ ] T024 [P] [US3] Add faulty decorators (answers `Timeout` instead of `NoResponders`; reorders messages; ignores the payload limit) and tests asserting each is reported as failing its matching check in `crates/vizier-schema/tests/conformance_bites.rs`
-- [ ] T025 **COMMIT (slice 2, messaging and state)**: `feat: add the in-process bus backend and the conformance suite (#162)`
+- [X] T018 [US3] Implement `InProcess` messaging in `crates/vizier-schema/src/inprocess.rs`: subject-routed subscriptions (patterns via `SubjectPattern::matches`), per-subscriber unbounded-or-bounded queue that never blocks the publisher (lag reported), `request` with a unique reply subject subscribed before publish, `NoResponders` when nothing is subscribed, `Timeout` otherwise, payload-limit refusal on publish
+- [X] T019 [US3] Implement `InProcess` shared state (revisioned `BTreeMap`, `cas`, prefix `watch` via broadcast) in `crates/vizier-schema/src/inprocess.rs`
+- [X] T020 [US3] Add `InProcess::bus()` returning a `Bus` with the available capabilities, in `crates/vizier-schema/src/inprocess.rs` and re-export from `crates/vizier-schema/src/lib.rs`
+- [X] T021 [US3] Implement the conformance harness types (`Report`, `CheckResult { name, outcome: Passed|Failed(String)|Skipped(Capability) }`, `run(make_backend)`) and the messaging checks 1–8 from contracts/conformance-suite.md in `crates/vizier-schema/src/conformance.rs`
+- [X] T022 [US3] Add the shared-state checks 14–15 to `crates/vizier-schema/src/conformance.rs`
+- [X] T023 [US3] Add `#[test] in_process_passes_messaging_and_state_conformance` in `crates/vizier-schema/tests/conformance_inprocess.rs`
+- [X] T024 [P] [US3] Add faulty decorators (answers `Timeout` instead of `NoResponders`; reorders messages; ignores the payload limit) and tests asserting each is reported as failing its matching check in `crates/vizier-schema/tests/conformance_bites.rs`
+- [X] T025 **COMMIT (slice 2, messaging and state)**: `feat: add the in-process bus backend and the conformance suite (#162)`
 
 **Checkpoint**: US3 acceptance scenarios 1–3 hold for messaging and state.
 
@@ -83,11 +83,11 @@ description: "Task list for the Fleet message bus, in-process backend and role t
 
 **Independent Test**: lease checks 9–13 pass on `InProcess`, and a faulty decorator that reuses a fencing token fails `fencing_token_monotonic`.
 
-- [ ] T026 [US4] Implement `InProcess` leases (per-name state, monotonic clock via `tokio::time::Instant`, TTL expiry, `LeaseHeld`, strictly increasing `FencingToken` per name, `renew` returning `LeaseLost` after takeover, `release`, `watch` events) in `crates/vizier-schema/src/inprocess.rs`
-- [ ] T027 [US4] Add lease checks 9–13 (using `tokio::time::pause`/`advance`) to `crates/vizier-schema/src/conformance.rs`
-- [ ] T028 [P] [US4] Add the fencing-token-reuse faulty decorator and its test to `crates/vizier-schema/tests/conformance_bites.rs`
-- [ ] T029 [US4] Extend `in_process_passes_messaging_and_state_conformance` into `in_process_passes_conformance` covering all 15 checks in `crates/vizier-schema/tests/conformance_inprocess.rs`
-- [ ] T030 **COMMIT (slice 2, leases)**: `feat: add leases with fencing tokens to the in-process bus (#162)`
+- [X] T026 [US4] Implement `InProcess` leases (per-name state, monotonic clock via `tokio::time::Instant`, TTL expiry, `LeaseHeld`, strictly increasing `FencingToken` per name, `renew` returning `LeaseLost` after takeover, `release`, `watch` events) in `crates/vizier-schema/src/inprocess.rs`
+- [X] T027 [US4] Add lease checks 9–13 (using `tokio::time::pause`/`advance`) to `crates/vizier-schema/src/conformance.rs`
+- [X] T028 [P] [US4] Add the fencing-token-reuse faulty decorator and its test to `crates/vizier-schema/tests/conformance_bites.rs`
+- [X] T029 [US4] Extend `in_process_passes_messaging_and_state_conformance` into `in_process_passes_conformance` covering all 15 checks in `crates/vizier-schema/tests/conformance_inprocess.rs`
+- [X] T030 **COMMIT (slice 2, leases)**: `feat: add leases with fencing tokens to the in-process bus (#162)`
 
 **Checkpoint**: the in-process backend passes all 15 conformance checks; SC-002 holds.
 
