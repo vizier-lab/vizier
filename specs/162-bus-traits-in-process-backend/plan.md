@@ -124,7 +124,7 @@ docs/src/fleet/bus-contract.md              # NEW; linked from docs/src/SUMMARY.
 
 ## Delivery slices
 
-Each slice compiles, passes `cargo test --workspace`, and can be its own PR (the epic asks for small, back-to-back PRs because `transport.rs`, `agents/mod.rs`, `agents/process.rs`, `dependencies.rs` and `runtime.rs` are shared hot files).
+All slices ship in **one pull request** (`162-vizier-schema`), with **one commit per slice**, in the order below, so the history reads as the slices and each commit can be reviewed or bisected alone. Each commit compiles and passes `cargo test --workspace` (and `cargo clippy --workspace --all-targets`) before the next begins; slice 6 is one commit per command channel. Commit messages are conventional (`feat:` for new crates and tooling, `refactor:` for the port, `[**breaking**]` where the `#[doc(hidden)]` `VizierTransport` surface changes), and the PR title is conventional too. Because `transport.rs`, `agents/mod.rs`, `agents/process.rs`, `dependencies.rs` and `runtime.rs` are shared hot files, rebase on `develop` often while the PR is open.
 
 1. **Contract crate** (`vizier-schema`): subjects, patterns, envelope, errors, capabilities, the three traits, `Bus`. Docs-in-code for semantics. No consumer yet.
 2. **In-process backend + conformance suite**: `InProcess`, `conformance::run`, a faulty-backend test proving the suite bites. CI path and policy entries.
