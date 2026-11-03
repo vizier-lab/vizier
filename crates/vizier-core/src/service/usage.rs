@@ -537,6 +537,25 @@ pub struct InUse {
     pub agents: Vec<AffectedAgent>,
 }
 
+/// The one `409` a provider delete and an inference-profile entry removal share: the agents
+/// that would lose `what`, and how to go on anyway (FR-029, FR-040). `data` carries the same
+/// [`InUse`] the WebUI already reads, so a caller's wire shape does not change.
+pub(crate) fn in_use_conflict(
+    what: &str,
+    agents: Vec<AffectedAgent>,
+    action: &str,
+) -> crate::service::ServiceError {
+    let names: Vec<&str> = agents.iter().map(|agent| agent.name.as_str()).collect();
+    crate::service::ServiceError::Conflict {
+        message: format!(
+            "{what} is used by {}; resend with ?confirm=true to {action} anyway",
+            names.join(", ")
+        ),
+        code: None,
+        data: serde_json::to_value(InUse { agents }).ok(),
+    }
+}
+
 /// A `409` naming the agents using `id`, unless the delete is confirmed.
 pub async fn check_in_use(
     deps: &VizierDependencies,
@@ -554,15 +573,7 @@ pub async fn check_in_use(
     if agents.is_empty() {
         return Ok(());
     }
-    let names: Vec<&str> = agents.iter().map(|a| a.name.as_str()).collect();
-    Err(crate::service::ServiceError::Conflict {
-        message: format!(
-            "used by {}; resend with ?confirm=true to delete anyway",
-            names.join(", ")
-        ),
-        code: None,
-        data: serde_json::to_value(InUse { agents }).ok(),
-    })
+    Err(in_use_conflict("this provider", agents, "delete"))
 }
 
 #[cfg(test)]
@@ -954,5 +965,70 @@ mod tests {
         assert_eq!(resolved.model, PROFILE_ARN);
         assert_eq!(resolved.context_window, None, "no entry means no limits");
         assert_eq!(resolved.context_source, ContextSource::Unknown);
+    }
+
+    /// FR-029 / US5 acceptance 3: deleting the SSO connection goes through the provider path, so
+    /// it names the agent chatting through an inference profile and the one dreaming through it —
+    /// and `?confirm=true` is all it takes to go on.
+    #[tokio::test]
+    async fn the_sso_connection_delete_names_the_agents_that_use_it() {
+        let (deps, _dir) = deps().await;
+
+        let mut chat = agent_config();
+        chat.name = "Acme Chat".into();
+        chat.provider = ProviderId::AMAZON_BEDROCK_SSO;
+        chat.model = PROFILE_ARN.into();
+        deps.storage.create_agent("acme-chat", &chat).await.unwrap();
+
+        let mut dream = agent_config();
+        dream.name = "Acme Dream".into();
+        dream.dream_provider = Some(ProviderId::AMAZON_BEDROCK_SSO);
+        dream.dream_model = Some(PROFILE_ARN.into());
+        deps.storage
+            .create_agent("acme-dream", &dream)
+            .await
+            .unwrap();
+
+        let (message, data) = match check_in_use(&deps, &ProviderId::AMAZON_BEDROCK_SSO, false)
+            .await
+        {
+            Err(crate::service::ServiceError::Conflict { message, data, .. }) => (message, data),
+            Err(other) => panic!("a provider in use is a conflict, not {other:?}"),
+            Ok(()) => panic!("both agents use this connection and neither was named"),
+        };
+
+        assert!(message.contains("Acme Chat"), "{message}");
+        assert!(message.contains("Acme Dream"), "{message}");
+        assert!(
+            message.starts_with("this provider is used by "),
+            "{message}"
+        );
+        assert!(
+            message.ends_with("; resend with ?confirm=true to delete anyway"),
+            "{message}"
+        );
+
+        let affected = data.expect("the affected agents");
+        let agents = affected["agents"].as_array().expect("an array of agents");
+        assert_eq!(agents.len(), 2, "one per kind of use: {affected}");
+        let mut named: Vec<(&str, &str)> = agents
+            .iter()
+            .map(|agent| {
+                (
+                    agent["id"].as_str().expect("an id"),
+                    agent["name"].as_str().expect("a name"),
+                )
+            })
+            .collect();
+        named.sort();
+        assert_eq!(
+            named,
+            vec![("acme-chat", "Acme Chat"), ("acme-dream", "Acme Dream")]
+        );
+
+        // The confirmation is the whole difference: the check itself is a no-op.
+        check_in_use(&deps, &ProviderId::AMAZON_BEDROCK_SSO, true)
+            .await
+            .expect("a confirmed delete is not held back");
     }
 }

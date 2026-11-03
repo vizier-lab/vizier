@@ -854,15 +854,13 @@ async fn check_agents_use(
     if agents.is_empty() {
         return Ok(());
     }
-    let names: Vec<&str> = agents.iter().map(|agent| agent.name.as_str()).collect();
-    Err(ServiceError::Conflict {
-        message: format!(
-            "inference profile {arn} is used by {}; resend with ?confirm=true to remove it anyway",
-            names.join(", ")
-        ),
-        code: None,
-        data: serde_json::to_value(usage::InUse { agents }).ok(),
-    })
+    // The same `409` a provider delete gives, word for word apart from what is being removed
+    // (FR-029, FR-040).
+    Err(usage::in_use_conflict(
+        &format!("inference profile {arn}"),
+        agents,
+        "remove it",
+    ))
 }
 
 #[cfg(test)]
@@ -1338,4 +1336,116 @@ mod tests {
         validate_entries(&mut entries, Some("us-east-1")).unwrap();
     }
 
+    // ---- the agents an entry removal would break (FR-029, US5 acceptance 3)
+
+    async fn deps() -> (VizierDependencies, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        let config = crate::config::VizierConfig {
+            workspace: dir.path().to_string_lossy().to_string(),
+            ..Default::default()
+        };
+        (VizierDependencies::new(config).await.unwrap(), dir)
+    }
+
+    /// The owner as `providers.rs` builds one: the permission check is the same door.
+    fn system() -> crate::auth::Principal {
+        crate::auth::Principal {
+            user_id: "owner".into(),
+            username: "owner".into(),
+            role: crate::auth::Role {
+                role_id: "r".into(),
+                name: "r".into(),
+                permissions: vec![],
+                is_system: true,
+                created_at: Utc::now(),
+            },
+            permissions: vec![],
+            method: crate::auth::AuthMethod::Jwt,
+        }
+    }
+
+    /// FR-029 / US5 acceptance 3: removing an entry names the agent chatting through it and the
+    /// one dreaming through it, the saved row keeps the entry, and confirm is a no-op at the
+    /// check — after which the removal really goes through.
+    #[tokio::test]
+    async fn removing_an_entry_an_agent_uses_names_it_until_confirmed() {
+        let (deps, _dir) = deps().await;
+        deps.storage
+            .upsert_provider(&ProviderEntry {
+                id: ProviderId::AMAZON_BEDROCK_SSO.clone(),
+                credentials: ProviderCredentials {
+                    profiles: vec![profile_entry(ARN_A)],
+                    ..saved()
+                },
+            })
+            .await
+            .unwrap();
+
+        let mut chat = crate::tests_support::agent_config("acme-chat");
+        chat.name = "Acme Chat".into();
+        chat.provider = ProviderId::AMAZON_BEDROCK_SSO;
+        chat.model = ARN_A.into();
+        deps.storage.create_agent("acme-chat", &chat).await.unwrap();
+
+        let mut dream = crate::tests_support::agent_config("acme-dream");
+        dream.name = "Acme Dream".into();
+        dream.dream_provider = Some(ProviderId::AMAZON_BEDROCK_SSO);
+        dream.dream_model = Some(ARN_A.into());
+        deps.storage
+            .create_agent("acme-dream", &dream)
+            .await
+            .unwrap();
+
+        let (message, data) =
+            match remove_entry(&deps, &system(), "amazon-bedrock-sso", ARN_A, false).await {
+                Err(ServiceError::Conflict { message, data, .. }) => (message, data),
+                Err(other) => panic!("an entry in use is a conflict, not {other:?}"),
+                Ok(_) => panic!("both agents use this entry and neither was named"),
+            };
+
+        assert!(
+            message.starts_with(&format!("inference profile {ARN_A} is used by ")),
+            "{message}"
+        );
+        assert!(message.contains("Acme Chat"), "{message}");
+        assert!(message.contains("Acme Dream"), "{message}");
+        assert!(
+            message.ends_with("; resend with ?confirm=true to remove it anyway"),
+            "{message}"
+        );
+
+        let affected = data.expect("the affected agents");
+        let agents = affected["agents"].as_array().expect("an array of agents");
+        assert_eq!(agents.len(), 2, "one per kind of use: {affected}");
+        let mut named: Vec<&str> = agents
+            .iter()
+            .map(|agent| agent["id"].as_str().expect("an id"))
+            .collect();
+        named.sort();
+        assert_eq!(named, vec!["acme-chat", "acme-dream"]);
+
+        // Nothing was removed: the refusal is the whole of the call so far.
+        let row = deps
+            .storage
+            .get_provider(&ProviderId::AMAZON_BEDROCK_SSO)
+            .await
+            .unwrap()
+            .expect("the connection is still saved");
+        assert_eq!(row.credentials.profiles.len(), 1);
+        assert_eq!(row.credentials.profiles[0].arn, ARN_A);
+
+        // The confirmation is the whole difference: the check itself is a no-op.
+        check_agents_use(&deps, ARN_A, true)
+            .await
+            .expect("a confirmed removal is not held back");
+
+        // With no agent left the confirmed removal really takes the entry away, and nothing
+        // waits on an agent supervisor to restart.
+        deps.storage.delete_agent("acme-chat").await.unwrap();
+        deps.storage.delete_agent("acme-dream").await.unwrap();
+        let left = remove_entry(&deps, &system(), "amazon-bedrock-sso", ARN_A, true)
+            .await
+            .expect("a confirmed removal goes through");
+        assert!(left.is_empty(), "the only entry is gone: {left:?}");
+    }
 }
