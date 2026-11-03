@@ -947,7 +947,10 @@ impl TelegramChannelReader {
         };
 
         tokio::spawn(async move {
-            let (response_tx, response_rx) = transport.reply_channel().await?;
+            let Ok((response_tx, response_rx)) = transport.reply_channel().await else {
+                tracing::error!("could not open a reply stream");
+                return;
+            };
 
             if let Err(err) = transport
                 .send_request(session.clone(), request, Some(response_tx))

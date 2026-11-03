@@ -19,7 +19,7 @@ use vizier_core::{
     runtime::{RuntimeEvent, RuntimeExit, RuntimeOptions, SubsystemState, VizierRuntime},
     schema::{
         AgentCommand, AgentConfig, AgentToolsConfig, AgentCommandResult, SessionHistoryContent, VizierChannelId, VizierRequest,
-        VizierRequestContent, VizierResponse, VizierResponseContent, VizierSession,
+        VizierRequestContent, VizierResponseContent, VizierSession,
         provider::{ProviderCredentials, ProviderEntry},
     },
     storage::{
