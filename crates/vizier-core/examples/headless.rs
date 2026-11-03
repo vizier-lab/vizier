@@ -23,7 +23,10 @@ use vizier_core::{
 async fn main() -> vizier_core::Result<()> {
     let workspace = workspace_arg()?;
     let config = VizierConfig::with_workspace(workspace);
-    let runtime = VizierRuntime::start(RuntimeOptions { config }).await?;
+    let runtime = VizierRuntime::start(RuntimeOptions {
+        config,
+        ..Default::default()
+    }).await?;
 
     let mut events = runtime.events();
     tokio::spawn(async move {

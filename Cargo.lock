@@ -8924,6 +8924,7 @@ dependencies = [
  "tracing-opentelemetry",
  "tracing-subscriber",
  "vizier-core",
+ "vizier-fleet",
  "vizier-http",
 ]
 
@@ -9022,6 +9023,13 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.119",
+]
+
+[[package]]
+name = "vizier-fleet"
+version = "0.14.1"
+dependencies = [
+ "vizier-core",
 ]
 
 [[package]]

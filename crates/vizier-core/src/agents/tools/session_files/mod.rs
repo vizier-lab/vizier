@@ -137,13 +137,13 @@ fn extract_text(mime_type: &str, content: Vec<u8>) -> Result<String, VizierError
                 .map_err(|e| VizierError(format!("Invalid UTF-8: {}", e)))?;
             Ok(text)
         }
-        #[cfg(feature = "documents")]
+        #[cfg(feature = "addon-documents")]
         "application/pdf" => {
             let text = pdf_extract::extract_text_from_mem(&content)
                 .map_err(|e| VizierError(format!("Failed to extract PDF: {}", e)))?;
             Ok(text)
         }
-        #[cfg(not(feature = "documents"))]
+        #[cfg(not(feature = "addon-documents"))]
         "application/pdf" => Err(VizierError(
             "PDF text extraction is not supported in this build".into(),
         )),

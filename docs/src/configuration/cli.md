@@ -38,6 +38,36 @@ vizier run --port 8080 --data-dir /srv/vizier --workers 8
 | `--shutdown-grace <SECS>` | Maximum graceful HTTP/runtime drain time after SIGTERM or Ctrl-C (default `30`) |
 | `--catalogue-refresh <true\|false>` | Allow the lazy models.dev catalogue check (default `true`) |
 | `--catalogue-ttl <DURATION>` | How often that check may run (default `24h`) |
+| `--role <ROLE[,ROLE]>` | Which server roles this process runs: `all` (default), or a comma list of `gateway-http`, `gateway-grpc`, `worker`, `channels`, `control`. `VIZIER_ROLE` does the same for containers. See [Roles](#roles) |
+
+### Roles
+
+Fleet runs the same binary as a cluster by splitting it into roles ([#159](https://github.com/vizier-lab/vizier/issues/159)).
+
+| Role | Does | Singleton? |
+|------|------|------------|
+| `gateway-http` | REST, WebSocket, the WebUI, authentication and authorization | no, scale out |
+| `gateway-grpc` | The same operations over gRPC, for other software | no, scale out |
+| `worker` | Runs agents (supervisors and instances) | no; one owner worker per agent |
+| `channels` | The Discord and Telegram readers | one reader per integration |
+| `control` | The scheduler (cron, one-shot, dreams), retention purge, migrations, catalogue refresh | one leader plus standbys |
+| `all` | Every role in one process (**default**) | |
+
+`--role all` is exactly the single-node server described on this page. **Every other role is refused
+for now**, with a message naming the sub-issue that wires it in: `control`
+([#166](https://github.com/vizier-lab/vizier/issues/166)), `channels`
+([#167](https://github.com/vizier-lab/vizier/issues/167)), `worker`
+([#168](https://github.com/vizier-lab/vizier/issues/168)), `gateway-http`
+([#169](https://github.com/vizier-lab/vizier/issues/169)) and `gateway-grpc`
+([#170](https://github.com/vizier-lab/vizier/issues/170)). A role the binary was not built with is
+refused with the flag to rebuild with.
+
+```sh
+vizier run --role all            # one node doing everything: today's server
+vizier run --role worker,control # refused until #166 and #168 land
+```
+
+The process's roles show in `vizier agent ps` (`Roles  all`) and in `VizierRuntime::health`.
 
 **Config resolution:** `-c` → `$VIZIER_CONFIG` → `./.vizier.yaml` → built-in defaults. With a file, the workspace is `<config dir>/.vizier/`; without one it's `$VIZIER_DATA_DIR` or `$HOME/.vizier`. See [Overview](./index.md#config-less-mode) — note `VIZIER_JWT_SECRET` must be set in config-less mode.
 
@@ -117,6 +147,7 @@ The image (`blinfoldking/vizier`, also `ghcr.io/vizier-lab/vizier`) runs `vizier
 | `VIZIER_PORT` | `--port` | `9999` |
 | `VIZIER_STORAGE` | `--storage` | `sqlite` |
 | `VIZIER_OBJECTS` | `--objects` | `local` |
+| `VIZIER_ROLE` | `--role` | `all` |
 | `VIZIER_WORKERS` | `--workers` | `4` |
 | `VIZIER_WS_IDLE_TIMEOUT` | `--ws-idle-timeout` | `300` |
 | `VIZIER_SHUTDOWN_GRACE` | `--shutdown-grace` | `30` |

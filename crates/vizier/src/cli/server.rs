@@ -10,6 +10,7 @@ use crate::command::VizierCommandServer;
 use vizier_core::{
     config::VizierConfig,
     runtime::{RuntimeExit, RuntimeOptions, Subsystems, VizierRuntime},
+    server_role::{ServerRole, ServerRoleSet},
 };
 use vizier_http::health::HealthHandle;
 
@@ -18,7 +19,11 @@ enum Stop {
     Failed { name: &'static str, outcome: String },
 }
 
-pub fn run_server(config: VizierConfig, shutdown_grace: Duration) -> Result<()> {
+pub fn run_server(
+    config: VizierConfig,
+    roles: ServerRoleSet,
+    shutdown_grace: Duration,
+) -> Result<()> {
     let mut builder = tokio::runtime::Builder::new_multi_thread();
     builder.worker_threads(config.worker_threads);
 
@@ -27,6 +32,8 @@ pub fn run_server(config: VizierConfig, shutdown_grace: Duration) -> Result<()> 
     runtime.block_on(async move {
         let mut engine = VizierRuntime::start(RuntimeOptions {
             config: config.clone(),
+            roles,
+            ..Default::default()
         })
         .await?;
 
@@ -34,24 +41,30 @@ pub fn run_server(config: VizierConfig, shutdown_grace: Duration) -> Result<()> 
         let mut servers = Subsystems::default();
         let health = HealthHandle::new();
         let mut http_shutdown = None;
-        if let Some(http_config) = config.channels.http.clone() {
-            let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
-            http_shutdown = Some(shutdown_tx);
-            let serve = vizier_http::serve_with_shutdown(
-                &engine,
-                http_config,
-                health.clone(),
-                async move {
-                    let _ = shutdown_rx.await;
-                },
-            );
-            servers.spawn("http channel", serve);
+        if roles.contains(ServerRole::GatewayHttp) {
+            if let Some(http_config) = config.channels.http.clone() {
+                let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
+                http_shutdown = Some(shutdown_tx);
+                let serve = vizier_http::serve_with_shutdown(
+                    &engine,
+                    http_config,
+                    health.clone(),
+                    async move {
+                        let _ = shutdown_rx.await;
+                    },
+                );
+                servers.spawn("http channel", serve);
+            }
+        } else {
+            // A process without the gateway answers nobody over HTTP; the WebUI and the API
+            // are served by whichever node runs it (#169).
+            tracing::info!("the gateway-http role is not in this process: nothing is served");
         }
 
-        let commands = VizierCommandServer::new(engine.deps().clone())?;
+        let commands = VizierCommandServer::new(engine.deps().clone(), roles)?;
         servers.spawn("command server", async move { commands.run().await });
 
-        tracing::info!("vizier is running!");
+        tracing::info!(roles = %roles, "vizier is running!");
 
         // Every subsystem runs for the life of the process, so one that stops, for whatever
         // reason, leaves vizier half-working. Exit instead, and let the workload manager start
@@ -83,6 +96,7 @@ pub fn run_server(config: VizierConfig, shutdown_grace: Duration) -> Result<()> 
                     grace_seconds = shutdown_grace.as_secs(),
                     "graceful shutdown started"
                 );
+                let http_started = http_shutdown.is_some();
                 if let Some(shutdown) = http_shutdown {
                     let _ = shutdown.send(());
                 }
@@ -90,7 +104,7 @@ pub fn run_server(config: VizierConfig, shutdown_grace: Duration) -> Result<()> 
                 let shutdown = async move {
                     // The HTTP subsystem returns only after accepted requests and WebSockets
                     // close. A deadline still bounds clients that refuse to disconnect.
-                    if config.channels.http.is_some() {
+                    if http_started {
                         let _ = servers.next_stopped().await;
                     }
                     servers.abort_all();

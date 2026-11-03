@@ -1,26 +1,26 @@
 <!--
 Sync Impact Report
 ==================
-Version change: 1.3.0 → 2.0.0
-Modified principles:
-  - III. Self-Contained, Zero-Dependency Runtime — embedded SQLite/local
-    storage remains the mandatory zero-setup default; PostgreSQL and
-    S3-compatible storage are now permitted as strictly opt-in server
-    deployment backends.
+Version change: 2.0.0 → 2.1.0
+Modified principles: none
 Added sections: none
 Removed sections: none
 Modified sections:
-  - Distribution & Technology Constraints — documents the embedded default
-    and the optional managed-storage topology.
+  - Development Workflow & Quality Gates — three Fleet rules (issue #160):
+    optional capabilities live behind a feature flag that never changes
+    the API shape; a role or component depends on trait seams only and is
+    testable alone; a change is verified by the jobs of the flags and
+    crates it touches, with the full matrix on develop, master and release.
 Templates requiring updates:
   - .specify/templates/plan-template.md ✅ no change needed (Constitution
     Check reads the gates from this file)
   - .specify/templates/spec-template.md ✅ no change needed
   - .specify/templates/tasks-template.md ✅ no change needed
-  - AGENTS.md ✅ updated with the shared SQL and blob-store architecture
-  - docs/src/configuration/storage-shell.md ✅ updated with backend setup,
-    topology, backups and migration
+  - CLAUDE.md ✅ flag names and per-flag test command
+  - docs/src/configuration/build-flavours.md ✅ new page
 Follow-up TODOs: none
+(2.0.0, 2026-11-02: PostgreSQL and S3-compatible storage permitted as strictly
+opt-in server backends under Principle III.)
 -->
 
 # Vizier Constitution
@@ -195,6 +195,22 @@ instead of each module reinventing its own convention.
   is sparse and live models are nondeterministic, paid, and need keys;
   dummyplug makes the real pipeline reproducible offline (Principle III).
 
+- **Optional capabilities live behind a feature flag**: an optional channel,
+  addon, provider or gateway MUST sit behind a Cargo feature named
+  `channel-*`, `addon-*`, `provider-*`, `gateway-*`, `bus-nats` or `role-*`
+  (the runtime namespace writes the first `-` as `/`, e.g. `addon/docker`).
+  A flag MUST NOT change the shape of the API: it adds or removes a
+  capability, never a field or a signature. The default build turns the
+  shipped set on; `default = []` for the engine crate.
+- **Roles and components stay independent**: a role or component MUST depend
+  on trait seams only, never on another role's concrete type, and MUST be
+  testable alone (build and run its tests with only its own flag).
+- **Verify what a change touches**: CI runs the jobs of the flags and crates
+  a change touches, plus the single `gate` status; a change to `Cargo.toml`,
+  `Cargo.lock` or a shared crate runs everything. Every flag alone, the
+  default build and `--no-default-features` run on `develop`, `master` and
+  release. A PR MUST NOT depend on a job that path filters skipped.
+
 ## Governance
 
 This constitution supersedes ad hoc practice and prior informal convention
@@ -224,4 +240,4 @@ service or non-embedded runtime dependency). Deviations MUST be justified
 in the PR description (equivalent to the plan template's Complexity
 Tracking table) or the change MUST be revised before merge.
 
-**Version**: 2.0.0 | **Ratified**: 2026-08-13 | **Last Amended**: 2026-11-02
+**Version**: 2.1.0 | **Ratified**: 2026-08-13 | **Last Amended**: 2026-11-02

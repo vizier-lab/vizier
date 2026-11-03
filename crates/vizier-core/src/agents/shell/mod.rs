@@ -2,14 +2,14 @@ use std::sync::Arc;
 
 use anyhow::Result;
 
-#[cfg(feature = "docker-shell")]
+#[cfg(feature = "addon-docker")]
 use crate::agents::shell::docker::DockerShell;
 use crate::{
     agents::shell::local::LocalShell,
     config::shell::{LocalShellConfig, ShellConfig},
 };
 
-#[cfg(feature = "docker-shell")]
+#[cfg(feature = "addon-docker")]
 pub mod docker;
 pub mod local;
 pub mod outcome;
@@ -31,9 +31,9 @@ impl VizierShell {
 
     pub async fn new(config: &ShellConfig) -> Result<Self> {
         Ok(match config {
-            #[cfg(feature = "docker-shell")]
+            #[cfg(feature = "addon-docker")]
             ShellConfig::Docker(docker) => Self::build(DockerShell::new(docker.clone()).await?),
-            #[cfg(not(feature = "docker-shell"))]
+            #[cfg(not(feature = "addon-docker"))]
             ShellConfig::Docker(_) => {
                 anyhow::bail!("docker shell support is not compiled into this build")
             }

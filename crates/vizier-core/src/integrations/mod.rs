@@ -32,14 +32,14 @@ impl IntegrationKinds {
     pub fn builtin() -> Self {
         Self {
             kinds: vec![
-                #[cfg(feature = "discord")]
+                #[cfg(feature = "channel-discord")]
                 Arc::new(kinds::discord::DiscordKind),
-                #[cfg(feature = "telegram")]
+                #[cfg(feature = "channel-telegram")]
                 Arc::new(kinds::telegram::TelegramKind),
                 Arc::new(kinds::brave_search::BraveSearchKind),
                 Arc::new(kinds::http::HttpKind),
                 Arc::new(kinds::shell::ShellKind),
-                #[cfg(feature = "documents")]
+                #[cfg(feature = "addon-documents")]
                 Arc::new(kinds::office::OfficeKind),
                 Arc::new(kinds::mcp::McpKind),
             ],
@@ -352,7 +352,7 @@ mod tests {
         assert!(tools.addons.is_empty());
     }
 
-    #[cfg(feature = "documents")]
+    #[cfg(feature = "addon-documents")]
     #[tokio::test]
     async fn the_office_addon_contributes_its_tools_only_while_enabled() {
         let kinds = IntegrationKinds::builtin();
@@ -386,9 +386,9 @@ mod tests {
         use crate::encryption::IntegrationSecretPaths;
 
         let kinds = IntegrationKinds::builtin();
-        #[cfg(feature = "discord")]
+        #[cfg(feature = "channel-discord")]
         assert_eq!(kinds.secret_paths("discord").unwrap(), ["token"]);
-        #[cfg(feature = "telegram")]
+        #[cfg(feature = "channel-telegram")]
         assert_eq!(kinds.secret_paths("telegram").unwrap(), ["token"]);
         assert_eq!(kinds.secret_paths("brave_search").unwrap(), ["api_key"]);
         assert_eq!(kinds.secret_paths("mcp").unwrap(), ["env.*"]);

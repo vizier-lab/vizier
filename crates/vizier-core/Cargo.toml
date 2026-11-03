@@ -22,19 +22,19 @@ include = [
 
 [package.metadata.docs.rs]
 # The groups that need no native toolchain or network at build time.
-features = ["discord", "telegram", "documents", "utoipa"]
+features = ["channel-discord", "channel-telegram", "addon-documents", "utoipa"]
 
 [features]
 # The engine builds and runs an agent turn with none of these (specs/037-core-extraction R9).
 default = []
-discord = ["dep:twilight-gateway", "dep:twilight-http", "dep:twilight-model", "dep:twilight-util"]
-telegram = ["dep:teloxide"]
-media = ["dep:whisper-rs", "dep:any-tts", "dep:symphonia", "dep:symphonia-adapter-opus-rs", "dep:hound"]
-docker-shell = ["dep:bollard", "dep:indicatif"]
-documents = ["dep:pdf-extract", "dep:docx-rs", "dep:calamine", "dep:rust_xlsxwriter", "dep:ironcalc"]
+channel-discord = ["dep:twilight-gateway", "dep:twilight-http", "dep:twilight-model", "dep:twilight-util"]
+channel-telegram = ["dep:teloxide"]
+provider-media = ["dep:whisper-rs", "dep:any-tts", "dep:symphonia", "dep:symphonia-adapter-opus-rs", "dep:hound"]
+addon-docker = ["dep:bollard", "dep:indicatif"]
+addon-documents = ["dep:pdf-extract", "dep:docx-rs", "dep:calamine", "dep:rust_xlsxwriter", "dep:ironcalc"]
 utoipa = ["dep:utoipa"]
 telemetry = ["dep:opentelemetry", "dep:tracing-opentelemetry"]
-full = ["discord", "telegram", "media", "docker-shell", "documents", "utoipa", "telemetry"]
+full = ["channel-discord", "channel-telegram", "provider-media", "addon-docker", "addon-documents", "utoipa", "telemetry"]
 
 [dependencies]
 vizier-derive.workspace = true

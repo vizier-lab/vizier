@@ -1,11 +1,12 @@
 //! One running engine on one workspace (`specs/037-core-extraction/` research R7, R14).
 //!
 //! [`VizierRuntime::start`] opens storage, runs the startup migrations, registers the agents
-//! and spawns the core subsystems (agent manager, scheduler, channel readers, the transport's
-//! command handler) onto the **caller's** tokio runtime. A subsystem that stops is reported,
-//! through [`VizierRuntime::wait`], [`VizierRuntime::events`] and [`VizierRuntime::health`];
-//! the runtime never exits the process. What to do about it is the host's call: the server
-//! binary exits so it can be restarted whole (#51), an embedding app may show it.
+//! and spawns the core subsystems the selected [`ServerRoleSet`] owns (agent manager, scheduler,
+//! channel readers, the transport's command handler) onto the **caller's** tokio runtime. A
+//! subsystem that stops is reported through [`VizierRuntime::wait`], [`VizierRuntime::events`]
+//! and [`VizierRuntime::health`]; the runtime never exits the process. What to do about it is
+//! the host's call: the server binary exits so it can be restarted whole (#51), an embedding app
+//! may show it.
 
 use std::{
     collections::HashMap,
@@ -30,15 +31,65 @@ use crate::{
     error::VizierError,
     scheduler::VizierScheduler,
     schema::AgentHealthStatus,
+    server_role::{ServerRole, ServerRoleSet},
     transport::{SessionEvent, VizierTransport},
 };
 
+/// Whether a subsystem may work right now (Fleet, #161/#159).
+///
+/// The scheduler and the channel readers ask before they do anything, so a node that holds no
+/// lease stays idle instead of doing the same work twice. Core ships [`AlwaysYes`], which is the
+/// single-node answer; `vizier-fleet` supplies the lease-backed one (#166, #167).
+pub trait Gate: Send + Sync {
+    /// `false` means "not now": do not run, and try again later.
+    fn may_run(&self) -> bool;
+}
+
+/// The gate of a node that holds everything by definition: the default, and today's behaviour.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct AlwaysYes;
+
+impl Gate for AlwaysYes {
+    fn may_run(&self) -> bool {
+        true
+    }
+}
+
 /// What [`VizierRuntime::start`] needs.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct RuntimeOptions {
     /// Must name its workspace explicitly: the engine never derives where data lives from the
     /// environment or the home directory.
     pub config: VizierConfig,
+    /// The subsystems this process runs. Defaults to every role, which is one node doing
+    /// everything: the same process, and the same behaviour as before Fleet.
+    pub roles: ServerRoleSet,
+    /// Asked by the scheduler and the channel readers before they work. `None` is
+    /// [`AlwaysYes`]; anything else comes from the host (`vizier-fleet`).
+    pub gate: Option<Arc<dyn Gate>>,
+}
+
+impl Default for RuntimeOptions {
+    fn default() -> Self {
+        Self {
+            config: VizierConfig::default(),
+            roles: ServerRoleSet::all(),
+            gate: None,
+        }
+    }
+}
+
+impl std::fmt::Debug for RuntimeOptions {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RuntimeOptions")
+            .field("config", &self.config)
+            .field("roles", &self.roles)
+            .field(
+                "gate",
+                &self.gate.as_ref().map_or("always-yes", |_| "from the host"),
+            )
+            .finish()
+    }
 }
 
 /// The runtime's lifecycle, broadcast to every [`VizierRuntime::events`] receiver.
@@ -85,6 +136,8 @@ pub enum SubsystemState {
 /// A snapshot of the runtime's subsystems and of every agent's health.
 #[derive(Debug, Clone)]
 pub struct HealthReport {
+    /// The roles this process runs, in [`ServerRoleSet`] order.
+    pub roles: ServerRoleSet,
     pub subsystems: Vec<(&'static str, SubsystemState)>,
     /// Empty when the agent manager doesn't answer.
     pub agents: Vec<AgentHealthStatus>,
@@ -94,8 +147,9 @@ pub struct HealthReport {
 /// minus the wait, and releases the workspace.
 pub struct VizierRuntime {
     deps: VizierDependencies,
+    roles: ServerRoleSet,
     subsystems: Subsystems,
-    readers: Arc<ChannelReaders>,
+    readers: Option<Arc<ChannelReaders>>,
     events: broadcast::Sender<RuntimeEvent>,
     _lock: WorkspaceLock,
 }
@@ -104,8 +158,12 @@ impl VizierRuntime {
     /// Starts the engine on `options.config.workspace`. Must be called inside a tokio
     /// multi-thread runtime. Fails if the workspace is empty or already in use by another
     /// vizier process, or if storage can't be opened.
+    ///
+    /// Only the subsystems the selected roles own are spawned. Storage, migrations and the
+    /// transport are opened either way — every role needs them — so a role this process does not
+    /// run simply has no subsystems in [`VizierRuntime::health`].
     pub async fn start(options: RuntimeOptions) -> crate::Result<Self> {
-        let config = options.config;
+        let RuntimeOptions { config, roles, gate } = options;
         if config.workspace.trim().is_empty() {
             return Err(VizierError(
                 "the runtime needs an explicit workspace (config.workspace is empty)".into(),
@@ -113,34 +171,54 @@ impl VizierRuntime {
         }
         let lock = WorkspaceLock::acquire(Path::new(&config.workspace))?;
         let deps = VizierDependencies::new(config).await.map_err(err)?;
+        let gate: Arc<dyn Gate> = gate.unwrap_or_else(|| Arc::new(AlwaysYes));
 
         let (events, _) = broadcast::channel(64);
         let mut subsystems = Subsystems::reporting(events.clone());
 
-        // Agents first: `VizierAgents::new` registers every agent's request channel, so the
-        // scheduler's immediate first tick queues a due task instead of losing it (#26).
-        let mut agents = VizierAgents::new(deps.clone()).await.map_err(err)?;
-        // After the agents re-sent their pending turns, so a recovered job finds them running.
-        deps.background_jobs.recover().await;
-        subsystems.spawn("agent manager", async move { agents.run().await });
+        let mut readers = None;
+        if roles.contains(ServerRole::Worker) {
+            // Agents first: `VizierAgents::new` registers every agent's request channel, so the
+            // scheduler's immediate first tick queues a due task instead of losing it (#26).
+            let mut agents = VizierAgents::new(deps.clone()).await.map_err(err)?;
+            // After the agents re-sent their pending turns, so a recovered job finds them
+            // running.
+            deps.background_jobs.recover().await;
+            subsystems.spawn("agent manager", async move { agents.run().await });
+        }
 
-        let mut scheduler = VizierScheduler::new(deps.clone()).await.map_err(err)?;
-        subsystems.spawn("scheduler", async move { scheduler.run().await });
+        if roles.contains(ServerRole::Control) {
+            let mut scheduler = VizierScheduler::new(deps.clone(), gate.clone())
+                .await
+                .map_err(err)?;
+            subsystems.spawn("scheduler", async move { scheduler.run().await });
+        }
 
-        let readers = Arc::new(ChannelReaders::new(deps.clone()));
-        let running = readers.clone();
-        subsystems.spawn("channel readers", async move { running.run().await });
+        if roles.contains(ServerRole::Channels) {
+            let running = Arc::new(ChannelReaders::new(deps.clone(), gate));
+            let task = running.clone();
+            subsystems.spawn("channel readers", async move { task.run().await });
+            readers = Some(running);
+        }
 
+        // The command handler is what `vizier shutdown`, `vizier agent ps` and the rest of the
+        // command socket answer through, so it runs whatever else this process does.
         let transport = deps.clone();
         subsystems.spawn("command handler", async move { transport.run().await });
 
         Ok(Self {
             deps,
+            roles,
             subsystems,
             readers,
             events,
             _lock: lock,
         })
+    }
+
+    /// The roles this process runs.
+    pub fn roles(&self) -> ServerRoleSet {
+        self.roles
     }
 
     /// Where requests and agent commands go.
@@ -177,6 +255,7 @@ impl VizierRuntime {
 
     pub async fn health(&self) -> HealthReport {
         HealthReport {
+            roles: self.roles,
             subsystems: self.subsystems.states(),
             agents: self.deps.transport.agent_health().await.unwrap_or_default(),
         }
@@ -201,7 +280,9 @@ impl VizierRuntime {
     /// resume on the next start (`specs/023-persist-turn-activity`). Releases the workspace.
     pub async fn shutdown(mut self) -> crate::Result<()> {
         self.subsystems.abort_all();
-        self.readers.shutdown().await;
+        if let Some(readers) = &self.readers {
+            readers.shutdown().await;
+        }
         Ok(())
     }
 
