@@ -196,6 +196,7 @@ One phase = one commit, conventional format, explicit paths (`git add crates/...
 - [ ] T077 Run the secret-leak audit of `specs/044-bedrock-sso-inference-profiles/quickstart.md` §4: grep the workspace DB, the log and the API bodies for the session, tokens and both credential halves (SC-011, FR-035).
 - [ ] T078 Run the two-start check of `specs/044-bedrock-sso-inference-profiles/quickstart.md` §1: the session survives a restart of the real binary against the same workspace, and startup makes no AWS call (FR-009, FR-037, SC-017a).
 - [X] T079 Record `specs/044-bedrock-sso-inference-profiles/quickstart.md` §5 (live volunteer checklist) as a release item rather than claiming it verified — the live Identity Center path is not CI (plan.md risk 2).
+- [ ] T080 Fix **BUG 044** (found by the live volunteer against the release binary): `StartDeviceAuthorization` and `CreateToken` were sent as `application/x-www-form-urlencoded` with snake_case keys, and the Identity Center OIDC endpoints are rest-json — AWS answered `HTTP 400` before looking at a single field, so no sign-in could ever complete. Send both (device-code and refresh grant) as JSON camelCase per `contracts/bedrock-sso-wire.md` §3, drop the now-unused `form_request` helper, and record the 4xx/5xx body (truncated, token fields masked, request bodies never logged) in `tracing::warn!` and in the `SsoError::Unavailable` reason — the silence is what made this blind. Tighten the test stub so it rejects a malformed body with `400` exactly as AWS does, and add the regression tests (form body → stub `400`; camelCase body → `200`) that would have caught it.
 
 **Checkpoint**: gates evidenced. Commits:
 1. root: `docs(configuration): document amazon bedrock sso`
@@ -270,7 +271,7 @@ Each phase is a shippable slice with its own commit set: US1 (connect and chat) 
 - [Story] maps a task to its user story for traceability; Setup, Foundational and Polish carry no story label.
 - Tests are part of the deliverable: the plan's Testing section commits to them.
 - The live Identity Center path (quickstart §5) is a release checklist item, never a CI claim.
-- Total: **79 tasks** — 3 setup, 10 foundational, 19 US1, 16 US2, 9 US3, 6 US4, 7 US5, 9 polish.
+- Total: **80 tasks** — 3 setup, 10 foundational, 19 US1, 16 US2, 9 US3, 6 US4, 7 US5, 10 polish.
 
 ### Commit map (phase -> message)
 
@@ -290,3 +291,4 @@ Each phase is a shippable slice with its own commit set: US1 (connect and chat) 
 | 8 | root | `docs(configuration): document amazon bedrock sso` |
 | 8 | root | `test(catalogue): exclude the sso provider from the no-other-guide assertion` |
 | 8 | root | `test(bedrock-sso): cover the sso flow, inference profile entries and pricing` (only if needed) |
+| 8 | root | `fix(bedrock-sso): send the device flow requests as json camelCase` (T080, BUG 044) |

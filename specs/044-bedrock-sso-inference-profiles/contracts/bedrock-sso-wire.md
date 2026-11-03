@@ -34,7 +34,7 @@ Content-Type: application/json
   "scopes": ["sso:account:access"]
 }
 ```
-Response used: `clientId`, `clientSecret`, `clientSecretExpiresAt`.
+Response used: `clientId`, `clientSecret`, `clientSecretExpiresAt`. The request is JSON with camelCase keys, like every other OIDC POST in this contract (§3).
 
 - Stored in the session envelope (secret, D8), keyed by profile.
 - Reused on every re-sign-in for that profile; re-registered only when `clientSecretExpiresAt` has passed.
@@ -46,21 +46,35 @@ Response used: `clientId`, `clientSecret`, `clientSecretExpiresAt`.
 
 ```http
 POST /device_authorization
-Content-Type: application/x-www-form-urlencoded
+Content-Type: application/json
 
-client_id=<clientId>&client_secret=<clientSecret>&start_url=<start_url>
+{
+  "clientId": "<clientId>",
+  "clientSecret": "<clientSecret>",
+  "startUrl": "<start_url>"
+}
 ```
 Response used: `deviceCode`, `userCode`, `verificationUri`, `verificationUriComplete`, `expiresIn`, `interval`.
 
 Vizier returns to the caller **only** `user_code`, `verification_uri(_complete)` and `expires_at`; `device_code` stays in the process (FR-009b, FR-035).
 
-Polling:
+Polling (`CreateToken` — the same endpoint and the same JSON shape as the refresh grant of §4):
 ```http
 POST /token
-Content-Type: application/x-www-form-urlencoded
+Content-Type: application/json
 
-client_id=…&client_secret=…&grant_type=urn:ietf:params:oauth:grant-type:device_code&device_code=…
+{
+  "clientId": "<clientId>",
+  "clientSecret": "<clientSecret>",
+  "grantType": "urn:ietf:params:oauth:grant-type:device_code",
+  "deviceCode": "<deviceCode>"
+}
 ```
+
+The refresh grant is the same request with a different `grantType` and no `deviceCode`:
+`{ "clientId": …, "clientSecret": …, "grantType": "refresh_token", "refreshToken": "…" }`.
+
+**Every OIDC POST of §2 and §3 is JSON with camelCase keys — never `application/x-www-form-urlencoded`, never snake_case.** The endpoints are rest-json, so a form body is answered `400 {"error":"InvalidRequestException", …}` before any field is looked at. Empty or absent values are the same class of mistake: every field above is required and non-empty.
 
 | Response | Meaning | Action |
 |---|---|---|
@@ -70,6 +84,8 @@ client_id=…&client_secret=…&grant_type=urn:ietf:params:oauth:grant-type:devi
 | `400 { error: "access_denied" }` | the person refused | `SsoError::SignInDenied` |
 | `400 { error: "expired_token" }` | the code died | `SsoError::CodeExpired` |
 | `5xx` / transport | AWS or the network | one retry, then `SsoError::Unavailable` |
+
+A 4xx/5xx body is not a secret (`{"error":"invalid_client"}`, `InvalidRequestException: …`), so it is recorded verbatim — truncated and with any token field masked — in the `tracing::warn!` for the request and in the `SsoError::Unavailable` reason the person sees. Request bodies are never logged: they carry `clientSecret`, `deviceCode` and `refreshToken` (FR-035).
 
 The poll loop is bounded by `expiresIn` minus a 5-second guard, and by an overall 10-minute wall clock; both produce `CodeExpired` rather than hanging (FR-006, SC-002).
 
@@ -91,7 +107,7 @@ GET /federation/credentials?account_id=…&role_name=…
 
 - §4.1/§4.2 populate the pickers; a free-text fallback exists only when the portal returns an empty list (FR-007).
 - §4.3's three values become `RoleCredentials` in memory, never written (FR-009d).
-- The `Bearer` token is the session's `accessToken`; an expired one is refreshed with the `refreshToken` through the same `/token` endpoint (`grant_type=refresh_token`) before §4 is attempted.
+- The `Bearer` token is the session's `accessToken`; an expired one is refreshed with the `refreshToken` through the same `/token` endpoint, as the JSON body of §3 with `"grantType": "refresh_token"` and `"refreshToken"` in place of the device code, before §4 is attempted.
 
 ---
 
