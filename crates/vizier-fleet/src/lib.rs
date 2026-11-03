@@ -41,9 +41,29 @@ pub fn pending(role: ServerRole) -> Option<&'static str> {
     Some(issue)
 }
 
+/// What `role` needs from the bus. `vizier run` checks it against the backend before serving, so
+/// a backend that lacks a capability is refused with the missing one named.
+pub fn needs(role: ServerRole) -> vizier_schema::Capabilities {
+    match role {
+        ServerRole::GatewayHttp => GatewayHttp::needs(),
+        ServerRole::GatewayGrpc => GatewayGrpc::needs(),
+        ServerRole::Worker => Worker::needs(),
+        ServerRole::Channels => Channels::needs(),
+        ServerRole::Control => Control::needs(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_role_declares_what_it_needs_and_the_in_process_bus_meets_it() {
+        let bus = vizier_schema::InProcess::new().bus();
+        for role in ServerRole::ALL {
+            assert!(bus.require(&needs(role)).is_ok(), "{role:?}");
+        }
+    }
 
     #[test]
     fn every_role_names_the_issue_that_wires_it() {

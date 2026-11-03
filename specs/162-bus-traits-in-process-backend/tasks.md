@@ -155,13 +155,13 @@ description: "Task list for the Fleet message bus, in-process backend and role t
 
 ### Slice 7 — events
 
-- [ ] T065 [US1] Add `Serialize`/`Deserialize` to every `SessionFrame` payload type that lacks them (`ClientCallFrame`, question and sensitive-ask records, and any other) in `crates/vizier-core/src/transport/mod.rs` and the modules that define them
-- [ ] T066 [US1] Publish `SessionEvent` on `session.{id}.events` and `IntegrationChanged` on `integration.changed`; keep one `session.>` subscription demultiplexed in process so `subscribe_session_events` / `subscribe_integration_changes` keep their signatures and lag behaviour, in `crates/vizier-core/src/transport/mod.rs`
-- [ ] T067 [P] [US1] Verify and adjust the session-event consumers without changing their logic: `agents/agent/mod.rs`, `agents/background/mod.rs`, `agents/client/mod.rs`, `agents/process.rs`, `agents/steps.rs`, `channels/reactions.rs`, `channels/woken.rs`, `dependencies.rs`, `questions/sensitive.rs`, `questions/submit.rs`, `runtime.rs`, `crates/vizier-http/src/api/v1/agents/channel.rs`, `topic.rs`; and the integration consumers `agents/mod.rs`, `channels/connections.rs`, `integrations/service.rs`
-- [ ] T068 [P] [US1] Tests: two subscribers on one session both receive a frame once; a lagging subscriber logs and carries on; an integration change reaches `ChannelConnections` and the agent manager, in `crates/vizier-core/src/transport/mod.rs` `#[cfg(test)]`
-- [ ] T069 [US1] Remove every now-unused `flume` field and import from `crates/vizier-core/src/transport/` and confirm `grep -rn "flume::" crates/vizier-core/src/transport` returns nothing
-- [ ] T070 [US1] Check `Bus::require` is called for the selected roles before `run_server` starts them, in `crates/vizier/src/cli/server.rs`
-- [ ] T071 **COMMIT (slice 7)**: `refactor: [**breaking**] carry session and integration events on the bus (#162)`
+- [X] T065 [US1] Add `Serialize`/`Deserialize` to every `SessionFrame` payload type that lacks them (`ClientCallFrame`, question and sensitive-ask records, and any other) in `crates/vizier-core/src/transport/mod.rs` and the modules that define them
+- [X] T066 [US1] Publish `SessionEvent` on `session.{id}.events` and `IntegrationChanged` on `integration.changed`; keep one `session.>` subscription demultiplexed in process so `subscribe_session_events` / `subscribe_integration_changes` keep their signatures and lag behaviour, in `crates/vizier-core/src/transport/mod.rs`
+- [X] T067 [P] [US1] Verify and adjust the session-event consumers without changing their logic: `agents/agent/mod.rs`, `agents/background/mod.rs`, `agents/client/mod.rs`, `agents/process.rs`, `agents/steps.rs`, `channels/reactions.rs`, `channels/woken.rs`, `dependencies.rs`, `questions/sensitive.rs`, `questions/submit.rs`, `runtime.rs`, `crates/vizier-http/src/api/v1/agents/channel.rs`, `topic.rs`; and the integration consumers `agents/mod.rs`, `channels/connections.rs`, `integrations/service.rs`
+- [X] T068 [P] [US1] Tests: two subscribers on one session both receive a frame once; a lagging subscriber logs and carries on; an integration change reaches `ChannelConnections` and the agent manager, in `crates/vizier-core/src/transport/mod.rs` `#[cfg(test)]`
+- [X] T069 [US1] Remove every now-unused `flume` field and import from `crates/vizier-core/src/transport/` and confirm `grep -rn "flume::" crates/vizier-core/src/transport` returns nothing
+- [X] T070 [US1] Check `Bus::require` is called for the selected roles before `run_server` starts them, in `crates/vizier/src/cli/server.rs`
+- [X] T071 **COMMIT (slice 7)**: `refactor: [**breaking**] carry session and integration events on the bus (#162)`
 
 **Checkpoint**: US1 acceptance scenarios 1–6 hold; SC-001, SC-003, SC-005, SC-007 verified.
 

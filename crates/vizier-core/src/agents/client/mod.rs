@@ -115,7 +115,7 @@ impl ClientConnections {
 }
 
 /// One call as the protocol's `client_tool_call` frame carries it (§3).
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClientCallFrame {
     pub call_id: String,
     pub name: String,

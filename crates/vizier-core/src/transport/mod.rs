@@ -1,3 +1,4 @@
+mod events;
 mod inbox;
 mod reply;
 pub mod wire;
@@ -43,13 +44,13 @@ const HEALTH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 /// woke. WebUI sockets subscribe, each filtering on its own session, and Discord/Telegram
 /// readers subscribe for the woken turns of their own channels (`channels::woken`); a session
 /// nobody can watch (task, dream, inter-agent, subagent) has its events dropped.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SessionEvent {
     pub session: VizierSession,
     pub frame: SessionFrame,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum SessionFrame {
     Response(VizierResponse),
     Job(BackgroundJobSnapshot),
@@ -153,6 +154,9 @@ pub struct VizierTransport {
 
     session_events: tokio::sync::broadcast::Sender<SessionEvent>,
 
+    /// The event pump's outbox, started on first use (it needs a runtime).
+    pump: Arc<std::sync::OnceLock<tokio::sync::mpsc::UnboundedSender<events::Outgoing>>>,
+
     integration_events: tokio::sync::broadcast::Sender<IntegrationChanged>,
 
     /// Where durable requests are journaled (`specs/023-persist-turn-activity`). `None` for
@@ -178,18 +182,42 @@ impl VizierTransport {
             staging: None,
             session_events: tokio::sync::broadcast::channel(SESSION_EVENTS_CAPACITY).0,
             integration_events: tokio::sync::broadcast::channel(INTEGRATION_EVENTS_CAPACITY).0,
+            pump: Arc::new(std::sync::OnceLock::new()),
             journal: None,
         }
     }
 
-    #[doc(hidden)]
-    /// Publish to every subscriber of the session-event broadcast. Having no subscribers is
-    /// the normal case for most sessions, not an error.
-    pub fn publish_session_event(&self, ev: SessionEvent) {
-        let _ = self.session_events.send(ev);
+    /// The pump's outbox, starting the pump on first use. `None` outside a runtime.
+    fn pump(&self) -> Option<&tokio::sync::mpsc::UnboundedSender<events::Outgoing>> {
+        if let Some(outbox) = self.pump.get() {
+            return Some(outbox);
+        }
+        tokio::runtime::Handle::try_current().ok()?;
+        Some(self.pump.get_or_init(|| {
+            events::start(self.bus.clone(), self.session_events.clone(), self.integration_events.clone())
+        }))
     }
 
+    #[doc(hidden)]
+    /// Publish a session event on `session.{id}.events`. Having no subscribers is the normal
+    /// case for most sessions, not an error.
+    pub fn publish_session_event(&self, ev: SessionEvent) {
+        match self.pump() {
+            Some(outbox) => {
+                let _ = outbox.send(events::Outgoing::Session(ev));
+            }
+            // No runtime, so no bus: a plain local delivery.
+            None => {
+                let _ = self.session_events.send(ev);
+            }
+        }
+    }
+
+    /// Receive every session event, from this node or another. A subscriber that falls behind
+    /// loses events and sees `Lagged`.
     pub fn subscribe_session_events(&self) -> tokio::sync::broadcast::Receiver<SessionEvent> {
+        // Starting the pump here means its subscription exists before the first event is sent.
+        let _ = self.pump();
         self.session_events.subscribe()
     }
 
@@ -197,13 +225,21 @@ impl VizierTransport {
     /// Announce a committed integration write (contracts/runtime.md). Subscribers re-read
     /// storage, so a lost event costs nothing once the next one, or a `Lagged`, arrives.
     pub fn publish_integration_change(&self, ev: IntegrationChanged) {
-        let _ = self.integration_events.send(ev);
+        match self.pump() {
+            Some(outbox) => {
+                let _ = outbox.send(events::Outgoing::Integration(ev));
+            }
+            None => {
+                let _ = self.integration_events.send(ev);
+            }
+        }
     }
 
     #[doc(hidden)]
     pub fn subscribe_integration_changes(
         &self,
     ) -> tokio::sync::broadcast::Receiver<IntegrationChanged> {
+        let _ = self.pump();
         self.integration_events.subscribe()
     }
 
