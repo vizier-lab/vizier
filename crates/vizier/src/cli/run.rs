@@ -130,6 +130,13 @@ pub struct RunArgs {
 
     #[arg(
         long,
+        value_name = "SECS",
+        help = "maximum graceful shutdown drain time in seconds (default 30); env VIZIER_SHUTDOWN_GRACE"
+    )]
+    shutdown_grace: Option<u64>,
+
+    #[arg(
+        long,
         value_name = "BOOL",
         help = "refresh the model catalogue from models.dev when people use it (default true)"
     )]
@@ -210,7 +217,31 @@ fn resolve_roles(flag: Option<ServerRoleSet>) -> Result<ServerRoleSet> {
     check_roles(requested, compiled_roles())
 }
 
+const DEFAULT_SHUTDOWN_GRACE_SECS: u64 = 30;
+
+fn shutdown_grace(cli: Option<u64>, env: Option<&str>) -> Result<std::time::Duration> {
+    let seconds = match cli {
+        Some(value) => value,
+        None => match env {
+            Some(value) => value
+                .trim()
+                .parse()
+                .map_err(|_| anyhow::anyhow!("VIZIER_SHUTDOWN_GRACE must be a positive integer"))?,
+            None => DEFAULT_SHUTDOWN_GRACE_SECS,
+        },
+    };
+    if seconds == 0 {
+        anyhow::bail!("shutdown grace must be at least 1 second");
+    }
+    Ok(std::time::Duration::from_secs(seconds))
+}
+
 pub fn run(args: RunArgs) -> Result<()> {
+    let shutdown_grace = shutdown_grace(
+        args.shutdown_grace,
+        std::env::var("VIZIER_SHUTDOWN_GRACE").ok().as_deref(),
+    )?;
+
     super::logo::print_logo();
 
     let mut config = super::config_resolve::resolve(args.config.clone())?;
@@ -286,7 +317,7 @@ pub fn run(args: RunArgs) -> Result<()> {
         daemonize.start()?;
     }
 
-    if let Err(err) = run_server(config, roles) {
+    if let Err(err) = run_server(config, roles, shutdown_grace) {
         tracing::error!("server exited with error: {}", err);
         return Err(err);
     }
@@ -295,8 +326,26 @@ pub fn run(args: RunArgs) -> Result<()> {
 }
 
 #[cfg(test)]
-mod role_tests {
+mod tests {
     use super::*;
+
+    #[test]
+    fn shutdown_grace_precedence_and_validation() {
+        assert_eq!(
+            shutdown_grace(Some(12), Some("7")).unwrap(),
+            std::time::Duration::from_secs(12)
+        );
+        assert_eq!(
+            shutdown_grace(None, Some("7")).unwrap(),
+            std::time::Duration::from_secs(7)
+        );
+        assert_eq!(
+            shutdown_grace(None, None).unwrap(),
+            std::time::Duration::from_secs(DEFAULT_SHUTDOWN_GRACE_SECS)
+        );
+        assert!(shutdown_grace(Some(0), None).is_err());
+        assert!(shutdown_grace(None, Some("not-a-number")).is_err());
+    }
 
     #[test]
     fn all_is_one_process_doing_everything_and_needs_no_sub_issue() {
@@ -306,9 +355,12 @@ mod role_tests {
 
     #[test]
     fn a_selected_role_is_refused_with_its_sub_issue() {
-        let error = check_roles(ServerRoleSet::only(ServerRole::Worker), ServerRoleSet::all())
-            .unwrap_err()
-            .to_string();
+        let error = check_roles(
+            ServerRoleSet::only(ServerRole::Worker),
+            ServerRoleSet::all(),
+        )
+        .unwrap_err()
+        .to_string();
         assert!(error.contains("worker"), "{error}");
         assert!(error.contains("issues/168"), "{error}");
         assert!(error.contains("--role all"), "{error}");

@@ -38,3 +38,7 @@
 - [3.3 Generative UI](./api-integration/generative-ui.md)
 - [3.4 Examples](./api-integration/examples.md)
 - [3.5 Building on vizier-core](./api-integration/building-on-vizier-core.md)
+
+# 4. Deployment
+
+- [4.1 Kubernetes](./deployment/kubernetes.md)

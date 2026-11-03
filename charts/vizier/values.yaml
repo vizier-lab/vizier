@@ -1,0 +1,134 @@
+replicaCount: 1
+
+image:
+  repository: ghcr.io/vizier-lab/vizier
+  tag: ""
+  digest: ""
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+storage:
+  profile: embedded
+
+secrets:
+  jwt:
+    name: ""
+    key: ""
+  encryptionKey:
+    name: ""
+    key: ""
+
+managed:
+  database:
+    urlSecretRef:
+      name: ""
+      key: ""
+  objects:
+    endpoint: ""
+    bucket: ""
+    region: ""
+    prefix: ""
+    pathStyle: true
+    accessKeySecretRef:
+      name: ""
+      key: ""
+    secretKeySecretRef:
+      name: ""
+      key: ""
+    sessionTokenSecretRef:
+      name: ""
+      key: ""
+
+persistence:
+  enabled: true
+  existingClaim: ""
+  storageClass: ""
+  accessModes:
+    - ReadWriteOnce
+  size: 20Gi
+  annotations: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+  automountServiceAccountToken: false
+
+service:
+  type: ClusterIP
+  port: 9999
+  annotations: {}
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts: []
+  tls: []
+
+shutdown:
+  gracePeriodSeconds: 30
+terminationGracePeriodSeconds: 45
+
+startupProbe:
+  failureThreshold: 60
+  periodSeconds: 5
+  timeoutSeconds: 2
+readinessProbe:
+  failureThreshold: 3
+  periodSeconds: 5
+  timeoutSeconds: 2
+livenessProbe:
+  failureThreshold: 3
+  periodSeconds: 10
+  timeoutSeconds: 2
+
+podAnnotations: {}
+podLabels: {}
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  fsGroupChangePolicy: OnRootMismatch
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+  seccompProfile:
+    type: RuntimeDefault
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+    ephemeral-storage: 1Gi
+  limits:
+    cpu: "2"
+    memory: 4Gi
+    ephemeral-storage: 10Gi
+
+nodeSelector: {}
+tolerations: []
+
+trustedCa:
+  enabled: false
+  configMapName: ""
+  key: ca.crt
+affinity: {}
+topologySpreadConstraints: []
+priorityClassName: ""
+
+extraEnv: []
+extraEnvFrom: []
+extraVolumes: []
+extraVolumeMounts: []
+
+networkPolicy:
+  enabled: false
+  ingress: []
+  egress: []

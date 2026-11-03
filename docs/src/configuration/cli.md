@@ -35,6 +35,7 @@ vizier run --port 8080 --data-dir /srv/vizier --workers 8
 | `--objects <OBJECTS>` | Files: `local` (default) or `s3` (`VIZIER_S3_*` variables) |
 | `--workers <N>` | Tokio worker threads |
 | `--ws-idle-timeout <SECS>` | WebSocket idle timeout |
+| `--shutdown-grace <SECS>` | Maximum graceful HTTP/runtime drain time after SIGTERM or Ctrl-C (default `30`) |
 | `--catalogue-refresh <true\|false>` | Allow the lazy models.dev catalogue check (default `true`) |
 | `--catalogue-ttl <DURATION>` | How often that check may run (default `24h`) |
 | `--role <ROLE[,ROLE]>` | Which server roles this process runs: `all` (default), or a comma list of `gateway-http`, `gateway-grpc`, `worker`, `channels`, `control`. `VIZIER_ROLE` does the same for containers. See [Roles](#roles) |
@@ -149,6 +150,7 @@ The image (`blinfoldking/vizier`, also `ghcr.io/vizier-lab/vizier`) runs `vizier
 | `VIZIER_ROLE` | `--role` | `all` |
 | `VIZIER_WORKERS` | `--workers` | `4` |
 | `VIZIER_WS_IDLE_TIMEOUT` | `--ws-idle-timeout` | `300` |
+| `VIZIER_SHUTDOWN_GRACE` | `--shutdown-grace` | `30` |
 | `VIZIER_CATALOGUE_REFRESH` | `--catalogue-refresh` | `true` |
 | `VIZIER_CATALOGUE_TTL` | `--catalogue-ttl` | `24h` |
 | `VIZIER_JWT_SECRET` | env read by the default config | `vizier-default-secret-change-me` — **change it** |
