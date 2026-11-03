@@ -8,24 +8,25 @@
 //! as that connection.
 
 use anyhow::{Context, Result};
-use rusqlite::OptionalExtension;
+
+use crate::storage::sql::{self, OptionalExtension, params};
 
 use crate::{
     schema::SsoSessionSecret,
     storage::{
         sso_session::{SsoSessionStorage, SsoWrite},
-        sqlite::SqliteStorage,
+        sqlite::SqlStorage,
     },
 };
 
-impl SqliteStorage {
+impl SqlStorage {
     /// The stored envelope for `profile`, without decrypting it.
     fn sso_session_envelope(&self, profile: &str) -> Result<Option<String>> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let data = conn
             .query_row(
                 "SELECT data FROM bedrock_sso_session WHERE profile = ?1",
-                rusqlite::params![profile],
+                params![profile],
                 |row| row.get::<_, String>(0),
             )
             .optional()?;
@@ -34,7 +35,7 @@ impl SqliteStorage {
 }
 
 #[async_trait::async_trait]
-impl SsoSessionStorage for SqliteStorage {
+impl SsoSessionStorage for SqlStorage {
     async fn get_sso_session(&self, profile: &str) -> Result<Option<SsoSessionSecret>> {
         let Some(envelope) = self.sso_session_envelope(profile)? else {
             return Ok(None);
@@ -57,21 +58,20 @@ impl SsoSessionStorage for SqliteStorage {
         let envelope =
             crate::encryption::fields::protect_sso_session(&self.cipher, profile, &written.to_json())?;
 
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         // `IMMEDIATE` takes the write lock *before* the read below, so a second process on the
         // same workspace queues here rather than reading the old revision alongside this one and
         // then failing on the upgrade with "database is locked". The loser waits, re-reads, sees
         // a newer revision and is told to re-read the winner — a clean `Conflict`, which is what
         // makes renewal idempotent across processes (FR-014, spec edge case "two Vizier
         // processes"). `busy_timeout` is what turns the wait into patience instead of an error.
-        let tx = rusqlite::Transaction::new_unchecked(
-            &conn,
-            rusqlite::TransactionBehavior::Immediate,
-        )?;
+        // `conn.transaction()` issues `BEGIN IMMEDIATE` on SQLite (storage/sql/mod.rs), so the
+        // write lock is still taken before the read below.
+        let tx = conn.transaction()?;
         let current = tx
             .query_row(
                 "SELECT data FROM bedrock_sso_session WHERE profile = ?1",
-                rusqlite::params![profile],
+                params![profile],
                 |row| row.get::<_, String>(0),
             )
             .optional()?;
@@ -99,17 +99,17 @@ impl SsoSessionStorage for SqliteStorage {
         tx.execute(
             "INSERT INTO bedrock_sso_session (profile, data) VALUES (?1, ?2)
              ON CONFLICT(profile) DO UPDATE SET data = excluded.data",
-            rusqlite::params![profile, envelope],
+            params![profile, envelope],
         )?;
         tx.commit()?;
         Ok(SsoWrite::Written(written.revision))
     }
 
     async fn delete_sso_session(&self, profile: &str) -> Result<()> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         conn.execute(
             "DELETE FROM bedrock_sso_session WHERE profile = ?1",
-            rusqlite::params![profile],
+            params![profile],
         )?;
         Ok(())
     }
