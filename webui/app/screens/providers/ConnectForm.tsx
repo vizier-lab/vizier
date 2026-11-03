@@ -1,5 +1,5 @@
 import { Button, Notice, Select, TextField } from '@vizier/design'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { ProviderGuide, ProviderSummary } from '../../api/endpoints/catalogue'
 import {
     saveProvider,
@@ -37,8 +37,11 @@ type Props = {
  * while it is signed in — when it runs out. Not one field of the session itself: the server sends
  * no token, code or key, and this section could not draw one if it did (FR-035).
  */
-export function SessionState({ session }: { session: SsoStateView }) {
+export function SessionState({ session, onReSignIn }: { session: SsoStateView; onReSignIn?: () => void }) {
     const { label, detail } = ssoStateText(session.state)
+    // Only a session that ran out or cannot be read needs renewing: a live one already has the
+    // panel's own "Sign in again", and a configured one has nothing to renew yet.
+    const renewable = session.state === 'expired' || session.state === 'unreadable'
     return (
         <section className="flex flex-col gap-6 rounded-lg border border-border bg-raised p-12" aria-label="Session">
             <p className="type-ui-medium text-fg">{label}</p>
@@ -46,6 +49,15 @@ export function SessionState({ session }: { session: SsoStateView }) {
             {session.profile && <p className="type-small text-muted">Profile {session.profile}</p>}
             {session.state === 'signed-in' && session.expires_at && (
                 <p className="type-small text-muted">The session ends {absoluteTime(session.expires_at)}</p>
+            )}
+            {/* `type="button"` is not decoration: this card sits inside the form, so a submit button
+                would save the credentials instead of asking for a new code. */}
+            {onReSignIn && renewable && (
+                <div className="flex">
+                    <Button type="button" variant="secondary" onClick={onReSignIn}>
+                        Sign in again
+                    </Button>
+                </div>
             )}
         </section>
     )
@@ -131,12 +143,14 @@ const SIGN_IN_FIELDS: CredentialField[] = ['start_url', 'sso_region']
 export type SignedIn = Extract<SignInProgress, { state: 'signed-in' }>
 
 /** The panel's phase, from the first click to the answer it settles on. */
-export type SignInPhase = 'idle' | 'starting' | 'waiting' | 'signed-in' | 'failed'
+export type SignInPhase = 'idle' | 'starting' | 'waiting' | 'pending' | 'signed-in' | 'failed'
 
 /** What one answer to the sign-in call means, read before any panel state is touched. */
 export type SignInStep =
     | { kind: 'started'; started: SignInStarted }
-    | { kind: 'pending' }
+    // Pending carries when the flow still running elsewhere gives up, and no code: the server
+    // cannot send one a second time (contracts §3).
+    | { kind: 'pending'; expires_at: string }
     | { kind: 'signed-in'; session: SignedIn }
 
 /**
@@ -157,7 +171,24 @@ export function signInStep(answer: SignInResponse): SignInStep {
             },
         }
     }
-    return { kind: 'pending' }
+    return { kind: 'pending', expires_at: answer.expires_at }
+}
+
+/**
+ * One call to the sign-in endpoint, read as a step. The panel and its tests share this seam, so a
+ * test reads the body a click really sends rather than a second copy of it.
+ */
+export async function startSignIn(
+    providerId: string,
+    request: SignInRequest,
+    call: typeof ssoSignIn = ssoSignIn,
+): Promise<SignInStep> {
+    return signInStep(await call(providerId, request))
+}
+
+/** What a re-sign-in asks for: nothing, so the server falls back to the saved connection (FR-008). */
+export function reSignInSignIn(providerId: string, call: typeof ssoSignIn = ssoSignIn): Promise<SignInStep> {
+    return startSignIn(providerId, {}, call)
 }
 
 /**
@@ -185,16 +216,21 @@ function SignIn({
     providerId,
     values,
     onPicked,
+    reSignIn,
 }: {
     providerId: string
     values: Partial<Record<CredentialField, string>>
     /** The chosen pair, kept in the form so saving stores it with the connection (FR-007). */
     onPicked: (accountId: string, roleName: string) => void
+    /** Bumped by the session card: each new value asks for one code against the saved connection. */
+    reSignIn?: number
 }) {
-    const [phase, setPhase] = useState<'idle' | 'starting' | 'waiting' | 'signed-in' | 'failed'>('idle')
+    const [phase, setPhase] = useState<SignInPhase>('idle')
     /** The request this attempt was started with: typed later, the form must not change it. */
     const [sent, setSent] = useState<SignInRequest>()
     const [started, setStarted] = useState<SignInStarted>()
+    /** When a flow left running elsewhere gives up: what a `pending` answer carries instead of a code. */
+    const [pendingUntil, setPendingUntil] = useState<string>()
     const [session, setSession] = useState<SignedIn>()
     const [failure, setFailure] = useState<string>()
     const [accounts, setAccounts] = useState<AccountList>()
@@ -211,31 +247,38 @@ function SignIn({
     function failed(message: string) {
         setFailure(message)
         setStarted(undefined)
+        setPendingUntil(undefined)
         setPhase('failed')
     }
 
     function signedIn(answer: SignedIn) {
         setSession(answer)
         setStarted(undefined)
+        setPendingUntil(undefined)
         setPhase('signed-in')
         // What the sign-in resolved is the default pair; the person may still pick another.
         if (answer.account_id || answer.role_name) pick(answer.account_id ?? '', answer.role_name ?? '')
     }
 
-    async function start() {
+    /**
+     * Ask for a code. Without a body the form's own fields are sent; with `{}` the server falls
+     * back to the saved connection, which is all a re-sign-in asks for (FR-008).
+     */
+    async function start(body?: SignInRequest) {
         setFailure(undefined)
         setSession(undefined)
         setStarted(undefined)
+        setPendingUntil(undefined)
         setAccounts(undefined)
         setRoles(undefined)
         setAccount('')
         setRole('')
         onPicked('', '')
         setPhase('starting')
-        const request = signInRequest(values)
+        const request = body ?? signInRequest(values)
         setSent(request)
         try {
-            const step = signInStep(await ssoSignIn(providerId, request))
+            const step = await startSignIn(providerId, request)
             if (step.kind === 'started') {
                 setStarted(step.started)
                 setPhase('waiting')
@@ -245,23 +288,45 @@ function SignIn({
                 signedIn(step.session)
                 return
             }
-            failed('The sign-in is already in progress somewhere else. Start again.')
+            // Still waiting for approval is a normal answer: a flow for this profile is open
+            // somewhere. Its code cannot be drawn here a second time, so wait for it instead of
+            // calling it a failure (contracts §3).
+            setPendingUntil(step.expires_at)
+            setPhase('pending')
         } catch (err) {
             failed(err instanceof Error ? err.message : 'The sign-in could not be started.')
         }
     }
 
-    // Poll the same call until it is approved, denied or expires (contracts §3: 202 = pending).
+    // The session card's "Sign in again": the ref keeps each bump to exactly one start. `start`
+    // stays out of the dependencies because its identity changes on every render.
+    const handledReSignIn = useRef(0)
     useEffect(() => {
-        if (!started || !sent) return
+        if (!reSignIn || reSignIn === handledReSignIn.current) return
+        handledReSignIn.current = reSignIn
+        void start({})
+    }, [reSignIn])
+
+    // Poll the same call until it is approved, denied or expires (contracts §3: 202 = pending).
+    // A `pending` start has no code to draw, but its flow is still alive: the same call with the
+    // same body is what finishes it, so waiting is a way out rather than a dead end.
+    useEffect(() => {
+        const waiting = phase === 'waiting' && started
+        const pending = phase === 'pending' && pendingUntil
+        if (!sent || (!waiting && !pending)) return
+        const forPending = !waiting
         let cancelled = false
-        const interval = Math.max(started.interval_seconds, 5) * 1000
-        const deadline = Date.parse(started.expires_at)
+        const interval = (started ? Math.max(started.interval_seconds, 5) : 5) * 1000
+        const deadline = Date.parse(started?.expires_at ?? pendingUntil ?? '')
         const poll = async () => {
             await new Promise((resolve) => setTimeout(resolve, interval))
             if (cancelled) return
             if (Date.now() > deadline) {
-                failed('The sign-in code expired. Start again.')
+                failed(
+                    forPending
+                        ? 'The sign-in waiting for approval has expired. Start again.'
+                        : 'The sign-in code expired. Start again.',
+                )
                 return
             }
             try {
@@ -286,7 +351,7 @@ function SignIn({
         return () => {
             cancelled = true
         }
-    }, [started, sent, providerId])
+    }, [phase, started, pendingUntil, sent, providerId])
 
     // After a sign-in: the accounts it is assigned, then the roles granted in the chosen account.
     useEffect(() => {
@@ -327,7 +392,7 @@ function SignIn({
 
     return (
         <SignInPanel
-            state={{ phase, started, session, failure, accounts, roles, account, role }}
+            state={{ phase, started, pendingUntil, session, failure, accounts, roles, account, role }}
             onStart={() => void start()}
             onPick={pick}
         />
@@ -338,6 +403,8 @@ function SignIn({
 export type SignInPanelState = {
     phase: SignInPhase
     started?: SignInStarted
+    /** The deadline a `pending` answer named: the flow's own window, shown instead of a code. */
+    pendingUntil?: string
     session?: SignedIn
     failure?: string
     accounts?: AccountList
@@ -360,7 +427,7 @@ export function SignInPanel({
     onStart: () => void
     onPick: (accountId: string, roleName: string) => void
 }) {
-    const { phase, started, session, failure, accounts, roles, account, role } = state
+    const { phase, started, pendingUntil, session, failure, accounts, roles, account, role } = state
     const listedNothing = phase === 'signed-in' && accounts && (accounts.fallback || accounts.accounts.length === 0)
     const noRoles = phase === 'signed-in' && account !== '' && roles && (roles.fallback || roles.roles.length === 0)
 
@@ -375,7 +442,7 @@ export function SignInPanel({
                     </p>
                 </div>
                 <Button type="button" variant="ghost" loading={phase === 'starting'} onClick={onStart}>
-                    {phase === 'waiting' ? 'Start again' : session ? 'Sign in again' : 'Sign in'}
+                    {phase === 'waiting' || phase === 'pending' ? 'Start again' : session ? 'Sign in again' : 'Sign in'}
                 </Button>
             </div>
 
@@ -399,6 +466,17 @@ export function SignInPanel({
                         Waiting for the confirmation… Checking back every {started.interval_seconds} seconds.
                     </p>
                 </div>
+            )}
+
+            {phase === 'pending' && (
+                <Notice tone="info" title="Waiting for approval">
+                    <p>A sign-in for this profile is still waiting for approval.</p>
+                    <p>Its code cannot be shown again here, so confirm it in the browser where you started it.</p>
+                    {pendingUntil && (
+                        <p>If that window is gone, wait until {absoluteTime(pendingUntil)} and start again.</p>
+                    )}
+                    <p aria-live="polite">Checking back every 5 seconds.</p>
+                </Notice>
             )}
 
             {session && (
@@ -468,6 +546,8 @@ export function ConnectForm({ provider, editing, onDone, onCancel, submitLabel, 
         Object.fromEntries(fields.filter((f) => f === 'endpoint' || f === 'base_url').map((f) => [f, provider.endpoint ?? ''])) as Partial<Record<CredentialField, string>>
     )
     const [busy, setBusy] = useState(false)
+    /** Bumped by the session card's "Sign in again": each click asks the panel for one new code. */
+    const [reSignIn, setReSignIn] = useState(0)
     const [error, setError] = useState<string>()
     const [result, setResult] = useState<TestResult>()
 
@@ -499,7 +579,7 @@ export function ConnectForm({ provider, editing, onDone, onCancel, submitLabel, 
             }}
         >
             {provider.guide && <Guide guide={provider.guide} editing={editing} />}
-            {session && <SessionState session={session} />}
+            {session && <SessionState session={session} onReSignIn={signsIn ? () => setReSignIn((n) => n + 1) : undefined} />}
             {fields.map((f, i) => (
                 <TextField
                     key={f}
@@ -517,6 +597,7 @@ export function ConnectForm({ provider, editing, onDone, onCancel, submitLabel, 
                 <SignIn
                     providerId={provider.id}
                     values={values}
+                    reSignIn={reSignIn}
                     onPicked={(accountId, roleName) =>
                         setValues((v) => ({ ...v, account_id: accountId, role_name: roleName }))
                     }

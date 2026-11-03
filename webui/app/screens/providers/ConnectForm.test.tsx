@@ -1,10 +1,10 @@
 import { renderToString } from 'react-dom/server'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { ProviderSummary } from '../../api/endpoints/catalogue'
-import type { SignInResponse, SignInStarted } from '../../api/endpoints/providers'
+import type { SignInRequest, SignInResponse, SignInStarted, ssoSignIn } from '../../api/endpoints/providers'
 import { absoluteTime } from '../../lib/format'
 import type { SsoStateView } from '../../lib/providers'
-import { ConnectForm, SessionState, SignInPanel, signInStep, type SignInPanelState } from './ConnectForm'
+import { ConnectForm, reSignInSignIn, SessionState, SignInPanel, signInStep, type SignInPanelState } from './ConnectForm'
 
 type Provider = Parameters<typeof ConnectForm>[0]['provider']
 
@@ -142,7 +142,11 @@ function expectNoSecrets(html: string) {
 describe('the sign-in panel', () => {
     it('reads a fresh code, still waiting and done apart', () => {
         expect(signInStep(STARTED)).toEqual({ kind: 'started', started: STARTED })
-        expect(signInStep({ state: 'pending', expires_at: STARTED.expires_at })).toEqual({ kind: 'pending' })
+        // Pending now carries its own expiry: the panel has no code, but it can say when the flow ends.
+        expect(signInStep({ state: 'pending', expires_at: STARTED.expires_at })).toEqual({
+            kind: 'pending',
+            expires_at: STARTED.expires_at,
+        })
         // The approved answer is narrowed to the three fields the contract may show (FR-035).
         const step = signInStep(ANSWER)
         expect(step.kind).toBe('signed-in')
@@ -168,6 +172,23 @@ describe('the sign-in panel', () => {
         expect(html).toContain('Start again')
         // Nothing of an answer that has not resolved yet.
         expect(html).not.toContain('the session ends')
+        expect(html).not.toContain('Sign-in did not complete')
+        expectNoSecrets(html)
+    })
+
+    it('pending on the way in: names the wait and its deadline instead of calling it a failure', () => {
+        const html = drawSignIn({ phase: 'pending', pendingUntil: STARTED.expires_at })
+        // The 202 answer is normal (contracts §3): the old "in progress somewhere else" verdict is gone.
+        expect(html).not.toContain('already in progress somewhere else')
+        expect(html).toContain('Waiting for approval')
+        expect(html).toContain('still waiting for approval')
+        expect(html).toContain('cannot be shown again')
+        expect(html).toContain(absoluteTime(STARTED.expires_at))
+        expect(html).toContain('Start again')
+        expect(html).toContain('Checking back every')
+        // No code is drawn or restored, and nothing failed.
+        expect(html).not.toContain('Type this code at')
+        expect(html).not.toContain('ABCD-EFGH')
         expect(html).not.toContain('Sign-in did not complete')
         expectNoSecrets(html)
     })
@@ -205,6 +226,26 @@ describe('the sign-in panel', () => {
         expectNoSecrets(html)
     })
 })
+// ---- Asking again against the saved connection (spec 044, FR-008)
+
+describe('the re-sign-in', () => {
+    it('sends an empty body, so the server falls back to the saved connection', async () => {
+        const call = vi.fn(async (_providerId: string, _request?: SignInRequest) => ({
+            state: 'pending',
+            expires_at: STARTED.expires_at,
+        }))
+        const step = await reSignInSignIn('amazon-bedrock-sso', call as unknown as typeof ssoSignIn)
+        expect(step).toEqual({ kind: 'pending', expires_at: STARTED.expires_at })
+        expect(call).toHaveBeenCalledTimes(1)
+        expect(call.mock.calls[0][0]).toBe('amazon-bedrock-sso')
+        expect(call.mock.calls[0][1]).toEqual({})
+        // Nothing of the saved connection is re-sent, and no profile overrides it either.
+        expect(call.mock.calls[0][1]).not.toHaveProperty('start_url')
+        expect(call.mock.calls[0][1]).not.toHaveProperty('sso_region')
+        expect(call.mock.calls[0][1]).not.toHaveProperty('profile')
+    })
+})
+
 describe('the sign-in form', () => {
     it('draws the sign-in half only for a provider that asks for a start url and an sso region', () => {
         // The listing's own field union lags the endpoint's (catalogue.ts:22); the server does
@@ -263,6 +304,37 @@ describe('the stored session state', () => {
         // A connection with no stored session draws no such section at all.
         const fresh = renderToString(<ConnectForm provider={sso()} editing onDone={() => {}} onCancel={() => {}} />)
         expect(fresh).not.toContain('aria-label="Session"')
+    })
+
+    it('offers "Sign in again" from the card for expired and unreadable sessions only', () => {
+        // Both states have a session to renew; the card is the place it is read.
+        for (const state of ['expired', 'unreadable'] as const) {
+            const html = renderToString(<SessionState session={{ state, profile: 'team-dev' }} onReSignIn={() => {}} />)
+            expect(html).toContain('>Sign in again<')
+            // Inside the form: a submit button here would save the credentials instead.
+            expect(html).toContain('type="button"')
+        }
+        // A live session has the panel's own button; a configured one has nothing to renew yet.
+        for (const state of ['signed-in', 'configured'] as const) {
+            const html = renderToString(<SessionState session={{ state, profile: 'team-dev' }} onReSignIn={() => {}} />)
+            expect(html).not.toContain('>Sign in again<')
+        }
+        // Without a callback the card stays read-only.
+        const readOnly = renderToString(<SessionState session={{ state: 'expired', profile: 'team-dev' }} />)
+        expect(readOnly).not.toContain('>Sign in again<')
+    })
+
+    it('wires the card to a new code in the form, and leaves a signed-in session alone', () => {
+        const expired = renderToString(
+            <ConnectForm provider={sso()} editing session={{ state: 'expired', profile: 'team-dev' }} onDone={() => {}} onCancel={() => {}} />
+        )
+        expect(expired).toContain('aria-label="Session"')
+        expect(expired).toContain('>Sign in again<')
+        const signedIn = renderToString(
+            <ConnectForm provider={sso()} editing session={{ state: 'signed-in', profile: 'team-dev' }} onDone={() => {}} onCancel={() => {}} />
+        )
+        expect(signedIn).toContain('aria-label="Session"')
+        expect(signedIn).not.toContain('>Sign in again<')
     })
 
     it('shows no token, code or key, even when the session object carries one', () => {
