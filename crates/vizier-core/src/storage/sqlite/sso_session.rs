@@ -120,22 +120,21 @@ mod tests {
     use std::sync::Arc;
 
     use chrono::{Duration, Utc};
-    use parking_lot::Mutex;
 
     use super::*;
     use crate::{
         encryption::{IntegrationSecretPaths, SecretCipher},
-        storage::document::LocalDocumentStore,
+        storage::{document::BlobDocumentStore, sql::SqlStore},
     };
 
     /// An encrypted store over an in-memory database, so a test can see the envelope itself.
-    fn setup() -> (SqliteStorage, tempfile::TempDir) {
+    fn setup() -> (SqlStorage, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
         let conn = rusqlite::Connection::open_in_memory().unwrap();
-        SqliteStorage::init_schema(&conn).unwrap();
-        let storage = SqliteStorage::with_secrets(
-            Arc::new(Mutex::new(conn)),
-            Arc::new(LocalDocumentStore::new(dir.path().to_path_buf())),
+        SqlStorage::init_schema(&conn).unwrap();
+        let storage = SqlStorage::with_secrets(
+            SqlStore::sqlite(conn),
+            Arc::new(BlobDocumentStore::local(dir.path().to_path_buf())),
             SecretCipher::from_key_for_test([7u8; 32]),
             Arc::new(NoSecretPaths),
         );
@@ -164,11 +163,11 @@ mod tests {
         }
     }
 
-    fn raw_row(storage: &SqliteStorage, profile: &str) -> String {
-        let conn = storage.conn.lock();
+    fn raw_row(storage: &SqlStorage, profile: &str) -> String {
+        let conn = storage.conn.lock().unwrap();
         conn.query_row(
             "SELECT data FROM bedrock_sso_session WHERE profile = ?1",
-            rusqlite::params![profile],
+            params![profile],
             |row| row.get(0),
         )
         .unwrap()
@@ -177,17 +176,17 @@ mod tests {
     /// Two storage handles over one file, the way two Vizier processes share a workspace: separate
     /// connections, one workspace key, one busy timeout each (FR-014, spec edge case "two Vizier
     /// processes").
-    fn two_processes() -> (SqliteStorage, SqliteStorage, tempfile::TempDir) {
+    fn two_processes() -> (SqlStorage, SqlStorage, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("vizier.sqlite3");
         let open = || {
             let conn = rusqlite::Connection::open(&path).unwrap();
             conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;")
                 .unwrap();
-            SqliteStorage::init_schema(&conn).unwrap();
-            SqliteStorage::with_secrets(
-                Arc::new(Mutex::new(conn)),
-                Arc::new(LocalDocumentStore::new(dir.path().to_path_buf())),
+            SqlStorage::init_schema(&conn).unwrap();
+            SqlStorage::with_secrets(
+                SqlStore::sqlite(conn),
+                Arc::new(BlobDocumentStore::local(dir.path().to_path_buf())),
                 SecretCipher::from_key_for_test([7u8; 32]),
                 Arc::new(NoSecretPaths),
             )
@@ -234,10 +233,10 @@ mod tests {
         // must fail to open rather than hand one connection another's session (FR-009b).
         let envelope = raw_row(&storage, "acme-bedrock");
         {
-            let conn = storage.conn.lock();
+            let conn = storage.conn.lock().unwrap();
             conn.execute(
                 "INSERT INTO bedrock_sso_session (profile, data) VALUES (?1, ?2)",
-                rusqlite::params!["other-profile", envelope],
+                params!["other-profile", envelope],
             )
             .unwrap();
         }

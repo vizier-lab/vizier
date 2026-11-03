@@ -690,7 +690,7 @@ mod dummyplug_provider_tests {
             let echoed = format!("\"{forbidden}\":");
             assert!(!json.contains(&echoed), "{json}");
         }
-        let raw = vizier_core::storage::sqlite::SqliteStorage::open_connection(
+        let raw = vizier_core::storage::sqlite::SqlStorage::open_connection(
             dir.path().to_str().unwrap(),
         )
         .unwrap()
