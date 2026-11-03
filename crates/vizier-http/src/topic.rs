@@ -98,7 +98,6 @@ impl TopicConnection {
         let limits = ClientLimits {
             events: state.client_events.clone(),
             state_saves: state.client_state_saves.clone(),
-            deferred: state.deferred_client_calls.clone(),
         };
         // The client tool calls' frames, as JSON values: the engine has no socket types.
         let (client_tx, client_rx) = mpsc::channel::<serde_json::Value>(64);
@@ -107,7 +106,7 @@ impl TopicConnection {
         let connection = ClientConnection::new(client_tx);
 
         // Calls deferred while no client was here are this connection's to deliver first.
-        spawn_delivery(&state.storage, &state.transport, &session, &connection, &limits.deferred, None);
+        spawn_delivery(&state.storage, &state.transport, &session, &connection, None);
 
         // A dialog still open survives a reload or a second tab: the asks are replayed from
         // storage, so nothing about a live ask is held only in the process that asked
@@ -440,7 +439,7 @@ impl TopicOutbound {
                                 })
                             ),
                             SessionFrame::ClientCallDeferred { call_id } => {
-                                spawn_delivery(&self.storage, &self.transport, &self.session, &self.connection, &self.limits.deferred, Some(vec![call_id]));
+                                spawn_delivery(&self.storage, &self.transport, &self.session, &self.connection, Some(vec![call_id]));
                                 None
                             }
                             SessionFrame::HistoryEntry(entry) => {

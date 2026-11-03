@@ -488,51 +488,55 @@ impl ClientTools {
     }
 }
 
-/// The deferred calls some connection is delivering right now, process-wide, so two sockets
-/// on one conversation never both run the same call.
-#[derive(Default)]
-pub struct DeferredClaims(std::sync::Mutex<std::collections::HashSet<String>>);
-
-/// Held while a connection delivers a call; releases the claim when dropped.
-pub struct DeferredClaim<'a> {
-    claims: &'a DeferredClaims,
-    call_id: String,
-}
-
-impl DeferredClaims {
-    pub fn claim(&self, call_id: &str) -> Option<DeferredClaim<'_>> {
-        let mut claimed = self.0.lock().ok()?;
-        claimed.insert(call_id.to_string()).then(|| DeferredClaim {
-            claims: self,
-            call_id: call_id.to_string(),
-        })
-    }
-}
-
-impl Drop for DeferredClaim<'_> {
-    fn drop(&mut self) {
-        if let Ok(mut claimed) = self.claims.0.lock() {
-            claimed.remove(&self.call_id);
-        }
-    }
-}
+/// How long a delivery claim is held before it lapses: a gateway that dies mid-delivery
+/// must not keep the call for ever. Longer than [`DEFERRED_ANSWER_LIMIT`], so a delivery
+/// waiting for an answer is never taken over.
+const CLAIM_TIMEOUT: chrono::Duration = chrono::Duration::seconds(120);
 
 /// Deliver one deferred call to `connection` and record its answer (research R18). Does
-/// nothing if another connection is delivering it, or it is no longer a deferred call of
+/// nothing if another gateway is delivering it, or it is no longer a deferred call of
 /// `session`. A connection that closes before answering leaves it deferred for the next one.
 pub async fn deliver_deferred(
     storage: &VizierStorage,
     transport: &VizierTransport,
     session: &VizierSession,
     connection: &ClientConnection,
-    claims: &DeferredClaims,
+    call_id: &str,
+) {
+    // The claim is a lease on the stored row (`specs/163-agent-service-seam` research R7):
+    // one conditional update, so exactly one gateway's statement changes the row and
+    // exactly one of them delivers the call.
+    let claimant = connection.id.clone();
+    match storage.claim_client_call(call_id, &claimant, CLAIM_TIMEOUT).await {
+        Ok(true) => {}
+        // Another gateway is delivering it.
+        Ok(false) => return,
+        Err(e) => {
+            tracing::warn!(call_id, "failed to claim the deferred client tool call: {e}");
+            return;
+        }
+    }
+    deliver_claimed(storage, transport, session, connection, call_id).await;
+    // The delivery is over: the claim is free again, whether the call was answered or not.
+    if let Err(e) = storage.release_client_call_claim(call_id, &claimant).await {
+        tracing::warn!(
+            call_id,
+            "failed to release the deferred client tool call claim: {e}"
+        );
+    }
+}
+
+/// Deliver a call whose claim is already taken, and record its answer. The caller gives
+/// the claim back when this returns.
+async fn deliver_claimed(
+    storage: &VizierStorage,
+    transport: &VizierTransport,
+    session: &VizierSession,
+    connection: &ClientConnection,
     call_id: &str,
 ) {
     use crate::storage::reaction::ReactionStorage;
 
-    let Some(_claim) = claims.claim(call_id) else {
-        return;
-    };
     let entry = match storage.get_history_entry(call_id).await {
         Ok(Some(entry)) if &entry.vizier_session == session => entry,
         Ok(_) => return,
@@ -1092,7 +1096,6 @@ mod tests {
         );
 
         // A connection that drops before answering leaves it deferred.
-        let claims = DeferredClaims::default();
         let (dropped, mut dropped_rx) = ClientConnection::for_tests();
         let delivery = {
             let (storage, transport, dropped, call_id) = (
@@ -1101,22 +1104,22 @@ mod tests {
                 dropped.clone(),
                 call_id.clone(),
             );
-            let claims = Arc::new(claims);
-            let c = claims.clone();
-            (
-                tokio::spawn(async move {
-                    deliver_deferred(&storage, &transport, &session(), &dropped, &c, &call_id).await
-                }),
-                claims,
-            )
+            tokio::spawn(async move {
+                deliver_deferred(&storage, &transport, &session(), &dropped, &call_id).await
+            })
         };
         let frame = next_call(&mut dropped_rx).await;
         assert_eq!(frame["deferred"], true);
         assert_eq!(frame["arguments"]["prompt"], "x");
-        // Claimed: a second connection does not get it meanwhile.
-        assert!(delivery.1.claim(&call_id).is_none());
+        // Claimed: another gateway does not get it meanwhile.
+        assert!(
+            !s.storage
+                .claim_client_call(&call_id, "another-gateway", CLAIM_TIMEOUT)
+                .await
+                .unwrap()
+        );
         dropped.close();
-        delivery.0.await.unwrap();
+        delivery.await.unwrap();
         assert_eq!(
             outcome_of(&s.storage, &call_id).await,
             Some(ClientCallOutcome::Deferred)
@@ -1125,15 +1128,14 @@ mod tests {
         // The next connection answers it.
         let (next, mut next_rx) = ClientConnection::for_tests();
         let task = {
-            let (storage, transport, next, call_id, claims) = (
+            let (storage, transport, next, call_id) = (
                 s.storage.clone(),
                 s.transport.clone(),
                 next.clone(),
                 call_id.clone(),
-                delivery.1.clone(),
             );
             tokio::spawn(async move {
-                deliver_deferred(&storage, &transport, &session(), &next, &claims, &call_id).await
+                deliver_deferred(&storage, &transport, &session(), &next, &call_id).await
             })
         };
         next_call(&mut next_rx).await;

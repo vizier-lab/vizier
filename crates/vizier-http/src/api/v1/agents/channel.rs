@@ -15,7 +15,7 @@ use tokio::sync::mpsc;
 
 use vizier_core::{
     agents::client::{
-        ClientAnswer, ClientConnection, DeferredClaims, declare, deliver_deferred,
+        ClientAnswer, ClientConnection, declare, deliver_deferred,
     },
     channels::reactions::{self, ApplyOutcome, ReactionChange, ReactionKind, ReactionTarget},
     schema::{
@@ -403,8 +403,6 @@ pub struct ClientLimits {
     pub events: std::sync::Arc<RateLimiter>,
     /// Saved state, keyed by call id.
     pub state_saves: std::sync::Arc<RateLimiter>,
-    /// Deferred calls being delivered by some socket right now.
-    pub deferred: std::sync::Arc<DeferredClaims>,
 }
 
 /// Deliver deferred calls to this socket in the background (research R18), so a slow answer
@@ -414,15 +412,13 @@ pub(crate) fn spawn_delivery(
     transport: &VizierTransport,
     session: &VizierSession,
     connection: &std::sync::Arc<ClientConnection>,
-    claims: &std::sync::Arc<DeferredClaims>,
     call_ids: Option<Vec<String>>,
 ) {
-    let (storage, transport, session, connection, claims) = (
+    let (storage, transport, session, connection) = (
         storage.clone(),
         transport.clone(),
         session.clone(),
         connection.clone(),
-        claims.clone(),
     );
     tokio::spawn(async move {
         let call_ids = match call_ids {
@@ -436,14 +432,7 @@ pub(crate) fn spawn_delivery(
             },
         };
         futures::future::join_all(call_ids.iter().map(|call_id| {
-            deliver_deferred(
-                &storage,
-                &transport,
-                &session,
-                &connection,
-                &claims,
-                call_id,
-            )
+            deliver_deferred(&storage, &transport, &session, &connection, call_id)
         }))
         .await;
     });

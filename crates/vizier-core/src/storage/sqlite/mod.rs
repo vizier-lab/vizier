@@ -623,12 +623,19 @@ pub fn init_client_call_schema(conn: &Connection) -> Result<()> {
             state            TEXT,
             state_updated_at TEXT,
             created_at       TEXT NOT NULL,
-            finished_at      TEXT
+            finished_at      TEXT,
+            claimed_by       TEXT,
+            claimed_at       TEXT
         );
         CREATE INDEX IF NOT EXISTS idx_client_call_session ON client_tool_call(agent_id, channel, topic);
         CREATE INDEX IF NOT EXISTS idx_client_call_pending ON client_tool_call(status) WHERE status = 'pending';
         ",
     )?;
+    // The claim is a lease on the row (`specs/163-agent-service-seam` research R7), not a
+    // status. `CREATE TABLE IF NOT EXISTS` does nothing to a table that is already there,
+    // so an existing workspace gets the two columns here.
+    add_column_if_missing(conn, "client_tool_call", "claimed_by", "TEXT")?;
+    add_column_if_missing(conn, "client_tool_call", "claimed_at", "TEXT")?;
     Ok(())
 }
 
