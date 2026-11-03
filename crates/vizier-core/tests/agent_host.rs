@@ -4,8 +4,6 @@
 //! to hold. No gateway is running here, and no other role: the host answers for the agents
 //! it holds and refuses the ones it does not.
 
-use std::sync::Arc;
-
 use vizier_core::agents::AgentHost;
 use vizier_core::agents_client::{
     AgentUnavailable, AgentUnavailableReason, AgentsClient, LocalAgentsClient, availability,
