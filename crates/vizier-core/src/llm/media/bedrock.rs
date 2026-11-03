@@ -80,6 +80,16 @@ impl EmbeddingFamily {
     /// The same families as bare model ids, for the ARN refusal (FR-033a).
     pub const MODELS: &'static str = "amazon.titan-embed-text-v2:0, \
          amazon.titan-embed-text-v1, cohere.embed-english-v3, cohere.embed-multilingual-v3";
+
+    /// Every foundation model this capability accepts, in the order a picker shows them: the
+    /// documented default first. The embedding picker offers exactly these and never an ARN,
+    /// because an ARN is a chat model and no embedding can be derived from one (FR-033a).
+    pub const ALL: [&'static str; 4] = [
+        DEFAULT_EMBEDDING_MODEL,
+        "amazon.titan-embed-text-v1",
+        "cohere.embed-english-v3",
+        "cohere.embed-multilingual-v3",
+    ];
 }
 
 /// Bedrock embeddings: Titan embeds one text per call; Cohere batches.
@@ -222,6 +232,9 @@ impl ImageFamily {
 
     /// The same families as bare model ids, for the ARN refusal (FR-033a).
     pub const MODELS: &'static str = "amazon.nova-canvas-v1:0, amazon.titan-image-generator-v2:0";
+
+    /// Every foundation model this capability accepts, documented default first (FR-033a).
+    pub const ALL: [&'static str; 2] = [DEFAULT_IMAGE_MODEL, "amazon.titan-image-generator-v2:0"];
 }
 
 /// Bedrock image generation: Nova Canvas or Titan Image Generator V2, one image per call.
