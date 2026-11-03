@@ -195,7 +195,7 @@ pub async fn list_server_models(
     deps: &VizierDependencies,
     provider: &CustomProvider,
 ) -> Result<Vec<ListedModel>, String> {
-    let resolved = usage::resolve_for_test(deps, &provider.id, None, Some(provider))
+    let resolved = usage::resolve_for_test(deps, &provider.id, None, Some(provider), "")
         .await
         .map_err(|e| e.to_string())?;
     let model = crate::llm::build(resolved, deps.http.clone(), Default::default());
@@ -341,10 +341,11 @@ pub async fn test(
     let id = ProviderId::new(raw).unwrap_or_else(|_| ProviderId::new_static("unsaved-custom"));
     let current = deps.storage.get_custom_provider(&id).await.ok().flatten();
     let provider = build(id.clone(), body, current.as_ref());
-    Ok(match usage::resolve_for_test(deps, &id, None, Some(&provider)).await {
+    Ok(match usage::resolve_for_test(deps, &id, None, Some(&provider), "").await {
         Ok(resolved) => usage::check(deps, resolved).await,
         Err(e) => TestResult {
             ok: false,
+            model: None,
             model_count: None,
             status: None,
             error: Some(e.to_string()),

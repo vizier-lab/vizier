@@ -292,6 +292,11 @@ pub struct UpsertProviderRequest {
     /// Amazon Bedrock (SSO): the whole inference-profile list, one operation — omitted keeps the
     /// stored list, `[]` clears it (FR-021).
     pub profiles: Option<Vec<ProfileEntry>>,
+    /// The target of a **Test** on the SSO provider: the model id or inference-profile ARN to
+    /// invoke (contract `media-and-test.md` §1). Upsert ignores it — it is not a credential, so it
+    /// is deliberately absent from [`Self::sent`] and [`Self::into_credentials`], and saving
+    /// neither stores nor clears anything for it.
+    pub model: Option<String>,
 }
 
 impl UpsertProviderRequest {
@@ -707,16 +712,25 @@ pub async fn test(
         let all = deps.storage.list_custom_providers().await.unwrap_or_default();
         check_fields(deps, &id, &body.sent(), &all).map_err(fail)?;
     }
+    let model = body.model.clone().unwrap_or_default();
+    // The SSO test invokes a target, so there is nothing to test without one: refuse before the
+    // resolution and before any AWS request (SC-018).
+    if id == ProviderId::AMAZON_BEDROCK_SSO && model.trim().is_empty() {
+        return Err(ServiceError::invalid(usage::NEEDS_MODEL));
+    }
     let credentials = Some(body.into_credentials()).filter(|c| !c.is_empty());
-    Ok(match usage::resolve_for_test(deps, &id, credentials, custom.as_ref()).await {
-        Ok(resolved) => usage::check(deps, resolved).await,
-        Err(e) => TestResult {
-            ok: false,
-            model_count: None,
-            status: None,
-            error: Some(e.to_string()),
+    Ok(
+        match usage::resolve_for_test(deps, &id, credentials, custom.as_ref(), &model).await {
+            Ok(resolved) => usage::check(deps, resolved).await,
+            Err(e) => TestResult {
+                ok: false,
+                model: None,
+                model_count: None,
+                status: None,
+                error: Some(e.to_string()),
+            },
         },
-    })
+    )
 }
 
 #[cfg(test)]
@@ -978,5 +992,62 @@ mod tests {
         assert!(!no_list_reason.is_empty());
         assert_ne!(no_list_reason, unpaired_reason, "two causes share wording");
         assert_eq!(no_list["cost"], serde_json::Value::Null, "unpriced, not zero");
+    }
+
+    async fn deps() -> (crate::dependencies::VizierDependencies, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        let config = crate::config::VizierConfig {
+            workspace: dir.path().to_string_lossy().to_string(),
+            ..Default::default()
+        };
+        (
+            crate::dependencies::VizierDependencies::new(config)
+                .await
+                .unwrap(),
+            dir,
+        )
+    }
+
+    fn system() -> crate::auth::Principal {
+        crate::auth::Principal {
+            user_id: "owner".into(),
+            username: "owner".into(),
+            role: crate::auth::Role {
+                role_id: "r".into(),
+                name: "r".into(),
+                permissions: vec![],
+                is_system: true,
+                created_at: chrono::Utc::now(),
+            },
+            permissions: vec![],
+            method: crate::auth::AuthMethod::Jwt,
+        }
+    }
+
+    /// A Test on the SSO connection invokes a target, so there is nothing to test without one:
+    /// the endpoint answers `400` in those words, before the resolution and before any AWS
+    /// request (contract `media-and-test.md` §1, SC-018).
+    #[tokio::test]
+    async fn a_test_on_the_sso_connection_needs_a_model_and_says_so() {
+        let (deps, _dir) = deps().await;
+        let body = serde_json::json!({
+            "start_url": "https://acme.awsapps.com/start",
+            "sso_region": "us-east-1",
+            "account_id": "123456789012",
+            "role_name": "BedrockOperator",
+            "sso_profile": "acme-bedrock",
+            "region": "us-east-1",
+        })
+        .to_string();
+
+        let error = test(&deps, &system(), "amazon-bedrock-sso", body.as_bytes())
+            .await
+            .expect_err("a test without a target is refused");
+
+        assert_eq!(error.status(), 400);
+        assert_eq!(
+            error.to_string(),
+            "the test needs a model or inference profile to invoke; choose one first"
+        );
     }
 }
