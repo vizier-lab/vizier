@@ -8,6 +8,8 @@
 //! [`Bus`] that also says which of them the backend implements.
 
 pub mod conformance;
+pub mod contracts;
+pub mod testing;
 mod bus;
 mod capabilities;
 mod envelope;

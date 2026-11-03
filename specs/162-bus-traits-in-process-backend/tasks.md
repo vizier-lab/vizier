@@ -99,14 +99,14 @@ description: "Task list for the Fleet message bus, in-process backend and role t
 
 **Independent Test**: `cargo test -p vizier-fleet --test roles` builds one role from the harness and drives it with a scripted peer.
 
-- [ ] T031 [P] [US2] Add `RoleContract { role, subscribes, publishes, leases }` and `validate()` in `crates/vizier-schema/src/contracts/mod.rs`, plus one empty constant per role in `contracts/gateway_http.rs`, `gateway_grpc.rs`, `worker.rs`, `channels.rs`, `control.rs` (all under `crates/vizier-schema/src/contracts/`)
-- [ ] T032 [P] [US2] Add unit tests that every role contract validates and that `validate` rejects a bad pattern and a duplicate entry, in `crates/vizier-schema/src/contracts/mod.rs` `#[cfg(test)]`
-- [ ] T033 [US2] Implement `ScriptedPeer` (`on(pattern, handler)`, `publish`, `expect(subject) -> Envelope` with timeout, `reply`) in `crates/vizier-schema/src/testing.rs`
-- [ ] T034 [US2] Make every role constructor take `Bus` first and store it: `crates/vizier-fleet/src/worker.rs`, `gateway_http.rs`, `gateway_grpc.rs`, `channels.rs`, `control.rs`; add a `needs() -> Capabilities` associated function to each; update the module docs in `crates/vizier-fleet/src/lib.rs`
-- [ ] T035 [US2] Implement `Harness` (in-process bus, embedded SQLite via the `storage::open_store` seam, local blobs via `storage::blob::open`, a temp workspace, `build_worker()`-style helpers returning a role from trait objects) in `crates/vizier-fleet/src/testing.rs` and `pub mod testing;` in `crates/vizier-fleet/src/lib.rs`
-- [ ] T036 [US2] Add the sample role test `crates/vizier-fleet/tests/roles.rs`: build a role via `Harness`, let a `ScriptedPeer` play its neighbour on a contract subject, assert the role's reply; add a second test that `Bus::require` refuses a role whose `needs()` the backend lacks
-- [ ] T037 [P] [US2] Write the role-test guide as a module doc in `crates/vizier-fleet/src/testing.rs` and link it from `crates/vizier-fleet/README.md`
-- [ ] T038 **COMMIT (slice 3)**: `feat: add role contracts, a scripted peer and the role test harness (#162)`
+- [X] T031 [P] [US2] Add `RoleContract { role, subscribes, publishes, leases }` and `validate()` in `crates/vizier-schema/src/contracts/mod.rs`, plus one empty constant per role in `contracts/gateway_http.rs`, `gateway_grpc.rs`, `worker.rs`, `channels.rs`, `control.rs` (all under `crates/vizier-schema/src/contracts/`)
+- [X] T032 [P] [US2] Add unit tests that every role contract validates and that `validate` rejects a bad pattern and a duplicate entry, in `crates/vizier-schema/src/contracts/mod.rs` `#[cfg(test)]`
+- [X] T033 [US2] Implement `ScriptedPeer` (`on(pattern, handler)`, `publish`, `expect(subject) -> Envelope` with timeout, `reply`) in `crates/vizier-schema/src/testing.rs`
+- [X] T034 [US2] Make every role constructor take `Bus` first and store it: `crates/vizier-fleet/src/worker.rs`, `gateway_http.rs`, `gateway_grpc.rs`, `channels.rs`, `control.rs`; add a `needs() -> Capabilities` associated function to each; update the module docs in `crates/vizier-fleet/src/lib.rs`
+- [X] T035 [US2] Implement `Harness` (in-process bus, embedded SQLite via the `storage::open_store` seam, local blobs via `storage::blob::open`, a temp workspace, `build_worker()`-style helpers returning a role from trait objects) in `crates/vizier-fleet/src/testing.rs` and `pub mod testing;` in `crates/vizier-fleet/src/lib.rs`
+- [X] T036 [US2] Add the sample role test `crates/vizier-fleet/tests/roles.rs`: build a role via `Harness`, let a `ScriptedPeer` play its neighbour on a contract subject, assert the role's reply; add a second test that `Bus::require` refuses a role whose `needs()` the backend lacks
+- [X] T037 [P] [US2] Write the role-test guide as a module doc in `crates/vizier-fleet/src/testing.rs` and link it from `crates/vizier-fleet/README.md`
+- [X] T038 **COMMIT (slice 3)**: `feat: add role contracts, a scripted peer and the role test harness (#162)`
 
 **Checkpoint**: US2 acceptance scenarios 1–3 hold; the sample test runs under `cargo test --workspace`.
 

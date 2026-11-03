@@ -17,3 +17,8 @@ include = ["/src/**/*", "/Cargo.toml", "/README.md"]
 [dependencies]
 vizier-core.workspace = true
 vizier-schema.workspace = true
+tempfile.workspace = true
+tokio = { workspace = true, features = ["rt", "time"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt", "macros", "time", "test-util"] }

@@ -7,8 +7,8 @@
 //!
 //! **This crate is a skeleton today** (#161). [`pending`] names the sub-issue that wires each
 //! role in, and it is what `vizier run --role <role>` refuses with: only `all`, one process
-//! doing everything, works until those land. The bus traits arrive with `vizier-schema` (#162),
-//! and become the first parameter of every constructor below.
+//! doing everything, works until those land. The bus traits live in `vizier-schema` (#162),
+//! and are the first parameter of every constructor below. [`testing`] builds a role alone.
 
 use vizier_core::server_role::ServerRole;
 
@@ -17,6 +17,8 @@ mod control;
 mod gateway_grpc;
 mod gateway_http;
 mod worker;
+
+pub mod testing;
 
 pub use channels::Channels;
 pub use control::Control;

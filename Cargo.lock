@@ -9030,6 +9030,8 @@ dependencies = [
 name = "vizier-fleet"
 version = "0.14.1"
 dependencies = [
+ "tempfile",
+ "tokio",
  "vizier-core",
  "vizier-schema",
 ]
