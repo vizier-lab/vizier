@@ -1465,6 +1465,79 @@ mod tests {
                 );
             }
         }
+        /// T064 (FR-034, US5 acceptance 1): a completion answered over the SSO connection is
+        /// attributed to `amazon-bedrock-sso` — its own provider, its own tokens — and priced
+        /// through the entry map, while the same model answered by static Bedrock is a second row.
+        #[tokio::test]
+        async fn an_sso_completion_is_attributed_and_priced_apart_from_static_bedrock() {
+            use crate::schema::{ProviderCredentials, ProviderEntry};
+
+            let (s, _d) = storage();
+            let catalogue = super::bedrock_catalogue();
+            let arn = "arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/abc";
+            let model = "amazon.nova-lite-v1:0";
+            s.upsert_provider(&ProviderEntry {
+                id: ProviderId::AMAZON_BEDROCK_SSO,
+                credentials: ProviderCredentials {
+                    profiles: vec![ProfileEntry {
+                        arn: arn.into(),
+                        price: Some(Cost {
+                            input: 2.0,
+                            output: 8.0,
+                            cache_read: None,
+                            cache_write: None,
+                        }),
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                },
+            })
+            .await
+            .unwrap();
+
+            // The event `VizierModel::record` writes for an answered call: the provider that
+            // answered, the selected ARN as the model, the tokens the reply reported.
+            let mut answered = event(DAY, "discord__1", "amazon-bedrock-sso", arn, 1_000_000);
+            answered.served_model = Some(model.into());
+            s.record_usage(answered).await.unwrap();
+            // The other Bedrock provider answers the very same catalogue model.
+            s.record_usage(event(DAY, "discord__1", "amazon-bedrock", model, 1_000_000))
+                .await
+                .unwrap();
+
+            let r = build_report(&s, &catalogue, &IntegrationKinds::builtin(), q())
+                .await
+                .unwrap();
+
+            // Two rows, never merged: the ARN under the SSO provider and the model under the
+            // static one, each carrying only its own tokens.
+            assert_eq!(r.by_model.len(), 2, "{:?}", r.by_model);
+            let row = |provider: &str| {
+                r.by_model
+                    .iter()
+                    .find(|row| row.provider == provider)
+                    .unwrap_or_else(|| panic!("no row for {provider}: {:?}", r.by_model))
+            };
+            let sso = row("amazon-bedrock-sso");
+            assert_eq!(sso.model, arn);
+            assert_eq!(sso.row.tokens, 1_100_000, "input plus output, recorded as sent");
+            assert!(sso.served_models.contains(&model.to_string()), "{:?}", sso.served_models);
+            // Priced from the entry map: 1M input at 2.0/M, 100k output at 8.0/M.
+            let cost = sso.row.cost_usd.expect("priced from the entry");
+            assert!((cost - (2.0 + 0.8)).abs() < 1e-9, "{cost}");
+            assert!(sso.priced);
+
+            let plain = row("amazon-bedrock");
+            assert_eq!(plain.model, model);
+            assert_eq!(plain.row.tokens, 1_100_000, "the SSO row's tokens did not merge in");
+            assert!(plain.priced, "the catalogue price still applies to static Bedrock");
+
+            // And the summary counts both, each at its own price.
+            let total = r.summary.cost_usd.expect("both priced");
+            assert!((total - (2.8 + 0.084)).abs() < 1e-9, "{total}");
+            assert!(r.unpriced.models.is_empty(), "{:?}", r.unpriced.models);
+        }
+
 
 
         #[tokio::test]
