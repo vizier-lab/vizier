@@ -85,6 +85,12 @@ pub struct VizierDependencies {
     pub questions: Arc<crate::questions::Questions>,
     /// The client sockets this process owns, by connection id (a request names one, never holds it).
     pub client_connections: crate::agents::client::ClientConnections,
+    /// The one way the gateway side reaches an agent (`specs/163-agent-service-seam`).
+    ///
+    /// The service layer and the HTTP adapter call this instead of reading a running agent's
+    /// memory. The local implementation reaches the agent manager over the bus; a networked
+    /// one lands in #168/#169 against the same contract.
+    pub agents: Arc<dyn crate::agents_client::AgentsClient>,
 }
 
 /// Old (pre-bundle) memory frontmatter shape, kept only so `migrate_memory_to_bundles` can parse
@@ -289,6 +295,16 @@ impl VizierDependencies {
             });
         }
 
+        // The seam reaches the agent manager over the bus, so the local path is the same
+        // path a networked implementation takes (research R2). Built before the transport
+        // is moved into the struct.
+        let agents: Arc<dyn crate::agents_client::AgentsClient> =
+            Arc::new(crate::agents_client::LocalAgentsClient::new(transport.clone()));
+
+        // The setup board publishes the setup views, so it needs the bus.
+        let setup = crate::setup::SetupBoard::default();
+        setup.install_publisher(crate::agents::views::Publisher::new(&transport));
+
         let deps = Self {
             config: Arc::new(config.clone()),
             storage,
@@ -304,7 +320,7 @@ impl VizierDependencies {
             integration_kinds,
             integration_health: Default::default(),
             channel_board: Default::default(),
-            setup: Default::default(),
+            setup,
             notifications,
             side_chat_limits: Arc::new(crate::utils::rate_limit::RateLimiter::new(
                 crate::channels::side_chat::ASKS_PER_WINDOW,
@@ -313,6 +329,7 @@ impl VizierDependencies {
             project_ledger: Default::default(),
             questions: Arc::new(crate::questions::Questions::new()),
             client_connections: crate::agents::client::ClientConnections::new(),
+            agents,
         };
         #[cfg(feature = "addon-documents")]
         deps.seed_office_defaults().await;

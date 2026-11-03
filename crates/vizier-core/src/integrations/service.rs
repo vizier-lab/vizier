@@ -16,7 +16,7 @@ use crate::{
         kind::IntegrationKind,
     },
     schema::{
-        AgentCommand, AgentConfig, AgentId, EventAction, EventDraft, Integration,
+        AgentConfig, AgentId, EventAction, EventDraft, Integration,
         IntegrationChanged, IntegrationFamily, IntegrationStatus, Requester,
     },
     storage::{
@@ -99,24 +99,14 @@ impl std::fmt::Display for ServiceError {
 
 pub type ServiceResult<T> = Result<T, ServiceError>;
 
-/// How long to wait for an agent's own view of its integrations.
-const STATUS_TIMEOUT: Duration = Duration::from_secs(3);
-
-/// The agent's own view of its integrations, or nothing if it doesn't answer in time. Channel
+/// The agent's own view of its integrations, or nothing if it cannot be reached. Channel
 /// connections are answered by `channels::connections::status_of` instead.
 pub async fn agent_statuses(deps: &VizierDependencies, agent_id: &str) -> HashMap<String, IntegrationStatus> {
-    let (resp, rx) = tokio::sync::oneshot::channel();
-    let sent = deps
-        .transport
-        .send_agent_command(AgentCommand::IntegrationStatus { agent_id: agent_id.to_string(), resp })
-        .await;
-    if sent.is_err() {
-        return HashMap::new();
-    }
-    tokio::time::timeout(STATUS_TIMEOUT, rx)
+    // The agent's own view of its integrations, through the seam. An agent that cannot be
+    // reached has no integrations to report, which is what this returned before.
+    deps.agents
+        .integration_status(agent_id)
         .await
-        .ok()
-        .and_then(|r| r.ok())
         .unwrap_or_default()
 }
 

@@ -479,12 +479,58 @@ impl VizierTransport {
         Ok(())
     }
 
+    /// Send a command to the agent that owns `agent_id`, over `agent.{id}.cmd`, and wait for it
+    /// to be handled.
+    ///
+    /// Unlike [`Self::send_agent_command`] the bus failure is not flattened into a message: the
+    /// two failures the seam tells apart - nobody subscribed, and nobody answering - come back
+    /// as the bus's own error, so the caller can say which one it was
+    /// (`specs/163-agent-service-seam` contracts/agents-client.md, "Errors").
+    pub async fn send_agent_command_to(
+        &self,
+        agent_id: &str,
+        cmd: AgentCommand,
+        timeout: std::time::Duration,
+    ) -> Result<()> {
+        let (request, awaiting) = wire::split_agent_command(cmd);
+        let envelope = Envelope::json(wire::KIND_AGENT_SCOPED_COMMAND, &request)?;
+        let reply = self
+            .bus
+            .messaging
+            .request(&Subject::agent_cmd(agent_id), envelope, timeout)
+            .await?;
+        match reply.decode::<wire::AgentCommandReply>()? {
+            wire::AgentCommandReply::Dropped => awaiting.abandon(),
+            reply => awaiting.fulfil(reply),
+        }
+        Ok(())
+    }
+
     #[doc(hidden)]
     /// Start taking agent commands off the bus. The subscription exists when this returns, so a
     /// command sent right after cannot find nobody listening.
     pub async fn serve_agent_commands(&self) -> Result<AgentCommands> {
         let sub = self.bus.messaging.subscribe(SubjectPattern::from(&Subject::agents_cmd())).await?;
-        Ok(AgentCommands { sub, messaging: self.bus.messaging.clone() })
+        Ok(AgentCommands { sub, messaging: self.bus.messaging.clone(), reply_kind: wire::KIND_AGENT_REPLY })
+    }
+
+    #[doc(hidden)]
+    /// Start taking one agent's commands off `agent.{id}.cmd`. The subscription exists when this
+    /// returns, so a command sent right after cannot find nobody listening.
+    ///
+    /// Only the agent's owner subscribes to its subject, so a command reaches exactly one
+    /// handler: the bus delivers at most once, so a command a non-owner consumed would be lost.
+    pub async fn serve_agent_commands_for(&self, agent_id: &str) -> Result<AgentCommands> {
+        let sub = self
+            .bus
+            .messaging
+            .subscribe(SubjectPattern::from(&Subject::agent_cmd(agent_id)))
+            .await?;
+        Ok(AgentCommands {
+            sub,
+            messaging: self.bus.messaging.clone(),
+            reply_kind: wire::KIND_AGENT_SCOPED_REPLY,
+        })
     }
 
     #[doc(hidden)]
@@ -782,10 +828,13 @@ mod bus_tests {
     }
 }
 
-/// The agent manager's end of the `agents.cmd` subject.
+/// The agent manager's end of a command subject: `agents.cmd` for the fleet-wide commands,
+/// `agent.{id}.cmd` for the ones that name their agent.
 pub struct AgentCommands {
     sub: vizier_schema::Subscription,
     messaging: Arc<dyn vizier_schema::Messaging>,
+    /// The kind the answer is published under, so a reader knows which subject it answered.
+    reply_kind: &'static str,
 }
 
 impl AgentCommands {
@@ -803,9 +852,10 @@ impl AgentCommands {
             };
             let (command, answer) = wire::open_agent_command(request);
             let messaging = self.messaging.clone();
+            let kind = self.reply_kind;
             tokio::spawn(async move {
                 let reply = answer.into_reply().await.unwrap_or(wire::AgentCommandReply::Dropped);
-                if let Ok(out) = Envelope::json(wire::KIND_AGENT_REPLY, &reply)
+                if let Ok(out) = Envelope::json(kind, &reply)
                     && let Err(e) = vizier_schema::reply(messaging.as_ref(), &envelope, out).await
                 {
                     tracing::warn!("could not answer an agent command: {e}");

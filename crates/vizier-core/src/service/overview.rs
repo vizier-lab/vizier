@@ -62,20 +62,22 @@ pub struct Overview {
     pub accounting_since: Option<DateTime<Utc>>,
 }
 
-/// Ids of agents in a failed state.
+/// Ids of agents in a failed state, read from the published health views.
 async fn failed_agents(services: &Services) -> std::collections::HashSet<String> {
-    services
-        .deps()
-        .transport
-        .agent_health()
-        .await
-        .map(|h| {
-            h.into_iter()
-                .filter(|s| s.state == AgentRunState::Failed)
-                .map(|s| s.agent_id)
-                .collect()
-        })
-        .unwrap_or_default()
+    let deps = services.deps();
+    let Ok(agents) = deps.storage.list_agents().await else {
+        return Default::default();
+    };
+    let mut failed = std::collections::HashSet::new();
+    for (id, _) in agents {
+        let Some(status) = crate::agents::views::read_health(deps, &id).await else {
+            continue;
+        };
+        if status.state == AgentRunState::Failed {
+            failed.insert(id);
+        }
+    }
+    failed
 }
 
 pub async fn counts(

@@ -133,8 +133,17 @@ impl Default for Entry {
 }
 
 /// Shared, in-memory setup state. Cloned onto `VizierDependencies` and read by the API.
+///
+/// The board is also the **publisher** of the setup view: it owns the state, so it is the
+/// one place that writes a copy for the gateways that are not in this process
+/// (`specs/163-agent-service-seam` contracts/shared-state-views.md, "The setup board is
+/// the publisher").
 #[derive(Clone, Default)]
-pub struct SetupBoard(Arc<RwLock<HashMap<String, Entry>>>);
+pub struct SetupBoard {
+    entries: Arc<RwLock<HashMap<String, Entry>>>,
+    /// Where the setup views are published, once the transport exists.
+    publisher: Arc<RwLock<Option<crate::agents::views::Publisher>>>,
+}
 
 fn upsert(downloads: &mut Vec<DownloadStatus>, kind: DownloadKind) -> &mut DownloadStatus {
     let index = match downloads.iter().position(|d| d.kind == kind) {
@@ -194,8 +203,29 @@ impl Drop for BuildGuard {
 
 impl SetupBoard {
     fn with<R>(&self, f: impl FnOnce(&mut HashMap<String, Entry>) -> R) -> R {
-        let mut guard = self.0.write().unwrap_or_else(|p| p.into_inner());
+        let mut guard = self.entries.write().unwrap_or_else(|p| p.into_inner());
         f(&mut guard)
+    }
+
+    /// Publish the setup views from now on. Called once, when the transport exists.
+    pub fn install_publisher(&self, publisher: crate::agents::views::Publisher) {
+        if let Ok(mut slot) = self.publisher.write() {
+            *slot = Some(publisher);
+        }
+    }
+
+    /// Publish this agent's setup view, so a gateway in another process can read it.
+    fn publish(&self, agent_id: &str) {
+        let Ok(slot) = self.publisher.read() else {
+            return;
+        };
+        let Some(publisher) = slot.clone() else {
+            return;
+        };
+        let Some(state) = self.snapshot().into_iter().find(|s| s.agent_id == agent_id) else {
+            return;
+        };
+        publisher.publish_setup(agent_id, &state);
     }
 
     /// A build for `agent_id` has started. The first one resets its entry; one that overlaps
@@ -228,6 +258,7 @@ impl SetupBoard {
             entry.active_builds += 1;
             entry.download_epoch
         });
+        self.publish(agent_id);
         BuildGuard {
             board: self.clone(),
             agent_id: agent_id.to_string(),
@@ -257,6 +288,7 @@ impl SetupBoard {
                 }
             }
         });
+        self.publish(agent_id);
     }
 
     /// A build failed to start.
@@ -272,6 +304,7 @@ impl SetupBoard {
                 }
             }
         });
+        self.publish(agent_id);
     }
 
     /// A download has begun. `label` is what the UI shows, e.g. the model name.
@@ -291,6 +324,7 @@ impl SetupBoard {
             download.status = "starting".to_string();
             download.error = None;
         });
+        self.publish(agent_id);
     }
 
     /// Bytes moved. `total == 0` keeps the download indeterminate.
@@ -324,6 +358,7 @@ impl SetupBoard {
             }
             download.status = status;
         });
+        self.publish(agent_id);
     }
 
     /// A download finished successfully.
@@ -333,6 +368,7 @@ impl SetupBoard {
                 entry.downloads.retain(|d| d.kind != kind);
             }
         });
+        self.publish(agent_id);
     }
 
     /// A download failed. The failure sticks until the TTL, so the UI can show it.
@@ -346,6 +382,7 @@ impl SetupBoard {
                 entry.terminal_at = Some(Instant::now());
             }
         });
+        self.publish(agent_id);
     }
 
     /// Stream `url` into `dest`, reporting progress on this board. The file is written to a
