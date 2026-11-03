@@ -167,6 +167,11 @@ pub struct TestResult {
     /// one model or inference profile, so it names it (contract `media-and-test.md` §1).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    /// The marker of one billable inference call. Set only when the test really invoked a model —
+    /// the SSO test spends exactly one call (FR-012a, SC-018) — and never by a listing or a
+    /// failure, which spend nothing.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub billing: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model_count: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -195,6 +200,7 @@ impl TestResult {
         Self {
             ok: false,
             model: None,
+            billing: None,
             model_count: None,
             status,
             error,
@@ -232,6 +238,7 @@ pub async fn check(deps: &VizierDependencies, mut resolved: ResolvedModel) -> Te
             Ok(Ok(_)) => TestResult {
                 ok: true,
                 model: None,
+                billing: None,
                 model_count: None,
                 status: None,
                 error: None,
@@ -265,6 +272,7 @@ pub async fn check(deps: &VizierDependencies, mut resolved: ResolvedModel) -> Te
             Ok(Ok(count)) => TestResult {
                 ok: true,
                 model: None,
+                billing: None,
                 model_count: Some(count),
                 status: None,
                 error: None,
@@ -280,6 +288,7 @@ pub async fn check(deps: &VizierDependencies, mut resolved: ResolvedModel) -> Te
         Ok(Ok(models)) => TestResult {
             ok: true,
             model: None,
+            billing: None,
             model_count: Some(models.len()),
             status: None,
             error: None,
@@ -303,6 +312,7 @@ async fn check_sso(deps: &VizierDependencies, resolved: ResolvedModel) -> TestRe
         return TestResult {
             ok: false,
             model: None,
+            billing: None,
             model_count: None,
             status: None,
             error: Some(NEEDS_MODEL.into()),
@@ -331,6 +341,7 @@ async fn check_sso(deps: &VizierDependencies, resolved: ResolvedModel) -> TestRe
         Ok(Ok(_)) => TestResult {
             ok: true,
             model: Some(target),
+            billing: Some("one billable inference call".into()),
             model_count: None,
             status: None,
             error: None,
@@ -373,6 +384,7 @@ fn sso_failure(error: LlmError, target: &str, region: &str) -> TestResult {
     let failure = |error: String| TestResult {
         ok: false,
         model: Some(target.to_string()),
+        billing: None,
         model_count: None,
         status: None,
         error: Some(error),
@@ -723,6 +735,11 @@ mod tests {
         assert!(result.ok, "{:?}", result.error);
         assert_eq!(result.model.as_deref(), Some(TARGET));
         assert_eq!(
+            result.billing.as_deref(),
+            Some("one billable inference call"),
+            "a 2xx is one billed call (SC-018)"
+        );
+        assert_eq!(
             stub.path_count(&path),
             1,
             "one Converse request and nothing else"
@@ -862,6 +879,8 @@ mod tests {
                 .as_deref(),
             Some("request timed out")
         );
+        // Only the SSO success bills a call; every other provider's outcome spends nothing.
+        assert!(TestResult::failed(LlmError::Timeout).billing.is_none());
     }
 
     #[tokio::test]

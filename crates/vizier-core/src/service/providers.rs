@@ -637,6 +637,11 @@ pub async fn upsert(
         profiles: body.profiles.clone().unwrap_or_default(),
     };
     let mut credentials = stored.merged_with_profiles(&update, body.profiles);
+    // T066 (FR-019, FR-040): the three fields that decide *which* AWS identity an agent talks
+    // as. Only they make the stored sign-in stale; any other edit keeps it in use.
+    let reconnect = stored.region != credentials.region
+        || stored.account_id != credentials.account_id
+        || stored.role_name != credentials.role_name;
     check_bedrock_pair(&id, &credentials).map_err(fail)?;
     let rows = deps
         .storage
@@ -648,6 +653,13 @@ pub async fn upsert(
     // whole-list save is the path the provider form shares with the entry editor: shape, then
     // duplicate, then region (data-model "profile entry", FR-021, FR-024, FR-025).
     providers_sso::validate_entries(&mut credentials.profiles, credentials.region.as_deref())?;
+    // The one session row this connection owns, taken before `credentials` moves into the
+    // entry (a session is keyed by `sso_profile`, not by the connection id).
+    let profile = credentials
+        .sso_profile
+        .as_deref()
+        .filter(|p| !p.is_empty())
+        .map(String::from);
     let entry = ProviderEntry {
         id: id.clone(),
         credentials,
@@ -660,6 +672,22 @@ pub async fn upsert(
     if let Err(e) = saved {
         return Err(ServiceError::Internal(e.to_string()));
     }
+    // A changed region, account or role leaves tokens minted for an identity that is no longer
+    // the connection's (or for another account's role): drop them so the next use asks for a
+    // sign-in again. Best effort — the save itself stands either way.
+    if reconnect
+        && let Some(profile) = profile
+    {
+        if let Err(e) = SsoSessions::new(&*deps.storage).delete(&profile).await {
+            tracing::warn!(
+                profile = %profile,
+                error = %e,
+                "the sso session of a changed connection cannot be deleted"
+            );
+        }
+    }
+    // Unconditional, exactly as before: every credential edit restarts the agents on `id`, and
+    // `restart_users` targets the agents that use this provider and no other (FR-040).
     usage::restart_users(deps, &id).await;
     Ok(connected(deps).await.into_iter().find(|p| p.id == id))
 }
@@ -725,6 +753,7 @@ pub async fn test(
             Err(e) => TestResult {
                 ok: false,
                 model: None,
+                billing: None,
                 model_count: None,
                 status: None,
                 error: Some(e.to_string()),
@@ -1022,6 +1051,178 @@ mod tests {
             permissions: vec![],
             method: crate::auth::AuthMethod::Jwt,
         }
+    }
+
+    /// The SSO connection exactly as the form sends it, with one field overridden.
+    fn sso_body(field: (&str, &str)) -> UpsertProviderRequest {
+        let mut body = serde_json::json!({
+            "start_url": "https://acme.awsapps.com/start",
+            "sso_region": "us-east-1",
+            "account_id": "123456789012",
+            "role_name": "BedrockOperator",
+            "sso_profile": "acme-bedrock",
+            "region": "eu-west-1",
+        });
+        body[field.0] = serde_json::Value::from(field.1);
+        serde_json::from_value(body).unwrap()
+    }
+
+    /// A session row worth keeping: nothing reads the tokens here, only whether the row exists.
+    fn live_session() -> crate::schema::SsoSessionSecret {
+        crate::schema::SsoSessionSecret {
+            access_token: "access-token-value".into(),
+            refresh_token: Some("refresh-token-value".into()),
+            token_expires_at: chrono::Utc::now() + chrono::TimeDelta::hours(1),
+            client_id: "client-id".into(),
+            client_secret: "client-secret-value".into(),
+            client_secret_expires_at: None,
+            issued_at: chrono::Utc::now(),
+            revision: 0,
+        }
+    }
+
+    /// `restart_users` sends one `Restart` per affected agent and waits for the answer, so a
+    /// test stands in for the agent runtime: each command's `agent_id` is recorded and answered
+    /// with an error (which only logs). The idle timeout keeps a forgotten task from hanging.
+    fn restarts(
+        deps: &VizierDependencies,
+    ) -> (
+        std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+        tokio::task::JoinHandle<()>,
+    ) {
+        let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let recorded = seen.clone();
+        let transport = deps.transport.clone();
+        let task = tokio::spawn(async move {
+            while let Ok(Ok(command)) = tokio::time::timeout(
+                std::time::Duration::from_secs(5),
+                transport.recv_agent_command(),
+            )
+            .await
+            {
+                if let crate::schema::AgentCommand::Restart { agent_id, resp } = command {
+                    recorded.lock().unwrap().push(agent_id);
+                    let _ = resp.send(crate::schema::AgentCommandResult::Error("stub".into()));
+                }
+            }
+        });
+        (seen, task)
+    }
+
+    /// One SSO agent and one dummyplug agent, both saved, so the right restart can be told apart
+    /// from a wrong one.
+    async fn agents(deps: &VizierDependencies) {
+        use crate::storage::agent::AgentStorage;
+
+        let mut sso = crate::tests_support::agent_config("sso");
+        sso.provider = ProviderId::AMAZON_BEDROCK_SSO;
+        sso.model = "amazon.nova-lite-v1:0".into();
+        deps.storage.create_agent("sso", &sso).await.unwrap();
+        deps.storage
+            .create_agent("plain", &crate::tests_support::agent_config("plain"))
+            .await
+            .unwrap();
+    }
+
+    /// T066 (FR-019, FR-040): a region, account or role change makes the saved sign-in stale, so
+    /// its row goes and only the agents on this connection are restarted.
+    #[tokio::test]
+    async fn a_region_change_drops_the_session_and_restarts_only_the_users_of_the_connection() {
+        use crate::storage::sso_session::SsoSessionStorage;
+
+        let (deps, _dir) = deps().await;
+        upsert(
+            &deps,
+            &system(),
+            "amazon-bedrock-sso",
+            sso_body(("start_url", "https://acme.awsapps.com/start")),
+        )
+        .await
+        .expect("the connection saves");
+        deps.storage
+            .put_sso_session("acme-bedrock", &live_session(), None)
+            .await
+            .unwrap();
+        assert!(
+            deps.storage
+                .get_sso_session("acme-bedrock")
+                .await
+                .unwrap()
+                .is_some()
+        );
+        agents(&deps).await;
+
+        let (seen, runtime) = restarts(&deps);
+        upsert(
+            &deps,
+            &system(),
+            "amazon-bedrock-sso",
+            sso_body(("region", "us-east-1")),
+        )
+        .await
+        .expect("the changed region saves");
+        runtime.abort();
+
+        assert!(
+            deps.storage
+                .get_sso_session("acme-bedrock")
+                .await
+                .unwrap()
+                .is_none(),
+            "a new region makes the old sign-in stale, so it is gone"
+        );
+        assert_eq!(
+            *seen.lock().unwrap(),
+            vec!["sso".to_string()],
+            "only the agent using this connection restarts"
+        );
+    }
+
+    /// T066: any other edit — `start_url` here — is not a new identity: the sign-in stays, and
+    /// the restart every credential edit already did still happens.
+    #[tokio::test]
+    async fn another_field_change_keeps_the_session_and_still_restarts_its_users() {
+        use crate::storage::sso_session::SsoSessionStorage;
+
+        let (deps, _dir) = deps().await;
+        upsert(
+            &deps,
+            &system(),
+            "amazon-bedrock-sso",
+            sso_body(("start_url", "https://acme.awsapps.com/start")),
+        )
+        .await
+        .expect("the connection saves");
+        deps.storage
+            .put_sso_session("acme-bedrock", &live_session(), None)
+            .await
+            .unwrap();
+        agents(&deps).await;
+
+        let (seen, runtime) = restarts(&deps);
+        upsert(
+            &deps,
+            &system(),
+            "amazon-bedrock-sso",
+            sso_body(("start_url", "https://other.awsapps.com/start")),
+        )
+        .await
+        .expect("the changed start_url saves");
+        runtime.abort();
+
+        assert!(
+            deps.storage
+                .get_sso_session("acme-bedrock")
+                .await
+                .unwrap()
+                .is_some(),
+            "the same identity, so the sign-in is kept"
+        );
+        assert_eq!(
+            *seen.lock().unwrap(),
+            vec!["sso".to_string()],
+            "the old restart behaviour stands"
+        );
     }
 
     /// A Test on the SSO connection invokes a target, so there is nothing to test without one:
