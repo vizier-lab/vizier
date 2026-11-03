@@ -132,6 +132,15 @@ entry's uid. The status vocabulary is unchanged.
 | `claimed_at` | text, **new** | When the claim was taken. A claim older than the claim timeout is free again. |
 | ... | | The rest of the row is unchanged. |
 
+**How the columns arrive**
+- **SQLite**: `add_column_if_missing(conn, "client_tool_call", "claimed_by", "TEXT")` and the
+  same for `claimed_at`, called at startup next to the table's schema init
+  (`storage/sqlite/mod.rs:613-633`). An existing desktop workspace gets them on first start.
+- **PostgreSQL**: a new migration file, `migrations/0002_client_call_claim.sql`, appended to
+  `MIGRATIONS` (`storage/sql/postgres/migrate.rs:20-24`). `0001_initial.sql` is never edited - the
+  runner skips applied versions (`:76-78`), so editing it would leave an existing deployment
+  without the columns.
+
 **Rules**
 - The claim is one conditional update - the row's compare-and-swap (FR-011):
 

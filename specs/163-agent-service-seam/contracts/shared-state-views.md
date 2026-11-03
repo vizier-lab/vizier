@@ -73,6 +73,23 @@ match state.get(&key).await {
 4. A reader that finds unknown says so. It does not fall back to a stored row for a *live* value -
    the stored configuration is a different thing and is read from storage.
 
+**When the host publishes** - the rule that keeps single node unchanged:
+
+5. The host publishes **when it takes an agent** and **whenever that agent's state changes**. It
+   does not publish on a timer. A view is therefore a moment-old truth, not a poll.
+6. The first read after startup must not be "unknown" for an agent that is running. The host
+   publishes on take, so the window between the agent starting and its first publish is the
+   publish itself, not the ten-second deadline.
+7. The view carries **everything the reader used to get from the agent's memory**, including the
+   channel-reader health the agent's health folds in today
+   (`agents/mod.rs:251`, `AgentStatus::health(&process.status, &self.deps.channel_board, id)`). If
+   the view dropped it, the WebUI's agent list would lose that column in single node.
+
+**Why 5-7 matter.** Today `GET /agents/health` is a live query of the manager. After the change it
+is a read of a published view. Without these rules the single node would show "unknown" for a
+running agent, or a run state that is a poll out of date - a visible regression in the WebUI, and
+the one place where this feature could change what a person sees.
+
 ---
 
 ## What each view carries

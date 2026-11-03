@@ -28,8 +28,16 @@ what order, and against which gates.
 
 **Storage**: unchanged. SQLite (bundled) and local files stay the default; PostgreSQL and S3 stay
 opt-in. Two columns are added to the existing `client_tool_call` table
-(`crates/vizier-core/src/storage/sqlite/mod.rs:613-633`, and the matching Postgres DDL at
-`storage/sql/postgres/migrations/0001_initial.sql:445-457`).
+(`crates/vizier-core/src/storage/sqlite/mod.rs:613-633`).
+
+**How the columns reach an existing database.** SQLite: `add_column_if_missing` at startup, the
+pattern already used for `integration.creator` and `user.last_seen_at`
+(`storage/sqlite/mod.rs:906`, `:440`). PostgreSQL: a **new** migration file
+`migrations/0002_client_call_claim.sql`, appended to `MIGRATIONS`
+(`storage/sql/postgres/migrate.rs:20-24`). The runner applies each file once and skips the ones
+already applied (`:76-78`), and the module says outright that "an applied file is never edited" -
+so `0001_initial.sql` is **not** edited. A deployment that already ran 0001 gets the columns from
+0002; a deployment that runs 0002 before 0001 never happens, because the versions are ordered.
 
 **Testing**: `cargo test` (workspace, with the per-crate gates below); `cargo clippy` with CI's
 flags. End-to-end: the dummyplug agent turn for the agent-observable parts (the turn path), per the
