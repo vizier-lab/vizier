@@ -338,6 +338,11 @@ impl VizierImageGenModel for BedrockImages {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use crate::llm::auth::{CredentialSource, RequestInfo};
+
     use super::*;
 
     #[test]
@@ -583,13 +588,84 @@ mod tests {
 
     /// A local server answering `status` with `body`, so the refusal's text is testable without AWS.
     async fn refusal_server(status: u16, body: &'static str) -> String {
+        counting_server(status, body, Arc::new(AtomicUsize::new(0))).await
+    }
+
+    fn endpoint_at(base: &str, model: &str) -> Endpoint {
+        Endpoint {
+            base_url: base.to_string(),
+            ..endpoint_with(model)
+        }
+    }
+
+    /// The ended session exactly as the real `SsoRoleCredential` reports it: the `SsoError` text
+    /// through `to_llm_error`, which is `LlmError::Config` — chat renders that message unchanged
+    /// (`LlmError`'s `Display` for `Config` adds nothing), so this text *is* chat's explanation of
+    /// the same cause (FR-016).
+    fn ended_session() -> crate::llm::error::LlmError {
+        crate::llm::sso::error::SsoError::SessionExpired.to_llm_error()
+    }
+
+    /// Chat's line for an ended session, with no capability prefix.
+    fn chat_explanation() -> String {
+        crate::llm::sso::error::SsoError::SessionExpired.to_string()
+    }
+
+    /// A credential whose session ended, failing where `Endpoint::post_json` actually meets it:
+    /// the body-aware path, because SigV4 signs the payload. Media never calls `authorize`, so a
+    /// fake that only failed there would let a request through unsigned. Every consultation is
+    /// counted, so a test can tell "never signed" from "signed once and refused".
+    struct EndedSession {
+        attempts: Arc<AtomicUsize>,
+    }
+
+    impl EndedSession {
+        fn source() -> (Arc<dyn CredentialSource>, Arc<AtomicUsize>) {
+            let attempts = Arc::new(AtomicUsize::new(0));
+            let source = Arc::new(Self {
+                attempts: attempts.clone(),
+            });
+            (source, attempts)
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl CredentialSource for EndedSession {
+        async fn authorize(
+            &self,
+            _req: reqwest::RequestBuilder,
+            _info: &RequestInfo,
+        ) -> std::result::Result<reqwest::RequestBuilder, crate::llm::error::LlmError> {
+            Err(ended_session())
+        }
+
+        async fn authorize_with_body(
+            &self,
+            _req: reqwest::RequestBuilder,
+            _info: &RequestInfo,
+            _method: &str,
+            _url: &str,
+            _body: &[u8],
+        ) -> std::result::Result<reqwest::RequestBuilder, crate::llm::error::LlmError> {
+            self.attempts.fetch_add(1, Ordering::SeqCst);
+            Err(ended_session())
+        }
+    }
+
+    /// [`refusal_server`], but counting every request that reaches it: the witness that a call
+    /// refused before it was signed never got as far as the wire.
+    async fn counting_server(status: u16, body: &'static str, hits: Arc<AtomicUsize>) -> String {
         let app = axum::Router::new().fallback(
-            move |_request: axum::extract::Request| async move {
-                (
-                    axum::http::StatusCode::from_u16(status).expect("a valid status"),
-                    [("content-type", "application/json")],
-                    body,
-                )
+            move |_request: axum::extract::Request| {
+                let hits = hits.clone();
+                async move {
+                    hits.fetch_add(1, Ordering::SeqCst);
+                    (
+                        axum::http::StatusCode::from_u16(status).expect("a valid status"),
+                        [("content-type", "application/json")],
+                        body,
+                    )
+                }
             },
         );
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -598,11 +674,163 @@ mod tests {
         url
     }
 
-    fn endpoint_at(base: &str, model: &str) -> Endpoint {
-        Endpoint {
-            base_url: base.to_string(),
-            ..endpoint_with(model)
+    /// US4 acceptance 4: on an ended session a media call fails with **chat's** explanation, is
+    /// never re-read as an unsupported model or a decode fault, and never reaches the wire. Both
+    /// capabilities, and both embedding families (one text per call, one batch per call).
+    #[tokio::test]
+    async fn every_media_call_on_an_ended_session_keeps_the_chat_explanation() {
+        let (credential, attempts) = EndedSession::source();
+        let hits = Arc::new(AtomicUsize::new(0));
+        let base = counting_server(200, r#"{"embedding":[0.1]}"#, hits.clone()).await;
+
+        for model in [DEFAULT_EMBEDDING_MODEL, "cohere.embed-english-v3"] {
+            let embeddings = BedrockEmbeddings::new(Endpoint {
+                credential: credential.clone(),
+                ..endpoint_at(&base, model)
+            })
+            .unwrap();
+            let error = embeddings.embed_text("hello").await.unwrap_err().to_string();
+            assert_eq!(
+                error,
+                format!("embeddings: {}", chat_explanation()),
+                "{model}: the session is the cause, in chat's own words"
+            );
+            assert!(
+                !error.contains("unsupported") && !error.contains("unexpected provider response"),
+                "{model}: not re-read as a model or a decode fault: {error}"
+            );
+            assert!(
+                crate::llm::sso::is_session_failure_message(&error),
+                "{model}: the turn's error frame still recognises the session failure: {error}"
+            );
         }
+
+        let images = BedrockImages::new(Endpoint {
+            credential,
+            ..endpoint_at(&base, DEFAULT_IMAGE_MODEL)
+        })
+        .unwrap();
+        let error = images.generate("a red fox", None).await.err().unwrap().0;
+        assert_eq!(
+            error,
+            format!("image generation: {}", chat_explanation()),
+            "image generation says the same thing chat does, prefixed with its capability"
+        );
+        assert!(!error.contains("unsupported"), "{error}");
+        assert!(
+            crate::llm::sso::is_session_failure_message(&error),
+            "{error}"
+        );
+
+        assert_eq!(
+            attempts.load(Ordering::SeqCst),
+            3,
+            "one refused sign-in per call: the session is not retried into a storm"
+        );
+        assert_eq!(
+            hits.load(Ordering::SeqCst),
+            0,
+            "no unsigned request was built or sent"
+        );
+    }
+
+    /// US4 acceptance 4, the vector half: a batch that met an ended session is an `Err`, never a
+    /// shorter `Vec`. An `Ok` here would be a list the caller could index and persist as though it
+    /// held every document's vector, so no partial result can ever be written. Titan embeds one
+    /// text per call, so the single attempt also shows the loop stopped at the first refusal
+    /// instead of carrying on with the remaining documents.
+    #[tokio::test]
+    async fn an_ended_session_yields_no_partial_batch_of_vectors() {
+        for model in [DEFAULT_EMBEDDING_MODEL, "cohere.embed-english-v3"] {
+            let (credential, attempts) = EndedSession::source();
+            let hits = Arc::new(AtomicUsize::new(0));
+            let base = counting_server(
+                200,
+                r#"{"embeddings":[[0.1],[0.2],[0.3]]}"#,
+                hits.clone(),
+            )
+            .await;
+            let embeddings = BedrockEmbeddings::new(Endpoint {
+                credential,
+                ..endpoint_at(&base, model)
+            })
+            .unwrap();
+
+            let documents = vec!["one".to_string(), "two".to_string(), "three".to_string()];
+            let outcome = embeddings.embed_texts(documents).await;
+            assert!(
+                outcome.is_err(),
+                "{model}: three documents and a sign-in that failed must not be an Ok vector list"
+            );
+            let error = outcome.unwrap_err().to_string();
+            assert_eq!(
+                error,
+                format!("embeddings: {}", chat_explanation()),
+                "{model}: the session's explanation survives the batch"
+            );
+            assert_eq!(
+                attempts.load(Ordering::SeqCst),
+                1,
+                "{model}: the first refused call ends the batch"
+            );
+            assert_eq!(
+                hits.load(Ordering::SeqCst),
+                0,
+                "{model}: nothing signed, nothing sent"
+            );
+        }
+    }
+
+    /// US4 acceptance 4, the file half: a failed generation hands back no `(bytes, mime)` pair, so
+    /// there is nothing to save and the directory stays empty — no half-written, no truncated, no
+    /// mislabelled file. `image_generate` writes exactly what `generate` returned
+    /// (`agents/tools/image_gen`), so mirroring that here makes the empty directory a real witness
+    /// rather than an assumption.
+    #[tokio::test]
+    async fn an_ended_session_writes_no_image_file() {
+        let (credential, attempts) = EndedSession::source();
+        let hits = Arc::new(AtomicUsize::new(0));
+        let base = counting_server(200, r#"{"images":["iVBORw0KGgo="]}"#, hits.clone()).await;
+        let images = BedrockImages::new(Endpoint {
+            credential,
+            ..endpoint_at(&base, DEFAULT_IMAGE_MODEL)
+        })
+        .unwrap();
+
+        let dir = tempfile::tempdir().unwrap();
+        if let Ok((bytes, mime)) = images.generate("a red fox", None).await {
+            std::fs::write(dir.path().join(format!("img.{mime}")), bytes).unwrap();
+        }
+        assert!(
+            std::fs::read_dir(dir.path()).unwrap().next().is_none(),
+            "a refused generation leaves no file behind"
+        );
+        assert_eq!(attempts.load(Ordering::SeqCst), 1);
+        assert_eq!(hits.load(Ordering::SeqCst), 0, "nothing was sent");
+    }
+
+    /// The other "wrong-sized" side, which the session test cannot reach: a provider answering 2xx
+    /// with fewer vectors than inputs is refused, never accepted as a shorter list. Cohere batches,
+    /// so the count is the only thing tying a reply's vectors to the documents sent.
+    #[tokio::test]
+    async fn a_reply_with_fewer_vectors_than_inputs_is_refused() {
+        let base = counting_server(
+            200,
+            r#"{"embeddings":[[0.1,0.2],[0.3,0.4]]}"#,
+            Arc::new(AtomicUsize::new(0)),
+        )
+        .await;
+        let embeddings =
+            BedrockEmbeddings::new(endpoint_at(&base, "cohere.embed-english-v3")).unwrap();
+        let error = embeddings
+            .embed_texts(vec!["one".into(), "two".into(), "three".into()])
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("2 vectors for 3 inputs"),
+            "the mismatch is named, not silently trimmed: {error}"
+        );
     }
 
     #[test]
