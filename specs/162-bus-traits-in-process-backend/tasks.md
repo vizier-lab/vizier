@@ -173,13 +173,13 @@ description: "Task list for the Fleet message bus, in-process backend and role t
 
 **Independent Test**: each rule in contracts/bus-semantics.md appears on the page and maps to a conformance check or test.
 
-- [ ] T072 [US5] Write `docs/src/fleet/bus-contract.md` from contracts/bus-semantics.md, contracts/subjects.md and the per-role contract table (empty skeletons noted), and add it to `docs/src/SUMMARY.md` under a new *Fleet* section
-- [ ] T073 [P] [US5] Add a rule-to-check table at the end of `docs/src/fleet/bus-contract.md` mapping each numbered rule to its conformance check name
-- [ ] T074 [P] Add the `vizier-schema` layering check to the `policy` job in `.github/workflows/ci.yml`: `vizier-schema` has no direct dependency on any `vizier-*` crate, `async-nats`, `tonic`, `axum`, `axum-extra`, `tower-http`, `clap`, `inquire`, `termimad`, `daemonize`; keep `vizier-core` forbidden from `async-nats`/`tonic`
-- [ ] T075 [P] Update `CLAUDE.md` (workspace table row for `vizier-schema`, a *Fleet bus* paragraph under Architecture replacing the "in-process message bus built on `flume`" text, `exit_channel` note) and `crates/vizier-fleet/README.md`
-- [ ] T076 Run the full verification from quickstart.md: steps 1–5 and 7, then step 6 (dummyplug end-to-end: tools, tool call, `context`, two WebUI tabs, agent edit mid-turn, background piece, `vizier agent ps`, `vizier shutdown` exit code 0)
-- [ ] T077 Run `cargo test --workspace`, `cargo clippy --workspace --all-targets`, `cargo test -p vizier-core --no-default-features`, and `cargo test -p vizier --no-default-features --features role-worker`; record any pre-existing Windows-only failures (`projects::path`, `skill::scopes`) in the PR description rather than fixing them here
-- [ ] T078 **COMMIT (slice 8)**: `doc: add the bus contract page and the vizier-schema layering policy (#162)`
+- [X] T072 [US5] Write `docs/src/fleet/bus-contract.md` from contracts/bus-semantics.md, contracts/subjects.md and the per-role contract table (empty skeletons noted), and add it to `docs/src/SUMMARY.md` under a new *Fleet* section
+- [X] T073 [P] [US5] Add a rule-to-check table at the end of `docs/src/fleet/bus-contract.md` mapping each numbered rule to its conformance check name
+- [X] T074 [P] Add the `vizier-schema` layering check to the `policy` job in `.github/workflows/ci.yml`: `vizier-schema` has no direct dependency on any `vizier-*` crate, `async-nats`, `tonic`, `axum`, `axum-extra`, `tower-http`, `clap`, `inquire`, `termimad`, `daemonize`; keep `vizier-core` forbidden from `async-nats`/`tonic`
+- [X] T075 [P] Update `CLAUDE.md` (workspace table row for `vizier-schema`, a *Fleet bus* paragraph under Architecture replacing the "in-process message bus built on `flume`" text, `exit_channel` note) and `crates/vizier-fleet/README.md`
+- [ ] T076 (partly done: library tests, dummyplug e2e test, clippy; the real-binary steps need Linux or WSL) Run the full verification from quickstart.md: steps 1–5 and 7, then step 6 (dummyplug end-to-end: tools, tool call, `context`, two WebUI tabs, agent edit mid-turn, background piece, `vizier agent ps`, `vizier shutdown` exit code 0)
+- [X] T077 Run `cargo test --workspace`, `cargo clippy --workspace --all-targets`, `cargo test -p vizier-core --no-default-features`, and `cargo test -p vizier --no-default-features --features role-worker`; record any pre-existing Windows-only failures (`projects::path`, `skill::scopes`) in the PR description rather than fixing them here
+- [X] T078 **COMMIT (slice 8)**: `doc: add the bus contract page and the vizier-schema layering policy (#162)`
 - [ ] T079 Open the pull request from `162-vizier-schema` with a conventional title (`feat: [**breaking**] add the Fleet message bus and run the transport on it (#162)`), listing the eight slices, the accepted piece-timeout behaviour change and the unverified CI jobs (`managed-storage`, Windows server build)
 
 ---
