@@ -16,7 +16,7 @@ pub use reply::{
 
 use crate::storage::{history::HistoryStorage, turn::TurnStorage};
 use crate::schema::{
-    AgentCommand, AgentHealthStatus, AgentId, BackgroundJobSnapshot, CommandRequest, CommandResponse, FileCommand, IntegrationChanged,
+    AgentCommand, AgentHealthStatus, AgentId, BackgroundJobSnapshot, CommandRequest, CommandResponse, IntegrationChanged,
     ReactionEntry, VizierAttachment, VizierRequest, VizierResponse, VizierSession,
 };
 
@@ -27,6 +27,8 @@ use crate::schema::{
 const SESSION_EVENTS_CAPACITY: usize = 1024;
 /// Integration changes are rare; a subscriber that still falls behind reconciles everything.
 const INTEGRATION_EVENTS_CAPACITY: usize = 64;
+/// How long a file upload or read may take.
+const FILE_COMMAND_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5 * 60);
 /// How long the command socket waits for the process to answer.
 const PROCESS_COMMAND_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 /// How long a memory operation may take, indexing included.
@@ -146,7 +148,8 @@ pub struct VizierTransport {
 
     exit_channel: Arc<(flume::Sender<bool>, flume::Receiver<bool>)>,
 
-    file_command_channel: Arc<(flume::Sender<FileCommand>, flume::Receiver<FileCommand>)>,
+    /// Where file bytes are staged for a file command (see [`wire::FileRequest`]).
+    staging: Option<Staging>,
 
     session_events: tokio::sync::broadcast::Sender<SessionEvent>,
 
@@ -167,13 +170,12 @@ impl VizierTransport {
     #[doc(hidden)]
     pub fn new() -> Self {
         let exit_channel = Arc::new(flume::unbounded());
-        let file_command_channel = Arc::new(flume::unbounded());
 
         Self {
             inboxes: Arc::new(RwLock::new(HashMap::new())),
             bus: InProcess::new().bus(),
             exit_channel,
-            file_command_channel,
+            staging: None,
             session_events: tokio::sync::broadcast::channel(SESSION_EVENTS_CAPACITY).0,
             integration_events: tokio::sync::broadcast::channel(INTEGRATION_EVENTS_CAPACITY).0,
             journal: None,
@@ -466,13 +468,17 @@ impl VizierTransport {
     }
 
     #[doc(hidden)]
-    pub async fn send_file_command(&self, cmd: FileCommand) -> Result<()> {
-        Ok(self.file_command_channel.0.send_async(cmd).await?)
+    /// This transport, staging file bytes in `blobs` for file commands.
+    pub fn with_blobs(mut self, blobs: Arc<dyn crate::storage::blob::BlobStore>) -> Self {
+        self.staging = Some(Staging(blobs));
+        self
     }
 
-    #[doc(hidden)]
-    pub async fn recv_file_command(&self) -> Result<FileCommand> {
-        Ok(self.file_command_channel.1.recv_async().await?)
+    fn staging(&self) -> Result<&Arc<dyn crate::storage::blob::BlobStore>> {
+        self.staging
+            .as_ref()
+            .map(|s| &s.0)
+            .ok_or_else(|| anyhow::anyhow!("this transport has no blob store to stage file bytes in"))
     }
 
     #[doc(hidden)]
@@ -481,28 +487,57 @@ impl VizierTransport {
         filename: String,
         content: Vec<u8>,
     ) -> Result<crate::schema::FileRecord> {
-        let (tx, rx) = tokio::sync::oneshot::channel();
-        self.send_file_command(FileCommand::Upload {
-            filename,
-            content,
-            response: tx,
-        })
-        .await?;
-        rx.await?
+        let blobs = self.staging()?;
+        let key = new_staging_key()?;
+        blobs.put(&key, bytes::Bytes::from(content)).await?;
+        let result = self
+            .file_request(wire::FileRequest::Upload { filename, staged: key.as_str().to_string() })
+            .await;
+        // The handler deletes it on success; a failure before it got there leaves it behind.
+        if result.is_err() {
+            let _ = blobs.delete(&key).await;
+        }
+        match result? {
+            wire::FileReply::Record(record) => Ok(record),
+            wire::FileReply::Err { message } => Err(anyhow::anyhow!(message)),
+            other => Err(anyhow::anyhow!("unexpected reply to an upload: {other:?}")),
+        }
     }
 
     #[doc(hidden)]
-    pub async fn send_file_resolve(
-        &self,
-        attachment: VizierAttachment,
-    ) -> Result<Vec<u8>> {
-        let (tx, rx) = tokio::sync::oneshot::channel();
-        self.send_file_command(FileCommand::Resolve {
-            attachment,
-            response: tx,
-        })
-        .await?;
-        rx.await?
+    pub async fn send_file_resolve(&self, attachment: VizierAttachment) -> Result<Vec<u8>> {
+        let blobs = self.staging()?;
+        match self.file_request(wire::FileRequest::Resolve { attachment }).await? {
+            wire::FileReply::Staged { key } => {
+                let key = crate::storage::blob::BlobKey::new(&key)?;
+                let bytes = blobs.get(&key).await?;
+                let _ = blobs.delete(&key).await;
+                Ok(bytes.ok_or_else(|| anyhow::anyhow!("the staged file vanished"))?.to_vec())
+            }
+            wire::FileReply::Err { message } => Err(anyhow::anyhow!(message)),
+            other => Err(anyhow::anyhow!("unexpected reply to a file read: {other:?}")),
+        }
+    }
+
+    async fn file_request(&self, request: wire::FileRequest) -> Result<wire::FileReply> {
+        let envelope = Envelope::json(wire::KIND_FILE_COMMAND, &request)?;
+        let reply = self
+            .bus
+            .messaging
+            .request(&Subject::files_cmd(), envelope, FILE_COMMAND_TIMEOUT)
+            .await
+            .map_err(|e| match e {
+                vizier_schema::BusError::NoResponders => anyhow::anyhow!("the file manager is not running"),
+                other => anyhow::Error::from(other),
+            })?;
+        Ok(reply.decode::<wire::FileReply>()?)
+    }
+
+    #[doc(hidden)]
+    /// Start taking file commands off the bus; the subscription exists when this returns.
+    pub async fn serve_file_commands(&self) -> Result<FileCommands> {
+        let sub = self.bus.messaging.subscribe(SubjectPattern::from(&Subject::files_cmd())).await?;
+        Ok(FileCommands { sub, messaging: self.bus.messaging.clone(), staging: self.staging.as_ref().map(|s| s.0.clone()) })
     }
 
     #[doc(hidden)]
@@ -798,5 +833,128 @@ impl DreamCommands {
                 Err(e) => tracing::warn!("dropping an undecodable dream command: {e}"),
             }
         }
+    }
+}
+
+/// The blob store file bytes are staged in. `BlobStore` has no `Debug`.
+#[derive(Clone)]
+struct Staging(Arc<dyn crate::storage::blob::BlobStore>);
+
+impl std::fmt::Debug for Staging {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Staging")
+    }
+}
+
+fn new_staging_key() -> Result<crate::storage::blob::BlobKey> {
+    crate::storage::blob::BlobKey::new(&format!("staging/{}", uuid::Uuid::new_v4().simple()))
+}
+
+/// The file manager's end of the file-command subject.
+pub struct FileCommands {
+    sub: vizier_schema::Subscription,
+    messaging: Arc<dyn vizier_schema::Messaging>,
+    staging: Option<Arc<dyn crate::storage::blob::BlobStore>>,
+}
+
+impl FileCommands {
+    /// The next command, with what it needs to answer it.
+    pub async fn recv(&mut self) -> Option<(wire::FileRequest, FileReplier)> {
+        loop {
+            let (_, envelope) = self.sub.recv().await?;
+            match envelope.decode::<wire::FileRequest>() {
+                Ok(request) => {
+                    let replier = FileReplier {
+                        messaging: self.messaging.clone(),
+                        staging: self.staging.clone(),
+                        request: envelope,
+                    };
+                    return Some((request, replier));
+                }
+                Err(e) => tracing::warn!("dropping an undecodable file command: {e}"),
+            }
+        }
+    }
+}
+
+/// Answers one file command, and moves bytes in and out of staging.
+pub struct FileReplier {
+    messaging: Arc<dyn vizier_schema::Messaging>,
+    staging: Option<Arc<dyn crate::storage::blob::BlobStore>>,
+    request: Envelope,
+}
+
+impl FileReplier {
+    /// The bytes a sender staged, removed from staging.
+    pub async fn take_staged(&self, key: &str) -> Result<Vec<u8>> {
+        let blobs = self.staging.as_ref().ok_or_else(|| anyhow::anyhow!("no staging store"))?;
+        let key = crate::storage::blob::BlobKey::new(key)?;
+        let bytes = blobs.get(&key).await?;
+        let _ = blobs.delete(&key).await;
+        Ok(bytes.ok_or_else(|| anyhow::anyhow!("the staged file is gone"))?.to_vec())
+    }
+
+    /// Stage `bytes` for the requester to read.
+    pub async fn stage(&self, bytes: Vec<u8>) -> Result<wire::FileReply> {
+        let blobs = self.staging.as_ref().ok_or_else(|| anyhow::anyhow!("no staging store"))?;
+        let key = new_staging_key()?;
+        blobs.put(&key, bytes::Bytes::from(bytes)).await?;
+        Ok(wire::FileReply::Staged { key: key.as_str().to_string() })
+    }
+
+    pub async fn answer(self, reply: wire::FileReply) {
+        if let Ok(out) = Envelope::json(wire::KIND_FILE_REPLY, &reply)
+            && let Err(e) = vizier_schema::reply(self.messaging.as_ref(), &self.request, out).await
+        {
+            tracing::warn!("could not answer a file command: {e}");
+        }
+    }
+}
+
+#[cfg(test)]
+mod file_tests {
+    use std::sync::Arc;
+
+    use super::*;
+
+    /// Bytes bigger than a bus payload still cross, because only a blob key rides the bus.
+    #[tokio::test]
+    async fn files_over_the_payload_limit_cross_through_staging() {
+        use crate::schema::VizierAttachment;
+        let dir = tempfile::tempdir().unwrap();
+        let blobs: Arc<dyn crate::storage::blob::BlobStore> =
+            Arc::new(crate::storage::blob::LocalBlobStore::new(dir.path().to_string_lossy().to_string()));
+        let transport = VizierTransport::new().with_blobs(blobs.clone());
+        let mut commands = transport.serve_file_commands().await.unwrap();
+        let big = vec![7u8; vizier_schema::MAX_PAYLOAD * 2];
+        let expected = big.clone();
+
+        // A stand-in for the file manager: reports what it was handed, and returns the same bytes.
+        tokio::spawn(async move {
+            while let Some((request, replier)) = commands.recv().await {
+                let reply = match request {
+                    wire::FileRequest::Upload { staged, .. } => {
+                        let got = replier.take_staged(&staged).await.unwrap();
+                        wire::FileReply::Err { message: format!("got {} bytes", got.len()) }
+                    }
+                    wire::FileRequest::Resolve { .. } => replier.stage(vec![9u8; 3_000_000]).await.unwrap(),
+                };
+                replier.answer(reply).await;
+            }
+        });
+
+        let err = transport.send_file_upload("big.bin".into(), big).await.unwrap_err();
+        assert_eq!(err.to_string(), format!("got {} bytes", expected.len()));
+
+        let attachment = VizierAttachment {
+            filename: "a.bin".into(),
+            content: crate::schema::VizierAttachmentContent::Local("a.bin".into()),
+        };
+        let bytes = transport.send_file_resolve(attachment).await.unwrap();
+        assert_eq!(bytes.len(), 3_000_000);
+
+        // Nothing is left staged.
+        let staged = blobs.list(&crate::storage::blob::BlobKey::new("staging").unwrap()).await.unwrap();
+        assert!(staged.is_empty(), "{staged:?}");
     }
 }

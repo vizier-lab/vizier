@@ -39,7 +39,7 @@ pub use background::{
 pub use commands::{
     AgentCommand, AgentCommandResult, AgentHealthStatus, AgentModelInfo, AgentRunState,
     AgentSummary, ChannelHealth, ChannelPlatform, ChannelState, CommandRequest, CommandResponse,
-    FileCommand, MemoryOpRequest, MemoryOpResponse,
+    MemoryOpRequest, MemoryOpResponse,
 };
 pub use dream_journal::{DreamJournalEntry, DreamJournalEntryFrontMatter};
 pub use file::FileRecord;

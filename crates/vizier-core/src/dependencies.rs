@@ -213,13 +213,14 @@ impl VizierDependencies {
             tracing::error!("failed to carry reply usage over into usage accounting: {e}");
         }
 
-        let transport = VizierTransport::durable(storage.clone());
+        let transport = VizierTransport::durable(storage.clone()).with_blobs(blobs.clone());
         let file_manager = FileManager::new(config.workspace.clone(), blobs.clone());
 
         let fm = file_manager.clone();
-        let file_transport = transport.clone();
+        // Subscribed before the task starts, so a command sent right away is not lost.
+        let file_commands = transport.serve_file_commands().await?;
         tokio::spawn(async move {
-            fm.run(file_transport).await;
+            fm.run(file_commands).await;
         });
 
         // The refreshed catalogue cached in SQLite, when it's newer than the seed. Never

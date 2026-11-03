@@ -244,3 +244,28 @@ pub enum MemoryOpReply {
 pub const KIND_DREAM_COMMAND: &str = "dream_command";
 pub const KIND_COMMAND_REQUEST: &str = "command_request";
 pub const KIND_COMMAND_RESPONSE: &str = "command_response";
+
+// --- files ------------------------------------------------------------------------------------
+
+use crate::schema::{FileRecord, VizierAttachment};
+
+pub const KIND_FILE_COMMAND: &str = "file_command";
+pub const KIND_FILE_REPLY: &str = "file_reply";
+
+/// File bytes never ride on the bus (a payload is capped at 1 MiB and files are not): the
+/// sender stages them in the blob store under `staged` and the message carries the key.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum FileRequest {
+    /// Store the staged bytes as an upload named `filename`.
+    Upload { filename: String, staged: String },
+    /// Read an attachment's bytes; the reply names where they were staged.
+    Resolve { attachment: VizierAttachment },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum FileReply {
+    Record(FileRecord),
+    /// The attachment's bytes, staged under this key for the requester to read and delete.
+    Staged { key: String },
+    Err { message: String },
+}

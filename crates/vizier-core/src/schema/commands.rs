@@ -192,18 +192,6 @@ pub struct AgentSummary {
     pub shared_to: Vec<String>,
 }
 
-pub enum FileCommand {
-    Upload {
-        filename: String,
-        content: Vec<u8>,
-        response: tokio::sync::oneshot::Sender<anyhow::Result<FileRecord>>,
-    },
-    Resolve {
-        attachment: VizierAttachment,
-        response: tokio::sync::oneshot::Sender<anyhow::Result<Vec<u8>>>,
-    },
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum MemoryOpRequest {
     Write {
