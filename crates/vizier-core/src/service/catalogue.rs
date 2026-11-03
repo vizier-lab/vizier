@@ -424,7 +424,79 @@ async fn live_models(deps: &VizierDependencies, provider: &ProviderId) -> Vec<cr
         .unwrap_or_default()
 }
 
-pub async fn models_for(deps: &VizierDependencies, id: &ProviderId, all: bool) -> Option<Vec<ModelSummary>> {
+/// What a picker is choosing a model for (contracts `media-and-test.md` §2–§3, FR-033a).
+///
+/// Only chat may offer a saved inference-profile entry: an ARN is a chat model, so an embedding or
+/// image list offers the foundation-model families alone and an entry is never substituted for one.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ModelCapability {
+    #[default]
+    Chat,
+    Embedding,
+    Image,
+}
+
+impl ModelCapability {
+    pub const UNKNOWN: &'static str = "capability must be one of: chat, embedding, image";
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value.trim() {
+            "chat" => Some(Self::Chat),
+            "embedding" => Some(Self::Embedding),
+            "image" => Some(Self::Image),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Chat => "chat",
+            Self::Embedding => "embedding",
+            Self::Image => "image",
+        }
+    }
+
+    /// Whether this capability may be offered a saved entry. `false` for both media capabilities:
+    /// the ban on an ARN as a media model is the whole point of the list (FR-033a).
+    pub fn offers_entries(&self) -> bool {
+        *self == Self::Chat
+    }
+}
+
+/// The origin of a family model the catalogue does not carry as a chat row: the picker still has
+/// to offer it, because it is the only thing this capability can call (FR-033a).
+const MEDIA_FAMILY_ORIGIN: &str = "family";
+
+/// Which Bedrock ids answer media from a fixed set of foundation-model families.
+fn is_bedrock(id: &ProviderId) -> bool {
+    *id == ProviderId::AMAZON_BEDROCK || *id == ProviderId::AMAZON_BEDROCK_SSO
+}
+
+/// A media capability's whole offer on a Bedrock connection: the foundation models
+/// `llm::media::bedrock` accepts, documented default first, and nothing else — no ARN entry,
+/// no chat model, so the picker cannot name a model the build would refuse (FR-033a).
+fn family_models(id: &ProviderId, capability: ModelCapability) -> Vec<ModelSummary> {
+    use crate::llm::media::bedrock::{EmbeddingFamily, ImageFamily};
+    let ids: &[&str] = match capability {
+        ModelCapability::Embedding => &EmbeddingFamily::ALL,
+        ModelCapability::Image => &ImageFamily::ALL,
+        // Chat is the catalogue's job; it never comes through here.
+        ModelCapability::Chat => return Vec::new(),
+    };
+    ids.iter()
+        .map(|model| bare(id.as_str(), model, None, MEDIA_FAMILY_ORIGIN))
+        .collect()
+}
+
+/// The picker's transport for one provider and one capability: chat offers the catalogue's models
+/// plus the connection's saved entries, while embedding and image offer their foundation-model
+/// families only (contracts `media-and-test.md` §2–§3, FR-033a).
+pub async fn models_for(
+    deps: &VizierDependencies,
+    id: &ProviderId,
+    all: bool,
+    capability: ModelCapability,
+) -> Option<Vec<ModelSummary>> {
     if let Ok(Some(custom)) = deps.storage.get_custom_provider(id).await {
         return Some(custom_models(deps, &custom));
     }
@@ -453,7 +525,12 @@ pub async fn models_for(deps: &VizierDependencies, id: &ProviderId, all: bool) -
     if *id == ProviderId::DUMMYPLUG {
         models.push(bare("dummyplug", "dummyplug", None, "builtin"));
     }
-    if *id == ProviderId::AMAZON_BEDROCK_SSO {
+    if is_bedrock(id) && !capability.offers_entries() {
+        // A media capability never sees the entries and never sees a chat model: what it offers is
+        // exactly what `llm::media::bedrock` accepts, so an ARN cannot be picked for it and none is
+        // ever substituted (FR-033a).
+        models = family_models(id, capability);
+    } else if *id == ProviderId::AMAZON_BEDROCK_SSO {
         // Entries come first: they are the reason the person is here (contracts §5). They are the
         // connection's own rows, so no AWS call and no second list is involved (FR-034c).
         let entries: Vec<ModelSummary> = saved_profile_entries(deps)
@@ -824,16 +901,27 @@ pub async fn list_providers(
         .collect()
 }
 
+/// One provider's models for one capability. `capability` is `chat` when absent, so every
+/// existing caller keeps the list it had; an unknown value is refused rather than read as chat,
+/// because a media picker silently handed chat models would offer what the call later refuses
+/// (FR-033a).
 pub async fn list_models(
     deps: &VizierDependencies,
     id: &str,
     all: bool,
+    capability: Option<&str>,
 ) -> Result<Vec<ModelSummary>, ServiceError> {
     crate::catalogue::refresh::maybe_refresh(deps);
+    let capability = match capability {
+        None => ModelCapability::Chat,
+        Some(value) => {
+            ModelCapability::parse(value).ok_or_else(|| invalid(ModelCapability::UNKNOWN))?
+        }
+    };
     let Ok(id) = ProviderId::parse(id) else {
         return Err(invalid("invalid provider id"));
     };
-    models_for(deps, &id, all)
+    models_for(deps, &id, all, capability)
         .await
         .ok_or_else(|| ServiceError::NotFound("provider not found".into()))
 }
@@ -847,7 +935,7 @@ pub async fn get_model(
     let Ok(id) = ProviderId::parse(id) else {
         return Err(invalid("invalid provider id"));
     };
-    let found = match models_for(deps, &id, true).await {
+    let found = match models_for(deps, &id, true, ModelCapability::Chat).await {
         Some(models) => models.into_iter().find(|m| m.id == model),
         None => None,
     };
@@ -1266,7 +1354,7 @@ mod tests {
             .await
             .unwrap();
 
-        let models = models_for(&deps, &ProviderId::AMAZON_BEDROCK_SSO, true)
+        let models = models_for(&deps, &ProviderId::AMAZON_BEDROCK_SSO, true, ModelCapability::Chat)
             .await
             .expect("the SSO id lists models");
 
@@ -1306,6 +1394,94 @@ mod tests {
         let defaults: Vec<&str> =
             models.iter().filter(|m| m.default).map(|m| m.id.as_str()).collect();
         assert_eq!(defaults, vec![models[2].id.as_str()], "the first catalogue model is the default");
+    }
+
+    /// T061 (FR-033a, contracts `media-and-test.md` §2–§3): chat is the only list that
+    /// offers the saved entries, and the two media capabilities offer their foundation-model
+    /// families alone — no ARN, no chat model, the documented default first and marked.
+    #[tokio::test]
+    async fn chat_offers_the_entries_and_the_media_capabilities_offer_only_their_families() {
+        use crate::config::VizierConfig;
+        use crate::llm::media::bedrock::{DEFAULT_EMBEDDING_MODEL, DEFAULT_IMAGE_MODEL, EmbeddingFamily, ImageFamily};
+        use crate::schema::{ProviderCredentials, ProviderEntry};
+        use crate::storage::provider::ProviderStorage;
+
+        let dir = tempfile::tempdir().unwrap();
+        let deps = VizierDependencies::new(VizierConfig {
+            workspace: dir.path().to_string_lossy().to_string(),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+        let arn = "arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/abc";
+        deps.storage
+            .upsert_provider(&ProviderEntry {
+                id: ProviderId::AMAZON_BEDROCK_SSO,
+                credentials: ProviderCredentials {
+                    profiles: vec![ProfileEntry { arn: arn.into(), ..Default::default() }],
+                    ..Default::default()
+                },
+            })
+            .await
+            .unwrap();
+
+        for id in [ProviderId::AMAZON_BEDROCK_SSO, ProviderId::AMAZON_BEDROCK] {
+            let embedding = models_for(&deps, &id, true, ModelCapability::Embedding)
+                .await
+                .unwrap_or_else(|| panic!("{id} lists embeddings"));
+            let ids: Vec<&str> = embedding.iter().map(|m| m.id.as_str()).collect();
+            assert_eq!(ids, EmbeddingFamily::ALL, "{id}: exactly the embedding families");
+            assert_eq!(embedding[0].id, DEFAULT_EMBEDDING_MODEL, "{id}: default first");
+            assert!(embedding[0].default, "{id}: the documented default is marked");
+            assert!(
+                embedding.iter().all(|m| !m.id.contains("inference-profile")),
+                "{id}: no ARN is offered for embeddings"
+            );
+
+            let image = models_for(&deps, &id, true, ModelCapability::Image)
+                .await
+                .unwrap_or_else(|| panic!("{id} lists images"));
+            let ids: Vec<&str> = image.iter().map(|m| m.id.as_str()).collect();
+            assert_eq!(ids, ImageFamily::ALL, "{id}: exactly the image families");
+            assert_eq!(image[0].id, DEFAULT_IMAGE_MODEL, "{id}: default first");
+            assert!(image[0].default, "{id}: the documented default is marked");
+            assert!(
+                image.iter().all(|m| !m.id.contains("inference-profile")),
+                "{id}: no ARN is offered for images"
+            );
+
+            // Every model these lists offer is one the build accepts, so the picker can never name
+            // a model that a call later refuses.
+            assert!(EmbeddingFamily::ALL.iter().all(|m| EmbeddingFamily::detect(m).is_some()));
+            assert!(ImageFamily::ALL.iter().all(|m| ImageFamily::detect(m).is_some()));
+        }
+
+        // Chat keeps the entries first and the catalogue's chat models after them.
+        let chat = models_for(&deps, &ProviderId::AMAZON_BEDROCK_SSO, true, ModelCapability::Chat)
+            .await
+            .unwrap();
+        assert_eq!(chat[0].id, arn, "the ARN entry stays listed for chat");
+        assert!(chat.len() > 100, "the catalogue's models follow it");
+        assert!(
+            !chat.iter().any(|m| m.id == DEFAULT_EMBEDDING_MODEL || m.id == DEFAULT_IMAGE_MODEL),
+            "a media default is not a chat model"
+        );
+
+        // An unknown capability is refused rather than read as chat, so a media picker is never
+        // silently handed chat models.
+        for bad in ["", "embeddings", "speech", "Chat"] {
+            assert!(ModelCapability::parse(bad).is_none(), "{bad:?} parsed");
+        }
+        assert_eq!(ModelCapability::UNKNOWN, "capability must be one of: chat, embedding, image");
+        assert_eq!(ModelCapability::default(), ModelCapability::Chat);
+        for (value, expected) in [
+            ("chat", ModelCapability::Chat),
+            ("embedding", ModelCapability::Embedding),
+            ("image", ModelCapability::Image),
+        ] {
+            assert_eq!(ModelCapability::parse(value), Some(expected));
+            assert_eq!(expected.as_str(), value);
+        }
     }
 
     /// T041 (FR-034a.1, FR-034c, contracts §5a): the pricing dropdown reads the `amazon-bedrock`

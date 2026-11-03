@@ -892,7 +892,7 @@ mod dummyplug_provider_tests {
         let models = list_models(
             State(state.clone()),
             Path("amazon-bedrock-sso".into()),
-            Query(ModelsQuery { all: true }),
+            Query(ModelsQuery { all: true, capability: None }),
         )
         .await;
         assert_eq!(models.0, StatusCode::OK, "{:?}", models.1.0);
