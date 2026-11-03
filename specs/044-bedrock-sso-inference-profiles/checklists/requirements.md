@@ -164,6 +164,7 @@ grammar revision was already written, so this pass refines it rather than repeat
 - **Does the dropdown fill in Q3's limits?** PASS — no. FR-034a.6 and SC-022: an entry with no limits entered
   still reports **unknown**, even when the paired model carries `limit.context` and `limit.output` in the
   catalogue. 0 limits copied, so Q3's "unknown when empty" is preserved exactly.
+  **— reversed 2026-11-03 by requester decision: the pairing now fills both limits. See run 8.**
 - **Catalogue refresh behaviour**: PASS — entries store an id and re-resolve label and price at display and
   use time; a refresh updates both and orphans nothing; a hand-entered price is never overwritten.
 
@@ -212,3 +213,46 @@ never-blocks-inference rule.
   stored column is needed; if it must appear beside historical usage rows, evaluation at report time is
   a planning decision and not a new user-facing requirement.
 - The strings quoted in FR-034a.2 are illustrative; the plan may finalise wording, not content.
+
+### Validation run 8 (2026-11-03, the pairing also fills the limits)
+
+Requester's decision, verbatim: *"Iya boleh deh harga dan limit sekaligus terisi selama itu ada di dalam
+katalognya"* — price **and** limits may both be filled by the pairing, provided the catalogue carries them.
+Verified on disk first: FR-034a.6 said the selection "does not fill in limits", SC-022 measured that 0 limits
+were copied, and the Assumptions called the dropdown "not a limit source". This run reverses exactly that
+clause and nothing else. Q1, Q2 and Q4 are not reopened.
+
+- **Is the fill source the existing catalogue, or a new one?** PASS - FR-034a.7 names `limit.context` and
+  `limit.output` of the **same** `amazon-bedrock` catalogue row the price already comes from. No new data
+  source, no AWS call, and FR-034c now says so explicitly for the limits as well.
+- **Does the reference case actually exist in the catalogue?** PASS - parsed
+  `crates/vizier-core/assets/catalogue/api.json`: `global.xai.grok-4.7` and `us.xai.grok-4.7` both hold
+  `"limit": {"context": 500000, "output": 500000}`. SC-022 quotes it, so the criterion is checkable against a
+  real row rather than an invented one.
+- **Does a hand-entered number win?** PASS - FR-034a.7 rule (1): never overwritten by the fill, by a
+  re-pairing, by a refresh, or by a client echoing back what it displayed. SC-022 counts 0 overwritten.
+- **What happens when the pair changes?** PASS - rule (2): the new model's limits reach the fields the person
+  has not edited, so no entry keeps a previous model's numbers. Stated as behaviour; the mechanism is
+  planning's call.
+- **What if there is no pair, or the id is not in the catalogue?** PASS - rule (4): unknown (empty), never
+  "unsupported", never a number from the ARN, never a guess; a cold start completes the fill when the
+  catalogue resolves the id, matching how FR-034a.2's reason clears itself.
+- **Can a stale catalogue silently shrink a working window?** PASS - no. Rule (3) makes the fill an act, not
+  a live lookup: a renamed or dropped model leaves the limits as they were and only the price falls to
+  unpriced. The asymmetry with price is stated and argued in the revision note.
+- **Can a limit block a turn?** PASS - no. FR-034a.5 unchanged; rule (6) restates it.
+- **Did capabilities get filled by accident?** PASS - no. FR-034a.6 and FR-034a.7 keep `tool_call` and
+  `image_input` as the entry's own fields, SC-022 counts 0 capabilities filled, and the revision note
+  records the recommendation and the one-clause change that would extend it if the requester asks.
+- **Did the ARN validation boundary move?** PASS - no. FR-023 and FR-024 are untouched; FR-034a.6 keeps its
+  ARN-shape and region sentences word for word, and adds that a filled limit does not vouch for what the ARN
+  points at.
+- **Is a new stored field or migration needed?** PASS - no. `context` and `output` already exist on the
+  entry; an entry with limits set keeps them, one without gains them the next time its pair is set.
+
+#### Consequence for planning (recorded, not executed)
+
+- **Round-trip hazard, worth a contract line**: if `GET` returns the resolved limits and the form `PUT`s them
+  back, they must not be stored as hand-entered values - rule (1) forbids a filled value becoming the
+  person's by being saved. Whether that is solved with the existing `edited` flag, per-field provenance, or
+  by not accepting unchanged values back is planning's call.
