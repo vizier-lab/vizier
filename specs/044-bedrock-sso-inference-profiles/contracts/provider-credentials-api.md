@@ -46,7 +46,7 @@ Six steps, one policy, four links — the same shape the static guide has (`crat
 | 2 | Choose the SSO region | the region your Identity Center instance lives in (often not the Bedrock region) |
 | 3 | Sign in and pick account + role | press **Sign in**, confirm the code in a browser on any machine, then choose from the lists |
 | 4 | Attach the minimal policy | `bedrock:InvokeModel` only; listing permissions are optional |
-| 5 | Add your inference profiles, and price them | paste each ARN, name it, then pick the model it runs from the searchable Bedrock list so its usage is costed — optional, and an entry with nothing picked still chats, shown as "pricing not set" |
+| 5 | Add your inference profiles, and price them | paste each ARN, name it, then pick the model it runs from the searchable Bedrock list so its usage is costed and its still-empty context window and output limit are filled from that model's catalogue row — optional, and an entry with nothing picked still chats, shown as "pricing not set" |
 | 6 | Test the connection | press **Test** — one small billable call to the model or profile the test names |
 
 Policy (copyable):
@@ -124,21 +124,22 @@ Additive fields on `ProviderResponse`:
 | `sso_region` | `Option<String>` | shown in clear |
 | `role_name` | `Option<String>` | shown in clear |
 | `session_expires_at` | `Option<DateTime<Utc>>` | shown |
-| `profiles` | `Vec<ProfileEntryResponse>` | `arn`, `name`, `context`, `output`, `tool_call`, `image_input`, `model`, `price`, `edited`, plus `display_name` (name, or the profile id from the ARN) and the computed `pricing` (§4a) |
+| `profiles` | `Vec<ProfileEntryResponse>` | `arn`, `name`, `context`, `output`, `tool_call`, `image_input`, `model`, `price`, `limits_edited`, `edited`, plus `display_name` (name, or the profile id from the ARN) and the computed `pricing` (§4a) |
 
 Never added: any token, credential half, `client_secret`, `device_code`.
 
-`PUT /{id}` accepts the new credential fields (§1) plus `profiles` (the whole list, one operation — FR-021). Omitted `profiles` keeps the stored list; `[]` clears it (same merge semantics as `ProviderCredentials::merged_with`, `crates/vizier-core/src/schema/provider.rs:180`). Entry validation is [data-model.md](../data-model.md) ("profile entry"), including rules 4a–4c: `model` is checked by **shape only** (an id that has left the catalogue must still be savable, FR-034a.3), `price` must be finite and non-negative, and neither field takes part in the ARN or region checks (FR-034a.6).
+`PUT /{id}` accepts the new credential fields (§1) plus `profiles` (the whole list, one operation — FR-021). Omitted `profiles` keeps the stored list; `[]` clears it (same merge semantics as `ProviderCredentials::merged_with`, `crates/vizier-core/src/schema/provider.rs:180`). Entry validation is [data-model.md](../data-model.md) ("profile entry"), including rules 4a–4c, and every write path runs the limit fill of §4b after it: `model` is checked by **shape only** (an id that has left the catalogue must still be savable, FR-034a.3), `price` must be finite and non-negative, and neither field takes part in the ARN or region checks (FR-034a.6).
 
-### §4a The entry's pricing fields (FR-034a–a.6)
+### §4a The entry's pricing fields (FR-034a–a.7)
 
-Two **optional** request/response fields on each entry, both non-secret, both meaningful only for pricing:
+Two **optional** request/response fields on each entry, both non-secret, both meaningful only for pricing — plus the provenance §4b needs, which the client never sets:
 
 | Field | Type | Where | Meaning |
 |---|---|---|---|
 | `model` | `string ∣ null` | request + response | one catalogue Bedrock model **id**, chosen from the list in §5a. Stored as an id; its name and cost are re-resolved on every read, so a catalogue refresh relabels and reprices every entry and orphans none (FR-034a.1) |
 | `price` | `Cost ∣ null` | request + response | a hand-entered cost, the catalogue's own `Cost` shape (`input`, `output`, optional `cache_read`/`cache_write`, per-million rates). Set ⇒ no catalogue lookup happens and a later refresh never overwrites it (FR-034a.4) |
 | `pricing` | object | **response only, computed** | what the entry's usage will cost right now. Never stored, never accepted on input |
+| `limits_edited` | `{ "context": bool, "output": bool } ∣ null` | **response only, server-owned** | which of the entry's two limits the person set by hand; the others are the ones a re-pairing may refresh (§4b). `null` on an entry saved before FR-034a.7, read as "true wherever a number is present", so an old value is never mistaken for a fill. **Whatever the client sends here is discarded**: the server derives it from the stored entry and the submitted numbers on every write, which is what makes echoing a displayed value back a no-op |
 
 `pricing` is one of **five** shapes, listed in order of precedence — **first match wins**, and the order is load-bearing (see the precedence bullet below):
 
@@ -161,6 +162,22 @@ Two **optional** request/response fields on each entry, both non-secret, both me
 - None of the three absence states blocks anything: `pricing` is read from a report, never from the turn path (FR-034a.5, SC-021).
 - The flag, the reason and this whole object are a **rendering**, computed per request from the entry's current state — not a stored column. A price entered after the fact therefore also reprices turns already recorded, exactly as a catalogue price change already does, and re-picking or pricing an entry clears its reason with no manual edit (research D13 §4, SC-021).
 
+### §4b The fill of the two limits (FR-034a.7)
+
+The pairing supplies the entry's price (§4a) **and its two limits**. The fill is a **write-time act on the server** — one function in `service/providers_sso.rs` beside `validate_entries`, run wherever a list is written: `POST /{id}/profiles`, `PUT /{id}/profiles/{arn}`, the surviving list in `DELETE /{id}/profiles/{arn}`, and `PUT /{id}` with `profiles`. It is **never** run on a read, never in the model list, never in the turn path.
+
+For one entry, with `base` = the entry stored under the same ARN (absent on an add) and `submitted` = the entry in the request:
+
+1. **An edited number is the person's.** `context` counts as edited when it differs from `base.context`, or when it is non-empty on an add, or when `base.limits_edited.context` is already true; `output` likewise. The server writes exactly those two answers back into `limits_edited` — the request's own value for that field is dropped.
+2. **The fill runs when the pair is set or changed** — `submitted.model` present and differing from `base.model`, or no `base` at all — **or when an unedited limit is still empty and the stored pair now resolves.** It is skipped when the pair was removed: a window that was resolved does not stop being true (rule 3), and removing a pair is not a reason to forget it.
+3. **What it writes** is `catalogue.model("amazon-bedrock-sso", submitted.model)`'s `limit.context` / `limit.output`, or `null` when the id does not resolve or the row carries no figure — so a re-pairing never leaves the previous model's numbers behind (rule 2) and an unresolvable pair leaves the limits **unknown**, never "unsupported" and never a number taken from the ARN (rule 4).
+4. **A pair unchanged and a limit edited or filled ⇒ nothing is written.** Re-saving the same form is neither an edit nor a fill (rule 1), and a limit the person cleared stays cleared even though the pair still resolves (rule 5) — clearing is how they say they do not want the catalogue's number.
+5. **No limit ever blocks anything.** This function runs on writes only; the turn path reads the stored numbers and nothing else (FR-034a.5).
+
+`PUT /{id}` follows the same rules per entry, matched by ARN, with the **stored list** as `base` — so a whole-list write can neither bypass the fill nor re-open a filled number as if it were the person's.
+
+**What is not filled.** `tool_call` and `image_input` are untouched by this function (FR-034a.6, SC-022): the catalogue's `image_input` would have to be inferred from `attachment` and `modalities.input`, and a wrongly-filled `true` turns a working entry into a failing request. Nothing here reads the ARN, so ARN validation (FR-023) and the region check (FR-024) stay exactly as they were.
+
 `DELETE /{id}`: `409` naming the agents in use unless `confirm=true` (existing `usage::check_in_use`), then deletes the row **and** the session row (FR-040).
 
 ---
@@ -180,11 +197,11 @@ For `amazon-bedrock-sso`, the response is the catalogue's Bedrock models **plus*
 - Entries come **first** (they are the reason the person is here), then the catalogue models, unchanged (FR-022, FR-030).
 - `origin: "inference_profile"` is the only new value; `origin` already exists for local models (`service/catalogue.rs`, `bare(...)`).
 - **`cost` is the entry's resolved price** — the hand-entered figure if there is one, else the chosen model's catalogue cost, else `null` (FR-034a). `null` is the same "unpriced" a custom provider's model already reports; `pricing` says which absence it is.
-- `limit`/`caps` are `null` where the entry left them empty — unknown, never "unsupported" (FR-028). **They are never taken from the paired model** (FR-034a.6, SC-022): an entry with no context window reports unknown limits even when its pair carries 200 000.
+- `limit`/`caps` are the **entry's own** stored values, and `null` where it has none — unknown, never "unsupported" (FR-028). A limit the pairing filled is a stored number like any other and is reported here unchanged; a field still empty reports unknown **even when its pair carries 200 000** (FR-034a.7, SC-022).
 
 ### §5a The dropdown's source (FR-034a.1)
 
-`GET /api/v1/catalogue/providers/{id}/models` for **the SSO id** is also the dropdown's source: the entries are the first block, and the catalogue's own Bedrock models follow. That is deliberate — it is the **same list the chat picker already offers**, so the dropdown adds no endpoint, no data source and no AWS call (FR-034c). The form filters it client-side by name and id (the design system's `Picker` already searches and windows), and it must offer **only chat models**: the catalogue's Bedrock row carries no embedding or image model, which is what makes it safe to place beside an ARN (FR-033a).
+`GET /api/v1/catalogue/providers/{id}/models` for **the SSO id** is also the dropdown's source: the entries are the first block, and the catalogue's own Bedrock models follow. That is deliberate — it is the **same list the chat picker already offers**, so the dropdown adds no endpoint, no data source and no AWS call (FR-034c). It is also the fill's source, so the form can show the number a still-empty limit will receive (§4b). The form filters it client-side by name and id (the design system's `Picker` already searches and windows), and it must offer **only chat models**: the catalogue's Bedrock row carries no embedding or image model, which is what makes it safe to place beside an ARN (FR-033a).
 
 **Which flag the dropdown loads with.** It calls the same endpoint as the chat picker, with `all=true` — the **unfiltered** Bedrock list, which is the 203-model figure FR-034a quotes. The default picker list (`all=false`) drops deprecated models and models known to lack tool calling; a person may still hold an inference profile over a legacy model and must be able to price it, so the dropdown shows the full list and marks a deprecated row rather than hiding it. It offers **chat models only** either way — there is no media model in that row to hide.
 
