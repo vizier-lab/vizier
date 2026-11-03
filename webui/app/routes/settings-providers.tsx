@@ -17,7 +17,8 @@ import {
     type CustomProvider,
 } from '../api/endpoints/providers'
 import { relativeTime } from '../lib/format'
-import { credentialText, customCredentialText, inUseMessage, usageText } from '../lib/providers'
+import type { SsoStateView } from '../lib/providers'
+import { credentialText, customCredentialText, inUseMessage, ssoStateOf, usageText } from '../lib/providers'
 import { invalidateCatalogue, logoOf } from '../lib/catalogue'
 import { ConnectForm } from '../screens/providers/ConnectForm'
 import { CustomProviderForm } from '../screens/providers/CustomProviderForm'
@@ -40,7 +41,9 @@ export default function SettingsProviders() {
     const [status, setStatus] = useState<CatalogueStatus>()
     const [error, setError] = useState<string>()
     const [menu, setMenu] = useState<string | null>(null)
-    const [connecting, setConnecting] = useState<{ provider: ProviderSummary; editing: boolean } | null>(null)
+    const [connecting, setConnecting] = useState<{ provider: ProviderSummary; editing: boolean; session?: SsoStateView } | null>(
+        null
+    )
     const [editingCustom, setEditingCustom] = useState<CustomProvider | null>(null)
     const [models, setModels] = useState<{ id: string; name: string; custom: boolean } | null>(null)
     const [pending, setPending] = useState<Pending | null>(null)
@@ -117,7 +120,9 @@ export default function SettingsProviders() {
                         if (row.kind === 'custom') setEditingCustom(row.provider)
                         else {
                             const s = summaryOf(row.provider.id)
-                            if (s) setConnecting({ provider: s, editing: true })
+                            // The state comes from the row being edited, so replacing credentials shows
+                            // what the stored session is doing without another call (FR-009b).
+                            if (s) setConnecting({ provider: s, editing: true, session: ssoStateOf(row.provider) })
                         }
                     }}
                 />
@@ -195,6 +200,7 @@ export default function SettingsProviders() {
                         key={connecting.provider.id}
                         provider={connecting.provider}
                         editing={connecting.editing}
+                        session={connecting.session}
                         onCancel={() => setConnecting(null)}
                         onDone={() => {
                             setConnecting(null)

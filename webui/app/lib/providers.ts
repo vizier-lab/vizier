@@ -6,6 +6,7 @@ import type {
     EntryPrice,
     EntryPricing,
     ProfileEntry,
+    SsoSessionState,
     UsedBy,
 } from '../api/endpoints/providers'
 import { usedTotal } from '../api/endpoints/providers'
@@ -48,10 +49,53 @@ export function usageText(used: UsedBy, models: number): string {
     return agents === 0 ? (models ? `not used yet · ${m}` : 'not used yet') : `${agents} agent${agents === 1 ? '' : 's'} · ${m}`
 }
 
+// ---- The saved SSO session (spec 044, FR-009b, FR-034b)
+//
+// Four states, each with its own label and its own sentence, in one exhaustive record: a fifth
+// state the API grows is a compile error here rather than a nameless row. Nothing in these words
+// comes from the session itself — the server never sends it, so this module could not print a
+// token, a code or a key even if it tried (FR-035).
+
+/** What a row and the form say about a connection's stored session. */
+export type SsoStateView = { state: SsoSessionState; profile?: string | null; expires_at?: string | null }
+
+const SSO_STATE_TEXT: Record<SsoSessionState, { label: string; detail: string }> = {
+    configured: {
+        label: 'Not signed in yet',
+        detail: 'The Identity Center connection is saved, but sign in is still needed before this workspace can use it.',
+    },
+    'signed-in': {
+        label: 'Signed in',
+        detail: 'A session is stored for this connection and Vizier is using it.',
+    },
+    expired: {
+        label: 'Session expired',
+        detail: 'The stored session has run out, so Bedrock calls cannot be made with it. Sign in again to get a new session.',
+    },
+    unreadable: {
+        label: 'Session cannot be read',
+        detail: 'The stored session cannot be read with this workspace’s key, so sign in again to replace it.',
+    },
+}
+
+/** The one label and the one sentence a session state has, shared by the row and the form (rule W5). */
+export function ssoStateText(state: SsoSessionState): { label: string; detail: string } {
+    return SSO_STATE_TEXT[state]
+}
+
+/** The session a connected row carries, or nothing when the API sent no state (the provider does not sign in). */
+export function ssoStateOf(p: ConnectedProvider): SsoStateView | undefined {
+    if (!p.sso_state) return undefined
+    return { state: p.sso_state, profile: p.sso_profile, expires_at: p.session_expires_at }
+}
+
 /** What a row says about how it is connected: "Saved key", "OPENAI_API_KEY", an address. */
 export function credentialText(p: ConnectedProvider): string {
     const where = p.endpoint ?? p.base_url
     const parts: string[] = []
+    // The session's state leads the credential part, so the row reads differently per state and
+    // still says nothing the session holds (FR-009b).
+    if (p.sso_state) parts.push(ssoStateText(p.sso_state).label)
     if (p.has_access_token) parts.push(p.account_id ? `Signed in as ${p.account_id}` : 'Signed in')
     else if (p.has_secret_access_key) parts.push(p.source?.startsWith('env:') ? `Keys from ${p.source.slice(4)}` : 'Saved keys')
     else if (p.access_key_id) parts.push('no secret key')

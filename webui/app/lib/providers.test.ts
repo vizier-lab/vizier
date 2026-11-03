@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { ModelSummary } from '../api/endpoints/catalogue'
-import type { ConnectedProvider, EntryPricing } from '../api/endpoints/providers'
-import { credentialText, draftPrice, entryLimit, pricingCandidates, pricingNote } from './providers'
+import type { ConnectedProvider, EntryPricing, SsoSessionState } from '../api/endpoints/providers'
+import { credentialText, draftPrice, entryLimit, pricingCandidates, pricingNote, ssoStateOf, ssoStateText } from './providers'
 
 const base: ConnectedProvider = {
     id: 'amazon-bedrock',
@@ -139,5 +139,57 @@ describe('the entry form helpers', () => {
             row('arn:aws:bedrock:us-east-1:123456789012:inference-profile/x', 'inference_profile'),
         ])
         expect(rows.map((m) => m.id)).toEqual(['amazon.nova-lite-v1:0'])
+    })
+})
+
+// ---- The saved session's four states (spec 044, FR-009b, FR-034b)
+
+const STATES: SsoSessionState[] = ['configured', 'signed-in', 'expired', 'unreadable']
+
+/** The SSO connection as the list carries it: non-secret fields, a region, no key pair. */
+const SSO_ROW: ConnectedProvider = {
+    ...base,
+    id: 'amazon-bedrock-sso',
+    name: 'Amazon Bedrock (IAM Identity Center)',
+    fields: ['start_url', 'sso_region', 'role_name', 'sso_profile', 'region'],
+    region: 'us-east-1',
+}
+
+describe('the saved session state', () => {
+    it('gives every state a label and a sentence of its own', () => {
+        const texts = STATES.map((state) => ssoStateText(state))
+        expect(new Set(texts.map((t) => t.label)).size).toBe(STATES.length)
+        expect(new Set(texts.map((t) => t.detail)).size).toBe(STATES.length)
+        // The sentence is what answers the row, so it says more than the label over it.
+        for (const t of texts) expect(t.detail.length).toBeGreaterThan(t.label.length)
+    })
+
+    it('says how to get out of an expired or unreadable session, not just that it is broken', () => {
+        expect(ssoStateText('expired').label).toBe('Session expired')
+        expect(ssoStateText('expired').detail).toContain('Sign in again')
+        // Unreadable names its cause, which is the reason it cannot be fixed in place.
+        expect(ssoStateText('unreadable').label).toBe('Session cannot be read')
+        expect(ssoStateText('unreadable').detail).toContain('cannot be read with this workspace')
+        expect(ssoStateText('unreadable').detail).toContain('sign in again')
+        // Configured is its own thing: saved, and still waiting for a sign-in.
+        expect(ssoStateText('configured').label).toBe('Not signed in yet')
+        expect(ssoStateText('configured').detail).toContain('connection is saved')
+        expect(ssoStateText('configured').detail).toContain('sign in is still needed')
+    })
+
+    it('carries the profile and the expiry of the row, and nothing when there is no state', () => {
+        expect(ssoStateOf(base)).toBeUndefined()
+        expect(ssoStateOf({ ...SSO_ROW, sso_state: null })).toBeUndefined()
+        expect(
+            ssoStateOf({ ...SSO_ROW, sso_state: 'signed-in', sso_profile: 'team-dev', session_expires_at: '2026-11-03T13:12:00Z' })
+        ).toEqual({ state: 'signed-in', profile: 'team-dev', expires_at: '2026-11-03T13:12:00Z' })
+    })
+
+    it('leads the row with the state, keeps the region, and still names no secret', () => {
+        const text = credentialText({ ...SSO_ROW, sso_state: 'expired' })
+        expect(text.startsWith('Session expired')).toBe(true)
+        expect(text).toContain('us-east-1')
+        // A row without a session state reads exactly as it did before (FR-034b).
+        expect(credentialText({ ...SSO_ROW, sso_state: undefined })).toBe('us-east-1')
     })
 })

@@ -17,7 +17,8 @@ import {
     type TestResult,
 } from '../../api/endpoints/providers'
 import { absoluteTime } from '../../lib/format'
-import { FIELD_LABELS, PLAIN_FIELDS } from '../../lib/providers'
+import type { SsoStateView } from '../../lib/providers'
+import { FIELD_LABELS, PLAIN_FIELDS, ssoStateText } from '../../lib/providers'
 
 type Props = {
     provider: Pick<ProviderSummary, 'id' | 'name' | 'fields' | 'endpoint' | 'doc' | 'guide'>
@@ -26,6 +27,28 @@ type Props = {
     onDone: () => void
     onCancel: () => void
     submitLabel?: string
+    /** The stored session's state while editing a connection that signs in (FR-009b). */
+    session?: SsoStateView | null
+}
+
+/**
+ * What the stored session is doing, in the four states the server distinguishes (FR-009b,
+ * FR-034b): the state's label, its sentence, the profile the session is stored under, and — only
+ * while it is signed in — when it runs out. Not one field of the session itself: the server sends
+ * no token, code or key, and this section could not draw one if it did (FR-035).
+ */
+export function SessionState({ session }: { session: SsoStateView }) {
+    const { label, detail } = ssoStateText(session.state)
+    return (
+        <section className="flex flex-col gap-6 rounded-lg border border-border bg-raised p-12" aria-label="Session">
+            <p className="type-ui-medium text-fg">{label}</p>
+            <p className="type-small text-muted">{detail}</p>
+            {session.profile && <p className="type-small text-muted">Profile {session.profile}</p>}
+            {session.state === 'signed-in' && session.expires_at && (
+                <p className="type-small text-muted">The session ends {absoluteTime(session.expires_at)}</p>
+            )}
+        </section>
+    )
 }
 
 /**
@@ -439,7 +462,7 @@ export function SignInPanel({
  * Connect one provider with the fields it takes (a key, an address, a token). Saving also checks
  * the connection, and says what came of it: the credentials are kept either way.
  */
-export function ConnectForm({ provider, editing, onDone, onCancel, submitLabel }: Props) {
+export function ConnectForm({ provider, editing, onDone, onCancel, submitLabel, session }: Props) {
     const fields: CredentialField[] = provider.fields.length ? provider.fields : ['api_key']
     const [values, setValues] = useState<Partial<Record<CredentialField, string>>>(() =>
         Object.fromEntries(fields.filter((f) => f === 'endpoint' || f === 'base_url').map((f) => [f, provider.endpoint ?? ''])) as Partial<Record<CredentialField, string>>
@@ -476,6 +499,7 @@ export function ConnectForm({ provider, editing, onDone, onCancel, submitLabel }
             }}
         >
             {provider.guide && <Guide guide={provider.guide} editing={editing} />}
+            {session && <SessionState session={session} />}
             {fields.map((f, i) => (
                 <TextField
                     key={f}
