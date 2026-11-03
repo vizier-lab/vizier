@@ -121,6 +121,7 @@ impl<'a, S: SsoSessionStorage + ?Sized> SsoSessions<'a, S> {
         let Some(refresh_token) = session.refresh_token.clone() else {
             return Err(SsoError::SessionExpired);
         };
+        tracing::debug!(profile, "the stored access token has expired; refreshing it");
         let registration = ClientRegistration {
             client_id: session.client_id.clone(),
             client_secret: session.client_secret.clone(),
@@ -139,6 +140,12 @@ impl<'a, S: SsoSessionStorage + ?Sized> SsoSessions<'a, S> {
                 session.issued_at = Utc::now();
                 let revision = session.revision;
                 let persisted = self.store_renewal(profile, session, revision).await?;
+                tracing::debug!(
+                    profile,
+                    revision = persisted.session.revision,
+                    written = persisted.written,
+                    "the refreshed access token was kept"
+                );
                 Ok(persisted.session)
             }
             // `authorization_pending`/`slow_down` on a refresh grant, a denial, or a token
@@ -211,6 +218,7 @@ impl<'a, S: SsoSessionStorage + ?Sized> SsoSessions<'a, S> {
             })?;
         match outcome {
             SsoWrite::Written(revision) => {
+                tracing::debug!(profile, revision, "the sso session was written");
                 let mut stored = secret;
                 stored.revision = revision;
                 Ok(Persisted {
@@ -218,16 +226,22 @@ impl<'a, S: SsoSessionStorage + ?Sized> SsoSessions<'a, S> {
                     written: true,
                 })
             }
-            SsoWrite::Conflict => match self.load(profile).await? {
-                // The winner's session is the one to use; ours is discarded, not forced in.
-                Some(winner) => Ok(Persisted {
-                    session: winner,
-                    written: false,
-                }),
-                // The row was deleted between our read and our write: the session is gone, which
-                // is what re-signing in fixes.
-                None => Err(SsoError::SessionExpired),
-            },
+            SsoWrite::Conflict => {
+                tracing::debug!(
+                    profile,
+                    "another writer stored the sso session first; using theirs"
+                );
+                match self.load(profile).await? {
+                    // The winner's session is the one to use; ours is discarded, not forced in.
+                    Some(winner) => Ok(Persisted {
+                        session: winner,
+                        written: false,
+                    }),
+                    // The row was deleted between our read and our write: the session is gone,
+                    // which is what re-signing in fixes.
+                    None => Err(SsoError::SessionExpired),
+                }
+            }
         }
     }
 }
@@ -499,12 +513,21 @@ mod tests {
 
         assert_eq!(credentials.access_key_id, "ASIASECONDKEY");
         assert_eq!(stub.path_count("/token"), 1, "one CreateToken, no more");
-        assert!(
-            stub.seen().iter().any(|(path, body)| path == "/token"
-                && body.contains("grant_type=refresh_token")
-                && body.contains("refresh_token=refresh-token-value")),
+        // The token half is the refresh grant of §5, as JSON with camelCase keys (044).
+        let token_request = stub
+            .seen()
+            .into_iter()
+            .find(|(path, _)| path == "/token")
+            .map(|(_, body)| body)
+            .expect("one CreateToken");
+        let sent: serde_json::Value =
+            serde_json::from_str(&token_request).expect("the token request is JSON");
+        assert_eq!(
+            sent["grantType"], "refresh_token",
             "the token half is the refresh grant of §5"
         );
+        assert_eq!(sent["refreshToken"], "refresh-token-value");
+        assert!(sent.get("grant_type").is_none(), "{token_request}");
         assert_eq!(stub.path_count("/federation/credentials"), 1);
         // The refreshed token was written back through the compare-and-swap of §5.
         let stored = sessions.load(PROFILE).await.unwrap().unwrap();

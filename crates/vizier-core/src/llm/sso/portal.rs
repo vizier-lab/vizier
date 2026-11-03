@@ -191,6 +191,13 @@ impl SsoPortal {
             })
             .await?;
         if status == 403 || status == 404 {
+            tracing::warn!(
+                region = %self.client.region(),
+                status,
+                account_id,
+                role_name,
+                "the identity is not assigned this role"
+            );
             return Err(SsoError::RoleNotAssigned {
                 account_id: account_id.to_string(),
                 role_name: role_name.to_string(),
@@ -222,6 +229,12 @@ impl SsoPortal {
     /// §4's shared failure table: an expired token says so, a missing permission names the action,
     /// throttling keeps its own cause, and anything else is `Unavailable`.
     fn refused(&self, status: u16, action: &str) -> SsoError {
+        tracing::warn!(
+            region = %self.client.region(),
+            status,
+            action,
+            "the sso portal refused the request"
+        );
         match status {
             401 => SsoError::SessionExpired,
             403 => SsoError::PermissionMissing {

@@ -49,7 +49,13 @@ pub async fn begin_sign_in(
     start_url: &str,
 ) -> Result<DeviceFlow, SsoError> {
     let registration = match registration {
-        Some(registration) if registration.is_reusable(Utc::now()) => registration,
+        Some(registration) if registration.is_reusable(Utc::now()) => {
+            tracing::debug!(
+                region = client.region(),
+                "reusing the stored client registration"
+            );
+            registration
+        }
         _ => client.register_client().await?,
     };
     DeviceFlow::start(client, registration, start_url).await
