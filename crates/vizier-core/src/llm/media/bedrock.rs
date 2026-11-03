@@ -498,6 +498,100 @@ mod tests {
         assert!(!error.contains("application-inference-profile"), "{error}");
     }
 
+    /// FR-033b: leaving the field empty keeps the documented defaults, which are the models these
+    /// families already accept — so an SSO-only agent needs no extra configuration.
+    #[test]
+    fn an_empty_field_keeps_the_documented_defaults() {
+        assert_eq!(DEFAULT_EMBEDDING_MODEL, "amazon.titan-embed-text-v2:0");
+        assert_eq!(DEFAULT_IMAGE_MODEL, "amazon.nova-canvas-v1:0");
+        assert_eq!(
+            EmbeddingFamily::detect(DEFAULT_EMBEDDING_MODEL),
+            Some(EmbeddingFamily::TitanV2)
+        );
+        assert_eq!(ImageFamily::detect(DEFAULT_IMAGE_MODEL), Some(ImageFamily::NovaCanvas));
+
+        // Both default strings build, which is what "the field may stay empty" means.
+        let embeddings = BedrockEmbeddings::new(endpoint_with(DEFAULT_EMBEDDING_MODEL));
+        assert!(embeddings.is_ok());
+        assert!(BedrockImages::new(endpoint_with(DEFAULT_IMAGE_MODEL)).is_ok());
+    }
+
+    /// FR-033a/b: a foundation model outside the families is refused **by name**, with the model it
+    /// was given — nothing is swapped for a default and nothing is derived from a saved entry.
+    #[test]
+    fn an_unsupported_family_is_refused_by_name_and_never_swapped_for_another_model() {
+        for model in ["anthropic.claude-haiku-4-5-20251001-v1:0", "stability.stable-diffusion-xl-v1"] {
+            let error = BedrockEmbeddings::new(endpoint_with(model)).err().unwrap().0;
+            assert!(
+                error.starts_with("unsupported Bedrock embedding model"),
+                "{error}"
+            );
+            assert!(error.contains(model), "the model is named: {error}");
+            for id in ["amazon.titan-embed-text-v2:0", "cohere.embed-multilingual-v3"] {
+                assert!(error.contains(id), "{id} missing from: {error}");
+            }
+            assert!(!error.contains("inference-profile"), "{error}");
+        }
+
+        let error = BedrockImages::new(endpoint_with("meta.llama3-70b-instruct-v1:0"))
+            .err()
+            .unwrap()
+            .0;
+        assert!(error.starts_with("unsupported Bedrock image model"), "{error}");
+        for id in ["amazon.nova-canvas-v1:0", "amazon.titan-image-generator-v2:0"] {
+            assert!(error.contains(id), "{id} missing from: {error}");
+        }
+    }
+
+    /// FR-033b: the provider's own refusal — an unsupported family, a model the account does not
+    /// have — reaches the person with its text intact, prefixed only with the capability.
+    #[tokio::test]
+    async fn the_provider_own_refusal_passes_through_unchanged() {
+        let body = r#"{"message":"This model is not supported for embeddings."}"#;
+        let base = refusal_server(400, body).await;
+        let embeddings =
+            BedrockEmbeddings::new(endpoint_at(&base, DEFAULT_EMBEDDING_MODEL)).unwrap();
+        let error = embeddings.embed_text("hello").await.unwrap_err().to_string();
+        assert!(
+            error.contains("This model is not supported for embeddings."),
+            "the provider's words survive: {error}"
+        );
+        assert!(error.starts_with("embeddings: "), "{error}");
+
+        let body = r#"{"message":"The provided model identifier is invalid."}"#;
+        let base = refusal_server(400, body).await;
+        let images = BedrockImages::new(endpoint_at(&base, DEFAULT_IMAGE_MODEL)).unwrap();
+        let error = images.generate("a red fox", None).await.err().unwrap().0;
+        assert!(
+            error.contains("The provided model identifier is invalid."),
+            "the provider's words survive: {error}"
+        );
+    }
+
+    /// A local server answering `status` with `body`, so the refusal's text is testable without AWS.
+    async fn refusal_server(status: u16, body: &'static str) -> String {
+        let app = axum::Router::new().fallback(
+            move |_request: axum::extract::Request| async move {
+                (
+                    axum::http::StatusCode::from_u16(status).expect("a valid status"),
+                    [("content-type", "application/json")],
+                    body,
+                )
+            },
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        url
+    }
+
+    fn endpoint_at(base: &str, model: &str) -> Endpoint {
+        Endpoint {
+            base_url: base.to_string(),
+            ..endpoint_with(model)
+        }
+    }
+
     #[test]
     fn vectors_are_numbers_only() {
         assert_eq!(
