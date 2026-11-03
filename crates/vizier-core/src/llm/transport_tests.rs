@@ -12,7 +12,10 @@ use axum::http::{HeaderMap, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
 use serde_json::json;
 
-use super::auth::{CopilotExchange, KeyStyle, StaticKey};
+use super::auth::{
+    CopilotExchange, CredentialSource, KeyStyle, RequestInfo, SigV4Credential, StaticKey,
+};
+use super::dialect::bedrock::Bedrock;
 use super::dialect::{DialectKind, openai_chat::OpenAiChat, openai_responses::OpenAiResponses};
 use super::error::LlmError;
 use super::model::{CompletionModel, HttpModel, RetryingModel};
@@ -261,4 +264,141 @@ async fn a_missing_context_window_is_read_from_the_model_listing() {
     };
     super::resolve::fill_context_from_provider(&mut known, &reqwest::Client::new()).await;
     assert!(state.lock().unwrap().seen.is_empty());
+}
+
+// Bedrock's signed path, inspected on the built request ---------------------------------------
+
+/// A real [`SigV4Credential`] that also keeps the request it built, so a test can read the exact
+/// wire request — the path encoding and how often a header is present — before it is sent. The
+/// key pair is fake: signing is local, so no network and no real credential are involved.
+struct CapturingSigV4 {
+    inner: SigV4Credential,
+    built: Mutex<Option<reqwest::Request>>,
+}
+
+impl CapturingSigV4 {
+    fn new() -> Arc<Self> {
+        Arc::new(Self {
+            inner: SigV4Credential {
+                access_key_id: "AKIDEXAMPLE".into(),
+                secret_access_key: "secret-access-key".into(),
+                session_token: Some("session-token".into()),
+                region: "ap-southeast-1".into(),
+                service: super::bedrock::SERVICE,
+            },
+            built: Mutex::new(None),
+        })
+    }
+
+    /// The request the signer produced. One per test, consumed once.
+    fn built(&self) -> reqwest::Request {
+        self.built
+            .lock()
+            .unwrap()
+            .take()
+            .expect("one signed request")
+    }
+}
+
+#[async_trait::async_trait]
+impl CredentialSource for CapturingSigV4 {
+    async fn authorize(
+        &self,
+        req: reqwest::RequestBuilder,
+        info: &RequestInfo,
+    ) -> Result<reqwest::RequestBuilder, LlmError> {
+        self.inner.authorize(req, info).await
+    }
+
+    async fn authorize_with_body(
+        &self,
+        req: reqwest::RequestBuilder,
+        info: &RequestInfo,
+        method: &str,
+        url: &str,
+        body: &[u8],
+    ) -> Result<reqwest::RequestBuilder, LlmError> {
+        let signed = self
+            .inner
+            .authorize_with_body(req, info, method, url, body)
+            .await?;
+        // `try_clone` + `build` observes exactly what would go out and leaves the signer's
+        // builder untouched; the body is in-memory bytes, so the clone always succeeds.
+        let built = signed
+            .try_clone()
+            .expect("a cloneable body")
+            .build()
+            .expect("a buildable request");
+        *self.built.lock().unwrap() = Some(built);
+        Ok(signed)
+    }
+}
+
+/// The inference profile that produced the live 403 (bug 044).
+const SSO_PROFILE_ARN: &str =
+    "arn:aws:bedrock:ap-southeast-1:392852851960:application-inference-profile/q549rhlez69w";
+
+/// The wire contract for a signed Bedrock turn: the ARN travels as **one** encoded path segment
+/// (`%3A`, `%2F`, never `%253A`/`%252F` — the second encoding belongs to the canonical URI alone)
+/// and `content-type` is present exactly **one** time. Three layers adding it is what AWS
+/// canonicalised as `application/json,application/json` and answered 403 "signature does not
+/// match", so this test fails if any layer starts adding either again.
+#[tokio::test]
+async fn a_bedrock_converse_request_sends_one_encoded_arn_and_one_content_type() {
+    let (url, state) = server(vec![reply(
+        200,
+        json!({
+            "output": {"message": {"role": "assistant", "content": [{"text": "hi"}]}},
+            "stopReason": "end_turn",
+            "usage": {"inputTokens": 1, "outputTokens": 1, "totalTokens": 2}
+        }),
+    )])
+    .await;
+
+    let credential = CapturingSigV4::new();
+    let resolved = ResolvedModel {
+        base_url: url,
+        dialect: DialectKind::Bedrock,
+        credential: credential.clone(),
+        ..ResolvedModel::test(SSO_PROFILE_ARN)
+    };
+    let model = HttpModel::new(Bedrock, Arc::new(resolved), reqwest::Client::new());
+    model.complete(hello()).await.unwrap();
+
+    let request = credential.built();
+    let path = request.url().path().to_string();
+    assert!(
+        path.contains("%3A") && path.contains("%2F"),
+        "the ARN is one encoded segment: {path}"
+    );
+    assert!(
+        !path.contains("%253A") && !path.contains("%252F"),
+        "the wire path is encoded once, not twice: {path}"
+    );
+    assert_eq!(
+        request
+            .headers()
+            .get_all(reqwest::header::CONTENT_TYPE)
+            .iter()
+            .count(),
+        1,
+        "one content-type on the wire, however many layers sign or dress the request"
+    );
+
+    // The server saw the same thing: nothing downstream merged or added a copy.
+    let seen = state.lock().unwrap();
+    let received = seen.seen[0].0.clone();
+    assert!(
+        received.contains("%3A") && received.contains("%2F"),
+        "{received}"
+    );
+    assert!(
+        !received.contains("%253A") && !received.contains("%252F"),
+        "{received}"
+    );
+    assert_eq!(
+        seen.seen[0].1.get_all("content-type").iter().count(),
+        1,
+        "the server received one content-type"
+    );
 }
