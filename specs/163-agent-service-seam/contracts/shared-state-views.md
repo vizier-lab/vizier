@@ -75,8 +75,12 @@ match state.get(&key).await {
 
 **When the host publishes** - the rule that keeps single node unchanged:
 
-5. The host publishes **when it takes an agent** and **whenever that agent's state changes**. It
-   does not publish on a timer. A view is therefore a moment-old truth, not a poll.
+5. The host publishes **when it takes an agent** and **whenever that agent's state changes**.
+   It also **refreshes** the views it holds, so a view is never older than its deadline. The
+   refresh is needed for rule 3 to mean anything: an idle running agent's state does not
+   change, so without it its view would expire and the WebUI would show it as unknown - a
+   visible regression in one node, and SC-008 unachievable. A view is therefore a moment-old
+   truth that is refreshed, not a poll of the agent's state.
 6. The first read after startup must not be "unknown" for an agent that is running. The host
    publishes on take, so the window between the agent starting and its first publish is the
    publish itself, not the ten-second deadline.
@@ -108,6 +112,12 @@ The reader adds what it already holds: whether the agent has an open turn (a sto
 The agent's build phase, message, error and download progress, as the setup board holds it today
 (`crates/vizier-core/src/setup.rs:74-137`). The board keeps its in-memory form - it is the *live*
 progress - and publishes a copy for the gateways that are not in this process.
+
+**A gateway reads both.** The published view covers the agents another node holds; this
+process's own board is still read as well, because an agent being *created* is not in storage
+yet, so the view cannot be found by listing the stored agents. The board's own entries win, so
+in one node what is shown is exactly what it was before. The read of the local board is an
+audited exception in the mechanical check.
 
 **The setup board is the publisher.** One publisher, one place: not a `put` call scattered over the
 call sites that touch setup (Principle II).

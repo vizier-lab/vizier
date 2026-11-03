@@ -44,6 +44,22 @@ Two Windows-only failures are known and pre-existing (confirmed on a stashed tre
 `skill::scopes::tests::a_slug_in_both_project_roots_appears_once_and_agents_wins`. Note them; do not
 count them as yours.
 
+**The baseline, recorded on this branch** (`cargo test -p vizier-core --lib` before any code
+change):
+
+```
+test result: FAILED. 1342 passed; 2 failed; 7 ignored; 0 measured; 0 filtered out
+failures:
+    projects::path::tests::absolute_escaping_and_missing_paths_are_refused
+    skill::scopes::tests::a_slug_in_both_project_roots_appears_once_and_agents_wins
+```
+
+`cargo test -p vizier-schema` and `cargo test -p vizier-fleet` were green before any code change.
+
+**After the work** (`cargo test -p vizier-core --lib`): `1346 passed; 2 failed` - the same two
+failures, and four more tests (the seam's own). `vizier-schema` 19+4+1, `vizier-fleet` 2+3 and
+`vizier-http` 35+1+2+1 all green, with no test changed to accommodate the work.
+
 ---
 
 ## Slice 1 - the contract
@@ -168,14 +184,50 @@ A check that has never been seen to fail is not a check.
 
 ---
 
+## The mechanical check, and how it was proven to bite
+
+`scripts/163-agent-state-read-check.sh`, run from the CI `policy` job. It refuses a read of a
+running agent's state from `crates/vizier-http/src` or `crates/vizier-core/src/service`, and
+names the file and the line of each one it finds.
+
+**The proof** (2026-11-03): a deliberate `deps.transport.agent_health()` was added to
+`crates/vizier-core/src/service/agents.rs`, the check was run, and it failed with
+
+```
+::error::crates/vizier-core/src/service/agents.rs:789 reads a running agent's state: let _deliberate = deps.transport.agent_health().await;
+```
+
+The deliberate read was removed and the check passed again. The two reads that stay are the
+audited exceptions (the channel-reader health, and this process's own setup board), each named
+in `contracts/agent-state-audit.md`.
+
+The check's output on a clean tree:
+
+```
+audited exception: crates/vizier-core/src/service/integrations.rs:206 status_of(&s.deps().channel_board, &integration.id)
+audited exception: crates/vizier-core/src/service/setup_state.rs:19 let mut setups = deps.setup.snapshot();
+agent-state audit: 19 rows, 5 handles covered, 2 audited exceptions
+agent-state read check: no un-audited direct read of a running agent's state
+```
+
 ## The gates before the work is done
 
 ```powershell
-cargo clippy --workspace --all-targets -- -D warnings
+cargo clippy --workspace --all-targets -- -D warnings -A clippy::style -A clippy::complexity -A clippy::perf
 cargo test --workspace
 cargo test -p vizier-schema
 cargo test -p vizier-fleet
 ```
+
+**The clippy flags matter.** CI's set is `-D warnings -A clippy::style -A clippy::complexity
+-A clippy::perf` (`.github/workflows/ci.yml`): the tree carried about a hundred style,
+complexity and perf findings before CI existed, and CI lets them be warnings. A bare
+`-D warnings` fails on those, not on this work.
+
+**On Windows** `cargo clippy --workspace` also fails to compile `daemonize`, which is
+Unix-only. That is a platform limitation, not a finding: CI runs on Linux. The four crates
+this feature touches - `vizier-schema`, `vizier-core`, `vizier-http`, `vizier-fleet` - are
+clean under the flags above on Windows too.
 
 Plus the agent-observable gate: the turn path changes, so the dummyplug end-to-end agent turn runs
 (the constitution's e2e gate). The conformance suite and the offline end-to-end agent turn must pass
