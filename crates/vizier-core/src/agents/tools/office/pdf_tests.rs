@@ -1,6 +1,6 @@
 //! The PDF tools against sample files written by other tools (reportlab, pypdf; see
 //! `tests/fixtures/office/gen-pdf-fixtures.py`), and the tools themselves end to end on a
-//! throwaway store. Spec `044-office-pdf`.
+//! throwaway store. Spec `046-office-pdf`.
 
 use std::net::TcpListener;
 use std::sync::Arc;

@@ -2,7 +2,7 @@
 
 **Branch**: `feat/office-pdf` | **Date**: 2026-11-02 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `specs/044-office-pdf/spec.md`
+**Input**: Feature specification from `specs/046-office-pdf/spec.md`
 
 ## Summary
 
@@ -51,7 +51,7 @@ Add four tools to the existing `office` addon: `office_pdf_read_as_md`, `office_
 ### Documentation (this feature)
 
 ```text
-specs/044-office-pdf/
+specs/046-office-pdf/
 ├── plan.md
 ├── research.md
 ├── data-model.md

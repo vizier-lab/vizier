@@ -1,6 +1,6 @@
 # Contract: Office PDF Tools
 
-**Feature**: `044-office-pdf`. Extends `specs/036-office-addon/contracts/office-tools.md`; the common rules there apply (tools are functions in `execute_python`; a failure is a catchable error with a readable message; never ends the turn).
+**Feature**: `046-office-pdf`. Extends `specs/036-office-addon/contracts/office-tools.md`; the common rules there apply (tools are functions in `execute_python`; a failure is a catchable error with a readable message; never ends the turn).
 
 ## `office_pdf_read_as_md`
 
