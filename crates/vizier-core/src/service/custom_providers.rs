@@ -346,6 +346,7 @@ pub async fn test(
         Err(e) => TestResult {
             ok: false,
             model: None,
+            billing: None,
             model_count: None,
             status: None,
             error: Some(e.to_string()),
