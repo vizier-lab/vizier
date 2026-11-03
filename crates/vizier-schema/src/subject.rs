@@ -110,6 +110,13 @@ impl Subject {
         Self::with_id("agent", id, Some("memop"))
     }
 
+    /// `agent.{id}.cmd` - one agent's lifecycle commands. The id is one encoded token, so a
+    /// command reaches exactly the agent it names and nothing else (`specs/163-agent-service-seam`
+    /// contracts/agents-client.md, rule 3).
+    pub fn agent_cmd(id: &str) -> Self {
+        Self::with_id("agent", id, Some("cmd"))
+    }
+
     /// `session.{id}.events`
     pub fn session_events(id: &str) -> Self {
         Self::with_id("session", id, Some("events"))
@@ -272,6 +279,18 @@ mod tests {
             assert!(valid_token(&t), "{t}");
             assert_eq!(Subject::decode_token(&t).unwrap(), id);
         }
+    }
+
+    #[test]
+    fn an_agent_command_is_one_token_too() {
+        let subject = Subject::agent_cmd("my.agent");
+        assert_eq!(subject.as_str(), "agent.my%2Eagent.cmd");
+        assert_eq!(subject.tokens().count(), 3);
+        assert_eq!(Subject::decode_token("my%2Eagent").unwrap(), "my.agent");
+        // It matches its own pattern and not the request subject's.
+        assert!(p("agent.*.cmd").matches(&subject));
+        assert!(!p("agent.*.req").matches(&subject));
+        assert!(!p("agent.my.agent.cmd").matches(&subject));
     }
 
     #[test]
