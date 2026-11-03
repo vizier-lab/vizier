@@ -233,6 +233,18 @@ Plus the agent-observable gate: the turn path changes, so the dummyplug end-to-e
 (the constitution's e2e gate). The conformance suite and the offline end-to-end agent turn must pass
 **unchanged** (FR-022).
 
+**The e2e gate, run on this branch (2026-11-03)**: two real dummyplug turns, both green.
+
+| Test | What it does |
+|---|---|
+| `crates/vizier-core/tests/dummyplug_e2e.rs` -> `dummyplug_agent_answers_through_the_runtime` | one agent on the offline `dummyplug` provider, driven through `VizierRuntime` only, answering a real turn |
+| `crates/vizier-http/tests/topic.rs` -> `a_turn_looks_the_same_over_the_socket_and_the_dispatcher` | the same turn over the WebSocket and over the desktop dispatcher, compared frame by frame |
+
+Both start the Node `dummyplug` server from the submodule on a free port and skip themselves
+without Node. The `vizier` **binary** is not built on Windows - `daemonize` is Unix-only, so
+`cargo build -p vizier` fails there - but these two tests drive the same turn through the same
+engine, which is what the gate is about.
+
 **No submodule branch is needed.** The work touches no submodule - the WebUI does not change
 (FR-019). The spec branch `163-agent-service-seam` exists in the workspace only, like the Fleet specs
 before it.
