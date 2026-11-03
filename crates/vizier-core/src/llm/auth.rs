@@ -283,8 +283,12 @@ impl CredentialSource for SigV4Credential {
             service: self.service,
             now: chrono::Utc::now(),
         });
+        // `content-type` is deliberately **not** added here: every caller sends it once
+        // (`model.rs::send_once`, `media/openai_shaped.rs::post_json`,
+        // `bedrock.rs::list_foundation_models`) and the signature covers that single copy.
+        // Appending a second one makes AWS canonicalise `application/json,application/json`
+        // and answer 403 "signature does not match".
         let mut req = req
-            .header(reqwest::header::CONTENT_TYPE, "application/json")
             .header("x-amz-date", signature.amz_date)
             .header(reqwest::header::AUTHORIZATION, signature.authorization);
         if let Some(token) = &self.session_token {
@@ -807,7 +811,11 @@ mod tests {
             .unwrap_err();
         assert!(err.to_string().contains("body-aware"));
 
-        let req = reqwest::Client::new().post(url);
+        // A caller's single `content-type`, as `send_once` sets it: the signer must sign it and
+        // must not append a copy of its own (one copy on the wire, one in the canonical headers).
+        let req = reqwest::Client::new()
+            .post(url)
+            .header(reqwest::header::CONTENT_TYPE, "application/json");
         let built = credential
             .authorize_with_body(req, &RequestInfo::default(), "POST", url, br#"{"messages":[]}"#)
             .await
@@ -835,9 +843,19 @@ mod tests {
             "session-token"
         );
         assert!(built.headers().get("x-amz-date").is_some());
+        assert!(
+            authorization
+                .contains("SignedHeaders=content-type;host;x-amz-date;x-amz-security-token"),
+            "content-type is signed: {authorization}"
+        );
         assert_eq!(
-            built.headers().get(reqwest::header::CONTENT_TYPE).unwrap(),
-            "application/json"
+            built
+                .headers()
+                .get_all(reqwest::header::CONTENT_TYPE)
+                .iter()
+                .count(),
+            1,
+            "the caller's content-type is signed, never duplicated"
         );
     }
 
@@ -1304,6 +1322,7 @@ mod tests {
             || {
                 reqwest::Client::new()
                     .post(&url)
+                    .header(reqwest::header::CONTENT_TYPE, "application/json")
                     .body(r#"{"messages":[]}"#.to_string())
             },
         )

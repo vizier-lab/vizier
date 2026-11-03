@@ -369,4 +369,59 @@ mod tests {
         );
         assert_eq!(canonical_uri("/foundation-models", true), "/foundation-models");
     }
+
+    /// The inference-profile ARN from the live 403 (bug 044). The wire path is encoded **once**
+    /// (`aws_uri_encode`), the canonical URI twice per SigV4's `double_uri_encode`, and
+    /// `content-type` appears on exactly one canonical-header line: a second copy is what AWS
+    /// canonicalises as `application/json,application/json` and rejects as "signature does not
+    /// match". Either half of this test fails if another layer encodes or dresses the request.
+    #[test]
+    fn an_inference_profile_arn_is_double_encoded_once_with_one_content_type_line() {
+        let arn = "arn:aws:bedrock:ap-southeast-1:392852851960:application-inference-profile/q549rhlez69w";
+        let wire = crate::llm::bedrock::model_path(arn, "converse");
+        assert_eq!(
+            wire,
+            "/model/arn%3Aaws%3Abedrock%3Aap-southeast-1%3A392852851960%3Aapplication-inference-profile%2Fq549rhlez69w/converse"
+        );
+        assert!(
+            !wire.contains("%253A") && !wire.contains("%252F"),
+            "the wire carries one encoding, not two: {wire}"
+        );
+
+        let request = SigV4Request {
+            method: "POST",
+            path: &wire,
+            query: "",
+            host: "bedrock-runtime.ap-southeast-1.amazonaws.com",
+            content_type: Some("application/json"),
+            body: br#"{"messages":[]}"#,
+            access_key_id: ACCESS_KEY,
+            secret_access_key: SECRET_KEY,
+            session_token: Some("session-token"),
+            region: "ap-southeast-1",
+            service: "bedrock",
+            now: at_2015(),
+        };
+        let canonical = request.canonical_request();
+        let lines: Vec<&str> = canonical.lines().collect();
+        assert_eq!(
+            lines[1],
+            "/model/arn%253Aaws%253Abedrock%253Aap-southeast-1%253A392852851960%253Aapplication-inference-profile%252Fq549rhlez69w/converse",
+            "the canonical URI double-encodes the wire path exactly once: {canonical}"
+        );
+        assert!(
+            !canonical.contains("%2525"),
+            "the path is encoded twice, never three times: {canonical}"
+        );
+        assert_eq!(
+            canonical.matches("content-type:").count(),
+            1,
+            "one content-type canonical header, never two: {canonical}"
+        );
+        assert_eq!(
+            canonical.matches("\ncontent-type:application/json\n").count(),
+            1,
+            "the canonical value is the single bare media type: {canonical}"
+        );
+    }
 }
