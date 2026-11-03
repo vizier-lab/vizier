@@ -121,6 +121,77 @@ The provider's own error is kept and shown:
 
 Rotating keys, changing the region or removing the connection restarts exactly the agents that use Bedrock; their next turn uses the new values without a Vizier restart. Invalid credentials make the agent's health report the failure, and saving working credentials recovers it. Startup, catalogue refresh, the scheduler and dream cycles never make an AWS request.
 
+## Amazon Bedrock (SSO)
+
+`amazon-bedrock-sso` (**Amazon Bedrock (SSO)**) is a second Bedrock provider that signs in through your organisation's IAM Identity Center instead of holding an access key pair. Vizier runs the SSO device flow, asks the portal for a role credential for the account and role you pick, and renews that credential itself: your password never reaches Vizier and no long-lived AWS key is stored. Chat, embeddings and image generation all use this one connection, exactly as they do on `amazon-bedrock`.
+
+### Connect
+
+1. **Find the Identity Center start URL** — the portal URL your organisation gave you, `https://<subdomain>.awsapps.com/start`.
+2. **Choose the SSO region** — where the Identity Center instance lives. It is often *not* the region your models run in.
+3. **Sign in and pick account + role** — press **Sign in**, confirm the code in a browser on any machine, then choose the account and the role you were given.
+4. **Attach the minimal policy** — `bedrock:InvokeModel` on the role is all a signed-in connection needs. Listing permissions are optional: the model list comes from the catalogue, not from your account.
+5. **Add your inference profiles** — paste each ARN, name it, and pick the catalogue model it runs so its usage is costed (see below).
+6. **Test** — one small billable call to the model or profile the test names, so a bad policy or a missing model shows up here, not mid-conversation.
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Action": ["bedrock:InvokeModel"],
+    "Resource": "*"
+  }]
+}
+```
+
+The same steps and policy appear in the connect form, with a copy button ([IAM Identity Center](https://console.aws.amazon.com/singlesignon/home), [Bedrock model access](https://console.aws.amazon.com/bedrock/home#/modelaccess), [Application inference profiles](https://docs.aws.amazon.com/bedrock/latest/userguide/inference-profiles.html)).
+
+### The connection's fields
+
+| Field | What it is |
+|-------|------------|
+| `start_url` | The Identity Center portal URL |
+| `sso_region` | The region of the Identity Center instance |
+| `account_id` | The account picked at sign-in |
+| `role_name` | The role picked at sign-in |
+| `region` | The **Bedrock** region, where the models are invoked |
+| `sso_profile` | The session's readable name: the non-secret handle that identifies this connection in lists, errors and logs |
+
+The last is not a credential. It identifies one stored session among several to the same account and role, and it is the only part of the session a log line may name. The session itself (access token, refresh token, expiry) lives only in Vizier's encrypted storage, keyed to this connection and readable only through the workspace key; it is never returned by the API, written to a log or drawn in the UI.
+
+### Two regions
+
+`sso_region` and `region` are different settings and are usually different values. The **SSO region** is where Identity Center authenticates you; the **Bedrock region** is where the model runs and where the regional `bedrock-runtime.<region>` endpoint is derived from. Using `us-east-1` for one and `eu-central-1` for the other is normal. A mismatch shows either as a sign-in failure (wrong SSO region) or as a 403/404 from the model (wrong Bedrock region) — see the table below.
+
+### Session lifecycle
+
+- **Renewal**: role credentials are short-lived. Vizier renews them from the stored session five minutes before they expire, so a healthy connection keeps working with nobody present.
+- **Expiry**: when the Identity Center session itself lapses, the connection reports *expired* and the form asks for a code and nothing else — the saved fields are kept, so signing back in is one click and one code.
+- **Sign out**: **Sign out** drops the stored session and its role credentials but keeps the connection fields. Deleting the connection removes both.
+
+### Inference profiles and pricing
+
+A model you use over Bedrock SSO is usually an **application inference profile**: an ARN that belongs to your account, so it cannot come from the catalogue. Add it in the provider's **Models** drawer — paste the ARN, name it, and optionally set its context window, output limit, tool-calling and image-input capabilities. The ARN is stored and sent exactly as entered; Vizier does not validate it and does not take its limits from it.
+
+An ARN's cost is not in the catalogue either, so the entry carries an optional **priced-by pairing**: one model chosen from the catalogue's Bedrock chat list when the entry is added. It is re-resolved on every display and every use, and it is what costs the entry's usage — the pairing decides the price only; it does not validate the ARN and does not supply limits. An entry with nothing picked still chats and is shown as *pricing not set* with the reason beside the label rather than a bare flag, because the reason is derived when it is read and so stays accurate. Removing an entry names the agents chatting through it first: they stop working until they are given another model.
+
+### When the session ends
+
+An ended session is an ordinary failure, not a crash. The turn fails with a message naming the connection and telling you to sign in again (`SESSION_ENDED`), the agent reports that connection as its health cause, and results already produced in the turn are kept — no half-written assistant message is stored. Background work (scheduled tasks, dreams, memory embeddings) that reaches an ended session reports the same cause instead of retrying blindly. Signing in again restores every agent on the connection, without a Vizier restart.
+
+Each failure reads differently enough to act on:
+
+| What happened | What it looks like | What to do |
+|---|---|---|
+| Sign-in denied, or code expired | The panel says so and offers **Sign in** again | Start again; the code is short-lived |
+| Session expired | *Session ended — sign in again*, naming the profile | **Sign in** again |
+| Role not assigned | The portal lists no such account or role | Ask for the role, or pick another |
+| Missing IAM permission | 403 body naming the action | Attach `bedrock:InvokeModel` to the role |
+| Model access not enabled | 403 `AccessDeniedException` | Enable the model in Bedrock → Model access |
+| Profile not found, or wrong region | 404 `ResourceNotFoundException` naming the ARN | Check the ARN's region against the connection's Bedrock region |
+| Throttling or unavailable | 429/503, retried with backoff | Wait; the existing retry policy applies |
+
 ## Ids from earlier versions
 
 Provider ids now follow the catalogue. The old names are still accepted everywhere (API, agent configs) and are normalised on read, and the environment variables Vizier used before are still honoured:

@@ -187,8 +187,8 @@ One phase = one commit, conventional format, explicit paths (`git add crates/...
 
 **Purpose**: documentation, the corrected test and the evidence the constitution's gates demand.
 
-- [ ] T071 Correct the now-false assertion at `crates/vizier-http/src/api/v1/catalogue.rs:312` so it excludes the SSO id instead of being weakened — it must still prove every non-Bedrock provider has no guide (plan.md "Test that must change", FR-001a).
-- [ ] T072 [P] Add the "Amazon Bedrock (SSO)" section to `docs/src/configuration/providers.md`: the five fields, the `bedrock:InvokeModel`-only policy, the two regions, the session's lifecycle, the ARN entry plus its pricing pairing, and what happens when the session ends (FR-039).
+- [X] T071 Correct the now-false assertion at `crates/vizier-http/src/api/v1/catalogue.rs:312` so it excludes the SSO id instead of being weakened — it must still prove every non-Bedrock provider has no guide (plan.md "Test that must change", FR-001a).
+- [X] T072 [P] Add the "Amazon Bedrock (SSO)" section to `docs/src/configuration/providers.md`: the five fields, the `bedrock:InvokeModel`-only policy, the two regions, the session's lifecycle, the ARN entry plus its pricing pairing, and what happens when the session ends (FR-039).
 - [ ] T073 [P] Confirm the existing provider is untouched per `specs/044-bedrock-sso-inference-profiles/quickstart.md` §6: no migration, no reindex, its agents' behaviour identical, and a static-credentials connection still connecting after the feature ships (FR-003, FR-004).
 - [ ] T074 Run `just check` over `crates/` and `webui/` (clippy, `cargo test --workspace`, webui typecheck) and paste the output — no "should pass" (constitution quality gate).
 - [ ] T075 Walk `specs/044-bedrock-sso-inference-profiles/quickstart.md` §1-§2b offline (storage and encryption, the API surface, entry pricing) and record the verifier report it asks for.
