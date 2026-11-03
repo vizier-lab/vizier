@@ -22,9 +22,9 @@ description: "Dependency-ordered implementation tasks for Kubernetes deployment 
 
 **Purpose**: Establish package and validation locations without changing behavior.
 
-- [ ] T001 Create the Helm application-chart skeleton and version metadata in `charts/vizier/Chart.yaml`, `charts/vizier/values.yaml`, and `charts/vizier/templates/_helpers.tpl`
-- [ ] T002 [P] Create reusable chart contract and cluster smoke entry points in `scripts/kubernetes-chart-contracts.sh` and `scripts/kubernetes-smoke.sh`
-- [ ] T003 [P] Create the Kubernetes validation workflow skeleton in `.github/workflows/kubernetes.yml`
+- [X] T001 Create the Helm application-chart skeleton and version metadata in `charts/vizier/Chart.yaml`, `charts/vizier/values.yaml`, and `charts/vizier/templates/_helpers.tpl`
+- [X] T002 [P] Create reusable chart contract and cluster smoke entry points in `scripts/kubernetes-chart-contracts.sh` and `scripts/kubernetes-smoke.sh`
+- [X] T003 [P] Create the Kubernetes validation workflow skeleton in `.github/workflows/kubernetes.yml`
 
 ---
 
@@ -34,13 +34,13 @@ description: "Dependency-ordered implementation tasks for Kubernetes deployment 
 
 **⚠️ CRITICAL**: User-story work depends on these primitives.
 
-- [ ] T004 Define atomic startup/readiness state and minimal response types in `crates/vizier-http/src/health.rs`
-- [ ] T005 Integrate workload health routes and a graceful-shutdown-capable serving API without breaking existing `router`/`serve` callers in `crates/vizier-http/src/lib.rs`
-- [ ] T006 Add configurable shutdown-grace CLI/environment plumbing in `crates/vizier/src/cli/run.rs` and `docker-entrypoint.sh`
-- [ ] T007 Implement cross-platform Ctrl-C and Unix SIGTERM selection plus bounded HTTP/runtime shutdown in `crates/vizier/src/cli/server.rs`
-- [ ] T008 Make the release image run as fixed non-root UID/GID 10001 with a writable home in `Dockerfile`
-- [ ] T009 Define value types, enums, ranges, replica constancy, and secret-reference shapes in `charts/vizier/values.schema.json`
-- [ ] T010 Implement cross-field profile, secret, ingress, and grace-period validation in `charts/vizier/templates/_validate.tpl`
+- [X] T004 Define atomic startup/readiness state and minimal response types in `crates/vizier-http/src/health.rs`
+- [X] T005 Integrate workload health routes and a graceful-shutdown-capable serving API without breaking existing `router`/`serve` callers in `crates/vizier-http/src/lib.rs`
+- [X] T006 Add configurable shutdown-grace CLI/environment plumbing in `crates/vizier/src/cli/run.rs` and `docker-entrypoint.sh`
+- [X] T007 Implement cross-platform Ctrl-C and Unix SIGTERM selection plus bounded HTTP/runtime shutdown in `crates/vizier/src/cli/server.rs`
+- [X] T008 Make the release image run as fixed non-root UID/GID 10001 with a writable home in `Dockerfile`
+- [X] T009 Define value types, enums, ranges, replica constancy, and secret-reference shapes in `charts/vizier/values.schema.json`
+- [X] T010 Implement cross-field profile, secret, ingress, and grace-period validation in `charts/vizier/templates/_validate.tpl`
 
 **Checkpoint**: Health/lifecycle primitives, secure image identity, and chart validation are ready.
 
@@ -54,18 +54,18 @@ description: "Dependency-ordered implementation tasks for Kubernetes deployment 
 
 ### Tests for User Story 1
 
-- [ ] T011 [P] [US1] Add positive embedded/managed render cases and negative missing-setting/plaintext scans to `scripts/kubernetes-chart-contracts.sh`
-- [ ] T012 [P] [US1] Add chart default/value documentation assertions to `charts/vizier/README.md`
+- [X] T011 [P] [US1] Add positive embedded/managed render cases and negative missing-setting/plaintext scans to `scripts/kubernetes-chart-contracts.sh`
+- [X] T012 [P] [US1] Add chart default/value documentation assertions to `charts/vizier/README.md`
 
 ### Implementation for User Story 1
 
-- [ ] T013 [P] [US1] Render the namespaced ServiceAccount with token automount disabled in `charts/vizier/templates/serviceaccount.yaml`
-- [ ] T014 [P] [US1] Render the default ClusterIP Service with named HTTP port in `charts/vizier/templates/service.yaml`
-- [ ] T015 [P] [US1] Render retained embedded storage or an existing PVC reference in `charts/vizier/templates/pvc.yaml`
-- [ ] T016 [US1] Render the single Vizier Deployment with embedded and managed environment/volume profiles plus independent SecretKeyRefs in `charts/vizier/templates/deployment.yaml`
-- [ ] T017 [P] [US1] Render an optional generic WebSocket-compatible TLS Ingress in `charts/vizier/templates/ingress.yaml`
-- [ ] T018 [US1] Add install access and profile-specific guidance in `charts/vizier/templates/NOTES.txt`
-- [ ] T019 [US1] Complete the embedded and managed installation path in `scripts/kubernetes-smoke.sh`
+- [X] T013 [P] [US1] Render the namespaced ServiceAccount with token automount disabled in `charts/vizier/templates/serviceaccount.yaml`
+- [X] T014 [P] [US1] Render the default ClusterIP Service with named HTTP port in `charts/vizier/templates/service.yaml`
+- [X] T015 [P] [US1] Render retained embedded storage or an existing PVC reference in `charts/vizier/templates/pvc.yaml`
+- [X] T016 [US1] Render the single Vizier Deployment with embedded and managed environment/volume profiles plus independent SecretKeyRefs in `charts/vizier/templates/deployment.yaml`
+- [X] T017 [P] [US1] Render an optional generic WebSocket-compatible TLS Ingress in `charts/vizier/templates/ingress.yaml`
+- [X] T018 [US1] Add install access and profile-specific guidance in `charts/vizier/templates/NOTES.txt`
+- [X] T019 [US1] Complete the embedded and managed installation path in `scripts/kubernetes-smoke.sh`
 
 **Checkpoint**: Both storage profiles install from one chart; embedded mode is the standalone MVP.
 
@@ -79,15 +79,15 @@ description: "Dependency-ordered implementation tasks for Kubernetes deployment 
 
 ### Tests for User Story 2
 
-- [ ] T020 [P] [US2] Add endpoint status/body/disclosure and readiness-transition tests in `crates/vizier-http/src/health.rs`
-- [ ] T021 [P] [US2] Add shutdown-grace parsing and ordering tests in `crates/vizier/src/cli/run.rs`
-- [ ] T022 [P] [US2] Add probe and termination lifecycle checks to `scripts/kubernetes-smoke.sh`
+- [X] T020 [P] [US2] Add endpoint status/body/disclosure and readiness-transition tests in `crates/vizier-http/src/health.rs`
+- [X] T021 [P] [US2] Add shutdown-grace parsing and ordering tests in `crates/vizier/src/cli/run.rs`
+- [X] T022 [P] [US2] Add probe and termination lifecycle checks to `scripts/kubernetes-smoke.sh`
 
 ### Implementation for User Story 2
 
-- [ ] T023 [US2] Wire startup, readiness, and liveness probes plus termination grace settings into `charts/vizier/templates/deployment.yaml`
-- [ ] T024 [US2] Ensure readiness flips before HTTP admission closes and runtime shutdown releases the workspace lock in `crates/vizier/src/cli/server.rs`
-- [ ] T025 [US2] Add credential-safe startup/shutdown lifecycle logs in `crates/vizier/src/cli/server.rs` and `crates/vizier-http/src/lib.rs`
+- [X] T023 [US2] Wire startup, readiness, and liveness probes plus termination grace settings into `charts/vizier/templates/deployment.yaml`
+- [X] T024 [US2] Ensure readiness flips before HTTP admission closes and runtime shutdown releases the workspace lock in `crates/vizier/src/cli/server.rs`
+- [X] T025 [US2] Add credential-safe startup/shutdown lifecycle logs in `crates/vizier/src/cli/server.rs` and `crates/vizier-http/src/lib.rs`
 
 **Checkpoint**: Kubernetes can start, route to, drain, and restart Vizier without coupling liveness to optional dependencies.
 
@@ -101,14 +101,14 @@ description: "Dependency-ordered implementation tasks for Kubernetes deployment 
 
 ### Tests for User Story 3
 
-- [ ] T026 [P] [US3] Add contract failures for `replicaCount != 1`, mutable default tags, and invalid grace ordering to `scripts/kubernetes-chart-contracts.sh`
-- [ ] T027 [P] [US3] Add pod-count, PVC reuse, state persistence, upgrade, and rollback checks to `scripts/kubernetes-smoke.sh`
+- [X] T026 [P] [US3] Add contract failures for `replicaCount != 1`, mutable default tags, and invalid grace ordering to `scripts/kubernetes-chart-contracts.sh`
+- [X] T027 [P] [US3] Add pod-count, PVC reuse, state persistence, upgrade, and rollback checks to `scripts/kubernetes-smoke.sh`
 
 ### Implementation for User Story 3
 
-- [ ] T028 [US3] Set one replica, `Recreate`, immutable chart-version image defaults, checksums, and retained state mounts in `charts/vizier/templates/deployment.yaml` and `charts/vizier/templates/pvc.yaml`
-- [ ] T029 [US3] Package and publish a version-matched OCI Helm chart after the multi-architecture image in `.github/workflows/docker-publish.yml`
-- [ ] T030 [US3] Add Helm package/version validation and upgrade lifecycle jobs to `.github/workflows/kubernetes.yml`
+- [X] T028 [US3] Set one replica, `Recreate`, immutable chart-version image defaults, and retained state mounts in `charts/vizier/templates/deployment.yaml` and `charts/vizier/templates/pvc.yaml`
+- [X] T029 [US3] Package and publish a version-matched OCI Helm chart after the multi-architecture image in `.github/workflows/docker-publish.yml`
+- [X] T030 [US3] Add Helm package/version validation and upgrade lifecycle jobs to `.github/workflows/kubernetes.yml`
 
 **Checkpoint**: Release upgrades are no-overlap, traceable, and recoverable within the documented compatibility boundary.
 
@@ -122,14 +122,14 @@ description: "Dependency-ordered implementation tasks for Kubernetes deployment 
 
 ### Tests for User Story 4
 
-- [ ] T031 [P] [US4] Add restricted-security, no-cluster-scope, no-hostPath, resource, placement, CA, telemetry, and image-pull render assertions to `scripts/kubernetes-chart-contracts.sh`
-- [ ] T032 [P] [US4] Add restricted namespace admission and writable-path checks to `scripts/kubernetes-smoke.sh`
+- [X] T031 [P] [US4] Add restricted-security, no-cluster-scope, no-hostPath, resource, placement, CA, telemetry, and image-pull render assertions to `scripts/kubernetes-chart-contracts.sh`
+- [X] T032 [P] [US4] Add restricted namespace admission and writable-path checks to `scripts/kubernetes-smoke.sh`
 
 ### Implementation for User Story 4
 
-- [ ] T033 [US4] Apply restricted pod/container security contexts, read-only root, `/data` and `/tmp` writable mounts, resources, placement, pull secrets, CA volumes, and telemetry values in `charts/vizier/values.yaml` and `charts/vizier/templates/deployment.yaml`
-- [ ] T034 [P] [US4] Render an opt-in ingress-independent NetworkPolicy with operator-supplied ingress/egress rules in `charts/vizier/templates/networkpolicy.yaml`
-- [ ] T035 [US4] Validate non-root direct container startup and restricted chart admission in `.github/workflows/kubernetes.yml`
+- [X] T033 [US4] Apply restricted pod/container security contexts, read-only root, `/data` and `/tmp` writable mounts, resources, placement, pull secrets, CA volumes, and telemetry values in `charts/vizier/values.yaml` and `charts/vizier/templates/deployment.yaml`
+- [X] T034 [P] [US4] Render an opt-in ingress-independent NetworkPolicy with operator-supplied ingress/egress rules in `charts/vizier/templates/networkpolicy.yaml`
+- [X] T035 [US4] Validate non-root direct container startup and restricted chart admission in `.github/workflows/kubernetes.yml`
 
 **Checkpoint**: The supported defaults satisfy Restricted Pod Security and standard production operations without a chart fork.
 
@@ -143,10 +143,10 @@ description: "Dependency-ordered implementation tasks for Kubernetes deployment 
 
 ### Implementation for User Story 5
 
-- [ ] T036 [P] [US5] Write Kubernetes prerequisites, profiles, exposure/WebSockets, security, observability, troubleshooting, and secret handling in `docs/src/deployment/kubernetes.md`
-- [ ] T037 [P] [US5] Document upgrade, pre-write rollback, embedded/managed backup and restore, stopped-workspace migration, key rotation, pod loss, and explicit data deletion in `docs/src/deployment/kubernetes.md`
-- [ ] T038 [US5] Add the Kubernetes deployment guide to `docs/src/SUMMARY.md`
-- [ ] T039 [US5] Align chart operator guidance and failure messages with the published guide in `charts/vizier/README.md` and `charts/vizier/templates/NOTES.txt`
+- [X] T036 [P] [US5] Write Kubernetes prerequisites, profiles, exposure/WebSockets, security, observability, troubleshooting, and secret handling in `docs/src/deployment/kubernetes.md`
+- [X] T037 [P] [US5] Document upgrade, pre-write rollback, embedded/managed backup and restore, stopped-workspace migration, key rotation, pod loss, and explicit data deletion in `docs/src/deployment/kubernetes.md`
+- [X] T038 [US5] Add the Kubernetes deployment guide to `docs/src/SUMMARY.md`
+- [X] T039 [US5] Align chart operator guidance and failure messages with the published guide in `charts/vizier/README.md` and `charts/vizier/templates/NOTES.txt`
 
 **Checkpoint**: An operator can diagnose and recover the supported topology using published documentation alone.
 
@@ -156,12 +156,12 @@ description: "Dependency-ordered implementation tasks for Kubernetes deployment 
 
 **Purpose**: Prove the integrated binary, image, chart, docs, and release path.
 
-- [ ] T040 [P] Run Rust formatting, `cargo test --workspace`, `cargo clippy --workspace`, and `cargo test -p vizier-core --no-default-features` for changes under `crates/`
-- [ ] T041 [P] Run `helm lint`, all positive/negative contract renders, and package inspection through `scripts/kubernetes-chart-contracts.sh`
-- [ ] T042 Build and run the changed `Dockerfile`, verify UID 10001 and writable `/data`/`/tmp`, then send SIGTERM and observe bounded graceful exit
-- [ ] T043 Install the chart on a clean cluster and complete probes, authenticated HTTP, WebSocket dummyplug conversation, pod replacement, persistence, no-overlap upgrade, and uninstall checks through `scripts/kubernetes-smoke.sh`
-- [ ] T044 Review rendered manifests and logs for plaintext credentials, cluster-scoped resources, mutable tags, secret disclosure, and unsupported multiple replicas using `scripts/kubernetes-chart-contracts.sh`
-- [ ] T045 Re-run the `specs/046-kubernetes-deployment/quickstart.md` operator flow and reconcile any command or expectation drift in `specs/046-kubernetes-deployment/quickstart.md`
+- [X] T040 [P] Run Rust formatting, `cargo test --workspace`, `cargo clippy --workspace`, and `cargo test -p vizier-core --no-default-features` for changes under `crates/`
+- [X] T041 [P] Run `helm lint`, all positive/negative contract renders, and package inspection through `scripts/kubernetes-chart-contracts.sh`
+- [X] T042 Build and run the changed `Dockerfile`, verify UID 10001 and writable `/data`/`/tmp`, then send SIGTERM and observe bounded graceful exit
+- [X] T043 Install the chart on a clean cluster and complete probes, authenticated HTTP, WebSocket dummyplug conversation, pod replacement, persistence, no-overlap upgrade, and uninstall checks through `scripts/kubernetes-smoke.sh`
+- [X] T044 Review rendered manifests and logs for plaintext credentials, cluster-scoped resources, mutable tags, secret disclosure, and unsupported multiple replicas using `scripts/kubernetes-chart-contracts.sh`
+- [X] T045 Re-run the `specs/046-kubernetes-deployment/quickstart.md` operator flow and reconcile any command or expectation drift in `specs/046-kubernetes-deployment/quickstart.md`
 
 ---
 

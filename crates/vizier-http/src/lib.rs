@@ -6,6 +6,7 @@ use reqwest::{
     Method,
     header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE},
 };
+use std::future::Future;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::normalize_path::NormalizePathLayer;
 use utoipa::OpenApi;
@@ -20,19 +21,31 @@ pub mod api;
 pub mod auth;
 pub mod embedded;
 pub mod error;
+pub mod health;
 mod state;
-pub mod topic;
 #[cfg(test)]
 mod test_support;
+pub mod topic;
 mod webui;
 
 /// The whole HTTP surface (REST API, WebSocket, OpenAPI and Swagger UI, the embedded WebUI)
 /// over a running engine, for a host that serves it itself.
 pub fn router(runtime: &VizierRuntime, config: &HTTPChannelConfig) -> Router {
+    let health = health::HealthHandle::new();
+    health.mark_started();
+    router_with_health(runtime, config, health)
+}
+
+fn router_with_health(
+    runtime: &VizierRuntime,
+    config: &HTTPChannelConfig,
+    health: health::HealthHandle,
+) -> Router {
     let state = new_state(runtime, state::AuthMode::Network);
     let cors = cors_layer(config.cors_origins.as_deref());
 
     let app = Router::new()
+        .merge(health::routes(health))
         .nest("/api", api::api(state.clone()))
         // webui
         .route("/", get(webui::index))
@@ -95,21 +108,44 @@ fn cors_layer(origins: Option<&[String]>) -> CorsLayer {
 pub fn serve(
     runtime: &VizierRuntime,
     config: HTTPChannelConfig,
-) -> impl std::future::Future<Output = vizier_core::Result<()>> + Send + 'static {
-    let app = router(runtime, &config);
+) -> impl Future<Output = vizier_core::Result<()>> + Send + 'static {
+    serve_with_shutdown(
+        runtime,
+        config,
+        health::HealthHandle::new(),
+        std::future::pending(),
+    )
+}
+
+/// Serves HTTP until `shutdown` resolves, then stops accepting new connections and drains
+/// accepted requests. [`health::HealthHandle::begin_shutdown`] must be called before resolving
+/// `shutdown` so readiness changes before admission closes.
+pub fn serve_with_shutdown<F>(
+    runtime: &VizierRuntime,
+    config: HTTPChannelConfig,
+    health: health::HealthHandle,
+    shutdown: F,
+) -> impl Future<Output = vizier_core::Result<()>> + Send + 'static
+where
+    F: Future<Output = ()> + Send + 'static,
+{
+    let app = router_with_health(runtime, &config, health.clone());
     async move {
         let listener = tokio::net::TcpListener::bind(format!(
             "{}:{}",
             config.host.as_deref().unwrap_or("0.0.0.0"),
             config.port
         ))
-            .await
-            .map_err(|e| VizierError(e.to_string()))?;
+        .await
+        .map_err(|e| VizierError(e.to_string()))?;
 
-        let server = axum::serve(listener, app);
+        health.mark_started();
         tracing::info!("http listening on port {}", config.port);
 
-        server.await.map_err(|e| VizierError(e.to_string()))
+        axum::serve(listener, app)
+            .with_graceful_shutdown(shutdown)
+            .await
+            .map_err(|e| VizierError(e.to_string()))
     }
 }
 

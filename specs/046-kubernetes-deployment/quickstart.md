@@ -5,7 +5,7 @@
 - Helm 3 with OCI support.
 - `kubectl` access to a conformant Kubernetes cluster.
 - A default StorageClass for the embedded profile, or managed PostgreSQL with pgvector plus S3-compatible object storage.
-- A namespace-scoped Secret containing a strong JWT secret. Managed installs also require a stable encryption key, PostgreSQL URL, and S3 credentials unless workload identity supplies the latter.
+- A namespace-scoped Secret containing a strong JWT secret. Managed installs also require a stable encryption key, PostgreSQL URL, and S3 credentials.
 
 Examples use release `VERSION`; replace it with one published version. Do not use `latest`.
 

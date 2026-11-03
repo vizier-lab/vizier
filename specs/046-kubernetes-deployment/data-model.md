@@ -51,8 +51,8 @@ Durable state: SQLite database, local object/document bytes, workspace files, ge
 | `objects.endpoint` | URL | Required. |
 | `objects.bucket` | string | Required. |
 | `objects.region` | optional string | Passed to the S3 backend. |
-| `objects.accessKeyRef` | `SecretKeyRef` | Required unless workload identity is selected. |
-| `objects.secretKeyRef` | `SecretKeyRef` | Required unless workload identity is selected. |
+| `objects.accessKeyRef` | `SecretKeyRef` | Required. |
+| `objects.secretKeyRef` | `SecretKeyRef` | Required. |
 | `objects.sessionTokenRef` | optional `SecretKeyRef` | Optional temporary credential. |
 | `encryptionKey.secretRef` | `SecretKeyRef` | Required; must survive pod replacement. |
 

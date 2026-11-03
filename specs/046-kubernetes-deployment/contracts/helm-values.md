@@ -25,8 +25,8 @@ Every secret value uses `{name, key}`. Plaintext secret value fields do not exis
 | `secrets.jwt` | recommended for every network install | `VIZIER_JWT_SECRET` |
 | `secrets.encryptionKey` | managed profile; optional embedded override | `VIZIER_ENCRYPTION_KEY` |
 | `managed.database.urlSecretRef` | managed profile | `VIZIER_DATABASE_URL` |
-| `managed.objects.accessKeySecretRef` | managed profile without workload identity | `VIZIER_S3_ACCESS_KEY_ID` |
-| `managed.objects.secretKeySecretRef` | managed profile without workload identity | `VIZIER_S3_SECRET_ACCESS_KEY` |
+| `managed.objects.accessKeySecretRef` | managed profile | `VIZIER_S3_ACCESS_KEY_ID` |
+| `managed.objects.secretKeySecretRef` | managed profile | `VIZIER_S3_SECRET_ACCESS_KEY` |
 | `managed.objects.sessionTokenSecretRef` | optional temporary credentials | `VIZIER_S3_SESSION_TOKEN` |
 
 `extraEnv` supports non-sensitive values. `extraEnvFrom` and `extraSecretEnv` support provider/channel credentials and external-secret projections without chart-specific fields.
@@ -44,7 +44,7 @@ Every secret value uses `{name, key}`. Plaintext secret value fields do not exis
 Required:
 - PostgreSQL URL Secret reference.
 - S3-compatible endpoint and bucket.
-- S3 credential Secret references unless workload identity mode is enabled.
+- S3 credential Secret references.
 - Encryption key Secret reference.
 
 The pod sets PostgreSQL/entity storage and S3 object/document storage explicitly. `/data` is an `emptyDir`, not a recovery component.
@@ -65,7 +65,7 @@ The contract exposes:
 - pod labels/annotations and service annotations;
 - pod/container security context with secure defaults;
 - service-account creation/name with token automount disabled by default;
-- custom CA bundles via read-only extra volumes/mounts;
+- custom CA bundles through `trustedCa` as a read-only ConfigMap mount exported by `SSL_CERT_FILE`;
 - OTEL environment variables and arbitrary non-secret environment values;
 - optional NetworkPolicy with operator-provided egress rules.
 
