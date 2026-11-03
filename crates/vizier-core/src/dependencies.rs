@@ -83,6 +83,8 @@ pub struct VizierDependencies {
     /// the sensitive-input asks waiting on somebody. Process-wide, because a surface outlives a
     /// turn and an ask is answered by a socket that is not running one.
     pub questions: Arc<crate::questions::Questions>,
+    /// The client sockets this process owns, by connection id (a request names one, never holds it).
+    pub client_connections: crate::agents::client::ClientConnections,
 }
 
 /// Old (pre-bundle) memory frontmatter shape, kept only so `migrate_memory_to_bundles` can parse
@@ -309,6 +311,7 @@ impl VizierDependencies {
             )),
             project_ledger: Default::default(),
             questions: Arc::new(crate::questions::Questions::new()),
+            client_connections: crate::agents::client::ClientConnections::new(),
         };
         #[cfg(feature = "addon-documents")]
         deps.seed_office_defaults().await;

@@ -36,6 +36,8 @@ pub struct TopicConnection {
     storage: Arc<vizier_core::storage::VizierStorage>,
     limits: ClientLimits,
     connection: Arc<ClientConnection>,
+    /// Where this process finds the socket a request names; the binding holds only its id.
+    connections: vizier_core::agents::client::ClientConnections,
     /// The shared question service (`specs/042-agent-asking-question`): a submission is validated
     /// and claimed through it before a turn is queued.
     questions: Arc<vizier_core::questions::Questions>,
@@ -140,6 +142,7 @@ impl TopicConnection {
             storage: state.storage.clone(),
             limits,
             connection,
+            connections: state.deps.client_connections.clone(),
             questions: state.deps.questions.clone(),
             client_rx: Some(client_rx),
             events: Some(events),
@@ -163,6 +166,7 @@ impl TopicConnection {
 
     pub fn close(&self) {
         self.connection.close();
+        self.connections.remove(&self.connection.id);
     }
 
     pub async fn handle_inbound(&self, frame: serde_json::Value) {
@@ -303,7 +307,7 @@ impl TopicConnection {
                             }
 
                             // Refused before anything is sent, so no turn starts (FR-002).
-                            if let Err(error) = bind_client_tools(&mut request, &self.connection) {
+                            if let Err(error) = bind_client_tools(&mut request, &self.connection, &self.connections) {
                                 send_frame(error).await;
                                 return;
                             }

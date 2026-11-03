@@ -19,3 +19,9 @@ impl<T> From<VizierError> for crate::Result<T> {
         crate::Result::Err(value)
     }
 }
+
+impl From<vizier_schema::BusError> for VizierError {
+    fn from(err: vizier_schema::BusError) -> Self {
+        VizierError(err.to_string())
+    }
+}

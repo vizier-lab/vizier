@@ -120,12 +120,12 @@ description: "Task list for the Fleet message bus, in-process backend and role t
 
 ### Slice 4 — serialisable-message groundwork
 
-- [ ] T039 [US1] Change `RequestTrace` to `{ traceparent, tracestate, enqueued_at_ms }` with `capture()` filling W3C headers from the current span (behind the `telemetry` feature) and `queue_wait()`, and update `invoke_agent_span` to adopt the parent from the headers, in `crates/vizier-core/src/telemetry.rs` and `crates/vizier-core/src/agents/agent/mod.rs`
-- [ ] T040 [P] [US1] Add a `From<BusError> for VizierError` conversion in `crates/vizier-core/src/error.rs`
-- [ ] T041 [US1] Replace `ClientBinding.connection: Arc<ClientConnection>` with `node: String` + `connection_id: String`; add `ClientConnections` (`register`, `get`, `remove`) in `crates/vizier-core/src/agents/client/mod.rs`; hold it on `VizierDependencies` in `crates/vizier-core/src/dependencies.rs`
-- [ ] T042 [US1] Register and remove sockets in `ClientConnections` and build the binding from the id in `crates/vizier-http/src/topic.rs` and `crates/vizier-http/src/api/v1/agents/channel.rs`; resolve through `ClientConnections` in `crates/vizier-core/src/agents/client/mod.rs`, treating a miss as a closed connection (deferrable tool defers, others `client_disconnected`)
-- [ ] T043 [P] [US1] Tests: trace headers round trip and queue wait computed from `enqueued_at_ms`; a binding with an unknown id reads as closed for both a deferrable and a non-deferrable tool, in `crates/vizier-core/src/telemetry.rs` and `crates/vizier-core/src/agents/client/mod.rs` `#[cfg(test)]`
-- [ ] T044 **COMMIT (slice 4)**: `refactor: [**breaking**] make trace context and the client binding serialisable (#162)`
+- [X] T039 [US1] Change `RequestTrace` to `{ traceparent, tracestate, enqueued_at_ms }` with `capture()` filling W3C headers from the current span (behind the `telemetry` feature) and `queue_wait()`, and update `invoke_agent_span` to adopt the parent from the headers, in `crates/vizier-core/src/telemetry.rs` and `crates/vizier-core/src/agents/agent/mod.rs`
+- [X] T040 [P] [US1] Add a `From<BusError> for VizierError` conversion in `crates/vizier-core/src/error.rs`
+- [X] T041 [US1] Replace `ClientBinding.connection: Arc<ClientConnection>` with `node: String` + `connection_id: String`; add `ClientConnections` (`register`, `get`, `remove`) in `crates/vizier-core/src/agents/client/mod.rs`; hold it on `VizierDependencies` in `crates/vizier-core/src/dependencies.rs`
+- [X] T042 [US1] Register and remove sockets in `ClientConnections` and build the binding from the id in `crates/vizier-http/src/topic.rs` and `crates/vizier-http/src/api/v1/agents/channel.rs`; resolve through `ClientConnections` in `crates/vizier-core/src/agents/client/mod.rs`, treating a miss as a closed connection (deferrable tool defers, others `client_disconnected`)
+- [X] T043 [P] [US1] Tests: trace headers round trip and queue wait computed from `enqueued_at_ms`; a binding with an unknown id reads as closed for both a deferrable and a non-deferrable tool, in `crates/vizier-core/src/telemetry.rs` and `crates/vizier-core/src/agents/client/mod.rs` `#[cfg(test)]`
+- [X] T044 **COMMIT (slice 4)**: `refactor: [**breaking**] make trace context and the client binding serialisable (#162)`
 
 ### Slice 5 — the turn path
 

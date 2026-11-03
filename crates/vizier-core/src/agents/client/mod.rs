@@ -10,7 +10,7 @@
 use std::{sync::Arc, time::Duration};
 
 use chrono::Utc;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tracing::Instrument;
 
 use crate::{
@@ -37,9 +37,15 @@ pub use declare::{ClientCategoryDeclaration, ClientToolDeclaration};
 pub const PROTOCOL_VERSION: u32 = 1;
 
 /// A request's checked declarations and the connection that answers them.
-#[derive(Clone)]
+///
+/// The connection itself lives in the process that owns the socket; the binding names it
+/// (`node` + `connection_id`) so the request stays serialisable. [`ClientConnections::get`]
+/// turns the name back into the connection, and a miss reads as "closed".
+#[derive(Clone, Serialize, Deserialize)]
 pub struct ClientBinding {
-    pub connection: Arc<ClientConnection>,
+    /// The node that owns the socket.
+    pub node: String,
+    pub connection_id: String,
     pub tools: Vec<ClientToolDeclaration>,
     pub categories: Vec<ClientCategoryDeclaration>,
 }
@@ -47,9 +53,64 @@ pub struct ClientBinding {
 impl std::fmt::Debug for ClientBinding {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ClientBinding")
+            .field("node", &self.node)
+            .field("connection_id", &self.connection_id)
             .field("tools", &self.tools.len())
             .field("categories", &self.categories.len())
             .finish()
+    }
+}
+
+/// The node name of a single-process server.
+pub const LOCAL_NODE: &str = "local";
+
+/// The open client sockets of this process, by connection id.
+#[derive(Clone, Default)]
+pub struct ClientConnections {
+    inner: Arc<std::sync::Mutex<std::collections::HashMap<String, Arc<ClientConnection>>>>,
+}
+
+impl ClientConnections {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    fn map(&self) -> std::sync::MutexGuard<'_, std::collections::HashMap<String, Arc<ClientConnection>>> {
+        self.inner.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Remember `connection`; closed ones are dropped on the way, so a socket whose owner
+    /// forgot to call `remove` cannot accumulate.
+    pub fn register(&self, connection: &Arc<ClientConnection>) -> String {
+        let mut map = self.map();
+        map.retain(|_, c| c.is_open());
+        map.insert(connection.id.clone(), connection.clone());
+        connection.id.clone()
+    }
+
+    /// The connection with this id on this node, if it is still there. `None` means "not here"
+    /// and is treated as closed.
+    pub fn get(&self, id: &str) -> Option<Arc<ClientConnection>> {
+        self.map().get(id).cloned()
+    }
+
+    pub fn remove(&self, id: &str) {
+        self.map().remove(id);
+    }
+
+    /// A binding to `connection` for these declarations.
+    pub fn bind(
+        &self,
+        connection: &Arc<ClientConnection>,
+        tools: Vec<ClientToolDeclaration>,
+        categories: Vec<ClientCategoryDeclaration>,
+    ) -> ClientBinding {
+        ClientBinding {
+            node: LOCAL_NODE.to_string(),
+            connection_id: self.register(connection),
+            tools,
+            categories,
+        }
     }
 }
 
@@ -102,6 +163,7 @@ impl ClientTools {
     /// already in the catalogue is taken first, and collisions get `_2`, `_3`, ….
     pub fn resolve(
         binding: &ClientBinding,
+        connection: Arc<ClientConnection>,
         catalogue: &[CatalogueEntry],
         reserved: &[String],
         session: VizierSession,
@@ -184,7 +246,7 @@ impl ClientTools {
         }
 
         Arc::new(Self {
-            connection: binding.connection.clone(),
+            connection,
             entries,
             catalogue,
             categories,
@@ -612,7 +674,8 @@ impl ClientTools {
     ) -> Arc<Self> {
         let (connection, _rx) = ClientConnection::for_tests();
         let binding = ClientBinding {
-            connection,
+            node: "local".into(),
+            connection_id: connection.id.clone(),
             tools: vec![ClientToolDeclaration {
                 name: tool.into(),
                 category: Some(category.into()),
@@ -627,6 +690,7 @@ impl ClientTools {
         };
         Self::resolve(
             &binding,
+            connection.clone(),
             catalogue,
             reserved,
             VizierSession("a".into(), crate::schema::VizierChannelId::System, None),
@@ -695,12 +759,14 @@ mod tests {
         let storage = test_storage();
         let transport = VizierTransport::new();
         let binding = ClientBinding {
-            connection: connection.clone(),
+            node: "local".into(),
+            connection_id: connection.id.clone(),
             tools: declarations,
             categories,
         };
         let tools = ClientTools::resolve(
             &binding,
+            connection.clone(),
             &[
                 native("memory_search", "memory"),
                 native("github_create_issue", "github"),
@@ -794,12 +860,14 @@ mod tests {
         // `memory_client_search` would be free, so take it in the catalogue too.
         let (connection, _rx) = ClientConnection::for_tests();
         let binding = ClientBinding {
-            connection,
+            node: "local".into(),
+            connection_id: connection.id.clone(),
             tools: vec![declaration("b_c", Some("a")), declaration("c", Some("a_b"))],
             categories: vec![],
         };
         let tools = ClientTools::resolve(
             &binding,
+            connection.clone(),
             &[native("a_b_c", "x")],
             &[],
             session(),
@@ -1169,5 +1237,42 @@ mod tests {
         let described = &s.tools.catalogue()[0].definition.description;
         assert!(described.len() > 2048);
         assert!(described.ends_with(crate::agents::tools::ENDS_TURN_NOTICE));
+    }
+
+    #[test]
+    fn a_registered_socket_resolves_and_an_unknown_id_reads_as_not_here() {
+        let registry = ClientConnections::new();
+        let (connection, _rx) = ClientConnection::for_tests();
+        let binding = registry.bind(&connection, vec![declaration("render", Some("ui"))], vec![]);
+        assert_eq!(binding.node, LOCAL_NODE);
+        assert!(registry.get(&binding.connection_id).is_some_and(|c| c.is_open()));
+
+        // A binding that arrived from another node (or after a restart) names nothing here.
+        assert!(registry.get("someone-elses-socket").is_none());
+
+        registry.remove(&binding.connection_id);
+        assert!(registry.get(&binding.connection_id).is_none());
+    }
+
+    #[test]
+    fn a_socket_that_closed_without_being_removed_is_dropped_by_the_next_register() {
+        let registry = ClientConnections::new();
+        let (stale, _rx) = ClientConnection::for_tests();
+        let stale_id = registry.register(&stale);
+        stale.close();
+        let (fresh, _rx2) = ClientConnection::for_tests();
+        registry.register(&fresh);
+        assert!(registry.get(&stale_id).is_none());
+        assert!(registry.get(&fresh.id).is_some());
+    }
+
+    #[test]
+    fn a_binding_survives_json() {
+        let registry = ClientConnections::new();
+        let (connection, _rx) = ClientConnection::for_tests();
+        let binding = registry.bind(&connection, vec![declaration("render", Some("ui"))], vec![]);
+        let back: ClientBinding = serde_json::from_str(&serde_json::to_string(&binding).unwrap()).unwrap();
+        assert_eq!(back.connection_id, binding.connection_id);
+        assert_eq!(back.tools, binding.tools);
     }
 }

@@ -3,7 +3,7 @@
 //! `run(make_backend)` builds a fresh [`Bus`] per check and reports each named check. A backend
 //! crate runs it from its own test; the in-process backend runs it in this crate's tests.
 //!
-//! **Time:** the suite sleeps and advances the clock with `tokio::time`, so run it on a
+//! **Time:** the suite waits out TTLs with `tokio::time::sleep`, so run it on a
 //! current-thread runtime started with `start_paused = true`. TTLs then expire deterministically
 //! and the whole suite takes milliseconds.
 
@@ -256,9 +256,9 @@ async fn publish_without_subscribers(bus: Bus) -> Verdict {
 
 const TTL: Duration = Duration::from_secs(10);
 
-/// Move the clock past a TTL and let any expiry task run.
+/// Wait past a TTL (instant on a paused clock) and let any expiry task run.
 async fn pass_ttl() {
-    tokio::time::advance(TTL + SECOND).await;
+    tokio::time::sleep(TTL + SECOND).await;
     for _ in 0..4 {
         tokio::task::yield_now().await;
     }
