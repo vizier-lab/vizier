@@ -146,6 +146,10 @@ diff -r "$HOME/.aws" "$AWS_SNAPSHOT" && echo "untouched" || echo "CHANGED"
 
 ## §5 Live — volunteer checklist [live]
 
+> **Release item, not evidence.** Nothing in §5 has been run by CI or by a maintainer. It is
+> tracked as an open release item in [release-items.md](./release-items.md); the feature ships with
+> the live path unverified by design (plan.md risk 2) until a volunteer fills in the table above.
+
 Prerequisites: an Identity Center instance, one assigned account and role, Bedrock model access in the Bedrock region, and at least one Application Inference Profile ARN. Snapshot `~/.aws` first: `cp -a ~/.aws "$AWS_SNAPSHOT"` (or record that it does not exist).
 
 | # | Step | Expected |
