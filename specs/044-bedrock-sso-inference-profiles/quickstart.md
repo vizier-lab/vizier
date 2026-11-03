@@ -128,6 +128,16 @@ The provider changes what a turn can do, so it is exercised through a running bi
    **Expected**: `amazon.titan-embed-text-v2:0` is used (visible in the same trace), and `memory_search` finds the text (FR-033b).
 6. Delete the connection while an agent uses it → the agent reports the missing connection, not an obscure failure (FR-040).
 
+> **Note (T076 — not runnable as written).** These steps **cannot** be run with `dummyplug`
+> alone for the SSO provider. `dummyplug` is an OpenAI-compatible server
+> (`npm --prefix dummyplug start`, `127.0.0.1:9998`), while the SSO provider needs a device-flow
+> sign-in and AWS role credentials before it will issue an invoke at all — so a run driven only by
+> `dummyplug` never reaches steps 2-6.
+>
+> To execute §3 later, one of these is needed: (a) an SSO stub the binary can be pointed at (today
+> only `SsoClient::at` exists, and only for unit tests), or (b) a real AWS Identity Center instance.
+> T076 stays open until one of them lands.
+
 ## §4 Offline — secret-leak audit (SC-011)
 
 Run after §2 and §3, on the same workspace and log:
