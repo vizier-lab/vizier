@@ -101,6 +101,7 @@ Not a stored entity: it is the `Option<RoleCredentials>` inside `SsoRoleCredenti
 | `image_input` | `Option<bool>` | no | empty ⇒ unknown |
 | `model` | `Option<String>` | no | **the pricing pairing**: one catalogue Bedrock model id, chosen from the searchable list (FR-034a, FR-034a.1). Empty ⇒ no price from the catalogue; the entry chats unpriced and shows "pricing not set" **with a cause-specific reason and the way out** (FR-034a.2, SC-021). Stored as an id, never as a name or a price, so a catalogue refresh updates every entry (FR-034a.1) |
 | `price` | `Option<Cost>` | no | **the escape hatch**: a hand-entered cost, the `Cost` type the catalogue already uses (`crates/vizier-core/src/catalogue/data.rs:142`; per-million rates, `input`/`output` required). Set ⇒ no catalogue lookup happens and a refresh never overwrites it (FR-034a.4) |
+| `limits_edited` | `Option<LimitsEdited>` | system | `{ context: bool, output: bool }` — which of the two limits the person set by hand, so a re-pairing refreshes only the others (FR-034a.7 rule 2). **Server-owned and ignored on input**: recomputed on every write from the stored entry plus the submitted numbers, so a client echoing back what it displayed cannot promote a filled value to a hand-entered one (rule 1). `None` on an entry saved before FR-034a.7 reads as "true wherever a number is present" — no migration, and no old number is adopted as a fill |
 | `edited` | `bool` | system | true once the person changed the row, so a future fetch never overwrites it (same convention as `CustomModel.edited`, `crates/vizier-core/src/schema/provider.rs:225`) |
 
 Validation (one place: `service::providers_sso::validate_entries`):
@@ -110,7 +111,8 @@ Validation (one place: `service::providers_sso::validate_entries`):
 4. `name`, when present: 1–100 chars, trimmed. Empty string means "no name" (FR-026).
 4a. `model`, when present: a non-empty id matching `[a-z0-9][a-z0-9.:-]*` on the **shape only** (the charset every catalogue Bedrock id in `assets/catalogue/api.json` uses). Existence in the catalogue is deliberately **not** checked here: an id that is gone must stay saved and be reported as "pricing not resolved" at use time (FR-034a.3), and a save-time rejection would turn a pricing gap into a refusal (FR-034a.5, SC-021).
 4b. `price`, when present: finite, non-negative `input` and `output`; `cache_read`/`cache_write` optional and, when present, non-negative. No upper bound — a person may know an enterprise rate the catalogue does not carry (FR-034a.4).
-4c. **Neither field takes part in rules 1–3.** The pairing never accepts, rejects, rewrites or region-checks an ARN, and never fills `context`, `output`, `tool_call` or `image_input` (FR-034a.6, SC-022).
+4c. **Neither field takes part in rules 1–3.** The pairing never accepts, rejects, rewrites or region-checks an ARN, and never fills `tool_call` or `image_input` (FR-034a.6, SC-022).
+4d. **`context` and `output` are filled from the same row, by the same act** (FR-034a.7), after rules 1–4c pass and only on a write: when the pair is set or changed, every limit `limits_edited` does not claim takes the new model's `limit.context`/`limit.output`, or becomes empty when that row carries none or the id does not resolve; with the pair unchanged, only a still-empty unedited limit is filled; a removed pair fills nothing; a limit the person cleared stays cleared; a filled number is stored and never re-read from the catalogue afterwards. The full algorithm and its four write points are `contracts/provider-credentials-api.md` §4b.
 5. Removing an entry that an agent still selects ⇒ `409` naming those agents, unless `confirm=true` (FR-029) — same shape as `usage::check_in_use`.
 
 **Resolution order for the entry's price** (FR-034a.1–a.6), one function — `service::catalogue::entry_pricing` (research D13):
@@ -141,7 +143,7 @@ Rules the table encodes:
 - **A price never blocks a turn.** `resolve` and the media path never call the resolver: a turn builds its model from the ARN and the entry's limits, and the price is attached afterwards, when a report prices that ARN by looking the entry up (research D13 §3). There is therefore no code path in which a missing, stale or absurd price could refuse, retry or disable anything — FR-034a.5 holds structurally, not by review.
 
 **Resolution order for limits and capabilities** (FR-028) is the existing one, unchanged:
-`agent override` → `entry` → `unknown`. Concretely, `resolve_bedrock_sso` builds `Limits` from the entry when it is the selected model, and `limits()` (`crates/vizier-core/src/llm/resolve.rs:156`) applies the agent override on top; an unset field stays `None`, which the rest of the system already treats as unknown (checkpointing, attachment handling, tool warnings).
+`agent override` → `entry` → `unknown` — where "the entry" now includes a limit the pairing filled, which is the entry's own value from then on and is never overwritten once edited (FR-034a.7): Concretely, `resolve_bedrock_sso` builds `Limits` from the entry when it is the selected model, and `limits()` (`crates/vizier-core/src/llm/resolve.rs:156`) applies the agent override on top; an unset field stays `None`, which the rest of the system already treats as unknown (checkpointing, attachment handling, tool warnings).
 
 ---
 
