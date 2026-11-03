@@ -133,6 +133,7 @@ libc = "0.2"
 vizier-derive = { path = "crates/vizier-derive", version = "0.14.1" }
 vizier-core = { path = "crates/vizier-core", version = "0.14.1" }
 vizier-fleet = { path = "crates/vizier-fleet", version = "0.14.1" }
+vizier-schema = { path = "crates/vizier-schema", version = "0.14.1" }
 vizier-http = { path = "crates/vizier-http", version = "0.14.1" }
 
 # Dependencies are compiled optimised even in dev builds. Local speech (candle for Kokoro,

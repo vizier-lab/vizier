@@ -25,10 +25,10 @@ description: "Task list for the Fleet message bus, in-process backend and role t
 
 **Purpose**: The new crate exists, builds, and CI knows about it.
 
-- [ ] T001 Create `crates/vizier-schema/Cargo.toml` (workspace package fields, `description`, `license`, `include`; dependencies only `serde`, `serde_json`, `tokio` with `sync`/`time`/`rt`/`macros`, `async-trait`, `uuid`; dev-dependency `tokio` with `test-util`) and an empty `crates/vizier-schema/src/lib.rs` with a crate-level doc comment stating the dependency rule
-- [ ] T002 Add `vizier-schema = { path = "crates/vizier-schema", version = "<workspace version>" }` to `[workspace.dependencies]` in `Cargo.toml` and add `vizier-schema.workspace = true` to `crates/vizier-core/Cargo.toml` and `crates/vizier-fleet/Cargo.toml`; run `cargo build --workspace` to refresh `Cargo.lock`
-- [ ] T003 [P] Add `crates/vizier-schema/**` to the `rust` and `core` path filters of the `changes` job in `.github/workflows/ci.yml` so a change to it runs every job (it is a shared crate)
-- [ ] T004 [P] Add a `crates/vizier-schema/README.md` (one paragraph: what the crate is, that it depends on no workspace crate) and list it in the crate's `include`
+- [X] T001 Create `crates/vizier-schema/Cargo.toml` (workspace package fields, `description`, `license`, `include`; dependencies only `serde`, `serde_json`, `tokio` with `sync`/`time`/`rt`/`macros`, `async-trait`, `uuid`; dev-dependency `tokio` with `test-util`) and an empty `crates/vizier-schema/src/lib.rs` with a crate-level doc comment stating the dependency rule
+- [X] T002 Add `vizier-schema = { path = "crates/vizier-schema", version = "<workspace version>" }` to `[workspace.dependencies]` in `Cargo.toml` and add `vizier-schema.workspace = true` to `crates/vizier-core/Cargo.toml` and `crates/vizier-fleet/Cargo.toml`; run `cargo build --workspace` to refresh `Cargo.lock`
+- [X] T003 [P] Add `crates/vizier-schema/**` to the `rust` and `core` path filters of the `changes` job in `.github/workflows/ci.yml` so a change to it runs every job (it is a shared crate)
+- [X] T004 [P] Add a `crates/vizier-schema/README.md` (one paragraph: what the crate is, that it depends on no workspace crate) and list it in the crate's `include`
 
 **Checkpoint**: `cargo build --workspace` succeeds with the empty crate.
 
@@ -40,19 +40,19 @@ description: "Task list for the Fleet message bus, in-process backend and role t
 
 **⚠️ CRITICAL**: No user-story work begins until this phase is committed.
 
-- [ ] T005 [P] Implement `BusError` (variants per data-model.md: `PayloadTooLarge{size,limit}`, `NoResponders`, `Timeout`, `InvalidSubject`, `InvalidPattern`, `Closed`, `Unsupported(Capability)`, `LeaseHeld`, `LeaseLost`, `Conflict`, `Decode`) with hand-written `Display` and `std::error::Error` in `crates/vizier-schema/src/error.rs`
-- [ ] T006 [P] Implement `Capability`, `Capabilities { messaging, leases, shared_state }`, `missing(&needed)` and `all()` in `crates/vizier-schema/src/capabilities.rs`
-- [ ] T007 Implement `Subject` (token grammar, 255-byte cap, `parse`, percent-encoding of identifiers into one token, `decode_token`) and the typed builders (`agent_req`, `agent_memop`, `session_events`, `reply`, `lease`, constants for `agents.cmd`, `files.cmd`, `dream.cmd`, `process.cmd`, `integration.changed`) per contracts/subjects.md in `crates/vizier-schema/src/subject.rs`
-- [ ] T008 Implement `SubjectPattern` (`parse`, `*`, `>` in last position only, `matches`, rejecting wildcards inside a token) in `crates/vizier-schema/src/subject.rs`
-- [ ] T009 [P] Implement `Envelope` (`v`, `kind`, `reply_to`, `Headers`, `queued_at_ms`, `payload`), `MAX_PAYLOAD = 1_048_576`, `Envelope::new`/`json`/`decode` with the `PayloadTooLarge` and unknown-version checks in `crates/vizier-schema/src/envelope.rs`
-- [ ] T010 Define `trait Messaging` (`publish`, `request`, `subscribe`), `Subscription` (`recv`, `close`, `lagged` notification) and the `Reply` helper in `crates/vizier-schema/src/messaging.rs`, with the bus-semantics rules 1–7 as doc comments
-- [ ] T011 [P] Define `trait Leases` (`acquire`, `renew`, `release`, `watch`), `Lease`, `FencingToken`, `LeaseEvent`, `LeaseWatch` in `crates/vizier-schema/src/leases.rs`, with rules 8–12 as doc comments
-- [ ] T012 [P] Define `trait SharedState` (`get`, `put`, `cas`, `delete`, `watch`), `Versioned`, `Revision`, `StateEvent`, `StateWatch` in `crates/vizier-schema/src/state.rs`, with rules 13–14 as doc comments
-- [ ] T013 Implement `Bus { messaging, leases, state, capabilities }` with `Bus::new`, `Bus::require(&Capabilities) -> Result<(), BusError>` (error names the missing capability) in `crates/vizier-schema/src/bus.rs`; re-export everything from `crates/vizier-schema/src/lib.rs`
-- [ ] T014 [P] Unit tests for subjects and patterns (encoding of `my.agent`, wildcard rules, invalid patterns, length cap) in `crates/vizier-schema/src/subject.rs` `#[cfg(test)]`
-- [ ] T015 [P] Unit tests for the envelope (limit and limit+1, version check, round trip, headers) in `crates/vizier-schema/src/envelope.rs` `#[cfg(test)]`
-- [ ] T016 [P] Unit test for `Bus::require` refusing a stub backend that lacks leases, naming `leases`, in `crates/vizier-schema/src/bus.rs` `#[cfg(test)]`
-- [ ] T017 **COMMIT (slice 1)**: `cargo test -p vizier-schema && cargo clippy -p vizier-schema --all-targets`, then `feat: add vizier-schema, the Fleet bus contract (#162)`
+- [X] T005 [P] Implement `BusError` (variants per data-model.md: `PayloadTooLarge{size,limit}`, `NoResponders`, `Timeout`, `InvalidSubject`, `InvalidPattern`, `Closed`, `Unsupported(Capability)`, `LeaseHeld`, `LeaseLost`, `Conflict`, `Decode`) with hand-written `Display` and `std::error::Error` in `crates/vizier-schema/src/error.rs`
+- [X] T006 [P] Implement `Capability`, `Capabilities { messaging, leases, shared_state }`, `missing(&needed)` and `all()` in `crates/vizier-schema/src/capabilities.rs`
+- [X] T007 Implement `Subject` (token grammar, 255-byte cap, `parse`, percent-encoding of identifiers into one token, `decode_token`) and the typed builders (`agent_req`, `agent_memop`, `session_events`, `reply`, `lease`, constants for `agents.cmd`, `files.cmd`, `dream.cmd`, `process.cmd`, `integration.changed`) per contracts/subjects.md in `crates/vizier-schema/src/subject.rs`
+- [X] T008 Implement `SubjectPattern` (`parse`, `*`, `>` in last position only, `matches`, rejecting wildcards inside a token) in `crates/vizier-schema/src/subject.rs`
+- [X] T009 [P] Implement `Envelope` (`v`, `kind`, `reply_to`, `Headers`, `queued_at_ms`, `payload`), `MAX_PAYLOAD = 1_048_576`, `Envelope::new`/`json`/`decode` with the `PayloadTooLarge` and unknown-version checks in `crates/vizier-schema/src/envelope.rs`
+- [X] T010 Define `trait Messaging` (`publish`, `request`, `subscribe`), `Subscription` (`recv`, `close`, `lagged` notification) and the `Reply` helper in `crates/vizier-schema/src/messaging.rs`, with the bus-semantics rules 1–7 as doc comments
+- [X] T011 [P] Define `trait Leases` (`acquire`, `renew`, `release`, `watch`), `Lease`, `FencingToken`, `LeaseEvent`, `LeaseWatch` in `crates/vizier-schema/src/leases.rs`, with rules 8–12 as doc comments
+- [X] T012 [P] Define `trait SharedState` (`get`, `put`, `cas`, `delete`, `watch`), `Versioned`, `Revision`, `StateEvent`, `StateWatch` in `crates/vizier-schema/src/state.rs`, with rules 13–14 as doc comments
+- [X] T013 Implement `Bus { messaging, leases, state, capabilities }` with `Bus::new`, `Bus::require(&Capabilities) -> Result<(), BusError>` (error names the missing capability) in `crates/vizier-schema/src/bus.rs`; re-export everything from `crates/vizier-schema/src/lib.rs`
+- [X] T014 [P] Unit tests for subjects and patterns (encoding of `my.agent`, wildcard rules, invalid patterns, length cap) in `crates/vizier-schema/src/subject.rs` `#[cfg(test)]`
+- [X] T015 [P] Unit tests for the envelope (limit and limit+1, version check, round trip, headers) in `crates/vizier-schema/src/envelope.rs` `#[cfg(test)]`
+- [X] T016 [P] Unit test for `Bus::require` refusing a stub backend that lacks leases, naming `leases`, in `crates/vizier-schema/src/bus.rs` `#[cfg(test)]`
+- [X] T017 **COMMIT (slice 1)**: `cargo test -p vizier-schema && cargo clippy -p vizier-schema --all-targets`, then `feat: add vizier-schema, the Fleet bus contract (#162)`
 
 **Checkpoint**: contract compiles, tests pass; nothing else depends on it yet.
 
