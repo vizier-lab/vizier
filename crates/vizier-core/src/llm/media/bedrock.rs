@@ -9,7 +9,7 @@ use crate::Result;
 use crate::VizierError;
 use crate::embedding::VizierEmbeddingModel;
 use crate::image_generation::VizierImageGenModel;
-use crate::llm::bedrock::model_path;
+use crate::llm::bedrock::{model_path, parse_inference_profile_arn};
 use crate::llm::media::Endpoint;
 
 /// The documented default when an agent leaves the embedding model empty.
@@ -20,6 +20,24 @@ pub const DEFAULT_IMAGE_MODEL: &str = "amazon.nova-canvas-v1:0";
 const COHERE_BATCH: usize = 96;
 /// The documented default image size (both families accept it).
 const DEFAULT_IMAGE_SIZE: (u32, u32) = (1024, 1024);
+
+/// An inference-profile ARN is a chat model: it names a routing resource, never an embedding or
+/// image foundation model, so it is refused **before** the family check — no request is built and
+/// no vector or file can be written from a call that could not have produced one (FR-033a).
+///
+/// Both resource types are refused identically, because `parse_inference_profile_arn` is the whole
+/// test: a message that named only the application form would leave a system-defined profile's
+/// owner unsure whether the rule applied to them.
+fn refuse_inference_profile_arn(model: &str, capability: &str, models: &str) -> Result<()> {
+    if parse_inference_profile_arn(model).is_err() {
+        return Ok(());
+    }
+    Err(VizierError(format!(
+        "an inference-profile ARN is a chat model; it cannot be used for {capability}. \
+         Use one of the foundation models this connection supports ({models}), \
+         or leave the field empty for the default."
+    )))
+}
 
 /// Region-prefixed model ids (`us.`, `eu.`, `apac.`, `global.`) name the same family.
 fn family_id(model: &str) -> &str {
@@ -58,6 +76,10 @@ impl EmbeddingFamily {
          Titan Text Embeddings V1 (amazon.titan-embed-text-v1) and Cohere Embed v3 \
          (cohere.embed-english-v3, cohere.embed-multilingual-v3)"
     }
+
+    /// The same families as bare model ids, for the ARN refusal (FR-033a).
+    pub const MODELS: &'static str = "amazon.titan-embed-text-v2:0, \
+         amazon.titan-embed-text-v1, cohere.embed-english-v3, cohere.embed-multilingual-v3";
 }
 
 /// Bedrock embeddings: Titan embeds one text per call; Cohere batches.
@@ -69,6 +91,11 @@ pub struct BedrockEmbeddings {
 impl BedrockEmbeddings {
     /// Build the client, refusing a model outside the supported families before any request.
     pub fn new(endpoint: Endpoint) -> Result<Self> {
+        refuse_inference_profile_arn(
+            &endpoint.model,
+            "memory embeddings",
+            EmbeddingFamily::MODELS,
+        )?;
         let family = EmbeddingFamily::detect(&endpoint.model).ok_or_else(|| {
             VizierError(format!(
                 "unsupported Bedrock embedding model {:?}: use {}",
@@ -79,6 +106,8 @@ impl BedrockEmbeddings {
         Ok(Self { endpoint, family })
     }
 
+    /// The provider's own refusal (an unsupported family, a model the account does not have) is
+    /// passed through with only the capability prefixed, never reinterpreted (FR-033b).
     async fn invoke(&self, body: &Value) -> anyhow::Result<Value> {
         let response = self
             .endpoint
@@ -190,6 +219,9 @@ impl ImageFamily {
         "Amazon Nova Canvas (amazon.nova-canvas-v1:0) and Titan Image Generator V2 \
          (amazon.titan-image-generator-v2:0)"
     }
+
+    /// The same families as bare model ids, for the ARN refusal (FR-033a).
+    pub const MODELS: &'static str = "amazon.nova-canvas-v1:0, amazon.titan-image-generator-v2:0";
 }
 
 /// Bedrock image generation: Nova Canvas or Titan Image Generator V2, one image per call.
@@ -200,6 +232,7 @@ pub struct BedrockImages {
 
 impl BedrockImages {
     pub fn new(endpoint: Endpoint) -> Result<Self> {
+        refuse_inference_profile_arn(&endpoint.model, "image generation", ImageFamily::MODELS)?;
         let family = ImageFamily::detect(&endpoint.model).ok_or_else(|| {
             VizierError(format!(
                 "unsupported Bedrock image model {:?}: use {}",
@@ -393,6 +426,76 @@ mod tests {
             "GIF is not requested from these models"
         );
         assert_eq!(sniff_image(b"not an image"), None);
+    }
+
+    /// Both ARN resource types, as AWS writes them.
+    const SYSTEM_ARN: &str =
+        "arn:aws:bedrock:us-east-1:123456789012:inference-profile/us.anthropic.claude-sonnet-4-5-20250929-v1:0";
+    const APPLICATION_ARN: &str =
+        "arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/abc123def456";
+
+    fn endpoint_with(model: &str) -> Endpoint {
+        Endpoint {
+            http: reqwest::Client::new(),
+            base_url: crate::llm::bedrock::runtime_endpoint("us-east-1"),
+            credential: crate::llm::auth::StaticKey::none(),
+            model: model.to_string(),
+        }
+    }
+
+    /// FR-033a: an ARN is a chat model. Both capabilities refuse it, both resource types alike, and
+    /// the refusal is the ARN one — proving it happens **before** the family check, so no request is
+    /// built and no vector or file can come out of it.
+    #[test]
+    fn an_inference_profile_arn_is_refused_before_the_family_check() {
+        for arn in [SYSTEM_ARN, APPLICATION_ARN] {
+            assert!(
+                crate::llm::bedrock::parse_inference_profile_arn(arn).is_ok(),
+                "the grammar accepts {arn}"
+            );
+
+            let error = BedrockEmbeddings::new(endpoint_with(arn)).err().unwrap().0;
+            assert!(error.contains("memory embeddings"), "{error}");
+            assert!(
+                !error.contains("unsupported Bedrock embedding model"),
+                "the ARN is refused before the family check: {error}"
+            );
+            assert!(
+                error.contains("leave the field empty for the default"),
+                "{error}"
+            );
+            for model in [
+                "amazon.titan-embed-text-v2:0",
+                "amazon.titan-embed-text-v1",
+                "cohere.embed-english-v3",
+                "cohere.embed-multilingual-v3",
+            ] {
+                assert!(error.contains(model), "{model} missing from: {error}");
+            }
+
+            let error = BedrockImages::new(endpoint_with(arn)).err().unwrap().0;
+            assert!(error.contains("image generation"), "{error}");
+            assert!(
+                !error.contains("unsupported Bedrock image model"),
+                "the ARN is refused before the family check: {error}"
+            );
+            assert!(
+                error.contains("leave the field empty for the default"),
+                "{error}"
+            );
+            for model in ["amazon.nova-canvas-v1:0", "amazon.titan-image-generator-v2:0"] {
+                assert!(error.contains(model), "{model} missing from: {error}");
+            }
+        }
+    }
+
+    /// FR-033a: the wording names an **inference-profile ARN**, never only the application form, so
+    /// a system-defined profile's owner is not left wondering whether the rule applies to them.
+    #[test]
+    fn the_refusal_names_both_arn_forms_by_the_generic_noun() {
+        let error = BedrockEmbeddings::new(endpoint_with(SYSTEM_ARN)).err().unwrap().0;
+        assert!(error.starts_with("an inference-profile ARN is a chat model"), "{error}");
+        assert!(!error.contains("application-inference-profile"), "{error}");
     }
 
     #[test]
