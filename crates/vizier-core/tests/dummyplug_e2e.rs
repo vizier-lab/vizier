@@ -129,7 +129,7 @@ fn agent_config(id: &str) -> AgentConfig {
 
 /// The text of a turn's final message, or the error it ended with.
 async fn chat(transport: &VizierTransport, session: &VizierSession, text: &str) -> String {
-    let (tx, rx) = flume::unbounded::<VizierResponse>();
+    let (tx, rx) = transport.reply_channel().await.expect("open a reply stream");
     let request = VizierRequest {
         timestamp: chrono::Utc::now(),
         user: "e2e".into(),

@@ -252,7 +252,7 @@ pub struct Supervisor {
     pub agent_id: AgentId,
     pub deps: VizierDependencies,
     pub config: AgentConfig,
-    pub recv: flume::Receiver<VizierRequestEnvelope>,
+    pub recv: crate::transport::Inbox,
     pub shutdown_rx: watch::Receiver<bool>,
     /// True when the stop in progress is a delete (see `AgentProcess::deleting`).
     pub deleting: std::sync::Arc<std::sync::atomic::AtomicBool>,
@@ -575,7 +575,7 @@ impl Supervisor {
             tokio::select! {
                 _ = &mut deadline => return true,
                 _ = wait_for_shutdown(&mut self.shutdown_rx) => return false,
-                envelope = self.recv.recv_async() => match envelope {
+                envelope = self.recv.recv_request() => match envelope {
                     Ok(envelope) => reject(envelope, error).await,
                     Err(_) => return false,
                 },

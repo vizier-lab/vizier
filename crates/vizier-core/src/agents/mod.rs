@@ -49,7 +49,7 @@ struct AgentProcess {
     current: CurrentAgent,
     /// The agent's request channel, registered once and handed from one supervisor to the
     /// next across updates, so nothing sent during a swap is lost (#43).
-    recv: flume::Receiver<VizierRequestEnvelope>,
+    recv: crate::transport::Inbox,
 }
 
 impl AgentProcess {
@@ -133,7 +133,7 @@ impl VizierAgents {
         tracing::info!(agent_id = %agent_id, count = pending.len(), "re-sending turns that were pending at shutdown");
         for turn in pending {
             let envelope = crate::transport::VizierRequestEnvelope {
-                response_tx: Some(self.deps.transport.broadcast_sender(turn.session.clone())),
+                response_tx: self.deps.transport.broadcast_sender(turn.session.clone()).await.ok(),
                 session: turn.session,
                 request: turn.request,
                 turn_id: Some(turn.id),
@@ -150,7 +150,7 @@ impl VizierAgents {
         &mut self,
         agent_id: AgentId,
         config: AgentConfig,
-        recv: flume::Receiver<VizierRequestEnvelope>,
+        recv: crate::transport::Inbox,
         prebuilt: Option<BuiltAgent>,
     ) {
         let (shutdown, shutdown_rx) = watch::channel(false);

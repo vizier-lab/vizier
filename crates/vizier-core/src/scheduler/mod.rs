@@ -318,7 +318,15 @@ impl VizierScheduler {
             }
         };
 
-        let (response_tx, response_rx) = flume::unbounded::<VizierResponse>();
+        let (response_tx, response_rx) = match self.deps.transport.reply_channel().await {
+            Ok(pair) => pair,
+            Err(e) => {
+                tracing::error!("Failed to open a reply stream for task '{}': {}", task_slug, e);
+                self.close_run(run_id, &agent_id, &task_slug, &title, TaskRunState::NoResponse)
+                    .await;
+                return;
+            }
+        };
 
         let dispatched = self
             .deps

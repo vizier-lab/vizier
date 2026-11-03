@@ -1,8 +1,18 @@
+mod inbox;
+mod reply;
+pub mod wire;
+
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use anyhow::Result;
 use tokio::sync::RwLock;
+use vizier_schema::{Bus, Envelope, InProcess, Subject, SubjectPattern};
+
+pub use inbox::{Inbox, InboxClosed};
+pub use reply::{
+    ReplyClosed, ResponseSender, ResponseStream, reply_channel as bus_reply_channel, standalone_reply_channel,
+};
 
 use crate::storage::{history::HistoryStorage, turn::TurnStorage};
 use crate::schema::{
@@ -91,17 +101,15 @@ pub struct DreamCommand {
     pub cycle_id: Option<String>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+/// A request as the agent receives it: decoded from the bus, with the reply stream attached.
+#[derive(Debug, Clone)]
 pub struct VizierRequestEnvelope {
     pub session: VizierSession,
     pub request: VizierRequest,
-    #[serde(skip)]
-    pub response_tx: Option<flume::Sender<VizierResponse>>,
+    pub response_tx: Option<ResponseSender>,
     /// The `session_turn` row journaling this request, when it is durable.
-    #[serde(skip)]
     pub turn_id: Option<i64>,
     /// Re-sent after a restart with its turn already begun: the agent resumes it.
-    #[serde(skip)]
     pub resumed: bool,
 }
 
@@ -124,7 +132,10 @@ impl std::ops::Deref for JournalHandle {
 
 #[derive(Debug, Clone)]
 pub struct VizierTransport {
-    agent_channels: Arc<RwLock<HashMap<AgentId, flume::Sender<VizierRequestEnvelope>>>>,
+    /// The agents that have a request queue, so a request to one that has none fails at once.
+    inboxes: Arc<RwLock<HashMap<AgentId, Inbox>>>,
+
+    bus: Bus,
 
     memory_op_channels: Arc<RwLock<HashMap<AgentId, flume::Sender<MemoryOpEnvelope>>>>,
 
@@ -172,7 +183,8 @@ impl VizierTransport {
         let file_command_channel = Arc::new(flume::unbounded());
 
         Self {
-            agent_channels: Arc::new(RwLock::new(HashMap::new())),
+            inboxes: Arc::new(RwLock::new(HashMap::new())),
+            bus: InProcess::new().bus(),
             memory_op_channels: Arc::new(RwLock::new(HashMap::new())),
             command_request_channel,
             command_response_channel,
@@ -213,24 +225,49 @@ impl VizierTransport {
 
     #[doc(hidden)]
     pub async fn is_agent_registered(&self, agent_id: &AgentId) -> bool {
-        self.agent_channels.read().await.contains_key(agent_id)
+        self.inboxes.read().await.contains_key(agent_id)
+    }
+
+    /// The bus this transport runs on.
+    pub fn bus(&self) -> &Bus {
+        &self.bus
+    }
+
+    /// A reply stream and its sender, for a request whose answer the caller waits for.
+    pub async fn reply_channel(&self) -> Result<(ResponseSender, ResponseStream), vizier_schema::BusError> {
+        bus_reply_channel(&self.bus).await
     }
 
     #[doc(hidden)]
-    pub async fn register_agent(
-        &self,
-        agent_id: AgentId,
-    ) -> flume::Receiver<VizierRequestEnvelope> {
-        let (tx, rx) = flume::unbounded();
-        let mut channels = self.agent_channels.write().await;
-        channels.insert(agent_id, tx);
-        rx
+    pub async fn register_agent(&self, agent_id: AgentId) -> Inbox {
+        let subject = Subject::agent_req(&agent_id);
+        let mut inboxes = self.inboxes.write().await;
+        // A queue registered twice would be fed twice by the bus; the old one ends.
+        if let Some(old) = inboxes.remove(&agent_id) {
+            old.close();
+        }
+        let sub = match self.bus.messaging.subscribe(SubjectPattern::from(&subject)).await {
+            Ok(sub) => sub,
+            Err(e) => {
+                // The in-process backend cannot refuse; a backend that does leaves an inbox that
+                // is closed from the start, which the supervisor reports as a stopped agent.
+                tracing::error!(%agent_id, "could not subscribe to the agent's requests: {e}");
+                let (_tx, sub) = vizier_schema::Subscription::channel(1);
+                let inbox = Inbox::new(sub, self.bus.messaging.clone());
+                inbox.close();
+                return inbox;
+            }
+        };
+        let inbox = Inbox::new(sub, self.bus.messaging.clone());
+        inboxes.insert(agent_id, inbox.clone());
+        inbox
     }
 
     #[doc(hidden)]
     pub async fn unregister_agent(&self, agent_id: &AgentId) {
-        let mut channels = self.agent_channels.write().await;
-        channels.remove(agent_id);
+        if let Some(inbox) = self.inboxes.write().await.remove(agent_id) {
+            inbox.close();
+        }
     }
 
     #[doc(hidden)]
@@ -272,7 +309,7 @@ impl VizierTransport {
         &self,
         session: VizierSession,
         req: VizierRequest,
-        response_tx: Option<flume::Sender<VizierResponse>>,
+        response_tx: Option<ResponseSender>,
     ) -> Result<()> {
         let mut req = req;
         req.trace.capture();
@@ -304,12 +341,23 @@ impl VizierTransport {
     /// Sends an envelope as it is, without journaling it again: a request recovered at
     /// startup, or handed on to the next instance of an agent.
     pub async fn resend(&self, envelope: VizierRequestEnvelope) -> Result<()> {
-        let channels = self.agent_channels.read().await;
-        let tx = channels
-            .get(&envelope.session.0)
-            .ok_or_else(|| anyhow::anyhow!("agent '{}' not registered", envelope.session.0))?;
-        tx.send_async(envelope).await?;
-        Ok(())
+        if !self.inboxes.read().await.contains_key(&envelope.session.0) {
+            return Err(anyhow::anyhow!("agent '{}' not registered", envelope.session.0));
+        }
+        let subject = Subject::agent_req(&envelope.session.0);
+        let reply_to = envelope.response_tx.as_ref().map(|tx| tx.subject().clone());
+        let message = wire::encode_request(&envelope, reply_to)?;
+        match self.bus.messaging.publish(&subject, message).await {
+            Ok(()) => {
+                // The agent's side owns the reply stream and its end from here on.
+                if let Some(tx) = envelope.response_tx {
+                    tx.into_subject();
+                }
+                Ok(())
+            }
+            // Dropping the sender ends the requester's stream, as a dropped flume sender did.
+            Err(e) => Err(e.into()),
+        }
     }
 
     #[doc(hidden)]
@@ -358,8 +406,8 @@ impl VizierTransport {
     #[doc(hidden)]
     /// A response sender that republishes every frame onto the session-event broadcast, for a
     /// turn nobody is waiting on (a woken report, a recovered request).
-    pub fn broadcast_sender(&self, session: VizierSession) -> flume::Sender<VizierResponse> {
-        let (tx, rx) = flume::unbounded::<VizierResponse>();
+    pub async fn broadcast_sender(&self, session: VizierSession) -> Result<ResponseSender> {
+        let (tx, mut rx) = self.reply_channel().await?;
         let transport = self.clone();
         tokio::spawn(async move {
             while let Ok(frame) = rx.recv_async().await {
@@ -369,7 +417,7 @@ impl VizierTransport {
                 });
             }
         });
-        tx
+        Ok(tx)
     }
 
     #[doc(hidden)]
@@ -494,5 +542,148 @@ impl VizierTransport {
             }
         }
         Err(anyhow::anyhow!("the command request channel closed"))
+    }
+}
+
+#[cfg(test)]
+mod bus_tests {
+    use std::time::Duration;
+
+    use super::*;
+    use crate::schema::{VizierChannelId, VizierRequestContent, VizierResponseContent};
+
+    fn session(agent: &str) -> VizierSession {
+        VizierSession(agent.into(), VizierChannelId::System, None)
+    }
+
+    fn chat(text: &str) -> VizierRequest {
+        VizierRequest {
+            timestamp: chrono::Utc::now(),
+            user: "tester".into(),
+            content: VizierRequestContent::Chat(text.into()),
+            metadata: serde_json::json!({}),
+            ..Default::default()
+        }
+    }
+
+    fn text(s: &str) -> VizierResponse {
+        VizierResponse {
+            content: VizierResponseContent::Message { content: s.into(), stats: None },
+            ..Default::default()
+        }
+    }
+
+    async fn next(inbox: &Inbox) -> VizierRequestEnvelope {
+        tokio::time::timeout(Duration::from_secs(5), inbox.recv_request())
+            .await
+            .expect("a request in time")
+            .expect("an open inbox")
+    }
+
+    #[tokio::test]
+    async fn a_request_round_trips_over_the_bus_and_its_reply_stream_ends() {
+        let transport = VizierTransport::new();
+        let inbox = transport.register_agent("alpha".into()).await;
+        let (tx, rx) = transport.reply_channel().await.unwrap();
+        transport.send_request(session("alpha"), chat("hello"), Some(tx)).await.unwrap();
+
+        let got = next(&inbox).await;
+        assert!(matches!(&got.request.content, VizierRequestContent::Chat(t) if t == "hello"));
+        let answer = got.response_tx.expect("a reply address");
+        answer.send_async(text("one")).await.unwrap();
+        answer.send_async(text("two")).await.unwrap();
+        drop(answer);
+
+        let mut seen = vec![];
+        while let Ok(frame) = rx.recv_async().await {
+            if let VizierResponseContent::Message { content, .. } = frame.content {
+                seen.push(content);
+            }
+        }
+        assert_eq!(seen, ["one", "two"]);
+    }
+
+    #[tokio::test]
+    async fn a_request_to_an_unregistered_agent_fails_at_once_and_ends_the_stream() {
+        let transport = VizierTransport::new();
+        let (tx, rx) = transport.reply_channel().await.unwrap();
+        let err = transport.send_request(session("ghost"), chat("hi"), Some(tx)).await.unwrap_err();
+        assert!(err.to_string().contains("not registered"), "{err}");
+        // The dropped sender closed the requester's stream rather than leaving it hanging.
+        assert!(tokio::time::timeout(Duration::from_secs(5), rx.recv_async()).await.unwrap().is_err());
+    }
+
+    #[tokio::test]
+    async fn an_inbox_closes_on_unregister_for_every_clone_after_it_is_drained() {
+        let transport = VizierTransport::new();
+        let inbox = transport.register_agent("alpha".into()).await;
+        let clone = inbox.clone();
+        transport.send_request(session("alpha"), chat("queued"), None).await.unwrap();
+        transport.unregister_agent(&"alpha".to_string()).await;
+
+        assert!(inbox.is_disconnected() && clone.is_disconnected());
+        assert!(!transport.is_agent_registered(&"alpha".to_string()).await);
+        // What was queued before the close can still be read, by either handle; then it ends.
+        let got = next(&clone).await;
+        assert!(matches!(&got.request.content, VizierRequestContent::Chat(t) if t == "queued"));
+        assert_eq!(inbox.recv_request().await.unwrap_err(), InboxClosed);
+        assert_eq!(clone.recv_request().await.unwrap_err(), InboxClosed);
+        // And nothing new is accepted.
+        assert!(transport.send_request(session("alpha"), chat("late"), None).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn requests_queued_while_an_instance_is_swapped_wait_for_the_next_one() {
+        let transport = VizierTransport::new();
+        let first_instance = transport.register_agent("alpha".into()).await;
+        // The supervisor hands the same inbox to the replacement instance.
+        let second_instance = first_instance.clone();
+        drop(first_instance);
+        transport.send_request(session("alpha"), chat("during the swap"), None).await.unwrap();
+        let got = next(&second_instance).await;
+        assert!(matches!(&got.request.content, VizierRequestContent::Chat(t) if t == "during the swap"));
+    }
+
+    #[tokio::test]
+    async fn a_realistic_request_survives_the_envelope() {
+        let transport = VizierTransport::new();
+        let inbox = transport.register_agent("alpha".into()).await;
+        let mut request = chat("with everything");
+        request.transient = true;
+        request.background_depth = 2;
+        request.trace.traceparent = Some("00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01".into());
+        request.trace.enqueued_at_ms = Some(1234);
+        let envelope = VizierRequestEnvelope {
+            session: session("alpha"),
+            request,
+            response_tx: None,
+            turn_id: Some(7),
+            resumed: true,
+        };
+        transport.resend(envelope).await.unwrap();
+
+        let got = next(&inbox).await;
+        assert!(got.request.transient);
+        assert_eq!(got.request.background_depth, 2);
+        assert_eq!(got.turn_id, Some(7));
+        assert!(got.resumed);
+        assert_eq!(got.session, session("alpha"));
+        assert_eq!(
+            got.request.trace.traceparent.as_deref(),
+            Some("00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01")
+        );
+        // The first send keeps its queue time; a re-send does not restamp it.
+        assert_eq!(got.request.trace.enqueued_at_ms, Some(1234));
+    }
+
+    #[tokio::test]
+    async fn re_registering_replaces_the_queue_instead_of_feeding_two() {
+        let transport = VizierTransport::new();
+        let old = transport.register_agent("alpha".into()).await;
+        let new = transport.register_agent("alpha".into()).await;
+        assert!(old.is_disconnected());
+        transport.send_request(session("alpha"), chat("one"), None).await.unwrap();
+        next(&new).await;
+        assert_eq!(old.recv_request().await.unwrap_err(), InboxClosed);
     }
 }

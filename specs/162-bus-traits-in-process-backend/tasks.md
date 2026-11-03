@@ -129,17 +129,17 @@ description: "Task list for the Fleet message bus, in-process backend and role t
 
 ### Slice 5 — the turn path
 
-- [ ] T045 [US1] Turn `crates/vizier-core/src/transport.rs` into a module: `git mv` it to `crates/vizier-core/src/transport/mod.rs`, add empty `reply.rs`, `inbox.rs`, `wire.rs`; keep every public name compiling
-- [ ] T046 [US1] Add `Bus` to `VizierTransport` (constructed from `InProcess::bus()` in `new()`/`durable()`), and a `Bus` accessor on `VizierDependencies` in `crates/vizier-core/src/transport/mod.rs` and `crates/vizier-core/src/dependencies.rs`
-- [ ] T047 [US1] Implement `ResponseSender`/`ResponseStream` over a reply subject (`send_async`, `recv_async`, `ReplyClosed`, subscribe-before-return) and `reply_channel()` in `crates/vizier-core/src/transport/reply.rs`
-- [ ] T048 [US1] Implement `Inbox` (cloneable shared subscription, closed flag, `recv_request` restoring trace and `turn_id`/`resumed` headers, `is_disconnected`) in `crates/vizier-core/src/transport/inbox.rs`
-- [ ] T049 [US1] Define the request wire type: `VizierRequestEnvelope` carries `reply_to: Option<Subject>` instead of `response_tx`; add `x-vizier-turn-id` / `x-vizier-resumed` header handling in `crates/vizier-core/src/transport/wire.rs`
-- [ ] T050 [US1] Port `register_agent`, `unregister_agent`, `is_agent_registered`, `send_request`, `resend` and `broadcast_sender` onto the bus (`agent.{id}.req`; an unregistered agent still fails at once) in `crates/vizier-core/src/transport/mod.rs`
-- [ ] T051 [US1] Update every `response_tx` / `flume::Sender<VizierResponse>` user to `ResponseSender`/`ResponseStream`: `crates/vizier-core/src/agents/process.rs`, `agents/mod.rs`, `agents/supervisor.rs`, `agents/hook/handover.rs`, `agents/hook/thinking.rs`, `agents/hook/tool_calls.rs`, `agents/tools/consult/mod.rs`, `channels/discord/mod.rs`, `channels/telegram/mod.rs`, `scheduler/mod.rs`, `service/agents.rs`, `crates/vizier-http/src/topic.rs`
-- [ ] T052 [US1] Update `await_session_outcome` and the background-piece tests in `crates/vizier-core/src/agents/background/` so a piece with no terminal frame ends at its own timeout; rewrite `a_closed_channel_without_an_answer_reads_as_a_restart` as `a_piece_with_no_terminal_frame_has_no_outcome`
-- [ ] T053 [P] [US1] Transport tests: request round trip over the bus, an unregistered agent refuses at once, an inbox closes on unregister while clones observe it, queued requests survive an instance swap, and a realistic chat request survives the envelope, in `crates/vizier-core/src/transport/mod.rs` `#[cfg(test)]`
-- [ ] T054 [US1] Run `cargo test -p vizier-core --test dummyplug_e2e` and `cargo run --example headless` (quickstart step 6a); fix any e2e helper that answers on a detached bus (it must use the runtime's transport)
-- [ ] T055 **COMMIT (slice 5)**: `refactor: [**breaking**] run the request path on the bus (#162)`
+- [X] T045 [US1] Turn `crates/vizier-core/src/transport.rs` into a module: `git mv` it to `crates/vizier-core/src/transport/mod.rs`, add empty `reply.rs`, `inbox.rs`, `wire.rs`; keep every public name compiling
+- [X] T046 [US1] Add `Bus` to `VizierTransport` (constructed from `InProcess::bus()` in `new()`/`durable()`), and a `Bus` accessor on `VizierDependencies` in `crates/vizier-core/src/transport/mod.rs` and `crates/vizier-core/src/dependencies.rs`
+- [X] T047 [US1] Implement `ResponseSender`/`ResponseStream` over a reply subject (`send_async`, `recv_async`, `ReplyClosed`, subscribe-before-return) and `reply_channel()` in `crates/vizier-core/src/transport/reply.rs`
+- [X] T048 [US1] Implement `Inbox` (cloneable shared subscription, closed flag, `recv_request` restoring trace and `turn_id`/`resumed` headers, `is_disconnected`) in `crates/vizier-core/src/transport/inbox.rs`
+- [X] T049 [US1] Define the request wire type: `VizierRequestEnvelope` carries `reply_to: Option<Subject>` instead of `response_tx`; add `x-vizier-turn-id` / `x-vizier-resumed` header handling in `crates/vizier-core/src/transport/wire.rs`
+- [X] T050 [US1] Port `register_agent`, `unregister_agent`, `is_agent_registered`, `send_request`, `resend` and `broadcast_sender` onto the bus (`agent.{id}.req`; an unregistered agent still fails at once) in `crates/vizier-core/src/transport/mod.rs`
+- [X] T051 [US1] Update every `response_tx` / `flume::Sender<VizierResponse>` user to `ResponseSender`/`ResponseStream`: `crates/vizier-core/src/agents/process.rs`, `agents/mod.rs`, `agents/supervisor.rs`, `agents/hook/handover.rs`, `agents/hook/thinking.rs`, `agents/hook/tool_calls.rs`, `agents/tools/consult/mod.rs`, `channels/discord/mod.rs`, `channels/telegram/mod.rs`, `scheduler/mod.rs`, `service/agents.rs`, `crates/vizier-http/src/topic.rs`
+- [X] T052 [US1] Update `await_session_outcome` and the background-piece tests in `crates/vizier-core/src/agents/background/` so a piece with no terminal frame ends at its own timeout; rewrite `a_closed_channel_without_an_answer_reads_as_a_restart` as `a_piece_with_no_terminal_frame_has_no_outcome`
+- [X] T053 [P] [US1] Transport tests: request round trip over the bus, an unregistered agent refuses at once, an inbox closes on unregister while clones observe it, queued requests survive an instance swap, and a realistic chat request survives the envelope, in `crates/vizier-core/src/transport/mod.rs` `#[cfg(test)]`
+- [X] T054 [US1] Run `cargo test -p vizier-core --test dummyplug_e2e` and `cargo run --example headless` (quickstart step 6a); fix any e2e helper that answers on a detached bus (it must use the runtime's transport)
+- [X] T055 **COMMIT (slice 5)**: `refactor: [**breaking**] run the request path on the bus (#162)`
 
 ### Slice 6 — command channels (one commit each)
 

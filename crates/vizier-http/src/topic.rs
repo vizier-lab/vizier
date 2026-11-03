@@ -376,7 +376,10 @@ impl TopicConnection {
                                 }
                             }
 
-                            let (response_tx, response_rx) = flume::unbounded();
+                            let (response_tx, response_rx) = match self.transport.reply_channel().await {
+                                Ok(pair) => pair,
+                                Err(_) => return,
+                            };
                             let session = self.session.clone();
                             if let Err(err) = self.transport.send_request(session.clone(), request, Some(response_tx)).await {
                                 tracing::error!("failed to send request: {}", err);

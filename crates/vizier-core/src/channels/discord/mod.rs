@@ -915,7 +915,7 @@ If I am halucinating, feel free to `/lobotomy` me
             show_tool_calls,
         };
 
-        let (response_tx, response_rx) = flume::unbounded();
+        let (response_tx, response_rx) = self.deps.transport.reply_channel().await?;
         if let Err(err) = self
             .deps
             .transport
@@ -1091,7 +1091,7 @@ If I am halucinating, feel free to `/lobotomy` me
         let agent_id = self.agent_id.clone();
         let topic_id = self.load_state(&channel).await.active_topic;
         let session = VizierSession(agent_id.clone(), channel, topic_id);
-        let (response_tx, response_rx) = flume::unbounded();
+        let (response_tx, response_rx) = self.deps.transport.reply_channel().await?;
         let _ = self
             .deps
             .transport
@@ -1259,7 +1259,7 @@ If I am halucinating, feel free to `/lobotomy` me
     }
 
     /// Post a turn a background report woke into the Discord channel the work came from.
-    async fn render_woken(&self, session: VizierSession, frames: flume::Receiver<VizierResponse>) {
+    async fn render_woken(&self, session: VizierSession, frames: crate::transport::ResponseStream) {
         let VizierChannelId::DiscordChanel(channel_id) = session.1 else {
             return;
         };
@@ -1364,7 +1364,7 @@ If I am halucinating, feel free to `/lobotomy` me
                 show_thinking,
                 show_tool_calls,
             };
-            let (response_tx, response_rx) = flume::unbounded();
+            let (response_tx, response_rx) = self.deps.transport.reply_channel().await?;
             let request = VizierRequest {
                 timestamp: Utc::now(),
                 user: self.agent_id.clone(),
@@ -1473,7 +1473,7 @@ If I am halucinating, feel free to `/lobotomy` me
         };
 
         tokio::spawn(async move {
-            let (response_tx, response_rx) = flume::unbounded();
+            let (response_tx, response_rx) = transport.reply_channel().await?;
 
             if let Err(err) = transport
                 .send_request(session.clone(), request, Some(response_tx))
@@ -1501,7 +1501,7 @@ struct TurnRenderer {
 }
 
 impl TurnRenderer {
-    async fn render(self, response_rx: flume::Receiver<VizierResponse>) {
+    async fn render(self, response_rx: crate::transport::ResponseStream) {
         let Self {
             http,
             file_manager,

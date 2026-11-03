@@ -760,7 +760,7 @@ impl TelegramChannelReader {
 
         if is_command(&text, "checkpoint", &bot_username) {
             let session = VizierSession(self.agent_id.clone(), channel.clone(), topic_id.clone());
-            let (response_tx, response_rx) = flume::unbounded();
+            let (response_tx, response_rx) = transport.reply_channel().await?;
             let _ = transport
                 .send_request(
                     session,
@@ -828,7 +828,7 @@ impl TelegramChannelReader {
 
         if is_command(&text, "lobotomy", &bot_username) {
             let session = VizierSession(self.agent_id.clone(), channel.clone(), topic_id.clone());
-            let (response_tx, response_rx) = flume::unbounded();
+            let (response_tx, response_rx) = transport.reply_channel().await?;
             let _ = transport
                 .send_request(
                     session,
@@ -947,7 +947,7 @@ impl TelegramChannelReader {
         };
 
         tokio::spawn(async move {
-            let (response_tx, response_rx) = flume::unbounded();
+            let (response_tx, response_rx) = transport.reply_channel().await?;
 
             if let Err(err) = transport
                 .send_request(session.clone(), request, Some(response_tx))
@@ -1090,7 +1090,7 @@ impl TelegramChannelReader {
         bot: Bot,
         deps: VizierDependencies,
         session: VizierSession,
-        frames: flume::Receiver<VizierResponse>,
+        frames: crate::transport::ResponseStream,
     ) {
         let VizierChannelId::TelegramChannel(chat_id) = session.1 else {
             return;
@@ -1127,7 +1127,7 @@ struct TurnRenderer {
 }
 
 impl TurnRenderer {
-    async fn render(self, response_rx: flume::Receiver<VizierResponse>) {
+    async fn render(self, response_rx: crate::transport::ResponseStream) {
         let Self {
             bot,
             file_manager,

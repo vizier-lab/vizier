@@ -18,6 +18,12 @@ pub struct Bus {
     pub capabilities: Capabilities,
 }
 
+impl std::fmt::Debug for Bus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Bus").field("capabilities", &self.capabilities).finish_non_exhaustive()
+    }
+}
+
 impl Bus {
     pub fn new(
         messaging: Arc<dyn Messaging>,
