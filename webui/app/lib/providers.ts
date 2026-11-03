@@ -5,6 +5,7 @@ import type {
     CustomProvider,
     EntryPrice,
     EntryPricing,
+    LimitsEdited,
     ProfileEntry,
     SsoSessionState,
     UsedBy,
@@ -164,11 +165,69 @@ export function draftPrice(input: string, output: string, kept?: EntryPrice | nu
     }
 }
 
-/** An entry's limits as one phrase; an unset one is unknown, never "unsupported" (FR-028). */
-export function entryLimits(entry: Pick<ProfileEntry, 'context' | 'output'>): string {
+/**
+ * What the paired model would fill in for an entry (FR-034a.7). A field a person typed is left out
+ * entirely, so a caller cannot overwrite it by accident; every other field is present, and `null`
+ * means the model does not state that limit. The form reads this to say what saving will do.
+ */
+export function limitFill(
+    model: ModelSummary,
+    limitsEdited?: LimitsEdited | null,
+): { context?: number | null; output?: number | null } {
+    const fill: { context?: number | null; output?: number | null } = {}
+    if (limitsEdited?.context !== true) fill.context = model.limit.context ?? null
+    if (limitsEdited?.output !== true) fill.output = model.limit.output ?? null
+    return fill
+}
+
+/** Where a stored limit came from: a number the person typed, one the model filled, or nothing. */
+export type LimitProvenance = 'typed' | 'filled' | 'empty'
+
+/**
+ * Where one stored limit came from. `limits_edited` is the server's per-field answer: `false` means it
+ * filled the number from the paired model, `true` means a person typed it. An entry saved before the
+ * server reported it carries no flag, and every number such an entry has was typed by a person, so an
+ * absent flag reads as `typed` — which is what keeps the model from filling over it.
+ */
+export function limitProvenance(value: number | null | undefined, typed?: boolean | null): LimitProvenance {
+    if (value === null || value === undefined || !Number.isFinite(value) || value <= 0) return 'empty'
+    return typed === false ? 'filled' : 'typed'
+}
+
+/**
+ * What one limit field's helper says. These four are the form's whole vocabulary for a limit: a typed
+ * number is kept, a filled one says where it came from, an empty one says what saving will fill in —
+ * with the number, so nobody has to guess — or that nothing is known (FR-028, FR-034a.7).
+ */
+export function limitHint(state: LimitProvenance | 'invalid', offered?: number | null, pairedName?: string | null): string {
+    if (state === 'invalid') return 'Use a whole number of tokens.'
+    if (state === 'typed') return 'Your number — saving keeps it, the paired model does not overwrite it.'
+    if (state === 'filled') return `Filled from ${pairedName ?? 'the paired model'} — type to override.`
+    if (offered === null || offered === undefined) return 'Leave empty when unknown.'
+    return `Filled from ${pairedName ?? 'the paired model'}: ${offered.toLocaleString('en-US')} tokens when you save — type a number to override.`
+}
+
+/**
+ * An entry's limits as one phrase; an unset one is unknown, never "unsupported" (FR-028). The figures
+ * are the stored ones, unchanged; where the server reported their provenance each carries it, so a
+ * number the model filled is never read as a hand-entered one.
+ */
+export function entryLimits(
+    entry: Pick<ProfileEntry, 'context' | 'output'> & { limits_edited?: LimitsEdited | null },
+): string {
+    const limit = (value: number | null | undefined, typed: boolean | undefined, label: string) => {
+        if (!value) return `${label} unknown`
+        // Without the server's per-field answer there is nothing to claim, so the figure stays bare.
+        const marker = !entry.limits_edited
+            ? ''
+            : limitProvenance(value, typed) === 'filled'
+              ? ' (from the paired model)'
+              : ' (your number)'
+        return `${value.toLocaleString()} ${label}${marker}`
+    }
     return [
-        entry.context ? `${entry.context.toLocaleString()} context` : 'context unknown',
-        entry.output ? `${entry.output.toLocaleString()} output` : 'output unknown',
+        limit(entry.context, entry.limits_edited?.context, 'context'),
+        limit(entry.output, entry.limits_edited?.output, 'output'),
     ].join(' · ')
 }
 

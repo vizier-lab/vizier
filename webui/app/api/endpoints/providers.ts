@@ -166,6 +166,13 @@ export type EntryPricing =
     | { state: 'from_catalogue'; cost: EntryPrice; model: string }
     | { state: 'not_resolved' | 'not_set' | 'no_catalogue'; flag: string; reason: string; model?: string }
 
+/**
+ * Which of an entry's two limits a person typed, per field (FR-034a.7). The server reports it so the
+ * form can leave a typed number alone instead of letting the paired model fill over it; a field the
+ * server filled from the model reads `false`. Response-only: nothing here is ever sent back.
+ */
+export type LimitsEdited = { context: boolean; output: boolean }
+
 /** One saved inference-profile entry as the API returns it (contracts §4). */
 export type ProfileEntry = {
     arn: string
@@ -177,6 +184,8 @@ export type ProfileEntry = {
     model?: string | null
     price?: EntryPrice | null
     edited?: boolean
+    /** Per-field provenance of the limits above; absent on an entry saved before it was reported. */
+    limits_edited?: LimitsEdited | null
     display_name: string
     pricing: EntryPricing
 }

@@ -8,7 +8,7 @@ import {
     type ProfileEntry,
     type ProfileEntryBody,
 } from '../../api/endpoints/providers'
-import { draftPrice, entryLimit, pricingCandidates } from '../../lib/providers'
+import { draftPrice, entryLimit, limitFill, limitHint, limitProvenance, pricingCandidates } from '../../lib/providers'
 
 const trigger =
     'flex h-40 w-full items-center gap-8 rounded-md border border-border-strong bg-ground pr-10 pl-12 text-left type-body text-fg hover:border-border-hover focus-visible:border-live focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-40'
@@ -31,6 +31,9 @@ export function ProfileEntryForm({ providerId, entry, onSaved, onCancel }: Props
     const [name, setName] = useState(entry?.name ?? '')
     const [context, setContext] = useState(entry?.context?.toString() ?? '')
     const [output, setOutput] = useState(entry?.output?.toString() ?? '')
+    // A limit edited here is the person's from that keystroke on, whatever the stored entry said.
+    const [contextEdited, setContextEdited] = useState(false)
+    const [outputEdited, setOutputEdited] = useState(false)
     const [model, setModel] = useState<string | null>(entry?.model ?? null)
     const [modelQuery, setModelQuery] = useState('')
     const [priceInput, setPriceInput] = useState(entry?.price?.input?.toString() ?? '')
@@ -61,6 +64,20 @@ export function ProfileEntryForm({ providerId, entry, onSaved, onCancel }: Props
 
     const windowTokens = entryLimit(context)
     const outputTokens = entryLimit(output)
+
+    // What the paired model would fill in, and what it must leave alone: a field holding a number a
+    // person typed is left out, so the helper never promises to overwrite it (FR-034a.7). An entry
+    // saved before the server reported `limits_edited` counts as typed for that reason.
+    const limitsEdited = entry?.limits_edited ?? null
+    const fill = chosen
+        ? limitFill(chosen, {
+              context: context.trim() !== '' && (contextEdited || limitsEdited?.context === true),
+              output: output.trim() !== '' && (outputEdited || limitsEdited?.output === true),
+          })
+        : undefined
+    const pairedName = chosen?.name ?? model
+    const contextState = Number.isNaN(windowTokens) ? 'invalid' : limitProvenance(windowTokens, contextEdited ? true : limitsEdited?.context)
+    const outputState = Number.isNaN(outputTokens) ? 'invalid' : limitProvenance(outputTokens, outputEdited ? true : limitsEdited?.output)
     const draft = draftPrice(priceInput, priceOutput, entry?.price ?? null)
     const price = draft.price
     const priceInvalid = draft.invalid
@@ -130,8 +147,11 @@ export function ProfileEntryForm({ providerId, entry, onSaved, onCancel }: Props
                     suffix="tokens"
                     value={context}
                     invalid={Number.isNaN(windowTokens)}
-                    helper={Number.isNaN(windowTokens) ? 'Use a whole number of tokens.' : 'Leave empty when unknown.'}
-                    onChange={(e) => setContext(e.target.value)}
+                    helper={limitHint(contextState, fill?.context ?? null, pairedName)}
+                    onChange={(e) => {
+                        setContext(e.target.value)
+                        setContextEdited(true)
+                    }}
                 />
                 <TextField
                     label="Max output (optional)"
@@ -140,8 +160,11 @@ export function ProfileEntryForm({ providerId, entry, onSaved, onCancel }: Props
                     suffix="tokens"
                     value={output}
                     invalid={Number.isNaN(outputTokens)}
-                    helper={Number.isNaN(outputTokens) ? 'Use a whole number of tokens.' : 'Leave empty when unknown.'}
-                    onChange={(e) => setOutput(e.target.value)}
+                    helper={limitHint(outputState, fill?.output ?? null, pairedName)}
+                    onChange={(e) => {
+                        setOutput(e.target.value)
+                        setOutputEdited(true)
+                    }}
                 />
             </div>
 
@@ -198,7 +221,9 @@ export function ProfileEntryForm({ providerId, entry, onSaved, onCancel }: Props
                         ) : undefined
                     }
                 />
-                <span className="type-small text-faint">Its catalogue price costs this entry’s usage. It never supplies the limits above.</span>
+                <span className="type-small text-faint">
+                    Its catalogue price costs this entry’s usage, and it fills the limits that are still empty when you save. A number you type wins.
+                </span>
             </div>
 
             <div className="flex flex-col gap-6">

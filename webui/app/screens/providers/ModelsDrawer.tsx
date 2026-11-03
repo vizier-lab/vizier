@@ -53,6 +53,8 @@ type EntryRowProps = {
  * profile it is (FR-022, FR-026), its limits, and its pricing state with the reason beside it.
  */
 export function EntryRow({ entry, onEdit, onRemove }: EntryRowProps) {
+    // The entry carries the server's per-field `limits_edited`, so a limit the paired model filled is
+    // marked as filled and one a person typed as theirs (FR-034a.7). No flag, no claim.
     const limits = entryLimits(entry)
     return (
         <li className="flex flex-col gap-6 border-b border-border py-12 last:border-b-0">
