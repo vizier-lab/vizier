@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["replicaCount", "image", "storage", "persistence", "service", "shutdown", "terminationGracePeriodSeconds"],
+  "properties": {
+    "replicaCount": {"type": "integer", "const": 1},
+    "image": {
+      "type": "object", "additionalProperties": false,
+      "required": ["repository", "tag", "digest", "pullPolicy"],
+      "properties": {
+        "repository": {"type": "string", "minLength": 1},
+        "tag": {"type": "string", "not": {"const": "latest"}},
+        "digest": {"type": "string", "pattern": "^$|^sha256:[a-f0-9]{64}$"},
+        "pullPolicy": {"enum": ["Always", "IfNotPresent", "Never"]}
+      }
+    },
+    "imagePullSecrets": {"type": "array", "items": {"type": "object", "required": ["name"], "properties": {"name": {"type": "string", "minLength": 1}}, "additionalProperties": false}},
+    "nameOverride": {"type": "string"},
+    "fullnameOverride": {"type": "string"},
+    "storage": {"type": "object", "additionalProperties": false, "required": ["profile"], "properties": {"profile": {"enum": ["embedded", "managed"]}}},
+    "secrets": {"type": "object", "additionalProperties": false, "properties": {"jwt": {"$ref": "#/$defs/secretRef"}, "encryptionKey": {"$ref": "#/$defs/secretRef"}}},
+    "managed": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "database": {"type": "object", "additionalProperties": false, "properties": {"urlSecretRef": {"$ref": "#/$defs/secretRef"}}},
+        "objects": {
+          "type": "object", "additionalProperties": false,
+          "properties": {
+            "endpoint": {"type": "string"}, "bucket": {"type": "string"}, "region": {"type": "string"}, "prefix": {"type": "string"},
+            "pathStyle": {"type": "boolean"},
+            "accessKeySecretRef": {"$ref": "#/$defs/secretRef"}, "secretKeySecretRef": {"$ref": "#/$defs/secretRef"}, "sessionTokenSecretRef": {"$ref": "#/$defs/secretRef"}
+          }
+        }
+      }
+    },
+    "persistence": {
+      "type": "object", "additionalProperties": false,
+      "required": ["enabled", "existingClaim", "storageClass", "accessModes", "size", "annotations"],
+      "properties": {
+        "enabled": {"type": "boolean"}, "existingClaim": {"type": "string"}, "storageClass": {"type": "string"},
+        "accessModes": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+        "size": {"type": "string", "pattern": "^[1-9][0-9]*(Ei|Pi|Ti|Gi|Mi|Ki)$"}, "annotations": {"type": "object"}
+      }
+    },
+    "serviceAccount": {
+      "type": "object",
+      "properties": {"automountServiceAccountToken": {"const": false}}
+    },
+    "service": {"type": "object"}, "ingress": {"type": "object"},
+    "shutdown": {"type": "object", "required": ["gracePeriodSeconds"], "properties": {"gracePeriodSeconds": {"type": "integer", "minimum": 1}}, "additionalProperties": false},
+    "terminationGracePeriodSeconds": {"type": "integer", "minimum": 2},
+    "startupProbe": {"$ref": "#/$defs/probe"}, "readinessProbe": {"$ref": "#/$defs/probe"}, "livenessProbe": {"$ref": "#/$defs/probe"},
+    "podAnnotations": {"type": "object"}, "podLabels": {"type": "object"},
+    "podSecurityContext": {
+      "type": "object",
+      "required": ["runAsNonRoot", "runAsUser", "runAsGroup"],
+      "properties": {
+        "runAsNonRoot": {"const": true},
+        "runAsUser": {"type": "integer", "minimum": 1},
+        "runAsGroup": {"type": "integer", "minimum": 1}
+      }
+    },
+    "containerSecurityContext": {
+      "type": "object",
+      "required": ["allowPrivilegeEscalation", "readOnlyRootFilesystem", "capabilities", "seccompProfile"],
+      "properties": {
+        "allowPrivilegeEscalation": {"const": false},
+        "readOnlyRootFilesystem": {"const": true},
+        "privileged": {"const": false},
+        "capabilities": {
+          "type": "object",
+          "required": ["drop"],
+          "properties": {"drop": {"type": "array", "contains": {"const": "ALL"}}}
+        },
+        "seccompProfile": {
+          "type": "object",
+          "required": ["type"],
+          "properties": {"type": {"const": "RuntimeDefault"}}
+        }
+      }
+    },
+    "resources": {"type": "object"}, "nodeSelector": {"type": "object"}, "tolerations": {"type": "array"}, "affinity": {"type": "object"},
+    "topologySpreadConstraints": {"type": "array"}, "priorityClassName": {"type": "string"},
+    "trustedCa": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "configMapName", "key"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "configMapName": {"type": "string"},
+        "key": {"type": "string", "minLength": 1}
+      }
+    },
+    "extraEnv": {"type": "array"}, "extraEnvFrom": {"type": "array"},
+    "extraVolumes": {"type": "array", "items": {"type": "object", "not": {"required": ["hostPath"]}}},
+    "extraVolumeMounts": {"type": "array"},
+    "networkPolicy": {"type": "object"}
+  },
+  "$defs": {
+    "secretRef": {"type": "object", "additionalProperties": false, "required": ["name", "key"], "properties": {"name": {"type": "string"}, "key": {"type": "string"}}},
+    "probe": {"type": "object", "additionalProperties": false, "required": ["failureThreshold", "periodSeconds", "timeoutSeconds"], "properties": {"failureThreshold": {"type": "integer", "minimum": 1}, "periodSeconds": {"type": "integer", "minimum": 1}, "timeoutSeconds": {"type": "integer", "minimum": 1}}}
+  }
+}

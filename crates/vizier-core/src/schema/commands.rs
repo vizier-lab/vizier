@@ -177,12 +177,13 @@ pub enum AgentCommand {
     },
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum AgentCommandResult {
     Ok(AgentSummary),
     Error(String),
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct AgentSummary {
     pub agent_id: String,
@@ -194,18 +195,6 @@ pub struct AgentSummary {
     pub owner_id: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub shared_to: Vec<String>,
-}
-
-pub enum FileCommand {
-    Upload {
-        filename: String,
-        content: Vec<u8>,
-        response: tokio::sync::oneshot::Sender<anyhow::Result<FileRecord>>,
-    },
-    Resolve {
-        attachment: VizierAttachment,
-        response: tokio::sync::oneshot::Sender<anyhow::Result<Vec<u8>>>,
-    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -345,7 +334,3 @@ impl MemoryOpResponse {
     }
 }
 
-pub struct MemoryOpEnvelope {
-    pub op: MemoryOpRequest,
-    pub response: tokio::sync::oneshot::Sender<anyhow::Result<MemoryOpResponse>>,
-}

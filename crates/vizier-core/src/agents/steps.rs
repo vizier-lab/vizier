@@ -261,7 +261,7 @@ mod tests {
             Some("t".into()),
         );
         let mut events = transport.subscribe_session_events();
-        let runtime = tokio::runtime::Builder::new_current_thread().build().unwrap();
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_time().build().unwrap();
         runtime.block_on(async {
             let uid = record_step(
                 &storage,
@@ -272,7 +272,11 @@ mod tests {
             .await
             .expect("the step is recorded");
 
-            let event = events.try_recv().expect("and published in the same breath");
+            // Published as part of the same call; delivery takes one hop through the event pump.
+            let event = tokio::time::timeout(std::time::Duration::from_secs(5), events.recv())
+                .await
+                .expect("and published by the same call")
+                .expect("an open channel");
             let SessionFrame::HistoryEntry(entry) = event.frame else {
                 panic!("a recorded step is published as a history entry")
             };

@@ -1,0 +1,118 @@
+name: Kubernetes
+
+on:
+  pull_request:
+    paths:
+      - 'charts/**'
+      - 'crates/vizier-http/**'
+      - 'crates/vizier/src/cli/**'
+      - 'Dockerfile'
+      - 'docker-entrypoint.sh'
+      - 'scripts/kubernetes-*'
+      - '.github/workflows/kubernetes.yml'
+  push:
+    branches: [master]
+    paths:
+      - 'charts/**'
+      - 'crates/vizier-http/**'
+      - 'crates/vizier/src/cli/**'
+      - 'Dockerfile'
+      - 'docker-entrypoint.sh'
+      - 'scripts/kubernetes-*'
+      - '.github/workflows/kubernetes.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kubernetes-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  chart-contracts:
+    name: Helm contracts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - run: scripts/kubernetes-chart-contracts.sh
+
+  lifecycle:
+    name: Cluster lifecycle (Kubernetes 1.32)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: webui/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build WebUI and Vizier
+        run: |
+          # The WebUI builds on the design submodule, which has its own dependencies (fonts).
+          (cd design && npm ci)
+          npm ci --prefix webui
+          npm run build --prefix webui
+          cargo build --release -p vizier
+
+      - name: Stage release-style image input
+        run: |
+          mkdir -p vizier-v0.0.0-amd64
+          cp target/release/vizier vizier-v0.0.0-amd64/vizier
+          tar -czf vizier-v0.0.0-amd64.tar.gz vizier-v0.0.0-amd64
+
+      - name: Build non-root smoke images
+        run: |
+          docker build --build-arg VERSION=0.0.0 --build-arg TARGETARCH=amd64 -t vizier:kubernetes-smoke .
+          docker build -t dummyplug:kubernetes-smoke dummyplug
+
+      - uses: helm/kind-action@v1.12.0
+        with:
+          version: v0.27.0
+          node_image: kindest/node:v1.32.8
+          cluster_name: vizier-kubernetes
+
+      - name: Load images and provide static test volume
+        run: |
+          kind load docker-image vizier:kubernetes-smoke --name vizier-kubernetes
+          kind load docker-image dummyplug:kubernetes-smoke --name vizier-kubernetes
+          kubectl apply -f - <<'YAML'
+          apiVersion: storage.k8s.io/v1
+          kind: StorageClass
+          metadata:
+            name: vizier-smoke
+          provisioner: kubernetes.io/no-provisioner
+          volumeBindingMode: WaitForFirstConsumer
+          ---
+          apiVersion: v1
+          kind: PersistentVolume
+          metadata:
+            name: vizier-smoke
+          spec:
+            capacity:
+              storage: 1Gi
+            accessModes: [ReadWriteOnce]
+            persistentVolumeReclaimPolicy: Retain
+            storageClassName: vizier-smoke
+            hostPath:
+              path: /tmp/vizier-smoke
+              type: DirectoryOrCreate
+          YAML
+
+      - name: Install, exercise WebSocket, replace pod, and verify persistence
+        env:
+          IMAGE_REPOSITORY: vizier
+          IMAGE_TAG: kubernetes-smoke
+          IMAGE_PULL_POLICY: Never
+          DUMMYPLUG_IMAGE: dummyplug:kubernetes-smoke
+          DUMMYPLUG_IMAGE_PULL_POLICY: Never
+          DUMMYPLUG_URL: http://dummyplug:9998/v1
+        run: scripts/kubernetes-smoke.sh --set persistence.storageClass=vizier-smoke --set persistence.size=1Gi

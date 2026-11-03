@@ -101,3 +101,21 @@ jobs:
             org.opencontainers.image.description=21st Century Digital Steward
           build-args: |
             VERSION=${{ inputs.version }}
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+
+      - name: Login Helm to GitHub Container Registry
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io \
+            --username "${{ github.actor }}" --password-stdin
+
+      - name: Package and publish matching Helm chart
+        run: |
+          VERSION="${{ inputs.version }}"
+          scripts/kubernetes-chart-contracts.sh
+          helm package charts/vizier \
+            --version "$VERSION" \
+            --app-version "$VERSION" \
+            --destination .
+          helm push "vizier-${VERSION}.tgz" "oci://ghcr.io/${{ github.repository_owner }}/charts"

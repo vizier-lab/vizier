@@ -48,6 +48,7 @@ jobs:
               - 'Cargo.lock'
               - 'rust-toolchain*'
               - 'crates/vizier-derive/**'
+              - 'crates/vizier-schema/**'
               - '.github/workflows/ci.yml'
             core:
               - 'crates/vizier-core/**'
@@ -436,6 +437,31 @@ jobs:
             others=$(ls *.rs | sed 's/\.rs$//' | grep -vx -e "$module" -e lib | paste -sd'|')
             if grep -nE "(crate|super)::(${others})\b" "$file"; then
               echo "::error::crates/vizier-fleet/src/$file reaches into another role"
+              fail=1
+            fi
+          done
+          exit $fail
+      - name: The bus contract stays a leaf
+        # `vizier-schema` is the contract every role and the engine share (#162): it may not
+        # depend on a workspace crate, a broker, a web framework or a CLI crate, and the engine
+        # itself never depends on a broker or gRPC (a networked backend is its own crate).
+        run: |
+          set -euo pipefail
+          meta=$(cargo metadata --format-version 1 --locked --no-deps)
+          fail=0
+          schema=$(echo "$meta" | jq -r '.packages[] | select(.name=="vizier-schema") | .dependencies[] | select(.kind==null) | .name')
+          for dep in $schema; do
+            case "$dep" in
+              vizier-*|async-nats|tonic|axum|axum-extra|tower-http|clap|inquire|termimad|daemonize)
+                echo "::error::vizier-schema depends on $dep"
+                fail=1
+                ;;
+            esac
+          done
+          core=$(echo "$meta" | jq -r '.packages[] | select(.name=="vizier-core") | .dependencies[] | .name')
+          for dep in async-nats tonic; do
+            if echo "$core" | grep -qx "$dep"; then
+              echo "::error::vizier-core depends on $dep"
               fail=1
             fi
           done

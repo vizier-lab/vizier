@@ -10,7 +10,6 @@ use parking_lot::RwLock;
 use crate::{
     schema::{AttachmentResolver, FileRecord, VizierAttachment, VizierAttachmentContent},
     storage::blob::{BlobKey, BlobMeta, BlobRef, BlobStore},
-    transport::VizierTransport,
 };
 
 /// Where local copies handed to shell tools live (`get_session_file_path`), under the workspace.
@@ -197,31 +196,28 @@ impl FileManager {
         }
     }
 
-    pub async fn run(&self, transport: VizierTransport) {
-        loop {
-            match transport.recv_file_command().await {
-                Ok(cmd) => match cmd {
-                    crate::schema::FileCommand::Upload {
-                        filename,
-                        content,
-                        response,
-                    } => {
-                        let result = self.upload(&filename, content).await;
-                        let _ = response.send(result);
-                    }
-                    crate::schema::FileCommand::Resolve {
-                        attachment,
-                        response,
-                    } => {
-                        let result = self.resolve(&attachment).await;
-                        let _ = response.send(result.map(|(_, content)| content));
-                    }
+    /// Serve file commands from the bus until it closes.
+    pub async fn run(&self, mut commands: crate::transport::FileCommands) {
+        use crate::transport::wire::{FileReply, FileRequest};
+        while let Some((request, replier)) = commands.recv().await {
+            let reply = match request {
+                FileRequest::Upload { filename, staged } => match replier.take_staged(&staged).await {
+                    Ok(content) => match self.upload(&filename, content).await {
+                        Ok(record) => FileReply::Record(record),
+                        Err(e) => FileReply::Err { message: e.to_string() },
+                    },
+                    Err(e) => FileReply::Err { message: e.to_string() },
                 },
-                Err(e) => {
-                    tracing::error!("FileManager channel error: {}", e);
-                    break;
-                }
-            }
+                FileRequest::Resolve { attachment } => match self.resolve(&attachment).await {
+                    Ok((_, content)) => match replier.stage(content).await {
+                        Ok(reply) => reply,
+                        Err(e) => FileReply::Err { message: e.to_string() },
+                    },
+                    Err(e) => FileReply::Err { message: e.to_string() },
+                },
+            };
+            replier.answer(reply).await;
         }
+        tracing::error!("the file command subscription closed");
     }
 }

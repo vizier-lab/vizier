@@ -1,0 +1,17 @@
+apiVersion: v2
+name: vizier
+description: Single-instance Kubernetes deployment for Vizier
+type: application
+# docker-publish.yml replaces both fields with the root workspace release version.
+version: 0.0.0-dev
+appVersion: "0.0.0-dev"
+kubeVersion: ">=1.32.0-0 <1.35.0-0"
+home: https://www.vizier.rs
+sources:
+  - https://github.com/vizier-lab/vizier
+maintainers:
+  - name: vizier-lab
+    url: https://github.com/vizier-lab
+annotations:
+  artifacthub.io/category: ai-machine-learning
+  artifacthub.io/license: MIT

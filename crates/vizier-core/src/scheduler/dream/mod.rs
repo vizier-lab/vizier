@@ -189,7 +189,9 @@ impl DreamScheduler {
             // Send all extraction requests, collect response channels
             let mut response_rxs = vec![];
             for session in &sessions {
-                let (resp_tx, resp_rx) = flume::unbounded();
+                let Ok((resp_tx, resp_rx)) = deps.transport.reply_channel().await else {
+                    continue;
+                };
 
                 if let Err(e) = deps
                     .transport
@@ -328,7 +330,7 @@ impl DreamScheduler {
         agent_id: &str,
         cycle_id: &str,
         source_sessions: &[VizierSession],
-    ) -> Result<flume::Receiver<VizierResponse>> {
+    ) -> Result<crate::transport::ResponseStream> {
         let source_session_slugs: Vec<String> =
             source_sessions.iter().map(|s| s.to_slug()).collect();
         // Read all extraction entries for this cycle
@@ -347,7 +349,7 @@ impl DreamScheduler {
                 cycle_id
             );
             // Return a channel that immediately gets an empty response
-            let (tx, rx) = flume::unbounded();
+            let (tx, rx) = deps.transport.reply_channel().await?;
             let _ = tx
                 .send_async(VizierResponse {
                     timestamp: Utc::now(),
@@ -374,7 +376,7 @@ impl DreamScheduler {
 
         // Send consolidation request with response channel
         let now = Utc::now();
-        let (resp_tx, resp_rx) = flume::unbounded();
+        let (resp_tx, resp_rx) = deps.transport.reply_channel().await?;
 
         deps.transport
             .send_request(
@@ -449,7 +451,7 @@ impl DreamScheduler {
                 continue;
             }
 
-            let (resp_tx, resp_rx) = flume::unbounded();
+            let (resp_tx, resp_rx) = self.deps.transport.reply_channel().await?;
             if let Err(e) = self
                 .deps
                 .transport

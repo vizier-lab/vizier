@@ -262,7 +262,7 @@ pub struct Supervisor {
     pub agent_id: AgentId,
     pub deps: VizierDependencies,
     pub config: AgentConfig,
-    pub recv: flume::Receiver<VizierRequestEnvelope>,
+    pub recv: crate::transport::Inbox,
     pub shutdown_rx: watch::Receiver<bool>,
     /// True when the stop in progress is a delete (see `AgentProcess::deleting`).
     pub deleting: std::sync::Arc<std::sync::atomic::AtomicBool>,
@@ -429,11 +429,8 @@ impl Supervisor {
         *self.current.write().unwrap_or_else(|p| p.into_inner()) = None;
 
         if let Some(handle) = memory_ops {
+            // Aborting the handler drops its inbox, which ends the subscription.
             handle.abort();
-            self.deps
-                .transport
-                .unregister_memory_op(&self.agent_id)
-                .await;
         }
 
         match result {
@@ -555,11 +552,13 @@ impl Supervisor {
             });
         }
 
-        let rx = self
-            .deps
-            .transport
-            .register_memory_op(agent_id.clone())
-            .await;
+        let rx = match self.deps.transport.register_memory_op(agent_id.clone()).await {
+            Ok(rx) => rx,
+            Err(e) => {
+                tracing::error!(agent_id = %agent_id, "memory operations are unavailable: {e}");
+                return None;
+            }
+        };
         let storage = (*self.deps.storage).clone();
         let settings = memory_ops::MemoryOpSettings {
             chunking: self.config.chunking.clone(),
@@ -585,7 +584,7 @@ impl Supervisor {
             tokio::select! {
                 _ = &mut deadline => return true,
                 _ = wait_for_shutdown(&mut self.shutdown_rx) => return false,
-                envelope = self.recv.recv_async() => match envelope {
+                envelope = self.recv.recv_request() => match envelope {
                     Ok(envelope) => reject(envelope, error).await,
                     Err(_) => return false,
                 },

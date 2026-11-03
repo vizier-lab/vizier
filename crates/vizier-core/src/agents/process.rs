@@ -43,7 +43,7 @@ use crate::{
 /// Requests waiting for the session's running job, each with where its response goes.
 type SessionQueue = VecDeque<(
     VizierRequest,
-    Option<flume::Sender<VizierResponse>>,
+    Option<crate::transport::ResponseSender>,
     TurnRef,
 )>;
 
@@ -77,7 +77,7 @@ async fn abort_session_notify(
     session_queues: &mut HashMap<VizierSession, SessionQueue>,
     storage: &VizierStorage,
     transport: &VizierTransport,
-    response_tx: &Option<flume::Sender<VizierResponse>>,
+    response_tx: &Option<crate::transport::ResponseSender>,
 ) {
     // The aborted turn's own sender hears it too: Discord and Telegram send `/abort` with
     // no sender of their own, and only the turn's renderer can say "thinking aborted".
@@ -122,7 +122,7 @@ pub async fn agent_process(
     deps: VizierDependencies,
     agent_config: AgentConfig,
     indexer: Option<crate::indexer::VizierIndexer>,
-    recv: flume::Receiver<VizierRequestEnvelope>,
+    recv: crate::transport::Inbox,
     mut shutdown_rx: watch::Receiver<bool>,
     deleting: Arc<std::sync::atomic::AtomicBool>,
 ) -> Result<()> {
@@ -152,7 +152,7 @@ pub async fn agent_process(
                     break;
                 }
             }
-            result = recv.recv_async() => {
+            result = recv.recv_request() => {
                 let Ok(envelope) = result else { break };
                 let session = envelope.session;
                 let request = envelope.request;
@@ -383,7 +383,7 @@ fn queue_handover(
     queue: &mut SessionQueue,
     item: (
         VizierRequest,
-        Option<flume::Sender<VizierResponse>>,
+        Option<crate::transport::ResponseSender>,
         TurnRef,
     ),
 ) {
@@ -409,7 +409,7 @@ const TURN_STOP_TIMEOUT: Duration = Duration::from_secs(5);
 /// and whoever sent the request hears why there is no answer.
 async fn notify_turn_stopped(
     session: &VizierSession,
-    response_tx: Option<flume::Sender<VizierResponse>>,
+    response_tx: Option<crate::transport::ResponseSender>,
     thinking_handles: &mut HashMap<VizierSession, Arc<JoinHandle<()>>>,
     storage: &VizierStorage,
 ) {
@@ -448,7 +448,7 @@ async fn hand_on_queued(
     session_queues: HashMap<VizierSession, SessionQueue>,
     resumed_turns: Vec<(
         VizierSession,
-        Option<flume::Sender<VizierResponse>>,
+        Option<crate::transport::ResponseSender>,
         TurnRef,
     )>,
     deps: &VizierDependencies,
@@ -682,7 +682,7 @@ enum TurnOutcome {
 /// A turn whose task has ended, with where its response was going.
 struct FinishedTurn {
     session: VizierSession,
-    response_tx: Option<flume::Sender<VizierResponse>>,
+    response_tx: Option<crate::transport::ResponseSender>,
     turn: TurnRef,
     outcome: TurnOutcome,
     /// Still the session's running turn when it ended. False when `/abort` stopped it, or
@@ -701,7 +701,7 @@ struct SessionTurns {
         TaskId,
         (
             VizierSession,
-            Option<flume::Sender<VizierResponse>>,
+            Option<crate::transport::ResponseSender>,
             TurnRef,
         ),
     >,
@@ -711,7 +711,7 @@ impl SessionTurns {
     fn spawn<F>(
         &mut self,
         session: VizierSession,
-        response_tx: Option<flume::Sender<VizierResponse>>,
+        response_tx: Option<crate::transport::ResponseSender>,
         turn_ref: TurnRef,
         turn: F,
     ) where
@@ -725,7 +725,7 @@ impl SessionTurns {
     }
 
     /// Where the session's running turn sends its response, if it has a turn and a sender.
-    fn response_tx(&self, session: &VizierSession) -> Option<flume::Sender<VizierResponse>> {
+    fn response_tx(&self, session: &VizierSession) -> Option<crate::transport::ResponseSender> {
         let (id, _) = self.running.get(session)?;
         self.spawned.get(id)?.1.clone()
     }
@@ -786,7 +786,7 @@ impl SessionTurns {
         timeout: Duration,
     ) -> Vec<(
         VizierSession,
-        Option<flume::Sender<VizierResponse>>,
+        Option<crate::transport::ResponseSender>,
         TurnRef,
     )> {
         let stopped = self
@@ -812,7 +812,7 @@ impl SessionTurns {
 fn recover_failed_turn(
     session: &VizierSession,
     outcome: TurnOutcome,
-    response_tx: Option<flume::Sender<VizierResponse>>,
+    response_tx: Option<crate::transport::ResponseSender>,
     thinking_handles: &mut HashMap<VizierSession, Arc<JoinHandle<()>>>,
     storage: &VizierStorage,
 ) {
@@ -881,7 +881,7 @@ fn start_session_job(
     jobs: &SessionJobs,
     session: VizierSession,
     request: VizierRequest,
-    response_tx: Option<flume::Sender<VizierResponse>>,
+    response_tx: Option<crate::transport::ResponseSender>,
     turn: TurnRef,
     turns: &mut SessionTurns,
     thinking_handles: &mut HashMap<VizierSession, Arc<JoinHandle<()>>>,
@@ -1007,7 +1007,7 @@ fn start_session_job(
     });
 }
 
-async fn send_text(response_tx: &Option<flume::Sender<VizierResponse>>, content: String) {
+async fn send_text(response_tx: &Option<crate::transport::ResponseSender>, content: String) {
     if let Some(tx) = response_tx {
         let _ = tx
             .send_async(VizierResponse {
@@ -1024,7 +1024,7 @@ async fn send_text(response_tx: &Option<flume::Sender<VizierResponse>>, content:
 }
 
 async fn send_checkpoint(
-    response_tx: &Option<flume::Sender<VizierResponse>>,
+    response_tx: &Option<crate::transport::ResponseSender>,
     handover: Option<String>,
 ) {
     if let Some(tx) = response_tx {
@@ -1045,7 +1045,7 @@ async fn run_checkpoint(
     storage: &VizierStorage,
     transport: &VizierTransport,
     session: &VizierSession,
-    response_tx: &Option<flume::Sender<VizierResponse>>,
+    response_tx: &Option<crate::transport::ResponseSender>,
 ) {
     // Saved when the handover starts, not when the command arrived, so it lands after the
     // turn it waited for.
@@ -1134,7 +1134,7 @@ async fn run_btw(
     storage: Arc<VizierStorage>,
     session: VizierSession,
     request: VizierRequest,
-    response_tx: Option<flume::Sender<VizierResponse>>,
+    response_tx: Option<crate::transport::ResponseSender>,
 ) {
     let answer = match storage
         .list_session_history_until_checkpoint(session.clone(), Some(request.timestamp))
@@ -1170,7 +1170,7 @@ async fn run_lobotomy(
     storage: &VizierStorage,
     transport: &VizierTransport,
     session: &VizierSession,
-    response_tx: &Option<flume::Sender<VizierResponse>>,
+    response_tx: &Option<crate::transport::ResponseSender>,
 ) {
     // Published like a checkpoint's: the WebUI draws the reset from these entries, and a page
     // watching the conversation has no other copy of them.
@@ -1402,7 +1402,7 @@ pub async fn handle_request(
     agent_config: AgentConfig,
     session: VizierSession,
     mut request: VizierRequest,
-    response_tx: Option<flume::Sender<VizierResponse>>,
+    response_tx: Option<crate::transport::ResponseSender>,
     storage: Arc<VizierStorage>,
     indexer: Option<crate::indexer::VizierIndexer>,
     deps: &VizierDependencies,
@@ -1777,7 +1777,7 @@ async fn answer_directly(
     transport: &VizierTransport,
     session: &VizierSession,
     mut request: VizierRequest,
-    response_tx: &Option<flume::Sender<VizierResponse>>,
+    response_tx: &Option<crate::transport::ResponseSender>,
     content: String,
 ) -> Result<()> {
     request.attachments.clear();
@@ -2154,7 +2154,7 @@ mod session_turns_tests {
     #[tokio::test]
     async fn a_panicking_turn_still_frees_its_session_and_returns_its_sender() {
         let mut turns = SessionTurns::default();
-        let (tx, _rx) = flume::unbounded();
+        let (tx, _rx) = crate::transport::standalone_reply_channel().await;
         turns.spawn(session("a"), Some(tx), TurnRef::default(), async {
             panic!("turn blew up")
         });
@@ -2229,7 +2229,7 @@ mod session_turns_tests {
     #[tokio::test]
     async fn stop_all_ends_every_turn_and_returns_the_running_ones() {
         let mut turns = SessionTurns::default();
-        let (tx, _rx) = flume::unbounded();
+        let (tx, _rx) = crate::transport::standalone_reply_channel().await;
         let (dropped_tx, dropped) = oneshot::channel::<()>();
         turns.spawn(session("a"), Some(tx), TurnRef::default(), async move {
             let _keep = dropped_tx;
@@ -2549,7 +2549,7 @@ mod btw_tests {
         let (agent, storage, session, _dir) =
             setup(ScriptedSideChat::text(vec![AssistantPart::Text("aside answer".into())])).await;
 
-        let (tx, rx) = flume::bounded(1);
+        let (tx, rx) = crate::transport::standalone_reply_channel().await;
         run_btw(
             agent.clone(),
             storage.clone(),
@@ -2584,7 +2584,7 @@ mod btw_tests {
     async fn a_tool_call_answer_becomes_the_no_tools_notice() {
         let (agent, storage, session, _dir) = setup(ScriptedSideChat::tool_call()).await;
 
-        let (tx, rx) = flume::bounded(1);
+        let (tx, rx) = crate::transport::standalone_reply_channel().await;
         run_btw(
             agent,
             storage.clone(),
@@ -2607,7 +2607,7 @@ mod btw_tests {
 
         let detail_before = detail_at(&storage, &session).await;
 
-        let (tx, rx) = flume::bounded(1);
+        let (tx, rx) = crate::transport::standalone_reply_channel().await;
         run_btw(
             agent,
             storage.clone(),
@@ -2634,7 +2634,7 @@ mod btw_tests {
         let (agent, storage, session, _dir) =
             setup(ScriptedSideChat::text(vec![AssistantPart::Text("aside answer".into())])).await;
 
-        let (tx, rx) = flume::bounded(1);
+        let (tx, rx) = crate::transport::standalone_reply_channel().await;
         run_btw(
             agent,
             storage.clone(),
@@ -2660,7 +2660,7 @@ mod btw_tests {
         let model = ScriptedSideChat::text(vec![AssistantPart::Text("aside answer".into())]);
         let (agent, storage, session, _dir) = setup(model.clone()).await;
 
-        let (tx, rx) = flume::bounded(1);
+        let (tx, rx) = crate::transport::standalone_reply_channel().await;
         run_btw(
             agent,
             storage.clone(),

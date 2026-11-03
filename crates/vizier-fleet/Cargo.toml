@@ -16,3 +16,9 @@ include = ["/src/**/*", "/Cargo.toml", "/README.md"]
 # the roles arrive one sub-issue at a time (#166, #167, #168, #169, #170).
 [dependencies]
 vizier-core.workspace = true
+vizier-schema.workspace = true
+tempfile.workspace = true
+tokio = { workspace = true, features = ["rt", "time"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt", "macros", "time", "test-util"] }

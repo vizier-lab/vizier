@@ -282,7 +282,12 @@ impl Handler {
         .await?;
         // The reply streams through the session-event broadcast, which this reader's woken-turn
         // watcher renders into the channel.
-        let responses = self.deps.transport.broadcast_sender(record.session.clone());
+        let responses = self
+            .deps
+            .transport
+            .broadcast_sender(record.session.clone())
+            .await
+            .map_err(|e| SubmitError::Failed(e.to_string()))?;
         self.deps
             .transport
             .send_request(record.session.clone(), request, Some(responses))

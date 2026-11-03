@@ -29,12 +29,13 @@ impl Drop for WokenTurnWatcher {
 pub fn watch<O, R, F>(transport: &VizierTransport, agent_id: AgentId, owns: O, render: R) -> WokenTurnWatcher
 where
     O: Fn(&VizierChannelId) -> bool + Send + 'static,
-    R: Fn(VizierSession, flume::Receiver<VizierResponse>) -> F + Send + 'static,
+    R: Fn(VizierSession, crate::transport::ResponseStream) -> F + Send + 'static,
     F: Future<Output = ()> + Send + 'static,
 {
     let mut events = transport.subscribe_session_events();
+    let transport = transport.clone();
     WokenTurnWatcher(tokio::spawn(async move {
-        let mut turns: HashMap<VizierSession, flume::Sender<VizierResponse>> = HashMap::new();
+        let mut turns: HashMap<VizierSession, crate::transport::ResponseSender> = HashMap::new();
         loop {
             let event = match events.recv().await {
                 Ok(event) => event,
@@ -52,13 +53,22 @@ where
                 continue;
             }
 
-            let terminal = frame.ends_turn();
-            let tx = turns.entry(session.clone()).or_insert_with(|| {
-                let (tx, rx) = flume::unbounded();
-                tokio::spawn(render(session.clone(), rx));
-                tx
-            });
-            let _ = tx.send(frame);
+            let terminal = is_terminal(&frame);
+            if !turns.contains_key(&session) {
+                match transport.reply_channel().await {
+                    Ok((tx, rx)) => {
+                        tokio::spawn(render(session.clone(), rx));
+                        turns.insert(session.clone(), tx);
+                    }
+                    Err(e) => {
+                        tracing::warn!("could not open a stream for a woken turn: {e}");
+                        continue;
+                    }
+                }
+            }
+            if let Some(tx) = turns.get(&session) {
+                let _ = tx.send(frame);
+            }
             if terminal {
                 turns.remove(&session);
             }

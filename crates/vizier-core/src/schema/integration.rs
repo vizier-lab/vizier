@@ -103,7 +103,7 @@ pub enum IntegrationStatus {
 /// Published after an integration write commits (contracts/runtime.md). Carries no settings:
 /// subscribers re-read storage. A self-management grant change publishes one with an empty
 /// `integration_id`, so the agent recomposes its tools like for any other change.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IntegrationChanged {
     pub integration_id: String,
     pub family: IntegrationFamily,

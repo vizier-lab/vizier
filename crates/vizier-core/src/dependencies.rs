@@ -87,6 +87,8 @@ pub struct VizierDependencies {
     /// the sensitive-input asks waiting on somebody. Process-wide, because a surface outlives a
     /// turn and an ask is answered by a socket that is not running one.
     pub questions: Arc<crate::questions::Questions>,
+    /// The client sockets this process owns, by connection id (a request names one, never holds it).
+    pub client_connections: crate::agents::client::ClientConnections,
 }
 
 /// Old (pre-bundle) memory frontmatter shape, kept only so `migrate_memory_to_bundles` can parse
@@ -215,13 +217,14 @@ impl VizierDependencies {
             tracing::error!("failed to carry reply usage over into usage accounting: {e}");
         }
 
-        let transport = VizierTransport::durable(storage.clone());
+        let transport = VizierTransport::durable(storage.clone()).with_blobs(blobs.clone());
         let file_manager = FileManager::new(config.workspace.clone(), blobs.clone());
 
         let fm = file_manager.clone();
-        let file_transport = transport.clone();
+        // Subscribed before the task starts, so a command sent right away is not lost.
+        let file_commands = transport.serve_file_commands().await?;
         tokio::spawn(async move {
-            fm.run(file_transport).await;
+            fm.run(file_commands).await;
         });
 
         // The refreshed catalogue cached in SQLite, when it's newer than the seed. Never
@@ -314,6 +317,7 @@ impl VizierDependencies {
             )),
             project_ledger: Default::default(),
             questions: Arc::new(crate::questions::Questions::new()),
+            client_connections: crate::agents::client::ClientConnections::new(),
         };
         #[cfg(feature = "addon-documents")]
         deps.seed_office_defaults().await;

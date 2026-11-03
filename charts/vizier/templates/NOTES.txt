@@ -1,0 +1,19 @@
+Vizier {{ .Chart.AppVersion }} is installed as one Recreate-strategy replica.
+
+Wait for readiness:
+  kubectl -n {{ .Release.Namespace }} rollout status deployment/{{ include "vizier.fullname" . }} --timeout=5m
+
+Access the internal Service:
+  kubectl -n {{ .Release.Namespace }} port-forward service/{{ include "vizier.fullname" . }} 9999:{{ .Values.service.port }}
+  open http://127.0.0.1:9999
+
+Storage profile: {{ .Values.storage.profile }}
+{{- if eq .Values.storage.profile "embedded" }}
+The workspace PVC {{ include "vizier.persistenceClaimName" . }} is retained on Helm uninstall.
+Back up the complete PVC, including its encryption key, while Vizier is stopped.
+{{- else }}
+Back up PostgreSQL, S3 objects, and the matching encryption-key Secret as one recovery set.
+{{- end }}
+
+The chart does not install PostgreSQL, S3, ingress, TLS, or telemetry systems.
+Changing storage.profile is not a live switch; use the stopped-workspace migration procedure.
