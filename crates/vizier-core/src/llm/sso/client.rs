@@ -183,19 +183,92 @@ pub struct SsoClient {
     endpoints: SsoEndpoints,
 }
 
-/// reqwest 0.13 has no `RequestBuilder::form`; a form body is encoded here instead.
-pub(crate) fn form_request(
-    http: &reqwest::Client,
-    url: &str,
-    params: &[(&str, &str)],
-) -> reqwest::RequestBuilder {
-    let body = serde_urlencoded::to_string(params).unwrap_or_default();
-    http.post(url)
-        .header(
-            reqwest::header::CONTENT_TYPE,
-            "application/x-www-form-urlencoded",
-        )
-        .body(body)
+/// One response body made safe for a log line and for a person: bounded, and with the value under
+/// any sensitive key replaced. AWS answers a malformed request with the one thing that makes a
+/// `400` diagnosable (`InvalidRequestException`, `invalid_client`), and the request body — which
+/// carries the secret — is never logged. A mis-routed response could still hold a token, so the
+/// guard is unconditional (FR-035, contracts §7).
+fn redact_error_body(body: &str) -> String {
+    // Enough of a body to name the cause, short enough for one log line.
+    const LIMIT: usize = 512;
+    const SENSITIVE: [&str; 5] = [
+        "accessToken",
+        "refreshToken",
+        "deviceCode",
+        "clientSecret",
+        "authorizationCode",
+    ];
+
+    // `chars()`, not bytes: the cut must never split a UTF-8 sequence.
+    let mut text: String = body.chars().take(LIMIT).collect();
+    let truncated = body.chars().count() > LIMIT;
+    for key in SENSITIVE {
+        text = redact_value(&text, key);
+    }
+    if truncated {
+        text.push('…');
+    }
+    if text.trim().is_empty() {
+        return "(the response body was empty)".to_string();
+    }
+    text
+}
+
+/// Replace every `"key": value` pair with `"key": "[redacted]"`, whatever the case of the key and
+/// the spacing around the colon; a bare scalar and a quoted string are both handled.
+fn redact_value(text: &str, key: &str) -> String {
+    let needle = format!("\"{}\"", key.to_ascii_lowercase());
+    // ASCII-lowercasing preserves byte offsets, so an index found here is valid in `text`.
+    let lower = text.to_ascii_lowercase();
+    let bytes = text.as_bytes();
+    let mut out = String::with_capacity(text.len());
+    let mut cursor = 0usize;
+    while let Some(found) = lower[cursor..].find(&needle) {
+        let key_start = cursor + found;
+        let mut index = key_start + needle.len();
+        while index < bytes.len() && bytes[index].is_ascii_whitespace() {
+            index += 1;
+        }
+        if index >= bytes.len() || bytes[index] != b':' {
+            // Part of a value or a message, not a pair: copy through and keep looking.
+            out.push_str(&text[cursor..key_start + needle.len()]);
+            cursor = key_start + needle.len();
+            continue;
+        }
+        index += 1;
+        while index < bytes.len() && bytes[index].is_ascii_whitespace() {
+            index += 1;
+        }
+        let value_start = index;
+        let value_end = if index < bytes.len() && bytes[index] == b'"' {
+            let mut end = index + 1;
+            while end < bytes.len() {
+                match bytes[end] {
+                    b'\\' => end += 2,
+                    b'"' => {
+                        end += 1;
+                        break;
+                    }
+                    _ => end += 1,
+                }
+            }
+            end
+        } else {
+            let mut end = index;
+            while end < bytes.len()
+                && !matches!(bytes[end], b',' | b'}' | b']')
+                && !bytes[end].is_ascii_whitespace()
+            {
+                end += 1;
+            }
+            end
+        };
+        out.push_str(&text[cursor..value_start]);
+        out.push_str("\"[redacted]\"");
+        cursor = value_end.min(bytes.len());
+    }
+    out.push_str(&text[cursor..]);
+    out
 }
 
 impl SsoClient {
@@ -234,6 +307,18 @@ impl SsoClient {
         }
     }
 
+    /// Nothing is sent with a hole in it. An empty required value is a caller's bug, reported here
+    /// with the field named, rather than as a body AWS answers `400` to without saying which field.
+    /// Only the field's name appears — never its value (FR-035).
+    fn require_non_empty(&self, field: &str, value: &str) -> Result<(), SsoError> {
+        if value.trim().is_empty() {
+            return Err(self.unavailable(format!(
+                "the request was not sent because {field} is empty"
+            )));
+        }
+        Ok(())
+    }
+
     /// Send, retrying exactly once on a transport failure or a 5xx (§3, §2). Returns the status
     /// and body so each caller applies its own table; a repeated failure is returned as the
     /// status it was, or as `Unavailable`.
@@ -251,26 +336,71 @@ impl SsoClient {
             let last = attempt > 1;
             let response = match build(url).send().await {
                 Ok(response) => response,
-                Err(e) => {
-                    if !last {
-                        continue;
-                    }
-                    return Err(self.unavailable(format!("the request failed: {e}")));
+                Err(error) if !last => {
+                    tracing::debug!(
+                        region = %self.region,
+                        url = %url,
+                        attempt,
+                        %error,
+                        "the request failed; retrying once"
+                    );
+                    continue;
+                }
+                Err(error) => {
+                    tracing::warn!(
+                        region = %self.region,
+                        url = %url,
+                        attempt,
+                        %error,
+                        "the request failed"
+                    );
+                    return Err(self.unavailable(format!("the request failed: {error}")));
                 }
             };
             let status = response.status().as_u16();
             if status >= 500 && !last {
+                tracing::debug!(
+                    region = %self.region,
+                    url = %url,
+                    status,
+                    attempt,
+                    "the endpoint answered 5xx; retrying once"
+                );
                 continue;
             }
             let body = match response.text().await {
                 Ok(body) => body,
-                Err(e) => {
-                    if !last {
-                        continue;
-                    }
-                    return Err(self.unavailable(format!("the response could not be read: {e}")));
+                Err(error) if !last => {
+                    tracing::debug!(
+                        region = %self.region,
+                        url = %url,
+                        status,
+                        %error,
+                        "the response body could not be read; retrying once"
+                    );
+                    continue;
+                }
+                Err(error) => {
+                    tracing::warn!(
+                        region = %self.region,
+                        url = %url,
+                        status,
+                        %error,
+                        "the response body could not be read"
+                    );
+                    return Err(self.unavailable(format!("the response could not be read: {error}")));
                 }
             };
+            if status >= 400 {
+                // Only the *response* body is logged: the request body carries the secret.
+                tracing::warn!(
+                    region = %self.region,
+                    url = %url,
+                    status,
+                    body = %redact_error_body(&body),
+                    "the endpoint refused the request"
+                );
+            }
             return Ok((status, body));
         }
     }
@@ -284,26 +414,34 @@ impl SsoClient {
             "clientType": "public",
             "scopes": ["sso:account:access"],
         });
+        tracing::debug!(region = %self.region, "registering a client for this profile");
         let (status, body) = self
             .send_with_retry(&url, |url| self.http.post(url).json(&payload))
             .await?;
         if status != 200 {
             // A wrong region or an unreachable endpoint lands here (§2).
+            let detail = redact_error_body(&body);
             return Err(self.unavailable(format!(
-                "the client registration answered HTTP {status}"
+                "the client registration answered HTTP {status}: {detail}"
             )));
         }
         let wire: RegistrationWire = serde_json::from_str(&body).map_err(|_| {
             self.unavailable("the client registration answered an unexpected shape")
         })?;
-        Ok(ClientRegistration {
+        let registration = ClientRegistration {
             client_id: wire.client_id,
             client_secret: wire.client_secret,
             expires_at: wire
                 .client_secret_expires_at
                 .filter(|seconds| *seconds > 0)
                 .and_then(|seconds| DateTime::from_timestamp(seconds, 0)),
-        })
+        };
+        tracing::debug!(
+            region = %self.region,
+            expires_at = ?registration.expires_at,
+            "a client registration was made"
+        );
+        Ok(registration)
     }
 
     /// §3: ask for a device code. The user code and URIs are what the person sees; the device
@@ -313,24 +451,36 @@ impl SsoClient {
         registration: &ClientRegistration,
         start_url: &str,
     ) -> Result<DeviceAuthorization, SsoError> {
+        self.require_non_empty("client id", &registration.client_id)?;
+        self.require_non_empty("client secret", &registration.client_secret)?;
+        self.require_non_empty("start url", start_url)?;
         let url = format!("{}/device_authorization", self.endpoints.oidc);
+        // rest-json with camelCase keys: the endpoint reads `clientId`, not `client_id` (§3).
+        let payload = serde_json::json!({
+            "clientId": registration.client_id.as_str(),
+            "clientSecret": registration.client_secret.as_str(),
+            "startUrl": start_url,
+        });
         let (status, body) = self
-            .send_with_retry(&url, |url| {
-                form_request(&self.http, url, &[
-                    ("client_id", registration.client_id.as_str()),
-                    ("client_secret", registration.client_secret.as_str()),
-                    ("start_url", start_url),
-                ])
-            })
+            .send_with_retry(&url, |url| self.http.post(url).json(&payload))
             .await?;
         if status != 200 {
+            let detail = redact_error_body(&body);
             return Err(self.unavailable(format!(
-                "the device authorization answered HTTP {status}"
+                "the device authorization answered HTTP {status}: {detail}"
             )));
         }
         let wire: DeviceAuthorizationWire = serde_json::from_str(&body).map_err(|_| {
             self.unavailable("the device authorization answered an unexpected shape")
         })?;
+        // The device code stays in the process; only the user code is worth a log line (FR-035).
+        tracing::debug!(
+            region = %self.region,
+            user_code = %wire.user_code,
+            expires_in = wire.expires_in,
+            interval = ?wire.interval,
+            "a device code was issued"
+        );
         let now = Utc::now();
         Ok(DeviceAuthorization {
             device_code: wire.device_code,
@@ -348,16 +498,19 @@ impl SsoClient {
         registration: &ClientRegistration,
         device_code: &str,
     ) -> Result<TokenPoll, SsoError> {
+        self.require_non_empty("client id", &registration.client_id)?;
+        self.require_non_empty("client secret", &registration.client_secret)?;
+        self.require_non_empty("device code", device_code)?;
         let url = format!("{}/token", self.endpoints.oidc);
+        // rest-json with camelCase keys: `grantType`/`deviceCode`, not the form spelling (§3).
+        let payload = serde_json::json!({
+            "clientId": registration.client_id.as_str(),
+            "clientSecret": registration.client_secret.as_str(),
+            "grantType": DEVICE_CODE_GRANT,
+            "deviceCode": device_code,
+        });
         let (status, body) = self
-            .send_with_retry(&url, |url| {
-                form_request(&self.http, url, &[
-                    ("client_id", registration.client_id.as_str()),
-                    ("client_secret", registration.client_secret.as_str()),
-                    ("grant_type", DEVICE_CODE_GRANT),
-                    ("device_code", device_code),
-                ])
-            })
+            .send_with_retry(&url, |url| self.http.post(url).json(&payload))
             .await?;
         self.read_token(status, &body)
     }
@@ -368,16 +521,20 @@ impl SsoClient {
         registration: &ClientRegistration,
         refresh_token: &str,
     ) -> Result<TokenPoll, SsoError> {
+        self.require_non_empty("client id", &registration.client_id)?;
+        self.require_non_empty("client secret", &registration.client_secret)?;
+        self.require_non_empty("refresh token", refresh_token)?;
         let url = format!("{}/token", self.endpoints.oidc);
+        // The same rest-json body as the device grant, with the refresh token named (§5).
+        let payload = serde_json::json!({
+            "clientId": registration.client_id.as_str(),
+            "clientSecret": registration.client_secret.as_str(),
+            "grantType": REFRESH_GRANT,
+            "refreshToken": refresh_token,
+        });
+        tracing::debug!(region = %self.region, "refreshing the access token");
         let (status, body) = self
-            .send_with_retry(&url, |url| {
-                form_request(&self.http, url, &[
-                    ("client_id", registration.client_id.as_str()),
-                    ("client_secret", registration.client_secret.as_str()),
-                    ("grant_type", REFRESH_GRANT),
-                    ("refresh_token", refresh_token),
-                ])
-            })
+            .send_with_retry(&url, |url| self.http.post(url).json(&payload))
             .await?;
         self.read_token(status, &body)
     }
@@ -388,26 +545,73 @@ impl SsoClient {
             let wire: TokenWire = serde_json::from_str(body).map_err(|_| {
                 self.unavailable("the token endpoint answered an unexpected shape")
             })?;
-            return Ok(TokenPoll::Approved(TokenSet {
+            let tokens = TokenSet {
                 access_token: wire.access_token,
                 refresh_token: wire.refresh_token,
                 expires_at: Utc::now() + ChronoDuration::seconds(wire.expires_in as i64),
-            }));
+            };
+            tracing::debug!(
+                region = %self.region,
+                expires_at = %tokens.expires_at,
+                "the token endpoint issued an access token"
+            );
+            return Ok(TokenPoll::Approved(tokens));
         }
         if status == 400 || status == 401 {
-            let wire: TokenErrorWire = serde_json::from_str(body).map_err(|_| {
-                self.unavailable("the token endpoint refused without naming a reason")
-            })?;
-            return Ok(match wire.error.as_str() {
+            let wire: TokenErrorWire = match serde_json::from_str(body) {
+                Ok(wire) => wire,
+                Err(_) => {
+                    // A refusal AWS did not shape as `{"error": …}`: keep what it did say, minus
+                    // anything that looks like a token, so the cause is not lost (FR-035).
+                    let detail = redact_error_body(body);
+                    return Err(self.unavailable(format!(
+                        "the token endpoint answered HTTP {status}: {detail}"
+                    )));
+                }
+            };
+            let poll = match wire.error.as_str() {
                 "authorization_pending" => TokenPoll::Pending,
                 "slow_down" => TokenPoll::SlowDown,
                 "access_denied" => TokenPoll::Denied,
                 "expired_token" => TokenPoll::Expired,
                 "invalid_grant" => TokenPoll::Used,
                 other => TokenPoll::Refused(other.to_string()),
-            });
+            };
+            match &poll {
+                TokenPoll::Pending => {
+                    tracing::debug!(region = %self.region, "the device code is still pending");
+                }
+                TokenPoll::SlowDown => {
+                    tracing::debug!(region = %self.region, "the endpoint asked for a slower poll");
+                }
+                TokenPoll::Denied => {
+                    tracing::warn!(region = %self.region, "the sign-in was denied in the browser");
+                }
+                TokenPoll::Expired => {
+                    tracing::warn!(
+                        region = %self.region,
+                        "the device code expired before it was confirmed"
+                    );
+                }
+                TokenPoll::Used => {
+                    tracing::warn!(region = %self.region, "the device code was already used");
+                }
+                TokenPoll::Refused(error) => {
+                    tracing::warn!(
+                        region = %self.region,
+                        error = %error,
+                        "the token endpoint refused the request"
+                    );
+                }
+                // Never built here; listed so the match stays exhaustive.
+                TokenPoll::Approved(_) => {}
+            }
+            return Ok(poll);
         }
-        Err(self.unavailable(format!("the token endpoint answered HTTP {status}")))
+        let detail = redact_error_body(body);
+        Err(self.unavailable(format!(
+            "the token endpoint answered HTTP {status}: {detail}"
+        )))
     }
 }
 
@@ -572,7 +776,9 @@ mod tests {
 
     use super::*;
     use crate::llm::sso::session::SsoSessions;
-    use crate::llm::sso::tests_support::{MemSessions, Stub, approved, denied, pending, used_twice};
+    use crate::llm::sso::tests_support::{
+        MemSessions, Reply, Stub, approved, denied, pending, used_twice,
+    };
 
     const PROFILE: &str = "acme-bedrock";
     const START_URL: &str = "https://acme.awsapps.com/start";
@@ -621,13 +827,27 @@ mod tests {
         assert_eq!(stored.revision, 1);
         assert_eq!(sessions.storage().len(), 1);
 
-        // §3 request shapes reached the wire: the start URL, the grant and the device code.
+        // §3 request shapes reached the wire: JSON with camelCase keys, the start URL and the
+        // device code — never the form spelling AWS answers 400 to (044).
         let seen = stub.seen();
-        assert!(seen.iter().any(|(path, body)| path == "/device_authorization"
-            && body.contains("start_url=https%3A%2F%2Facme.awsapps.com%2Fstart")));
-        assert!(seen.iter().any(|(path, body)| path == "/token"
-            && body.contains("grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Adevice_code")
-            && body.contains("device_code=device-code-value")));
+        let sent_to = |path: &str| -> serde_json::Value {
+            let (_, body) = seen
+                .iter()
+                .find(|(seen, _)| seen == path)
+                .unwrap_or_else(|| panic!("no request reached {path}"));
+            serde_json::from_str(body)
+                .unwrap_or_else(|_| panic!("{path} did not receive a JSON body: {body}"))
+        };
+        let device = sent_to("/device_authorization");
+        assert_eq!(device["clientId"], "client-id");
+        assert_eq!(device["startUrl"], START_URL);
+        assert!(device.get("client_id").is_none(), "{device}");
+        assert!(device.get("start_url").is_none(), "{device}");
+        let token = sent_to("/token");
+        assert_eq!(token["grantType"], DEVICE_CODE_GRANT);
+        assert_eq!(token["deviceCode"], "device-code-value");
+        assert!(token.get("grant_type").is_none(), "{token}");
+        assert!(token.get("device_code").is_none(), "{token}");
         // The code the person reads is the one the stub issued.
         assert_eq!(flow.user_code(), "ABCD-EFGH");
         assert_eq!(flow.verification_uri(), "https://example.test/device");
@@ -754,4 +974,98 @@ mod tests {
         }
     }
 
+    /// The bug of 044, pinned at the wire: the endpoint is rest-json, so a form body must be
+    /// refused the way AWS refused it — a `400` that names `InvalidRequestException`.
+    #[tokio::test]
+    async fn a_form_encoded_device_authorization_is_refused_like_aws() {
+        let stub = Stub::start(vec![approved()]).await;
+        let url = format!("{}/device_authorization", stub.base());
+        let response = reqwest::Client::new()
+            .post(url)
+            .header(
+                reqwest::header::CONTENT_TYPE,
+                "application/x-www-form-urlencoded",
+            )
+            .body(
+                "client_id=client-id&client_secret=client-secret-value\
+                 &start_url=https%3A%2F%2Facme.awsapps.com%2Fstart",
+            )
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(response.status().as_u16(), 400);
+        let body = response.text().await.unwrap();
+        assert!(body.contains("InvalidRequestException"), "{body}");
+    }
+
+    /// §3's own body: JSON, camelCase, nothing the stub can mistake for a form post.
+    #[tokio::test]
+    async fn the_device_authorization_is_json_with_camel_case_keys() {
+        let stub = Stub::start(vec![approved()]).await;
+        let client = SsoClient::at(reqwest::Client::new(), stub.base());
+
+        let authorization = client
+            .start_device_authorization(&registration(), START_URL)
+            .await
+            .unwrap();
+
+        assert_eq!(authorization.user_code, "ABCD-EFGH");
+        let content_type = stub
+            .content_types()
+            .into_iter()
+            .find(|(path, _)| path == "/device_authorization")
+            .map(|(_, content_type)| content_type)
+            .expect("the request reached the stub");
+        assert!(
+            content_type
+                .to_ascii_lowercase()
+                .starts_with("application/json"),
+            "{content_type}"
+        );
+        let body = stub
+            .seen()
+            .into_iter()
+            .find(|(path, _)| path == "/device_authorization")
+            .map(|(_, body)| body)
+            .expect("the request reached the stub");
+        let sent: serde_json::Value = serde_json::from_str(&body).expect("a JSON body");
+        assert_eq!(sent["clientId"], "client-id");
+        assert_eq!(sent["clientSecret"], "client-secret-value");
+        assert_eq!(sent["startUrl"], START_URL);
+        assert!(sent.get("client_id").is_none(), "{body}");
+        assert!(sent.get("start_url").is_none(), "{body}");
+    }
+
+    /// The same body rule on the refresh grant (§5).
+    #[tokio::test]
+    async fn the_refresh_grant_is_json_with_camel_case_keys() {
+        let stub = Stub::start_replies(vec![(
+            "/token",
+            vec![Reply::ok(serde_json::json!({
+                "accessToken": "renewed-access-token",
+                "expiresIn": 3600,
+            }))],
+        )])
+        .await;
+        let client = SsoClient::at(reqwest::Client::new(), stub.base());
+
+        let poll = client
+            .refresh_access_token(&registration(), "refresh-token-value")
+            .await
+            .unwrap();
+
+        assert!(matches!(poll, TokenPoll::Approved(_)));
+        let body = stub
+            .seen()
+            .into_iter()
+            .find(|(path, _)| path == "/token")
+            .map(|(_, body)| body)
+            .expect("the request reached the stub");
+        let sent: serde_json::Value = serde_json::from_str(&body).expect("a JSON body");
+        assert_eq!(sent["grantType"], "refresh_token");
+        assert_eq!(sent["refreshToken"], "refresh-token-value");
+        assert!(sent.get("grant_type").is_none(), "{body}");
+        assert!(sent.get("refresh_token").is_none(), "{body}");
+    }
 }

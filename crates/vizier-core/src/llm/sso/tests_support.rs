@@ -13,7 +13,7 @@ use anyhow::{Result, bail};
 use axum::Router;
 use axum::body::Bytes;
 use axum::extract::State;
-use axum::http::{HeaderMap, StatusCode, Uri};
+use axum::http::{HeaderMap, Method, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
 use serde_json::json;
 
@@ -72,6 +72,9 @@ struct Script {
     routes: HashMap<String, Vec<(u16, String)>>,
     cursors: HashMap<String, usize>,
     seen: Vec<(String, String)>,
+    /// `(path, Content-Type)` per request; empty when the request carried none. Lets a test prove
+    /// the wire is JSON rather than form-encoded (044).
+    content_types: Vec<(String, String)>,
     /// `(path, Authorization)` per request that carried one — which credential signed it.
     authorizations: Vec<(String, String)>,
 }
@@ -80,19 +83,28 @@ type Shared = Arc<Mutex<Script>>;
 
 async fn handle(
     State(shared): State<Shared>,
+    method: Method,
     uri: Uri,
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
     let path = uri.path().to_string();
     let body = String::from_utf8_lossy(&body).to_string();
+    let content_type = headers
+        .get(axum::http::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default()
+        .to_string();
     let authorization = headers
         .get("authorization")
         .and_then(|value| value.to_str().ok())
         .map(str::to_string);
     let reply = {
         let mut script = shared.lock().unwrap();
-        script.seen.push((path.clone(), body));
+        script.seen.push((path.clone(), body.clone()));
+        script
+            .content_types
+            .push((path.clone(), content_type.clone()));
         if let Some(authorization) = authorization {
             script.authorizations.push((path.clone(), authorization));
         }
@@ -100,13 +112,34 @@ async fn handle(
         match route {
             None => None,
             Some(list) => {
-                let cursor = script.cursors.entry(path).or_insert(0);
+                let cursor = script.cursors.entry(path.clone()).or_insert(0);
                 let index = (*cursor).min(list.len() - 1);
                 *cursor += 1;
                 Some(list[index].clone())
             }
         }
     };
+    // A 2xx the script prepared must only be earned: the OIDC endpoints are rest-json with
+    // camelCase keys, which is exactly the mistake the old stub let through (044). A scripted
+    // refusal is answered as written — the retry and `authorization_pending` tests rely on it.
+    if method == Method::POST {
+        if let Some((status, _)) = &reply {
+            if (200..300).contains(status) {
+                if let Some(problem) = wire_problem(&path, &content_type, &body) {
+                    return (
+                        StatusCode::BAD_REQUEST,
+                        [(axum::http::header::CONTENT_TYPE, "application/json")],
+                        json!({
+                            "error": "InvalidRequestException",
+                            "message": problem,
+                        })
+                        .to_string(),
+                    )
+                        .into_response();
+                }
+            }
+        }
+    }
     match reply {
         Some((status, body)) => (
             StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
@@ -115,6 +148,60 @@ async fn handle(
             .into_response(),
         None => (StatusCode::NOT_FOUND, "{}").into_response(),
     }
+}
+
+/// What is wrong with a request body AWS would answer `400 InvalidRequestException` to, if
+/// anything: the `Content-Type`, then the camelCase keys the endpoint reads, all non-empty.
+/// `/client/register` registers a client and has no credentials yet, so its required keys are its
+/// own; the other two carry `clientId` and `clientSecret`. A GET (§4 portal) is never checked.
+fn wire_problem(path: &str, content_type: &str, body: &str) -> Option<String> {
+    let is_json = content_type
+        .split(';')
+        .next()
+        .map(|mime| mime.trim().eq_ignore_ascii_case("application/json"))
+        .unwrap_or(false);
+    if !is_json {
+        return Some(format!(
+            "Content-Type {content_type:?} is not application/json"
+        ));
+    }
+    let value: serde_json::Value = match serde_json::from_str(body) {
+        Ok(value) => value,
+        Err(_) => return Some("the request body is not JSON".to_string()),
+    };
+    let Some(object) = value.as_object() else {
+        return Some("the request body is not a JSON object".to_string());
+    };
+    let text = |key: &str| -> Option<String> {
+        object
+            .get(key)
+            .and_then(|value| value.as_str())
+            .map(str::to_string)
+            .filter(|value| !value.trim().is_empty())
+    };
+    let required: Vec<&str> = match path {
+        "/client/register" => vec!["clientName", "clientType"],
+        "/device_authorization" => vec!["clientId", "clientSecret", "startUrl"],
+        "/token" => {
+            let mut required = vec!["clientId", "clientSecret", "grantType"];
+            match object.get("grantType").and_then(|value| value.as_str()) {
+                Some("urn:ietf:params:oauth:grant-type:device_code") => {
+                    required.push("deviceCode");
+                }
+                Some("refresh_token") => required.push("refreshToken"),
+                Some(other) => return Some(format!("unsupported grantType {other:?}")),
+                None => {}
+            }
+            required
+        }
+        _ => return None,
+    };
+    for key in required {
+        if text(key).is_none() {
+            return Some(format!("{key} is missing or empty"));
+        }
+    }
+    None
 }
 
 /// A stub server standing in for one SSO region.
@@ -235,6 +322,12 @@ impl Stub {
     /// Every request the stub saw, as `(path, body)`.
     pub fn seen(&self) -> Vec<(String, String)> {
         self.shared.lock().unwrap().seen.clone()
+    }
+
+    /// The `Content-Type` of every request the stub saw, as `(path, value)` — empty when the
+    /// request carried none. The proof that the wire is JSON, not form-encoded (044).
+    pub fn content_types(&self) -> Vec<(String, String)> {
+        self.shared.lock().unwrap().content_types.clone()
     }
 
     /// How many requests reached `path` — the proof that a second confirmation never went out.
