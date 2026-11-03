@@ -24,7 +24,7 @@ use crate::dependencies::VizierDependencies;
 use crate::llm::sso::{
     self, ClientRegistration, DeviceFlow, SsoError, SsoClient, SsoPortal, SsoSessions,
 };
-use crate::schema::{ProfileEntry, ProviderCredentials, ProviderEntry};
+use crate::schema::{LimitsEdited, ProfileEntry, ProviderCredentials, ProviderEntry};
 use crate::service::providers::ProfileEntryResponse;
 use crate::service::usage::{self, AffectedAgent};
 use crate::service::ServiceError;
@@ -662,6 +662,86 @@ pub fn validate_entries(
     Ok(())
 }
 
+/// The limit fill of FR-034a.7: pairing a catalogue model with an ARN is also the act that writes
+/// that model's `limit.context` and `limit.output` into the entry's two limits, for the ones the
+/// person has not set. One function, run on **writes only**, after [`validate_entries`] — which
+/// trims the model id and normalises the ARN this matches on. Never on a read, never in the model
+/// list, never in the turn path, so no limit can refuse, delay or disable anything (FR-034a.5).
+///
+/// `base` is the **stored** list, and it is the whole of the provenance question: a submitted
+/// number is the person's when it differs from the stored one, when it arrived on an add, or when
+/// it was already claimed as theirs. Whatever `limits_edited` the caller submitted is discarded
+/// and recomputed here — that is what makes a client echoing back what it displayed a no-op
+/// (contracts §4b rule 1). The capabilities are never touched (FR-034a.6, SC-022).
+pub fn fill_limits(
+    catalogue: &crate::catalogue::Catalogue,
+    base: &[ProfileEntry],
+    entries: &mut [ProfileEntry],
+) {
+    for entry in entries.iter_mut() {
+        let stored = base.iter().find(|stored| stored.arn.trim() == entry.arn.trim());
+
+        // Rule 1: which of the two numbers is the person's. An entry saved before this rule carries
+        // no provenance, and reads as "any number it holds is the person's", so no old value is
+        // adopted as a fill by accident.
+        let edited_context = match stored {
+            None => entry.context.is_some(),
+            Some(stored) => {
+                entry.context != stored.context
+                    || stored
+                        .limits_edited
+                        .map_or(stored.context.is_some(), |edited| edited.context)
+            }
+        };
+        let edited_output = match stored {
+            None => entry.output.is_some(),
+            Some(stored) => {
+                entry.output != stored.output
+                    || stored
+                        .limits_edited
+                        .map_or(stored.output.is_some(), |edited| edited.output)
+            }
+        };
+
+        let pair_changed = match stored {
+            None => entry.model.is_some(),
+            Some(stored) => entry.model != stored.model,
+        };
+        // Rule 3: removing a pair fills nothing. A window that was resolved does not stop being
+        // true, and removing the pair is not a reason to forget it.
+        let pair_removed =
+            entry.model.is_none() && stored.is_some_and(|stored| stored.model.is_some());
+
+        // Rules 2 and 4: a pair that is set or changed supplies both limits; an unchanged pair
+        // fills only a still-empty, unedited field — the catalogue had not resolved the id when the
+        // pair was made, and it does now.
+        let model = entry.model.clone();
+        let fills = |edited: bool, present: bool| {
+            !edited && !pair_removed && (pair_changed || (!present && model.is_some()))
+        };
+        let context = fills(edited_context, entry.context.is_some());
+        let output = fills(edited_output, entry.output.is_some());
+        if context || output {
+            // The paired row's own numbers, or nothing: an id the catalogue cannot resolve and a
+            // row that carries no figure both leave the limit unknown — never "unsupported", never a
+            // number from the ARN or from the profile name (rule 4).
+            let row = model
+                .as_deref()
+                .and_then(|id| catalogue.model(&ProviderId::AMAZON_BEDROCK_SSO, id));
+            if context {
+                entry.context = row.as_ref().and_then(|model| model.limit.context);
+            }
+            if output {
+                entry.output = row.as_ref().and_then(|model| model.limit.output);
+            }
+        }
+        entry.limits_edited = Some(LimitsEdited {
+            context: edited_context,
+            output: edited_output,
+        });
+    }
+}
+
 /// A catalogue Bedrock id's charset, checked for shape only: an id that has left the catalogue
 /// must stay savable and be reported as "pricing not resolved" when used (FR-034a.3, FR-034a.5).
 fn valid_model_id(model: &str) -> bool {
@@ -711,6 +791,9 @@ pub async fn add_entry(
     let mut profiles = saved.credentials.profiles.clone();
     profiles.push(entry);
     validate_entries(&mut profiles, saved.credentials.region.as_deref())?;
+    // The pairing is the fill (FR-034a.7), matched against the list as it was stored: an added
+    // entry has no base row, so every number submitted with it is the person's.
+    fill_limits(&deps.catalogue, &saved.credentials.profiles, &mut profiles);
     store_entries(deps, saved, profiles).await
 }
 
@@ -740,6 +823,9 @@ pub async fn update_entry(
     let mut profiles = saved.credentials.profiles.clone();
     profiles[index] = entry;
     validate_entries(&mut profiles, saved.credentials.region.as_deref())?;
+    // The stored list is the base, so a pair that changed refreshes the limits the person has not
+    // edited and leaves the others alone (FR-034a.7).
+    fill_limits(&deps.catalogue, &saved.credentials.profiles, &mut profiles);
     if profiles[index].arn != previous {
         check_agents_use(deps, &previous, confirm).await?;
     }
@@ -771,6 +857,9 @@ pub async fn remove_entry(
     let removed = profiles.remove(index);
     check_agents_use(deps, &removed.arn, confirm).await?;
     validate_entries(&mut profiles, saved.credentials.region.as_deref())?;
+    // Harmless for a removal, and it completes a fill still pending on a survivor whose pair was
+    // made before the catalogue resolved its id (FR-034a.7 rule 4).
+    fill_limits(&deps.catalogue, &saved.credentials.profiles, &mut profiles);
     store_entries(deps, saved, profiles).await
 }
 
@@ -1091,6 +1180,7 @@ mod tests {
                 model: Some("  anthropic.claude-sonnet-4-5-20250929-v1:0  ".into()),
                 price: Some(price(3.0, 15.0)),
                 edited: true,
+                ..Default::default()
             },
             ProfileEntry {
                 arn: ARN_B.into(),
@@ -1106,7 +1196,8 @@ mod tests {
             entries[0].model.as_deref(),
             Some("anthropic.claude-sonnet-4-5-20250929-v1:0")
         );
-        // The entry's own limits are untouched by the pairing (FR-034a.6).
+        // Validation itself writes no limit: the fill is the separate act that follows it
+        // (FR-034a.7).
         assert_eq!(entries[0].context, Some(200_000));
         assert_eq!(entries[0].output, Some(64_000));
         assert_eq!(entries[0].tool_call, Some(true));
@@ -1267,7 +1358,7 @@ mod tests {
     }
 
     #[test]
-    fn the_pricing_pairing_is_shape_checked_and_never_touches_the_arn_or_the_limits() {
+    fn the_pricing_pairing_is_shape_checked_and_never_touches_the_arn() {
         // A pair from another family and another region, over an ARN that is fine: accepted,
         // because the pairing prices and never validates or region-checks (FR-034a.6, SC-022).
         let mut entries = vec![ProfileEntry {
@@ -1277,7 +1368,8 @@ mod tests {
             ..Default::default()
         }];
         validate_entries(&mut entries, Some("us-east-1")).unwrap();
-        // And it filled in nothing from the paired model (SC-022).
+        // And validation filled nothing in from the paired model: the limit fill is the
+        // separate act that follows it, never a side effect of the shape check (FR-034a.7).
         assert_eq!(entries[0].context, None);
         assert_eq!(entries[0].output, None);
         assert_eq!(entries[0].tool_call, None);
@@ -1448,4 +1540,323 @@ mod tests {
             .expect("a confirmed removal goes through");
         assert!(left.is_empty(), "the only entry is gone: {left:?}");
     }
+
+    // ---- the limit fill (FR-034a.7, SC-022)
+
+    const GROK: &str = "us.xai.grok-4.7";
+    const GROK_GLOBAL: &str = "global.xai.grok-4.7";
+    const NOVA: &str = "amazon.nova-lite-v1:0";
+
+    /// The catalogue shape the fill reads: the `amazon-bedrock` row `catalogue.rs` tests build,
+    /// carrying SC-022's reference numbers for the two `xai.grok-4.7` ids and one smaller model for
+    /// the re-pairing cases. `tool_call` is deliberately `true` on every row, so a fill that
+    /// touched a capability would be visible.
+    const FIXTURE: &[u8] = br#"{
+        "amazon-bedrock": {
+            "id": "amazon-bedrock", "name": "Amazon Bedrock", "npm": "@ai-sdk/amazon-bedrock",
+            "models": {
+                "us.xai.grok-4.7": {"id": "us.xai.grok-4.7", "tool_call": true, "limit": {"context": 500000, "output": 500000}},
+                "global.xai.grok-4.7": {"id": "global.xai.grok-4.7", "tool_call": true, "limit": {"context": 500000, "output": 500000}},
+                "amazon.nova-lite-v1:0": {"id": "amazon.nova-lite-v1:0", "tool_call": true, "limit": {"context": 300000, "output": 5000}}
+            }
+        }
+    }"#;
+
+    /// The same rows after a catalogue refresh: the numbers moved, the ids did not.
+    const REFRESHED: &[u8] = br#"{
+        "amazon-bedrock": {
+            "id": "amazon-bedrock", "name": "Amazon Bedrock", "npm": "@ai-sdk/amazon-bedrock",
+            "models": {
+                "us.xai.grok-4.7": {"id": "us.xai.grok-4.7", "tool_call": true, "limit": {"context": 400000, "output": 400000}},
+                "amazon.nova-lite-v1:0": {"id": "amazon.nova-lite-v1:0", "tool_call": true, "limit": {"context": 111000, "output": 2222}}
+            }
+        }
+    }"#;
+
+    fn catalogue_of(json: &[u8]) -> crate::catalogue::Catalogue {
+        crate::catalogue::Catalogue::new(crate::catalogue::data::parse(json).unwrap())
+    }
+
+    fn limits_catalogue() -> crate::catalogue::Catalogue {
+        catalogue_of(FIXTURE)
+    }
+
+    fn paired(arn: &str, model: &str) -> ProfileEntry {
+        ProfileEntry {
+            model: Some(model.into()),
+            ..profile_entry(arn)
+        }
+    }
+
+    /// One write, as every write point runs it: validation first — which trims the model id and
+    /// normalises the ARN the fill matches on — then the fill against the stored list.
+    fn write(
+        catalogue: &crate::catalogue::Catalogue,
+        base: &[ProfileEntry],
+        mut entries: Vec<ProfileEntry>,
+    ) -> Vec<ProfileEntry> {
+        validate_entries(&mut entries, Some("us-east-1")).unwrap();
+        fill_limits(catalogue, base, &mut entries);
+        entries
+    }
+
+    #[test]
+    fn pairing_the_reference_model_fills_both_limits_with_no_number_typed() {
+        // SC-022's reference case: pairing an ARN that carries no numbers with a model whose row
+        // holds 500000 for each limit fills both in the same act, and both flags stay false.
+        let catalogue = limits_catalogue();
+        let entries = write(&catalogue, &[], vec![paired(ARN_A, GROK)]);
+        assert_eq!(entries[0].context, Some(500_000));
+        assert_eq!(entries[0].output, Some(500_000));
+        assert_eq!(
+            entries[0].limits_edited,
+            Some(LimitsEdited { context: false, output: false }),
+            "the fill is not the person's number"
+        );
+
+        // The global row fills the same two numbers: only its price differs (SC-020).
+        let entries = write(&catalogue, &[], vec![paired(ARN_B, GROK_GLOBAL)]);
+        assert_eq!(entries[0].context, Some(500_000));
+        assert_eq!(entries[0].output, Some(500_000));
+    }
+
+    #[test]
+    fn the_embedded_catalogue_carries_the_reference_numbers() {
+        // The same figures, read from the seed the product actually ships, so the fixture above is
+        // not quietly measuring a catalogue that has drifted.
+        let catalogue = crate::catalogue::Catalogue::new(crate::catalogue::seed::load_seed());
+        let entries = write(&catalogue, &[], vec![paired(ARN_A, GROK)]);
+        assert_eq!(entries[0].context, Some(500_000));
+        assert_eq!(entries[0].output, Some(500_000));
+        let global = write(&catalogue, &[], vec![paired(ARN_B, GROK_GLOBAL)]);
+        assert_eq!(global[0].context, Some(500_000));
+        assert_eq!(global[0].output, Some(500_000));
+    }
+
+    #[test]
+    fn a_hand_typed_limit_survives_a_repair_a_resave_and_a_catalogue_refresh() {
+        let catalogue = limits_catalogue();
+        // A person typed the context window and left the output empty: only the output is the
+        // fill's to write.
+        let base = write(
+            &catalogue,
+            &[],
+            vec![ProfileEntry {
+                context: Some(20_000),
+                ..paired(ARN_A, GROK)
+            }],
+        );
+        assert_eq!(base[0].context, Some(20_000), "the typed number is the person's");
+        assert_eq!(base[0].output, Some(500_000), "the empty one is filled");
+        assert_eq!(
+            base[0].limits_edited,
+            Some(LimitsEdited { context: true, output: false })
+        );
+
+        // A re-pairing: the typed 20000 stays, the sibling takes the new model's number.
+        let repaired = write(
+            &catalogue,
+            &base,
+            vec![ProfileEntry {
+                model: Some(NOVA.into()),
+                ..base[0].clone()
+            }],
+        );
+        assert_eq!(repaired[0].context, Some(20_000), "0 hand-entered limits overwritten");
+        assert_eq!(repaired[0].output, Some(5_000), "the untouched sibling is refreshed");
+
+        // A re-save: the form echoes back exactly what it displayed, and nothing moves.
+        let resaved = write(&catalogue, &repaired, repaired.clone());
+        assert_eq!(resaved[0].context, Some(20_000));
+        assert_eq!(resaved[0].output, Some(5_000));
+        assert_eq!(
+            resaved[0].limits_edited,
+            Some(LimitsEdited { context: true, output: false })
+        );
+
+        // A catalogue refresh, with the pair unchanged: the fill is an act, not a live lookup, so
+        // a second write against changed numbers moves neither field (rule 3).
+        let refreshed = catalogue_of(REFRESHED);
+        let after = write(&refreshed, &resaved, resaved.clone());
+        assert_eq!(after[0].context, Some(20_000));
+        assert_eq!(after[0].output, Some(5_000), "a resolved window does not stop being true");
+    }
+
+    #[test]
+    fn a_repairing_refreshes_the_unedited_limit_and_keeps_no_previous_model_numbers() {
+        // Rule 2: the previous model's 500000 does not survive the pair change.
+        let catalogue = limits_catalogue();
+        let base = write(&catalogue, &[], vec![paired(ARN_A, GROK)]);
+        assert_eq!(base[0].context, Some(500_000));
+
+        let repaired = write(
+            &catalogue,
+            &base,
+            vec![ProfileEntry {
+                model: Some(NOVA.into()),
+                ..base[0].clone()
+            }],
+        );
+        assert_eq!(repaired[0].context, Some(300_000));
+        assert_eq!(repaired[0].output, Some(5_000));
+        assert_eq!(
+            repaired[0].limits_edited,
+            Some(LimitsEdited { context: false, output: false })
+        );
+    }
+
+    #[test]
+    fn no_pair_and_an_unresolvable_pair_leave_the_limits_unknown() {
+        let catalogue = limits_catalogue();
+        // An id the catalogue cannot resolve: unknown — never "unsupported", and never a number
+        // taken from the ARN, which is full of digits (rule 4).
+        let unresolved = write(
+            &catalogue,
+            &[],
+            vec![paired(ARN_A, "xai.grok-4.7-not-in-this-catalogue")],
+        );
+        assert_eq!(unresolved[0].context, None);
+        assert_eq!(unresolved[0].output, None);
+        assert_eq!(
+            unresolved[0].limits_edited,
+            Some(LimitsEdited { context: false, output: false })
+        );
+
+        // No pair at all: there is nothing to fill from, and the numbers stay empty.
+        let unpaired = write(&catalogue, &[], vec![profile_entry(ARN_A)]);
+        assert_eq!(unpaired[0].context, None);
+        assert_eq!(unpaired[0].output, None);
+        assert_eq!(unpaired[0].model, None);
+
+        // Re-pairing to an id that does not resolve empties what the previous pair supplied rather
+        // than leaving the old model's numbers behind.
+        let base = write(&catalogue, &[], vec![paired(ARN_A, GROK)]);
+        let gone = write(
+            &catalogue,
+            &base,
+            vec![ProfileEntry {
+                model: Some("amazon.retired-v1:0".into()),
+                ..base[0].clone()
+            }],
+        );
+        assert_eq!(gone[0].context, None);
+        assert_eq!(gone[0].output, None);
+    }
+
+    #[test]
+    fn a_cleared_limit_stays_cleared_and_is_not_refilled() {
+        let catalogue = limits_catalogue();
+        let base = write(&catalogue, &[], vec![paired(ARN_A, GROK)]);
+        assert_eq!(base[0].context, Some(500_000));
+
+        // The person empties the context window and leaves the pair alone: clearing is how they say
+        // they do not want the catalogue's number (rule 5).
+        let cleared = write(
+            &catalogue,
+            &base,
+            vec![ProfileEntry {
+                context: None,
+                ..base[0].clone()
+            }],
+        );
+        assert_eq!(cleared[0].context, None);
+        assert_eq!(cleared[0].output, Some(500_000), "the sibling is untouched");
+        assert_eq!(
+            cleared[0].limits_edited,
+            Some(LimitsEdited { context: true, output: false })
+        );
+
+        // And the next save does not quietly put it back.
+        let resaved = write(&catalogue, &cleared, cleared.clone());
+        assert_eq!(resaved[0].context, None);
+        assert_eq!(resaved[0].output, Some(500_000));
+        assert_eq!(
+            resaved[0].limits_edited,
+            Some(LimitsEdited { context: true, output: false })
+        );
+    }
+
+    #[test]
+    fn the_fill_never_touches_the_capabilities() {
+        // The fixture rows all say `tool_call: true`, so a fill that copied a capability would
+        // show here; SC-022 counts 0 filled (FR-034a.6, FR-028).
+        let catalogue = limits_catalogue();
+        let entries = write(&catalogue, &[], vec![paired(ARN_A, GROK)]);
+        assert_eq!(entries[0].tool_call, None);
+        assert_eq!(entries[0].image_input, None);
+
+        let repaired = write(
+            &catalogue,
+            &entries,
+            vec![ProfileEntry {
+                model: Some(NOVA.into()),
+                ..entries[0].clone()
+            }],
+        );
+        assert_eq!(repaired[0].tool_call, None, "a pair change fills 0 capabilities");
+        assert_eq!(repaired[0].image_input, None);
+    }
+
+    #[test]
+    fn echoing_the_displayed_numbers_back_does_not_make_them_hand_entered() {
+        let catalogue = limits_catalogue();
+        let filled = write(&catalogue, &[], vec![paired(ARN_A, GROK)]);
+        assert_eq!(
+            filled[0].limits_edited,
+            Some(LimitsEdited { context: false, output: false })
+        );
+
+        // The form sends back exactly what it displayed, with the flags a client might guess at:
+        // the server derives them and discards the request's own (rule 1).
+        let echoed = write(
+            &catalogue,
+            &filled,
+            vec![ProfileEntry {
+                limits_edited: Some(LimitsEdited {
+                    context: true,
+                    output: true,
+                }),
+                ..filled[0].clone()
+            }],
+        );
+        assert_eq!(
+            echoed[0].limits_edited,
+            Some(LimitsEdited { context: false, output: false }),
+            "a filled number must not become hand-entered by being saved"
+        );
+
+        // So a later re-pairing still refreshes both numbers.
+        let repaired = write(
+            &catalogue,
+            &echoed,
+            vec![ProfileEntry {
+                model: Some(NOVA.into()),
+                ..echoed[0].clone()
+            }],
+        );
+        assert_eq!(repaired[0].context, Some(300_000));
+        assert_eq!(repaired[0].output, Some(5_000));
+    }
+
+    #[test]
+    fn a_mismatched_pair_is_accepted_and_the_arn_checks_are_unchanged() {
+        let catalogue = limits_catalogue();
+        // A `global.` id on a us-east-1 ARN, on purpose: accepted, filled from the row, and the ARN
+        // is not rewritten (FR-034a.6).
+        let entries = write(&catalogue, &[], vec![paired(ARN_A, GROK_GLOBAL)]);
+        assert_eq!(entries[0].arn, ARN_A);
+        assert_eq!(entries[0].context, Some(500_000));
+
+        // The region check still reads the ARN alone, and the pair takes no part in it (FR-024).
+        let mut entries = vec![paired(ARN_A, NOVA)];
+        let error = validate_entries(&mut entries, Some("eu-west-1")).unwrap_err();
+        assert_eq!(
+            error.message(),
+            "the ARN names region \"us-east-1\" but this connection uses \"eu-west-1\""
+        );
+        // And a well-formed ARN with an unresolvable pair is still a well-formed ARN.
+        let mut entries = vec![paired("not-an-arn", GROK)];
+        assert!(validate_entries(&mut entries, Some("us-east-1")).is_err());
+    }
 }
+

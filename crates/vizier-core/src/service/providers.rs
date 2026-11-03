@@ -14,7 +14,7 @@ use crate::{
     config::provider::ProviderId,
     dependencies::VizierDependencies,
     llm::sso::{SsoSessions, expires_at, session_state},
-    schema::{ProfileEntry, ProviderCredentials, ProviderEntry, SsoSessionState},
+    schema::{LimitsEdited, ProfileEntry, ProviderCredentials, ProviderEntry, SsoSessionState},
     service::{
         ServiceError, providers_sso,
         catalogue::{EntryPricingView, entry_display_name, entry_pricing},
@@ -97,6 +97,10 @@ pub struct ProfileEntryResponse {
     pub model: Option<String>,
     /// The hand-entered cost, when there is one (FR-034a.4).
     pub price: Option<Cost>,
+    /// Which of the two limits the person set by hand, so a re-pairing refreshes only the others
+    /// (FR-034a.7). Server-owned: the client never sets it, and `null` on an entry saved before
+    /// this rule reads as "true wherever a number is present".
+    pub limits_edited: Option<LimitsEdited>,
     pub edited: bool,
     /// The entry's name, or the profile id from its ARN when it has none (FR-026).
     pub display_name: String,
@@ -123,6 +127,7 @@ impl ProfileEntryResponse {
             image_input: entry.image_input,
             model: entry.model.clone(),
             price: entry.price.clone(),
+            limits_edited: entry.limits_edited,
             edited: entry.edited,
             display_name,
             pricing: EntryPricingView::of(&entry_pricing(catalogue, entry)),
@@ -653,6 +658,10 @@ pub async fn upsert(
     // whole-list save is the path the provider form shares with the entry editor: shape, then
     // duplicate, then region (data-model "profile entry", FR-021, FR-024, FR-025).
     providers_sso::validate_entries(&mut credentials.profiles, credentials.region.as_deref())?;
+    // Then the limit fill of FR-034a.7, per entry and matched by ARN, with the **stored** list as
+    // the base: a whole-list save can neither bypass the fill nor re-open a filled number as if it
+    // were the person's (contracts §4b).
+    providers_sso::fill_limits(&deps.catalogue, &stored.profiles, &mut credentials.profiles);
     // The one session row this connection owns, taken before `credentials` moves into the
     // entry (a session is keyed by `sso_profile`, not by the connection id).
     let profile = credentials
