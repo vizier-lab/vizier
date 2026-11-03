@@ -174,7 +174,7 @@ One phase = one commit, conventional format, explicit paths (`git add crates/...
 - [X] T067 [US5] Name the affected agents before a connection or entry delete, reusing the existing in-use `409` plus `confirm=true` shape in `crates/vizier-core/src/service/usage.rs` and `crates/vizier-core/src/service/providers_sso.rs` (FR-029, FR-040, US5 acceptance 3).
 - [X] T068 [P] [US5] Audit every new payload, log line and error for secrets: the provider row in `crates/vizier-core/src/service/providers.rs` shows start URL, both regions, account, role, profile name and expiry, and no token, code, client secret or credential half (FR-009b, FR-035, SC-011).
 - [X] T069 [P] [US5] Audit the new `tracing` spans and fields across `crates/vizier-core/src/llm/sso/` and `crates/vizier-core/src/llm/auth.rs` for redaction, and confirm the log level matches the crate directives (constitution V, FR-035).
-- [ ] T070 [US5] Confirm the display surfaces show state without secrets and that every unpriced entry shows a reason rather than a bare label: the settings row's state machine rendering in `webui/app/screens/providers/ConnectForm.tsx` and the entry rows in `webui/app/screens/providers/ModelsDrawer.tsx` (FR-009b, FR-034b, SC-021).
+- [X] T070 [US5] Confirm the display surfaces show state without secrets and that every unpriced entry shows a reason rather than a bare label: the settings row's state machine rendering in `webui/app/screens/providers/ConnectForm.tsx` and the entry rows in `webui/app/screens/providers/ModelsDrawer.tsx` (FR-009b, FR-034b, SC-021).
 
 **Checkpoint**: the feature is operable, not just functional. Commits:
 1. webui (only if T070 changed anything): `feat(providers): show the bedrock sso session state without secrets`
