@@ -419,11 +419,8 @@ impl Supervisor {
         *self.current.write().unwrap_or_else(|p| p.into_inner()) = None;
 
         if let Some(handle) = memory_ops {
+            // Aborting the handler drops its inbox, which ends the subscription.
             handle.abort();
-            self.deps
-                .transport
-                .unregister_memory_op(&self.agent_id)
-                .await;
         }
 
         match result {
@@ -545,11 +542,13 @@ impl Supervisor {
             });
         }
 
-        let rx = self
-            .deps
-            .transport
-            .register_memory_op(agent_id.clone())
-            .await;
+        let rx = match self.deps.transport.register_memory_op(agent_id.clone()).await {
+            Ok(rx) => rx,
+            Err(e) => {
+                tracing::error!(agent_id = %agent_id, "memory operations are unavailable: {e}");
+                return None;
+            }
+        };
         let storage = (*self.deps.storage).clone();
         let settings = memory_ops::MemoryOpSettings {
             chunking: self.config.chunking.clone(),

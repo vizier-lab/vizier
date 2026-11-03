@@ -80,8 +80,7 @@ impl VizierCommandServer {
             // The process's own roles, which nothing in the engine has to be asked about.
             Ok(CommandRequest::Roles) => CommandResponse::Ok(self.roles.to_string()),
             Ok(request) => {
-                self.deps.transport.send_command_request(request).await?;
-                self.deps.transport.recv_command_response().await?
+                self.deps.transport.send_command(request).await?
             }
             Err(e) => CommandResponse::Error(format!("not a command: {e}")),
         };

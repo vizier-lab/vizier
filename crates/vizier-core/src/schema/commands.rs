@@ -172,12 +172,13 @@ pub enum AgentCommand {
     },
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum AgentCommandResult {
     Ok(AgentSummary),
     Error(String),
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct AgentSummary {
     pub agent_id: String,
@@ -340,7 +341,3 @@ impl MemoryOpResponse {
     }
 }
 
-pub struct MemoryOpEnvelope {
-    pub op: MemoryOpRequest,
-    pub response: tokio::sync::oneshot::Sender<anyhow::Result<MemoryOpResponse>>,
-}

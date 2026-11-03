@@ -19,6 +19,8 @@ mod dream;
 use dream::DreamScheduler;
 
 pub struct VizierScheduler {
+    /// Dream triggers from the bus, subscribed in `new` so none sent after startup is missed.
+    dream_commands: crate::transport::DreamCommands,
     deps: VizierDependencies,
     dream_scheduler: DreamScheduler,
     /// Whether this node owns control. `vizier run --role all` asks [`AlwaysYes`], so nothing
@@ -31,7 +33,9 @@ pub struct VizierScheduler {
 impl VizierScheduler {
     pub async fn new(deps: VizierDependencies, gate: Arc<dyn Gate>) -> Result<VizierScheduler> {
         let dream_scheduler = DreamScheduler::new(deps.clone());
+        let dream_commands = deps.transport.serve_dream_commands().await?;
         Ok(VizierScheduler {
+            dream_commands,
             deps,
             dream_scheduler,
             gate,
@@ -116,20 +120,20 @@ impl VizierScheduler {
                         }
                     }
                 }
-                cmd = self.deps.transport.recv_dream_command() => {
+                cmd = self.dream_commands.recv() => {
                     if !self.gate.may_run() {
                         tracing::debug!("the control gate is closed; ignoring a dream command");
                         continue;
                     }
                     match cmd {
-                        Ok(cmd) => {
+                        Some(cmd) => {
                             tracing::info!("Received dream command for agent '{}'", cmd.agent_id);
                             if let Err(e) = self.dream_scheduler.trigger_dream(&cmd.agent_id).await {
                                 tracing::error!("Dream trigger error for '{}': {}", cmd.agent_id, e);
                             }
                         }
-                        Err(e) => {
-                            tracing::error!("Dream command channel error: {}", e);
+                        None => {
+                            return Err(anyhow::anyhow!("the dream command subscription closed"));
                         }
                     }
                 }

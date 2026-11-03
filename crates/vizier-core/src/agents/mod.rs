@@ -84,6 +84,8 @@ enum BuildKind {
 
 pub struct VizierAgents {
     deps: VizierDependencies,
+    /// Commands from `agents.cmd`, subscribed before this struct exists so none is missed.
+    commands: crate::transport::AgentCommands,
     processes: HashMap<AgentId, AgentProcess>,
     /// Builds run as their own tasks, so one slow build (an Ollama pull, an embedder) does
     /// not hold up every other agent's commands and health checks (#52).
@@ -97,8 +99,10 @@ impl VizierAgents {
     /// Register and start every stored agent. Returns once all are registered, without
     /// waiting for any to finish starting: requests sent meanwhile queue (#26, #43).
     pub async fn new(deps: VizierDependencies) -> Result<Self> {
+        let commands = deps.transport.serve_agent_commands().await?;
         let mut agents = Self {
             deps,
+            commands,
             processes: HashMap::new(),
             builds: JoinSet::new(),
             building: HashSet::new(),
@@ -185,7 +189,10 @@ impl VizierAgents {
         let mut integration_changes = self.deps.transport.subscribe_integration_changes();
         loop {
             tokio::select! {
-                cmd = self.deps.transport.recv_agent_command() => self.handle_command(cmd?).await,
+                cmd = self.commands.recv() => match cmd {
+                    Some(cmd) => self.handle_command(cmd).await,
+                    None => return Err(anyhow::anyhow!("the agent command channel closed")),
+                },
                 change = integration_changes.recv() => match change {
                     Ok(change) => {
                         for agent_id in &change.agents {
@@ -555,10 +562,6 @@ impl VizierAgents {
             process.deleting.store(true, Ordering::SeqCst);
             process.stop(agent_id).await;
         }
-        self.deps
-            .transport
-            .unregister_memory_op(&agent_id.to_string())
-            .await;
 
         if delete_workspace {
             let workspace = agent_workspace(&self.deps.config.workspace, agent_id);

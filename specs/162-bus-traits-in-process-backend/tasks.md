@@ -143,15 +143,15 @@ description: "Task list for the Fleet message bus, in-process backend and role t
 
 ### Slice 6 — command channels (one commit each)
 
-- [ ] T056 [US1] Agent commands: add `AgentCommandRequest`/`AgentCommandResult` wire types in `crates/vizier-core/src/transport/wire.rs`; replace the `oneshot` in `AgentCommand` (`crates/vizier-core/src/schema/commands.rs`); implement `send_agent_command` as a bus request on `agents.cmd` and a `serve_agent_commands` handler for `VizierAgents`; update `agents/mod.rs`, `integrations/service.rs`, `service/agents.rs`, `service/usage.rs`, `crates/vizier/src/cli/agent.rs`, `examples/headless.rs`, `tests/dummyplug_e2e.rs`; keep `agent_health`'s 5 s deadline with its two messages mapped from `NoResponders`/`Timeout`
-- [ ] T057 **COMMIT (slice 6a)**: `refactor: [**breaking**] send agent commands over the bus (#162)`
-- [ ] T058 [US1] File commands: `FileReply` wire type; `send_file_upload`/`send_file_resolve` as bus requests on `files.cmd`; handler in `crates/vizier-core/src/file_manager/mod.rs`; update `agents/agent/mod.rs`, `channels/discord/mod.rs`, `channels/telegram/mod.rs`, `service/agents.rs`, `service/files.rs`, `crates/vizier-http/src/topic.rs`, `schema/commands.rs`
-- [ ] T059 **COMMIT (slice 6b)**: `refactor: [**breaking**] send file commands over the bus (#162)`
-- [ ] T060 [US1] Memory ops: replace `MemoryOpEnvelope`'s oneshot with request/reply on `agent.{id}.memop`; update `crates/vizier-core/src/agents/memory_ops.rs`, `agents/mod.rs`, `agents/supervisor.rs`, `service/memory.rs`, `schema/commands.rs`, `schema/mod.rs`
-- [ ] T061 **COMMIT (slice 6c)**: `refactor: [**breaking**] send memory operations over the bus (#162)`
-- [ ] T062 [US1] Dream commands: publish `DreamCommand` (add serde derives) on `dream.cmd`; subscribe in `crates/vizier-core/src/agents/process.rs`; update `scheduler/mod.rs`, `service/dream.rs`
-- [ ] T063 [US1] Process commands: `CommandRequest`/`CommandResponse` as request/reply on `process.cmd`; serve it from `VizierTransport::run`; update `crates/vizier/src/command/mod.rs`; keep `exit_channel`/`exit_signal` process-local (research R7) and verify `crates/vizier-core/src/runtime.rs` still exits on it
-- [ ] T064 **COMMIT (slice 6d)**: `refactor: [**breaking**] publish dream and process commands on the bus (#162)`
+- [X] T056 [US1] Agent commands: add `AgentCommandRequest`/`AgentCommandResult` wire types in `crates/vizier-core/src/transport/wire.rs`; replace the `oneshot` in `AgentCommand` (`crates/vizier-core/src/schema/commands.rs`); implement `send_agent_command` as a bus request on `agents.cmd` and a `serve_agent_commands` handler for `VizierAgents`; update `agents/mod.rs`, `integrations/service.rs`, `service/agents.rs`, `service/usage.rs`, `crates/vizier/src/cli/agent.rs`, `examples/headless.rs`, `tests/dummyplug_e2e.rs`; keep `agent_health`'s 5 s deadline with its two messages mapped from `NoResponders`/`Timeout`
+- [X] T057 **COMMIT (slice 6a)**: `refactor: [**breaking**] send agent commands over the bus (#162)`
+- [ ] T058 [US1] **DEFERRED (payload limit, see plan note)** File commands: `FileReply` wire type; `send_file_upload`/`send_file_resolve` as bus requests on `files.cmd`; handler in `crates/vizier-core/src/file_manager/mod.rs`; update `agents/agent/mod.rs`, `channels/discord/mod.rs`, `channels/telegram/mod.rs`, `service/agents.rs`, `service/files.rs`, `crates/vizier-http/src/topic.rs`, `schema/commands.rs`
+- [ ] T059 **SKIPPED with T058** (slice 6b): `refactor: [**breaking**] send file commands over the bus (#162)`
+- [X] T060 [US1] Memory ops: replace `MemoryOpEnvelope`'s oneshot with request/reply on `agent.{id}.memop`; update `crates/vizier-core/src/agents/memory_ops.rs`, `agents/mod.rs`, `agents/supervisor.rs`, `service/memory.rs`, `schema/commands.rs`, `schema/mod.rs`
+- [X] T061 **COMMIT (slice 6c)**: `refactor: [**breaking**] send memory operations over the bus (#162)`
+- [X] T062 [US1] Dream commands: publish `DreamCommand` (add serde derives) on `dream.cmd`; subscribe in `crates/vizier-core/src/agents/process.rs`; update `scheduler/mod.rs`, `service/dream.rs`
+- [X] T063 [US1] Process commands: `CommandRequest`/`CommandResponse` as request/reply on `process.cmd`; serve it from `VizierTransport::run`; update `crates/vizier/src/command/mod.rs`; keep `exit_channel`/`exit_signal` process-local (research R7) and verify `crates/vizier-core/src/runtime.rs` still exits on it
+- [X] T064 **COMMIT (slice 6d)**: `refactor: [**breaking**] publish dream and process commands on the bus (#162)`
 
 ### Slice 7 — events
 

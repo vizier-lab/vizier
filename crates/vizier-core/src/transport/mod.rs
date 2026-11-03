@@ -17,7 +17,7 @@ pub use reply::{
 use crate::storage::{history::HistoryStorage, turn::TurnStorage};
 use crate::schema::{
     AgentCommand, AgentHealthStatus, AgentId, BackgroundJobSnapshot, CommandRequest, CommandResponse, FileCommand, IntegrationChanged,
-    MemoryOpEnvelope, ReactionEntry, VizierAttachment, VizierRequest, VizierResponse, VizierSession,
+    ReactionEntry, VizierAttachment, VizierRequest, VizierResponse, VizierSession,
 };
 
 /// How many session events a slow subscriber may fall behind before it starts losing them.
@@ -27,6 +27,12 @@ use crate::schema::{
 const SESSION_EVENTS_CAPACITY: usize = 1024;
 /// Integration changes are rare; a subscriber that still falls behind reconciles everything.
 const INTEGRATION_EVENTS_CAPACITY: usize = 64;
+/// How long the command socket waits for the process to answer.
+const PROCESS_COMMAND_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+/// How long a memory operation may take, indexing included.
+const MEMORY_OP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5 * 60);
+/// How long a command may take to be handled: a create can pull a model.
+const COMMAND_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60 * 60);
 /// How long a health check waits for the agent manager.
 const HEALTH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
@@ -95,7 +101,7 @@ pub enum SessionFrame {
     },
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct DreamCommand {
     pub agent_id: AgentId,
     pub cycle_id: Option<String>,
@@ -137,23 +143,8 @@ pub struct VizierTransport {
 
     bus: Bus,
 
-    memory_op_channels: Arc<RwLock<HashMap<AgentId, flume::Sender<MemoryOpEnvelope>>>>,
-
-    command_request_channel: Arc<(
-        flume::Sender<CommandRequest>,
-        flume::Receiver<CommandRequest>,
-    )>,
-
-    command_response_channel: Arc<(
-        flume::Sender<CommandResponse>,
-        flume::Receiver<CommandResponse>,
-    )>,
-
-    agent_command_channel: Arc<(flume::Sender<AgentCommand>, flume::Receiver<AgentCommand>)>,
 
     exit_channel: Arc<(flume::Sender<bool>, flume::Receiver<bool>)>,
-
-    dream_command_channel: Arc<(flume::Sender<DreamCommand>, flume::Receiver<DreamCommand>)>,
 
     file_command_channel: Arc<(flume::Sender<FileCommand>, flume::Receiver<FileCommand>)>,
 
@@ -175,22 +166,13 @@ impl VizierTransport {
 
     #[doc(hidden)]
     pub fn new() -> Self {
-        let command_request_channel = Arc::new(flume::unbounded());
-        let command_response_channel = Arc::new(flume::unbounded());
-        let agent_command_channel = Arc::new(flume::unbounded());
         let exit_channel = Arc::new(flume::unbounded());
-        let dream_command_channel = Arc::new(flume::unbounded());
         let file_command_channel = Arc::new(flume::unbounded());
 
         Self {
             inboxes: Arc::new(RwLock::new(HashMap::new())),
             bus: InProcess::new().bus(),
-            memory_op_channels: Arc::new(RwLock::new(HashMap::new())),
-            command_request_channel,
-            command_response_channel,
-            agent_command_channel,
             exit_channel,
-            dream_command_channel,
             file_command_channel,
             session_events: tokio::sync::broadcast::channel(SESSION_EVENTS_CAPACITY).0,
             integration_events: tokio::sync::broadcast::channel(INTEGRATION_EVENTS_CAPACITY).0,
@@ -271,17 +253,15 @@ impl VizierTransport {
     }
 
     #[doc(hidden)]
-    pub async fn register_memory_op(&self, agent_id: AgentId) -> flume::Receiver<MemoryOpEnvelope> {
-        let (tx, rx) = flume::unbounded();
-        let mut channels = self.memory_op_channels.write().await;
-        channels.insert(agent_id, tx);
-        rx
-    }
-
-    #[doc(hidden)]
-    pub async fn unregister_memory_op(&self, agent_id: &AgentId) {
-        let mut channels = self.memory_op_channels.write().await;
-        channels.remove(agent_id);
+    /// Start taking memory operations for `agent_id` off the bus. Dropping the returned inbox
+    /// stops it, and a later operation finds no handler.
+    pub async fn register_memory_op(&self, agent_id: AgentId) -> Result<MemoryOpInbox> {
+        let sub = self
+            .bus
+            .messaging
+            .subscribe(SubjectPattern::from(&Subject::agent_memop(&agent_id)))
+            .await?;
+        Ok(MemoryOpInbox { sub, messaging: self.bus.messaging.clone() })
     }
 
     #[doc(hidden)]
@@ -290,18 +270,21 @@ impl VizierTransport {
         agent_id: &AgentId,
         op: crate::schema::MemoryOpRequest,
     ) -> Result<crate::schema::MemoryOpResponse> {
-        let channels = self.memory_op_channels.read().await;
-        let tx = channels
-            .get(agent_id)
-            .ok_or_else(|| anyhow::anyhow!("agent '{}' has no memory-op channel", agent_id))?
-            .clone();
-
-        let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
-        tx.send_async(MemoryOpEnvelope { op, response: resp_tx })
-            .await?;
-        match resp_rx.await? {
-            Ok(resp) => Ok(resp),
-            Err(e) => Err(anyhow::anyhow!(e.to_string())),
+        let envelope = Envelope::json(wire::KIND_MEMORY_OP, &op)?;
+        let reply = self
+            .bus
+            .messaging
+            .request(&Subject::agent_memop(agent_id), envelope, MEMORY_OP_TIMEOUT)
+            .await
+            .map_err(|e| match e {
+                vizier_schema::BusError::NoResponders => {
+                    anyhow::anyhow!("agent '{}' has no memory-op channel", agent_id)
+                }
+                other => anyhow::Error::from(other),
+            })?;
+        match reply.decode::<wire::MemoryOpReply>()? {
+            wire::MemoryOpReply::Ok(response) => Ok(response),
+            wire::MemoryOpReply::Err { message } => Err(anyhow::anyhow!(message)),
         }
     }
 
@@ -421,42 +404,65 @@ impl VizierTransport {
     }
 
     #[doc(hidden)]
-    pub async fn send_command_request(&self, req: CommandRequest) -> Result<()> {
-        Ok(self.command_request_channel.0.send_async(req).await?)
+    /// Ask this process a command (the command socket's) and wait for its answer.
+    pub async fn send_command(&self, req: CommandRequest) -> Result<CommandResponse> {
+        let envelope = Envelope::json(wire::KIND_COMMAND_REQUEST, &req)?;
+        let reply = self
+            .bus
+            .messaging
+            .request(&Subject::process_cmd(), envelope, PROCESS_COMMAND_TIMEOUT)
+            .await
+            .map_err(|e| match e {
+                vizier_schema::BusError::NoResponders => anyhow::anyhow!("the command handler is not running"),
+                other => anyhow::Error::from(other),
+            })?;
+        Ok(reply.decode::<CommandResponse>()?)
     }
 
-    #[doc(hidden)]
-    pub async fn recv_command_request(&self) -> Result<CommandRequest> {
-        Ok(self.command_request_channel.1.recv_async().await?)
-    }
-
-    #[doc(hidden)]
-    pub async fn send_command_response(&self, req: CommandResponse) -> Result<()> {
-        Ok(self.command_response_channel.0.send_async(req).await?)
-    }
-
-    #[doc(hidden)]
-    pub async fn recv_command_response(&self) -> Result<CommandResponse> {
-        Ok(self.command_response_channel.1.recv_async().await?)
-    }
-
+    /// Send a command to the agent manager over the bus and wait for it to be handled. The
+    /// answer lands in the command's own slot, so callers read it as before.
     pub async fn send_agent_command(&self, cmd: AgentCommand) -> Result<()> {
-        Ok(self.agent_command_channel.0.send_async(cmd).await?)
+        let (request, awaiting) = wire::split_agent_command(cmd);
+        let envelope = Envelope::json(wire::KIND_AGENT_COMMAND, &request)?;
+        let reply = self
+            .bus
+            .messaging
+            .request(&Subject::agents_cmd(), envelope, COMMAND_TIMEOUT)
+            .await
+            .map_err(|e| match e {
+                vizier_schema::BusError::NoResponders => anyhow::anyhow!("the agent manager is not running"),
+                vizier_schema::BusError::Timeout => anyhow::anyhow!("the agent manager did not answer in time"),
+                other => anyhow::Error::from(other),
+            })?;
+        match reply.decode::<wire::AgentCommandReply>()? {
+            wire::AgentCommandReply::Dropped => awaiting.abandon(),
+            reply => awaiting.fulfil(reply),
+        }
+        Ok(())
     }
 
     #[doc(hidden)]
-    pub async fn recv_agent_command(&self) -> Result<AgentCommand> {
-        Ok(self.agent_command_channel.1.recv_async().await?)
+    /// Start taking agent commands off the bus. The subscription exists when this returns, so a
+    /// command sent right after cannot find nobody listening.
+    pub async fn serve_agent_commands(&self) -> Result<AgentCommands> {
+        let sub = self.bus.messaging.subscribe(SubjectPattern::from(&Subject::agents_cmd())).await?;
+        Ok(AgentCommands { sub, messaging: self.bus.messaging.clone() })
     }
 
     #[doc(hidden)]
+    /// Ask the scheduler to run a dream cycle now. Fire and forget: nobody listening is not
+    /// an error, as for any published message.
     pub async fn send_dream_command(&self, cmd: DreamCommand) -> Result<()> {
-        Ok(self.dream_command_channel.0.send_async(cmd).await?)
+        let envelope = Envelope::json(wire::KIND_DREAM_COMMAND, &cmd)?;
+        self.bus.messaging.publish(&Subject::dream_cmd(), envelope).await?;
+        Ok(())
     }
 
     #[doc(hidden)]
-    pub async fn recv_dream_command(&self) -> Result<DreamCommand> {
-        Ok(self.dream_command_channel.1.recv_async().await?)
+    /// Start taking dream commands off the bus; the subscription exists when this returns.
+    pub async fn serve_dream_commands(&self) -> Result<DreamCommands> {
+        let sub = self.bus.messaging.subscribe(SubjectPattern::from(&Subject::dream_cmd())).await?;
+        Ok(DreamCommands { sub })
     }
 
     #[doc(hidden)]
@@ -509,21 +515,35 @@ impl VizierTransport {
     /// `HEALTH_TIMEOUT`: a monitor gets an answer rather than a hang (#51).
     pub async fn agent_health(&self) -> Result<Vec<AgentHealthStatus>> {
         let (tx, rx) = tokio::sync::oneshot::channel();
-        self.send_agent_command(AgentCommand::HealthCheck { resp: tx })
-            .await?;
-        match tokio::time::timeout(HEALTH_TIMEOUT, rx).await {
-            Ok(Ok(statuses)) => Ok(statuses),
-            Ok(Err(_)) => Err(anyhow::anyhow!("the agent manager is not running")),
-            Err(_) => Err(anyhow::anyhow!("the agent manager did not answer in time")),
+        // The deadline covers the whole round trip over the bus, not just the wait for the slot.
+        match tokio::time::timeout(
+            HEALTH_TIMEOUT,
+            self.send_agent_command(AgentCommand::HealthCheck { resp: tx }),
+        )
+        .await
+        {
+            Ok(sent) => sent?,
+            Err(_) => return Err(anyhow::anyhow!("the agent manager did not answer in time")),
         }
+        rx.await.map_err(|_| anyhow::anyhow!("the agent manager is not running"))
     }
 
     #[doc(hidden)]
     /// Answer commands from the command socket until the process stops.
     pub async fn run(&self) -> Result<()> {
-        let req_rx = self.command_request_channel.1.clone();
-        let res = self.command_response_channel.0.clone();
-        while let Ok(req) = req_rx.recv_async().await {
+        let mut commands = self
+            .bus
+            .messaging
+            .subscribe(SubjectPattern::from(&Subject::process_cmd()))
+            .await?;
+        while let Some((_, envelope)) = commands.recv().await {
+            let req = match envelope.decode::<CommandRequest>() {
+                Ok(req) => req,
+                Err(e) => {
+                    tracing::warn!("dropping an undecodable command: {e}");
+                    continue;
+                }
+            };
             let exit = matches!(req, CommandRequest::Exit);
             let response = match req {
                 CommandRequest::Exit => CommandResponse::Ok("vizier is stopping".into()),
@@ -535,13 +555,16 @@ impl VizierTransport {
                 },
                 other => CommandResponse::Error(format!("unsupported command: {other:?}")),
             };
-            let _ = res.send_async(response).await;
-            // After the answer is on its way, since the process exits on this signal.
+            if let Ok(out) = Envelope::json(wire::KIND_COMMAND_RESPONSE, &response) {
+                let _ = vizier_schema::reply(self.bus.messaging.as_ref(), &envelope, out).await;
+            }
+            // After the answer is on its way, since the process exits on this signal. The
+            // signal itself stays process-local: it is this process's lifecycle, not bus traffic.
             if exit {
                 let _ = self.exit_channel.0.send_async(true).await;
             }
         }
-        Err(anyhow::anyhow!("the command request channel closed"))
+        Err(anyhow::anyhow!("the command subscription closed"))
     }
 }
 
@@ -685,5 +708,95 @@ mod bus_tests {
         transport.send_request(session("alpha"), chat("one"), None).await.unwrap();
         next(&new).await;
         assert_eq!(old.recv_request().await.unwrap_err(), InboxClosed);
+    }
+}
+
+/// The agent manager's end of the `agents.cmd` subject.
+pub struct AgentCommands {
+    sub: vizier_schema::Subscription,
+    messaging: Arc<dyn vizier_schema::Messaging>,
+}
+
+impl AgentCommands {
+    /// The next command. Its answer is published to the sender once the handler fills the
+    /// command's slot.
+    pub async fn recv(&mut self) -> Option<AgentCommand> {
+        loop {
+            let (_, envelope) = self.sub.recv().await?;
+            let request = match envelope.decode::<wire::AgentCommandRequest>() {
+                Ok(request) => request,
+                Err(e) => {
+                    tracing::warn!("dropping an undecodable agent command: {e}");
+                    continue;
+                }
+            };
+            let (command, answer) = wire::open_agent_command(request);
+            let messaging = self.messaging.clone();
+            tokio::spawn(async move {
+                let reply = answer.into_reply().await.unwrap_or(wire::AgentCommandReply::Dropped);
+                if let Ok(out) = Envelope::json(wire::KIND_AGENT_REPLY, &reply)
+                    && let Err(e) = vizier_schema::reply(messaging.as_ref(), &envelope, out).await
+                {
+                    tracing::warn!("could not answer an agent command: {e}");
+                }
+            });
+            return Some(command);
+        }
+    }
+}
+
+/// An agent's end of `agent.{id}.memop`.
+pub struct MemoryOpInbox {
+    sub: vizier_schema::Subscription,
+    messaging: Arc<dyn vizier_schema::Messaging>,
+}
+
+impl MemoryOpInbox {
+    /// The next operation, with what it needs to answer it.
+    pub async fn recv(&mut self) -> Option<(crate::schema::MemoryOpRequest, MemoryOpReplier)> {
+        loop {
+            let (_, envelope) = self.sub.recv().await?;
+            match envelope.decode::<crate::schema::MemoryOpRequest>() {
+                Ok(op) => return Some((op, MemoryOpReplier { messaging: self.messaging.clone(), request: envelope })),
+                Err(e) => tracing::warn!("dropping an undecodable memory operation: {e}"),
+            }
+        }
+    }
+}
+
+/// Answers one memory operation.
+pub struct MemoryOpReplier {
+    messaging: Arc<dyn vizier_schema::Messaging>,
+    request: Envelope,
+}
+
+impl MemoryOpReplier {
+    pub async fn answer(self, result: Result<crate::schema::MemoryOpResponse>) {
+        let reply = match result {
+            Ok(response) => wire::MemoryOpReply::Ok(response),
+            Err(e) => wire::MemoryOpReply::Err { message: e.to_string() },
+        };
+        if let Ok(out) = Envelope::json(wire::KIND_MEMORY_OP_REPLY, &reply)
+            && let Err(e) = vizier_schema::reply(self.messaging.as_ref(), &self.request, out).await
+        {
+            tracing::warn!("could not answer a memory operation: {e}");
+        }
+    }
+}
+
+/// The scheduler's end of the dream-command subject.
+pub struct DreamCommands {
+    sub: vizier_schema::Subscription,
+}
+
+impl DreamCommands {
+    pub async fn recv(&mut self) -> Option<DreamCommand> {
+        loop {
+            let (_, envelope) = self.sub.recv().await?;
+            match envelope.decode::<DreamCommand>() {
+                Ok(cmd) => return Some(cmd),
+                Err(e) => tracing::warn!("dropping an undecodable dream command: {e}"),
+            }
+        }
     }
 }
