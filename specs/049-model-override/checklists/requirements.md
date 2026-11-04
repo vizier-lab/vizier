@@ -31,5 +31,5 @@
 
 ## Notes
 
-- Validation review: all mandatory sections are present and concrete; all ten functional requirements have corresponding acceptance coverage across the permission, selection, availability, and channel-scope scenarios. Success criteria measure user task completion, authorization, unavailable-model behavior, and unchanged use for non-permitted users.
-- Assumptions resolve persistence and unavailable-model behavior without requiring clarification. The requested permission identifier and WebUI placement are user-facing constraints, not implementation design.
+- Validation review: all mandatory sections are present and concrete; all ten functional requirements have corresponding acceptance coverage across the permission, selection, availability, and channel-scope scenarios. Success criteria measure user task completion, authorization, unavailable-model behavior, and unchanged use for non-permitted users. The permission is specified as the single `model_override` name without `all_agents:` or `owned_agents:` variants.
+- Assumptions resolve persistence and unavailable-model behavior without requiring clarification. The permission is the single `model_override` identifier. The WebUI placement is one dropdown immediately right of the unchanged status strip, separated by flexible space, with each option showing the complete provider/model identifier and preserving slashes within the model ID.

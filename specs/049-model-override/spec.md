@@ -1,12 +1,12 @@
 # Feature Specification: Model Override for Chat Requests
 
-**Feature Branch**: `050-model-override`
+**Feature Branch**: `049-model-override`
 
 **Created**: 2026-11-04
 
 **Status**: Draft
 
-**Input**: User description: "Add model override to chat requests. A user/client can change the model used for a prompt. Introduce the `:model-override` permission. In the WebUI, users with permission can choose from provider/model options in a dropdown on the right side of the status-strip row, below the send button. Do not add Discord or Telegram support for now."
+**Input**: User description: "Add model override to chat requests. A user/client can change the model used for a prompt. Introduce the single `model_override` permission, without `all_agents:` or `owned_agents:` scope prefixes. In the WebUI, users with permission can choose from provider/model options in a dropdown on the right side of the status-strip row, below the send button. Do not add Discord or Telegram support for now."
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -23,7 +23,7 @@ A user who has the model-override permission chooses an available provider/model
 1. **Given** a user has the model-override permission and available models are listed, **When** they choose a provider/model and send a prompt, **Then** that prompt is handled by the selected model and the conversation remains the same.
 2. **Given** a user has selected a model, **When** they send another prompt in that conversation without changing the selection, **Then** that prompt also uses the selected model.
 3. **Given** a user has selected a model, **When** they select a different available model and send a prompt, **Then** the new prompt uses the newly selected model.
-4. **Given** the model selector is shown, **When** the user views its choices, **Then** each choice identifies the provider and model in `<provider>/<model>` format.
+4. **Given** the model selector is shown, **When** the user views its choices, **Then** each choice displays the provider name, a slash, and the complete model identifier, preserving any slashes in the model identifier. For example, provider `opencode` with model `deepseek/deepseek-flash` is displayed as `opencode/deepseek/deepseek-flash`, and provider `openai` with model `gpt-luna` is displayed as `openai/gpt-luna`.
 
 ---
 
@@ -39,7 +39,7 @@ A user without model-override permission continues chatting with the normal mode
 
 1. **Given** a user does not have the model-override permission, **When** they open a conversation, **Then** no model-override selector is shown and their prompts use the normal configured model.
 2. **Given** a user lacks the permission, **When** they attempt to submit a model override by any available request path, **Then** the override is rejected and no different model is used.
-3. **Given** a user has the model-override permission, **When** they open a conversation with available model choices, **Then** the selector is shown in the right-hand group on the same row as the status strip, below the send button.
+3. **Given** a user has the `model_override` permission and available model choices, **When** they open a conversation, **Then** one model dropdown appears in the empty space immediately to the right of the status-strip controls, on their same row below the send button, while the existing status strip retains its appearance.
 
 ---
 
@@ -69,22 +69,22 @@ A user gets clear feedback if a selected model is no longer available and their 
 
 ### Functional Requirements
 
-- **FR-001**: The system MUST define a permission named `:model-override` that controls whether a user may select a model override.
-- **FR-002**: The WebUI MUST show the model selector only to users who have the `:model-override` permission.
-- **FR-003**: The WebUI MUST place the selector in the right-hand group on the same row as the status strip, below the send button.
-- **FR-004**: For permitted users, the selector MUST offer available models and identify each choice as `<provider>/<model>`.
+- **FR-001**: The system MUST define a single permission named `model_override` that controls whether a user may select a model override. This permission MUST NOT be split into `all_agents:model_override` and `owned_agents:model_override` variants.
+- **FR-002**: The WebUI MUST show the model selector only to users who have the `model_override` permission.
+- **FR-003**: The WebUI MUST show exactly one model dropdown in the empty space immediately to the right of the existing status-strip controls, on their same row below the send button. The status strip and dropdown MUST be separated by flexible space, and adding the dropdown MUST NOT change the existing status-strip style.
+- **FR-004**: The single dropdown MUST offer available provider/model choices, displaying each as `<provider>/<complete-model-id>`. The provider name is followed by `/` and the complete model identifier; any `/` characters within the model identifier MUST be preserved. For example, `opencode` with model `deepseek/deepseek-flash` displays as `opencode/deepseek/deepseek-flash`, and `openai` with model `gpt-luna` displays as `openai/gpt-luna`.
 - **FR-005**: A permitted user MUST be able to select a model for prompts in the current conversation; the selected model MUST apply to prompts sent afterward until the user changes the selection or the selection becomes unavailable.
 - **FR-006**: Changing the selected model MUST NOT create a new conversation or change a response that is already in progress.
-- **FR-007**: The system MUST enforce the permission when processing a model override; hiding the selector alone MUST NOT grant or deny authorization.
+- **FR-007**: The system MUST enforce the permission when processing a model override using the single `model_override` permission; hiding the selector alone MUST NOT grant or deny authorization.
 - **FR-008**: If a requested model is unavailable or the user is not authorized, the system MUST reject the override and MUST NOT silently use a different model.
 - **FR-009**: The WebUI MUST communicate when no eligible models are available or a selected model cannot be used.
 - **FR-010**: Model override MUST be supported in the WebUI only for this release. Discord and Telegram MUST continue to use their existing model behavior without model-override controls.
 
 ### Key Entities *(include if data involved)*
 
-- **Model choice**: An available model identified by its provider and model name; displayed as `<provider>/<model>`.
+- **Model choice**: An available model identified by its provider and complete model identifier; displayed as `<provider>/<complete-model-id>`, preserving slashes within the model identifier.
 - **Conversation model selection**: The model selected by a permitted user for subsequent prompts in a conversation, until changed or no longer available.
-- **Model-override permission**: The authorization that allows a user to select a model for their chat prompts.
+- **`model_override` permission**: The single authorization that allows a user to select a model for chat prompts, independent of `all_agents` or `owned_agents` scope prefixes.
 
 ## Success Criteria *(mandatory)*
 
