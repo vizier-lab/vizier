@@ -234,7 +234,7 @@ mod tests {
     }
 
     /// Spec 044 adds PDF tools to the Office addon but leaves this reader's PDF path alone.
-    #[cfg(feature = "documents")]
+    #[cfg(feature = "addon-documents")]
     #[test]
     fn a_pdf_still_reads_as_plain_text_here() {
         let pdf = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/office/table.pdf")).to_vec();

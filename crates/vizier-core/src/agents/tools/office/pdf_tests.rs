@@ -248,17 +248,7 @@ struct Env {
 }
 
 fn env() -> Env {
-    let dir = tempfile::tempdir().unwrap();
-    let conn = rusqlite::Connection::open_in_memory().unwrap();
-    conn.execute_batch(
-        "CREATE TABLE session_file (id TEXT PRIMARY KEY, session_slug TEXT NOT NULL, agent_id TEXT NOT NULL, data TEXT NOT NULL);",
-    )
-    .unwrap();
-    let storage = Arc::new(VizierStorage::new(crate::storage::sqlite::SqliteStorage::new(
-        Arc::new(parking_lot::Mutex::new(conn)),
-        Arc::new(crate::storage::document::LocalDocumentStore::new(dir.path().to_path_buf())),
-    )));
-    let manager = FileManager::new(dir.path().to_string_lossy().to_string());
+    let (storage, manager, dir) = super::tests::files();
     let ctx = ToolContext {
         session: VizierSession("agent-pdf".into(), VizierChannelId::HTTP("u".into(), "c".into()), None),
         pending_attachments: Default::default(),

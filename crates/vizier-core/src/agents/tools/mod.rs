@@ -1673,13 +1673,13 @@ mod tests {
             entry::<OfficeDocxWrite>(),
             #[cfg(feature = "addon-documents")]
             entry::<OfficeXlsxWrite>(),
-            #[cfg(feature = "documents")]
+            #[cfg(feature = "addon-documents")]
             entry::<OfficePdfRead>(),
-            #[cfg(feature = "documents")]
+            #[cfg(feature = "addon-documents")]
             entry::<OfficePdfRenderPage>(),
-            #[cfg(feature = "documents")]
+            #[cfg(feature = "addon-documents")]
             entry::<OfficePdfWriteFromHtml>(),
-            #[cfg(feature = "documents")]
+            #[cfg(feature = "addon-documents")]
             entry::<OfficePdfWriteFromDocx>(),
             entry::<FetchWebpage>(),
             entry::<HttpClient>(),
@@ -1825,13 +1825,13 @@ mod tests {
             ("office_docx_write_from_md", "office"),
             #[cfg(feature = "addon-documents")]
             ("office_xlsx_write_from_sheets", "office"),
-            #[cfg(feature = "documents")]
+            #[cfg(feature = "addon-documents")]
             ("office_pdf_read_as_md", "office"),
-            #[cfg(feature = "documents")]
+            #[cfg(feature = "addon-documents")]
             ("office_pdf_render_page_as_png", "office"),
-            #[cfg(feature = "documents")]
+            #[cfg(feature = "addon-documents")]
             ("office_pdf_write_from_html", "office"),
-            #[cfg(feature = "documents")]
+            #[cfg(feature = "addon-documents")]
             ("office_pdf_write_from_docx", "office"),
         ];
         const UNCATEGORISED: &[&str] = &[
@@ -1847,13 +1847,13 @@ mod tests {
             "office_docx_write_from_md",
             #[cfg(feature = "addon-documents")]
             "office_xlsx_write_from_sheets",
-            #[cfg(feature = "documents")]
+            #[cfg(feature = "addon-documents")]
             "office_pdf_read_as_md",
-            #[cfg(feature = "documents")]
+            #[cfg(feature = "addon-documents")]
             "office_pdf_render_page_as_png",
-            #[cfg(feature = "documents")]
+            #[cfg(feature = "addon-documents")]
             "office_pdf_write_from_html",
-            #[cfg(feature = "documents")]
+            #[cfg(feature = "addon-documents")]
             "office_pdf_write_from_docx",
             "think",
             "execute_python",

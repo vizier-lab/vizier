@@ -942,7 +942,7 @@ mod tests {
         }
     }
 
-    fn files() -> (Arc<VizierStorage>, FileManager, tempfile::TempDir) {
+    pub(crate) fn files() -> (Arc<VizierStorage>, FileManager, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
         let conn = rusqlite::Connection::open_in_memory().unwrap();
         conn.execute_batch(
