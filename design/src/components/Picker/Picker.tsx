@@ -53,6 +53,8 @@ export type PickerProps<T> = {
   itemHeight?: number;
   /** Panel width in px. */
   width?: number;
+  /** Which edge of the trigger the popup lines up with. */
+  align?: "start" | "end";
   className?: string;
 };
 
@@ -85,6 +87,7 @@ export function Picker<T>({
   onOpenChange,
   itemHeight = 45,
   width = 340,
+  align = "start",
   className,
 }: PickerProps<T>) {
   const id = useId();
@@ -284,7 +287,7 @@ export function Picker<T>({
       })}
       <Presence>
         {open && (
-          <Floating key="picker" anchor={root}>
+          <Floating key="picker" anchor={root} align={align}>
             {panel}
           </Floating>
         )}
