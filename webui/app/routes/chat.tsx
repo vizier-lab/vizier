@@ -31,13 +31,17 @@ import { recalledFrom } from '../lib/recall'
 import { RecalledMemoryPanel } from '../screens/chat/RecalledMemoryPanel'
 import { SessionFilesPanel } from '../screens/chat/SessionFilesPanel'
 import { HostExecutionNotice } from '../screens/projects/HostExecutionNotice'
-import { OpenProjectButton, ProjectsRefused } from '../screens/projects/ProjectsSection'
+import {
+    OpenProjectButton,
+    ProjectsRefused,
+    shouldOfferOpenProject,
+} from '../screens/projects/ProjectsSection'
 import { lastTopic, read, rememberTopic, write } from '../lib/remember'
 import { useMobile } from '../lib/useMobile'
 import { useAgents } from '../stores/agents'
 import { topicKey, useConnection } from '../stores/connection'
 import { useSession } from '../stores/session'
-import { NO_PROJECTS, projectKey, useProjects } from '../stores/projects'
+import { projectKey, useProjects } from '../stores/projects'
 import { toast } from '../stores/toasts'
 import { canManageArtifacts, canUseProjects } from '../lib/access'
 import { useTurns } from '../stores/turns'
@@ -56,7 +60,6 @@ export default function Chat() {
     const project = useProjects((s) =>
         projectId ? (s.byAgent[agentId] ?? []).find((p) => p.id === projectId) : undefined
     )
-    const agentProjects = useProjects((s) => s.byAgent[agentId] ?? NO_PROJECTS)
     const refreshProjects = useProjects((s) => s.refresh)
     const insertSession = useProjects((s) => s.insertSession)
     const loadProjectSessions = useProjects((s) => s.loadSessions)
@@ -499,7 +502,7 @@ export default function Chat() {
                         )
                     }
                     emptyAction={
-                        !project && agentProjects.length === 0 ? (
+                        shouldOfferOpenProject(projectId) ? (
                             <OpenProjectButton agentId={agentId} />
                         ) : undefined
                     }

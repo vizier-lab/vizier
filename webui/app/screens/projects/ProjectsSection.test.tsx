@@ -5,7 +5,7 @@ import type { ProjectSessionRow } from '../../api/endpoints/projects'
 import { NO_PROJECTS, useProjects } from '../../stores/projects'
 import { useSession } from '../../stores/session'
 import { ProjectRow } from './ProjectRow'
-import { projectsSectionVisible } from './ProjectsSection'
+import { projectsSectionVisible, shouldOfferOpenProject } from './ProjectsSection'
 
 const person = (permissions: string[]) => ({
     user_id: 'user-1',
@@ -54,6 +54,11 @@ beforeEach(() => {
 })
 
 describe('the Projects section', () => {
+    it('offers Open a Project for every empty ordinary chat, including after projects exist', () => {
+        expect(shouldOfferOpenProject(undefined)).toBe(true)
+        expect(shouldOfferOpenProject('project-1')).toBe(false)
+    })
+
     it('is shown only to a permitted viewer of an agent with projects', () => {
         useSession.setState({ user: person(['all_agents:projects']) })
         expect(projectsSectionVisible({ owner_id: 'user-2' }, [project])).toBe(true)
