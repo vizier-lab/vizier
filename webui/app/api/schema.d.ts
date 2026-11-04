@@ -3551,7 +3551,12 @@ export interface components {
             attachments?: components["schemas"]["VizierAttachment"][] | null;
             channel_id: string;
             content: string;
+            model_override?: components["schemas"]["ModelOverrideRequest"] | null;
             topic_id: string;
+        };
+        ModelOverrideRequest: {
+            model: string;
+            provider: string;
         };
         ChatResponse: {
             attachments: components["schemas"]["VizierAttachment"][];

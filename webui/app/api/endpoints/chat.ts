@@ -1,6 +1,6 @@
 import { api, paged, request, type Page } from '../client'
 import type { components } from '../schema'
-import type { BackgroundJobSnapshot, ChatMessage, SessionFileRecord, Topic } from '../frames'
+import type { BackgroundJobSnapshot, ChatMessage, ModelOverride, SessionFileRecord, Topic } from '../frames'
 
 /** The channel every WebUI conversation lives on. */
 export const CHANNEL = 'vizier-webui'
@@ -67,6 +67,12 @@ export const renameTopic = (
 ) => api.patch<Topic>(base(agentId, topicId, channel), { title })
 
 export const restartAgent = (agentId: string) => api.post(`/agents/${agentId}/restart`)
+
+export type ChatModelOverride = ModelOverride
+export type RestChatRequest = Omit<components['schemas']['ChatRequest'], 'model_override'> & { model_override?: ModelOverride }
+
+export const postChat = (agentId: string, body: RestChatRequest, signal?: AbortSignal) =>
+    request<components['schemas']['ChatResponse']>('POST', `/agents/${encodeURIComponent(agentId)}/chat`, body, { signal })
 
 export type SideChatRequest = components['schemas']['BtwRequest']
 export type SideChatResponse = components['schemas']['BtwResponse']

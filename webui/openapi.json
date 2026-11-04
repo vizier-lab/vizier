@@ -15299,9 +15299,23 @@
           "content": {
             "type": "string"
           },
+          "model_override": {
+            "anyOf": [
+              { "$ref": "#/components/schemas/ModelOverrideRequest" },
+              { "type": "null" }
+            ]
+          },
           "topic_id": {
             "type": "string"
           }
+        }
+      },
+      "ModelOverrideRequest": {
+        "type": "object",
+        "required": ["provider", "model"],
+        "properties": {
+          "provider": { "type": "string" },
+          "model": { "type": "string" }
         }
       },
       "ChatResponse": {
