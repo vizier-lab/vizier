@@ -17,11 +17,18 @@ struct Migration {
 }
 
 /// In version order. A new file is appended here; an applied file is never edited.
-const MIGRATIONS: &[Migration] = &[Migration {
-    version: 1,
-    name: "0001_initial",
-    sql: include_str!("migrations/0001_initial.sql"),
-}];
+const MIGRATIONS: &[Migration] = &[
+    Migration {
+        version: 1,
+        name: "0001_initial",
+        sql: include_str!("migrations/0001_initial.sql"),
+    },
+    Migration {
+        version: 2,
+        name: "0002_client_call_claim",
+        sql: include_str!("migrations/0002_client_call_claim.sql"),
+    },
+];
 
 /// Bring the schema `conn` sees (its `search_path`) up to the newest embedded migration.
 ///

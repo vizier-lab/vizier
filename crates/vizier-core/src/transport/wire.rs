@@ -90,6 +90,11 @@ use crate::schema::{
 pub const KIND_AGENT_COMMAND: &str = "agent_command";
 /// `Envelope.kind` of its reply.
 pub const KIND_AGENT_REPLY: &str = "agent_reply";
+/// `Envelope.kind` of an agent-scoped command request, the one that travels on
+/// `agent.{id}.cmd` and names the agent it is about.
+pub const KIND_AGENT_SCOPED_COMMAND: &str = "agent_scoped_command";
+/// `Envelope.kind` of its reply.
+pub const KIND_AGENT_SCOPED_REPLY: &str = "agent_scoped_reply";
 
 /// An [`AgentCommand`] without the in-process slot its answer is read from: what travels on
 /// `agents.cmd`. The answer comes back as the bus reply.
@@ -99,6 +104,9 @@ pub enum AgentCommandRequest {
     Update { agent_id: String, config: AgentConfig },
     Delete { agent_id: String, delete_workspace: bool },
     HealthCheck,
+    /// One agent's health. The fleet-wide `HealthCheck` is the list of every agent the
+    /// manager holds; this one is the agent the caller named.
+    AgentHealth { agent_id: String },
     RefreshIntegrations { agent_id: String },
     IntegrationStatus { agent_id: String },
     Restart { agent_id: String },
@@ -108,6 +116,8 @@ pub enum AgentCommandRequest {
 pub enum AgentCommandReply {
     Result(AgentCommandResult),
     Health(Vec<AgentHealthStatus>),
+    /// One agent's health.
+    AgentHealth(AgentHealthStatus),
     Status(HashMap<String, IntegrationStatus>),
     Done,
     /// The manager took the command and dropped its slot without answering.
@@ -118,6 +128,7 @@ pub enum AgentCommandReply {
 pub enum Awaiting {
     Result(oneshot::Sender<AgentCommandResult>),
     Health(oneshot::Sender<Vec<AgentHealthStatus>>),
+    AgentHealth(oneshot::Sender<AgentHealthStatus>),
     Status(oneshot::Sender<HashMap<String, IntegrationStatus>>),
     Nothing,
 }
@@ -130,6 +141,9 @@ impl Awaiting {
                 let _ = tx.send(r);
             }
             (Self::Health(tx), AgentCommandReply::Health(h)) => {
+                let _ = tx.send(h);
+            }
+            (Self::AgentHealth(tx), AgentCommandReply::AgentHealth(h)) => {
                 let _ = tx.send(h);
             }
             (Self::Status(tx), AgentCommandReply::Status(s)) => {
@@ -158,6 +172,10 @@ pub fn split_agent_command(cmd: AgentCommand) -> (AgentCommandRequest, Awaiting)
             Awaiting::Result(resp),
         ),
         AgentCommand::HealthCheck { resp } => (AgentCommandRequest::HealthCheck, Awaiting::Health(resp)),
+        AgentCommand::AgentHealth { agent_id, resp } => (
+            AgentCommandRequest::AgentHealth { agent_id },
+            Awaiting::AgentHealth(resp),
+        ),
         AgentCommand::RefreshIntegrations { agent_id } => {
             (AgentCommandRequest::RefreshIntegrations { agent_id }, Awaiting::Nothing)
         }
@@ -174,6 +192,7 @@ pub fn split_agent_command(cmd: AgentCommand) -> (AgentCommandRequest, Awaiting)
 pub enum Answer {
     Result(oneshot::Receiver<AgentCommandResult>),
     Health(oneshot::Receiver<Vec<AgentHealthStatus>>),
+    AgentHealth(oneshot::Receiver<AgentHealthStatus>),
     Status(oneshot::Receiver<HashMap<String, IntegrationStatus>>),
     Nothing,
 }
@@ -185,6 +204,7 @@ impl Answer {
         match self {
             Self::Result(rx) => rx.await.ok().map(AgentCommandReply::Result),
             Self::Health(rx) => rx.await.ok().map(AgentCommandReply::Health),
+            Self::AgentHealth(rx) => rx.await.ok().map(AgentCommandReply::AgentHealth),
             Self::Status(rx) => rx.await.ok().map(AgentCommandReply::Status),
             Self::Nothing => Some(AgentCommandReply::Done),
         }
@@ -209,6 +229,10 @@ pub fn open_agent_command(request: AgentCommandRequest) -> (AgentCommand, Answer
         AgentCommandRequest::HealthCheck => {
             let (resp, rx) = oneshot::channel();
             (AgentCommand::HealthCheck { resp }, Answer::Health(rx))
+        }
+        AgentCommandRequest::AgentHealth { agent_id } => {
+            let (resp, rx) = oneshot::channel();
+            (AgentCommand::AgentHealth { agent_id, resp }, Answer::AgentHealth(rx))
         }
         AgentCommandRequest::RefreshIntegrations { agent_id } => {
             (AgentCommand::RefreshIntegrations { agent_id }, Answer::Nothing)

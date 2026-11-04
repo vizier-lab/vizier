@@ -34,8 +34,6 @@ pub struct HTTPState {
     /// One visit write per person a minute. Visits are still recorded, but nothing reads
     /// them since spec 029 removed the overview feed; tracked for #82.
     pub visit_throttle: Arc<vizier_core::utils::rate_limit::RateLimiter>,
-    /// Deferred client tool calls some socket is delivering now (research R18).
-    pub deferred_client_calls: Arc<vizier_core::agents::client::DeferredClaims>,
 }
 
 impl HTTPState {

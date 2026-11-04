@@ -1,8 +1,9 @@
 //! What each Fleet role subscribes to, publishes and leases.
 //!
-//! These are skeletons: every constant is empty today. The sub-issues that build the roles
-//! (#166-#170) fill them in, and [`RoleContract::validate`] already checks whatever they add, so
-//! a bad pattern or a duplicate fails a test rather than a deployment.
+//! The gateway's and the worker's rows are filled in (`specs/163-agent-service-seam`); the
+//! channels', the control's and the gRPC gateway's are still empty. The sub-issues that build
+//! those roles (#166, #167, #170) fill them in, and [`RoleContract::validate`] already checks
+//! whatever they add, so a bad pattern or a duplicate fails a test rather than a deployment.
 
 use std::collections::HashSet;
 

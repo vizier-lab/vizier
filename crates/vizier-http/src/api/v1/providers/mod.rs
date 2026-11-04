@@ -496,7 +496,6 @@ mod dummyplug_provider_tests {
                 1,
                 std::time::Duration::from_secs(60),
             )),
-            deferred_client_calls: Default::default(),
         };
         (state, dir)
     }
