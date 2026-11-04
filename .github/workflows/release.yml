@@ -111,18 +111,18 @@ jobs:
 
       - name: Update Cargo.toml versions
         # Every version lives in the root Cargo.toml: the workspace version, and the
-        # requirements of the four crates the others depend on by path *and* version
+        # requirements of the five crates the others depend on by path *and* version
         # (cargo refuses to resolve e.g. `^0.10.0` against a member at `0.11.0`).
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           sed -i '/^\[workspace\.package\]/,/^\[/ s/^version = ".*"/version = "'"$VERSION"'"/' Cargo.toml
-          for crate in vizier-derive vizier-core vizier-fleet vizier-http; do
+          for crate in vizier-derive vizier-core vizier-fleet vizier-schema vizier-http; do
             sed -i 's/^\('"$crate"' = { path = "crates\/'"$crate"'", version = "\)[^"]*"/\1'"$VERSION"'"/' Cargo.toml
           done
           echo "Workspace: $(grep -m1 '^version = ' Cargo.toml)"
           grep -E '^vizier-(derive|core|fleet|http) = ' Cargo.toml
           grep -q "^version = \"$VERSION\"$" Cargo.toml || (echo "::error::workspace version not bumped"; exit 1)
-          for crate in vizier-derive vizier-core vizier-fleet vizier-http; do
+          for crate in vizier-derive vizier-core vizier-fleet vizier-schema vizier-http; do
             grep -q "^$crate = { path = \"crates/$crate\", version = \"$VERSION\" }$" Cargo.toml || (echo "::error::$crate dependency requirement not bumped"; exit 1)
           done
 
