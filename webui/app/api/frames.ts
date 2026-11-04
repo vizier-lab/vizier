@@ -401,10 +401,16 @@ export interface HistoryEntryFrame {
   history_entry: ChatMessage
 }
 
+export interface ModelOverride {
+  provider: string
+  model: string
+}
+
 export interface WebSocketMessage {
   timestamp: string
   user: string
   content: VizierRequestContent
+  model_override?: ModelOverride
   metadata?: Record<string, unknown>
   attachments?: VizierAttachment[]
   expect_audio_reply?: boolean

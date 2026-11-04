@@ -26,6 +26,9 @@ import { ErrorNotice } from '../screens/chat/ErrorNotice'
 import { MessageList } from '../screens/chat/MessageList'
 import { recalledFrom } from '../lib/recall'
 import { ChatStatusStrip } from '../screens/chat/ChatStatusStrip'
+import { ModelOverridePicker } from '../screens/chat/ModelOverridePicker'
+import { readModelOverride, writeModelOverride } from '../lib/modelOverride'
+import type { ModelOverride } from '../api/frames'
 import { HostExecutionNotice } from '../screens/projects/HostExecutionNotice'
 import { OpenProjectButton, ProjectsRefused } from '../screens/projects/ProjectsSection'
 import { lastTopic, rememberTopic } from '../lib/remember'
@@ -138,6 +141,22 @@ export default function Chat() {
 
     const [topics, setTopics] = useState<Topic[]>([])
     const userId = useSession((s) => s.user?.user_id)
+    const canOverrideModel = useSession((s) => s.user?.permissions.includes('model_override') ?? false)
+    const preferenceKey = useMemo(() => userId && topicId ? {
+        userId,
+        agentId,
+        channelId: channel,
+        topicId,
+    } : null, [userId, agentId, channel, topicId])
+    const [modelOverride, setModelOverride] = useState<ModelOverride | null>(null)
+    const [modelChoiceAvailable, setModelChoiceAvailable] = useState(true)
+    useEffect(() => {
+        setModelOverride(preferenceKey ? readModelOverride(preferenceKey) : null)
+    }, [preferenceKey])
+    const changeModelOverride = useCallback((choice: ModelOverride | null) => {
+        setModelOverride(choice)
+        if (preferenceKey) writeModelOverride(preferenceKey, choice)
+    }, [preferenceKey])
     // A project's changes open in their own dialog, behind the status strip's count.
     const [changesOpen, setChangesOpen] = useState(false)
     // Stable, so the panel's Escape listener is not re-bound on every render.
@@ -517,7 +536,9 @@ export default function Chat() {
                                 ? `${agentName} can't answer until it restarts`
                                 : connection === 'offline'
                                   ? "You're offline"
-                                  : undefined
+                                  : canOverrideModel && modelOverride && channel === CHANNEL && !modelChoiceAvailable
+                                    ? 'The selected model is unavailable. Choose another model or Agent default.'
+                                    : undefined
                         }
                         context={
                             state.context
@@ -531,11 +552,17 @@ export default function Chat() {
                                 text,
                                 attachments,
                                 spoken,
-                                mentions
+                                mentions,
+                                canOverrideModel && channel && userId ? modelOverride : null
                             )
                         }
                         onSendAudio={(attachment) =>
-                            sendAudio(agentId, topicId ?? '', attachment)
+                            sendAudio(
+                                agentId,
+                                topicId ?? '',
+                                attachment,
+                                canOverrideModel && channel && userId ? modelOverride : null
+                            )
                         }
                         onCommand={(c) => command(agentId, topicId ?? '', c)}
                         onStop={() => command(agentId, topicId ?? '', 'abort')}
@@ -546,7 +573,9 @@ export default function Chat() {
                     </div>
                     {/* The status strip: what the agent recalled, what it is still working
                         on, what it left in this conversation and what it changed. */}
+                    <div className="mt-8 flex min-w-0 items-center gap-16">
                     <ChatStatusStrip
+                        className="shrink-0"
                         agentId={agentId}
                         topicId={topicId ?? ''}
                         recalled={recalled}
@@ -555,10 +584,20 @@ export default function Chat() {
                         canPromote={agent ? canManageArtifacts(agent) : false}
                         onFilesCleared={() => dispatch(agentId, topicId ?? '', { type: 'files', files: [] })}
                         changes={changes}
-                        className="mt-8"
                         // The panel clears the composer and the strip's own margin.
                         panelGap={composerCardHeight + STRIP_MARGIN + PANEL_GAP}
                     />
+                    {canOverrideModel && userId && topicId && (
+                        <>
+                            <ModelOverridePicker
+                                defaultModel={health?.model ?? null}
+                                value={modelOverride}
+                                onChange={changeModelOverride}
+                                onAvailabilityChange={setModelChoiceAvailable}
+                            />
+                        </>
+                    )}
+                    </div>
                     </div>
                 </div>
                 </div>

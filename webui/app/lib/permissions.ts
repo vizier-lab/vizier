@@ -44,8 +44,9 @@ export const PERMISSION_GROUPS: { title: string; items: { permission: string; la
         ],
     },
     {
-        title: 'Chats',
+        title: 'Chat',
         items: [
+            { permission: 'model_override', label: 'Choose a model for chat' },
             { permission: 'all_agents:show_discord_chats', label: 'See every agent’s Discord chats' },
             { permission: 'owned_agents:show_discord_chats', label: 'See Discord chats of agents they own' },
             { permission: 'all_agents:show_telegram_chats', label: 'See every agent’s Telegram chats' },

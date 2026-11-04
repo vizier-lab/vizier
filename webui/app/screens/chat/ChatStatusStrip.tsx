@@ -370,6 +370,7 @@ export function ChatStatusStrip({
     <StatusStrip
       items={items}
       className={className}
+      fullWidth={false}
       open={open}
       onOpenChange={setOpen}
       panelGap={panelGap}
