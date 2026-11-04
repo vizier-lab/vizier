@@ -1,10 +1,17 @@
 import type { HTMLAttributes, ReactNode } from "react";
 import { cx } from "../../lib/cx";
+import { Avatar } from "../Avatar/Avatar";
 import { SkillChip } from "../SkillChip/SkillChip";
 
 export type UserMessageProps = {
-  /** "You · 14:02". */
-  meta?: ReactNode;
+  /** Who sent it: "You", or a platform name. */
+  name?: string;
+  /** What the avatar's face is drawn from (the username); the name when absent. */
+  seed?: string;
+  /** "14:02". */
+  time?: ReactNode;
+  /** A photo for the avatar. */
+  avatarSrc?: string;
   /** The skill it invoked: shown as a chip above the text. */
   skill?: string;
   /** Attachment chips above the text. */
@@ -13,10 +20,15 @@ export type UserMessageProps = {
   queued?: { agentName: string };
 } & HTMLAttributes<HTMLDivElement>;
 
-/** A person's message, right-aligned (D43). */
-export function UserMessage({ meta, skill, attachments, queued, className, children, ...rest }: UserMessageProps) {
+/** A person's message, right-aligned: a meta row (time, name, avatar) above its container (D43). */
+export function UserMessage({ name = "You", seed, time, avatarSrc, skill, attachments, queued, className, children, ...rest }: UserMessageProps) {
   return (
-    <div className={cx("flex flex-col items-end gap-6", className)} {...rest}>
+    <div className={cx("flex flex-col items-end gap-10", className)} {...rest}>
+      <div className="flex items-center gap-8">
+        <span className="type-mono-xs text-faint">{queued ? `Queued · sends when ${queued.agentName} finishes` : time}</span>
+        <span className="type-body-strong text-fg">{name}</span>
+        <Avatar name={seed ?? name} src={avatarSrc} size="xs" square />
+      </div>
       <div
         className={cx(
           "flex max-w-480 min-w-0 flex-col items-start gap-6 rounded-lg px-14 py-10 [overflow-wrap:anywhere]",
@@ -25,9 +37,8 @@ export function UserMessage({ meta, skill, attachments, queued, className, child
       >
         {skill && <SkillChip skill={skill} />}
         {attachments && <div className="flex w-full flex-col gap-6">{attachments}</div>}
-        <div className={cx("type-body-para min-w-0 max-w-full", queued ? "text-muted" : "text-fg")}>{children}</div>
+        <div className={cx("type-prose min-w-0 max-w-full", queued ? "text-muted" : "text-fg")}>{children}</div>
       </div>
-      <span className="type-mono-xs text-faint">{queued ? `Queued · sends when ${queued.agentName} finishes` : meta}</span>
     </div>
   );
 }

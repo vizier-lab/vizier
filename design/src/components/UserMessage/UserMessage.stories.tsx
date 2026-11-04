@@ -7,7 +7,7 @@ const meta = {
   component: UserMessage,
   tags: ["approved"],
   parameters: { vizier: { id: "D43", replaces: "webui/app/components/chat_bubble.tsx" } },
-  args: { meta: "You · 14:02", children: "Compare the three vector databases we tested last week and file a summary in memory." },
+  args: { name: "You", seed: "ganes", time: "14:02", children: "Compare the three vector databases we tested last week and file a summary in memory." },
   decorators: [(Story) => <div className="w-640">{Story()}</div>],
 } satisfies Meta<typeof UserMessage>;
 
