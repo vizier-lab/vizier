@@ -863,6 +863,83 @@
             }
           }
         }
+      },
+      "patch": {
+        "tags": [
+          "api::v1::agents::channel"
+        ],
+        "operationId": "rename_topic",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "Agent ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "channel_id",
+            "in": "path",
+            "description": "Channel ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "topic_id",
+            "in": "path",
+            "description": "Topic ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RenameTopicRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Topic renamed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_TopicEntry"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The title is empty or too long",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Agent or topic not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/agents/{agent_id}/channel/{channel_id}/topic/{topic_id}/chat": {
@@ -1690,6 +1767,8 @@
         "tags": [
           "api::v1::agents::core"
         ],
+        "summary": "**Deprecated.** Read the identity document at `GET /agents/{agent_id}/memory/doc/core/soul`\ninstead; this is a projection over that same document (specs/043-unify-core-and-memory).",
+        "description": "DEPRECATED — identity is the memory document `core/soul`. Use `GET /agents/{agent_id}/memory/doc/core/soul` instead. Kept working with unchanged response shapes; it reads the same document, so the two can never disagree.",
         "operationId": "get_core",
         "parameters": [
           {
@@ -1729,6 +1808,8 @@
         "tags": [
           "api::v1::agents::core"
         ],
+        "summary": "**Deprecated.** Write the identity document at `PUT /agents/{agent_id}/memory/doc/core/soul`\ninstead; this is a projection over that same document.",
+        "description": "DEPRECATED — identity is the memory document `core/soul`. Use `PUT /agents/{agent_id}/memory/doc/core/soul` instead. `base_seq` still refuses a stale save with 409.",
         "operationId": "update_core",
         "parameters": [
           {
@@ -1800,6 +1881,8 @@
         "tags": [
           "api::v1::agents::core"
         ],
+        "summary": "**Deprecated.** Use the memory revision endpoints for `core/soul` instead; this projects the\nsame `memory_revision` rows.",
+        "description": "DEPRECATED — this projects the memory revision history of `core/soul`. Use the memory revision endpoints for `core/soul` instead.",
         "operationId": "get_core_history",
         "parameters": [
           {
@@ -1899,6 +1982,8 @@
         "tags": [
           "api::v1::agents::core"
         ],
+        "summary": "**Deprecated.** Use the memory rollback endpoint for `core/soul` instead; this restores\nthrough the same write path.",
+        "description": "DEPRECATED — this restores a memory revision of `core/soul`. Use the memory rollback endpoint for `core/soul` instead.",
         "operationId": "rollback_core",
         "parameters": [
           {
@@ -3570,6 +3655,365 @@
         }
       }
     },
+    "/agents/{agent_id}/projects/{project_id}/files": {
+      "get": {
+        "tags": [
+          "api::v1::agents::projects"
+        ],
+        "operationId": "files",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "Agent ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "project_id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "description": "What the person typed after @",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "topic",
+            "in": "query",
+            "description": "The chat, for a worktree folder",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "1–50, default 20",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Matching files and folders",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_Vec_FileSuggestion"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller may not use this project"
+          },
+          "404": {
+            "description": "Agent or project not found, or removed"
+          },
+          "409": {
+            "description": "`project_unavailable`"
+          }
+        }
+      }
+    },
+    "/agents/{agent_id}/projects/{project_id}/git": {
+      "get": {
+        "tags": [
+          "api::v1::agents::projects"
+        ],
+        "operationId": "git_summary",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "Agent ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "project_id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "topic",
+            "in": "query",
+            "description": "The chat, for a worktree folder",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The branch and change count; `available: false` without git",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_GitSummary"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller may not use this project"
+          },
+          "404": {
+            "description": "Agent or project not found, or removed"
+          }
+        }
+      }
+    },
+    "/agents/{agent_id}/projects/{project_id}/git/branches": {
+      "get": {
+        "tags": [
+          "api::v1::agents::projects"
+        ],
+        "operationId": "git_branches",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "Agent ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "project_id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "topic",
+            "in": "query",
+            "description": "The chat, for a worktree folder",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Local branches, with the worktree holding each",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_Vec_GitBranch"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`git_unavailable`"
+          }
+        }
+      }
+    },
+    "/agents/{agent_id}/projects/{project_id}/git/changes": {
+      "get": {
+        "tags": [
+          "api::v1::agents::projects"
+        ],
+        "operationId": "git_changes",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "Agent ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "project_id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "topic",
+            "in": "query",
+            "description": "The chat, for a worktree folder",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Every uncommitted change with line counts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_Vec_GitChange"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`git_unavailable`"
+          }
+        }
+      }
+    },
+    "/agents/{agent_id}/projects/{project_id}/git/diff": {
+      "get": {
+        "tags": [
+          "api::v1::agents::projects"
+        ],
+        "operationId": "git_diff",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "Agent ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "project_id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "topic",
+            "in": "query",
+            "description": "The chat, for a worktree folder",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "path",
+            "in": "query",
+            "description": "The changed file, relative to the folder",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The file's diff against the last commit",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_GitFileDiff"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`git_unavailable`"
+          },
+          "422": {
+            "description": "`invalid_path`"
+          }
+        }
+      }
+    },
+    "/agents/{agent_id}/projects/{project_id}/git/switch": {
+      "post": {
+        "tags": [
+          "api::v1::agents::projects"
+        ],
+        "operationId": "git_switch",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "Agent ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "project_id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SwitchBranchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The folder's new branch",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_GitSummary"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Switching the main folder needs managing the project"
+          },
+          "409": {
+            "description": "`turn_active`, `branch_checked_out`, `local_changes` or `branch_exists`"
+          },
+          "422": {
+            "description": "`invalid_branch`"
+          }
+        }
+      }
+    },
     "/agents/{agent_id}/projects/{project_id}/sessions": {
       "get": {
         "tags": [
@@ -3656,6 +4100,346 @@
           },
           "404": {
             "description": "Agent or project not found, or removed"
+          }
+        }
+      }
+    },
+    "/agents/{agent_id}/projects/{project_id}/sessions/{topic}/mode": {
+      "put": {
+        "tags": [
+          "api::v1::agents::projects"
+        ],
+        "operationId": "set_mode",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "Agent ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "project_id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "topic",
+            "in": "path",
+            "description": "Chat topic",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetModeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The chat now uses this mode from the next turn",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_SetModeResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller may not use this project"
+          },
+          "404": {
+            "description": "Agent or project not found, or removed"
+          }
+        }
+      }
+    },
+    "/agents/{agent_id}/projects/{project_id}/skills": {
+      "get": {
+        "tags": [
+          "api::v1::agents::projects"
+        ],
+        "operationId": "skills",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "Agent ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "project_id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "topic",
+            "in": "query",
+            "description": "The chat, so a worktree offers its own branch's skills",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The skills this chat's folder carries, one per slug",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_Vec_ProjectSkillRow"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller may not use this project"
+          },
+          "404": {
+            "description": "Agent or project not found, or removed"
+          },
+          "409": {
+            "description": "`project_unavailable`"
+          }
+        }
+      }
+    },
+    "/agents/{agent_id}/projects/{project_id}/worktrees": {
+      "get": {
+        "tags": [
+          "api::v1::agents::projects"
+        ],
+        "operationId": "list_worktrees",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "Agent ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "project_id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The project's worktrees",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_Vec_WorktreeSummary"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller may not use this project"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "api::v1::agents::projects"
+        ],
+        "operationId": "create_worktree",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "Agent ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "project_id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateWorktreeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "The worktree and the one chat opened in it",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_CreateWorktreeResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`git_unavailable`, `name_in_use`, `branch_exists`, `path_exists`"
+          },
+          "422": {
+            "description": "`invalid_name`, `invalid_branch` or `unknown_base`"
+          }
+        }
+      }
+    },
+    "/agents/{agent_id}/projects/{project_id}/worktrees/{id}": {
+      "get": {
+        "tags": [
+          "api::v1::agents::projects"
+        ],
+        "operationId": "worktree_detail",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "Agent ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "project_id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Worktree ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Availability, change counts and whether the branch is merged",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_WorktreeDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Worktree not found"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "api::v1::agents::projects"
+        ],
+        "operationId": "delete_worktree",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "Agent ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "project_id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Worktree ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "force",
+            "in": "query",
+            "description": "Discard uncommitted changes",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "delete_branch",
+            "in": "query",
+            "description": "Also delete the branch",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The chat and folder were removed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_WorktreeDeleted"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`turn_active` or `worktree_dirty {changed, untracked}`"
           }
         }
       }
@@ -6379,6 +7163,546 @@
         }
       }
     },
+    "/providers/{id}/profiles": {
+      "get": {
+        "tags": [
+          "api::v1::providers"
+        ],
+        "summary": "One entry. Used as the body of both the add and the replace, so a person sends exactly what a\nresponse row holds and the ARN is always in clear (contracts §4, FR-022, FR-026).",
+        "operationId": "list_entries",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Provider id; only `amazon-bedrock-sso` has entries",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The saved entries, each with its ARN and computed pricing",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_Vec_ProfileEntryResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The provider is not an SSO connection",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "api::v1::providers"
+        ],
+        "operationId": "add_entry",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Provider id; only `amazon-bedrock-sso` has entries",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProfileEntry"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The whole list, now including the new entry",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_Vec_ProfileEntryResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The ARN, a duplicate, a region mismatch or a pricing field is refused",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/providers/{id}/profiles/{arn}": {
+      "put": {
+        "tags": [
+          "api::v1::providers"
+        ],
+        "operationId": "update_entry",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Provider id; only `amazon-bedrock-sso` has entries",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "arn",
+            "in": "path",
+            "description": "The saved ARN, URL-encoded; it is in the path so a person can verify which entry is being replaced",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProfileEntry"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The whole list, with the entry replaced",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_Vec_ProfileEntryResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A validation rule is refused",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No entry holds this ARN",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Changing the ARN would remove the profile an agent uses; `data` lists them",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_InUse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "api::v1::providers"
+        ],
+        "operationId": "remove_entry",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Provider id; only `amazon-bedrock-sso` has entries",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "arn",
+            "in": "path",
+            "description": "The saved ARN, URL-encoded",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "confirm",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The whole list, without the entry",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_Vec_ProfileEntryResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The provider is not an SSO connection",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No entry holds this ARN",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "An agent still chats through it; `data` lists them",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_InUse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/providers/{id}/sso/accounts": {
+      "get": {
+        "tags": [
+          "api::v1::providers"
+        ],
+        "operationId": "sso_accounts",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Provider id; only `amazon-bedrock-sso` has accounts",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "start_url",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "sso_region",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "profile",
+            "in": "path",
+            "description": "The profile name the session is stored under (FR-009e).",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The accounts the identity was assigned; `fallback` asks for free text",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_AccountList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No usable session: sign in again",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/providers/{id}/sso/accounts/{account_id}/roles": {
+      "get": {
+        "tags": [
+          "api::v1::providers"
+        ],
+        "operationId": "sso_roles",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Provider id; only `amazon-bedrock-sso` has roles",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "account_id",
+            "in": "path",
+            "description": "AWS account id, 12 digits",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "start_url",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "sso_region",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "profile",
+            "in": "path",
+            "description": "The profile name the session is stored under (FR-009e).",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The roles this identity may assume in the account",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_RoleList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The account id is not 12 digits",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No usable session: sign in again",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/providers/{id}/sso/sign-in": {
+      "post": {
+        "tags": [
+          "api::v1::providers"
+        ],
+        "operationId": "sso_sign_in",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Provider id; only `amazon-bedrock-sso` signs in",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Optional start URL, SSO region and profile name, for a connection not saved yet",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SignInRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "A code to confirm, or the completed sign-in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_SignInResponse"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "The browser step is still pending",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_SignInResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The sign-in was denied or the code expired",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "AWS did not answer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/providers/{id}/sso/sign-out": {
+      "post": {
+        "tags": [
+          "api::v1::providers"
+        ],
+        "operationId": "sso_sign_out",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Provider id; only `amazon-bedrock-sso` signs out",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Optional profile name, when the connection is not saved yet",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SignInRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The session row is gone and the connection is configured; never an error if it was already signed out",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_SignOutResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The provider is not an SSO connection",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/providers/{id}/test": {
       "post": {
         "tags": [
@@ -6464,6 +7788,44 @@
   },
   "components": {
     "schemas": {
+      "APIResponse_AccountList": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "The account list, with the free-text fallback only when the portal listed nothing (FR-007).",
+            "required": [
+              "accounts",
+              "fallback"
+            ],
+            "properties": {
+              "accounts": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/AccountView"
+                }
+              },
+              "fallback": {
+                "type": "boolean"
+              }
+            }
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
       "APIResponse_Activity": {
         "type": "object",
         "required": [
@@ -7655,7 +9017,7 @@
                   "null"
                 ],
                 "format": "int64",
-                "description": "The current revision, to send back as `base_seq`. Absent when CORE has no history yet."
+                "description": "The current revision, to send back as `base_seq`. Absent when there is no history yet."
               }
             }
           },
@@ -7829,6 +9191,13 @@
               },
               "title": {
                 "type": "string"
+              },
+              "warning": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Present only when the content went over the soft limit. Additive: a client that ignores\nit behaves exactly as before (contracts/http-api.md)."
               }
             }
           },
@@ -7867,6 +9236,44 @@
               },
               "topic": {
                 "type": "string"
+              }
+            }
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "APIResponse_CreateWorktreeResponse": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "worktree",
+              "topic",
+              "channel_id"
+            ],
+            "properties": {
+              "channel_id": {
+                "type": "string"
+              },
+              "topic": {
+                "type": "string"
+              },
+              "worktree": {
+                "$ref": "#/components/schemas/WorktreeSummary"
               }
             }
           },
@@ -8067,6 +9474,107 @@
                   "string",
                   "null"
                 ]
+              }
+            }
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "APIResponse_GitFileDiff": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "One file's unified diff against the last commit.",
+            "required": [
+              "path",
+              "diff",
+              "truncated",
+              "binary"
+            ],
+            "properties": {
+              "binary": {
+                "type": "boolean"
+              },
+              "diff": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              },
+              "truncated": {
+                "type": "boolean"
+              }
+            }
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "APIResponse_GitSummary": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "The header's branch and change count.",
+            "required": [
+              "available",
+              "detached",
+              "ahead",
+              "behind",
+              "changed"
+            ],
+            "properties": {
+              "ahead": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              },
+              "available": {
+                "type": "boolean"
+              },
+              "behind": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              },
+              "branch": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "changed": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "detached": {
+                "type": "boolean"
               }
             }
           },
@@ -8707,6 +10215,17 @@
                 ],
                 "description": "`server` for a local provider's live model the catalogue doesn't have."
               },
+              "pricing": {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/EntryPricingView",
+                    "description": "An inference-profile entry's computed pricing (contracts §5); absent for catalogue\nmodels, which carry their own `cost`."
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "release_date": {
                 "type": [
                   "string",
@@ -9033,7 +10552,8 @@
                 "type": "object",
                 "required": [
                   "instructions_present",
-                  "instructions_truncated"
+                  "instructions_truncated",
+                  "worktree_count"
                 ],
                 "properties": {
                   "instructions_present": {
@@ -9041,6 +10561,11 @@
                   },
                   "instructions_truncated": {
                     "type": "boolean"
+                  },
+                  "worktree_count": {
+                    "type": "integer",
+                    "description": "Worktree chats whose folders stay on disk when the project is removed (FR-033).",
+                    "minimum": 0
                   }
                 }
               }
@@ -9181,7 +10706,9 @@
               "has_access_token",
               "has_secret_access_key",
               "has_session_token",
-              "used_by"
+              "used_by",
+              "has_sso_session",
+              "profiles"
             ],
             "properties": {
               "access_key_id": {
@@ -9228,6 +10755,10 @@
               "has_session_token": {
                 "type": "boolean"
               },
+              "has_sso_session": {
+                "type": "boolean",
+                "description": "A session row exists and decrypts with this workspace key."
+              },
               "id": {
                 "$ref": "#/components/schemas/ProviderId"
               },
@@ -9257,6 +10788,13 @@
               "origin": {
                 "$ref": "#/components/schemas/ProviderOrigin"
               },
+              "profiles": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ProfileEntryResponse"
+                },
+                "description": "The saved inference-profile entries, as saved: no price is invented here (FR-026, FR-028)."
+              },
               "reachable": {
                 "type": [
                   "boolean",
@@ -9271,6 +10809,21 @@
                 ],
                 "description": "AWS region, safe to show."
               },
+              "role_name": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "The role chosen from the portal."
+              },
+              "session_expires_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time",
+                "description": "When the stored session's access token expires."
+              },
               "source": {
                 "type": [
                   "string",
@@ -9278,12 +10831,82 @@
                 ],
                 "description": "`saved`, `env:NAME`, or `null` for a local provider on its default address."
               },
+              "sso_profile": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "The non-secret handle the session is stored under (FR-009e)."
+              },
+              "sso_region": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "The Identity Center's region — not the Bedrock region (FR-010)."
+              },
+              "sso_state": {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/SsoSessionState",
+                    "description": "`configured`, `signed-in`, `expired` or `unreadable`; `null` for every other provider."
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "start_url": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "The Identity Center start URL, shown in clear (FR-009b)."
+              },
               "used_by": {
                 "$ref": "#/components/schemas/UsedBy"
               },
               "variant": {
                 "$ref": "#/components/schemas/ProviderId",
                 "description": "The same id, under the field name pre-015 clients read."
+              }
+            }
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "APIResponse_RoleList": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "The role list, with the same fallback rule as [`AccountList`].",
+            "required": [
+              "roles",
+              "fallback"
+            ],
+            "properties": {
+              "fallback": {
+                "type": "boolean"
+              },
+              "roles": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/RoleView"
+                }
               }
             }
           },
@@ -9542,6 +11165,36 @@
           }
         }
       },
+      "APIResponse_SetModeResponse": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "mode"
+            ],
+            "properties": {
+              "mode": {
+                "$ref": "#/components/schemas/ProjectMode"
+              }
+            }
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
       "APIResponse_SetupStates": {
         "type": "object",
         "required": [
@@ -9560,6 +11213,67 @@
                 "items": {
                   "$ref": "#/components/schemas/SetupState"
                 }
+              }
+            }
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "APIResponse_SignInResponse": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "data": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SignInStarted"
+              },
+              {
+                "$ref": "#/components/schemas/SignInProgress"
+              }
+            ],
+            "description": "One answer to `POST /{id}/sso/sign-in` (contracts §3): a fresh code to type, the pending state\nafter a poll, or the completed sign-in. Untagged on the wire, exactly the three bodies the\ncontract shows — and none of them carries the device code, a token or a secret half (FR-009b)."
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "APIResponse_SignOutResponse": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "After a sign-out the connection is configured and has no session; nothing else changed.",
+            "required": [
+              "state"
+            ],
+            "properties": {
+              "state": {
+                "type": "string"
               }
             }
           },
@@ -9769,6 +11483,58 @@
           }
         }
       },
+      "APIResponse_TopicEntry": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "topic_id",
+              "title",
+              "agent_id",
+              "channel",
+              "is_thinking",
+              "running_jobs"
+            ],
+            "properties": {
+              "agent_id": {
+                "type": "string"
+              },
+              "channel": {
+                "type": "string"
+              },
+              "is_thinking": {
+                "type": "boolean"
+              },
+              "running_jobs": {
+                "type": "integer",
+                "description": "Background jobs launched from this topic that are still in flight.",
+                "minimum": 0
+              },
+              "title": {
+                "type": "string"
+              },
+              "topic_id": {
+                "type": "string"
+              }
+            }
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
       "APIResponse_UpdateMemoryResponse": {
         "type": "object",
         "required": [
@@ -9809,6 +11575,13 @@
                 "items": {
                   "type": "string"
                 }
+              },
+              "warning": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Present only when the content went over the soft limit (contracts/http-api.md)."
               }
             }
           },
@@ -10256,6 +12029,10 @@
                 "name": {
                   "type": "string"
                 },
+                "protected": {
+                  "type": "boolean",
+                  "description": "The bundle cannot be deleted, though the documents inside it can\n(specs/043-unify-core-and-memory). Additive: a client that ignores it is unchanged."
+                },
                 "updated_at": {
                   "type": [
                     "string",
@@ -10344,6 +12121,148 @@
                 },
                 "used_by": {
                   "$ref": "#/components/schemas/UsedBy"
+                }
+              }
+            }
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "APIResponse_Vec_FileSuggestion": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "path",
+                "kind"
+              ],
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "description": "`file` or `dir`."
+                },
+                "path": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "APIResponse_Vec_GitBranch": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "One local branch, and the worktree already holding it (FR-023).",
+              "required": [
+                "name",
+                "current"
+              ],
+              "properties": {
+                "checked_out_in": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/BranchHolder"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "current": {
+                  "type": "boolean"
+                },
+                "name": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "APIResponse_Vec_GitChange": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "A changed file with its added/removed line counts.",
+              "required": [
+                "path",
+                "kind",
+                "added",
+                "removed"
+              ],
+              "properties": {
+                "added": {
+                  "type": "integer",
+                  "format": "int64",
+                  "minimum": 0
+                },
+                "kind": {
+                  "$ref": "#/components/schemas/GitChangeKind"
+                },
+                "old_path": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "path": {
+                  "type": "string"
+                },
+                "removed": {
+                  "type": "integer",
+                  "format": "int64",
+                  "minimum": 0
                 }
               }
             }
@@ -10727,6 +12646,17 @@
                   ],
                   "description": "`server` for a local provider's live model the catalogue doesn't have."
                 },
+                "pricing": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/EntryPricingView",
+                      "description": "An inference-profile entry's computed pricing (contracts §5); absent for catalogue\nmodels, which carry their own `cost`."
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
                 "release_date": {
                   "type": [
                     "string",
@@ -10736,6 +12666,108 @@
                 },
                 "status": {
                   "$ref": "#/components/schemas/ModelStatus"
+                }
+              }
+            }
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "APIResponse_Vec_ProfileEntryResponse": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "One saved inference-profile entry as the settings row shows it (contracts §4): the ARN the\nperson pasted, the limits they set, the optional pricing pairing, and a name to show for it.",
+              "required": [
+                "arn",
+                "edited",
+                "display_name",
+                "pricing"
+              ],
+              "properties": {
+                "arn": {
+                  "type": "string",
+                  "description": "The ARN exactly as saved (FR-027)."
+                },
+                "context": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "int64",
+                  "description": "Unknown when unset — never \"unsupported\", never copied from the paired model (FR-028,\nFR-034a.6).",
+                  "minimum": 0
+                },
+                "display_name": {
+                  "type": "string",
+                  "description": "The entry's name, or the profile id from its ARN when it has none (FR-026)."
+                },
+                "edited": {
+                  "type": "boolean"
+                },
+                "image_input": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
+                "model": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "The catalogue model id the entry is priced from, when the person paired one (FR-034a.1)."
+                },
+                "name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "output": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "int64",
+                  "minimum": 0
+                },
+                "price": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/Cost",
+                      "description": "The hand-entered cost, when there is one (FR-034a.4)."
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "pricing": {
+                  "$ref": "#/components/schemas/EntryPricingView",
+                  "description": "What its usage will cost right now, computed from the entry's current state — the figure,\nor the absence with a cause-specific reason and the way out (contracts §4a, FR-034a.2,\nFR-034a.3, FR-034b, SC-021). Never stored, so re-picking a model or entering a price\nclears it with no manual edit."
+                },
+                "tool_call": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
                 }
               }
             }
@@ -10766,7 +12798,8 @@
               "required": [
                 "topic",
                 "title",
-                "is_thinking"
+                "is_thinking",
+                "mode"
               ],
               "properties": {
                 "is_thinking": {
@@ -10780,11 +12813,86 @@
                   "format": "int64",
                   "description": "Unix milliseconds; `null` for a brand-new empty session."
                 },
+                "mode": {
+                  "$ref": "#/components/schemas/ProjectMode",
+                  "description": "The chat's saved Plan/Build mode (FR-009)."
+                },
                 "title": {
                   "type": "string"
                 },
                 "topic": {
                   "type": "string"
+                },
+                "worktree": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/WorktreeSummary",
+                      "description": "The worktree this chat works in, when it has one."
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "APIResponse_Vec_ProjectSkillRow": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "One skill a project chat can run, as the composer's `/` menu lists it.",
+              "required": [
+                "name",
+                "description",
+                "scope",
+                "user_invocable",
+                "folder"
+              ],
+              "properties": {
+                "argument_hint": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "The usage line the skill declares, e.g. `[audit|critique] [target]`."
+                },
+                "description": {
+                  "type": "string"
+                },
+                "folder": {
+                  "type": "string",
+                  "description": "Its folder relative to the chat's folder, which is what `use_skill` reports."
+                },
+                "name": {
+                  "type": "string"
+                },
+                "scope": {
+                  "type": "string",
+                  "description": "`project`. Every row here is one, and saying so keeps the shape the same if a later route\nmerges the workspace scopes in."
+                },
+                "user_invocable": {
+                  "type": "boolean",
+                  "description": "Whether a person may run it by name; a `false` one is prose for the agent, not a command."
                 }
               }
             }
@@ -10899,7 +13007,9 @@
                 "has_access_token",
                 "has_secret_access_key",
                 "has_session_token",
-                "used_by"
+                "used_by",
+                "has_sso_session",
+                "profiles"
               ],
               "properties": {
                 "access_key_id": {
@@ -10946,6 +13056,10 @@
                 "has_session_token": {
                   "type": "boolean"
                 },
+                "has_sso_session": {
+                  "type": "boolean",
+                  "description": "A session row exists and decrypts with this workspace key."
+                },
                 "id": {
                   "$ref": "#/components/schemas/ProviderId"
                 },
@@ -10975,6 +13089,13 @@
                 "origin": {
                   "$ref": "#/components/schemas/ProviderOrigin"
                 },
+                "profiles": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ProfileEntryResponse"
+                  },
+                  "description": "The saved inference-profile entries, as saved: no price is invented here (FR-026, FR-028)."
+                },
                 "reachable": {
                   "type": [
                     "boolean",
@@ -10989,12 +13110,59 @@
                   ],
                   "description": "AWS region, safe to show."
                 },
+                "role_name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "The role chosen from the portal."
+                },
+                "session_expires_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time",
+                  "description": "When the stored session's access token expires."
+                },
                 "source": {
                   "type": [
                     "string",
                     "null"
                   ],
                   "description": "`saved`, `env:NAME`, or `null` for a local provider on its default address."
+                },
+                "sso_profile": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "The non-secret handle the session is stored under (FR-009e)."
+                },
+                "sso_region": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "The Identity Center's region — not the Bedrock region (FR-010)."
+                },
+                "sso_state": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/SsoSessionState",
+                      "description": "`configured`, `signed-in`, `expired` or `unreadable`; `null` for every other provider."
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "start_url": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "The Identity Center start URL, shown in clear (FR-009b)."
                 },
                 "used_by": {
                   "$ref": "#/components/schemas/UsedBy"
@@ -11333,6 +13501,188 @@
             "type": "integer",
             "format": "int32",
             "minimum": 0
+          }
+        }
+      },
+      "APIResponse_Vec_WorktreeSummary": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "A worktree as the sidebar and a create response show it.",
+              "required": [
+                "id",
+                "name",
+                "branch",
+                "available"
+              ],
+              "properties": {
+                "available": {
+                  "type": "boolean",
+                  "description": "The folder is still there (FR-032)."
+                },
+                "branch": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "APIResponse_WorktreeDeleted": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "deleted",
+              "branch_deleted"
+            ],
+            "properties": {
+              "branch_deleted": {
+                "type": "boolean"
+              },
+              "deleted": {
+                "type": "boolean"
+              }
+            }
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "APIResponse_WorktreeDetail": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "data": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/WorktreeSummary"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "base_ref",
+                  "path",
+                  "created_at",
+                  "changed",
+                  "untracked",
+                  "branch_merged"
+                ],
+                "properties": {
+                  "base_ref": {
+                    "type": "string"
+                  },
+                  "branch_merged": {
+                    "type": "boolean"
+                  },
+                  "changed": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "created_at": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "path": {
+                    "type": "string"
+                  },
+                  "untracked": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                }
+              }
+            ]
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "AccountList": {
+        "type": "object",
+        "description": "The account list, with the free-text fallback only when the portal listed nothing (FR-007).",
+        "required": [
+          "accounts",
+          "fallback"
+        ],
+        "properties": {
+          "accounts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AccountView"
+            }
+          },
+          "fallback": {
+            "type": "boolean"
+          }
+        }
+      },
+      "AccountView": {
+        "type": "object",
+        "description": "One account the portal listed, for the picker (contracts §3).",
+        "required": [
+          "account_id",
+          "account_name"
+        ],
+        "properties": {
+          "account_id": {
+            "type": "string"
+          },
+          "account_name": {
+            "type": "string"
+          },
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },
@@ -11898,6 +14248,65 @@
           }
         }
       },
+      "Answer": {
+        "type": "object",
+        "description": "One question's part of an answer.",
+        "required": [
+          "question_id",
+          "state"
+        ],
+        "properties": {
+          "label": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The chosen option's label, filled at submission so the agent and the record show what the\nperson read rather than only the value it stands for."
+          },
+          "question_id": {
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/AnswerState"
+          },
+          "value": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/AnswerValue",
+                "description": "Absent for a skipped question."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "AnswerState": {
+        "type": "string",
+        "description": "Whether a question was answered or deliberately left blank (FR-013, US2 #3).",
+        "enum": [
+          "answered",
+          "skipped"
+        ]
+      },
+      "AnswerValue": {
+        "oneOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          {
+            "type": "boolean"
+          }
+        ],
+        "description": "One value a person can give, or one a question offers as its default.\n\nUntagged because the three shapes cannot be confused in JSON — a string, a list of strings and\na boolean — so the wire form is the natural one (`\"sqlite\"`, `[\"auth\", \"ci\"]`, `true`) rather\nthan a tagged wrapper the agent would have to learn."
+      },
       "ApiKeyResponse": {
         "type": "object",
         "required": [
@@ -12312,6 +14721,17 @@
           }
         }
       },
+      "AskState": {
+        "type": "string",
+        "description": "Where a sensitive ask stands (data-model.md §7).",
+        "enum": [
+          "open",
+          "provided",
+          "declined",
+          "timed_out",
+          "abandoned"
+        ]
+      },
       "AttachArtifactRequest": {
         "type": "object",
         "required": [
@@ -12492,6 +14912,24 @@
           }
         }
       },
+      "BranchHolder": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "worktree_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`None` for the project's own folder."
+          }
+        }
+      },
       "BreakdownRow": {
         "type": "object",
         "required": [
@@ -12606,6 +15044,10 @@
           },
           "name": {
             "type": "string"
+          },
+          "protected": {
+            "type": "boolean",
+            "description": "The bundle cannot be deleted, though the documents inside it can\n(specs/043-unify-core-and-memory). Additive: a client that ignores it is unchanged."
           },
           "updated_at": {
             "type": [
@@ -12887,6 +15329,31 @@
                 "type": "null"
               }
             ]
+          }
+        }
+      },
+      "ChoiceOption": {
+        "type": "object",
+        "description": "One choice a `choice` or `multi_choice` question offers (FR-003).\n\nNamed `ChoiceOption` rather than `Option` so it does not shadow the prelude's `Option` in\nevery signature that mentions both.",
+        "required": [
+          "value",
+          "label"
+        ],
+        "properties": {
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "A line of explanation under the label."
+          },
+          "label": {
+            "type": "string",
+            "description": "What the person reads."
+          },
+          "value": {
+            "type": "string",
+            "description": "What the agent receives when this option is chosen. Never travels inside a control id."
           }
         }
       },
@@ -13328,7 +15795,7 @@
               "null"
             ],
             "format": "int64",
-            "description": "The current revision, to send back as `base_seq`. Absent when CORE has no history yet."
+            "description": "The current revision, to send back as `base_seq`. Absent when there is no history yet."
           }
         }
       },
@@ -13850,6 +16317,13 @@
           },
           "title": {
             "type": "string"
+          },
+          "warning": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Present only when the content went over the soft limit. Additive: a client that ignores\nit behaves exactly as before (contracts/http-api.md)."
           }
         }
       },
@@ -13902,6 +16376,46 @@
           }
         }
       },
+      "CreateWorktreeRequest": {
+        "type": "object",
+        "required": [
+          "name",
+          "base"
+        ],
+        "properties": {
+          "base": {
+            "type": "string"
+          },
+          "branch": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "CreateWorktreeResponse": {
+        "type": "object",
+        "required": [
+          "worktree",
+          "topic",
+          "channel_id"
+        ],
+        "properties": {
+          "channel_id": {
+            "type": "string"
+          },
+          "topic": {
+            "type": "string"
+          },
+          "worktree": {
+            "$ref": "#/components/schemas/WorktreeSummary"
+          }
+        }
+      },
       "CredentialField": {
         "type": "string",
         "description": "A credential field a provider's connect form asks for.",
@@ -13914,7 +16428,11 @@
           "access_key_id",
           "secret_access_key",
           "session_token",
-          "region"
+          "region",
+          "start_url",
+          "sso_region",
+          "role_name",
+          "sso_profile"
         ]
       },
       "CustomModel": {
@@ -14109,6 +16627,7 @@
               "description": "What a model call was for. Decided once, when the call is recorded (research R4).",
               "enum": [
                 "chat",
+                "project",
                 "background",
                 "scheduled",
                 "dreams",
@@ -14412,7 +16931,14 @@
             "description": "At most [`MAX_CHANGES`]; `more` counts the rest."
           },
           "core": {
-            "type": "boolean"
+            "type": "boolean",
+            "description": "Did this cycle change the agent's identity? Recomputed from `core_changes` so the flag\nand the count can never disagree."
+          },
+          "core_changes": {
+            "type": "integer",
+            "format": "int32",
+            "description": "How many identity changes: any revision whose **bundle** is the reserved one\n(specs/043-unify-core-and-memory, FR-031/FR-033). Excluded from\nwritten/revised/removed — an identity change is not also a memory change (FR-032).",
+            "minimum": 0
           },
           "cost_usd": {
             "type": [
@@ -14512,11 +17038,17 @@
         "required": [
           "date",
           "memories",
-          "core"
+          "core",
+          "core_changes"
         ],
         "properties": {
           "core": {
             "type": "boolean"
+          },
+          "core_changes": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
           },
           "cycle_id": {
             "type": [
@@ -14532,7 +17064,7 @@
           "memories": {
             "type": "integer",
             "format": "int32",
-            "description": "written + revised + removed",
+            "description": "written + revised + removed, excluding identity changes",
             "minimum": 0
           },
           "state": {
@@ -14599,6 +17131,58 @@
           "copilot",
           "bedrock"
         ]
+      },
+      "EntryPricingView": {
+        "type": "object",
+        "description": "One entry's `pricing` as the API reports it (contracts §4a): the state, the figure when there\nis one, and — for every absence — the label plus a cause-specific reason that carries the way\nout. Computed per request from the entry's current state, never stored (FR-034a.2, FR-034b,\nSC-021). Fields that do not belong to an outcome are omitted, so the three absence shapes stay\ndistinct without a stored column.",
+        "required": [
+          "state"
+        ],
+        "properties": {
+          "cost": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Cost",
+                "description": "The resolved figure, for the two priced states."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "flag": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The label a person sees for an absence: `pricing not set` or `pricing not resolved`."
+          },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The paired catalogue id, for `from_catalogue` and `not_resolved`."
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why it is unpriced and the way out: never empty, never shared between causes."
+          },
+          "source": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Where the figure came from, for `explicit` (`entered price`)."
+          },
+          "state": {
+            "type": "string",
+            "description": "`explicit`, `from_catalogue`, `not_resolved`, `not_set` or `no_catalogue`."
+          }
+        }
       },
       "ErrorKind": {
         "type": "string",
@@ -14701,6 +17285,22 @@
           "select"
         ]
       },
+      "FileSuggestion": {
+        "type": "object",
+        "required": [
+          "path",
+          "kind"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "description": "`file` or `dir`."
+          },
+          "path": {
+            "type": "string"
+          }
+        }
+      },
       "GetTasksQuery": {
         "type": "object",
         "properties": {
@@ -14709,6 +17309,141 @@
               "boolean",
               "null"
             ]
+          }
+        }
+      },
+      "GitBranch": {
+        "type": "object",
+        "description": "One local branch, and the worktree already holding it (FR-023).",
+        "required": [
+          "name",
+          "current"
+        ],
+        "properties": {
+          "checked_out_in": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BranchHolder"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "current": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "GitChange": {
+        "type": "object",
+        "description": "A changed file with its added/removed line counts.",
+        "required": [
+          "path",
+          "kind",
+          "added",
+          "removed"
+        ],
+        "properties": {
+          "added": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "kind": {
+            "$ref": "#/components/schemas/GitChangeKind"
+          },
+          "old_path": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "path": {
+            "type": "string"
+          },
+          "removed": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "GitChangeKind": {
+        "type": "string",
+        "description": "The kind of a change, as the API and tools name it.",
+        "enum": [
+          "modified",
+          "added",
+          "deleted",
+          "renamed",
+          "untracked",
+          "conflicted"
+        ]
+      },
+      "GitFileDiff": {
+        "type": "object",
+        "description": "One file's unified diff against the last commit.",
+        "required": [
+          "path",
+          "diff",
+          "truncated",
+          "binary"
+        ],
+        "properties": {
+          "binary": {
+            "type": "boolean"
+          },
+          "diff": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        }
+      },
+      "GitSummary": {
+        "type": "object",
+        "description": "The header's branch and change count.",
+        "required": [
+          "available",
+          "detached",
+          "ahead",
+          "behind",
+          "changed"
+        ],
+        "properties": {
+          "ahead": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "available": {
+            "type": "boolean"
+          },
+          "behind": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "branch": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "changed": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "detached": {
+            "type": "boolean"
           }
         }
       },
@@ -16149,6 +18884,17 @@
             ],
             "description": "`server` for a local provider's live model the catalogue doesn't have."
           },
+          "pricing": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/EntryPricingView",
+                "description": "An inference-profile entry's computed pricing (contracts §5); absent for catalogue\nmodels, which carry their own `cost`."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "release_date": {
             "type": [
               "string",
@@ -16499,6 +19245,160 @@
           }
         ]
       },
+      "ProfileEntry": {
+        "type": "object",
+        "description": "One Application Inference Profile a connection may chat through (spec 044, data-model\n\"profile entry\"). Non-secret: the ARN as saved, an optional display name and optional\nlimits, plus the optional pricing pairing (`model` + `price`, FR-034a).",
+        "required": [
+          "arn"
+        ],
+        "properties": {
+          "arn": {
+            "type": "string",
+            "description": "The ARN exactly as saved; sent to the runtime unchanged (FR-027)."
+          },
+          "context": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Context window; unset is unknown, never \"unsupported\" (FR-028).",
+            "minimum": 0
+          },
+          "edited": {
+            "type": "boolean",
+            "description": "Set once a person changed the row, so a future fetch never overwrites it (the\n`CustomModel.edited` convention)."
+          },
+          "image_input": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Whether the profile takes images; unset is unknown."
+          },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The pricing pairing: one catalogue Bedrock model id, re-resolved on every read so a\ncatalogue refresh reprices the entry and an id that has left the catalogue stays saved\n(FR-034a.1, FR-034a.3)."
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Shown instead of the profile id when set (FR-026)."
+          },
+          "output": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Output limit; unset is unknown.",
+            "minimum": 0
+          },
+          "price": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Cost",
+                "description": "A hand-entered cost, in the catalogue's per-million rates; set means no catalogue lookup\nhappens and a refresh never overwrites it (FR-034a.4)."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tool_call": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Whether the profile takes tools; unset is unknown."
+          }
+        }
+      },
+      "ProfileEntryResponse": {
+        "type": "object",
+        "description": "One saved inference-profile entry as the settings row shows it (contracts §4): the ARN the\nperson pasted, the limits they set, the optional pricing pairing, and a name to show for it.",
+        "required": [
+          "arn",
+          "edited",
+          "display_name",
+          "pricing"
+        ],
+        "properties": {
+          "arn": {
+            "type": "string",
+            "description": "The ARN exactly as saved (FR-027)."
+          },
+          "context": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Unknown when unset — never \"unsupported\", never copied from the paired model (FR-028,\nFR-034a.6).",
+            "minimum": 0
+          },
+          "display_name": {
+            "type": "string",
+            "description": "The entry's name, or the profile id from its ARN when it has none (FR-026)."
+          },
+          "edited": {
+            "type": "boolean"
+          },
+          "image_input": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The catalogue model id the entry is priced from, when the person paired one (FR-034a.1)."
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "output": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "price": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Cost",
+                "description": "The hand-entered cost, when there is one (FR-034a.4)."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "pricing": {
+            "$ref": "#/components/schemas/EntryPricingView",
+            "description": "What its usage will cost right now, computed from the entry's current state — the figure,\nor the absence with a cause-specific reason and the way out (contracts §4a, FR-034a.2,\nFR-034a.3, FR-034b, SC-021). Never stored, so re-picking a model or entering a price\nclears it with no manual edit."
+          },
+          "tool_call": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          }
+        }
+      },
       "ProjectDetail": {
         "allOf": [
           {
@@ -16508,7 +19408,8 @@
             "type": "object",
             "required": [
               "instructions_present",
-              "instructions_truncated"
+              "instructions_truncated",
+              "worktree_count"
             ],
             "properties": {
               "instructions_present": {
@@ -16516,9 +19417,22 @@
               },
               "instructions_truncated": {
                 "type": "boolean"
+              },
+              "worktree_count": {
+                "type": "integer",
+                "description": "Worktree chats whose folders stay on disk when the project is removed (FR-033).",
+                "minimum": 0
               }
             }
           }
+        ]
+      },
+      "ProjectMode": {
+        "type": "string",
+        "description": "What a project chat may do (`specs/041-project-coding-workspace` FR-009): Plan is read-only,\nBuild may change files and, with the shell switch on, run commands. No row means `Plan`.",
+        "enum": [
+          "plan",
+          "build"
         ]
       },
       "ProjectRemoved": {
@@ -16532,12 +19446,40 @@
           }
         }
       },
+      "ProjectScope": {
+        "type": "object",
+        "description": "The project a subagent piece works in, copied from the launching turn (FR-007a). Set only\nby `BackgroundJobs::dispatch_piece`, never by a client.",
+        "required": [
+          "project_id",
+          "owner",
+          "topic",
+          "mode"
+        ],
+        "properties": {
+          "mode": {
+            "$ref": "#/components/schemas/ProjectMode",
+            "description": "The launching turn's mode, fixed for the piece."
+          },
+          "owner": {
+            "type": "string",
+            "description": "The launching chat's username."
+          },
+          "project_id": {
+            "type": "string"
+          },
+          "topic": {
+            "type": "string",
+            "description": "The launching chat's topic: resolves its worktree."
+          }
+        }
+      },
       "ProjectSession": {
         "type": "object",
         "required": [
           "topic",
           "title",
-          "is_thinking"
+          "is_thinking",
+          "mode"
         ],
         "properties": {
           "is_thinking": {
@@ -16551,11 +19493,64 @@
             "format": "int64",
             "description": "Unix milliseconds; `null` for a brand-new empty session."
           },
+          "mode": {
+            "$ref": "#/components/schemas/ProjectMode",
+            "description": "The chat's saved Plan/Build mode (FR-009)."
+          },
           "title": {
             "type": "string"
           },
           "topic": {
             "type": "string"
+          },
+          "worktree": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/WorktreeSummary",
+                "description": "The worktree this chat works in, when it has one."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "ProjectSkillRow": {
+        "type": "object",
+        "description": "One skill a project chat can run, as the composer's `/` menu lists it.",
+        "required": [
+          "name",
+          "description",
+          "scope",
+          "user_invocable",
+          "folder"
+        ],
+        "properties": {
+          "argument_hint": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The usage line the skill declares, e.g. `[audit|critique] [target]`."
+          },
+          "description": {
+            "type": "string"
+          },
+          "folder": {
+            "type": "string",
+            "description": "Its folder relative to the chat's folder, which is what `use_skill` reports."
+          },
+          "name": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string",
+            "description": "`project`. Every row here is one, and saying so keeps the shape the same if a later route\nmerges the workspace scopes in."
+          },
+          "user_invocable": {
+            "type": "boolean",
+            "description": "Whether a person may run it by name; a `false` one is prose for the agent, not a command."
           }
         }
       },
@@ -16693,7 +19688,9 @@
           "has_access_token",
           "has_secret_access_key",
           "has_session_token",
-          "used_by"
+          "used_by",
+          "has_sso_session",
+          "profiles"
         ],
         "properties": {
           "access_key_id": {
@@ -16740,6 +19737,10 @@
           "has_session_token": {
             "type": "boolean"
           },
+          "has_sso_session": {
+            "type": "boolean",
+            "description": "A session row exists and decrypts with this workspace key."
+          },
           "id": {
             "$ref": "#/components/schemas/ProviderId"
           },
@@ -16769,6 +19770,13 @@
           "origin": {
             "$ref": "#/components/schemas/ProviderOrigin"
           },
+          "profiles": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProfileEntryResponse"
+            },
+            "description": "The saved inference-profile entries, as saved: no price is invented here (FR-026, FR-028)."
+          },
           "reachable": {
             "type": [
               "boolean",
@@ -16783,12 +19791,59 @@
             ],
             "description": "AWS region, safe to show."
           },
+          "role_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The role chosen from the portal."
+          },
+          "session_expires_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "When the stored session's access token expires."
+          },
           "source": {
             "type": [
               "string",
               "null"
             ],
             "description": "`saved`, `env:NAME`, or `null` for a local provider on its default address."
+          },
+          "sso_profile": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The non-secret handle the session is stored under (FR-009e)."
+          },
+          "sso_region": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The Identity Center's region — not the Bedrock region (FR-010)."
+          },
+          "sso_state": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SsoSessionState",
+                "description": "`configured`, `signed-in`, `expired` or `unreadable`; `null` for every other provider."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "start_url": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The Identity Center start URL, shown in clear (FR-009b)."
           },
           "used_by": {
             "$ref": "#/components/schemas/UsedBy"
@@ -16921,6 +19976,162 @@
           }
         }
       },
+      "Question": {
+        "type": "object",
+        "description": "One question in a set (FR-002, FR-003).\n\nThe type-specific fields are flat, as the wire contract states them, and\n[`crate::questions::validate`] is the one place that decides which apply to which type: a\n`choice` with no `options` is refused, and `max_length` on a `choice` is ignored rather than\nrejected, so an agent that sends a superset still gets a usable question.",
+        "required": [
+          "id",
+          "prompt",
+          "type"
+        ],
+        "properties": {
+          "default": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/AnswerValue",
+                "description": "Counts as an answer, so a required question with a default may be submitted untouched."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "help": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Shown under the prompt, for a question whose point is not obvious."
+          },
+          "id": {
+            "type": "string",
+            "description": "Stable within the set; what the answer names."
+          },
+          "max_length": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "`text`: the longest answer accepted, in bytes.",
+            "minimum": 0
+          },
+          "max_selections": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "`multi_choice`: the most answers accepted. Defaults to every option.",
+            "minimum": 0
+          },
+          "min_selections": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "`multi_choice`: the fewest answers accepted. Defaults to none.",
+            "minimum": 0
+          },
+          "multiline": {
+            "type": "boolean",
+            "description": "`text`: a roomier field, for an answer that is a sentence or more."
+          },
+          "no_label": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`confirm`: the label of the negative button."
+          },
+          "optional": {
+            "type": "boolean",
+            "description": "Required by default; an optional question may be left blank and arrives as `skipped`."
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChoiceOption"
+            },
+            "description": "`choice`, `multi_choice`: the choices offered."
+          },
+          "placeholder": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`text`: a hint shown in an empty field."
+          },
+          "prompt": {
+            "type": "string",
+            "description": "The question itself, shown as the field's label."
+          },
+          "type": {
+            "$ref": "#/components/schemas/QuestionType",
+            "description": "The kind of answer wanted."
+          },
+          "yes_label": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`confirm`: the label of the affirmative button."
+          }
+        }
+      },
+      "QuestionAnswer": {
+        "type": "object",
+        "description": "The person's answer, carried as a turn of its own (`contracts/questions-wire.md` §7).",
+        "required": [
+          "set_id"
+        ],
+        "properties": {
+          "answerer": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Who submitted it, as the surface identifies them."
+          },
+          "answers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Answer"
+            },
+            "description": "One entry per question, in the set's order."
+          },
+          "declined": {
+            "type": "boolean",
+            "description": "The person dismissed the set instead of answering it (FR-014)."
+          },
+          "set_id": {
+            "type": "string",
+            "description": "The set being answered."
+          },
+          "text": {
+            "type": "string",
+            "description": "What the conversation shows as the person's message. Built at submission when the client\ndoes not supply one."
+          }
+        }
+      },
+      "QuestionState": {
+        "type": "string",
+        "description": "Where a set stands (data-model.md §1).",
+        "enum": [
+          "pending",
+          "answered",
+          "declined",
+          "withdrawn"
+        ]
+      },
+      "QuestionType": {
+        "type": "string",
+        "description": "What kind of answer a question wants (FR-003).",
+        "enum": [
+          "text",
+          "choice",
+          "multi_choice",
+          "confirm"
+        ]
+      },
       "Rank": {
         "type": "string",
         "description": "How agents are ordered when there are more rows than the grid shows.",
@@ -17043,6 +20254,17 @@
             ]
           },
           "ttl": {
+            "type": "string"
+          }
+        }
+      },
+      "RenameTopicRequest": {
+        "type": "object",
+        "required": [
+          "title"
+        ],
+        "properties": {
+          "title": {
             "type": "string"
           }
         }
@@ -17327,6 +20549,25 @@
         ],
         "description": "A role with how many people have it."
       },
+      "RoleList": {
+        "type": "object",
+        "description": "The role list, with the same fallback rule as [`AccountList`].",
+        "required": [
+          "roles",
+          "fallback"
+        ],
+        "properties": {
+          "fallback": {
+            "type": "boolean"
+          },
+          "roles": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RoleView"
+            }
+          }
+        }
+      },
       "RoleResponse": {
         "type": "object",
         "required": [
@@ -17354,6 +20595,22 @@
             }
           },
           "role_id": {
+            "type": "string"
+          }
+        }
+      },
+      "RoleView": {
+        "type": "object",
+        "description": "One role the identity may assume in an account.",
+        "required": [
+          "role_name",
+          "account_id"
+        ],
+        "properties": {
+          "account_id": {
+            "type": "string"
+          },
+          "role_name": {
             "type": "string"
           }
         }
@@ -17913,6 +21170,112 @@
                 }
               }
             }
+          },
+          {
+            "type": "object",
+            "description": "A question set the agent asked (`specs/042-agent-asking-question`), saved when it is\npresented. Its uid **is** the set id. `state`, `answers` and `answerer` change after the\ninsert, so they live in `question_set` and are filled in on every read, exactly as\n`ClientToolCall`'s `outcome` and `state` are.",
+            "required": [
+              "QuestionSet"
+            ],
+            "properties": {
+              "QuestionSet": {
+                "type": "object",
+                "description": "A question set the agent asked (`specs/042-agent-asking-question`), saved when it is\npresented. Its uid **is** the set id. `state`, `answers` and `answerer` change after the\ninsert, so they live in `question_set` and are filled in on every read, exactly as\n`ClientToolCall`'s `outcome` and `state` are.",
+                "required": [
+                  "set_id",
+                  "questions",
+                  "state"
+                ],
+                "properties": {
+                  "answerer": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "answers": {
+                    "type": [
+                      "array",
+                      "null"
+                    ],
+                    "items": {
+                      "$ref": "#/components/schemas/Answer"
+                    }
+                  },
+                  "description": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "dismiss_label": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "questions": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/Question"
+                    }
+                  },
+                  "set_id": {
+                    "type": "string"
+                  },
+                  "state": {
+                    "$ref": "#/components/schemas/QuestionState"
+                  },
+                  "submit_label": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "title": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "An ask for a sensitive value (`specs/042-agent-asking-question`). Says that one was\nrequested, why, and what came of it — **never the value** (FR-044, FR-054). Its `state` is\nfilled at read time from `sensitive_ask`.",
+            "required": [
+              "SensitiveAsk"
+            ],
+            "properties": {
+              "SensitiveAsk": {
+                "type": "object",
+                "description": "An ask for a sensitive value (`specs/042-agent-asking-question`). Says that one was\nrequested, why, and what came of it — **never the value** (FR-044, FR-054). Its `state` is\nfilled at read time from `sensitive_ask`.",
+                "required": [
+                  "ask_id",
+                  "purpose",
+                  "state"
+                ],
+                "properties": {
+                  "ask_id": {
+                    "type": "string"
+                  },
+                  "label": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "purpose": {
+                    "type": "string"
+                  },
+                  "state": {
+                    "$ref": "#/components/schemas/AskState"
+                  }
+                }
+              }
+            }
           }
         ]
       },
@@ -17936,6 +21299,28 @@
               "boolean",
               "null"
             ]
+          }
+        }
+      },
+      "SetModeRequest": {
+        "type": "object",
+        "required": [
+          "mode"
+        ],
+        "properties": {
+          "mode": {
+            "$ref": "#/components/schemas/ProjectMode"
+          }
+        }
+      },
+      "SetModeResponse": {
+        "type": "object",
+        "required": [
+          "mode"
+        ],
+        "properties": {
+          "mode": {
+            "$ref": "#/components/schemas/ProjectMode"
           }
         }
       },
@@ -18091,11 +21476,158 @@
           }
         }
       },
+      "SignInProgress": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "expires_at",
+              "state"
+            ],
+            "properties": {
+              "expires_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "pending"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "expires_at",
+              "state"
+            ],
+            "properties": {
+              "account_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "expires_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "role_name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "signed-in"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "What a poll of the pending sign-in answered: still waiting (`202`), or signed in (`200`)."
+      },
+      "SignInRequest": {
+        "type": "object",
+        "description": "What the form is about to save for one connection. Every field is optional; an omitted value\nfalls back to the saved row, so a saved connection starts a re-sign-in with an empty body\n(FR-008).",
+        "properties": {
+          "profile": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The profile name the session is stored under (FR-009e)."
+          },
+          "sso_region": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "start_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "SignInResponse": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/SignInStarted"
+          },
+          {
+            "$ref": "#/components/schemas/SignInProgress"
+          }
+        ],
+        "description": "One answer to `POST /{id}/sso/sign-in` (contracts §3): a fresh code to type, the pending state\nafter a poll, or the completed sign-in. Untagged on the wire, exactly the three bodies the\ncontract shows — and none of them carries the device code, a token or a secret half (FR-009b)."
+      },
+      "SignInStarted": {
+        "type": "object",
+        "description": "The pending panel: the code and the URL, and never the device code (contracts §3).",
+        "required": [
+          "user_code",
+          "verification_uri",
+          "expires_at",
+          "interval_seconds"
+        ],
+        "properties": {
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "interval_seconds": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "user_code": {
+            "type": "string"
+          },
+          "verification_uri": {
+            "type": "string"
+          },
+          "verification_uri_complete": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "SignOutResponse": {
+        "type": "object",
+        "description": "After a sign-out the connection is configured and has no session; nothing else changed.",
+        "required": [
+          "state"
+        ],
+        "properties": {
+          "state": {
+            "type": "string"
+          }
+        }
+      },
       "SortOrder": {
         "type": "string",
         "enum": [
           "asc",
           "desc"
+        ]
+      },
+      "SsoSessionState": {
+        "type": "string",
+        "description": "Where the connection stands, as the settings row renders it (data-model \"the connection\nstate machine\"). Derived from the stored rows on every read, never stored itself.",
+        "enum": [
+          "configured",
+          "signed-in",
+          "expired",
+          "unreadable"
         ]
       },
       "String": {
@@ -18134,6 +21666,29 @@
           "provider": {
             "$ref": "#/components/schemas/SttProvider",
             "default": "whisper"
+          }
+        }
+      },
+      "SwitchBranchRequest": {
+        "type": "object",
+        "required": [
+          "branch"
+        ],
+        "properties": {
+          "branch": {
+            "type": "string"
+          },
+          "create": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "topic": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },
@@ -18468,7 +22023,7 @@
               "null"
             ],
             "format": "int64",
-            "description": "The revision this edit started from (`seq` of `GET /core`). When CORE has moved on, the\nsave is refused with `409 stale_revision` instead of overwriting the newer text."
+            "description": "The revision this edit started from (`seq` of `GET /core`). When the identity document\nhas moved on, the save is refused with `409 stale_revision` instead of overwriting the\nnewer text."
           },
           "content": {
             "type": "string"
@@ -18513,6 +22068,14 @@
             "items": {
               "$ref": "#/components/schemas/VizierAttachment"
             }
+          },
+          "base_seq": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "The revision this edit started from, when the client knows it. When the document has\nmoved on, the save is refused with `409 stale_revision` and the newer content instead of\noverwriting it (FR-028). Optional and additive: a client that omits it keeps the old\nlast-write-wins behaviour."
           },
           "content": {
             "type": "string"
@@ -18562,6 +22125,13 @@
             "items": {
               "type": "string"
             }
+          },
+          "warning": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Present only when the content went over the soft limit (contracts/http-api.md)."
           }
         }
       },
@@ -18660,12 +22230,29 @@
               "null"
             ]
           },
+          "profiles": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/ProfileEntry"
+            },
+            "description": "Amazon Bedrock (SSO): the whole inference-profile list, one operation — omitted keeps the\nstored list, `[]` clears it (FR-021)."
+          },
           "region": {
             "type": [
               "string",
               "null"
             ],
-            "description": "AWS region."
+            "description": "AWS region; for the SSO provider this is the **Bedrock** region (FR-010)."
+          },
+          "role_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Amazon Bedrock (SSO): the role chosen from the portal."
           },
           "secret_access_key": {
             "type": [
@@ -18680,6 +22267,27 @@
               "null"
             ],
             "description": "AWS Bedrock temporary-credential session token (write-only after saving)."
+          },
+          "sso_profile": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Amazon Bedrock (SSO): the non-secret handle the session is stored under (FR-009e)."
+          },
+          "sso_region": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Amazon Bedrock (SSO): the region the Identity Center instance lives in; defaults from\n`region` when only that one is given (FR-010)."
+          },
+          "start_url": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Amazon Bedrock (SSO): the Identity Center start URL (FR-005)."
           }
         },
         "additionalProperties": false
@@ -18689,6 +22297,7 @@
         "description": "What a model call was for. Decided once, when the call is recorded (research R4).",
         "enum": [
           "chat",
+          "project",
           "background",
           "scheduled",
           "dreams",
@@ -19059,11 +22668,29 @@
               "null"
             ]
           },
+          "mentions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Files and folders a project chat's message mentions (FR-018). Their contents are\nresolved when the turn starts and never stored."
+          },
           "metadata": {},
           "platform_message_id": {
             "oneOf": [
               {
                 "$ref": "#/components/schemas/PlatformMessageId"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "project_scope": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ProjectScope",
+                "description": "The project a subagent piece works in (`specs/041-project-coding-workspace` R11),\ncopied from the launching turn by `BackgroundJobs::dispatch_piece`. It is serialised\nwith the durable turn row, so a resumed piece keeps the folder and mode it started\nwith; clients cannot send it."
               },
               {
                 "type": "null"
@@ -19213,6 +22840,19 @@
               "btw": {
                 "$ref": "#/components/schemas/SideChat",
                 "description": "An off-the-record `/btw` question (`specs/033-btw-side-chat`): the agent answers it\nfrom the conversation's context, but nothing above, about or around it is saved.\nDispatched beside `checkpoint`/`lobotomy`, never through `handle_request`."
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "A person's answer to a question set (`specs/042-agent-asking-question`). It starts a turn\nlike `Chat`: same history, same queue, same attribution, no bypass (FR-015).",
+            "required": [
+              "question_answer"
+            ],
+            "properties": {
+              "question_answer": {
+                "$ref": "#/components/schemas/QuestionAnswer",
+                "description": "A person's answer to a question set (`specs/042-agent-asking-question`). It starts a turn\nlike `Chat`: same history, same queue, same attribution, no bypass (FR-015)."
               }
             }
           }
@@ -19516,6 +23156,87 @@
         },
         "maxItems": 3,
         "minItems": 3
+      },
+      "WorktreeDeleted": {
+        "type": "object",
+        "required": [
+          "deleted",
+          "branch_deleted"
+        ],
+        "properties": {
+          "branch_deleted": {
+            "type": "boolean"
+          },
+          "deleted": {
+            "type": "boolean"
+          }
+        }
+      },
+      "WorktreeDetail": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/WorktreeSummary"
+          },
+          {
+            "type": "object",
+            "required": [
+              "base_ref",
+              "path",
+              "created_at",
+              "changed",
+              "untracked",
+              "branch_merged"
+            ],
+            "properties": {
+              "base_ref": {
+                "type": "string"
+              },
+              "branch_merged": {
+                "type": "boolean"
+              },
+              "changed": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "created_at": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "path": {
+                "type": "string"
+              },
+              "untracked": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          }
+        ]
+      },
+      "WorktreeSummary": {
+        "type": "object",
+        "description": "A worktree as the sidebar and a create response show it.",
+        "required": [
+          "id",
+          "name",
+          "branch",
+          "available"
+        ],
+        "properties": {
+          "available": {
+            "type": "boolean",
+            "description": "The folder is still there (FR-032)."
+          },
+          "branch": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
       }
     }
   }

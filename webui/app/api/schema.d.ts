@@ -129,7 +129,7 @@ export interface paths {
         delete: operations["delete_topic"];
         options?: never;
         head?: never;
-        patch?: never;
+        patch: operations["rename_topic"];
         trace?: never;
     };
     "/agents/{agent_id}/channel/{channel_id}/topic/{topic_id}/chat": {
@@ -316,7 +316,17 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /**
+         * **Deprecated.** Read the identity document at `GET /agents/{agent_id}/memory/doc/core/soul`
+         *     instead; this is a projection over that same document (specs/043-unify-core-and-memory).
+         * @description DEPRECATED — identity is the memory document `core/soul`. Use `GET /agents/{agent_id}/memory/doc/core/soul` instead. Kept working with unchanged response shapes; it reads the same document, so the two can never disagree.
+         */
         get: operations["get_core"];
+        /**
+         * **Deprecated.** Write the identity document at `PUT /agents/{agent_id}/memory/doc/core/soul`
+         *     instead; this is a projection over that same document.
+         * @description DEPRECATED — identity is the memory document `core/soul`. Use `PUT /agents/{agent_id}/memory/doc/core/soul` instead. `base_seq` still refuses a stale save with 409.
+         */
         put: operations["update_core"];
         post?: never;
         delete?: never;
@@ -332,8 +342,18 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /**
+         * **Deprecated.** Use the memory revision endpoints for `core/soul` instead; this projects the
+         *     same `memory_revision` rows.
+         * @description DEPRECATED — this projects the memory revision history of `core/soul`. Use the memory revision endpoints for `core/soul` instead.
+         */
         get: operations["get_core_history"];
         put?: never;
+        /**
+         * **Deprecated.** Use the memory rollback endpoint for `core/soul` instead; this restores
+         *     through the same write path.
+         * @description DEPRECATED — this restores a memory revision of `core/soul`. Use the memory rollback endpoint for `core/soul` instead.
+         */
         post: operations["rollback_core"];
         delete?: never;
         options?: never;
@@ -581,6 +601,102 @@ export interface paths {
         patch: operations["update"];
         trace?: never;
     };
+    "/agents/{agent_id}/projects/{project_id}/files": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["files"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agent_id}/projects/{project_id}/git": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["git_summary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agent_id}/projects/{project_id}/git/branches": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["git_branches"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agent_id}/projects/{project_id}/git/changes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["git_changes"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agent_id}/projects/{project_id}/git/diff": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["git_diff"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agent_id}/projects/{project_id}/git/switch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["git_switch"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/agents/{agent_id}/projects/{project_id}/sessions": {
         parameters: {
             query?: never;
@@ -592,6 +708,70 @@ export interface paths {
         put?: never;
         post: operations["create_session"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agent_id}/projects/{project_id}/sessions/{topic}/mode": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["set_mode"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agent_id}/projects/{project_id}/skills": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["skills"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agent_id}/projects/{project_id}/worktrees": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_worktrees"];
+        put?: never;
+        post: operations["create_worktree"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agent_id}/projects/{project_id}/worktrees/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["worktree_detail"];
+        put?: never;
+        post?: never;
+        delete: operations["delete_worktree"];
         options?: never;
         head?: never;
         patch?: never;
@@ -1237,6 +1417,106 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/providers/{id}/profiles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One entry. Used as the body of both the add and the replace, so a person sends exactly what a
+         *     response row holds and the ARN is always in clear (contracts §4, FR-022, FR-026).
+         */
+        get: operations["list_entries"];
+        put?: never;
+        post: operations["add_entry"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/providers/{id}/profiles/{arn}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["update_entry"];
+        post?: never;
+        delete: operations["remove_entry"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/providers/{id}/sso/accounts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["sso_accounts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/providers/{id}/sso/accounts/{account_id}/roles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["sso_roles"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/providers/{id}/sso/sign-in": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["sso_sign_in"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/providers/{id}/sso/sign-out": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["sso_sign_out"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/providers/{id}/test": {
         parameters: {
             query?: never;
@@ -1289,6 +1569,16 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        APIResponse_AccountList: {
+            /** @description The account list, with the free-text fallback only when the portal listed nothing (FR-007). */
+            data?: {
+                accounts: components["schemas"]["AccountView"][];
+                fallback: boolean;
+            };
+            message?: string | null;
+            /** Format: int32 */
+            status: number;
+        };
         APIResponse_Activity: {
             data?: {
                 agent_total: number;
@@ -1574,7 +1864,7 @@ export interface components {
                 content: string;
                 /**
                  * Format: int64
-                 * @description The current revision, to send back as `base_seq`. Absent when CORE has no history yet.
+                 * @description The current revision, to send back as `base_seq`. Absent when there is no history yet.
                  */
                 seq?: number | null;
             };
@@ -1620,6 +1910,11 @@ export interface components {
                 relations: string[];
                 tags: string[];
                 title: string;
+                /**
+                 * @description Present only when the content went over the soft limit. Additive: a client that ignores
+                 *     it behaves exactly as before (contracts/http-api.md).
+                 */
+                warning?: string | null;
             };
             message?: string | null;
             /** Format: int32 */
@@ -1630,6 +1925,16 @@ export interface components {
                 channel_id: string;
                 title: string;
                 topic: string;
+            };
+            message?: string | null;
+            /** Format: int32 */
+            status: number;
+        };
+        APIResponse_CreateWorktreeResponse: {
+            data?: {
+                channel_id: string;
+                topic: string;
+                worktree: components["schemas"]["WorktreeSummary"];
             };
             message?: string | null;
             /** Format: int32 */
@@ -1687,6 +1992,34 @@ export interface components {
             data?: {
                 items: components["schemas"]["EventItem"][];
                 next?: string | null;
+            };
+            message?: string | null;
+            /** Format: int32 */
+            status: number;
+        };
+        APIResponse_GitFileDiff: {
+            /** @description One file's unified diff against the last commit. */
+            data?: {
+                binary: boolean;
+                diff: string;
+                path: string;
+                truncated: boolean;
+            };
+            message?: string | null;
+            /** Format: int32 */
+            status: number;
+        };
+        APIResponse_GitSummary: {
+            /** @description The header's branch and change count. */
+            data?: {
+                /** Format: int32 */
+                ahead: number;
+                available: boolean;
+                /** Format: int32 */
+                behind: number;
+                branch?: string | null;
+                changed: number;
+                detached: boolean;
             };
             message?: string | null;
             /** Format: int32 */
@@ -1842,6 +2175,7 @@ export interface components {
                 name: string;
                 /** @description `server` for a local provider's live model the catalogue doesn't have. */
                 origin?: string | null;
+                pricing?: components["schemas"]["EntryPricingView"] | null;
                 /** Format: date */
                 release_date?: string | null;
                 status: components["schemas"]["ModelStatus"];
@@ -1939,6 +2273,8 @@ export interface components {
             data?: components["schemas"]["ProjectSummary"] & {
                 instructions_present: boolean;
                 instructions_truncated: boolean;
+                /** @description Worktree chats whose folders stay on disk when the project is removed (FR-033). */
+                worktree_count: number;
             };
             message?: string | null;
             /** Format: int32 */
@@ -1989,6 +2325,8 @@ export interface components {
                 /** @description Never the value itself. */
                 has_secret_access_key: boolean;
                 has_session_token: boolean;
+                /** @description A session row exists and decrypts with this workspace key. */
+                has_sso_session: boolean;
                 id: components["schemas"]["ProviderId"];
                 kind: components["schemas"]["ProviderKind"];
                 logo?: string | null;
@@ -1997,15 +2335,41 @@ export interface components {
                 model_count: number;
                 name: string;
                 origin: components["schemas"]["ProviderOrigin"];
+                /** @description The saved inference-profile entries, as saved: no price is invented here (FR-026, FR-028). */
+                profiles: components["schemas"]["ProfileEntryResponse"][];
                 /** @description Local and custom providers only; checked in the background. */
                 reachable?: boolean | null;
                 /** @description AWS region, safe to show. */
                 region?: string | null;
+                /** @description The role chosen from the portal. */
+                role_name?: string | null;
+                /**
+                 * Format: date-time
+                 * @description When the stored session's access token expires.
+                 */
+                session_expires_at?: string | null;
                 /** @description `saved`, `env:NAME`, or `null` for a local provider on its default address. */
                 source?: string | null;
+                /** @description The non-secret handle the session is stored under (FR-009e). */
+                sso_profile?: string | null;
+                /** @description The Identity Center's region — not the Bedrock region (FR-010). */
+                sso_region?: string | null;
+                sso_state?: components["schemas"]["SsoSessionState"] | null;
+                /** @description The Identity Center start URL, shown in clear (FR-009b). */
+                start_url?: string | null;
                 used_by: components["schemas"]["UsedBy"];
                 /** @description The same id, under the field name pre-015 clients read. */
                 variant: components["schemas"]["ProviderId"];
+            };
+            message?: string | null;
+            /** Format: int32 */
+            status: number;
+        };
+        APIResponse_RoleList: {
+            /** @description The role list, with the same fallback rule as [`AccountList`]. */
+            data?: {
+                fallback: boolean;
+                roles: components["schemas"]["RoleView"][];
             };
             message?: string | null;
             /** Format: int32 */
@@ -2082,10 +2446,38 @@ export interface components {
             /** Format: int32 */
             status: number;
         };
+        APIResponse_SetModeResponse: {
+            data?: {
+                mode: components["schemas"]["ProjectMode"];
+            };
+            message?: string | null;
+            /** Format: int32 */
+            status: number;
+        };
         APIResponse_SetupStates: {
             /** @description The answer of `GET /api/v1/utils/setup-state`. */
             data?: {
                 setups: components["schemas"]["SetupState"][];
+            };
+            message?: string | null;
+            /** Format: int32 */
+            status: number;
+        };
+        APIResponse_SignInResponse: {
+            /**
+             * @description One answer to `POST /{id}/sso/sign-in` (contracts §3): a fresh code to type, the pending state
+             *     after a poll, or the completed sign-in. Untagged on the wire, exactly the three bodies the
+             *     contract shows — and none of them carries the device code, a token or a secret half (FR-009b).
+             */
+            data?: components["schemas"]["SignInStarted"] | components["schemas"]["SignInProgress"];
+            message?: string | null;
+            /** Format: int32 */
+            status: number;
+        };
+        APIResponse_SignOutResponse: {
+            /** @description After a sign-out the connection is configured and has no session; nothing else changed. */
+            data?: {
+                state: string;
             };
             message?: string | null;
             /** Format: int32 */
@@ -2144,6 +2536,20 @@ export interface components {
             /** Format: int32 */
             status: number;
         };
+        APIResponse_TopicEntry: {
+            data?: {
+                agent_id: string;
+                channel: string;
+                is_thinking: boolean;
+                /** @description Background jobs launched from this topic that are still in flight. */
+                running_jobs: number;
+                title: string;
+                topic_id: string;
+            };
+            message?: string | null;
+            /** Format: int32 */
+            status: number;
+        };
         APIResponse_UpdateMemoryResponse: {
             data?: {
                 agent_id: string;
@@ -2152,6 +2558,8 @@ export interface components {
                 path: string;
                 relations: string[];
                 tags: string[];
+                /** @description Present only when the content went over the soft limit (contracts/http-api.md). */
+                warning?: string | null;
             };
             message?: string | null;
             /** Format: int32 */
@@ -2256,6 +2664,11 @@ export interface components {
                 /** @description Links from this bundle's documents (to anywhere), for the "Most linked" sort. */
                 link_count?: number;
                 name: string;
+                /**
+                 * @description The bundle cannot be deleted, though the documents inside it can
+                 *     (specs/043-unify-core-and-memory). Additive: a client that ignores it is unchanged.
+                 */
+                protected?: boolean;
                 /** Format: date-time */
                 updated_at?: string | null;
             }[];
@@ -2277,6 +2690,40 @@ export interface components {
                 protocol: components["schemas"]["CustomProtocol"];
                 reachable?: boolean | null;
                 used_by: components["schemas"]["UsedBy"];
+            }[];
+            message?: string | null;
+            /** Format: int32 */
+            status: number;
+        };
+        APIResponse_Vec_FileSuggestion: {
+            data?: {
+                /** @description `file` or `dir`. */
+                kind: string;
+                path: string;
+            }[];
+            message?: string | null;
+            /** Format: int32 */
+            status: number;
+        };
+        APIResponse_Vec_GitBranch: {
+            data?: {
+                checked_out_in?: components["schemas"]["BranchHolder"] | null;
+                current: boolean;
+                name: string;
+            }[];
+            message?: string | null;
+            /** Format: int32 */
+            status: number;
+        };
+        APIResponse_Vec_GitChange: {
+            data?: {
+                /** Format: int64 */
+                added: number;
+                kind: components["schemas"]["GitChangeKind"];
+                old_path?: string | null;
+                path: string;
+                /** Format: int64 */
+                removed: number;
             }[];
             message?: string | null;
             /** Format: int32 */
@@ -2375,9 +2822,43 @@ export interface components {
                 name: string;
                 /** @description `server` for a local provider's live model the catalogue doesn't have. */
                 origin?: string | null;
+                pricing?: components["schemas"]["EntryPricingView"] | null;
                 /** Format: date */
                 release_date?: string | null;
                 status: components["schemas"]["ModelStatus"];
+            }[];
+            message?: string | null;
+            /** Format: int32 */
+            status: number;
+        };
+        APIResponse_Vec_ProfileEntryResponse: {
+            data?: {
+                /** @description The ARN exactly as saved (FR-027). */
+                arn: string;
+                /**
+                 * Format: int64
+                 * @description Unknown when unset — never "unsupported", never copied from the paired model (FR-028,
+                 *     FR-034a.6).
+                 */
+                context?: number | null;
+                /** @description The entry's name, or the profile id from its ARN when it has none (FR-026). */
+                display_name: string;
+                edited: boolean;
+                image_input?: boolean | null;
+                /** @description The catalogue model id the entry is priced from, when the person paired one (FR-034a.1). */
+                model?: string | null;
+                name?: string | null;
+                /** Format: int64 */
+                output?: number | null;
+                price?: components["schemas"]["Cost"] | null;
+                /**
+                 * @description What its usage will cost right now, computed from the entry's current state — the figure,
+                 *     or the absence with a cause-specific reason and the way out (contracts §4a, FR-034a.2,
+                 *     FR-034a.3, FR-034b, SC-021). Never stored, so re-picking a model or entering a price
+                 *     clears it with no manual edit.
+                 */
+                pricing: components["schemas"]["EntryPricingView"];
+                tool_call?: boolean | null;
             }[];
             message?: string | null;
             /** Format: int32 */
@@ -2391,8 +2872,31 @@ export interface components {
                  * @description Unix milliseconds; `null` for a brand-new empty session.
                  */
                 last_activity?: number | null;
+                /** @description The chat's saved Plan/Build mode (FR-009). */
+                mode: components["schemas"]["ProjectMode"];
                 title: string;
                 topic: string;
+                worktree?: components["schemas"]["WorktreeSummary"] | null;
+            }[];
+            message?: string | null;
+            /** Format: int32 */
+            status: number;
+        };
+        APIResponse_Vec_ProjectSkillRow: {
+            data?: {
+                /** @description The usage line the skill declares, e.g. `[audit|critique] [target]`. */
+                argument_hint?: string | null;
+                description: string;
+                /** @description Its folder relative to the chat's folder, which is what `use_skill` reports. */
+                folder: string;
+                name: string;
+                /**
+                 * @description `project`. Every row here is one, and saying so keeps the shape the same if a later route
+                 *     merges the workspace scopes in.
+                 */
+                scope: string;
+                /** @description Whether a person may run it by name; a `false` one is prose for the agent, not a command. */
+                user_invocable: boolean;
             }[];
             message?: string | null;
             /** Format: int32 */
@@ -2434,6 +2938,8 @@ export interface components {
                 /** @description Never the value itself. */
                 has_secret_access_key: boolean;
                 has_session_token: boolean;
+                /** @description A session row exists and decrypts with this workspace key. */
+                has_sso_session: boolean;
                 id: components["schemas"]["ProviderId"];
                 kind: components["schemas"]["ProviderKind"];
                 logo?: string | null;
@@ -2442,12 +2948,28 @@ export interface components {
                 model_count: number;
                 name: string;
                 origin: components["schemas"]["ProviderOrigin"];
+                /** @description The saved inference-profile entries, as saved: no price is invented here (FR-026, FR-028). */
+                profiles: components["schemas"]["ProfileEntryResponse"][];
                 /** @description Local and custom providers only; checked in the background. */
                 reachable?: boolean | null;
                 /** @description AWS region, safe to show. */
                 region?: string | null;
+                /** @description The role chosen from the portal. */
+                role_name?: string | null;
+                /**
+                 * Format: date-time
+                 * @description When the stored session's access token expires.
+                 */
+                session_expires_at?: string | null;
                 /** @description `saved`, `env:NAME`, or `null` for a local provider on its default address. */
                 source?: string | null;
+                /** @description The non-secret handle the session is stored under (FR-009e). */
+                sso_profile?: string | null;
+                /** @description The Identity Center's region — not the Bedrock region (FR-010). */
+                sso_region?: string | null;
+                sso_state?: components["schemas"]["SsoSessionState"] | null;
+                /** @description The Identity Center start URL, shown in clear (FR-009b). */
+                start_url?: string | null;
                 used_by: components["schemas"]["UsedBy"];
                 /** @description The same id, under the field name pre-015 clients read. */
                 variant: components["schemas"]["ProviderId"];
@@ -2544,6 +3066,52 @@ export interface components {
             message?: string | null;
             /** Format: int32 */
             status: number;
+        };
+        APIResponse_Vec_WorktreeSummary: {
+            data?: {
+                /** @description The folder is still there (FR-032). */
+                available: boolean;
+                branch: string;
+                id: string;
+                name: string;
+            }[];
+            message?: string | null;
+            /** Format: int32 */
+            status: number;
+        };
+        APIResponse_WorktreeDeleted: {
+            data?: {
+                branch_deleted: boolean;
+                deleted: boolean;
+            };
+            message?: string | null;
+            /** Format: int32 */
+            status: number;
+        };
+        APIResponse_WorktreeDetail: {
+            data?: components["schemas"]["WorktreeSummary"] & {
+                base_ref: string;
+                branch_merged: boolean;
+                changed: number;
+                /** Format: int64 */
+                created_at: number;
+                path: string;
+                untracked: number;
+            };
+            message?: string | null;
+            /** Format: int32 */
+            status: number;
+        };
+        /** @description The account list, with the free-text fallback only when the portal listed nothing (FR-007). */
+        AccountList: {
+            accounts: components["schemas"]["AccountView"][];
+            fallback: boolean;
+        };
+        /** @description One account the portal listed, for the picker (contracts §3). */
+        AccountView: {
+            account_id: string;
+            account_name: string;
+            email?: string | null;
         };
         Activity: {
             agent_total: number;
@@ -2679,6 +3247,30 @@ export interface components {
             code: string;
             message: string;
         };
+        /** @description One question's part of an answer. */
+        Answer: {
+            /**
+             * @description The chosen option's label, filled at submission so the agent and the record show what the
+             *     person read rather than only the value it stands for.
+             */
+            label?: string | null;
+            question_id: string;
+            state: components["schemas"]["AnswerState"];
+            value?: components["schemas"]["AnswerValue"] | null;
+        };
+        /**
+         * @description Whether a question was answered or deliberately left blank (FR-013, US2 #3).
+         * @enum {string}
+         */
+        AnswerState: "answered" | "skipped";
+        /**
+         * @description One value a person can give, or one a question offers as its default.
+         *
+         *     Untagged because the three shapes cannot be confused in JSON — a string, a list of strings and
+         *     a boolean — so the wire form is the natural one (`"sqlite"`, `["auth", "ci"]`, `true`) rather
+         *     than a tagged wrapper the agent would have to learn.
+         */
+        AnswerValue: string | string[] | boolean;
         ApiKeyResponse: {
             /** Format: date-time */
             created_at: string;
@@ -2796,6 +3388,11 @@ export interface components {
             kind: string;
             label: string;
         };
+        /**
+         * @description Where a sensitive ask stands (data-model.md §7).
+         * @enum {string}
+         */
+        AskState: "open" | "provided" | "declined" | "timed_out" | "abandoned";
         AttachArtifactRequest: {
             artifact: string;
         };
@@ -2839,6 +3436,11 @@ export interface components {
             job_id: components["schemas"]["String"];
             kind: components["schemas"]["JobKind"];
         };
+        BranchHolder: {
+            name: string;
+            /** @description `None` for the project's own folder. */
+            worktree_id?: string | null;
+        };
         BreakdownRow: {
             /** Format: int64 */
             calls: number;
@@ -2872,6 +3474,11 @@ export interface components {
             /** @description Links from this bundle's documents (to anywhere), for the "Most linked" sort. */
             link_count?: number;
             name: string;
+            /**
+             * @description The bundle cannot be deleted, though the documents inside it can
+             *     (specs/043-unify-core-and-memory). Additive: a client that ignores it is unchanged.
+             */
+            protected?: boolean;
             /** Format: date-time */
             updated_at?: string | null;
         };
@@ -2950,6 +3557,20 @@ export interface components {
             attachments: components["schemas"]["VizierAttachment"][];
             content: string;
             stats?: components["schemas"]["VizierResponseStats"] | null;
+        };
+        /**
+         * @description One choice a `choice` or `multi_choice` question offers (FR-003).
+         *
+         *     Named `ChoiceOption` rather than `Option` so it does not shadow the prelude's `Option` in
+         *     every signature that mentions both.
+         */
+        ChoiceOption: {
+            /** @description A line of explanation under the label. */
+            description?: string | null;
+            /** @description What the person reads. */
+            label: string;
+            /** @description What the agent receives when this option is chosen. Never travels inside a control id. */
+            value: string;
         };
         /** @description How a client tool call ended, or `Pending` while it is in flight. */
         ClientCallOutcome: {
@@ -3069,7 +3690,7 @@ export interface components {
             content: string;
             /**
              * Format: int64
-             * @description The current revision, to send back as `base_seq`. Absent when CORE has no history yet.
+             * @description The current revision, to send back as `base_seq`. Absent when there is no history yet.
              */
             seq?: number | null;
         };
@@ -3186,6 +3807,11 @@ export interface components {
             relations: string[];
             tags: string[];
             title: string;
+            /**
+             * @description Present only when the content went over the soft limit. Additive: a client that ignores
+             *     it behaves exactly as before (contracts/http-api.md).
+             */
+            warning?: string | null;
         };
         CreateProjectSessionResponse: {
             channel_id: string;
@@ -3200,11 +3826,21 @@ export interface components {
             slug: string;
             title: string;
         };
+        CreateWorktreeRequest: {
+            base: string;
+            branch?: string | null;
+            name: string;
+        };
+        CreateWorktreeResponse: {
+            channel_id: string;
+            topic: string;
+            worktree: components["schemas"]["WorktreeSummary"];
+        };
         /**
          * @description A credential field a provider's connect form asks for.
          * @enum {string}
          */
-        CredentialField: "api_key" | "endpoint" | "base_url" | "access_token" | "account_id" | "access_key_id" | "secret_access_key" | "session_token" | "region";
+        CredentialField: "api_key" | "endpoint" | "base_url" | "access_token" | "account_id" | "access_key_id" | "secret_access_key" | "session_token" | "region" | "start_url" | "sso_region" | "role_name" | "sso_profile";
         /**
          * @description A model an operator listed for a custom provider; unset fields are filled from the
          *     catalogue (FR-024).
@@ -3346,7 +3982,18 @@ export interface components {
         DreamCycle: {
             /** @description At most [`MAX_CHANGES`]; `more` counts the rest. */
             changes: components["schemas"]["DreamChange"][];
+            /**
+             * @description Did this cycle change the agent's identity? Recomputed from `core_changes` so the flag
+             *     and the count can never disagree.
+             */
             core: boolean;
+            /**
+             * Format: int32
+             * @description How many identity changes: any revision whose **bundle** is the reserved one
+             *     (specs/043-unify-core-and-memory, FR-031/FR-033). Excluded from
+             *     written/revised/removed — an identity change is not also a memory change (FR-032).
+             */
+            core_changes?: number;
             /** Format: double */
             cost_usd?: number | null;
             cycle_id: string;
@@ -3380,13 +4027,15 @@ export interface components {
         };
         DreamNight: {
             core: boolean;
+            /** Format: int32 */
+            core_changes: number;
             /** @description The latest cycle of the night. */
             cycle_id?: string | null;
             /** Format: date */
             date: string;
             /**
              * Format: int32
-             * @description written + revised + removed
+             * @description written + revised + removed, excluding identity changes
              */
             memories: number;
             state?: components["schemas"]["DreamCycleState"] | null;
@@ -3407,6 +4056,26 @@ export interface components {
         };
         /** @enum {string} */
         EmbeddingProvider: "local" | "openrouter" | "ollama" | "openai" | "gemini" | "voyageai" | "mistral" | "together" | "cohere" | "copilot" | "bedrock";
+        /**
+         * @description One entry's `pricing` as the API reports it (contracts §4a): the state, the figure when there
+         *     is one, and — for every absence — the label plus a cause-specific reason that carries the way
+         *     out. Computed per request from the entry's current state, never stored (FR-034a.2, FR-034b,
+         *     SC-021). Fields that do not belong to an outcome are omitted, so the three absence shapes stay
+         *     distinct without a stored column.
+         */
+        EntryPricingView: {
+            cost?: components["schemas"]["Cost"] | null;
+            /** @description The label a person sees for an absence: `pricing not set` or `pricing not resolved`. */
+            flag?: string | null;
+            /** @description The paired catalogue id, for `from_catalogue` and `not_resolved`. */
+            model?: string | null;
+            /** @description Why it is unpriced and the way out: never empty, never shared between causes. */
+            reason?: string | null;
+            /** @description Where the figure came from, for `explicit` (`entered price`). */
+            source?: string | null;
+            /** @description `explicit`, `from_catalogue`, `not_resolved`, `not_set` or `no_catalogue`. */
+            state: string;
+        };
         /** @enum {string} */
         ErrorKind: "completion" | "tool_timeout" | "prompt_timeout" | "rate_limited" | "provider_unavailable" | "agent_unavailable";
         /** @enum {string} */
@@ -3432,8 +4101,52 @@ export interface components {
         };
         /** @enum {string} */
         FieldType: "secret" | "string" | "bool" | "string_list" | "secret_map" | "select";
+        FileSuggestion: {
+            /** @description `file` or `dir`. */
+            kind: string;
+            path: string;
+        };
         GetTasksQuery: {
             is_active?: boolean | null;
+        };
+        /** @description One local branch, and the worktree already holding it (FR-023). */
+        GitBranch: {
+            checked_out_in?: components["schemas"]["BranchHolder"] | null;
+            current: boolean;
+            name: string;
+        };
+        /** @description A changed file with its added/removed line counts. */
+        GitChange: {
+            /** Format: int64 */
+            added: number;
+            kind: components["schemas"]["GitChangeKind"];
+            old_path?: string | null;
+            path: string;
+            /** Format: int64 */
+            removed: number;
+        };
+        /**
+         * @description The kind of a change, as the API and tools name it.
+         * @enum {string}
+         */
+        GitChangeKind: "modified" | "added" | "deleted" | "renamed" | "untracked" | "conflicted";
+        /** @description One file's unified diff against the last commit. */
+        GitFileDiff: {
+            binary: boolean;
+            diff: string;
+            path: string;
+            truncated: boolean;
+        };
+        /** @description The header's branch and change count. */
+        GitSummary: {
+            /** Format: int32 */
+            ahead: number;
+            available: boolean;
+            /** Format: int32 */
+            behind: number;
+            branch?: string | null;
+            changed: number;
+            detached: boolean;
         };
         GrantState: {
             /** Format: date-time */
@@ -3827,6 +4540,7 @@ export interface components {
             name: string;
             /** @description `server` for a local provider's live model the catalogue doesn't have. */
             origin?: string | null;
+            pricing?: components["schemas"]["EntryPricingView"] | null;
             /** Format: date */
             release_date?: string | null;
             status: components["schemas"]["ModelStatus"];
@@ -3940,12 +4654,102 @@ export interface components {
             /** Format: int64 */
             telegram: number;
         };
+        /**
+         * @description One Application Inference Profile a connection may chat through (spec 044, data-model
+         *     "profile entry"). Non-secret: the ARN as saved, an optional display name and optional
+         *     limits, plus the optional pricing pairing (`model` + `price`, FR-034a).
+         */
+        ProfileEntry: {
+            /** @description The ARN exactly as saved; sent to the runtime unchanged (FR-027). */
+            arn: string;
+            /**
+             * Format: int64
+             * @description Context window; unset is unknown, never "unsupported" (FR-028).
+             */
+            context?: number | null;
+            /**
+             * @description Set once a person changed the row, so a future fetch never overwrites it (the
+             *     `CustomModel.edited` convention).
+             */
+            edited?: boolean;
+            /** @description Whether the profile takes images; unset is unknown. */
+            image_input?: boolean | null;
+            /**
+             * @description The pricing pairing: one catalogue Bedrock model id, re-resolved on every read so a
+             *     catalogue refresh reprices the entry and an id that has left the catalogue stays saved
+             *     (FR-034a.1, FR-034a.3).
+             */
+            model?: string | null;
+            /** @description Shown instead of the profile id when set (FR-026). */
+            name?: string | null;
+            /**
+             * Format: int64
+             * @description Output limit; unset is unknown.
+             */
+            output?: number | null;
+            price?: components["schemas"]["Cost"] | null;
+            /** @description Whether the profile takes tools; unset is unknown. */
+            tool_call?: boolean | null;
+        };
+        /**
+         * @description One saved inference-profile entry as the settings row shows it (contracts §4): the ARN the
+         *     person pasted, the limits they set, the optional pricing pairing, and a name to show for it.
+         */
+        ProfileEntryResponse: {
+            /** @description The ARN exactly as saved (FR-027). */
+            arn: string;
+            /**
+             * Format: int64
+             * @description Unknown when unset — never "unsupported", never copied from the paired model (FR-028,
+             *     FR-034a.6).
+             */
+            context?: number | null;
+            /** @description The entry's name, or the profile id from its ARN when it has none (FR-026). */
+            display_name: string;
+            edited: boolean;
+            image_input?: boolean | null;
+            /** @description The catalogue model id the entry is priced from, when the person paired one (FR-034a.1). */
+            model?: string | null;
+            name?: string | null;
+            /** Format: int64 */
+            output?: number | null;
+            price?: components["schemas"]["Cost"] | null;
+            /**
+             * @description What its usage will cost right now, computed from the entry's current state — the figure,
+             *     or the absence with a cause-specific reason and the way out (contracts §4a, FR-034a.2,
+             *     FR-034a.3, FR-034b, SC-021). Never stored, so re-picking a model or entering a price
+             *     clears it with no manual edit.
+             */
+            pricing: components["schemas"]["EntryPricingView"];
+            tool_call?: boolean | null;
+        };
         ProjectDetail: components["schemas"]["ProjectSummary"] & {
             instructions_present: boolean;
             instructions_truncated: boolean;
+            /** @description Worktree chats whose folders stay on disk when the project is removed (FR-033). */
+            worktree_count: number;
         };
+        /**
+         * @description What a project chat may do (`specs/041-project-coding-workspace` FR-009): Plan is read-only,
+         *     Build may change files and, with the shell switch on, run commands. No row means `Plan`.
+         * @enum {string}
+         */
+        ProjectMode: "plan" | "build";
         ProjectRemoved: {
             removed: boolean;
+        };
+        /**
+         * @description The project a subagent piece works in, copied from the launching turn (FR-007a). Set only
+         *     by `BackgroundJobs::dispatch_piece`, never by a client.
+         */
+        ProjectScope: {
+            /** @description The launching turn's mode, fixed for the piece. */
+            mode: components["schemas"]["ProjectMode"];
+            /** @description The launching chat's username. */
+            owner: string;
+            project_id: string;
+            /** @description The launching chat's topic: resolves its worktree. */
+            topic: string;
         };
         ProjectSession: {
             is_thinking: boolean;
@@ -3954,8 +4758,27 @@ export interface components {
              * @description Unix milliseconds; `null` for a brand-new empty session.
              */
             last_activity?: number | null;
+            /** @description The chat's saved Plan/Build mode (FR-009). */
+            mode: components["schemas"]["ProjectMode"];
             title: string;
             topic: string;
+            worktree?: components["schemas"]["WorktreeSummary"] | null;
+        };
+        /** @description One skill a project chat can run, as the composer's `/` menu lists it. */
+        ProjectSkillRow: {
+            /** @description The usage line the skill declares, e.g. `[audit|critique] [target]`. */
+            argument_hint?: string | null;
+            description: string;
+            /** @description Its folder relative to the chat's folder, which is what `use_skill` reports. */
+            folder: string;
+            name: string;
+            /**
+             * @description `project`. Every row here is one, and saying so keeps the shape the same if a later route
+             *     merges the workspace scopes in.
+             */
+            scope: string;
+            /** @description Whether a person may run it by name; a `false` one is prose for the agent, not a command. */
+            user_invocable: boolean;
         };
         ProjectSummary: {
             agent_id: components["schemas"]["String"];
@@ -4005,6 +4828,8 @@ export interface components {
             /** @description Never the value itself. */
             has_secret_access_key: boolean;
             has_session_token: boolean;
+            /** @description A session row exists and decrypts with this workspace key. */
+            has_sso_session: boolean;
             id: components["schemas"]["ProviderId"];
             kind: components["schemas"]["ProviderKind"];
             logo?: string | null;
@@ -4013,12 +4838,28 @@ export interface components {
             model_count: number;
             name: string;
             origin: components["schemas"]["ProviderOrigin"];
+            /** @description The saved inference-profile entries, as saved: no price is invented here (FR-026, FR-028). */
+            profiles: components["schemas"]["ProfileEntryResponse"][];
             /** @description Local and custom providers only; checked in the background. */
             reachable?: boolean | null;
             /** @description AWS region, safe to show. */
             region?: string | null;
+            /** @description The role chosen from the portal. */
+            role_name?: string | null;
+            /**
+             * Format: date-time
+             * @description When the stored session's access token expires.
+             */
+            session_expires_at?: string | null;
             /** @description `saved`, `env:NAME`, or `null` for a local provider on its default address. */
             source?: string | null;
+            /** @description The non-secret handle the session is stored under (FR-009e). */
+            sso_profile?: string | null;
+            /** @description The Identity Center's region — not the Bedrock region (FR-010). */
+            sso_region?: string | null;
+            sso_state?: components["schemas"]["SsoSessionState"] | null;
+            /** @description The Identity Center start URL, shown in clear (FR-009b). */
+            start_url?: string | null;
             used_by: components["schemas"]["UsedBy"];
             /** @description The same id, under the field name pre-015 clients read. */
             variant: components["schemas"]["ProviderId"];
@@ -4051,6 +4892,69 @@ export interface components {
             /** Format: double */
             threshold?: number;
         };
+        /**
+         * @description One question in a set (FR-002, FR-003).
+         *
+         *     The type-specific fields are flat, as the wire contract states them, and
+         *     [`crate::questions::validate`] is the one place that decides which apply to which type: a
+         *     `choice` with no `options` is refused, and `max_length` on a `choice` is ignored rather than
+         *     rejected, so an agent that sends a superset still gets a usable question.
+         */
+        Question: {
+            default?: components["schemas"]["AnswerValue"] | null;
+            /** @description Shown under the prompt, for a question whose point is not obvious. */
+            help?: string | null;
+            /** @description Stable within the set; what the answer names. */
+            id: string;
+            /** @description `text`: the longest answer accepted, in bytes. */
+            max_length?: number | null;
+            /** @description `multi_choice`: the most answers accepted. Defaults to every option. */
+            max_selections?: number | null;
+            /** @description `multi_choice`: the fewest answers accepted. Defaults to none. */
+            min_selections?: number | null;
+            /** @description `text`: a roomier field, for an answer that is a sentence or more. */
+            multiline?: boolean;
+            /** @description `confirm`: the label of the negative button. */
+            no_label?: string | null;
+            /** @description Required by default; an optional question may be left blank and arrives as `skipped`. */
+            optional?: boolean;
+            /** @description `choice`, `multi_choice`: the choices offered. */
+            options?: components["schemas"]["ChoiceOption"][];
+            /** @description `text`: a hint shown in an empty field. */
+            placeholder?: string | null;
+            /** @description The question itself, shown as the field's label. */
+            prompt: string;
+            /** @description The kind of answer wanted. */
+            type: components["schemas"]["QuestionType"];
+            /** @description `confirm`: the label of the affirmative button. */
+            yes_label?: string | null;
+        };
+        /** @description The person's answer, carried as a turn of its own (`contracts/questions-wire.md` §7). */
+        QuestionAnswer: {
+            /** @description Who submitted it, as the surface identifies them. */
+            answerer?: string | null;
+            /** @description One entry per question, in the set's order. */
+            answers?: components["schemas"]["Answer"][];
+            /** @description The person dismissed the set instead of answering it (FR-014). */
+            declined?: boolean;
+            /** @description The set being answered. */
+            set_id: string;
+            /**
+             * @description What the conversation shows as the person's message. Built at submission when the client
+             *     does not supply one.
+             */
+            text?: string;
+        };
+        /**
+         * @description Where a set stands (data-model.md §1).
+         * @enum {string}
+         */
+        QuestionState: "pending" | "answered" | "declined" | "withdrawn";
+        /**
+         * @description What kind of answer a question wants (FR-003).
+         * @enum {string}
+         */
+        QuestionType: "text" | "choice" | "multi_choice" | "confirm";
         /**
          * @description How agents are ordered when there are more rows than the grid shows.
          * @enum {string}
@@ -4088,6 +4992,9 @@ export interface components {
             in_progress: boolean;
             last_error?: string | null;
             ttl: string;
+        };
+        RenameTopicRequest: {
+            title: string;
         };
         ReportEntry: {
             /** Format: int32 */
@@ -4169,6 +5076,11 @@ export interface components {
         RoleItem: components["schemas"]["RoleResponse"] & {
             people: number;
         };
+        /** @description The role list, with the same fallback rule as [`AccountList`]. */
+        RoleList: {
+            fallback: boolean;
+            roles: components["schemas"]["RoleView"][];
+        };
         RoleResponse: {
             /** Format: date-time */
             created_at: string;
@@ -4176,6 +5088,11 @@ export interface components {
             name: string;
             permissions: string[];
             role_id: string;
+        };
+        /** @description One role the identity may assume in an account. */
+        RoleView: {
+            account_id: string;
+            role_name: string;
         };
         RollbackRequest: {
             /** Format: int64 */
@@ -4351,11 +5268,47 @@ export interface components {
                 origin: components["schemas"]["RecallOrigin"];
                 passages: components["schemas"]["RecalledPassage"][];
             };
+        } | {
+            /**
+             * @description A question set the agent asked (`specs/042-agent-asking-question`), saved when it is
+             *     presented. Its uid **is** the set id. `state`, `answers` and `answerer` change after the
+             *     insert, so they live in `question_set` and are filled in on every read, exactly as
+             *     `ClientToolCall`'s `outcome` and `state` are.
+             */
+            QuestionSet: {
+                answerer?: string | null;
+                answers?: components["schemas"]["Answer"][] | null;
+                description?: string | null;
+                dismiss_label?: string | null;
+                questions: components["schemas"]["Question"][];
+                set_id: string;
+                state: components["schemas"]["QuestionState"];
+                submit_label?: string | null;
+                title?: string | null;
+            };
+        } | {
+            /**
+             * @description An ask for a sensitive value (`specs/042-agent-asking-question`). Says that one was
+             *     requested, why, and what came of it — **never the value** (FR-044, FR-054). Its `state` is
+             *     filled at read time from `sensitive_ask`.
+             */
+            SensitiveAsk: {
+                ask_id: string;
+                label?: string | null;
+                purpose: string;
+                state: components["schemas"]["AskState"];
+            };
         };
         SetGrants: {
             addon?: boolean | null;
             channel?: boolean | null;
             mcp?: boolean | null;
+        };
+        SetModeRequest: {
+            mode: components["schemas"]["ProjectMode"];
+        };
+        SetModeResponse: {
+            mode: components["schemas"]["ProjectMode"];
         };
         SetSecretRequest: {
             /** @description The value to store. Never returned by any route. */
@@ -4403,8 +5356,59 @@ export interface components {
             answer: string;
             question: string;
         };
+        /** @description What a poll of the pending sign-in answered: still waiting (`202`), or signed in (`200`). */
+        SignInProgress: {
+            /** Format: date-time */
+            expires_at: string;
+            /** @enum {string} */
+            state: "pending";
+        } | {
+            account_id?: string | null;
+            /** Format: date-time */
+            expires_at: string;
+            role_name?: string | null;
+            /** @enum {string} */
+            state: "signed-in";
+        };
+        /**
+         * @description What the form is about to save for one connection. Every field is optional; an omitted value
+         *     falls back to the saved row, so a saved connection starts a re-sign-in with an empty body
+         *     (FR-008).
+         */
+        SignInRequest: {
+            /** @description The profile name the session is stored under (FR-009e). */
+            profile?: string | null;
+            sso_region?: string | null;
+            start_url?: string | null;
+        };
+        /**
+         * @description One answer to `POST /{id}/sso/sign-in` (contracts §3): a fresh code to type, the pending state
+         *     after a poll, or the completed sign-in. Untagged on the wire, exactly the three bodies the
+         *     contract shows — and none of them carries the device code, a token or a secret half (FR-009b).
+         */
+        SignInResponse: components["schemas"]["SignInStarted"] | components["schemas"]["SignInProgress"];
+        /** @description The pending panel: the code and the URL, and never the device code (contracts §3). */
+        SignInStarted: {
+            /** Format: date-time */
+            expires_at: string;
+            /** Format: int64 */
+            interval_seconds: number;
+            user_code: string;
+            verification_uri: string;
+            verification_uri_complete?: string | null;
+        };
+        /** @description After a sign-out the connection is configured and has no session; nothing else changed. */
+        SignOutResponse: {
+            state: string;
+        };
         /** @enum {string} */
         SortOrder: "asc" | "desc";
+        /**
+         * @description Where the connection stands, as the settings row renders it (data-model "the connection
+         *     state machine"). Derived from the stored rows on every read, never stored itself.
+         * @enum {string}
+         */
+        SsoSessionState: "configured" | "signed-in" | "expired" | "unreadable";
         String: string;
         /** @enum {string} */
         SttProvider: "openai" | "openrouter" | "elevenlabs" | "groq" | "mistral" | "huggingface" | "gemini" | "whisper";
@@ -4415,6 +5419,11 @@ export interface components {
             model: string | null;
             /** @default whisper */
             provider: components["schemas"]["SttProvider"];
+        };
+        SwitchBranchRequest: {
+            branch: string;
+            create?: boolean | null;
+            topic?: string | null;
         };
         TaskResponse: {
             instruction: string;
@@ -4528,8 +5537,9 @@ export interface components {
         UpdateCoreRequest: {
             /**
              * Format: int64
-             * @description The revision this edit started from (`seq` of `GET /core`). When CORE has moved on, the
-             *     save is refused with `409 stale_revision` instead of overwriting the newer text.
+             * @description The revision this edit started from (`seq` of `GET /core`). When the identity document
+             *     has moved on, the save is refused with `409 stale_revision` instead of overwriting the
+             *     newer text.
              */
             base_seq?: number | null;
             content: string;
@@ -4541,6 +5551,14 @@ export interface components {
         };
         UpdateMemoryRequest: {
             attachments?: components["schemas"]["VizierAttachment"][] | null;
+            /**
+             * Format: int64
+             * @description The revision this edit started from, when the client knows it. When the document has
+             *     moved on, the save is refused with `409 stale_revision` and the newer content instead of
+             *     overwriting it (FR-028). Optional and additive: a client that omits it keeps the old
+             *     last-write-wins behaviour.
+             */
+            base_seq?: number | null;
             content: string;
             tags?: string[];
             title: string;
@@ -4552,6 +5570,8 @@ export interface components {
             path: string;
             relations: string[];
             tags: string[];
+            /** @description Present only when the content went over the soft limit (contracts/http-api.md). */
+            warning?: string | null;
         };
         UpdateProjectRequest: {
             /** @description Trimmed, 1–120 characters. */
@@ -4578,12 +5598,28 @@ export interface components {
             api_key?: string | null;
             base_url?: string | null;
             endpoint?: string | null;
-            /** @description AWS region. */
+            /**
+             * @description Amazon Bedrock (SSO): the whole inference-profile list, one operation — omitted keeps the
+             *     stored list, `[]` clears it (FR-021).
+             */
+            profiles?: components["schemas"]["ProfileEntry"][] | null;
+            /** @description AWS region; for the SSO provider this is the **Bedrock** region (FR-010). */
             region?: string | null;
+            /** @description Amazon Bedrock (SSO): the role chosen from the portal. */
+            role_name?: string | null;
             /** @description AWS Bedrock secret access key (write-only after saving). */
             secret_access_key?: string | null;
             /** @description AWS Bedrock temporary-credential session token (write-only after saving). */
             session_token?: string | null;
+            /** @description Amazon Bedrock (SSO): the non-secret handle the session is stored under (FR-009e). */
+            sso_profile?: string | null;
+            /**
+             * @description Amazon Bedrock (SSO): the region the Identity Center instance lives in; defaults from
+             *     `region` when only that one is given (FR-010).
+             */
+            sso_region?: string | null;
+            /** @description Amazon Bedrock (SSO): the Identity Center start URL (FR-005). */
+            start_url?: string | null;
         };
         /**
          * @description What a model call was for. Decided once, when the call is recorded (research R4).
@@ -4702,8 +5738,14 @@ export interface components {
             client_context?: string[];
             content: components["schemas"]["VizierRequestContent"];
             expect_audio_reply?: boolean | null;
+            /**
+             * @description Files and folders a project chat's message mentions (FR-018). Their contents are
+             *     resolved when the turn starts and never stored.
+             */
+            mentions?: string[];
             metadata: unknown;
             platform_message_id?: components["schemas"]["PlatformMessageId"] | null;
+            project_scope?: components["schemas"]["ProjectScope"] | null;
             /**
              * @description The slug of the task this request is a scheduled run of.
              *
@@ -4757,6 +5799,12 @@ export interface components {
              *     Dispatched beside `checkpoint`/`lobotomy`, never through `handle_request`.
              */
             btw: components["schemas"]["SideChat"];
+        } | {
+            /**
+             * @description A person's answer to a question set (`specs/042-agent-asking-question`). It starts a turn
+             *     like `Chat`: same history, same queue, same attribution, no bypass (FR-015).
+             */
+            question_answer: components["schemas"]["QuestionAnswer"];
         };
         VizierResponse: {
             attachments: components["schemas"]["VizierAttachment"][];
@@ -4833,6 +5881,27 @@ export interface components {
             total_tokens: number;
         };
         VizierSession: Record<string, never>[];
+        WorktreeDeleted: {
+            branch_deleted: boolean;
+            deleted: boolean;
+        };
+        WorktreeDetail: components["schemas"]["WorktreeSummary"] & {
+            base_ref: string;
+            branch_merged: boolean;
+            changed: number;
+            /** Format: int64 */
+            created_at: number;
+            path: string;
+            untracked: number;
+        };
+        /** @description A worktree as the sidebar and a create response show it. */
+        WorktreeSummary: {
+            /** @description The folder is still there (FR-032). */
+            available: boolean;
+            branch: string;
+            id: string;
+            name: string;
+        };
     };
     responses: never;
     parameters: never;
@@ -5383,6 +6452,55 @@ export interface operations {
         responses: {
             /** @description Topic deleted */
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_String"];
+                };
+            };
+            /** @description Agent or topic not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_String"];
+                };
+            };
+        };
+    };
+    rename_topic: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Agent ID */
+                agent_id: string;
+                /** @description Channel ID */
+                channel_id: string;
+                /** @description Topic ID */
+                topic_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RenameTopicRequest"];
+            };
+        };
+        responses: {
+            /** @description Topic renamed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_TopicEntry"];
+                };
+            };
+            /** @description The title is empty or too long */
+            400: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -7121,6 +8239,265 @@ export interface operations {
             };
         };
     };
+    files: {
+        parameters: {
+            query?: {
+                /** @description What the person typed after @ */
+                q?: string;
+                /** @description The chat, for a worktree folder */
+                topic?: string;
+                /** @description 1–50, default 20 */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                /** @description Agent ID */
+                agent_id: string;
+                /** @description Project ID */
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Matching files and folders */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_Vec_FileSuggestion"];
+                };
+            };
+            /** @description The caller may not use this project */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Agent or project not found, or removed */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description `project_unavailable` */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    git_summary: {
+        parameters: {
+            query?: {
+                /** @description The chat, for a worktree folder */
+                topic?: string;
+            };
+            header?: never;
+            path: {
+                /** @description Agent ID */
+                agent_id: string;
+                /** @description Project ID */
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The branch and change count; `available: false` without git */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_GitSummary"];
+                };
+            };
+            /** @description The caller may not use this project */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Agent or project not found, or removed */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    git_branches: {
+        parameters: {
+            query?: {
+                /** @description The chat, for a worktree folder */
+                topic?: string;
+            };
+            header?: never;
+            path: {
+                /** @description Agent ID */
+                agent_id: string;
+                /** @description Project ID */
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Local branches, with the worktree holding each */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_Vec_GitBranch"];
+                };
+            };
+            /** @description `git_unavailable` */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    git_changes: {
+        parameters: {
+            query?: {
+                /** @description The chat, for a worktree folder */
+                topic?: string;
+            };
+            header?: never;
+            path: {
+                /** @description Agent ID */
+                agent_id: string;
+                /** @description Project ID */
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Every uncommitted change with line counts */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_Vec_GitChange"];
+                };
+            };
+            /** @description `git_unavailable` */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    git_diff: {
+        parameters: {
+            query: {
+                /** @description The chat, for a worktree folder */
+                topic?: string;
+                /** @description The changed file, relative to the folder */
+                path: string;
+            };
+            header?: never;
+            path: {
+                /** @description Agent ID */
+                agent_id: string;
+                /** @description Project ID */
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The file's diff against the last commit */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_GitFileDiff"];
+                };
+            };
+            /** @description `git_unavailable` */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description `invalid_path` */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    git_switch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Agent ID */
+                agent_id: string;
+                /** @description Project ID */
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SwitchBranchRequest"];
+            };
+        };
+        responses: {
+            /** @description The folder's new branch */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_GitSummary"];
+                };
+            };
+            /** @description Switching the main folder needs managing the project */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description `turn_active`, `branch_checked_out`, `local_changes` or `branch_exists` */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description `invalid_branch` */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     sessions: {
         parameters: {
             query?: never;
@@ -7192,6 +8569,248 @@ export interface operations {
             };
             /** @description Agent or project not found, or removed */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    set_mode: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Agent ID */
+                agent_id: string;
+                /** @description Project ID */
+                project_id: string;
+                /** @description Chat topic */
+                topic: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetModeRequest"];
+            };
+        };
+        responses: {
+            /** @description The chat now uses this mode from the next turn */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_SetModeResponse"];
+                };
+            };
+            /** @description The caller may not use this project */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Agent or project not found, or removed */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    skills: {
+        parameters: {
+            query?: {
+                /** @description The chat, so a worktree offers its own branch's skills */
+                topic?: string;
+            };
+            header?: never;
+            path: {
+                /** @description Agent ID */
+                agent_id: string;
+                /** @description Project ID */
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The skills this chat's folder carries, one per slug */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_Vec_ProjectSkillRow"];
+                };
+            };
+            /** @description The caller may not use this project */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Agent or project not found, or removed */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description `project_unavailable` */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    list_worktrees: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Agent ID */
+                agent_id: string;
+                /** @description Project ID */
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The project's worktrees */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_Vec_WorktreeSummary"];
+                };
+            };
+            /** @description The caller may not use this project */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    create_worktree: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Agent ID */
+                agent_id: string;
+                /** @description Project ID */
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateWorktreeRequest"];
+            };
+        };
+        responses: {
+            /** @description The worktree and the one chat opened in it */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_CreateWorktreeResponse"];
+                };
+            };
+            /** @description `git_unavailable`, `name_in_use`, `branch_exists`, `path_exists` */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description `invalid_name`, `invalid_branch` or `unknown_base` */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    worktree_detail: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Agent ID */
+                agent_id: string;
+                /** @description Project ID */
+                project_id: string;
+                /** @description Worktree ID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Availability, change counts and whether the branch is merged */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_WorktreeDetail"];
+                };
+            };
+            /** @description Worktree not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    delete_worktree: {
+        parameters: {
+            query?: {
+                /** @description Discard uncommitted changes */
+                force?: boolean;
+                /** @description Also delete the branch */
+                delete_branch?: boolean;
+            };
+            header?: never;
+            path: {
+                /** @description Agent ID */
+                agent_id: string;
+                /** @description Project ID */
+                project_id: string;
+                /** @description Worktree ID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The chat and folder were removed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_WorktreeDeleted"];
+                };
+            };
+            /** @description `turn_active` or `worktree_dirty {changed, untracked}` */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -9106,6 +10725,358 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["APIResponse_InUse"];
+                };
+            };
+        };
+    };
+    list_entries: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Provider id; only `amazon-bedrock-sso` has entries */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The saved entries, each with its ARN and computed pricing */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_Vec_ProfileEntryResponse"];
+                };
+            };
+            /** @description The provider is not an SSO connection */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_String"];
+                };
+            };
+        };
+    };
+    add_entry: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Provider id; only `amazon-bedrock-sso` has entries */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProfileEntry"];
+            };
+        };
+        responses: {
+            /** @description The whole list, now including the new entry */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_Vec_ProfileEntryResponse"];
+                };
+            };
+            /** @description The ARN, a duplicate, a region mismatch or a pricing field is refused */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_String"];
+                };
+            };
+        };
+    };
+    update_entry: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Provider id; only `amazon-bedrock-sso` has entries */
+                id: string;
+                /** @description The saved ARN, URL-encoded; it is in the path so a person can verify which entry is being replaced */
+                arn: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProfileEntry"];
+            };
+        };
+        responses: {
+            /** @description The whole list, with the entry replaced */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_Vec_ProfileEntryResponse"];
+                };
+            };
+            /** @description A validation rule is refused */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_String"];
+                };
+            };
+            /** @description No entry holds this ARN */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_String"];
+                };
+            };
+            /** @description Changing the ARN would remove the profile an agent uses; `data` lists them */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_InUse"];
+                };
+            };
+        };
+    };
+    remove_entry: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Provider id; only `amazon-bedrock-sso` has entries */
+                id: string;
+                /** @description The saved ARN, URL-encoded */
+                arn: string;
+                confirm: boolean;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The whole list, without the entry */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_Vec_ProfileEntryResponse"];
+                };
+            };
+            /** @description The provider is not an SSO connection */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_String"];
+                };
+            };
+            /** @description No entry holds this ARN */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_String"];
+                };
+            };
+            /** @description An agent still chats through it; `data` lists them */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_InUse"];
+                };
+            };
+        };
+    };
+    sso_accounts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Provider id; only `amazon-bedrock-sso` has accounts */
+                id: string;
+                start_url: string | null;
+                sso_region: string | null;
+                /** @description The profile name the session is stored under (FR-009e). */
+                profile: string | null;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The accounts the identity was assigned; `fallback` asks for free text */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_AccountList"];
+                };
+            };
+            /** @description No usable session: sign in again */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_String"];
+                };
+            };
+        };
+    };
+    sso_roles: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Provider id; only `amazon-bedrock-sso` has roles */
+                id: string;
+                /** @description AWS account id, 12 digits */
+                account_id: string;
+                start_url: string | null;
+                sso_region: string | null;
+                /** @description The profile name the session is stored under (FR-009e). */
+                profile: string | null;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The roles this identity may assume in the account */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_RoleList"];
+                };
+            };
+            /** @description The account id is not 12 digits */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_String"];
+                };
+            };
+            /** @description No usable session: sign in again */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_String"];
+                };
+            };
+        };
+    };
+    sso_sign_in: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Provider id; only `amazon-bedrock-sso` signs in */
+                id: string;
+            };
+            cookie?: never;
+        };
+        /** @description Optional start URL, SSO region and profile name, for a connection not saved yet */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SignInRequest"];
+            };
+        };
+        responses: {
+            /** @description A code to confirm, or the completed sign-in */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_SignInResponse"];
+                };
+            };
+            /** @description The browser step is still pending */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_SignInResponse"];
+                };
+            };
+            /** @description The sign-in was denied or the code expired */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_String"];
+                };
+            };
+            /** @description AWS did not answer */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_String"];
+                };
+            };
+        };
+    };
+    sso_sign_out: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Provider id; only `amazon-bedrock-sso` signs out */
+                id: string;
+            };
+            cookie?: never;
+        };
+        /** @description Optional profile name, when the connection is not saved yet */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SignInRequest"];
+            };
+        };
+        responses: {
+            /** @description The session row is gone and the connection is configured; never an error if it was already signed out */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_SignOutResponse"];
+                };
+            };
+            /** @description The provider is not an SSO connection */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_String"];
                 };
             };
         };
