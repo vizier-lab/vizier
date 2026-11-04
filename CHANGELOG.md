@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.15.0-rc.2] - 2026-11-04
+
+### 🐛 Bug Fixes
+
+- *(test)* Produce the over-cap stream with posix awk, not a bashism
+- *(app)* Do not let the linux build trip -D warnings on the window binding
 ## [0.14.1] - 2026-11-01
 
 ### 🚀 Features
@@ -17,6 +23,10 @@ All notable changes to this project will be documented in this file.
 ### 📚 Documentation
 
 - Add a contributing guide and a code of conduct
+
+### ⚙️ Miscellaneous Tasks
+
+- Bump version to 0.14.1
 ## [0.14.0] - 2026-11-01
 
 ### 🚀 Features
