@@ -24,6 +24,7 @@ A user who has the model-override permission chooses an available provider/model
 2. **Given** a user has selected a model, **When** they send another prompt in that conversation without changing the selection, **Then** that prompt also uses the selected model.
 3. **Given** a user has selected a model, **When** they select a different available model and send a prompt, **Then** the new prompt uses the newly selected model.
 4. **Given** the model selector is shown, **When** the user views its choices, **Then** each choice displays the provider name, a slash, and the complete model identifier, preserving any slashes in the model identifier. For example, provider `opencode` with model `deepseek/deepseek-flash` is displayed as `opencode/deepseek/deepseek-flash`, and provider `openai` with model `gpt-luna` is displayed as `openai/gpt-luna`.
+5. **Given** a provider icon is available, **When** the user views a model choice, **Then** the provider icon is shown alongside that choice; if no icon is available, the choice remains identifiable by its text label.
 
 ---
 
@@ -79,6 +80,7 @@ A user gets clear feedback if a selected model is no longer available and their 
 - **FR-008**: If a requested model is unavailable or the user is not authorized, the system MUST reject the override and MUST NOT silently use a different model.
 - **FR-009**: The WebUI MUST communicate when no eligible models are available or a selected model cannot be used.
 - **FR-010**: Model override MUST be supported in the WebUI only for this release. Discord and Telegram MUST continue to use their existing model behavior without model-override controls.
+- **FR-011**: When a provider icon is available, the WebUI MUST show it alongside the corresponding provider/model choice in the dropdown. If no provider icon is available, the choice MUST remain identifiable by its text label and the icon MUST NOT be required.
 
 ### Key Entities *(include if data involved)*
 
