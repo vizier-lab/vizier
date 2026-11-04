@@ -10,7 +10,7 @@ use std::future::Future;
 
 use tokio::sync::broadcast::error::RecvError;
 
-use crate::schema::{AgentId, VizierChannelId, VizierResponse, VizierSession};
+use crate::schema::{AgentId, VizierChannelId, VizierResponse, VizierResponseContent, VizierSession};
 use crate::transport::{SessionFrame, VizierTransport};
 
 /// Aborts the watcher when the channel reader that started it stops.
@@ -20,6 +20,17 @@ impl Drop for WokenTurnWatcher {
     fn drop(&mut self) {
         self.0.abort();
     }
+}
+
+/// Whether a frame ends a turn, as the platform renderers read it.
+fn is_terminal(frame: &VizierResponse) -> bool {
+    matches!(
+        frame.content,
+        VizierResponseContent::Message { .. }
+            | VizierResponseContent::AudioReply(..)
+            | VizierResponseContent::Abort
+            | VizierResponseContent::Error { .. }
+    )
 }
 
 /// Watch the session-event broadcast for response frames of `agent_id`'s sessions whose

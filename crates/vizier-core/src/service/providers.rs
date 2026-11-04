@@ -1093,7 +1093,7 @@ mod tests {
     /// `restart_users` sends one `Restart` per affected agent and waits for the answer, so a
     /// test stands in for the agent runtime: each command's `agent_id` is recorded and answered
     /// with an error (which only logs). The idle timeout keeps a forgotten task from hanging.
-    fn restarts(
+    async fn restarts(
         deps: &VizierDependencies,
     ) -> (
         std::sync::Arc<std::sync::Mutex<Vec<String>>>,
@@ -1101,14 +1101,25 @@ mod tests {
     ) {
         let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
         let recorded = seen.clone();
-        let transport = deps.transport.clone();
-        let task = tokio::spawn(async move {
-            while let Ok(Ok(command)) = tokio::time::timeout(
-                std::time::Duration::from_secs(5),
-                transport.recv_agent_command(),
-            )
+        // The bus replaced the old per-transport command channel: subscribe once, then take
+        // fleet-wide commands off `agents.cmd`. Subscribing here, before the task is spawned,
+        // means the subscription is live when the caller sends its first command: the bus
+        // delivers at most once, so a command sent earlier would simply be lost.
+        let mut commands = deps
+            .transport
+            .serve_agent_commands()
             .await
-            {
+            .expect("the test listens for agent commands");
+        let task = tokio::spawn(async move {
+            loop {
+                let Ok(Some(command)) = tokio::time::timeout(
+                    std::time::Duration::from_secs(5),
+                    commands.recv(),
+                )
+                .await
+                else {
+                    break;
+                };
                 if let crate::schema::AgentCommand::Restart { agent_id, resp } = command {
                     recorded.lock().unwrap().push(agent_id);
                     let _ = resp.send(crate::schema::AgentCommandResult::Error("stub".into()));
@@ -1161,7 +1172,7 @@ mod tests {
         );
         agents(&deps).await;
 
-        let (seen, runtime) = restarts(&deps);
+        let (seen, runtime) = restarts(&deps).await;
         upsert(
             &deps,
             &system(),
@@ -1208,7 +1219,7 @@ mod tests {
             .unwrap();
         agents(&deps).await;
 
-        let (seen, runtime) = restarts(&deps);
+        let (seen, runtime) = restarts(&deps).await;
         upsert(
             &deps,
             &system(),

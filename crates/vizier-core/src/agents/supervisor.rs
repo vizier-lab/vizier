@@ -265,7 +265,7 @@ fn set_status(
     f: impl FnOnce(&mut AgentStatus),
 ) {
     f(&mut status.write().unwrap_or_else(|p| p.into_inner()));
-    let health = AgentStatus::health(status, &deps.channel_board, agent_id);
+    let health = AgentStatus::health(status, &deps.channel_board, &deps.sso_failures, agent_id);
     crate::agents::views::publish_health(deps, agent_id, &health);
 }
 
@@ -645,6 +645,17 @@ async fn reject(envelope: VizierRequestEnvelope, error: &str) {
 mod tests {
     use super::*;
 
+    /// The lightest `VizierDependencies` this crate's tests build: a real workspace in a temp
+    /// dir. `set_status` publishes the health view through it, so the tests need one.
+    async fn deps() -> (VizierDependencies, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        let config = crate::config::VizierConfig {
+            workspace: dir.path().to_string_lossy().to_string(),
+            ..Default::default()
+        };
+        (VizierDependencies::new(config).await.unwrap(), dir)
+    }
+
     #[test]
     fn a_ready_notification_needs_a_download_or_a_recovery() {
         assert!(
@@ -663,16 +674,17 @@ mod tests {
 
     /// T054: an agent whose connection's session ended stays available and says why, and the
     /// next successful sign-in clears it with no restart (FR-018).
-    #[test]
-    fn health_reports_an_ended_session_until_a_sign_in_clears_it() {
+    #[tokio::test]
+    async fn health_reports_an_ended_session_until_a_sign_in_clears_it() {
         use crate::config::provider::ProviderId;
         use crate::llm::sso::{SessionFailures, SsoError};
 
+        let (deps, _dir) = deps().await;
         let board: ChannelBoard = Default::default();
         let failures = SessionFailures::default();
         let status: SharedStatus = Default::default();
         let agent: AgentId = "agent-1".into();
-        set_status(&status, |s| {
+        set_status(&deps, &agent, &status, |s| {
             s.state = AgentRunState::Running;
             s.model = Some(crate::schema::AgentModelInfo {
                 provider: ProviderId::AMAZON_BEDROCK_SSO,
@@ -706,15 +718,17 @@ mod tests {
     }
 
     /// A failure on the other Bedrock provider is not this agent's problem (FR-003).
-    #[test]
-    fn a_failure_on_another_provider_is_not_reported_on_this_agent() {
+    #[tokio::test]
+    async fn a_failure_on_another_provider_is_not_reported_on_this_agent() {
         use crate::config::provider::ProviderId;
         use crate::llm::sso::{SessionFailures, SsoError};
 
+        let (deps, _dir) = deps().await;
         let board: ChannelBoard = Default::default();
         let failures = SessionFailures::default();
         let status: SharedStatus = Default::default();
-        set_status(&status, |s| {
+        let agent: AgentId = "agent-1".into();
+        set_status(&deps, &agent, &status, |s| {
             s.state = AgentRunState::Running;
             s.model = Some(crate::schema::AgentModelInfo {
                 provider: ProviderId::AMAZON_BEDROCK,
@@ -730,7 +744,7 @@ mod tests {
         );
 
         assert!(
-            AgentStatus::health(&status, &board, &failures, &"agent-1".into())
+            AgentStatus::health(&status, &board, &failures, &agent)
                 .session_failure
                 .is_none()
         );
