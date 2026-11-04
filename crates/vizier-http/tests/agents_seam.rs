@@ -1,5 +1,5 @@
 //! The gateway side, tested against a fake seam and with **no agent host running**
-//! (`specs/163-agent-service-seam`, FR-016).
+//! (`specs/048-agent-service-seam`, FR-016).
 //!
 //! The point of the seam is that the gateway side never needs a running agent host to be
 //! tested: it reaches an agent through [`AgentsClient`], and a fake answers. Nothing here

@@ -4,7 +4,7 @@ description: "Task list for the Fleet agent service seam (#163)"
 
 # Tasks: Fleet Agent Service Seam
 
-**Input**: Design documents from `/specs/163-agent-service-seam/`
+**Input**: Design documents from `/specs/048-agent-service-seam/`
 
 **Prerequisites**: plan.md, spec.md, research.md, data-model.md, contracts/, quickstart.md
 
@@ -38,7 +38,7 @@ delivered independently.
 **Purpose**: Establish the baseline the work is measured against, and confirm the constraints the
 plan puts on it.
 
-- [X] T001 Record the test baseline in `specs/163-agent-service-seam/quickstart.md`: run `cargo test -p vizier-core --lib`, `cargo test -p vizier-schema` and `cargo test -p vizier-fleet`, and write down which tests fail on this branch. The two Windows-only failures that are NOT yours are `projects::path::tests::absolute_escaping_and_missing_paths_are_refused` and `skill::scopes::tests::a_slug_in_both_project_roots_appears_once_and_agents_wins`; any other failure is yours to fix before continuing
+- [X] T001 Record the test baseline in `specs/048-agent-service-seam/quickstart.md`: run `cargo test -p vizier-core --lib`, `cargo test -p vizier-schema` and `cargo test -p vizier-fleet`, and write down which tests fail on this branch. The two Windows-only failures that are NOT yours are `projects::path::tests::absolute_escaping_and_missing_paths_are_refused` and `skill::scopes::tests::a_slug_in_both_project_roots_appears_once_and_agents_wins`; any other failure is yours to fix before continuing
 - [X] T002 [P] Confirm the no-new-dependency rule in `crates/vizier-schema/Cargo.toml`, `crates/vizier-core/Cargo.toml`, `crates/vizier-http/Cargo.toml` and `crates/vizier-fleet/Cargo.toml`: diff them against `develop` and check that the only changes are `path`/`version` entries for workspace crates. No third-party crate is added by this feature (plan.md, Principle I)
 - [X] T003 [P] Confirm the two unchanged gates in `crates/vizier-fleet/tests/roles.rs` and `crates/vizier-http/tests/conformance/main.rs` pass on this branch before any code changes - these are the FR-022 gates and they must still pass at the end
 
@@ -55,7 +55,7 @@ the wiring that makes it reachable. Nothing else can start without it.
 
 - [X] T004 [P] Add `Subject::agent_cmd(id)` to `crates/vizier-schema/src/subject.rs`, returning `agent.{id}.cmd` with the id percent-encoded into exactly one token - beside `agent_req` (`:104`) and `agent_memop` (`:109`), using the same `with_id` helper
 - [X] T005 [P] Add the subject tests to the `mod tests` block of `crates/vizier-schema/src/subject.rs`: `Subject::agent_cmd("my.agent")` is the three tokens `agent.my%2Eagent.cmd`, it matches the pattern `agent.*.cmd`, it does not match `agent.*.req`, and `Subject::decode_token` round-trips the id
-- [X] T006 Create `crates/vizier-core/src/agents_client.rs` with the `AgentsClient` trait: nine object-safe async methods - `request`, `abort`, `create`, `update`, `delete`, `restart`, `health`, `integration_status`, `refresh_integrations` - each returning `crate::Result<T>` (`VizierError`). The signatures are in `specs/163-agent-service-seam/contracts/agents-client.md`; the trait must be `Send + Sync`
+- [X] T006 Create `crates/vizier-core/src/agents_client.rs` with the `AgentsClient` trait: nine object-safe async methods - `request`, `abort`, `create`, `update`, `delete`, `restart`, `health`, `integration_status`, `refresh_integrations` - each returning `crate::Result<T>` (`VizierError`). The signatures are in `specs/048-agent-service-seam/contracts/agents-client.md`; the trait must be `Send + Sync`
 - [X] T007 Add the availability error to `crates/vizier-core/src/agents_client.rs`: an error type carrying `ErrorKind::AgentUnavailable` (`crates/vizier-core/src/schema/response.rs:69-70`) and the reason - `NoOwner` or `OwnerLost`. The kind must stay the one the WebUI and the channels read today; only the reason is new
 - [X] T008 Register the module in `crates/vizier-core/src/lib.rs`: add `pub mod agents_client;` to the stable tier beside `pub mod transport;` (`:77`) and export the trait and its error from the `prelude` block (`:52-68`)
 - [X] T009 Add `pub agents: Arc<dyn AgentsClient>` to `VizierDependencies` in `crates/vizier-core/src/dependencies.rs` (the struct at `:46-88`) and initialise it in the constructor (`:292-316`). `VizierDependencies` is built in exactly one place, so this is the only construction site to touch
@@ -80,7 +80,7 @@ file and line; remove the read and it passes again.
 ### Tests for User Story 2
 
 - [X] T014 [P] [US2] Write the seam's contract test in the `mod tests` block of `crates/vizier-core/src/agents_client.rs`: a `FakeAgentsClient` records the calls it receives and answers from a script; assert that `health("alpha")` carries the agent id and returns the scripted status, and that `update` carries the config it was given
-- [X] T015 [P] [US2] Write the failing test that proves the mechanical check bites: add `scripts/163-agent-state-read-check.sh` with a deliberate direct read of `deps.channel_board` in `crates/vizier-core/src/service/agents.rs`, assert the script exits non-zero and names that file and line, then remove the deliberate read and assert it exits zero. The check must be shown failing - a check never seen to fail is not a check
+- [X] T015 [P] [US2] Write the failing test that proves the mechanical check bites: add `scripts/048-agent-state-read-check.sh` with a deliberate direct read of `deps.channel_board` in `crates/vizier-core/src/service/agents.rs`, assert the script exits non-zero and names that file and line, then remove the deliberate read and assert it exits zero. The check must be shown failing - a check never seen to fail is not a check
 
 ### Implementation for User Story 2
 
@@ -91,8 +91,8 @@ file and line; remove the read and it passes again.
 - [X] T020 [US2] Serve the per-agent command subject from the agent side in `crates/vizier-core/src/agents/mod.rs`: the manager subscribes to `agent.{id}.cmd` for each agent it holds, beside the fleet-wide `agents.cmd` subscription it has today (`crates/vizier-core/src/transport/mod.rs:485`), and answers with that agent's health, integration status or command result
 - [X] T021 [US2] Route the service layer through the seam in `crates/vizier-core/src/service/agents.rs`: the per-agent reads and writes - the ping endpoint (`:815`), the restart endpoint (`:644`) and the integration status (via `crates/vizier-core/src/service/integrations.rs:267`) - go through `deps().agents` instead of the manager's memory. The request and response shapes must not change (FR-019)
 - [X] T022 [US2] Route the HTTP adapter through the seam in `crates/vizier-http/src/api/v1/agents/mod.rs`: the handlers call `service::agents::*`, which now calls the seam - no handler reads a running agent's state. `HTTPState` already holds a `VizierDependencies` (`crates/vizier-http/src/state.rs:29`), so no new plumbing is needed
-- [X] T023 [US2] Write the policy script `scripts/163-agent-state-read-check.sh`, following the house pattern of `scripts/037-baseline-check.sh` (shebang, `set -euo pipefail`, `cd "$(dirname "$0")/.."`, exit non-zero on a finding): it scans `crates/vizier-http/src` and `crates/vizier-core/src/service` for reads of the handles only the agent host may touch - the supervisor's process map, the setup board's live snapshot, the channel board's status lookup and the deferred-claims registry - and prints the file and line of each one
-- [X] T024 [US2] Add the check to the `policy` job in `.github/workflows/ci.yml`, beside the "Roles stay independent" step (`:409`), running `bash scripts/163-agent-state-read-check.sh` and failing the job on a non-zero exit
+- [X] T023 [US2] Write the policy script `scripts/048-agent-state-read-check.sh`, following the house pattern of `scripts/037-baseline-check.sh` (shebang, `set -euo pipefail`, `cd "$(dirname "$0")/.."`, exit non-zero on a finding): it scans `crates/vizier-http/src` and `crates/vizier-core/src/service` for reads of the handles only the agent host may touch - the supervisor's process map, the setup board's live snapshot, the channel board's status lookup and the deferred-claims registry - and prints the file and line of each one
+- [X] T024 [US2] Add the check to the `policy` job in `.github/workflows/ci.yml`, beside the "Roles stay independent" step (`:409`), running `bash scripts/048-agent-state-read-check.sh` and failing the job on a non-zero exit
 - [X] T025 [US2] Run the seam's contract test and the gateway-side test: `cargo test -p vizier-core --lib agents_client` (the test in `crates/vizier-core/src/agents_client.rs`) and `cargo test -p vizier-http --test agents_seam` (the test in `crates/vizier-http/tests/agents_seam.rs`)
 
 **Checkpoint**: US2 is complete - the gateway side reaches agents only through the seam, and a
@@ -143,7 +143,7 @@ end-to-end agent turn; all pass with no test changed to accommodate the work.
 ### Implementation for User Story 1
 
 - [X] T035 [US1] Add the published view type in `crates/vizier-core/src/agents_client.rs`: a JSON envelope `{"expires_at_ms": <ms>, "data": <payload>}` with the deadline **in the value**, because `SharedState` has no TTL (`crates/vizier-schema/src/state.rs:33-49`). The deadline is at most 10 s after the publish (FR-010, SC-008)
-- [X] T036 [US1] Publish the health view from the agent side in `crates/vizier-core/src/agents/supervisor.rs`: the host publishes `agent.{id}.health` **when it takes the agent** and **whenever that agent's state changes** - not on a timer (`specs/163-agent-service-seam/contracts/shared-state-views.md`, rules 5-7). Without this, single node would show *unknown* for a running agent
+- [X] T036 [US1] Publish the health view from the agent side in `crates/vizier-core/src/agents/supervisor.rs`: the host publishes `agent.{id}.health` **when it takes the agent** and **whenever that agent's state changes** - not on a timer (`specs/048-agent-service-seam/contracts/shared-state-views.md`, rules 5-7). Without this, single node would show *unknown* for a running agent
 - [X] T037 [US1] Publish the setup view from the agent side in `crates/vizier-core/src/setup.rs`: the setup board keeps its in-memory form and publishes a copy to `agent.{id}.setup` (the board is the one publisher - Principle II)
 - [X] T038 [US1] Read the published views from the gateway side in `crates/vizier-core/src/service/agents.rs`: the agent list (`:346-356`), the health endpoint (`:799`) and `crates/vizier-core/src/service/overview.rs:70` read the views instead of the manager's memory. A missing or expired view reads as *unknown*, never as a stale value
 - [X] T039 [US1] Read the published setup view in `crates/vizier-core/src/service/setup_state.rs:14`: the setup-state endpoint the WebUI polls reads `agent.{id}.setup` from shared state instead of `deps.setup.snapshot()`. The person's authorisation filter (`:19-34`) stays as it is
@@ -235,13 +235,13 @@ before and the source it has now, so a reviewer can confirm the cluster work is 
 
 ### Tests for User Story 7
 
-- [X] T060 [P] [US7] Write the audit's completeness check into `scripts/163-agent-state-read-check.sh`: it also reports how many entries the audit file has and how many the check's handle list covers, so a new handle without an audit row is visible
+- [X] T060 [P] [US7] Write the audit's completeness check into `scripts/048-agent-state-read-check.sh`: it also reports how many entries the audit file has and how many the check's handle list covers, so a new handle without an audit row is visible
 
 ### Implementation for User Story 7
 
-- [X] T061 [US7] Re-verify every row of `specs/163-agent-service-seam/contracts/agent-state-audit.md` against the code as it stands after Phases 3-8, and correct any row whose file:line or classification has moved. Every row must name the old source, the new one and the kind of state
-- [X] T062 [US7] Resolve or re-confirm the one open row in `specs/163-agent-service-seam/contracts/agent-state-audit.md` - the channel-reader health - and state its owner (#167's scope) or its replacement. An entry with no replacement stays **marked open**, never blank
-- [X] T063 [US7] Record in `specs/163-agent-service-seam/contracts/agent-state-audit.md` the entries that deliberately stay where they are - the rate limiters (per node, FR-012), the client's open sockets, the questions registry and the project read ledger - with the reason each one stays, so a later reader does not re-open them
+- [X] T061 [US7] Re-verify every row of `specs/048-agent-service-seam/contracts/agent-state-audit.md` against the code as it stands after Phases 3-8, and correct any row whose file:line or classification has moved. Every row must name the old source, the new one and the kind of state
+- [X] T062 [US7] Resolve or re-confirm the one open row in `specs/048-agent-service-seam/contracts/agent-state-audit.md` - the channel-reader health - and state its owner (#167's scope) or its replacement. An entry with no replacement stays **marked open**, never blank
+- [X] T063 [US7] Record in `specs/048-agent-service-seam/contracts/agent-state-audit.md` the entries that deliberately stay where they are - the rate limiters (per node, FR-012), the client's open sockets, the questions registry and the project read ledger - with the reason each one stays, so a later reader does not re-open them
 - [X] T064 [US7] Update the bus contract page `docs/src/fleet/bus-contract.md` with the new per-agent command subject, the two availability reasons, and the published views' keys and lifetime
 
 **Checkpoint**: US7 is complete - the record stands alone.
@@ -256,9 +256,9 @@ before and the source it has now, so a reviewer can confirm the cluster work is 
 - [X] T066 [P] Check the new code against the constitution's rules in `crates/vizier-core/src/agents_client.rs` and `crates/vizier-core/src/agents/placement.rs`: one error type (`crate::Result`), logging through `tracing` only, no `unwrap()` outside tests, no type-tag branching where a trait dispatch belongs
 - [X] T067 Run `cargo clippy --workspace --all-targets -- -D warnings` over `crates/vizier-schema/`, `crates/vizier-core/`, `crates/vizier-http/` and `crates/vizier-fleet/`, and fix every warning this change introduced - the new code is in `crates/vizier-core/src/agents_client.rs`, `crates/vizier-core/src/agents/placement.rs` and `crates/vizier-schema/src/subject.rs`
 - [X] T068 Run the full gate over `crates/`: `cargo test --workspace`, `cargo test -p vizier-schema`, `cargo test -p vizier-fleet` and `cargo test -p vizier-http --test conformance` (`crates/vizier-http/tests/conformance/main.rs`). Every test passes, with no test modified except those that pinned a behaviour this work deliberately replaces
-- [X] T069 Run the agent-observable end-to-end check with a dummyplug agent on a running binary (the constitution's e2e gate): walk the dummyplug steps in `specs/163-agent-service-seam/quickstart.md` and in `scripts/dummyplug-vizier-e2e.mjs`. **The turn path ran here**: `crates/vizier-core/tests/dummyplug_e2e.rs` (`dummyplug_agent_answers_through_the_runtime`) starts the real `VizierRuntime`, the dummyplug Node server and an agent on the dummyplug provider and answers a real turn; `crates/vizier-http/tests/topic.rs` (`a_turn_looks_the_same_over_the_socket_and_the_dispatcher`) does the same over the socket and compares the frames. Both green. The `vizier` **binary** was not built: `daemonize` is Unix-only, so `cargo build -p vizier` and `cargo clippy --workspace` fail on Windows; CI builds it on Linux.
-- [X] T070 Run `scripts/163-agent-state-read-check.sh` one last time and record its output in `specs/163-agent-service-seam/quickstart.md`
-- [X] T071 Commit the work in conventional-commit format on the branch `163-agent-service-seam`, one slice per commit (the plan's six slices), staging by path (`crates/`, `.github/workflows/ci.yml`, `scripts/163-agent-state-read-check.sh`) - never `git add -A`, which would sweep `app/src-tauri/gen/schemas`
+- [X] T069 Run the agent-observable end-to-end check with a dummyplug agent on a running binary (the constitution's e2e gate): walk the dummyplug steps in `specs/048-agent-service-seam/quickstart.md` and in `scripts/dummyplug-vizier-e2e.mjs`. **The turn path ran here**: `crates/vizier-core/tests/dummyplug_e2e.rs` (`dummyplug_agent_answers_through_the_runtime`) starts the real `VizierRuntime`, the dummyplug Node server and an agent on the dummyplug provider and answers a real turn; `crates/vizier-http/tests/topic.rs` (`a_turn_looks_the_same_over_the_socket_and_the_dispatcher`) does the same over the socket and compares the frames. Both green. The `vizier` **binary** was not built: `daemonize` is Unix-only, so `cargo build -p vizier` and `cargo clippy --workspace` fail on Windows; CI builds it on Linux.
+- [X] T070 Run `scripts/048-agent-state-read-check.sh` one last time and record its output in `specs/048-agent-service-seam/quickstart.md`
+- [X] T071 Commit the work in conventional-commit format on the branch `048-agent-service-seam`, one slice per commit (the plan's six slices), staging by path (`crates/`, `.github/workflows/ci.yml`, `scripts/048-agent-state-read-check.sh`) - never `git add -A`, which would sweep `app/src-tauri/gen/schemas`
 
 ---
 

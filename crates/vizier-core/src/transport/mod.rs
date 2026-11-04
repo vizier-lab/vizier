@@ -485,7 +485,7 @@ impl VizierTransport {
     /// Unlike [`Self::send_agent_command`] the bus failure is not flattened into a message: the
     /// two failures the seam tells apart - nobody subscribed, and nobody answering - come back
     /// as the bus's own error, so the caller can say which one it was
-    /// (`specs/163-agent-service-seam` contracts/agents-client.md, "Errors").
+    /// (`specs/048-agent-service-seam` contracts/agents-client.md, "Errors").
     pub async fn send_agent_command_to(
         &self,
         agent_id: &str,

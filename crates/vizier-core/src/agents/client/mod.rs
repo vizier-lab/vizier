@@ -503,7 +503,7 @@ pub async fn deliver_deferred(
     connection: &ClientConnection,
     call_id: &str,
 ) {
-    // The claim is a lease on the stored row (`specs/163-agent-service-seam` research R7):
+    // The claim is a lease on the stored row (`specs/048-agent-service-seam` research R7):
     // one conditional update, so exactly one gateway's statement changes the row and
     // exactly one of them delivers the call.
     let claimant = connection.id.clone();

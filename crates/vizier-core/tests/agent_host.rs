@@ -1,4 +1,4 @@
-//! The agent host, tested on its own (`specs/163-agent-service-seam` FR-016).
+//! The agent host, tested on its own (`specs/048-agent-service-seam` FR-016).
 //!
 //! The host is built from a bus handle, a storage handle and the list of agents it is told
 //! to hold. No gateway is running here, and no other role: the host answers for the agents

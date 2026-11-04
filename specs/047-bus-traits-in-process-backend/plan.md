@@ -1,8 +1,8 @@
 # Implementation Plan: Fleet Message Bus, In-Process Backend and Role Test Harness
 
-**Branch**: `162-vizier-schema` | **Date**: 2026-11-03 | **Spec**: [spec.md](spec.md)
+**Branch**: `047-vizier-schema` | **Date**: 2026-11-03 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `/specs/162-bus-traits-in-process-backend/spec.md` (issue vizier-lab/vizier#162, part of the Fleet epic #159)
+**Input**: Feature specification from `/specs/047-bus-traits-in-process-backend/spec.md` (issue vizier-lab/vizier#162, part of the Fleet epic #159)
 
 ## Summary
 
@@ -60,7 +60,7 @@ No unjustified violation. **Gate: PASS.**
 ### Documentation (this feature)
 
 ```text
-specs/162-bus-traits-in-process-backend/
+specs/047-bus-traits-in-process-backend/
 ├── plan.md              # This file
 ├── research.md          # Phase 0: decisions and alternatives
 ├── data-model.md        # Phase 1: types of the contract and the wire messages
@@ -124,7 +124,7 @@ docs/src/fleet/bus-contract.md              # NEW; linked from docs/src/SUMMARY.
 
 ## Delivery slices
 
-All slices ship in **one pull request** (`162-vizier-schema`), with **one commit per slice**, in the order below, so the history reads as the slices and each commit can be reviewed or bisected alone. Each commit compiles and passes `cargo test --workspace` (and `cargo clippy --workspace --all-targets`) before the next begins; slice 6 is one commit per command channel. Commit messages are conventional (`feat:` for new crates and tooling, `refactor:` for the port, `[**breaking**]` where the `#[doc(hidden)]` `VizierTransport` surface changes), and the PR title is conventional too. Because `transport.rs`, `agents/mod.rs`, `agents/process.rs`, `dependencies.rs` and `runtime.rs` are shared hot files, rebase on `develop` often while the PR is open.
+All slices ship in **one pull request** (`047-vizier-schema`), with **one commit per slice**, in the order below, so the history reads as the slices and each commit can be reviewed or bisected alone. Each commit compiles and passes `cargo test --workspace` (and `cargo clippy --workspace --all-targets`) before the next begins; slice 6 is one commit per command channel. Commit messages are conventional (`feat:` for new crates and tooling, `refactor:` for the port, `[**breaking**]` where the `#[doc(hidden)]` `VizierTransport` surface changes), and the PR title is conventional too. Because `transport.rs`, `agents/mod.rs`, `agents/process.rs`, `dependencies.rs` and `runtime.rs` are shared hot files, rebase on `develop` often while the PR is open.
 
 1. **Contract crate** (`vizier-schema`): subjects, patterns, envelope, errors, capabilities, the three traits, `Bus`. Docs-in-code for semantics. No consumer yet.
 2. **In-process backend + conformance suite**: `InProcess`, `conformance::run`, a faulty-backend test proving the suite bites. CI path and policy entries.

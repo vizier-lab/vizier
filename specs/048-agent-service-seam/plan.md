@@ -1,8 +1,8 @@
 # Implementation Plan: Fleet Agent Service Seam
 
-**Branch**: `163-agent-service-seam` | **Date**: 2026-11-03 | **Spec**: [spec.md](spec.md)
+**Branch**: `048-agent-service-seam` | **Date**: 2026-11-03 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `specs/163-agent-service-seam/spec.md`
+**Input**: Feature specification from `specs/048-agent-service-seam/spec.md`
 
 ## Summary
 
@@ -107,7 +107,7 @@ contract documents. The Complexity Tracking entry below is unchanged.
 ### Documentation (this feature)
 
 ```text
-specs/163-agent-service-seam/
+specs/048-agent-service-seam/
 ├── plan.md              # This file (/speckit-plan command output)
 ├── research.md          # Phase 0 output (/speckit-plan command)
 ├── data-model.md        # Phase 1 output (/speckit-plan command)
@@ -168,7 +168,7 @@ seam and the split; 5 is the audit; 6 is the mechanical check.
 | 2 | The local implementation and the fake | `vizier-core`, `vizier-fleet` | The gateway-side test runs with no host; the fake answers |
 | 3 | The host/placement split | `vizier-core` | Single node unchanged; the host runs alone with a scripted request source |
 | 4 | Health and setup in shared state; the deferred claim on a stored row | `vizier-core` | A gateway reads the views; two gateways claim one call once |
-| 5 | The audit | `specs/163-agent-service-seam/contracts/agent-state-audit.md` | Every gateway-side read has a named replacement |
+| 5 | The audit | `specs/048-agent-service-seam/contracts/agent-state-audit.md` | Every gateway-side read has a named replacement |
 | 6 | The mechanical check | `.github/workflows/ci.yml` | A deliberate direct read fails the check and is named |
 
 ## Complexity Tracking

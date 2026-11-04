@@ -111,7 +111,7 @@ impl Subject {
     }
 
     /// `agent.{id}.cmd` - one agent's lifecycle commands. The id is one encoded token, so a
-    /// command reaches exactly the agent it names and nothing else (`specs/163-agent-service-seam`
+    /// command reaches exactly the agent it names and nothing else (`specs/048-agent-service-seam`
     /// contracts/agents-client.md, rule 3).
     pub fn agent_cmd(id: &str) -> Self {
         Self::with_id("agent", id, Some("cmd"))

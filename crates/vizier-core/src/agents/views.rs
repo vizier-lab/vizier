@@ -1,5 +1,5 @@
 //! The published views: what a gateway reads when it cannot ask the owner
-//! (`specs/163-agent-service-seam` contracts/shared-state-views.md).
+//! (`specs/048-agent-service-seam` contracts/shared-state-views.md).
 //!
 //! A gateway never learns which node owns an agent (FR-007), so it cannot assemble a
 //! fleet-wide view by asking each owner. Shared state is the one place both sides meet: the

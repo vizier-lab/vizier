@@ -96,7 +96,7 @@ impl Harness {
     }
 
     /// A fake seam, so a role test can stand in for the agent side
-    /// (`specs/163-agent-service-seam` FR-016): the gateway side is tested against it with
+    /// (`specs/048-agent-service-seam` FR-016): the gateway side is tested against it with
     /// no agent host running.
     pub fn fake_agents(&self) -> vizier_core::agents_client::FakeAgentsClient {
         vizier_core::agents_client::FakeAgentsClient::new()

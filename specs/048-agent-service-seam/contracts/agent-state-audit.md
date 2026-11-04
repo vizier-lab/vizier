@@ -51,7 +51,7 @@ The three kinds are distinguished in the table below, because they get different
 FR-003 requires that no code outside the agent host reads a running agent's state, and that the
 check be *proven to fail* on a deliberate violation.
 
-**The check**: `scripts/163-agent-state-read-check.sh`, a step in the CI `policy` job, next to
+**The check**: `scripts/048-agent-state-read-check.sh`, a step in the CI `policy` job, next to
 "Roles stay independent". It scans `crates/vizier-http/src` and `crates/vizier-core/src/service`
 for the handles that only the host may touch - the fleet-wide health read, the setup board's
 live snapshot, the channel board's status lookup and the deferred-claims registry - and fails

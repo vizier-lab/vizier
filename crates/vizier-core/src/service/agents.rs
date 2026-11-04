@@ -344,7 +344,7 @@ pub async fn list(
     // Only what the listing needs: skipped without a `limit`, which has always been just names.
     let (last_active, live, failed) = if paged {
         // The agents' health comes from the published views, not from the manager's memory
-        // (`specs/163-agent-service-seam` contracts/shared-state-views.md).
+        // (`specs/048-agent-service-seam` contracts/shared-state-views.md).
         let failed: std::collections::HashSet<String> = failed_agents(deps).await;
         (
             deps.storage.last_activity_by_agent().await.unwrap_or_default(),

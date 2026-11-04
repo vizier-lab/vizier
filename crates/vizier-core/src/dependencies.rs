@@ -89,7 +89,7 @@ pub struct VizierDependencies {
     pub questions: Arc<crate::questions::Questions>,
     /// The client sockets this process owns, by connection id (a request names one, never holds it).
     pub client_connections: crate::agents::client::ClientConnections,
-    /// The one way the gateway side reaches an agent (`specs/163-agent-service-seam`).
+    /// The one way the gateway side reaches an agent (`specs/048-agent-service-seam`).
     ///
     /// The service layer and the HTTP adapter call this instead of reading a running agent's
     /// memory. The local implementation reaches the agent manager over the bus; a networked

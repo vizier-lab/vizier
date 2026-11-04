@@ -12,7 +12,7 @@ use crate::{
 ///
 /// The setups this process holds come from its own board, which is the live progress. The
 /// setups of agents another node holds come from the published views
-/// (`specs/163-agent-service-seam` contracts/shared-state-views.md). In one node the board
+/// (`specs/048-agent-service-seam` contracts/shared-state-views.md). In one node the board
 /// holds everything, so what is shown is exactly what it was before.
 pub async fn states(services: &Services, user: &Principal) -> Result<SetupStates, ServiceError> {
     let deps = services.deps();

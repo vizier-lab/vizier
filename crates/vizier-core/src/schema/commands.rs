@@ -160,7 +160,7 @@ pub enum AgentCommand {
     },
     /// One agent's health, answered on `agent.{id}.cmd`. The fleet-wide `HealthCheck` is the
     /// list of every agent the manager holds; this is the one agent the caller named
-    /// (`specs/163-agent-service-seam` contracts/agents-client.md).
+    /// (`specs/048-agent-service-seam` contracts/agents-client.md).
     AgentHealth {
         agent_id: String,
         resp: tokio::sync::oneshot::Sender<AgentHealthStatus>,

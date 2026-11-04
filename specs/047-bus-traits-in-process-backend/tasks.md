@@ -5,13 +5,13 @@ description: "Task list for the Fleet message bus, in-process backend and role t
 
 # Tasks: Fleet Message Bus, In-Process Backend and Role Test Harness
 
-**Input**: Design documents from `/specs/162-bus-traits-in-process-backend/`
+**Input**: Design documents from `/specs/047-bus-traits-in-process-backend/`
 
 **Prerequisites**: plan.md, spec.md, research.md, data-model.md, contracts/, quickstart.md
 
 **Tests**: Requested by the spec (FR-012, FR-015, SC-001–SC-008): the conformance suite, the faulty-backend proof, the sample role test, the transport tests and the dummyplug end-to-end are all in scope and appear as tasks.
 
-**Organization**: One pull request on `162-vizier-schema`, **one commit per slice** (plan.md, *Delivery slices*). Phases below are grouped by user story; each ends with a **COMMIT** task naming the slice and its conventional-commit message. Every commit must pass `cargo test --workspace` and `cargo clippy --workspace --all-targets` before the next phase starts.
+**Organization**: One pull request on `047-vizier-schema`, **one commit per slice** (plan.md, *Delivery slices*). Phases below are grouped by user story; each ends with a **COMMIT** task naming the slice and its conventional-commit message. Every commit must pass `cargo test --workspace` and `cargo clippy --workspace --all-targets` before the next phase starts.
 
 ## Format: `[ID] [P?] [Story] Description`
 
@@ -180,7 +180,7 @@ description: "Task list for the Fleet message bus, in-process backend and role t
 - [ ] T076 (partly done: library tests, dummyplug e2e test, clippy; the real-binary steps need Linux or WSL) Run the full verification from quickstart.md: steps 1–5 and 7, then step 6 (dummyplug end-to-end: tools, tool call, `context`, two WebUI tabs, agent edit mid-turn, background piece, `vizier agent ps`, `vizier shutdown` exit code 0)
 - [X] T077 Run `cargo test --workspace`, `cargo clippy --workspace --all-targets`, `cargo test -p vizier-core --no-default-features`, and `cargo test -p vizier --no-default-features --features role-worker`; record any pre-existing Windows-only failures (`projects::path`, `skill::scopes`) in the PR description rather than fixing them here
 - [X] T078 **COMMIT (slice 8)**: `doc: add the bus contract page and the vizier-schema layering policy (#162)`
-- [ ] T079 Open the pull request from `162-vizier-schema` with a conventional title (`feat: [**breaking**] add the Fleet message bus and run the transport on it (#162)`), listing the eight slices, the accepted piece-timeout behaviour change and the unverified CI jobs (`managed-storage`, Windows server build)
+- [ ] T079 Open the pull request from `047-vizier-schema` with a conventional title (`feat: [**breaking**] add the Fleet message bus and run the transport on it (#162)`), listing the eight slices, the accepted piece-timeout behaviour change and the unverified CI jobs (`managed-storage`, Windows server build)
 
 ---
 

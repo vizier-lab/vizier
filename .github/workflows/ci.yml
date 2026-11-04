@@ -448,7 +448,7 @@ jobs:
         # audited reason.
         run: |
           set -euo pipefail
-          bash scripts/163-agent-state-read-check.sh
+          bash scripts/048-agent-state-read-check.sh
       - name: The bus contract stays a leaf
         # `vizier-schema` is the contract every role and the engine share (#162): it may not
         # depend on a workspace crate, a broker, a web framework or a CLI crate, and the engine

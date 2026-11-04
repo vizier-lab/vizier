@@ -180,7 +180,7 @@ impl VizierRuntime {
         let mut readers = None;
         if roles.contains(ServerRole::Worker) {
             // Placement decides which agents the local host holds; the host runs only those
-            // (`specs/163-agent-service-seam` contracts/agent-host-placement.md). In a single
+            // (`specs/048-agent-service-seam` contracts/agent-host-placement.md). In a single
             // node that is every stored agent, so nothing changes.
             let placement = crate::agents::placement::SingleNodePlacement::new(deps.storage.clone());
             let held = placement.assign().await.map_err(|e| VizierError(e.0))?;

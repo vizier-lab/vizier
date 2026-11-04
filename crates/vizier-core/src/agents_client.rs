@@ -1,4 +1,4 @@
-//! The seam between the gateway side and the agents (`specs/163-agent-service-seam`).
+//! The seam between the gateway side and the agents (`specs/048-agent-service-seam`).
 //!
 //! One way to reach an agent: the [`AgentsClient`] trait. `vizier-http` and `core::service`
 //! call it; they never read a running agent's memory. The local implementation reaches the
@@ -6,7 +6,7 @@
 //! use, so the contract is exercised by the same path either way.
 //!
 //! The contract is written down in
-//! `specs/163-agent-service-seam/contracts/agents-client.md`: the operations, the subjects they
+//! `specs/048-agent-service-seam/contracts/agents-client.md`: the operations, the subjects they
 //! address, the errors they raise, and the rules that hold for every implementation.
 //!
 //! # Addressing

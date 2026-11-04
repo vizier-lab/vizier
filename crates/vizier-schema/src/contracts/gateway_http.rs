@@ -1,4 +1,4 @@
-//! The `gateway-http` role's bus contract (`specs/163-agent-service-seam`).
+//! The `gateway-http` role's bus contract (`specs/048-agent-service-seam`).
 //!
 //! The gateway reaches an agent only through the seam, and the seam addresses the agent and
 //! never a host: a turn travels on `agent.{id}.req` and a lifecycle command on

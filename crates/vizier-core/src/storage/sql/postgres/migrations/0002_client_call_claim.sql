@@ -1,5 +1,5 @@
 -- The deferred client-call claim is a lease on the stored row, not a status
--- (specs/163-agent-service-seam research R7): `claimed_by` names the gateway delivering the
+-- (specs/048-agent-service-seam research R7): `claimed_by` names the gateway delivering the
 -- call and `claimed_at` says when it took the claim, so a claim older than the claim
 -- timeout is free again. The status vocabulary the WebUI reads does not change.
 --

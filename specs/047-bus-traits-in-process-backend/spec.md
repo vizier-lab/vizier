@@ -1,6 +1,6 @@
 # Feature Specification: Fleet Message Bus, In-Process Backend and Role Test Harness
 
-**Feature Branch**: `162-vizier-schema`
+**Feature Branch**: `047-vizier-schema`
 
 **Created**: 2026-11-03
 

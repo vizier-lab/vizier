@@ -1,6 +1,6 @@
 # Feature Specification: Fleet Agent Service Seam
 
-**Feature Branch**: `163-agent-service-seam`
+**Feature Branch**: `048-agent-service-seam`
 
 **Created**: 2026-11-03
 

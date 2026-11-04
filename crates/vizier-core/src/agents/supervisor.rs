@@ -257,7 +257,7 @@ impl AgentStatus {
 /// Change the agent's status and publish the new health view.
 ///
 /// The view is what a gateway reads, so it has to follow every change of the agent's state
-/// (`specs/163-agent-service-seam` contracts/shared-state-views.md, rule 5).
+/// (`specs/048-agent-service-seam` contracts/shared-state-views.md, rule 5).
 fn set_status(
     deps: &crate::dependencies::VizierDependencies,
     agent_id: &AgentId,

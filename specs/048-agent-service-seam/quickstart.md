@@ -16,7 +16,7 @@ Six slices, each one commit, in dependency order:
 | 2 | The local implementation and the fake | `vizier-core`, `vizier-fleet` |
 | 3 | The host/placement split | `vizier-core` |
 | 4 | Health and setup in shared state; the deferred claim on a stored row | `vizier-core` |
-| 5 | The audit | `specs/163-agent-service-seam/contracts/agent-state-audit.md` |
+| 5 | The audit | `specs/048-agent-service-seam/contracts/agent-state-audit.md` |
 | 6 | The mechanical check | `.github/workflows/ci.yml` |
 
 The order matters: the contract is written before the code that implements it, so the local
@@ -161,7 +161,7 @@ cargo test -p vizier-core --lib client_call
 
 ## Slice 5 - the audit
 
-Fill in `specs/163-agent-service-seam/contracts/agent-state-audit.md`. Every row must name the old
+Fill in `specs/048-agent-service-seam/contracts/agent-state-audit.md`. Every row must name the old
 source, the new one and the kind of state. An entry with no replacement is marked **open**, not left
 blank.
 
@@ -186,7 +186,7 @@ A check that has never been seen to fail is not a check.
 
 ## The mechanical check, and how it was proven to bite
 
-`scripts/163-agent-state-read-check.sh`, run from the CI `policy` job. It refuses a read of a
+`scripts/048-agent-state-read-check.sh`, run from the CI `policy` job. It refuses a read of a
 running agent's state from `crates/vizier-http/src` or `crates/vizier-core/src/service`, and
 names the file and the line of each one it finds.
 
@@ -246,7 +246,7 @@ without Node. The `vizier` **binary** is not built on Windows - `daemonize` is U
 engine, which is what the gate is about.
 
 **No submodule branch is needed.** The work touches no submodule - the WebUI does not change
-(FR-019). The spec branch `163-agent-service-seam` exists in the workspace only, like the Fleet specs
+(FR-019). The spec branch `048-agent-service-seam` exists in the workspace only, like the Fleet specs
 before it.
 
 ---

@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Refuses a gateway-side read of a running agent's state (specs/163-agent-service-seam,
+# Refuses a gateway-side read of a running agent's state (specs/048-agent-service-seam,
 # FR-003). The agent host is the only component allowed to read a running agent's state;
 # the gateway side reaches an agent through the seam (`AgentsClient`) or reads a published
 # view. A read of the handles below is a defect, and this names the file and the line.
 #
-#   scripts/163-agent-state-read-check.sh
+#   scripts/048-agent-state-read-check.sh
 #
-# Exits non-zero on a finding. The audit (`specs/163-agent-service-seam/contracts/
+# Exits non-zero on a finding. The audit (`specs/048-agent-service-seam/contracts/
 # agent-state-audit.md`) is the record of what each read was replaced by; the counts at the
 # end say how many rows it has and how many handles this check covers, so a new handle
 # without an audit row is visible.
@@ -18,7 +18,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 ROOTS=(crates/vizier-http/src crates/vizier-core/src/service)
-AUDIT=specs/163-agent-service-seam/contracts/agent-state-audit.md
+AUDIT=specs/048-agent-service-seam/contracts/agent-state-audit.md
 
 # The handles only the agent host may touch. Each one names a read of a running agent's
 # state, or of the registry that held it.

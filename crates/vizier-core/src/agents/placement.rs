@@ -1,8 +1,8 @@
-//! Which host owns which agent (`specs/163-agent-service-seam`).
+//! Which host owns which agent (`specs/048-agent-service-seam`).
 //!
 //! Placement is the control side of the split: it decides, and the agent host obeys. The
 //! host never reads the agent list itself - it is told what to hold
-//! (`specs/163-agent-service-seam` contracts/agent-host-placement.md).
+//! (`specs/048-agent-service-seam` contracts/agent-host-placement.md).
 
 use async_trait::async_trait;
 

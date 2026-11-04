@@ -136,7 +136,7 @@ impl Default for Entry {
 ///
 /// The board is also the **publisher** of the setup view: it owns the state, so it is the
 /// one place that writes a copy for the gateways that are not in this process
-/// (`specs/163-agent-service-seam` contracts/shared-state-views.md, "The setup board is
+/// (`specs/048-agent-service-seam` contracts/shared-state-views.md, "The setup board is
 /// the publisher").
 #[derive(Clone, Default)]
 pub struct SetupBoard {

@@ -1,4 +1,4 @@
-//! The `worker` role's bus contract (`specs/163-agent-service-seam`).
+//! The `worker` role's bus contract (`specs/048-agent-service-seam`).
 //!
 //! The worker holds agents and answers for them: it takes the turns of `agent.{id}.req`, the
 //! lifecycle commands of `agent.{id}.cmd` and the fleet-wide creates of `agents.cmd`. A worker

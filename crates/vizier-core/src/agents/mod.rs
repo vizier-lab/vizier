@@ -100,7 +100,7 @@ enum BuildKind {
 /// The agent host: it builds and runs **only** the agents it was told to hold.
 ///
 /// Which agents those are is placement's decision, not the host's
-/// (`specs/163-agent-service-seam` contracts/agent-host-placement.md). The host keeps the
+/// (`specs/048-agent-service-seam` contracts/agent-host-placement.md). The host keeps the
 /// supervisors, the running instances, the builds and the resumption of pending turns.
 pub struct AgentHost {
     deps: VizierDependencies,
@@ -115,7 +115,7 @@ pub struct AgentHost {
     building: HashSet<AgentId>,
     /// The agents this host holds, and the subscription that carries their commands. A
     /// command reaches exactly one handler because only the owner subscribes to
-    /// `agent.{id}.cmd` (`specs/163-agent-service-seam` contracts/agents-client.md, rule 2).
+    /// `agent.{id}.cmd` (`specs/048-agent-service-seam` contracts/agents-client.md, rule 2).
     scoped: HashMap<AgentId, JoinHandle<()>>,
     /// Where the scoped subscriptions hand the commands they read.
     scoped_tx: mpsc::UnboundedSender<AgentCommand>,

@@ -2,7 +2,7 @@
 
 **Feature**: #163 - agent service seam (`AgentsClient`, `AgentHost`, `Placement`)
 **Date**: 2026-11-03
-**Inputs**: `specs/163-agent-service-seam/spec.md`, the Fleet epic (#159), the bus contract (#162, merged as `afc2890e`), and the source of `vizier-core`, `vizier-http` and `vizier-schema`.
+**Inputs**: `specs/048-agent-service-seam/spec.md`, the Fleet epic (#159), the bus contract (#162, merged as `afc2890e`), and the source of `vizier-core`, `vizier-http` and `vizier-schema`.
 
 Every decision below is grounded in code that was read during this phase. The file and line
 references are the evidence.
