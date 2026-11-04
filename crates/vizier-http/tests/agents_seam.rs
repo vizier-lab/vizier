@@ -67,6 +67,7 @@ fn health(agent_id: &str, alive: bool) -> AgentHealthStatus {
         channels: Vec::new(),
         model: None,
         warnings: Vec::new(),
+        session_failure: None,
     }
 }
 

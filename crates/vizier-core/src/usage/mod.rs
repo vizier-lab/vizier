@@ -14,17 +14,20 @@ use crate::{
     schema::{
         VizierChannelId,
         metrics::{TokenCounts, add_cost, estimate_cost},
+        provider::ProfileEntry,
         usage::{
             BreakdownRow, CallRow, ConversationRow, ConversationUsage, DailyUsage, DayActivity,
             FailedTotals, ModelRow, NoLinkReason, PeriodTotals, UnpricedNote, UsageActivity,
             UsageLink, UsageLinkKind, UsageRange, UsageReport, UsageSummary,
         },
     },
+    service::catalogue::entry_pricing,
     storage::{
         VizierStorage,
         background_job::BackgroundJobStorage,
         integration::IntegrationStorage,
         project::ProjectStorage,
+        provider::ProviderStorage,
         state::StateStorage,
         task::TaskStorage,
         usage::{UsageGroup, UsageGrouping, UsageQuery, UsageStorage},
@@ -37,14 +40,30 @@ const COSTLIEST: usize = 10;
 /// Catalogue prices, looked up once per `(provider, model)` per report.
 pub struct Pricer<'a> {
     catalogue: &'a Catalogue,
+    /// The saved inference-profile entries, by `(provider, arn)`, read once per report. An ARN is
+    /// priced from its entry before the catalogue is asked (FR-034, FR-034b).
+    entries: HashMap<(String, String), ProfileEntry>,
     prices: HashMap<(String, String), Option<Cost>>,
     outside: HashMap<String, bool>,
 }
 
 impl<'a> Pricer<'a> {
     pub fn new(catalogue: &'a Catalogue) -> Self {
+        Self::with_entries(catalogue, HashMap::new())
+    }
+
+    /// A pricer that knows the saved inference-profile entries. An ARN row is priced by its entry
+    /// — the hand-entered price, then the paired model — before the catalogue is consulted for the
+    /// model string, so a report prices an ARN the way the settings row describes it (FR-034,
+    /// research D13). An entry with nothing to price from yields the `None` that already means
+    /// unpriced, never zero (FR-034b).
+    pub fn with_entries(
+        catalogue: &'a Catalogue,
+        entries: HashMap<(String, String), ProfileEntry>,
+    ) -> Self {
         Self {
             catalogue,
+            entries,
             prices: HashMap::new(),
             outside: HashMap::new(),
         }
@@ -71,11 +90,18 @@ impl<'a> Pricer<'a> {
         if let Some(c) = self.prices.get(&key) {
             return c.clone();
         }
-        let c = provider
-            .parse::<ProviderId>()
-            .ok()
-            .and_then(|id| self.catalogue.model(&id, model))
-            .and_then(|m| m.cost);
+        // An ARN's own entry comes first and decides alone: it has no catalogue row, and the order
+        // — explicit price, then the paired model, then unpriced — is the one `entry_pricing`
+        // fixes, so a report and the settings row can never disagree (FR-034, FR-034b).
+        let c = if let Some(entry) = self.entries.get(&key) {
+            entry_pricing(self.catalogue, entry).cost().cloned()
+        } else {
+            provider
+                .parse::<ProviderId>()
+                .ok()
+                .and_then(|id| self.catalogue.model(&id, model))
+                .and_then(|m| m.cost)
+        };
         self.prices.insert(key, c.clone());
         c
     }
@@ -96,6 +122,21 @@ impl<'a> Pricer<'a> {
         (tokens.cached, whole)
     }
 }
+
+/// Every saved inference-profile entry, keyed by `(provider, arn)`, from one read of the provider
+/// rows. A report builds this once, so the turn itself does no pricing work at all (FR-034a.5,
+/// research D13 §3).
+pub async fn saved_entries(storage: &VizierStorage) -> HashMap<(String, String), ProfileEntry> {
+    let mut entries = HashMap::new();
+    for provider in storage.list_providers().await.unwrap_or_default() {
+        let id = provider.id.as_str().to_string();
+        for entry in provider.credentials.profiles {
+            entries.insert((id.clone(), entry.arn.clone()), entry);
+        }
+    }
+    entries
+}
+
 
 /// Running totals for one bucket of groups.
 #[derive(Debug, Default, Clone)]
@@ -212,7 +253,7 @@ pub async fn build_report(
     kinds: &IntegrationKinds,
     q: UsageQuery,
 ) -> Result<UsageReport> {
-    let mut pricer = Pricer::new(catalogue);
+    let mut pricer = Pricer::with_entries(catalogue, saved_entries(storage).await);
 
     let activity_groups = storage.usage_groups(&q, UsageGrouping::Activity).await?;
     let all = tally(&mut pricer, &activity_groups);
@@ -517,7 +558,7 @@ pub async fn conversation_usage(
     limit: usize,
 ) -> Result<ConversationUsage> {
     let (channel, topic) = q.conversation.clone().unwrap_or_default();
-    let mut pricer = Pricer::new(catalogue);
+    let mut pricer = Pricer::with_entries(catalogue, saved_entries(storage).await);
 
     let all = tally(
         &mut pricer,
@@ -1182,6 +1223,57 @@ mod tests {
         );
     }
 
+    /// FR-034, FR-034b: an ARN's saved entry decides its price before the catalogue is asked —
+    /// the hand-entered figure, then the paired model, then the existing unpriced `None`.
+    #[test]
+    fn an_arn_is_priced_from_its_entry_before_the_catalogue() {
+        let c = bedrock_catalogue();
+        let arn = "arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/abc";
+        let key = ("amazon-bedrock-sso".to_string(), arn.to_string());
+        let tokens = TokenCounts {
+            input: 1_000_000,
+            output: 500_000,
+            ..Default::default()
+        };
+        let entry = |price: Option<Cost>, model: Option<&str>| ProfileEntry {
+            arn: arn.into(),
+            price,
+            model: model.map(str::to_string),
+            ..Default::default()
+        };
+        let hand = Cost { input: 2.0, output: 8.0, cache_read: None, cache_write: None };
+
+        // The hand-entered price wins over the paired model, which the catalogue would price.
+        let mut priced = Pricer::with_entries(
+            &c,
+            HashMap::from([(key.clone(), entry(Some(hand), Some("amazon.nova-lite-v1:0")))]),
+        );
+        let cost = priced.cost("amazon-bedrock-sso", arn, &tokens).unwrap();
+        assert!((cost - (2.0 + 4.0)).abs() < 1e-9, "{cost}");
+
+        // No hand-entered price: the paired model's catalogue cost, through the provider alias.
+        let mut paired = Pricer::with_entries(
+            &c,
+            HashMap::from([(key.clone(), entry(None, Some("amazon.nova-lite-v1:0")))]),
+        );
+        let cost = paired.cost("amazon-bedrock-sso", arn, &tokens).unwrap();
+        assert!((cost - (0.06 + 0.12)).abs() < 1e-9, "{cost}");
+
+        // Nothing to price from — no pairing, and a pair the catalogue carries without a price —
+        // is unpriced, never zero.
+        for model in [None, Some("amazon.nova-pro-v1:0")] {
+            let mut unpriced = Pricer::with_entries(
+                &c,
+                HashMap::from([(key.clone(), entry(None, model))]),
+            );
+            assert_eq!(unpriced.cost("amazon-bedrock-sso", arn, &tokens), None, "{model:?}");
+        }
+
+        // A catalogue model id is untouched by the entry map.
+        let mut plain = Pricer::with_entries(&c, HashMap::from([(key, entry(None, None))]));
+        assert!(plain.cost("amazon-bedrock", "amazon.nova-lite-v1:0", &tokens).is_some());
+    }
+
     mod report {
         use std::sync::Arc;
 
@@ -1204,7 +1296,8 @@ mod tests {
                 "CREATE TABLE state (key TEXT PRIMARY KEY, value TEXT NOT NULL);
                  CREATE TABLE session_detail (id TEXT PRIMARY KEY, agent_id TEXT NOT NULL,
                      channel TEXT NOT NULL, topic TEXT, data TEXT NOT NULL);
-                 CREATE TABLE task (agent_id TEXT, slug TEXT, data TEXT);",
+                 CREATE TABLE task (agent_id TEXT, slug TEXT, data TEXT);
+                 CREATE TABLE provider_config (variant TEXT PRIMARY KEY, data TEXT NOT NULL);",
             )
             .unwrap();
             let storage = VizierStorage::new(SqlStorage::new(
@@ -1264,6 +1357,188 @@ mod tests {
                 conversation: None,
             }
         }
+
+        /// T038: a report prices a saved profile by its ARN — the report's own pricer, not the
+        /// catalogue alone (FR-034, FR-034a.1).
+        #[tokio::test]
+        async fn a_report_prices_a_saved_arns_entry() {
+            use crate::schema::{ProviderCredentials, ProviderEntry};
+
+            let (s, _d) = storage();
+            let catalogue = super::bedrock_catalogue();
+            let arn = "arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/abc";
+            s.upsert_provider(&ProviderEntry {
+                id: ProviderId::AMAZON_BEDROCK_SSO,
+                credentials: ProviderCredentials {
+                    profiles: vec![ProfileEntry {
+                        arn: arn.into(),
+                        price: Some(Cost {
+                            input: 2.0,
+                            output: 8.0,
+                            cache_read: None,
+                            cache_write: None,
+                        }),
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                },
+            })
+            .await
+            .unwrap();
+            s.record_usage(event(DAY, "discord__1", "amazon-bedrock-sso", arn, 1_000_000))
+                .await
+                .unwrap();
+
+            let r = build_report(&s, &catalogue, &IntegrationKinds::builtin(), q())
+                .await
+                .unwrap();
+            let cost = r.summary.cost_usd.expect("priced from the entry");
+            // 1M input at 2.0/M and 100k output at 8.0/M — the hand-entered figure, not 0.
+            assert!((cost - (2.0 + 0.8)).abs() < 1e-9, "{cost}");
+            assert!(r.unpriced.models.is_empty(), "the ARN is priced: {:?}", r.unpriced.models);
+        }
+
+        /// T044 (FR-034a.5, FR-034b, SC-021): a missing or stale price still records the turn.
+        /// The usage row keeps the provider, the ARN as the model and the tokens, with an absent
+        /// cost — never 0, never a fabricated figure — and the report never fails over it.
+        #[tokio::test]
+        async fn an_unpriced_or_stale_arn_still_records_its_row() {
+            use crate::schema::{ProviderCredentials, ProviderEntry};
+
+            let (s, _d) = storage();
+            let catalogue = super::bedrock_catalogue();
+            let unpriced =
+                "arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/unpriced";
+            let stale =
+                "arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/stale";
+            s.upsert_provider(&ProviderEntry {
+                id: ProviderId::AMAZON_BEDROCK_SSO,
+                credentials: ProviderCredentials {
+                    profiles: vec![
+                        // Nothing paired and no hand-entered price.
+                        ProfileEntry { arn: unpriced.into(), ..Default::default() },
+                        // A pairing the catalogue has since dropped: the price is stale, the
+                        // selection and the turn are not.
+                        ProfileEntry {
+                            arn: stale.into(),
+                            model: Some("anthropic.claude-3-5-sonnet-20240620-v1:0".into()),
+                            ..Default::default()
+                        },
+                    ],
+                    ..Default::default()
+                },
+            })
+            .await
+            .unwrap();
+            s.record_usage(event(DAY, "discord__1", "amazon-bedrock-sso", unpriced, 1_000_000))
+                .await
+                .unwrap();
+            s.record_usage(event(DAY + 1, "discord__1", "amazon-bedrock-sso", stale, 500_000))
+                .await
+                .unwrap();
+
+            let r = build_report(&s, &catalogue, &IntegrationKinds::builtin(), q())
+                .await
+                .unwrap();
+
+            // Both calls are recorded: provider and ARN survive, and the tokens are the row's own.
+            assert_eq!(r.by_model.len(), 2, "{:?}", r.by_model);
+            let row = |arn: &str| r.by_model.iter().find(|row| row.model == arn).unwrap();
+            for (arn, tokens) in [(unpriced, 1_100_000), (stale, 550_000)] {
+                let row = row(arn);
+                assert_eq!(row.provider, "amazon-bedrock-sso");
+                assert_eq!(row.row.tokens, tokens, "input plus output, recorded as sent");
+                assert_eq!(row.row.cost_usd, None, "unpriced is absent, never 0 (FR-034b)");
+                assert!(!row.priced);
+            }
+
+            // The report states the absence rather than costing it: no summary figure, and both
+            // models named as unpriced with their token counts.
+            assert_eq!(r.summary.cost_usd, None, "nothing was costed at zero");
+            assert_eq!(r.unpriced.tokens, 1_650_000);
+            for arn in [unpriced, stale] {
+                assert!(
+                    r.unpriced.models.contains(&format!("amazon-bedrock-sso/{arn}")),
+                    "{} missing from {:?}",
+                    arn,
+                    r.unpriced.models
+                );
+            }
+        }
+        /// T064 (FR-034, US5 acceptance 1): a completion answered over the SSO connection is
+        /// attributed to `amazon-bedrock-sso` — its own provider, its own tokens — and priced
+        /// through the entry map, while the same model answered by static Bedrock is a second row.
+        #[tokio::test]
+        async fn an_sso_completion_is_attributed_and_priced_apart_from_static_bedrock() {
+            use crate::schema::{ProviderCredentials, ProviderEntry};
+
+            let (s, _d) = storage();
+            let catalogue = super::bedrock_catalogue();
+            let arn = "arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/abc";
+            let model = "amazon.nova-lite-v1:0";
+            s.upsert_provider(&ProviderEntry {
+                id: ProviderId::AMAZON_BEDROCK_SSO,
+                credentials: ProviderCredentials {
+                    profiles: vec![ProfileEntry {
+                        arn: arn.into(),
+                        price: Some(Cost {
+                            input: 2.0,
+                            output: 8.0,
+                            cache_read: None,
+                            cache_write: None,
+                        }),
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                },
+            })
+            .await
+            .unwrap();
+
+            // The event `VizierModel::record` writes for an answered call: the provider that
+            // answered, the selected ARN as the model, the tokens the reply reported.
+            let mut answered = event(DAY, "discord__1", "amazon-bedrock-sso", arn, 1_000_000);
+            answered.served_model = Some(model.into());
+            s.record_usage(answered).await.unwrap();
+            // The other Bedrock provider answers the very same catalogue model.
+            s.record_usage(event(DAY, "discord__1", "amazon-bedrock", model, 1_000_000))
+                .await
+                .unwrap();
+
+            let r = build_report(&s, &catalogue, &IntegrationKinds::builtin(), q())
+                .await
+                .unwrap();
+
+            // Two rows, never merged: the ARN under the SSO provider and the model under the
+            // static one, each carrying only its own tokens.
+            assert_eq!(r.by_model.len(), 2, "{:?}", r.by_model);
+            let row = |provider: &str| {
+                r.by_model
+                    .iter()
+                    .find(|row| row.provider == provider)
+                    .unwrap_or_else(|| panic!("no row for {provider}: {:?}", r.by_model))
+            };
+            let sso = row("amazon-bedrock-sso");
+            assert_eq!(sso.model, arn);
+            assert_eq!(sso.row.tokens, 1_100_000, "input plus output, recorded as sent");
+            assert!(sso.served_models.contains(&model.to_string()), "{:?}", sso.served_models);
+            // Priced from the entry map: 1M input at 2.0/M, 100k output at 8.0/M.
+            let cost = sso.row.cost_usd.expect("priced from the entry");
+            assert!((cost - (2.0 + 0.8)).abs() < 1e-9, "{cost}");
+            assert!(sso.priced);
+
+            let plain = row("amazon-bedrock");
+            assert_eq!(plain.model, model);
+            assert_eq!(plain.row.tokens, 1_100_000, "the SSO row's tokens did not merge in");
+            assert!(plain.priced, "the catalogue price still applies to static Bedrock");
+
+            // And the summary counts both, each at its own price.
+            let total = r.summary.cost_usd.expect("both priced");
+            assert!((total - (2.8 + 0.084)).abs() < 1e-9, "{total}");
+            assert!(r.unpriced.models.is_empty(), "{:?}", r.unpriced.models);
+        }
+
+
 
         #[tokio::test]
         async fn a_model_switch_splits_by_model_and_an_unpriced_model_is_reported() {

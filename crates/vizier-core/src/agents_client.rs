@@ -630,6 +630,7 @@ impl AgentsClient for FakeAgentsClient {
                 channels: Vec::new(),
                 model: None,
                 warnings: Vec::new(),
+                session_failure: None,
             }
         }))
     }
@@ -692,6 +693,7 @@ mod tests {
             channels: Vec::new(),
             model: None,
             warnings: Vec::new(),
+            session_failure: None,
         }
     }
 

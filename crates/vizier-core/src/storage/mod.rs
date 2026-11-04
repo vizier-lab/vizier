@@ -31,6 +31,7 @@ use crate::{
         secret::SecretStorage,
         session::SessionStorage,
         session_file::SessionFileStorage,
+        sso_session::SsoSessionStorage,
         state::StateStorage,
         task::TaskStorage,
         task_run::TaskRunStorage,
@@ -69,6 +70,7 @@ pub mod session;
 pub mod session_file;
 pub mod migrate;
 pub mod sql;
+pub mod sso_session;
 pub mod state;
 pub mod task;
 pub mod task_run;
@@ -131,6 +133,7 @@ where
         + DreamJournalStorage
         + DreamStorage
         + SessionFileStorage
+        + SsoSessionStorage
         + ReactionStorage
         + IntegrationStorage
         + UsageStorage
@@ -155,6 +158,29 @@ impl VizierStorage {
 }
 
 impl VizierStorageProvider for VizierStorage {}
+
+#[async_trait::async_trait]
+impl SsoSessionStorage for VizierStorage {
+    async fn get_sso_session(
+        &self,
+        profile: &str,
+    ) -> Result<Option<crate::schema::SsoSessionSecret>> {
+        self.0.get_sso_session(profile).await
+    }
+
+    async fn put_sso_session(
+        &self,
+        profile: &str,
+        secret: &crate::schema::SsoSessionSecret,
+        expected_revision: Option<u64>,
+    ) -> Result<crate::storage::sso_session::SsoWrite> {
+        self.0.put_sso_session(profile, secret, expected_revision).await
+    }
+
+    async fn delete_sso_session(&self, profile: &str) -> Result<()> {
+        self.0.delete_sso_session(profile).await
+    }
+}
 
 #[async_trait::async_trait]
 impl UserStorage for VizierStorage {

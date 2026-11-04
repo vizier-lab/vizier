@@ -114,6 +114,10 @@ pub struct ResolveContext<'a> {
     pub custom: Option<&'a CustomProvider>,
     pub credentials: Option<ProviderCredentials>,
     pub http: reqwest::Client,
+    /// The SSO provider's role credential. Built by the async caller because producing it reads
+    /// the session store (FR-009d); `None` for every other provider and in tests that never reach
+    /// the SSO provider.
+    pub sso: Option<BedrockCredential>,
 }
 
 /// Azure OpenAI's API version when `AZURE_API_VERSION` is unset (rig 0.39's default).
@@ -211,7 +215,10 @@ fn env_non_empty(name: &str) -> Option<String> {
 
 /// The region a Bedrock connection uses: the saved value, then `AWS_REGION`, then
 /// `AWS_DEFAULT_REGION`. Never guessed (FR-003).
-pub(crate) fn bedrock_region(creds: &ProviderCredentials) -> crate::Result<String> {
+pub(crate) fn bedrock_region(
+    id: &ProviderId,
+    creds: &ProviderCredentials,
+) -> crate::Result<String> {
     let region = creds
         .region
         .clone()
@@ -219,15 +226,14 @@ pub(crate) fn bedrock_region(creds: &ProviderCredentials) -> crate::Result<Strin
         .or_else(|| env_non_empty("AWS_REGION"))
         .or_else(|| env_non_empty("AWS_DEFAULT_REGION"))
         .ok_or_else(|| {
-            VizierError(
-                "no AWS region for \"amazon-bedrock\": set the region in Settings › Providers, \
+            VizierError(format!(
+                "no AWS region for \"{id}\": set the region in Settings › Providers, \
                  or set AWS_REGION (or AWS_DEFAULT_REGION)"
-                    .into(),
-            )
+            ))
         })?;
     if !crate::llm::bedrock::valid_region(&region) {
         return Err(VizierError(format!(
-            "invalid AWS region {region:?} for \"amazon-bedrock\": use a form like us-east-1"
+            "invalid AWS region {region:?} for \"{id}\": use a form like us-east-1"
         )));
     }
     Ok(region)
@@ -267,22 +273,146 @@ pub(crate) fn bedrock_keys(creds: &ProviderCredentials) -> crate::Result<(String
     ))
 }
 
+/// The one credential a Bedrock request signs with, whichever Bedrock provider it belongs to:
+/// the static pair for `amazon-bedrock`, the role credentials derived from the stored SSO session
+/// for `amazon-bedrock-sso` (FR-002, FR-009d).
+#[derive(Clone)]
+pub struct BedrockCredential {
+    /// The Bedrock region requests go to — never the SSO region (FR-010).
+    pub region: String,
+    pub credential: Arc<dyn CredentialSource>,
+}
+
+/// The credential both chat and media use for a Bedrock provider, from the saved row (FR-002).
+///
+/// This is the one place the static pair and the SSO session differ: everything past it — the
+/// dialect, the signer, the endpoint, the path encoding, the error translation — is shared.
+pub async fn bedrock_role_credentials(
+    deps: &crate::dependencies::VizierDependencies,
+    id: &ProviderId,
+    profile: Option<&str>,
+) -> crate::Result<BedrockCredential> {
+    let env = provider_env(&deps.catalogue, id);
+    let credentials = crate::provider_keys::resolve_credentials(&deps.storage, id, &env)
+        .await
+        .map(|(credentials, _)| credentials)
+        .unwrap_or_default();
+    bedrock_credentials_from(deps, id, &credentials, profile)
+}
+
+/// [`bedrock_role_credentials`] over credentials already looked up — an unsaved form's values laid
+/// over the stored row, as the Test action has them (FR-012a).
+pub fn bedrock_credentials_from(
+    deps: &crate::dependencies::VizierDependencies,
+    id: &ProviderId,
+    credentials: &ProviderCredentials,
+    profile: Option<&str>,
+) -> crate::Result<BedrockCredential> {
+    let region = bedrock_region(id, credentials)?;
+    if *id != ProviderId::AMAZON_BEDROCK_SSO {
+        let (access_key_id, secret_access_key, session_token) = bedrock_keys(credentials)?;
+        return Ok(BedrockCredential {
+            credential: super::auth::SigV4Credential::bedrock(
+                access_key_id,
+                secret_access_key,
+                session_token,
+                region.clone(),
+            ),
+            region,
+        });
+    }
+
+    let required = |value: &Option<String>, what: &str| {
+        value
+            .as_deref()
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+            .ok_or_else(|| {
+                VizierError(format!(
+                    "the Bedrock (SSO) connection has no {what}; complete it in Settings › \
+                     Providers and sign in again"
+                ))
+            })
+    };
+    let profile = profile
+        .filter(|profile| !profile.is_empty())
+        .or(credentials.sso_profile.as_deref().filter(|profile| !profile.is_empty()))
+        .map(str::to_string)
+        .ok_or_else(|| {
+            VizierError(
+                "the Bedrock (SSO) connection has no profile name; start a sign-in in Settings › \
+                 Providers"
+                    .into(),
+            )
+        })?;
+    let sso_region = required(&credentials.sso_region, "SSO region")?;
+    if !crate::llm::bedrock::valid_region(&sso_region) {
+        return Err(VizierError(format!(
+            "invalid SSO region {sso_region:?}: use a form like us-east-1"
+        )));
+    }
+    let target = super::auth::SsoRoleTarget {
+        profile,
+        account_id: required(&credentials.account_id, "account")?,
+        role_name: required(&credentials.role_name, "role")?,
+        region: region.clone(),
+    };
+    let storage: Arc<dyn crate::storage::sso_session::SsoSessionStorage + Send + Sync> =
+        deps.storage.clone();
+    Ok(BedrockCredential {
+        region,
+        credential: Arc::new(
+            super::auth::SsoRoleCredential::new(
+                super::sso::SsoClient::new(deps.http.clone(), &sso_region),
+                storage,
+                target,
+            )
+            // A refused credential is reported where health and the provider row read it, and
+            // the next successful sign-in clears it (FR-018).
+            .reporting(id.clone(), deps.sso_failures.clone()),
+        ),
+    })
+}
+
+/// Final assembly of a Bedrock model: the dialect was already chosen from the catalogue entry,
+/// and everything here is what both Bedrock providers share.
+fn resolve_bedrock_wire(
+    model: &str,
+    region: &str,
+    credential: Arc<dyn CredentialSource>,
+    mut resolved: ResolvedModel,
+) -> ResolvedModel {
+    resolved.model = model.to_string();
+    resolved.base_url = crate::llm::bedrock::runtime_endpoint(region);
+    resolved.credential = credential;
+    resolved
+}
+
 fn resolve_bedrock(
     model: &str,
     creds: &ProviderCredentials,
-    mut resolved: ResolvedModel,
+    resolved: ResolvedModel,
 ) -> crate::Result<ResolvedModel> {
-    let region = bedrock_region(creds)?;
+    // The static-credentials arm: the SSO row never reaches this function (FR-002).
+    let region = bedrock_region(&ProviderId::AMAZON_BEDROCK, creds)?;
     let (access_key_id, secret_access_key, session_token) = bedrock_keys(creds)?;
-    resolved.model = model.to_string();
-    resolved.base_url = crate::llm::bedrock::runtime_endpoint(&region);
-    resolved.credential = super::auth::SigV4Credential::bedrock(
+    let credential = super::auth::SigV4Credential::bedrock(
         access_key_id,
         secret_access_key,
         session_token,
-        region,
+        region.clone(),
     );
-    Ok(resolved)
+    Ok(resolve_bedrock_wire(model, &region, credential, resolved))
+}
+
+/// The SSO twin of [`resolve_bedrock`]: identical dialect, endpoint, signer and errors, with only
+/// the credential source replaced (FR-002, FR-003).
+fn resolve_bedrock_sso(
+    model: &str,
+    credential: BedrockCredential,
+    resolved: ResolvedModel,
+) -> ResolvedModel {
+    resolve_bedrock_wire(model, &credential.region, credential.credential, resolved)
 }
 
 /// Resolve one `(provider, model)` (data-model §6). Custom providers come first, then the
@@ -296,7 +426,10 @@ pub fn resolve_with(
     if let Some(custom) = ctx.custom.filter(|c| &c.id == provider) {
         return Ok(resolve_custom(ctx, custom, model, overrides));
     }
-    if let Some(b) = builtin::builtin(provider) {
+    // A built-in that is a second identity of a catalogue provider (the SSO Bedrock one,
+    // FR-030) is *not* resolved here: it has the catalogue's entry, so it takes the same
+    // dialect, limits and caps from that entry rather than a built-in's defaults.
+    if let Some(b) = builtin::builtin(provider).filter(|b| b.model_source.is_none()) {
         return resolve_builtin(ctx, b, model, overrides);
     }
     let Some(p) = ctx.catalogue.provider(provider) else {
@@ -318,8 +451,68 @@ pub fn resolve_with(
     }
 
     // Bedrock signs with an IAM access key pair and talks to a regional host; it has no
-    // `api_key` at all (research R5, contract `provider-layer.md` §4).
+    // `api_key` at all (research R5, contract `provider-layer.md` §4). The SSO provider speaks
+    // the identical wire and differs only in where the signing keys come from.
     if dialect == DialectKind::Bedrock {
+        if *provider == ProviderId::AMAZON_BEDROCK_SSO {
+            // The role credential reads the session store; asked for only once a model is known
+            // to exist on this connection, so a missing entry is reported as such.
+            let sso = || {
+                ctx.sso.clone().ok_or_else(|| {
+                    VizierError(
+                        "the Bedrock (SSO) connection has no role credential; sign in again in \
+                         Settings › Providers"
+                            .into(),
+                    )
+                })
+            };
+            // An inference-profile ARN names a **saved entry**, and the connection's list is the
+            // authority — not the ARN grammar (data-model "agent model selection", FR-030). The
+            // stored ARN is what goes to the runtime: unchanged, one encoded path segment, with
+            // no foundation-model id substituted for it and no region or account rewritten
+            // (FR-027). A catalogue model id falls through to the catalogue, so both stay
+            // selectable on one connection.
+            if let Ok(arn) = crate::llm::bedrock::parse_inference_profile_arn(model) {
+                let Some(entry) = creds
+                    .profiles
+                    .iter()
+                    .find(|entry| entry.arn.trim() == arn.raw)
+                else {
+                    return Err(VizierError(
+                        super::sso::SsoError::ProfileNotFound { arn: arn.raw }.to_string(),
+                    ));
+                };
+                // FR-028: the entry supplies the limits and capabilities it has, and an unset
+                // field stays `None` — unknown to every consumer (checkpointing, attachments,
+                // tool warnings), never "unsupported". Nothing is inferred from the ARN and
+                // nothing is copied from the catalogue model the entry is priced from
+                // (FR-034a.6, SC-022), which is why `entry` here is the profile entry and not
+                // the catalogue's model of the same name.
+                //
+                // `limits()` is the same function every other provider goes through, so the
+                // agent's own `context_window` still wins over the entry's (`Override`); the
+                // entry's value reports as `Catalogue` — the saved selection, as opposed to a
+                // detected or listed value.
+                let saved_limits = Limits {
+                    context: entry.context,
+                    input: None,
+                    output: entry.output,
+                };
+                let (window, source, output) = limits(overrides, Some(&saved_limits));
+                resolved.context_window = window;
+                resolved.context_source = source;
+                resolved.max_output = output;
+                resolved.caps = Capabilities {
+                    tool_call: entry.tool_call,
+                    image_input_override: entry.image_input,
+                    ..Default::default()
+                };
+                // `cost` stays `None`: a turn never decides the price, a report does
+                // (FR-034a.5, data-model "resolution order for the entry's price").
+                return Ok(resolve_bedrock_sso(entry.arn.trim(), sso()?, resolved));
+            }
+            return Ok(resolve_bedrock_sso(model, sso()?, resolved));
+        }
         return resolve_bedrock(model, &creds, resolved);
     }
 
@@ -565,12 +758,25 @@ pub async fn resolve(
     let credentials = crate::provider_keys::resolve_credentials(&deps.storage, provider, &env)
         .await
         .map(|(c, _)| c);
+    // The SSO credential reads the session store, so it is produced here and handed to the
+    // synchronous resolver; every other provider carries `None` (FR-009d).
+    let sso = if *provider == ProviderId::AMAZON_BEDROCK_SSO {
+        Some(bedrock_credentials_from(
+            deps,
+            provider,
+            credentials.as_ref().unwrap_or(&ProviderCredentials::default()),
+            None,
+        )?)
+    } else {
+        None
+    };
     resolve_with(
         &ResolveContext {
             catalogue: &deps.catalogue,
             custom: custom.as_ref(),
             credentials,
             http: deps.http.clone(),
+            sso,
         },
         provider,
         model,
@@ -582,7 +788,7 @@ pub async fn resolve(
 mod resolve_tests {
     use super::*;
     use crate::catalogue::data::parse;
-    use crate::schema::provider::CustomModel;
+    use crate::schema::provider::{CustomModel, ProfileEntry};
 
     fn catalogue() -> Catalogue {
         Catalogue::new(
@@ -618,6 +824,7 @@ mod resolve_tests {
             custom: None,
             credentials: creds,
             http: reqwest::Client::new(),
+            sso: None,
         }
     }
 
@@ -950,4 +1157,281 @@ mod resolve_tests {
         let r = resolve_with(&context, &id("home"), "own-model", &ModelOverrides::default()).unwrap();
         assert_eq!(r.context_window, None);
     }
+    // ---- Amazon Bedrock (SSO): the saved entry is the model (FR-027, FR-030)
+
+    const SSO_ARN: &str =
+        "arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/abc123";
+
+    /// A saved SSO connection: the five non-secret fields, a Bedrock region, and the entries.
+    fn sso_creds(profiles: Vec<ProfileEntry>) -> ProviderCredentials {
+        ProviderCredentials {
+            start_url: Some("https://acme.awsapps.com/start".into()),
+            sso_region: Some("us-east-1".into()),
+            account_id: Some("123456789012".into()),
+            role_name: Some("BedrockOperator".into()),
+            sso_profile: Some("acme-bedrock".into()),
+            region: Some("us-east-1".into()),
+            profiles,
+            ..Default::default()
+        }
+    }
+
+    /// The role credential the SSO branch needs; the value itself is never used by resolution.
+    fn sso() -> BedrockCredential {
+        BedrockCredential {
+            region: "us-east-1".into(),
+            credential: StaticKey::none(),
+        }
+    }
+
+    fn sso_context<'a>(c: &'a Catalogue, profiles: Vec<ProfileEntry>) -> ResolveContext<'a> {
+        ResolveContext {
+            sso: Some(sso()),
+            ..ctx(c, Some(sso_creds(profiles)))
+        }
+    }
+
+    #[test]
+    fn a_saved_arn_is_the_model_string_and_one_encoded_path_segment() {
+        let c = catalogue();
+        let entry = ProfileEntry {
+            arn: SSO_ARN.into(),
+            name: Some("Acme Prod — Claude".into()),
+            ..Default::default()
+        };
+        let context = sso_context(&c, vec![entry]);
+        let r = resolve_with(
+            &context,
+            &ProviderId::AMAZON_BEDROCK_SSO,
+            SSO_ARN,
+            &ModelOverrides::default(),
+        )
+        .unwrap();
+
+        // The ARN, unchanged: no foundation-model id substituted, no region or account rewritten.
+        assert_eq!(r.model, SSO_ARN);
+        assert_eq!(r.dialect, DialectKind::Bedrock);
+        assert_eq!(r.base_url, "https://bedrock-runtime.us-east-1.amazonaws.com");
+
+        // One path segment: `aws_uri_encode` turns the ARN's `:` and `/` into `%3A`/`%2F`, so the
+        // path has the three slashes of `/model/{id}/converse` and no more.
+        let path = crate::llm::bedrock::model_path(&r.model, "converse");
+        assert_eq!(
+            path,
+            format!("/model/{}/converse", crate::llm::bedrock::aws_uri_encode(SSO_ARN))
+        );
+        assert_eq!(
+            path.matches('/').count(),
+            3,
+            "the ARN is one segment, not a path: {path}"
+        );
+        assert!(!path.contains("application-inference-profile/"), "{path}");
+        assert!(path.contains("%2F") && path.contains("%3A"), "{path}");
+    }
+
+    #[test]
+    fn a_well_formed_arn_that_is_not_saved_is_refused_by_the_list_not_the_grammar() {
+        let c = catalogue();
+        let unknown =
+            "arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/not-saved";
+        let context = sso_context(
+            &c,
+            vec![ProfileEntry {
+                arn: SSO_ARN.into(),
+                ..Default::default()
+            }],
+        );
+        let error = resolve_with(
+            &context,
+            &ProviderId::AMAZON_BEDROCK_SSO,
+            unknown,
+            &ModelOverrides::default(),
+        )
+        .unwrap_err()
+        .0;
+        assert!(error.contains("no inference profile"), "{error}");
+        assert!(error.contains(unknown), "{error}");
+
+        // A saved entry still resolves, and so does a catalogue model on the same connection:
+        // the grammar decides which path is taken, the list decides whether the ARN may run
+        // (FR-030).
+        let context = sso_context(
+            &c,
+            vec![ProfileEntry {
+                arn: SSO_ARN.into(),
+                ..Default::default()
+            }],
+        );
+        assert_eq!(
+            resolve_with(
+                &context,
+                &ProviderId::AMAZON_BEDROCK_SSO,
+                SSO_ARN,
+                &ModelOverrides::default()
+            )
+            .unwrap()
+            .model,
+            SSO_ARN
+        );
+        let r = resolve_with(
+            &context,
+            &ProviderId::AMAZON_BEDROCK_SSO,
+            "amazon.nova-lite-v1:0",
+            &ModelOverrides::default(),
+        )
+        .unwrap();
+        assert_eq!(r.model, "amazon.nova-lite-v1:0");
+        assert_eq!(r.context_window, Some(300000), "from the catalogue entry");
+    }
+
+    #[test]
+    fn an_entry_supplies_its_own_limits_and_the_agent_override_still_wins() {
+        let c = catalogue();
+        let entry = ProfileEntry {
+            arn: SSO_ARN.into(),
+            context: Some(200_000),
+            output: Some(64_000),
+            tool_call: Some(true),
+            image_input: Some(false),
+            // The pair sits on a catalogue model with limits of its own; they must not show up.
+            model: Some("amazon.nova-lite-v1:0".into()),
+            ..Default::default()
+        };
+        let context = sso_context(&c, vec![entry]);
+        let r = resolve_with(
+            &context,
+            &ProviderId::AMAZON_BEDROCK_SSO,
+            SSO_ARN,
+            &ModelOverrides::default(),
+        )
+        .unwrap();
+        assert_eq!(r.context_window, Some(200_000), "the entry's own context window");
+        assert_eq!(r.max_output, Some(64_000), "the entry's own output limit");
+        assert_eq!(r.caps.tool_call, Some(true));
+        assert_eq!(r.caps.image_input(), Some(false));
+        assert_eq!(r.cost, None, "a turn never decides the price (FR-034a.5)");
+
+        // FR-028's order: agent override, then the entry.
+        let overridden = resolve_with(
+            &context,
+            &ProviderId::AMAZON_BEDROCK_SSO,
+            SSO_ARN,
+            &ModelOverrides {
+                context_window: Some(50_000),
+                max_tokens: Some(1_000),
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            (overridden.context_window, overridden.context_source),
+            (Some(50_000), ContextSource::Override)
+        );
+        assert_eq!(overridden.max_output, Some(64_000), "the entry's output still applies");
+        assert_eq!(overridden.max_tokens, Some(1_000));
+    }
+
+    #[test]
+    fn an_unset_entry_field_is_unknown_and_never_copied_from_the_paired_model() {
+        let c = catalogue();
+        let entry = ProfileEntry {
+            arn: SSO_ARN.into(),
+            // Paired with a catalogue model that carries 300 000 context, a 10 000 output limit,
+            // tool calling and image input. None of it may be copied onto the entry, and nothing
+            // may be inferred from the ARN (FR-034a.6, SC-022).
+            model: Some("amazon.nova-lite-v1:0".into()),
+            ..Default::default()
+        };
+        let context = sso_context(&c, vec![entry]);
+        let r = resolve_with(
+            &context,
+            &ProviderId::AMAZON_BEDROCK_SSO,
+            SSO_ARN,
+            &ModelOverrides::default(),
+        )
+        .unwrap();
+        assert_eq!(
+            (r.context_window, r.context_source),
+            (None, ContextSource::Unknown),
+            "unknown, not unsupported and not the paired model's window"
+        );
+        assert_eq!(r.max_output, None);
+        assert_eq!(r.caps.tool_call, None);
+        assert_eq!(r.caps.image_input(), None);
+        assert_eq!(r.cost, None);
+    }
+
+    /// T044 (FR-034a.5, FR-034b, SC-021): a price is a fact a report states, never an input to a
+    /// turn. [`ResolveContext`] carries the catalogue, the connection's credentials and the role
+    /// credential — no pricer and no entry price — so an entry with nothing to price from, a
+    /// pairing the catalogue has since dropped, and a hand-entered price all build the same
+    /// model, with `cost` `None` in every case. Only `usage::Pricer` prices a row, afterwards.
+    #[test]
+    fn a_missing_or_stale_price_never_blocks_a_turn() {
+        use crate::service::catalogue::{entry_pricing, EntryPricing};
+
+        let c = catalogue();
+        let hand = Cost { input: 2.0, output: 8.0, cache_read: None, cache_write: None };
+        let entry = |model: Option<&str>, price: Option<Cost>| ProfileEntry {
+            arn: SSO_ARN.into(),
+            name: Some("Acme Prod — Claude".into()),
+            model: model.map(str::to_string),
+            price,
+            ..Default::default()
+        };
+
+        // The three absences a settings row names, each genuinely unpriced before resolving:
+        // nothing paired, a pairing the catalogue no longer lists, a pairing it lists unpriced.
+        let nothing_paired = entry(None, None);
+        let gone = entry(Some("anthropic.claude-3-5-sonnet-20240620-v1:0"), None);
+        let no_figure = entry(Some("amazon.nova-lite-v1:0"), None);
+        assert!(matches!(entry_pricing(&c, &nothing_paired), EntryPricing::NotSet));
+        assert!(matches!(
+            entry_pricing(&c, &gone),
+            EntryPricing::NotResolved { in_catalogue: false, .. }
+        ));
+        assert!(matches!(
+            entry_pricing(&c, &no_figure),
+            EntryPricing::NotResolved { in_catalogue: true, .. }
+        ));
+
+        let resolved = |entry: &ProfileEntry| {
+            let context = sso_context(&c, vec![entry.clone()]);
+            resolve_with(
+                &context,
+                &ProviderId::AMAZON_BEDROCK_SSO,
+                SSO_ARN,
+                &ModelOverrides::default(),
+            )
+            .expect("pricing never refuses a turn (FR-034a.5)")
+        };
+        let shape = |r: &ResolvedModel| {
+            (
+                r.provider.to_string(),
+                r.model.clone(),
+                r.dialect,
+                r.base_url.clone(),
+                r.context_window,
+                r.max_output,
+                r.caps.tool_call,
+                r.cost.clone(),
+            )
+        };
+
+        let unpriced: Vec<ResolvedModel> =
+            [&nothing_paired, &gone, &no_figure].into_iter().map(resolved).collect();
+        for r in &unpriced {
+            assert_eq!(r.model, SSO_ARN, "the saved ARN is still the model");
+            assert_eq!(r.cost, None, "an absent price is `None`, never 0 (FR-034b)");
+        }
+        // The three absences are one outcome at resolution: same provider, ARN, dialect, endpoint
+        // and limits. The pairing is a reporting detail, so a stale one changes nothing here.
+        assert_eq!(shape(&unpriced[0]), shape(&unpriced[1]));
+        assert_eq!(shape(&unpriced[0]), shape(&unpriced[2]));
+
+        // A hand-entered price resolves identically, to the same `None` cost: the path never
+        // consults `entry_pricing`, which is exactly why no price can block a turn.
+        let priced = resolved(&entry(Some("amazon.nova-lite-v1:0"), Some(hand)));
+        assert_eq!(shape(&priced), shape(&unpriced[0]));
+    }
+
 }

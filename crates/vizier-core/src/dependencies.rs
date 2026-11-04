@@ -69,6 +69,10 @@ pub struct VizierDependencies {
     /// Each channel connection's reader health, written by `ChannelConnections` and read by
     /// agent health and integration status.
     pub channel_board: crate::channels::connections::ChannelBoard,
+    /// The last AWS SSO session failure per connection, written where a credential is refused
+    /// and read by agent health and the provider row until a sign-in clears it (spec 044,
+    /// FR-018).
+    pub sso_failures: Arc<crate::llm::sso::SessionFailures>,
     /// Live agent setup/build progress (model downloads included), read by the WebUI.
     pub setup: crate::setup::SetupBoard,
     /// The notification inbox (spec 029).
@@ -320,7 +324,8 @@ impl VizierDependencies {
             integration_kinds,
             integration_health: Default::default(),
             channel_board: Default::default(),
-            setup,
+            sso_failures: Arc::new(Default::default()),
+            setup: Default::default(),
             notifications,
             side_chat_limits: Arc::new(crate::utils::rate_limit::RateLimiter::new(
                 crate::channels::side_chat::ASKS_PER_WINDOW,

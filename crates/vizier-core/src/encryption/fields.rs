@@ -184,6 +184,55 @@ pub fn decrypt_provider_entry(
     Ok(out)
 }
 
+// ---------------------------------------------------------------- bedrock sso sessions
+
+/// The associated data one session envelope is bound to: `vizier:bedrock-sso:v1\x1fsession\x1f<profile>`.
+///
+/// The separators are the unit separator, exactly as [`aad`] uses and as `data-model.md:66`
+/// writes it (`\u{241f}` there is the printed form of `0x1F`), so a profile name can never shift
+/// the boundary between segments.
+fn sso_session_aad(profile: &str) -> String {
+    format!("vizier:bedrock-sso:v1\x1fsession\x1f{profile}")
+}
+
+/// Why a session envelope cannot be opened, in the words the contract fixes
+/// (`contracts/provider-credentials-api.md` §6). Never carries the profile's contents, and says
+/// outright that nothing was deleted (SC-019).
+fn sso_session_error(profile: &str, failure: CipherFailure) -> anyhow::Error {
+    match failure {
+        // No workspace key at all, or one that is not the writer's: both are "the key", which is
+        // what the person can act on (re-sign in), not a storage fault.
+        CipherFailure::Disabled | CipherFailure::WrongKey => anyhow::anyhow!(
+            "the stored session for profile {profile:?} cannot be read with this workspace key; \
+             sign in again (nothing was deleted)"
+        ),
+        other => anyhow::anyhow!(
+            "the stored session for profile {profile:?} cannot be read: it {}; sign in again \
+             (nothing was deleted)",
+            other.message()
+        ),
+    }
+}
+
+/// Wrap one session payload in a [`SecretCipher`] envelope bound to `profile` (FR-009a).
+///
+/// `json` is the output of [`SsoSessionSecret::to_json`](crate::schema::SsoSessionSecret::to_json)
+/// — the secret type has no `Serialize`, so this is the only way a payload gets here (FR-009b).
+pub fn protect_sso_session(cipher: &SecretCipher, profile: &str, json: &str) -> Result<String> {
+    Ok(cipher.encrypt(json, &sso_session_aad(profile))?)
+}
+
+/// Open one session envelope written for `profile` (FR-009a).
+///
+/// Fail-closed: a missing key, a different key, a tampered payload or an envelope copied from
+/// another profile all return an error naming the profile and offering a re-sign-in, and none
+/// of them deletes or rewrites the row (FR-009f, SC-019).
+pub fn decrypt_sso_session(cipher: &SecretCipher, profile: &str, stored: &str) -> Result<String> {
+    cipher
+        .decrypt(stored, &sso_session_aad(profile))
+        .map_err(|failure| sso_session_error(profile, failure))
+}
+
 // ---------------------------------------------------------------- custom providers
 
 pub fn protect_custom_provider(
@@ -528,6 +577,7 @@ mod tests {
                 secret_access_key: Some("aws-secret".into()),
                 session_token: Some("aws-session".into()),
                 region: Some("us-east-1".into()),
+                ..Default::default()
             },
         }
     }

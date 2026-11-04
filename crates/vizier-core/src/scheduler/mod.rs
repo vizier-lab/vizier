@@ -141,14 +141,12 @@ impl VizierScheduler {
         }
     }
 
-    /// The same predicate `DreamScheduler` uses to recognise the end of a turn.
+    /// The same predicate `DreamScheduler` uses to recognise the end of a turn, and the one every
+    /// other reader of a turn's frames uses (`VizierResponse::ends_turn`). It includes `Error`,
+    /// because a turn that failed the way a scheduled task fails on an ended session is over: the
+    /// run closes on that frame instead of waiting for a channel that may never close (FR-017).
     fn is_final_response(response: &VizierResponse) -> bool {
-        matches!(
-            response.content,
-            VizierResponseContent::Message { .. }
-                | VizierResponseContent::Abort
-                | VizierResponseContent::Empty
-        )
+        response.ends_turn()
     }
 
     /// Is a run of this task already in flight?
@@ -434,5 +432,47 @@ impl VizierScheduler {
                 .task_run_ended(agent_id, task_slug, title, run_id, state, Utc::now())
                 .await;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+    use crate::schema::{ErrorKind, VizierResponse, VizierResponseContent};
+
+    fn frame(content: VizierResponseContent) -> VizierResponse {
+        VizierResponse {
+            content,
+            ..Default::default()
+        }
+    }
+
+    /// FR-017: a scheduled task whose turn ended on an ended session closes on that frame. The
+    /// sender is deliberately kept alive — an agent still holding the channel — so a predicate
+    /// that ignored `Error` would keep the run open until the timeout instead of ending it.
+    #[tokio::test]
+    async fn a_scheduled_turn_that_failed_end_session_closes_the_run() {
+        let (tx, rx) = flume::unbounded::<VizierResponse>();
+        tx.send(frame(VizierResponseContent::ThinkingStart)).unwrap();
+        tx.send(frame(VizierResponseContent::Error {
+            kind: ErrorKind::Completion,
+            message: crate::llm::sso::SsoError::SessionExpired.to_string(),
+        }))
+        .unwrap();
+
+        let ended = tokio::time::timeout(Duration::from_secs(1), async {
+            while let Ok(response) = rx.recv_async().await {
+                if VizierScheduler::is_final_response(&response) {
+                    return true;
+                }
+            }
+            false
+        })
+        .await
+        .expect("the run must end on the failure, not wait for the channel to close");
+
+        assert!(ended);
+        drop(tx);
     }
 }

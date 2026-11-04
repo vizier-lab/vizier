@@ -173,7 +173,12 @@ impl AgentHost {
         let Some((id, process)) = self.processes.get_key_value(agent_id) else {
             return;
         };
-        let status = AgentStatus::health(&process.status, &self.deps.channel_board, id);
+        let status = AgentStatus::health(
+            &process.status,
+            &self.deps.channel_board,
+            &self.deps.sso_failures,
+            id,
+        );
         crate::agents::views::publish_health(&self.deps, id, &status);
     }
 
@@ -375,7 +380,12 @@ impl AgentHost {
                     .processes
                     .iter()
                     .map(|(id, process)| {
-                        AgentStatus::health(&process.status, &self.deps.channel_board, id)
+                        AgentStatus::health(
+                            &process.status,
+                            &self.deps.channel_board,
+                            &self.deps.sso_failures,
+                            id,
+                        )
                     })
                     .collect();
                 let _ = resp.send(statuses);
@@ -384,7 +394,12 @@ impl AgentHost {
                 // One agent's health. An agent this host does not hold has no answer: the
                 // slot is dropped and the caller reads the *owner lost* failure.
                 let status = self.processes.get(&agent_id).map(|process| {
-                    AgentStatus::health(&process.status, &self.deps.channel_board, &agent_id)
+                    AgentStatus::health(
+                        &process.status,
+                        &self.deps.channel_board,
+                        &self.deps.sso_failures,
+                        &agent_id,
+                    )
                 });
                 if let Some(status) = status {
                     let _ = resp.send(status);
