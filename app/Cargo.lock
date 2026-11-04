@@ -2466,6 +2466,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ecb"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "26f2a8b3e564eba0877223dc343703ad0385794e882e6d13f3a4dd5c6b1f41ac"
+dependencies = [
+ "cipher 0.5.2",
+]
+
+[[package]]
 name = "either"
 version = "1.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3111,31 +3120,58 @@ checksum = "42703706b716c37f96a77aea830392ad231f44c9e9a67872fa5548707e11b11c"
 
 [[package]]
 name = "fulgur"
-version = "0.40.0"
+version = "0.41.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "21d820bfeaa98576ce1d52f4e4c9efd4f18700a5409d42aa325b7d83894499fa"
+checksum = "30c98b4a3583d5292c46e838e5599fab410b85d4f7925ea5bfef40ba99481fc3"
+dependencies = [
+ "fulgur-blitz",
+]
+
+[[package]]
+name = "fulgur-blitz"
+version = "0.41.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3481f5503d130817acdb2e3a802960075674435b20a43d204f162443842bf171"
 dependencies = [
  "blitz-dom",
  "blitz-html",
  "blitz-traits",
  "cssparser 0.37.0",
- "getrandom 0.4.3",
+ "data-url",
+ "flate2",
+ "fulgur-core",
  "image",
  "krilla",
  "krilla-svg",
  "log",
- "lopdf",
+ "lopdf 0.45.0",
  "minijinja",
  "parley",
  "serde",
  "serde_json",
- "skrifa 0.44.0",
+ "skrifa 0.47.0",
  "stylo",
  "taffy 0.9.2",
  "thiserror 2.0.21",
  "unicode-properties",
  "unicode-segmentation",
  "usvg",
+]
+
+[[package]]
+name = "fulgur-core"
+version = "0.41.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "75ebe31e98a676c6a95dad17e68e1a26a8cb8eaf211c0bc8aa9588ddc44c0932"
+dependencies = [
+ "getrandom 0.4.3",
+ "image",
+ "krilla",
+ "log",
+ "lopdf 0.45.0",
+ "minijinja",
+ "serde",
+ "thiserror 2.0.21",
  "woff2-patched",
 ]
 
@@ -5406,26 +5442,51 @@ dependencies = [
  "aes 0.8.4",
  "bitflags 2.13.2",
  "cbc 0.1.2",
- "chrono",
- "ecb",
+ "ecb 0.1.2",
  "encoding_rs",
  "flate2",
  "getrandom 0.4.3",
  "indexmap 2.14.2",
  "itoa",
- "jiff",
  "log",
  "md-5 0.10.6",
  "nom 8.0.0",
  "rand 0.10.3",
  "rangemap",
- "rayon",
  "sha2 0.10.9",
  "stringprep",
  "thiserror 2.0.21",
- "time",
  "ttf-parser",
  "weezl 0.1.12",
+]
+
+[[package]]
+name = "lopdf"
+version = "0.45.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bfffda0fe1ab0157e1a13c14bebd3f28671f2fccb7922f0722ec53926e6922d3"
+dependencies = [
+ "aes 0.9.4",
+ "bitflags 2.13.2",
+ "brotli-decompressor 5.0.3",
+ "cbc 0.2.1",
+ "chrono",
+ "ecb 0.2.1",
+ "encoding_rs",
+ "flate2",
+ "getrandom 0.4.3",
+ "indexmap 2.14.2",
+ "itoa",
+ "log",
+ "md-5 0.11.0",
+ "nom 8.0.0",
+ "rand 0.10.3",
+ "rangemap",
+ "rayon",
+ "sha2 0.11.1",
+ "stringprep",
+ "thiserror 2.0.21",
+ "weezl 0.2.1",
 ]
 
 [[package]]
@@ -5681,9 +5742,9 @@ dependencies = [
 
 [[package]]
 name = "minijinja"
-version = "2.21.0"
+version = "2.24.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cb3d648e68cea56d9858d535ee28f9538404e2dd8cb08ed0bd05dca379477f39"
+checksum = "86886cf6dbf4e614b19c9a1eec9775f021869d7eadde0fc73921a81b90c9b4c9"
 dependencies = [
  "memo-map",
  "serde",
@@ -6740,9 +6801,9 @@ checksum = "df94ce210e5bc13cb6651479fa48d14f601d9858cfe0467f43ae157023b938d3"
 
 [[package]]
 name = "pdf-agent"
-version = "0.1.0"
+version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3c3a99a1179d098e91f13b309d30ba25f4f473b12cde8c79c6dbb97a81f45104"
+checksum = "07047e896f0e9d27241410f1ac1c1df3ec12fbbe0532937d12e908bef4c313ba"
 dependencies = [
  "bytemuck",
  "fulgur",
@@ -6764,7 +6825,7 @@ dependencies = [
  "encoding_rs",
  "euclid 0.20.14",
  "log",
- "lopdf",
+ "lopdf 0.42.0",
  "postscript",
  "type1-encoding-parser",
  "unicode-normalization",
@@ -8055,6 +8116,17 @@ name = "read-fonts"
 version = "0.43.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "005c8acf251756c478b0bf402885bfd88a1476020c4c7e6060edc1aa68da38ea"
+dependencies = [
+ "bytemuck",
+ "font-types 0.12.7",
+ "once_cell",
+]
+
+[[package]]
+name = "read-fonts"
+version = "0.44.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d5a0cf4bb6cbce4c29756270d189a5e400ac05e91192161d83a0bcb6e68492e8"
 dependencies = [
  "bytemuck",
  "font-types 0.12.7",
@@ -9414,6 +9486,16 @@ checksum = "d4febebda507fb889c545a37a135517769d1391941013561292897961d1887d6"
 dependencies = [
  "bytemuck",
  "read-fonts 0.43.3",
+]
+
+[[package]]
+name = "skrifa"
+version = "0.47.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "526e654b303ff4ad73a5a40b25de2b3ce3d039c5e3b6da5f89ae6e57004cb40f"
+dependencies = [
+ "bytemuck",
+ "read-fonts 0.44.0",
 ]
 
 [[package]]
