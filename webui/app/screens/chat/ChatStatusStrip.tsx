@@ -46,6 +46,8 @@ type Props = {
   changes?: { count: number; open: () => void }
   /** How far above the strip the panel sits: the composer's height, so it clears the composer. */
   panelGap?: number
+  /** The panel's width in px: the composer's, since the strip itself is only as wide as its counts. */
+  panelWidth?: number
   className?: string
 }
 
@@ -73,6 +75,7 @@ export function ChatStatusStrip({
   onFilesCleared,
   changes,
   panelGap,
+  panelWidth,
   className,
 }: Props) {
   const [now, setNow] = useState(() => Date.now())
@@ -374,6 +377,7 @@ export function ChatStatusStrip({
       open={open}
       onOpenChange={setOpen}
       panelGap={panelGap}
+      panelWidth={panelWidth}
       key={`${items.map((i) => i.count).join('-')}`}
     >
       {(item, close) => panelFor(item.id, close)}

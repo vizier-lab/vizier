@@ -173,10 +173,18 @@ export default function Chat() {
     // The status panel hangs above the composer, so it must clear the composer's height.
     const composerCard = useRef<HTMLDivElement>(null)
     const [composerCardHeight, setComposerCardHeight] = useState(84)
+    // The strip shares its row with the model picker, so it is only as wide as its counts:
+    // the panel takes the composer's width instead of the strip's.
+    const [composerCardWidth, setComposerCardWidth] = useState<number | undefined>(undefined)
     useEffect(() => {
         const el = composerCard.current
         if (!el) return
-        const ro = new ResizeObserver(() => setComposerCardHeight(el.offsetHeight))
+        const measure = () => {
+            setComposerCardHeight(el.offsetHeight)
+            setComposerCardWidth(el.offsetWidth)
+        }
+        measure()
+        const ro = new ResizeObserver(measure)
         ro.observe(el)
         return () => ro.disconnect()
     }, [])
@@ -586,6 +594,7 @@ export default function Chat() {
                         changes={changes}
                         // The panel clears the composer and the strip's own margin.
                         panelGap={composerCardHeight + STRIP_MARGIN + PANEL_GAP}
+                        panelWidth={composerCardWidth}
                     />
                     {canOverrideModel && userId && topicId && (
                         <>
