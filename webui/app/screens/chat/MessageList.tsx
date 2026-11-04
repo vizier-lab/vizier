@@ -249,7 +249,7 @@ export function MessageList({ state, agent, greeting, hasOlder, bottomInset = 0,
                 <UserMessage
                     key={e.uid}
                     name={byPlatformName && c.Request.user ? personName(c.Request.user) : 'You'}
-                    seed={c.Request.user ?? me?.username}
+                    seed={c.Request.user || me?.username}
                     time={time(c.Request.timestamp)}
                     skill={skill}
                     attachments={attachments.length ? <ReplyMedia attachments={attachments} transcript={spoken ? text : undefined} /> : undefined}
@@ -305,6 +305,7 @@ export function MessageList({ state, agent, greeting, hasOlder, bottomInset = 0,
             <UserMessage
                 key={`q-${q.id}`}
                 queued={{ agentName: agent.name }}
+                seed={me?.username}
                 attachments={q.attachments?.length ? <ReplyMedia attachments={q.attachments} /> : undefined}
             >
                 <Markdown size="document">{q.text}</Markdown>
