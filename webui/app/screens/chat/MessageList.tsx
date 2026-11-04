@@ -33,6 +33,7 @@ import { Enter, stagger } from '../../lib/motion'
 import { usePrices } from '../../lib/prices'
 import { groupHistory, outcomeDurationMs } from '../../lib/trail'
 import { personName } from '../../lib/tasks'
+import { useSession } from '../../stores/session'
 import { Markdown } from '../shared/Markdown'
 import { ReplyMedia } from './ReplyMedia'
 import { Reactions } from './Reactions'
@@ -103,6 +104,7 @@ function lobotomyAt(entries: ChatMessage[], checkpoint: ChatMessage) {
 
 export function MessageList({ state, agent, greeting, hasOlder, bottomInset = 0, insetRight = 0, loadingOlder, onLoadOlder, onReact, error, clientCalls, questions, recalledFor, byPlatformName, emptyAction, onBuildPlan, buildingPlan }: Props) {
     const { entries } = state
+    const me = useSession((s) => s.user)
     const turns = useMemo(() => groupHistory(entries), [entries])
     const prices = usePrices()
     const scroller = useRef<HTMLDivElement>(null)
@@ -246,7 +248,9 @@ export function MessageList({ state, agent, greeting, hasOlder, bottomInset = 0,
             arrive(
                 <UserMessage
                     key={e.uid}
-                    meta={`${byPlatformName && c.Request.user ? personName(c.Request.user) : 'You'} · ${time(c.Request.timestamp)}`}
+                    name={byPlatformName && c.Request.user ? personName(c.Request.user) : 'You'}
+                    seed={c.Request.user ?? me?.username}
+                    time={time(c.Request.timestamp)}
                     skill={skill}
                     attachments={attachments.length ? <ReplyMedia attachments={attachments} transcript={spoken ? text : undefined} /> : undefined}
                 >
