@@ -128,3 +128,51 @@ pub async fn delete(services: &Services, principal: &Principal, role_id: &str) -
         .await
         .map_err(|e| fail("Failed to delete role", e))
 }
+
+#[cfg(test)]
+mod model_override_tests {
+    use super::*;
+
+    fn admin() -> Principal {
+        let role = Role {
+            role_id: "admin".into(),
+            name: "admin".into(),
+            permissions: vec![MANAGE.into()],
+            is_system: false,
+            created_at: chrono::Utc::now(),
+        };
+        Principal {
+            user_id: "admin".into(),
+            username: "admin".into(),
+            permissions: role.permissions.clone(),
+            role,
+            method: crate::auth::AuthMethod::Jwt,
+        }
+    }
+
+    #[test]
+    fn available_permissions_includes_only_the_unscoped_model_override() {
+        let permissions = available_permissions(&admin()).unwrap();
+        assert!(permissions.iter().any(|permission| permission == "model_override"));
+        assert!(!permissions.iter().any(|permission| permission.ends_with(":model_override")));
+    }
+
+    #[tokio::test]
+    async fn custom_roles_accept_model_override_and_reject_scoped_aliases() {
+        let dir = tempfile::tempdir().unwrap();
+        let deps = crate::dependencies::VizierDependencies::new(crate::config::VizierConfig {
+            workspace: dir.path().to_string_lossy().to_string(),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+        let services = Services::new(deps);
+        let role = create(&services, &admin(), "Model users", vec!["model_override".into()])
+            .await
+            .unwrap();
+        assert_eq!(role.permissions, vec!["model_override"]);
+        for alias in ["all_agents:model_override", "owned_agents:model_override"] {
+            assert!(create(&services, &admin(), "Bad role", vec![alias.into()]).await.is_err());
+        }
+    }
+}

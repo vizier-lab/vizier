@@ -668,6 +668,47 @@ impl VizierAgent {
             return Ok(response);
         }
         let resuming = resume_steps.is_some();
+        let turn_model = if let Some(choice) = &req.model_override {
+            let model_result = async {
+                let (provider, model) = crate::service::catalogue::validate_chat_model_override(
+                    &self.deps,
+                    choice,
+                )
+                .await
+                .map_err(|error| anyhow::anyhow!(error.message().to_string()))?;
+                VizierModel::new_with_override(
+                    &self.agent_id,
+                    &self.deps,
+                    &self.config,
+                    Some((provider, model)),
+                )
+                .await
+            }
+            .await;
+            match model_result {
+                Ok(model) => model,
+                Err(error) => {
+                    let message = format!("The selected model is unavailable: {error}");
+                    let response = VizierResponse {
+                        timestamp: Utc::now(),
+                        content: VizierResponseContent::Error {
+                            kind: ErrorKind::ProviderUnavailable,
+                            message,
+                        },
+                        attachments: vec![],
+                        ..Default::default()
+                    };
+                    self.save_history_or_log(
+                        &session,
+                        SessionHistoryContent::Response(response.clone()),
+                    )
+                    .await;
+                    return Ok(response);
+                }
+            }
+        } else {
+            self.model.clone()
+        };
 
         // Auto-transcribe AudioChat/AudioPrompt in-place
         if let Some(ref stt) = self.stt
@@ -954,6 +995,7 @@ impl VizierAgent {
         };
         let prompt_result = self
             .prompt_with(
+                &turn_model,
                 &tools,
                 with_context(
                     message,
@@ -1089,6 +1131,7 @@ impl VizierAgent {
     > {
         let tools = self.tools.load_full();
         self.prompt_with(
+            &self.model,
             &tools,
             message,
             history,
@@ -1104,6 +1147,7 @@ impl VizierAgent {
 
     async fn prompt_with(
         &self,
+        model: &VizierModel,
         snapshot: &Arc<VizierTools>,
         message: Message,
         history: Vec<Message>,
@@ -1124,7 +1168,7 @@ impl VizierAgent {
     > {
         // Every return but the answered one drops this, marking the turn's answered rounds as
         // spent on a failed turn (spec 018 FR-004); an aborted task drops it too.
-        let guard = self.model.guard();
+        let guard = model.guard();
         let mut history = history.clone();
         let mut full_history = history.clone();
         let mut turn_depth = turn_depth;
@@ -1202,8 +1246,7 @@ impl VizierAgent {
 
             // The model gets the narrowed view; `full_history` keeps the full record,
             // which is what storage and the WebUI are served from.
-            let response = self
-                .model
+            let response = model
                 .complete_until(
                     completion_request(&history, &message, &tools, wrapping_up),
                     Some(start + prompt_timeout),
@@ -1288,6 +1331,7 @@ impl VizierAgent {
                 // A final answer leaves no tool call waiting, so the checkpoint is safe here,
                 // and it's what keeps the session's next turn small.
                 self.maybe_checkpoint(
+                    model,
                     snapshot,
                     current_context_size,
                     &mut history,
@@ -1517,6 +1561,7 @@ impl VizierAgent {
             // Only now, with every tool call of the reply answered: checkpointing between the
             // completion and its tool results dropped the calls the results answer (#63).
             self.maybe_checkpoint(
+                model,
                 snapshot,
                 current_context_size,
                 &mut history,
@@ -1544,11 +1589,11 @@ impl VizierAgent {
                 cache_creation_input_tokens,
                 total_cache_creation_input_tokens,
                 current_context_size,
-                context_window: self.model.context_window(),
+                context_window: model.context_window(),
                 depth_exhausted,
                 ended_by_tool,
-                provider: Some(self.model.info().provider.clone()),
-                model: Some(self.model.info().model.clone()),
+                provider: Some(model.info().provider.clone()),
+                model: Some(model.info().model.clone()),
             },
             attachments,
             full_history,
@@ -1594,6 +1639,7 @@ impl VizierAgent {
     /// on with its full context and tries again after the next completion (#47).
     async fn maybe_checkpoint(
         &self,
+        model: &VizierModel,
         tools: &VizierTools,
         context_size: Option<u64>,
         history: &mut Vec<Message>,
@@ -1602,7 +1648,7 @@ impl VizierAgent {
         hooks: &Option<Arc<VizierSessionHooks>>,
         ctx: &ToolContext,
     ) {
-        let (Some(ctx_size), Some(ctx_window)) = (context_size, self.model.context_window()) else {
+        let (Some(ctx_size), Some(ctx_window)) = (context_size, model.context_window()) else {
             return;
         };
         let usage_ratio = ctx_size as f64 / ctx_window as f64;
@@ -1619,7 +1665,14 @@ impl VizierAgent {
         // No digest: the turn's request already carries it in its context block.
         let mut summarised = history.clone();
         summarised.extend(next.cloned());
-        let handover = match self.generate_handover_message(&summarised, None, ctx).await {
+        let handover = match generate_handover_with_model(
+            model,
+            &summarised,
+            None,
+            &UsageScope::handover(Some(ctx.session.clone())),
+        )
+        .await
+        {
             Ok(handover) => handover,
             Err(e) => {
                 tracing::warn!(

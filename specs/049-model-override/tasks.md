@@ -10,7 +10,7 @@
 
 **Purpose**: Prepare the workspace and WebUI submodule for the planned cross-repository changes.
 
-- [ ] T001 Check branch alignment with `just status` and create/switch the matching `049-model-override` submodule branch with `just checkout 049-model-override` before editing `webui/`; do not edit `design/` because the existing Picker and approved FigCraft placement are being reused.
+- [x] T001 Check branch alignment with `just status` and create/switch the matching `049-model-override` submodule branch with `just checkout 049-model-override` before editing `webui/`; do not edit `design/` because the existing Picker and approved FigCraft placement are being reused.
 
 ---
 
@@ -18,10 +18,10 @@
 
 **Purpose**: Define a backward-compatible request value and one shared server-side validator needed by all user stories.
 
-- [ ] T002 Add a default-absent optional `{ provider, model }` override value to `VizierRequest` in `crates/vizier-core/src/schema/request.rs` and to the REST `ChatRequest` in `crates/vizier-core/src/service/agents.rs`; keep old serialized requests valid.
-- [ ] T003 [P] Add the matching optional request field to `WebSocketMessage` in `webui/app/api/frames.ts` and the REST chat request type in `webui/app/api/endpoints/chat.ts`, keeping provider and full model ID separate.
-- [ ] T004 Add Rust serialization tests in `crates/vizier-core/src/schema/request.rs` proving old requests deserialize with no override and a model ID containing slashes round-trips unchanged; add WebUI payload coverage at the request-construction test seam or extract a pure helper in `webui/app/lib/modelOverride.ts` for testing.
-- [ ] T005 Implement one reusable server-side chat-choice validator in `crates/vizier-core/src/service/catalogue.rs` using provider summaries and `models_for(..., ModelCapability::Chat)`; require exact provider and complete model ID matches and return an explicit refusal instead of substituting the agent model.
+- [x] T002 Add a default-absent optional `{ provider, model }` override value to `VizierRequest` in `crates/vizier-core/src/schema/request.rs` and to the REST `ChatRequest` in `crates/vizier-core/src/service/agents.rs`; keep old serialized requests valid.
+- [x] T003 [P] Add the matching optional request field to `WebSocketMessage` in `webui/app/api/frames.ts` and the REST chat request type in `webui/app/api/endpoints/chat.ts`, keeping provider and full model ID separate.
+- [x] T004 Add Rust serialization tests in `crates/vizier-core/src/schema/request.rs` proving old requests deserialize with no override and a model ID containing slashes round-trips unchanged; add WebUI payload coverage at the request-construction test seam or extract a pure helper in `webui/app/lib/modelOverride.ts` for testing.
+- [x] T005 Implement one reusable server-side chat-choice validator in `crates/vizier-core/src/service/catalogue.rs` using provider summaries and `models_for(..., ModelCapability::Chat)`; require exact provider and complete model ID matches and return an explicit refusal instead of substituting the agent model.
 
 **Checkpoint**: Existing clients still omit the override; the value round-trips without splitting model IDs, and backend validation has one shared implementation.
 
@@ -35,16 +35,16 @@
 
 ### Implementation for User Story 1
 
-- [ ] T006 Add `model_override` to `AVAILABLE_PERMISSIONS` in `crates/vizier-core/src/storage/user.rs` and pin the exact unscoped name with a unit test there; do not add scoped variants.
-- [ ] T007 Add the `Model override` permission label and a `Chat` group entry for `model_override` in `webui/app/lib/permissions.ts`; update `webui/app/lib/permissions.test.ts` to verify it renders as a named Chat permission rather than raw text under Other.
-- [ ] T008 [US1] Add a pure conversation preference helper in `webui/app/lib/modelOverride.ts` (or `webui/app/lib/remember.ts`) keyed by user, agent, channel and topic; cover read/write, Agent default, storage failure and separate-topic/user keys in `webui/app/lib/modelOverride.test.ts`.
-- [ ] T009 [US1] Create `webui/app/screens/chat/ModelOverridePicker.tsx` using the existing design `Picker` and `ProviderLogo`; provide one searchable dropdown, exact `<provider-id>/<full-model-id>` labels, provider icon fallback, loading/error/empty/unavailable states, and an explicit Agent default choice.
-- [ ] T010 [US1] Load provider summaries and eligible chat models through existing catalogue endpoints in `webui/app/screens/chat/ModelOverridePicker.tsx`; exclude media-only and unusable providers and preserve model IDs without parsing their slashes.
-- [ ] T011 [US1] Render the selector only when the current user has `model_override` in `webui/app/routes/chat.tsx`, immediately right of `ChatStatusStrip` with flexible space, on the existing row below Send; keep `ChatStatusStrip` styles and markup unchanged.
-- [ ] T012 [US1] Thread the selected pair through the composer send callback and `webui/app/stores/turns.ts` request construction for subsequent text and audio-chat requests; snapshot it at submission and omit the field for Agent default, commands, side chats, client events, project tool requests and non-WebUI channels.
-- [ ] T013 [US1] Create a per-turn `VizierModel` from the validated override in `crates/vizier-core/src/agents/agent/mod.rs` after restoring a stored request on resume; use that model consistently for completion rounds, usage scope, context/stats and response stats without mutating `self.model` or affecting non-chat work.
+- [x] T006 Add `model_override` to `AVAILABLE_PERMISSIONS` in `crates/vizier-core/src/storage/user.rs` and pin the exact unscoped name with a unit test there; do not add scoped variants.
+- [x] T007 Add the `Model override` permission label and a `Chat` group entry for `model_override` in `webui/app/lib/permissions.ts`; update `webui/app/lib/permissions.test.ts` to verify it renders as a named Chat permission rather than raw text under Other.
+- [x] T008 [US1] Add a pure conversation preference helper in `webui/app/lib/modelOverride.ts` (or `webui/app/lib/remember.ts`) keyed by user, agent, channel and topic; cover read/write, Agent default, storage failure and separate-topic/user keys in `webui/app/lib/modelOverride.test.ts`.
+- [x] T009 [US1] Create `webui/app/screens/chat/ModelOverridePicker.tsx` using the existing design `Picker` and `ProviderLogo`; provide one searchable dropdown, exact `<provider-id>/<full-model-id>` labels, provider icon fallback, loading/error/empty/unavailable states, and an explicit Agent default choice.
+- [x] T010 [US1] Load provider summaries and eligible chat models through existing catalogue endpoints in `webui/app/screens/chat/ModelOverridePicker.tsx`; exclude media-only and unusable providers and preserve model IDs without parsing their slashes.
+- [x] T011 [US1] Render the selector only when the current user has `model_override` in `webui/app/routes/chat.tsx`, immediately right of `ChatStatusStrip` with flexible space, on the existing row below Send; keep `ChatStatusStrip` styles and markup unchanged.
+- [x] T012 [US1] Thread the selected pair through the composer send callback and `webui/app/stores/turns.ts` request construction for subsequent text and audio-chat requests; snapshot it at submission and omit the field for Agent default, commands, side chats, client events, project tool requests and non-WebUI channels.
+- [x] T013 [US1] Create a per-turn `VizierModel` from the validated override in `crates/vizier-core/src/agents/agent/mod.rs` after restoring a stored request on resume; use that model consistently for completion rounds, usage scope, context/stats and response stats without mutating `self.model` or affecting non-chat work.
 - [ ] T014 [US1] Add core turn tests in `crates/vizier-core/src/agents/agent/mod.rs` proving the selected provider/model supplies completion and response/usage identity, while an ordinary request uses the configured model and concurrent turn model choices do not leak.
-- [ ] T015 [US1] Add WebUI tests in `webui/app/screens/chat/ModelOverridePicker.test.tsx` and/or `webui/app/lib/modelOverride.test.ts` for permission-gated visibility, one-dropdown labels with slash-containing IDs, optional logos, preference restore and a changed choice applying only to subsequent sends.
+- [x] T015 [US1] Add WebUI tests in `webui/app/screens/chat/ModelOverridePicker.test.tsx` and/or `webui/app/lib/modelOverride.test.ts` for permission-gated visibility, one-dropdown labels with slash-containing IDs, optional logos, preference restore and a changed choice applying only to subsequent sends.
 
 **Checkpoint**: A permitted user can select and use a model in an existing conversation; no shared agent model mutation occurs.
 
@@ -58,11 +58,11 @@
 
 ### Implementation for User Story 2
 
-- [ ] T016 [US2] Enforce exact `model_override` authorization with `access::require` for supplied overrides in both `crates/vizier-http/src/topic.rs` and `crates/vizier-core/src/service/agents.rs`; preserve existing agent visibility and project-channel checks and return the contract's forbidden error without dispatch.
-- [ ] T017 [US2] Re-resolve the current principal from `self.services` for each override submitted through an open topic in `crates/vizier-http/src/topic.rs`; reject unsupported request kinds and non-WebUI channels with the contract's unsupported error rather than ignoring the override.
+- [x] T016 [US2] Enforce exact `model_override` authorization with `access::require` for supplied overrides in both `crates/vizier-http/src/topic.rs` and `crates/vizier-core/src/service/agents.rs`; preserve existing agent visibility and project-channel checks and return the contract's forbidden error without dispatch.
+- [x] T017 [US2] Re-resolve the current principal from `self.services` for each override submitted through an open topic in `crates/vizier-http/src/topic.rs`; reject unsupported request kinds and non-WebUI channels with the contract's unsupported error rather than ignoring the override.
 - [ ] T018 [US2] Add HTTP/topic integration tests in `crates/vizier-http/tests/topic.rs` and the relevant REST service tests in `crates/vizier-core/src/service/agents.rs` for granted, denied, revoked-on-open-socket, unsupported-request and unsupported-channel cases; assert denied requests never reach the agent.
-- [ ] T019 [US2] Verify permission registration flows through the existing role API by adding a service test in `crates/vizier-core/src/service/roles.rs` that `available_permissions` includes `model_override` and role creation accepts it but rejects scoped aliases.
-- [ ] T020 [US2] Verify role Settings grouping and display with a `groupsFor` test in `webui/app/lib/permissions.test.ts`: `model_override` appears in the Chat group with a human-readable label and can be toggled/saved by the dynamic role editor in `webui/app/routes/settings-role.tsx`.
+- [x] T019 [US2] Verify permission registration flows through the existing role API by adding a service test in `crates/vizier-core/src/service/roles.rs` that `available_permissions` includes `model_override` and role creation accepts it but rejects scoped aliases.
+- [x] T020 [US2] Verify role Settings grouping and display with a `groupsFor` test in `webui/app/lib/permissions.test.ts`: `model_override` appears in the Chat group with a human-readable label and can be toggled/saved by the dynamic role editor in `webui/app/routes/settings-role.tsx`.
 
 **Checkpoint**: Role assignment is discoverable, and the server refuses every unauthorized or unsupported override independently of UI visibility.
 
@@ -76,9 +76,9 @@
 
 ### Implementation for User Story 3
 
-- [ ] T021 [US3] Use the shared catalogue validator from T005 before dispatch in `crates/vizier-http/src/topic.rs` and `crates/vizier-core/src/service/agents.rs`; map invalid or stale choices to the contract's unavailable error and never clear the explicit override or fall back.
-- [ ] T022 [US3] Preserve a saved-but-unavailable choice in `webui/app/screens/chat/ModelOverridePicker.tsx`, explain that it cannot be used, and block submission with it until the user selects a listed model or Agent default; expose distinct catalogue-load-failed and empty-list messages.
-- [ ] T023 [US3] Add validator tests in `crates/vizier-core/src/service/catalogue.rs` for exact provider/model matching, slashes in IDs, unknown provider/model, media-only provider, disconnected provider and a choice removed from the current list.
+- [x] T021 [US3] Use the shared catalogue validator from T005 before dispatch in `crates/vizier-http/src/topic.rs` and `crates/vizier-core/src/service/agents.rs`; map invalid or stale choices to the contract's unavailable error and never clear the explicit override or fall back.
+- [x] T022 [US3] Preserve a saved-but-unavailable choice in `webui/app/screens/chat/ModelOverridePicker.tsx`, explain that it cannot be used, and block submission with it until the user selects a listed model or Agent default; expose distinct catalogue-load-failed and empty-list messages.
+- [x] T023 [US3] Add validator tests in `crates/vizier-core/src/service/catalogue.rs` for exact provider/model matching, slashes in IDs, unknown provider/model, media-only provider, disconnected provider and a choice removed from the current list.
 - [ ] T024 [US3] Add UI tests in `webui/app/screens/chat/ModelOverridePicker.test.tsx` for an empty eligible list, failed catalogue fetch, stale saved choice, explicit reset to Agent default and refusal to send while stale.
 
 **Checkpoint**: An unavailable explicit choice is surfaced and refused; no failure path falls back to the configured model.
@@ -89,8 +89,8 @@
 
 **Purpose**: Verify all stories together and run project-required quality gates.
 
-- [ ] T025 [P] Update `specs/049-model-override/quickstart.md` with any implementation-specific steps discovered while exercising UI, permissions, stale choices, REST/topic paths and queued/resumed requests.
-- [ ] T026 Run `cd webui && npm test` and `npm run typecheck`; record results for the permission group, preference/picker and request payload tests.
+- [x] T025 [P] Update `specs/049-model-override/quickstart.md` with any implementation-specific steps discovered while exercising UI, permissions, stale choices, REST/topic paths and queued/resumed requests.
+- [x] T026 Run `cd webui && npm test` and `npm run typecheck`; record results for the permission group, preference/picker and request payload tests.
 - [ ] T027 Run `cargo test -p vizier-core` and `cargo test -p vizier-http`, then the CI-appropriate workspace `cargo clippy`/`cargo test` gates; report any unavailable Windows-only or service-dependent checks accurately.
 - [ ] T028 Run the real-binary dummyplug end-to-end steps in `specs/049-model-override/quickstart.md`, proving selected model identity, unauthorized refusal, stale-model no-fallback, and unchanged Discord/Telegram request behavior.
 

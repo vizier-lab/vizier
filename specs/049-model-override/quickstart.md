@@ -27,6 +27,27 @@
 - Open a topic as a permitted user, revoke the permission, submit an override on that same socket: the next overridden request must be refused after server-side permission refresh.
 - Queue a request with model A behind another turn, then resume/restart the queued/running turn in a test: the stored request still carries A. A newer message with model B must not cross-contaminate the first turn.
 
+## Implementation notes (found while building)
+
+- The selector reads `Agent default` until the catalogue has loaded and confirmed a saved
+  choice. That is deliberate: until then nothing has been checked, so naming a model would
+  claim an availability the app has not established. A choice that is confirmed absent is shown
+  as `unavailable`, is not selectable, and blocks the composer with
+  "The selected model is unavailable. Choose another model or Agent default." until the user
+  picks a listed model or Agent default.
+- The trigger is a compact, bordered control with the provider logo (when the catalogue has one)
+  and the full `<provider>/<model>` label. Options are grouped nowhere — one searchable list,
+  `Agent default` first — so the whole choice fits the strip row.
+- The selector also appears in project conversations (`project__<id>` channels); the server's
+  eligibility check, the permission check and the project authorization all run per submission.
+- Server refusals use these stable client-error codes on the topic socket:
+  `model_override_forbidden`, `model_override_unsupported`, `model_override_unavailable`.
+  Over REST they are 403 (forbidden), 422 with `model_override_unsupported`, and 422 with
+  `model_override_unavailable`.
+- A choice that passes the preflight but can no longer be resolved when the turn starts ends the
+  turn with a `provider_unavailable` error reply in the conversation; the agent's configured
+  model is never used as a substitute.
+
 ## Automated gates
 
 Run the touched Rust tests first, then the CI-appropriate Rust tests and lint; run WebUI tests and typecheck:

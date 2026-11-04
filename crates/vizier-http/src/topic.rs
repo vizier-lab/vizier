@@ -11,6 +11,7 @@ use tokio::sync::{broadcast, mpsc};
 use vizier_core::{
     agents::client::ClientConnection,
     auth::Principal,
+    access::require,
     schema::{
         VizierAttachmentContent, VizierChannelId, VizierRequest, VizierRequestContent, VizierSession,
     },
@@ -252,6 +253,72 @@ impl TopicConnection {
                             // A person's message starts a fresh chain; the depth is never
                             // the client's to set.
                             request.background_depth = 0;
+                            let Some(channel_id) = self.session.1.web_channel_id() else {
+                                if request.model_override.is_some() {
+                                    send_frame(client_error(
+                                        "model_override_unsupported",
+                                        None,
+                                        "model override is supported only for WebUI chat channels",
+                                    ))
+                                    .await;
+                                }
+                                return;
+                            };
+                            if request.model_override.is_some() {
+                                let supported_channel = self
+                                    .session
+                                    .1
+                                    .web_channel_id()
+                                    .is_some_and(|channel| {
+                                        channel == "vizier-webui"
+                                            || vizier_core::projects::channel::is_project_channel(&channel)
+                                    });
+                                let supported_kind = matches!(
+                                    &request.content,
+                                    VizierRequestContent::Chat(_) | VizierRequestContent::AudioChat(..)
+                                );
+                                if !supported_channel || !supported_kind {
+                                    send_frame(client_error(
+                                        "model_override_unsupported",
+                                        None,
+                                        "model override is supported only for WebUI chat and audio chat",
+                                    ))
+                                    .await;
+                                    return;
+                                }
+                                let principal = match self
+                                    .services
+                                    .resolve(&self.principal.user_id, self.principal.method)
+                                    .await
+                                {
+                                    Ok(principal) => principal,
+                                    Err(error) => {
+                                        send_frame(client_error("model_override_forbidden", None, error.message()))
+                                            .await;
+                                        return;
+                                    }
+                                };
+                                if let Err(error) = require(&principal, "model_override") {
+                                    send_frame(client_error("model_override_forbidden", None, error.message()))
+                                        .await;
+                                    return;
+                                }
+                                if let Some(choice) = &request.model_override
+                                    && let Err(error) = vizier_core::service::catalogue::validate_chat_model_override(
+                                        self.services.deps(),
+                                        choice,
+                                    )
+                                    .await
+                                {
+                                    send_frame(client_error(
+                                        error.code().unwrap_or("model_override_unavailable"),
+                                        None,
+                                        error.message(),
+                                    ))
+                                    .await;
+                                    return;
+                                }
+                            }
                             // `@` mentions are a project-chat feature; elsewhere the field is
                             // ignored (contracts/http-api.md §6).
                             if self.session.1.project_id().is_some() {
@@ -265,20 +332,28 @@ impl TopicConnection {
 
                             // A project socket re-checks the caller's permission on every turn
                             // (FR-018), so a revocation between two frames refuses the next one.
-                            let Some(channel_id) = self.session.1.web_channel_id() else {
-                                return;
-                            };
                             if self.session.1.project_id().is_some() {
+                                let current_principal = if request.model_override.is_some() {
+                                    match self.services.resolve(&self.principal.user_id, self.principal.method).await {
+                                        Ok(principal) => principal,
+                                        Err(error) => {
+                                            send_frame(client_error("forbidden", None, error.message())).await;
+                                            return;
+                                        }
+                                    }
+                                } else {
+                                    self.principal.clone()
+                                };
                                 let check = async {
                                     let config = vizier_core::service::topics::authorize_view(
                                         &self.services,
-                                        &self.principal,
+                                        &current_principal,
                                         &self.session.0,
                                     )
                                     .await?;
                                     vizier_core::service::topics::authorize_project_channel(
                                         &self.services,
-                                        &self.principal,
+                                        &current_principal,
                                         &config,
                                         &self.session.0,
                                         &channel_id,

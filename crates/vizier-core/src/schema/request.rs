@@ -272,12 +272,22 @@ impl VizierAttachment {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+pub struct ModelOverride {
+    pub provider: String,
+    pub model: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct VizierRequest {
     pub timestamp: DateTime<Utc>,
     pub user: String,
     pub content: VizierRequestContent,
+    /// Explicit provider/model for this chat turn; absent means the configured agent model.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_override: Option<ModelOverride>,
     #[serde(default)]
     pub platform_message_id: Option<PlatformMessageId>,
     pub metadata: serde_json::Value,
@@ -476,6 +486,30 @@ impl VizierRequest {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn model_override_is_optional_and_preserves_slashes_in_model_ids() {
+        let legacy: VizierRequest = serde_json::from_value(serde_json::json!({
+            "timestamp": "2026-11-04T00:00:00Z",
+            "user": "alice",
+            "content": { "chat": "hello" },
+            "metadata": {}
+        }))
+        .unwrap();
+        assert!(legacy.model_override.is_none());
+
+        let request = VizierRequest {
+            content: VizierRequestContent::Chat("hello".into()),
+            model_override: Some(ModelOverride {
+                provider: "opencode".into(),
+                model: "deepseek/deepseek-flash".into(),
+            }),
+            ..Default::default()
+        };
+        let round_trip: VizierRequest = serde_json::from_value(serde_json::to_value(&request).unwrap()).unwrap();
+        assert_eq!(round_trip.model_override, request.model_override);
+        assert_eq!(round_trip.model_override.unwrap().model, "deepseek/deepseek-flash");
+    }
+
     #[test]
     fn btw_serialises_with_its_question_and_earlier_turns() {
         let content = VizierRequestContent::Btw(SideChat {
