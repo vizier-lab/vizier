@@ -16,7 +16,7 @@ type Props = {
     onAvailabilityChange?: (available: boolean) => void
 }
 
-const triggerClass = 'flex h-32 w-[240px] min-w-0 max-w-full items-center gap-8 rounded-md border border-border-strong bg-ground pr-10 pl-12 text-left type-small text-fg hover:border-border-hover focus-visible:border-live focus-visible:outline-none'
+const triggerClass = 'flex h-28 w-[240px] min-w-0 max-w-full items-center justify-end gap-6 rounded-md border border-transparent bg-transparent pr-6 pl-8 text-right type-mono-xs text-muted hover:text-fg focus-visible:border-live focus-visible:outline-none'
 const label = (choice: Pick<Choice, 'provider' | 'model'>) => `${choice.provider}/${choice.model}`
 
 /** One searchable provider/model choice. The provider and complete model id remain separate. */
@@ -100,11 +100,11 @@ export function ModelOverridePicker({ value, defaultModel, onChange, onAvailabil
                 trigger={
                     <button type="button" aria-label={`Chat model: ${shown ?? 'Agent default'}`} className={triggerClass}>
                         {shownProvider && <ProviderLogo provider={shownProvider.id} name={shownProvider.name} size="sm" {...logoOf(shownProvider)} />}
-                        <span className="min-w-0 flex-1 truncate">
+                        <span className="min-w-0 truncate">
                             {triggerText}
                         </span>
                         {stale && <span className="shrink-0 type-small text-retrying">unavailable</span>}
-                        <Icon name="chevron-down" size={14} tone="muted" />
+                        <Icon name="chevron-down" size={12} tone="faint" />
                     </button>
                 }
                 search={{ placeholder: 'Search provider and model', value: query, onChange: setQuery, total: loading ? undefined : `${choices.length}` }}
