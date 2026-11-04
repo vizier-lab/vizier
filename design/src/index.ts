@@ -138,6 +138,7 @@ export * from "./components/SlideOver";
 export * from "./components/SortSelect";
 export * from "./components/StackedBarChart";
 export * from "./components/StatGroup";
+export * from "./components/StatusStrip";
 export * from "./components/Status";
 export * from "./components/Step";
 export * from "./components/Stepper";
