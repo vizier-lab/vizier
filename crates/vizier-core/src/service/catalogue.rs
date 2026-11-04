@@ -926,6 +926,38 @@ pub async fn list_models(
         .ok_or_else(|| ServiceError::NotFound("provider not found".into()))
 }
 
+/// Resolve an explicit chat choice against the current selectable providers and models.
+/// Model identifiers are opaque; matching is exact and never splits on `/`.
+pub async fn validate_chat_model_override(
+    deps: &VizierDependencies,
+    choice: &crate::schema::ModelOverride,
+) -> Result<(ProviderId, String), ServiceError> {
+    crate::catalogue::refresh::maybe_refresh(deps);
+    let unavailable = || ServiceError::Invalid {
+        status: 422,
+        message: "the selected provider or model is unavailable".into(),
+        code: Some("model_override_unavailable".into()),
+    };
+    let provider = ProviderId::parse(&choice.provider).map_err(|_| unavailable())?;
+    let providers = provider_summaries(deps).await;
+    let eligible = providers.iter().any(|summary| {
+        summary.id == provider
+            && summary.dialect.is_some()
+            && summary.kind != ProviderKind::Media
+            && (summary.connection.status == "connected" || summary.kind == ProviderKind::Local)
+    });
+    if !eligible {
+        return Err(unavailable());
+    }
+    let models = models_for(deps, &provider, false, ModelCapability::Chat)
+        .await
+        .ok_or_else(unavailable)?;
+    if !models.iter().any(|model| model.id == choice.model) {
+        return Err(unavailable());
+    }
+    Ok((provider, choice.model.clone()))
+}
+
 pub async fn get_model(
     deps: &VizierDependencies,
     id: &str,
@@ -1394,6 +1426,42 @@ mod tests {
         let defaults: Vec<&str> =
             models.iter().filter(|m| m.default).map(|m| m.id.as_str()).collect();
         assert_eq!(defaults, vec![models[2].id.as_str()], "the first catalogue model is the default");
+    }
+
+    #[tokio::test]
+    async fn validates_exact_current_chat_choices_and_rejects_unavailable_models() {
+        use crate::config::VizierConfig;
+
+        let dir = tempfile::tempdir().unwrap();
+        let deps = VizierDependencies::new(VizierConfig {
+            workspace: dir.path().to_string_lossy().to_string(),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+        let valid = crate::schema::ModelOverride {
+            provider: "dummyplug".into(),
+            model: "dummyplug".into(),
+        };
+        let resolved = validate_chat_model_override(&deps, &valid).await.unwrap();
+        assert_eq!(resolved.0, ProviderId::DUMMYPLUG);
+        assert_eq!(resolved.1, "dummyplug");
+
+        for (provider, model) in [
+            ("unknown", "dummyplug"),
+            ("dummyplug", "missing"),
+            ("dummyplug", "dummyplug/extra"),
+            ("elevenlabs", "model"),
+        ] {
+            let error = validate_chat_model_override(
+                &deps,
+                &crate::schema::ModelOverride { provider: provider.into(), model: model.into() },
+            )
+            .await
+            .unwrap_err();
+            assert_eq!(error.status(), 422, "{provider}/{model}");
+            assert_eq!(error.code(), Some("model_override_unavailable"));
+        }
     }
 
     /// T061 (FR-033a, contracts `media-and-test.md` §2–§3): chat is the only list that
