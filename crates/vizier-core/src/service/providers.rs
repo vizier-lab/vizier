@@ -1092,7 +1092,13 @@ mod tests {
 
     /// `restart_users` sends one `Restart` per affected agent and waits for the answer, so a
     /// test stands in for the agent runtime: each command's `agent_id` is recorded and answered
-    /// with an error (which only logs). The idle timeout keeps a forgotten task from hanging.
+    /// with an error (which only logs).
+    ///
+    /// The subscription is never closed while the test is still working: it ends only when the
+    /// caller aborts the task, or when the bus closes it. `restart_users` `continue`s silently
+    /// when a publish finds no responder (`service/usage.rs:524`), so a stub that gave up early
+    /// would turn a real restart into nothing recorded, and the assertion would fail for a
+    /// reason that has nothing to do with the code under test.
     async fn restarts(
         deps: &VizierDependencies,
     ) -> (
@@ -1111,15 +1117,8 @@ mod tests {
             .await
             .expect("the test listens for agent commands");
         let task = tokio::spawn(async move {
-            loop {
-                let Ok(Some(command)) = tokio::time::timeout(
-                    std::time::Duration::from_secs(5),
-                    commands.recv(),
-                )
-                .await
-                else {
-                    break;
-                };
+            // `None` is the bus closing the subscription — the only thing that ends this stub.
+            while let Some(command) = commands.recv().await {
                 if let crate::schema::AgentCommand::Restart { agent_id, resp } = command {
                     recorded.lock().unwrap().push(agent_id);
                     let _ = resp.send(crate::schema::AgentCommandResult::Error("stub".into()));
