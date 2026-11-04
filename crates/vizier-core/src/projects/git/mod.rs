@@ -14,7 +14,7 @@ use std::time::Duration;
 use serde::Serialize;
 use tokio::process::Command;
 
-use crate::{error::VizierError, projects::channel};
+use crate::{error::VizierError, process, projects::channel};
 
 /// How long one git command may run before it is killed.
 pub const TIMEOUT: Duration = Duration::from_secs(15);
@@ -173,11 +173,10 @@ async fn available() -> bool {
     static AVAILABLE: tokio::sync::OnceCell<bool> = tokio::sync::OnceCell::const_new();
     *AVAILABLE
         .get_or_init(|| async {
-            let output = Command::new("git")
-                .arg("--version")
-                .stdin(Stdio::null())
-                .output()
-                .await;
+            let mut command = Command::new("git");
+            command.arg("--version").stdin(Stdio::null());
+            process::no_window(&mut command);
+            let output = command.output().await;
             output.is_ok_and(|output| output.status.success())
         })
         .await
@@ -232,6 +231,7 @@ impl Git {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true);
+        process::no_window(&mut command);
         command
     }
 

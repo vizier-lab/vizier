@@ -375,6 +375,7 @@ impl McpClientConfig {
             Self::Local { command, args, env } => {
                 let command = Command::new(command).configure(|cmd| {
                     cmd.args(args).envs(env.clone().unwrap_or(HashMap::new()));
+                    crate::process::no_window(cmd);
                 });
                 let transport = TokioChildProcess::new(command)?;
                 Ok(handler.serve(transport).await?)

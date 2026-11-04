@@ -13,6 +13,7 @@ use crate::{
         process_tree,
     },
     config::shell::LocalShellConfig,
+    process,
     schema::OUTPUT_CAP_BYTES,
 };
 
@@ -51,6 +52,7 @@ impl LocalShell {
             .stderr(Stdio::piped())
             .kill_on_drop(true);
         process_tree::isolate(&mut cmd);
+        process::no_window(&mut cmd);
 
         let started = Instant::now();
         let mut child = cmd
@@ -198,7 +200,9 @@ mod tests {
         let line = if cfg!(windows) {
             "('x' * 70000)"
         } else {
-            "printf 'x%.0s' {1..70000}"
+            // `sh` is not bash (dash on Debian/Ubuntu): no brace expansion, so awk writes the
+            // bytes it takes to exceed the cap on every Unix that runs this.
+            "awk 'BEGIN { for (i = 0; i < 70000; i++) printf \"x\" }'"
         };
         let outcome = shell(dir.path()).run(command(dir.path(), line)).await.unwrap();
         assert!(outcome.truncated, "got {outcome:?}");

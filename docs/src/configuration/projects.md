@@ -162,7 +162,9 @@ Renaming, removing and the shell switch are limited to the project's owner or a 
 `all_agents:projects`. Creating a project requires a **desktop principal**: the browser has no
 folder to choose, and a direct `POST` from it is refused with `403` and `code: "desktop_only"`.
 
-The browser shows a persistent "Commands run on the host machine" notice on project sessions.
+The browser shows a persistent "Commands run on the host machine" notice above the composer
+whenever the session can run a command: the agent's Shell addon is on, or the project's own shell
+switch is.
 
 ## Removing, restoring and unavailable folders
 

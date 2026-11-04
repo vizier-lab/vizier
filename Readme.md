@@ -100,6 +100,11 @@ See `docs/src/api-integration/`.
 
 ## Development
 
+New here? [CONTRIBUTING.md](https://github.com/vizier-lab/vizier/blob/master/CONTRIBUTING.md)
+covers setup, the checks a change must pass, commit and pull request conventions, and how the
+project treats `good first issue`. Everyone taking part is expected to follow the
+[Code of Conduct](https://github.com/vizier-lab/vizier/blob/master/CODE_OF_CONDUCT.md).
+
 ```sh
 just install     # submodules, npm install in design/ and webui/, cargo fetch (+ cargo-watch)
 just dev         # cargo watch -s "just run" — hot reload with dev.vizier.yaml
