@@ -14,10 +14,10 @@ export type AvatarProps = {
 };
 
 const SIZES = {
-  xs: { box: "size-22", px: 22 },
-  sm: { box: "size-26", px: 26 },
-  md: { box: "size-40", px: 40 },
-  lg: { box: "size-56", px: 56 },
+  xs: { box: "size-22", px: 22, radius: 6 },
+  sm: { box: "size-26", px: 26, radius: 7 },
+  md: { box: "size-40", px: 40, radius: 10 },
+  lg: { box: "size-56", px: 56, radius: 13 },
 };
 
 // Monochrome plus live, as hex (boring-avatars reads hex to pick the face colour, so no CSS variables):
@@ -27,7 +27,7 @@ export const AVATAR_COLORS = ["#059669", "#111114", "#3f3f46", "#6b6b76", "#a1a1
 
 /** A person: a boring-avatars beam seeded by their name, or their photo (D40). Agents use Sigil. */
 export function Avatar({ name, src, size = "md", square, className, style, ...rest }: AvatarProps & HTMLAttributes<HTMLSpanElement>) {
-  const { box, px } = SIZES[size];
+  const { box, px, radius } = SIZES[size];
   return (
     <span
       role="img"
@@ -38,7 +38,7 @@ export function Avatar({ name, src, size = "md", square, className, style, ...re
         box,
         className,
       )}
-      style={square ? { borderRadius: 6, ...style } : style}
+      style={square ? { borderRadius: radius, ...style } : style}
       {...rest}
     >
       <span aria-hidden className="contents">

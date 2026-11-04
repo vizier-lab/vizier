@@ -21,7 +21,7 @@ export function ShareList({ people, onRemove, onShare, className, ...rest }: Sha
       <ul className="flex flex-col gap-10">
         {people.map((p) => (
           <li key={p.name} className="flex items-center gap-10">
-            <Avatar name={p.name} size="sm" />
+            <Avatar name={p.name} size="sm" square />
             <span className="min-w-0 flex-1 truncate type-ui text-fg">{p.name}</span>
             {p.owner ? (
               <Badge tone="rank">Owner</Badge>

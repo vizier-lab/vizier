@@ -13,7 +13,7 @@ export type ProfileHeaderProps = {
 export function ProfileHeader({ name, role, avatarSrc, className, ...rest }: ProfileHeaderProps) {
   return (
     <div className={cx("flex items-center gap-16 rounded-xl border border-border bg-surface px-24 py-20", className)} {...rest}>
-      <Avatar name={name} src={avatarSrc} size="lg" />
+      <Avatar name={name} src={avatarSrc} size="lg" square />
       <div className="flex flex-col items-start gap-4">
         <h2 className="type-title text-fg">{name}</h2>
         {role && <Badge tone="rank">{role}</Badge>}
