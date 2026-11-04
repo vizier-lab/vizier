@@ -16,7 +16,7 @@ use crate::{
         kind::IntegrationKind,
     },
     schema::{
-        AgentCommand, AgentConfig, AgentId, EventAction, EventDraft, Integration,
+        AgentConfig, AgentId, EventAction, EventDraft, Integration,
         IntegrationChanged, IntegrationFamily, IntegrationStatus, Requester,
     },
     storage::{
@@ -99,24 +99,14 @@ impl std::fmt::Display for ServiceError {
 
 pub type ServiceResult<T> = Result<T, ServiceError>;
 
-/// How long to wait for an agent's own view of its integrations.
-const STATUS_TIMEOUT: Duration = Duration::from_secs(3);
-
-/// The agent's own view of its integrations, or nothing if it doesn't answer in time. Channel
+/// The agent's own view of its integrations, or nothing if it cannot be reached. Channel
 /// connections are answered by `channels::connections::status_of` instead.
 pub async fn agent_statuses(deps: &VizierDependencies, agent_id: &str) -> HashMap<String, IntegrationStatus> {
-    let (resp, rx) = tokio::sync::oneshot::channel();
-    let sent = deps
-        .transport
-        .send_agent_command(AgentCommand::IntegrationStatus { agent_id: agent_id.to_string(), resp })
-        .await;
-    if sent.is_err() {
-        return HashMap::new();
-    }
-    tokio::time::timeout(STATUS_TIMEOUT, rx)
+    // The agent's own view of its integrations, through the seam. An agent that cannot be
+    // reached has no integrations to report, which is what this returned before.
+    deps.agents
+        .integration_status(agent_id)
         .await
-        .ok()
-        .and_then(|r| r.ok())
         .unwrap_or_default()
 }
 
@@ -512,7 +502,7 @@ mod tests {
         (VizierDependencies::new(config).await.unwrap(), dir)
     }
 
-    #[cfg(feature = "documents")]
+    #[cfg(feature = "addon-documents")]
     #[tokio::test]
     async fn seeding_adds_the_addon_once_with_its_event_and_needs_no_permission() {
         let (deps, _dir) = deps().await;
@@ -533,7 +523,19 @@ mod tests {
         assert_eq!(events[0].actor, Requester::User("owner-1".into()));
     }
 
-    #[cfg(feature = "documents")]
+    /// The next integration change, which arrives after one hop through the bus rather than
+    /// synchronously with the write.
+    #[cfg(feature = "addon-documents")]
+    async fn next_change(
+        changes: &mut tokio::sync::broadcast::Receiver<crate::schema::IntegrationChanged>,
+    ) -> crate::schema::IntegrationChanged {
+        tokio::time::timeout(std::time::Duration::from_secs(5), changes.recv())
+            .await
+            .expect("the write publishes IntegrationChanged")
+            .expect("an open channel")
+    }
+
+    #[cfg(feature = "addon-documents")]
     #[tokio::test]
     async fn seeding_announces_the_change_so_running_agents_recompose() {
         let (deps, _dir) = deps().await;
@@ -541,12 +543,12 @@ mod tests {
         let mut changes = deps.transport.subscribe_integration_changes();
 
         seed_default(&deps, "c", None, "office", "Office").await.unwrap();
-        let change = changes.try_recv().expect("the seed publishes IntegrationChanged");
+        let change = next_change(&mut changes).await;
         assert_eq!(change.family, crate::schema::IntegrationFamily::Addon);
         assert_eq!(change.agents, vec!["c".to_string()]);
     }
 
-    #[cfg(feature = "documents")]
+    #[cfg(feature = "addon-documents")]
     #[tokio::test]
     async fn turning_the_addon_off_and_on_publishes_without_touching_the_agent() {
         use super::{Actor, IntegrationPatch, update};
@@ -554,17 +556,19 @@ mod tests {
 
         let (deps, _dir) = deps().await;
         deps.storage.create_agent("e", &agent_config("e")).await.unwrap();
+        // Subscribed before the seed, so its announcement is read here rather than mistaken
+        // for the first toggle's: events reach subscribers after one hop through the bus.
+        let mut changes = deps.transport.subscribe_integration_changes();
         let office = seed_default(&deps, "e", None, "office", "Office").await.unwrap().unwrap();
         let actor = Actor::Person(Caller { user_id: "root", is_system: true, permissions: &[] });
-        let mut changes = deps.transport.subscribe_integration_changes();
-        let _seeded = changes.try_recv();
+        let _seeded = next_change(&mut changes).await;
 
         for enabled in [false, true] {
             let patch = IntegrationPatch { enabled: Some(enabled), ..Default::default() };
             let (saved, affected) = update(&deps, &actor, &office.id, patch, &|_| true).await.unwrap();
             assert_eq!(saved.enabled, enabled);
             assert_eq!(affected, vec!["e".to_string()]);
-            let change = changes.try_recv().expect("each toggle publishes IntegrationChanged");
+            let change = next_change(&mut changes).await;
             assert_eq!(change.integration_id, office.id);
             let stored = deps.storage.list_agent_integrations("e").await.unwrap();
             assert_eq!(stored.len(), 1);
@@ -574,7 +578,7 @@ mod tests {
 
     /// A person turned the addon off: seeding again (as a restart or an update would, were
     /// either to seed) neither turns it on nor adds a second one.
-    #[cfg(feature = "documents")]
+    #[cfg(feature = "addon-documents")]
     #[tokio::test]
     async fn a_disabled_addon_is_not_re_enabled_or_duplicated_by_seeding() {
         let (deps, _dir) = deps().await;
@@ -590,7 +594,7 @@ mod tests {
         assert!(!listed[0].enabled);
     }
 
-    #[cfg(feature = "documents")]
+    #[cfg(feature = "addon-documents")]
     #[tokio::test]
     async fn an_agent_without_an_owner_is_seeded_as_system() {
         let (deps, _dir) = deps().await;

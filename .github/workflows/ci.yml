@@ -5,10 +5,16 @@ name: CI
 # `webui/` is not checked out, so a one-line stub is enough to compile and test everything.
 # Packaging and the release path are proven by a dry run of `release-and-publish.yml`.
 
+#
+# Path-aware (issue #160): a pull request runs the jobs of the crates and feature flags it
+# touches, and `gate` is the one required status. `develop`, `master` and release tags run
+# everything, including every flag alone.
+
 on:
   pull_request:
   push:
-    branches: [master]
+    branches: [master, develop]
+    tags: ['v*']
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -21,8 +27,148 @@ env:
   CLIPPY_LINTS: -D warnings -A clippy::style -A clippy::complexity -A clippy::perf
 
 jobs:
+  # Maps the changed paths to the jobs that can be affected. A full run (push to develop/master,
+  # a release tag) and a change to a shared file turn everything on.
+  changes:
+    name: changes
+    runs-on: ubuntu-latest
+    outputs:
+      rust: ${{ steps.plan.outputs.rust }}
+      core: ${{ steps.plan.outputs.core }}
+      flags: ${{ steps.plan.outputs.flags }}
+      roles: ${{ steps.plan.outputs.roles }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            shared:
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'rust-toolchain*'
+              - 'crates/vizier-derive/**'
+              - 'crates/vizier-schema/**'
+              - '.github/workflows/ci.yml'
+            core:
+              - 'crates/vizier-core/**'
+            http:
+              - 'crates/vizier-http/**'
+            bin:
+              - 'crates/vizier/**'
+              - 'dummyplug'
+            fleet:
+              - 'crates/vizier-fleet/**'
+            # The files that decide every role's build: a change to the binary, the engine or
+            # the role table (lib.rs) turns every role job on.
+            role-shared:
+              - 'crates/vizier/**'
+              - 'crates/vizier-core/**'
+              - 'crates/vizier-fleet/src/lib.rs'
+              - 'crates/vizier-fleet/Cargo.toml'
+            role-gateway-http:
+              - 'crates/vizier-fleet/src/gateway_http.rs'
+              - 'crates/vizier-http/**'
+            role-gateway-grpc:
+              - 'crates/vizier-fleet/src/gateway_grpc.rs'
+            role-worker:
+              - 'crates/vizier-fleet/src/worker.rs'
+              - 'crates/vizier-core/src/agents/**'
+            role-channels:
+              - 'crates/vizier-fleet/src/channels.rs'
+              - 'crates/vizier-core/src/channels/**'
+            role-control:
+              - 'crates/vizier-fleet/src/control.rs'
+              - 'crates/vizier-core/src/scheduler/**'
+            channel-discord:
+              - 'crates/vizier-core/src/channels/**'
+              - 'crates/vizier-core/src/integrations/**'
+              - 'crates/vizier-core/src/agents/tools/**'
+              - 'crates/vizier-core/src/utils/**'
+            channel-telegram:
+              - 'crates/vizier-core/src/channels/**'
+              - 'crates/vizier-core/src/integrations/**'
+              - 'crates/vizier-core/src/agents/tools/**'
+              - 'crates/vizier-core/src/utils/**'
+            provider-media:
+              - 'crates/vizier-core/src/stt/**'
+              - 'crates/vizier-core/src/tts/**'
+              - 'crates/vizier-core/src/llm/media/**'
+            addon-docker:
+              - 'crates/vizier-core/src/agents/shell/**'
+            addon-documents:
+              - 'crates/vizier-core/src/agents/tools/**'
+              - 'crates/vizier-core/src/integrations/**'
+              - 'crates/vizier-core/src/dependencies.rs'
+              - 'crates/vizier-core/src/agents/mod.rs'
+            telemetry:
+              - 'crates/vizier-core/src/telemetry.rs'
+              - 'crates/vizier-core/src/llm/telemetry.rs'
+            utoipa:
+              - 'crates/vizier-core/src/schema/**'
+              - 'crates/vizier-core/src/service/**'
+      - name: Plan
+        id: plan
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          SHARED: ${{ steps.filter.outputs.shared }}
+          CORE: ${{ steps.filter.outputs.core }}
+          HTTP: ${{ steps.filter.outputs.http }}
+          BIN: ${{ steps.filter.outputs.bin }}
+          FLEET: ${{ steps.filter.outputs.fleet }}
+          ROLE_SHARED: ${{ steps.filter.outputs.role-shared }}
+          ROLE_role_gateway_http: ${{ steps.filter.outputs.role-gateway-http }}
+          ROLE_role_gateway_grpc: ${{ steps.filter.outputs.role-gateway-grpc }}
+          ROLE_role_worker: ${{ steps.filter.outputs.role-worker }}
+          ROLE_role_channels: ${{ steps.filter.outputs.role-channels }}
+          ROLE_role_control: ${{ steps.filter.outputs.role-control }}
+          FLAG_channel_discord: ${{ steps.filter.outputs.channel-discord }}
+          FLAG_channel_telegram: ${{ steps.filter.outputs.channel-telegram }}
+          FLAG_provider_media: ${{ steps.filter.outputs.provider-media }}
+          FLAG_addon_docker: ${{ steps.filter.outputs.addon-docker }}
+          FLAG_addon_documents: ${{ steps.filter.outputs.addon-documents }}
+          FLAG_telemetry: ${{ steps.filter.outputs.telemetry }}
+          FLAG_utoipa: ${{ steps.filter.outputs.utoipa }}
+        run: |
+          set -euo pipefail
+          full=false
+          if [ "$EVENT" = push ] && { [ "$REF" = refs/heads/develop ] || [ "$REF" = refs/heads/master ] || [[ "$REF" == refs/tags/* ]]; }; then
+            full=true
+          fi
+          if [ "$SHARED" = true ]; then full=true; fi
+          rust=false
+          if [ "$full" = true ] || [ "$CORE" = true ] || [ "$HTTP" = true ] || [ "$BIN" = true ] || [ "$FLEET" = true ]; then rust=true; fi
+          core=false
+          if [ "$full" = true ] || [ "$CORE" = true ]; then core=true; fi
+          # One matrix entry per flag, each built and tested alone. Keep in step with the
+          # [features] table of crates/vizier-core/Cargo.toml (the policy job checks `full`).
+          flags=()
+          for name in channel-discord channel-telegram provider-media addon-docker addon-documents telemetry utoipa; do
+            var="FLAG_${name//-/_}"
+            if [ "$full" = true ] || [ "${!var}" = true ]; then flags+=("\"$name\""); fi
+          done
+          list=$(IFS=,; echo "${flags[*]:-}")
+          # One matrix entry per role the binary can carry (#161), each built alone. Keep in
+          # step with the [features] table of crates/vizier/Cargo.toml (the policy job checks
+          # that `role-all` lists exactly these).
+          roles=()
+          for name in role-gateway-http role-gateway-grpc role-worker role-channels role-control; do
+            var="ROLE_${name//-/_}"
+            if [ "$full" = true ] || [ "$ROLE_SHARED" = true ] || [ "${!var}" = true ]; then roles+=("\"$name\""); fi
+          done
+          rlist=$(IFS=,; echo "${roles[*]:-}")
+          {
+            echo "rust=$rust"
+            echo "core=$core"
+            echo "flags=[${list}]"
+            echo "roles=[${rlist}]"
+          } >> "$GITHUB_OUTPUT"
+
   rust:
     name: rust
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -50,6 +196,8 @@ jobs:
   # The engine alone: no optional feature, no web or CLI crate.
   core-minimal:
     name: core-minimal
+    needs: changes
+    if: needs.changes.outputs.core == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -67,14 +215,164 @@ jobs:
           CI: 'true'
         run: cargo test -p vizier-core --no-default-features
 
+  # Every optional flag of the engine on its own, so a flag that only compiles next to another
+  # one is caught. Only the flags a change touches run; a full run runs them all.
+  flag:
+    name: flag (${{ matrix.flag }})
+    needs: changes
+    if: needs.changes.outputs.flags != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        flag: ${{ fromJSON(needs.changes.outputs.flags) }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: git submodule update --init dummyplug
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: flag-${{ matrix.flag }}
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libssl-dev python3-dev libclang-dev clang perl make
+      - name: Clippy
+        run: cargo clippy -p vizier-core --no-default-features --features ${{ matrix.flag }} --all-targets -- $CLIPPY_LINTS
+      - name: Test
+        env:
+          CI: 'true'
+        run: cargo test -p vizier-core --no-default-features --features ${{ matrix.flag }}
+
+  # Every role the binary can carry, built and tested alone (#161): a role that only compiles
+  # next to another one is caught here, and a build must refuse a role it does not carry.
+  role:
+    name: role (${{ matrix.role }})
+    needs: changes
+    if: needs.changes.outputs.roles != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        role: ${{ fromJSON(needs.changes.outputs.roles) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: role-${{ matrix.role }}
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libssl-dev python3-dev libclang-dev clang perl make
+      - name: Stub the WebUI
+        run: |
+          mkdir -p crates/vizier-http/webui-dist
+          echo '<!doctype html><title>vizier</title>' > crates/vizier-http/webui-dist/index.html
+      - name: Clippy
+        run: cargo clippy -p vizier --no-default-features --features ${{ matrix.role }} --all-targets -- $CLIPPY_LINTS
+      - name: Test
+        env:
+          CI: 'true'
+        run: cargo test -p vizier --no-default-features --features ${{ matrix.role }}
+
+  # The managed deployment backends: every parametrised storage test runs again against an
+  # isolated PostgreSQL schema, and the blob conformance test runs against a real MinIO bucket.
+  managed-storage:
+    name: managed storage
+    needs: changes
+    if: needs.changes.outputs.core == 'true'
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: vizier-test
+          POSTGRES_DB: vizier
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d vizier"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - run: git submodule update --init dummyplug
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: managed-storage
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libssl-dev python3-dev libclang-dev clang perl make postgresql-client
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.x'
+      - name: Build and start MinIO
+        env:
+          MINIO_ROOT_USER: vizier
+          MINIO_ROOT_PASSWORD: vizier-test-secret
+        run: |
+          # MinIO Community Edition no longer publishes public container images. Build the
+          # last release used by this suite from its immutable upstream source revision.
+          go install github.com/minio/minio@v0.0.0-20250422221226-0d7408fc9969
+          mkdir -p /tmp/vizier-minio
+          nohup "$HOME/go/bin/minio" server /tmp/vizier-minio >/tmp/vizier-minio.log 2>&1 &
+          for attempt in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:9000/minio/health/ready; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/vizier-minio.log
+          exit 1
+      - name: Prepare PostgreSQL
+        env:
+          PGPASSWORD: vizier-test
+        run: psql -h 127.0.0.1 -U postgres -d vizier -c 'CREATE EXTENSION vector'
+      - name: Test managed backends
+        env:
+          CI: 'true'
+          VIZIER_TEST_DATABASE_URL: postgres://postgres:vizier-test@127.0.0.1:5432/vizier
+          VIZIER_TEST_S3_ENDPOINT: http://127.0.0.1:9000
+          VIZIER_TEST_S3_ACCESS_KEY_ID: vizier
+          VIZIER_TEST_S3_SECRET_ACCESS_KEY: vizier-test-secret
+        run: cargo test -p vizier-core --lib
+
   # Reads `cargo metadata` only: no compile.
   policy:
     name: policy
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - name: Pull request title
+        # A squash merge makes the PR title the commit subject, and a title edited in the web UI
+        # never passes the local commit-msg hook, so the same hook runs here on the title.
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          set -euo pipefail
+          title_file=$(mktemp)
+          trap 'rm -f "$title_file"' EXIT
+          printf '%s\n' "$PR_TITLE" > "$title_file"
+          if ! sh .githooks/commit-msg "$title_file"; then
+            echo "::error::the pull request title must be a Conventional Commits subject, e.g. 'fix(agents): publish the entries a reset saves'. Rename the PR (its title becomes the squashed commit subject); the rule is .githooks/commit-msg."
+            exit 1
+          fi
+          echo "pull request title is a conventional commit"
       - uses: dtolnay/rust-toolchain@stable
       - name: Layering
         # The engine must not declare the web framework, the CLI or the terminal UI, and the
@@ -98,46 +396,153 @@ jobs:
           }
           # argon2 is allowed in the engine: password hashing is part of the service layer (spec 038),
           # shared by the server and the desktop app. JWT issuing stays in the HTTP adapter.
-          check vizier-core axum axum-extra tower-http utoipa-axum utoipa-swagger-ui clap inquire termimad daemonize dotenvy opentelemetry-otlp jsonwebtoken tracing-subscriber
+          # Fleet (#161): the engine gets the bus traits from vizier-schema and never a bus or
+          # gRPC implementation; the roles are built from core's seams and nothing above them.
+          check vizier-core axum axum-extra tower-http utoipa-axum utoipa-swagger-ui clap inquire termimad daemonize dotenvy opentelemetry-otlp jsonwebtoken tracing-subscriber async-nats tonic
           check vizier-http clap inquire termimad daemonize dotenvy opentelemetry-otlp
+          check vizier-fleet clap inquire termimad daemonize dotenvy async-nats tonic
           exit $fail
+      - name: Optional dependencies stay behind their flag
+        # Every optional dependency of vizier-core must be absent from the feature-less build,
+        # and every flag must be listed in `full`, so none is orphaned.
+        run: |
+          set -euo pipefail
+          meta=$(cargo metadata --format-version 1 --locked --no-deps)
+          optional=$(echo "$meta" | jq -r '.packages[] | select(.name=="vizier-core") | .dependencies[] | select(.optional) | .name' | sort -u)
+          bare=$(cargo tree -p vizier-core --no-default-features -e normal --depth 1 --prefix none | awk '{print $1}' | sort -u)
+          fail=0
+          for dep in $optional; do
+            if echo "$bare" | grep -qx "$dep"; then
+              echo "::error::vizier-core pulls the optional dependency $dep without its flag"
+              fail=1
+            fi
+          done
+          orphans=$(echo "$meta" | jq -r '.packages[] | select(.name=="vizier-core") | .features | (.full // []) as $full | keys[] | select(. != "default" and . != "full") | select(. as $k | $full | index($k) | not)')
+          for orphan in $orphans; do
+            echo "::error::feature $orphan is missing from full"
+            fail=1
+          done
+          exit $fail
+      - name: Roles stay independent
+        # One role's code may not reach into another's (#161, #159): each is built from the bus
+        # traits, the storage traits and its own config, so a role stays testable alone. Only a
+        # module *path* counts; a doc comment may name a peer freely.
+        run: |
+          set -euo pipefail
+          cd crates/vizier-fleet/src
+          fail=0
+          for file in *.rs; do
+            module="${file%.rs}"
+            [ "$module" = lib ] && continue
+            others=$(ls *.rs | sed 's/\.rs$//' | grep -vx -e "$module" -e lib | paste -sd'|')
+            if grep -nE "(crate|super)::(${others})\b" "$file"; then
+              echo "::error::crates/vizier-fleet/src/$file reaches into another role"
+              fail=1
+            fi
+          done
+          exit $fail
+      - name: No direct read of a running agent's state
+        # The agent host is the only component allowed to read a running agent's state
+        # (#163): the gateway side reaches an agent through the seam (`AgentsClient`) or reads
+        # a published view. The check names the file and the line of a read that has no
+        # audited reason.
+        run: |
+          set -euo pipefail
+          bash scripts/048-agent-state-read-check.sh
+      - name: The bus contract stays a leaf
+        # `vizier-schema` is the contract every role and the engine share (#162): it may not
+        # depend on a workspace crate, a broker, a web framework or a CLI crate, and the engine
+        # itself never depends on a broker or gRPC (a networked backend is its own crate).
+        run: |
+          set -euo pipefail
+          meta=$(cargo metadata --format-version 1 --locked --no-deps)
+          fail=0
+          schema=$(echo "$meta" | jq -r '.packages[] | select(.name=="vizier-schema") | .dependencies[] | select(.kind==null) | .name')
+          for dep in $schema; do
+            case "$dep" in
+              vizier-*|async-nats|tonic|axum|axum-extra|tower-http|clap|inquire|termimad|daemonize)
+                echo "::error::vizier-schema depends on $dep"
+                fail=1
+                ;;
+            esac
+          done
+          core=$(echo "$meta" | jq -r '.packages[] | select(.name=="vizier-core") | .dependencies[] | .name')
+          for dep in async-nats tonic; do
+            if echo "$core" | grep -qx "$dep"; then
+              echo "::error::vizier-core depends on $dep"
+              fail=1
+            fi
+          done
+          exit $fail
+      - name: Role flags are declared consistently
+        # `role-all` must list exactly the binary's `role-*` flags: a build that asks for every
+        # role must not silently leave one out (#161).
+        run: |
+          set -euo pipefail
+          meta=$(cargo metadata --format-version 1 --locked --no-deps)
+          roles=$(echo "$meta" | jq -r '.packages[] | select(.name=="vizier") | .features | keys[] | select(startswith("role-") and . != "role-all")' | sort)
+          all=$(echo "$meta" | jq -r '.packages[] | select(.name=="vizier") | .features["role-all"][]' | sort)
+          if [ "$roles" != "$all" ]; then
+            echo "::error::role-all does not list exactly the role-* flags of the binary"
+            diff <(echo "$roles") <(echo "$all") || true
+            exit 1
+          fi
       - name: Dependencies unchanged
-        # FR-019: no dependency version or source may change. The workspace's own crates are
-        # left out; an entry on one side only (a feature made optional) is printed, not failed.
+        # Existing version/source pairs must not change. New crate names are review notices;
+        # additive versions of existing names require an exact allow-list entry below.
         run: |
           set -euo pipefail
           triples() {
             cargo metadata --format-version 1 --locked --manifest-path "$1/Cargo.toml" \
               | jq -r '.packages[] | "\(.name) \(.version) \(.source)"' \
-              | grep -vE '^vizier(-core|-http|-derive)? ' | sort -u
+              | grep -vE '^vizier(-core|-fleet|-http|-derive)? ' | sort -u
           }
           git worktree add ../master origin/master
           triples ../master > /tmp/master.txt
           triples . > /tmp/head.txt
-          # A crate name on both sides whose set of (version, source) differs fails; a crate
-          # locked at several versions is compared as a set, not line by line.
           python3 -I - /tmp/master.txt /tmp/head.txt <<'PY'
           import sys
           from collections import defaultdict
+
           def load(path):
               out = defaultdict(set)
               for line in open(path):
                   name, rest = line.rstrip("\n").split(" ", 1)
                   out[name].add(rest)
               return out
+
+          # Reviewed transitive resolutions required by the rust-postgres stack. Baseline
+          # versions must remain present; only these exact additional pairs are accepted.
+          allowed_additions = {
+              "const-oid": {"0.9.6 registry+https://github.com/rust-lang/crates.io-index"},
+              "fallible-iterator": {"0.2.0 registry+https://github.com/rust-lang/crates.io-index"},
+              "md-5": {"0.11.0 registry+https://github.com/rust-lang/crates.io-index"},
+              "wasi": {"0.14.7+wasi-0.2.4 registry+https://github.com/rust-lang/crates.io-index"},
+          }
+
           base, head = load(sys.argv[1]), load(sys.argv[2])
           only = sorted(set(base) ^ set(head))
           if only:
               print("::notice::crates present on one side only (review):")
-              for n in only:
-                  print(f"  {n}: master={sorted(base.get(n, []))} head={sorted(head.get(n, []))}")
-          changed = [n for n in sorted(set(base) & set(head)) if base[n] != head[n]]
-          if changed:
+              for name in only:
+                  print(f"  {name}: master={sorted(base.get(name, []))} head={sorted(head.get(name, []))}")
+
+          violations = {}
+          for name in sorted(set(base) & set(head)):
+              removed = base[name] - head[name]
+              added = head[name] - base[name]
+              unexpected = added - allowed_additions.get(name, set())
+              if removed or unexpected:
+                  violations[name] = (removed, unexpected)
+              elif added:
+                  print(f"::notice::reviewed additive resolution for {name}: {sorted(added)}")
+
+          if violations:
               print("::error::resolved dependency versions or sources changed:")
-              for n in changed:
-                  print(f"  {n}: master={sorted(base[n])} head={sorted(head[n])}")
+              for name, (removed, unexpected) in violations.items():
+                  print(f"  {name}: removed={sorted(removed)} unexpected={sorted(unexpected)}")
               sys.exit(1)
-          print("no dependency version changes")
+          print("no existing dependency version or source changed")
           PY
 
       - name: Native dependencies match the app
@@ -165,6 +570,7 @@ jobs:
   # Only runs when something the app is built from changes; server-only PRs skip it.
   app:
     name: app (${{ matrix.os }})
+    needs: changes
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -233,3 +639,21 @@ jobs:
         run: |
           cargo clippy --all-targets -- -D warnings
           cargo test
+
+  # The one required status. Jobs a change cannot affect are skipped, and a skipped job passes;
+  # a failed or cancelled one fails the gate. Branch protection requires only this job.
+  gate:
+    name: gate
+    if: always()
+    needs: [changes, rust, core-minimal, flag, role, managed-storage, policy, app]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check results
+        env:
+          RESULTS: ${{ toJSON(needs.*.result) }}
+        run: |
+          echo "$RESULTS"
+          if echo "$RESULTS" | grep -qE '"(failure|cancelled)"'; then
+            echo "::error::a required job failed"
+            exit 1
+          fi

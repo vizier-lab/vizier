@@ -12,7 +12,7 @@ use crate::{
     storage::{
         agent::AgentStorage, session::SessionStorage, state::StateStorage, usage::UsageStorage,
     },
-    usage::Pricer,
+    usage::{Pricer, saved_entries},
 };
 
 /// The agents `user` can see, in id order.
@@ -62,20 +62,22 @@ pub struct Overview {
     pub accounting_since: Option<DateTime<Utc>>,
 }
 
-/// Ids of agents in a failed state.
+/// Ids of agents in a failed state, read from the published health views.
 async fn failed_agents(services: &Services) -> std::collections::HashSet<String> {
-    services
-        .deps()
-        .transport
-        .agent_health()
-        .await
-        .map(|h| {
-            h.into_iter()
-                .filter(|s| s.state == AgentRunState::Failed)
-                .map(|s| s.agent_id)
-                .collect()
-        })
-        .unwrap_or_default()
+    let deps = services.deps();
+    let Ok(agents) = deps.storage.list_agents().await else {
+        return Default::default();
+    };
+    let mut failed = std::collections::HashSet::new();
+    for (id, _) in agents {
+        let Some(status) = crate::agents::views::read_health(deps, &id).await else {
+            continue;
+        };
+        if status.state == AgentRunState::Failed {
+            failed.insert(id);
+        }
+    }
+    failed
 }
 
 pub async fn counts(
@@ -91,7 +93,7 @@ pub async fn counts(
 
     let since = start_of_today(Utc::now(), offset_minutes);
     let groups = deps.storage.usage_groups_since(&ids, since).await.unwrap_or_default();
-    let mut pricer = Pricer::new(&deps.catalogue);
+    let mut pricer = Pricer::with_entries(&deps.catalogue, saved_entries(&deps.storage).await);
     let cost_today_usd: f64 = groups
         .iter()
         .filter_map(|g| pricer.cost(&g.provider, &g.model, &g.tokens))

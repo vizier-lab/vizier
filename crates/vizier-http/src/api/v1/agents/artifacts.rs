@@ -6,7 +6,6 @@
 
 use axum::{
     Extension, Router,
-    body::Body,
     extract::{Path, Query, State},
     http::{StatusCode, header},
     response::{IntoResponse, Response},
@@ -21,7 +20,7 @@ use vizier_core::{
 use crate::{
     api::v1::{
         integrations::svc,
-        range::{RangeRequest, parse_range},
+        range::blob_response,
     },
     models::{
         self,
@@ -189,42 +188,26 @@ pub async fn artifact_content(
         Ok(content) => content,
         Err(e) => return refuse::<String>(e).into_response(),
     };
-    let bytes = content.bytes;
-    let len = bytes.len() as u64;
     let disposition = format!("inline; filename*=UTF-8''{}", percent_encode(&content.name));
     let range = headers
         .get(header::RANGE)
         .and_then(|value| value.to_str().ok());
-    let (status, body, content_range) = match range {
-        Some(range) => match parse_range(range, len) {
-            RangeRequest::Ignore => (StatusCode::OK, bytes, None),
-            RangeRequest::Unsatisfiable => {
-                return Response::builder()
-                    .status(StatusCode::RANGE_NOT_SATISFIABLE)
-                    .header(header::CONTENT_RANGE, format!("bytes */{len}"))
-                    .body(Body::empty())
-                    .unwrap();
-            }
-            RangeRequest::Bytes { start, end } => {
-                let slice = bytes[start as usize..=end as usize].to_vec();
-                (
-                    StatusCode::PARTIAL_CONTENT,
-                    slice,
-                    Some(format!("bytes {start}-{end}/{len}")),
-                )
-            }
-        },
-        None => (StatusCode::OK, bytes, None),
-    };
-    let mut builder = Response::builder()
-        .status(status)
-        .header(header::CONTENT_TYPE, content.mime_type)
-        .header(header::ACCEPT_RANGES, "bytes")
-        .header(header::CONTENT_DISPOSITION, disposition);
-    if let Some(value) = content_range {
-        builder = builder.header(header::CONTENT_RANGE, value);
+    match blob_response(
+        &content.blob,
+        range,
+        &[
+            (header::CONTENT_TYPE, content.mime_type),
+            (header::CONTENT_DISPOSITION, disposition),
+        ],
+    )
+    .await
+    {
+        Some(response) => response,
+        None => refuse::<String>(ServiceError::NotFound(
+            "artifact content is unavailable".into(),
+        ))
+        .into_response(),
     }
-    builder.body(Body::from(body)).unwrap()
 }
 
 #[utoipa::path(

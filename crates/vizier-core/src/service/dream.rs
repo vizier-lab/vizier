@@ -189,7 +189,7 @@ async fn price_cycles(s: &Services, agent_id: &str, cycles: &mut [DreamCycle]) {
     use crate::{
         schema::usage::UsageActivity,
         storage::usage::{UsageGrouping, UsageQuery, UsageStorage},
-        usage::Pricer,
+        usage::{Pricer, saved_entries},
     };
     let Some(from) = cycles.iter().map(|c| c.started_at).min() else {
         return;
@@ -204,7 +204,8 @@ async fn price_cycles(s: &Services, agent_id: &str, cycles: &mut [DreamCycle]) {
     let Ok(groups) = s.deps().storage.usage_groups(&query, UsageGrouping::Conversation).await else {
         return;
     };
-    let mut pricer = Pricer::new(&s.deps().catalogue);
+    let mut pricer =
+        Pricer::with_entries(&s.deps().catalogue, saved_entries(&s.deps().storage).await);
     for cycle in cycles {
         let mut total: Option<f64> = None;
         for g in groups.iter().filter(|g| g.topic.as_deref() == Some(cycle.cycle_id.as_str())) {

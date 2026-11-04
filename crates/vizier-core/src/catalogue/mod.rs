@@ -94,6 +94,13 @@ pub struct ProviderListing {
     pub fields: Vec<CredentialField>,
 }
 
+/// A built-in's `model_source` when it is a second identity of a catalogue provider, else the id
+/// itself. The single place the alias is applied; `models` reads through `provider` and the
+/// resolver through the same two lookups (plan.md, risk "second ProviderId").
+fn aliased(id: &ProviderId) -> ProviderId {
+    builtin::model_source(id).unwrap_or_else(|| id.clone())
+}
+
 impl Catalogue {
     pub fn new(data: CatalogueData) -> Self {
         Self(
@@ -141,7 +148,7 @@ impl Catalogue {
         let mut out: Vec<ProviderListing> = custom.iter().map(custom_listing).collect();
         for b in builtins() {
             if !custom.iter().any(|c| c.id == b.id) {
-                out.push(builtin_listing(b));
+                out.push(builtin_listing(b, &data));
             }
         }
         for p in data.providers.values() {
@@ -153,8 +160,12 @@ impl Catalogue {
         out
     }
 
+    /// One catalogue entry. A built-in that is a second identity of a catalogue provider (the
+    /// SSO Bedrock one, FR-030) answers with that provider's entry, so `models`, the pickers and
+    /// the pricer all see one list rather than a copy.
     pub fn provider(&self, id: &ProviderId) -> Option<CatalogueProvider> {
-        self.snapshot().providers.get(id).cloned()
+        let id = aliased(id);
+        self.snapshot().providers.get(&id).cloned()
     }
 
     /// The FR-031 list: with `all`, every model newest first; otherwise only models that are
@@ -173,9 +184,10 @@ impl Catalogue {
     }
 
     pub fn model(&self, provider: &ProviderId, model: &str) -> Option<CatalogueModel> {
+        let provider = aliased(provider);
         self.snapshot()
             .providers
-            .get(provider)
+            .get(&provider)
             .and_then(|p| p.models.get(model).cloned())
     }
 
@@ -241,14 +253,20 @@ fn catalogue_listing(p: &CatalogueProvider) -> ProviderListing {
     }
 }
 
-fn builtin_listing(b: &BuiltinProvider) -> ProviderListing {
+fn builtin_listing(b: &BuiltinProvider, data: &CatalogueData) -> ProviderListing {
     ProviderListing {
         id: b.id.clone(),
         name: b.name.to_string(),
         origin: ProviderOrigin::Builtin,
         kind: b.kind,
         dialect: b.dialect,
-        model_count: 0,
+        // An aliased built-in lists the models of the provider it serves (FR-030); every other
+        // built-in has none of its own.
+        model_count: b
+            .model_source
+            .as_ref()
+            .and_then(|source| data.providers.get(source))
+            .map_or(0, |p| p.models.len()),
         env: b.env.iter().map(|s| s.to_string()).collect(),
         fields: b.fields.to_vec(),
     }
@@ -340,6 +358,47 @@ mod tests {
         let acme: Vec<_> = listed.iter().filter(|p| p.id.as_str() == "acme").collect();
         assert_eq!(acme.len(), 1);
         assert_eq!(acme[0].origin, ProviderOrigin::Custom);
+    }
+
+    #[test]
+    fn the_sso_id_is_listed_with_the_bedrock_models_and_resolves_through_them() {
+        let c = catalogue();
+        let sso = c
+            .providers(&[])
+            .into_iter()
+            .find(|p| p.id == ProviderId::AMAZON_BEDROCK_SSO)
+            .expect("the SSO Bedrock provider is listed");
+        assert_eq!(sso.name, "Amazon Bedrock (SSO)");
+        assert_eq!(sso.dialect, Some(DialectKind::Bedrock));
+        assert_eq!(sso.kind, ProviderKind::Cloud);
+        assert_eq!(sso.model_count, 2, "the same count as amazon-bedrock, not a copy");
+
+        // FR-030: one catalogue entry answers under both ids, through every lookup.
+        assert!(c.provider(&ProviderId::AMAZON_BEDROCK_SSO).is_some());
+        let ids: Vec<_> = c
+            .models(&ProviderId::AMAZON_BEDROCK_SSO, false)
+            .into_iter()
+            .map(|m| m.id)
+            .collect();
+        let shared_ids: Vec<_> = c
+            .models(&ProviderId::AMAZON_BEDROCK, false)
+            .into_iter()
+            .map(|m| m.id)
+            .collect();
+        assert_eq!(ids, shared_ids);
+        let model = c
+            .model(&ProviderId::AMAZON_BEDROCK_SSO, "amazon.nova-lite-v1:0")
+            .expect("the SSO id finds the Bedrock model");
+        assert_eq!(model.limit.context, Some(300000));
+        assert!(c.model(&ProviderId::AMAZON_BEDROCK_SSO, "no-such-model").is_none());
+
+        // A built-in with no alias is untouched.
+        assert!(c.provider(&ProviderId::OLLAMA).is_none());
+        assert_eq!(super::builtin::model_source(&ProviderId::OLLAMA), None);
+        assert_eq!(
+            super::builtin::model_source(&ProviderId::AMAZON_BEDROCK_SSO),
+            Some(ProviderId::AMAZON_BEDROCK)
+        );
     }
 
     #[test]

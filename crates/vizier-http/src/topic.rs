@@ -36,6 +36,8 @@ pub struct TopicConnection {
     storage: Arc<vizier_core::storage::VizierStorage>,
     limits: ClientLimits,
     connection: Arc<ClientConnection>,
+    /// Where this process finds the socket a request names; the binding holds only its id.
+    connections: vizier_core::agents::client::ClientConnections,
     /// The shared question service (`specs/042-agent-asking-question`): a submission is validated
     /// and claimed through it before a turn is queued.
     questions: Arc<vizier_core::questions::Questions>,
@@ -96,7 +98,6 @@ impl TopicConnection {
         let limits = ClientLimits {
             events: state.client_events.clone(),
             state_saves: state.client_state_saves.clone(),
-            deferred: state.deferred_client_calls.clone(),
         };
         // The client tool calls' frames, as JSON values: the engine has no socket types.
         let (client_tx, client_rx) = mpsc::channel::<serde_json::Value>(64);
@@ -105,7 +106,7 @@ impl TopicConnection {
         let connection = ClientConnection::new(client_tx);
 
         // Calls deferred while no client was here are this connection's to deliver first.
-        spawn_delivery(&state.storage, &state.transport, &session, &connection, &limits.deferred, None);
+        spawn_delivery(&state.storage, &state.transport, &session, &connection, None);
 
         // A dialog still open survives a reload or a second tab: the asks are replayed from
         // storage, so nothing about a live ask is held only in the process that asked
@@ -140,6 +141,7 @@ impl TopicConnection {
             storage: state.storage.clone(),
             limits,
             connection,
+            connections: state.deps.client_connections.clone(),
             questions: state.deps.questions.clone(),
             client_rx: Some(client_rx),
             events: Some(events),
@@ -163,6 +165,7 @@ impl TopicConnection {
 
     pub fn close(&self) {
         self.connection.close();
+        self.connections.remove(&self.connection.id);
     }
 
     pub async fn handle_inbound(&self, frame: serde_json::Value) {
@@ -303,7 +306,7 @@ impl TopicConnection {
                             }
 
                             // Refused before anything is sent, so no turn starts (FR-002).
-                            if let Err(error) = bind_client_tools(&mut request, &self.connection) {
+                            if let Err(error) = bind_client_tools(&mut request, &self.connection, &self.connections) {
                                 send_frame(error).await;
                                 return;
                             }
@@ -372,7 +375,10 @@ impl TopicConnection {
                                 }
                             }
 
-                            let (response_tx, response_rx) = flume::unbounded();
+                            let (response_tx, response_rx) = match self.transport.reply_channel().await {
+                                Ok(pair) => pair,
+                                Err(_) => return,
+                            };
                             let session = self.session.clone();
                             if let Err(err) = self.transport.send_request(session.clone(), request, Some(response_tx)).await {
                                 tracing::error!("failed to send request: {}", err);
@@ -433,7 +439,7 @@ impl TopicOutbound {
                                 })
                             ),
                             SessionFrame::ClientCallDeferred { call_id } => {
-                                spawn_delivery(&self.storage, &self.transport, &self.session, &self.connection, &self.limits.deferred, Some(vec![call_id]));
+                                spawn_delivery(&self.storage, &self.transport, &self.session, &self.connection, Some(vec![call_id]));
                                 None
                             }
                             SessionFrame::HistoryEntry(entry) => {

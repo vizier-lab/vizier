@@ -1,11 +1,9 @@
 use axum::{
-    body::Body,
     extract::{Extension, Json, Path, State},
     http::{StatusCode, header::CONTENT_TYPE},
     response::{IntoResponse, Response},
 };
 use serde::Deserialize;
-use tokio::fs;
 use utoipa::ToSchema;
 
 use crate::{
@@ -16,7 +14,7 @@ use crate::{
 };
 use vizier_core::service::files as service;
 
-use super::range::{RangeRequest, parse_range};
+use super::range::blob_response;
 
 pub use service::UploadResponse;
 
@@ -75,74 +73,18 @@ pub async fn download_file(
         (status, json).into_response()
     };
 
-    let Ok(file_path) = service::locate(&svc(&state), &file_id).await else {
+    let Ok(blob) = service::locate(&svc(&state), &file_id).await else {
         return not_found();
     };
 
-    let mime_type = mime_guess::from_path(&file_path)
+    let mime_type = mime_guess::from_path(blob.meta.key.file_name())
         .first_or_octet_stream()
         .to_string();
-
     let range = headers
         .get(axum::http::header::RANGE)
         .and_then(|v| v.to_str().ok());
 
-    let Some(range) = range else {
-        return match fs::read(&file_path).await {
-            Ok(data) => Response::builder()
-                .status(StatusCode::OK)
-                .header(CONTENT_TYPE, mime_type)
-                .header(axum::http::header::ACCEPT_RANGES, "bytes")
-                .body(Body::from(data))
-                .unwrap()
-                .into_response(),
-            Err(_) => not_found(),
-        };
-    };
-
-    let Ok(meta) = fs::metadata(&file_path).await else {
-        return not_found();
-    };
-    let len = meta.len();
-    match parse_range(range, len) {
-        RangeRequest::Ignore => match fs::read(&file_path).await {
-            Ok(data) => Response::builder()
-                .status(StatusCode::OK)
-                .header(CONTENT_TYPE, mime_type)
-                .header(axum::http::header::ACCEPT_RANGES, "bytes")
-                .body(Body::from(data))
-                .unwrap()
-                .into_response(),
-            Err(_) => not_found(),
-        },
-        RangeRequest::Unsatisfiable => Response::builder()
-            .status(StatusCode::RANGE_NOT_SATISFIABLE)
-            .header(axum::http::header::CONTENT_RANGE, format!("bytes */{len}"))
-            .body(Body::empty())
-            .unwrap()
-            .into_response(),
-        RangeRequest::Bytes { start, end } => {
-            use tokio::io::{AsyncReadExt, AsyncSeekExt};
-            let Ok(mut file) = fs::File::open(&file_path).await else {
-                return not_found();
-            };
-            let mut buf = vec![0u8; (end - start + 1) as usize];
-            if file.seek(std::io::SeekFrom::Start(start)).await.is_err()
-                || file.read_exact(&mut buf).await.is_err()
-            {
-                return not_found();
-            }
-            Response::builder()
-                .status(StatusCode::PARTIAL_CONTENT)
-                .header(CONTENT_TYPE, mime_type)
-                .header(axum::http::header::ACCEPT_RANGES, "bytes")
-                .header(
-                    axum::http::header::CONTENT_RANGE,
-                    format!("bytes {start}-{end}/{len}"),
-                )
-                .body(Body::from(buf))
-                .unwrap()
-                .into_response()
-        }
-    }
+    blob_response(&blob, range, &[(CONTENT_TYPE, mime_type)])
+        .await
+        .unwrap_or_else(not_found)
 }

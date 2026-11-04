@@ -23,7 +23,6 @@ use crate::config::provider::ProviderId;
 use crate::dependencies::VizierDependencies;
 use crate::embedding::VizierEmbedder;
 use crate::indexer::VizierIndexer;
-use crate::indexer::sqlite::SqliteIndexer;
 use crate::schema::{
     AgentConfig, AgentHealthStatus, AgentId, AgentRunState, ErrorKind, VizierResponse,
     VizierResponseContent,
@@ -156,21 +155,13 @@ async fn build_indexer(
         _ => return Ok(None),
     };
 
-    let conn = deps.sqlite_conn.clone();
-
     let embedder = Arc::new(
         VizierEmbedder::from_agent_settings(emb_settings, deps, &deps.config.workspace, agent_id)
             .await?,
     );
-    let sqlite_idx = SqliteIndexer::new(conn, embedder).await?;
-    note_index_dimension(
-        deps,
-        agent_id,
-        sqlite_idx.dimension(),
-        sqlite_idx.keeps_legacy_table(),
-    )
-    .await;
-    Ok(Some(VizierIndexer::build(sqlite_idx)))
+    let opened = crate::indexer::open(deps.sql.clone(), embedder).await?;
+    note_index_dimension(deps, agent_id, opened.dimension, opened.keeps_legacy_table).await;
+    Ok(Some(opened.indexer))
 }
 
 /// The width this agent's memories were last embedded at. A different one means it now writes to
@@ -199,9 +190,7 @@ async fn note_index_dimension(
     // so nothing is dropped. Any other first record may have left vectors in another width's table,
     // and a new agent simply has no rows to drop.
     let fresh_on_legacy = last.is_none() && legacy_table;
-    if !fresh_on_legacy
-        && let Err(e) = deps.storage.reset_agent_passages(agent_id).await
-    {
+    if !fresh_on_legacy && let Err(e) = deps.storage.reset_agent_passages(agent_id).await {
         tracing::warn!(
             agent_id,
             "could not reset memory passages after an embedding change; semantic search stays \
@@ -209,11 +198,7 @@ async fn note_index_dimension(
         );
         return;
     }
-    if let Err(e) = deps
-        .storage
-        .save_state(key, serde_json::json!(dim))
-        .await
-    {
+    if let Err(e) = deps.storage.save_state(key, serde_json::json!(dim)).await {
         tracing::warn!(agent_id, "could not record the memory index dimension: {e}");
     }
 }
@@ -238,12 +223,21 @@ pub type CurrentAgent = Arc<RwLock<Option<Arc<VizierAgent>>>>;
 impl AgentStatus {
     /// `channels` are the readers of the connections attached to the agent, which run
     /// whatever state the agent is in (research R3).
+    ///
+    /// `failures` are the connections' last session failures: an agent whose model sits on such
+    /// a connection reports the cause while staying available, until a sign-in clears it
+    /// (spec 044, FR-018).
     pub fn health(
         status: &SharedStatus,
         board: &ChannelBoard,
+        failures: &crate::llm::sso::SessionFailures,
         agent_id: &AgentId,
     ) -> AgentHealthStatus {
         let status = status.read().unwrap_or_else(|p| p.into_inner()).clone();
+        let session_failure = status
+            .model
+            .as_ref()
+            .and_then(|model| failures.get(&model.provider));
         AgentHealthStatus {
             channels: health_for(board, agent_id),
             agent_id: agent_id.clone(),
@@ -255,19 +249,31 @@ impl AgentStatus {
             next_retry_at: status.next_retry_at,
             model: status.model,
             warnings: status.warnings,
+            session_failure,
         }
     }
 }
 
-fn set_status(status: &SharedStatus, f: impl FnOnce(&mut AgentStatus)) {
+/// Change the agent's status and publish the new health view.
+///
+/// The view is what a gateway reads, so it has to follow every change of the agent's state
+/// (`specs/048-agent-service-seam` contracts/shared-state-views.md, rule 5).
+fn set_status(
+    deps: &crate::dependencies::VizierDependencies,
+    agent_id: &AgentId,
+    status: &SharedStatus,
+    f: impl FnOnce(&mut AgentStatus),
+) {
     f(&mut status.write().unwrap_or_else(|p| p.into_inner()));
+    let health = AgentStatus::health(status, &deps.channel_board, &deps.sso_failures, agent_id);
+    crate::agents::views::publish_health(deps, agent_id, &health);
 }
 
 pub struct Supervisor {
     pub agent_id: AgentId,
     pub deps: VizierDependencies,
     pub config: AgentConfig,
-    pub recv: flume::Receiver<VizierRequestEnvelope>,
+    pub recv: crate::transport::Inbox,
     pub shutdown_rx: watch::Receiver<bool>,
     /// True when the stop in progress is a delete (see `AgentProcess::deleting`).
     pub deleting: std::sync::Arc<std::sync::atomic::AtomicBool>,
@@ -287,7 +293,7 @@ impl Supervisor {
             let built = match prebuilt.take() {
                 Some(built) => Ok(built),
                 None => {
-                    set_status(&self.status, |s| s.state = AgentRunState::Starting);
+                    set_status(&self.deps, &self.agent_id, &self.status, |s| s.state = AgentRunState::Starting);
                     tokio::select! {
                         built = async {
                             if failures == 0 {
@@ -316,7 +322,7 @@ impl Supervisor {
                         context_source: info.context_source,
                     });
                     let warnings = built.agent.health_warnings();
-                    set_status(&self.status, |s| {
+                    set_status(&self.deps, &self.agent_id, &self.status, |s| {
                         *s = AgentStatus {
                             state: AgentRunState::Running,
                             failures: s.failures,
@@ -361,7 +367,7 @@ impl Supervisor {
                 retry_in_secs = wait.as_secs(),
                 "{error}"
             );
-            set_status(&self.status, |s| {
+            set_status(&self.deps, &self.agent_id, &self.status, |s| {
                 *s = AgentStatus {
                     state: AgentRunState::Failed,
                     last_error: Some(error.clone()),
@@ -398,7 +404,7 @@ impl Supervisor {
                 break;
             }
         }
-        set_status(&self.status, |s| s.state = AgentRunState::Stopped);
+        set_status(&self.deps, &self.agent_id, &self.status, |s| s.state = AgentRunState::Stopped);
     }
 
     /// Serve requests with a built agent until it stops. `Ok` is a requested stop (shutdown,
@@ -434,11 +440,8 @@ impl Supervisor {
         *self.current.write().unwrap_or_else(|p| p.into_inner()) = None;
 
         if let Some(handle) = memory_ops {
+            // Aborting the handler drops its inbox, which ends the subscription.
             handle.abort();
-            self.deps
-                .transport
-                .unregister_memory_op(&self.agent_id)
-                .await;
         }
 
         match result {
@@ -560,11 +563,13 @@ impl Supervisor {
             });
         }
 
-        let rx = self
-            .deps
-            .transport
-            .register_memory_op(agent_id.clone())
-            .await;
+        let rx = match self.deps.transport.register_memory_op(agent_id.clone()).await {
+            Ok(rx) => rx,
+            Err(e) => {
+                tracing::error!(agent_id = %agent_id, "memory operations are unavailable: {e}");
+                return None;
+            }
+        };
         let storage = (*self.deps.storage).clone();
         let settings = memory_ops::MemoryOpSettings {
             chunking: self.config.chunking.clone(),
@@ -590,7 +595,7 @@ impl Supervisor {
             tokio::select! {
                 _ = &mut deadline => return true,
                 _ = wait_for_shutdown(&mut self.shutdown_rx) => return false,
-                envelope = self.recv.recv_async() => match envelope {
+                envelope = self.recv.recv_request() => match envelope {
                     Ok(envelope) => reject(envelope, error).await,
                     Err(_) => return false,
                 },
@@ -640,6 +645,17 @@ async fn reject(envelope: VizierRequestEnvelope, error: &str) {
 mod tests {
     use super::*;
 
+    /// The lightest `VizierDependencies` this crate's tests build: a real workspace in a temp
+    /// dir. `set_status` publishes the health view through it, so the tests need one.
+    async fn deps() -> (VizierDependencies, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        let config = crate::config::VizierConfig {
+            workspace: dir.path().to_string_lossy().to_string(),
+            ..Default::default()
+        };
+        (VizierDependencies::new(config).await.unwrap(), dir)
+    }
+
     #[test]
     fn a_ready_notification_needs_a_download_or_a_recovery() {
         assert!(
@@ -653,6 +669,84 @@ mod tests {
         assert!(
             records_ready(false, 2),
             "recovering from a failure closes the loop"
+        );
+    }
+
+    /// T054: an agent whose connection's session ended stays available and says why, and the
+    /// next successful sign-in clears it with no restart (FR-018).
+    #[tokio::test]
+    async fn health_reports_an_ended_session_until_a_sign_in_clears_it() {
+        use crate::config::provider::ProviderId;
+        use crate::llm::sso::{SessionFailures, SsoError};
+
+        let (deps, _dir) = deps().await;
+        let board: ChannelBoard = Default::default();
+        let failures = SessionFailures::default();
+        let status: SharedStatus = Default::default();
+        let agent: AgentId = "agent-1".into();
+        set_status(&deps, &agent, &status, |s| {
+            s.state = AgentRunState::Running;
+            s.model = Some(crate::schema::AgentModelInfo {
+                provider: ProviderId::AMAZON_BEDROCK_SSO,
+                model: "amazon.nova-lite-v1:0".into(),
+                context_window: None,
+                max_output: None,
+                context_source: crate::llm::ContextSource::Catalogue,
+            });
+        });
+
+        // Nothing wrong yet: a running agent with no failure to report.
+        let healthy = AgentStatus::health(&status, &board, &failures, &agent);
+        assert!(healthy.alive && healthy.session_failure.is_none());
+
+        // The session ended: the agent is still available, and health names the cause.
+        failures.record(&ProviderId::AMAZON_BEDROCK_SSO, &SsoError::SessionExpired.to_string());
+        let broken = AgentStatus::health(&status, &board, &failures, &agent);
+        assert!(broken.alive, "an ended session never takes the agent down");
+        assert_eq!(broken.state, AgentRunState::Running);
+        let message = broken.session_failure.expect("the session cause is reported");
+        assert!(message.contains("the AWS SSO session has ended"), "{message}");
+        assert!(message.contains("sign in again"), "{message}");
+
+        // A successful sign-in clears it: the next health read is clean, no restart involved.
+        failures.clear(&ProviderId::AMAZON_BEDROCK_SSO);
+        assert!(
+            AgentStatus::health(&status, &board, &failures, &agent)
+                .session_failure
+                .is_none()
+        );
+    }
+
+    /// A failure on the other Bedrock provider is not this agent's problem (FR-003).
+    #[tokio::test]
+    async fn a_failure_on_another_provider_is_not_reported_on_this_agent() {
+        use crate::config::provider::ProviderId;
+        use crate::llm::sso::{SessionFailures, SsoError};
+
+        let (deps, _dir) = deps().await;
+        let board: ChannelBoard = Default::default();
+        let failures = SessionFailures::default();
+        let status: SharedStatus = Default::default();
+        let agent: AgentId = "agent-1".into();
+        set_status(&deps, &agent, &status, |s| {
+            s.state = AgentRunState::Running;
+            s.model = Some(crate::schema::AgentModelInfo {
+                provider: ProviderId::AMAZON_BEDROCK,
+                model: "amazon.nova-lite-v1:0".into(),
+                context_window: None,
+                max_output: None,
+                context_source: crate::llm::ContextSource::Catalogue,
+            });
+        });
+        failures.record(
+            &ProviderId::AMAZON_BEDROCK_SSO,
+            &SsoError::SessionExpired.to_string(),
+        );
+
+        assert!(
+            AgentStatus::health(&status, &board, &failures, &agent)
+                .session_failure
+                .is_none()
         );
     }
 

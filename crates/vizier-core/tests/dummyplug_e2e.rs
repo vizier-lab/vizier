@@ -19,7 +19,7 @@ use vizier_core::{
     runtime::{RuntimeEvent, RuntimeExit, RuntimeOptions, SubsystemState, VizierRuntime},
     schema::{
         AgentCommand, AgentConfig, AgentToolsConfig, AgentCommandResult, SessionHistoryContent, VizierChannelId, VizierRequest,
-        VizierRequestContent, VizierResponse, VizierResponseContent, VizierSession,
+        VizierRequestContent, VizierResponseContent, VizierSession,
         provider::{ProviderCredentials, ProviderEntry},
     },
     storage::{
@@ -129,7 +129,7 @@ fn agent_config(id: &str) -> AgentConfig {
 
 /// The text of a turn's final message, or the error it ended with.
 async fn chat(transport: &VizierTransport, session: &VizierSession, text: &str) -> String {
-    let (tx, rx) = flume::unbounded::<VizierResponse>();
+    let (tx, rx) = transport.reply_channel().await.expect("open a reply stream");
     let request = VizierRequest {
         timestamp: chrono::Utc::now(),
         user: "e2e".into(),
@@ -175,6 +175,7 @@ async fn dummyplug_agent_answers_through_the_runtime() {
     let config = VizierConfig::with_workspace(dir.path().to_path_buf());
     let mut runtime = VizierRuntime::start(RuntimeOptions {
         config: config.clone(),
+        ..Default::default()
     })
     .await
     .unwrap();
@@ -260,7 +261,10 @@ async fn dummyplug_agent_answers_through_the_runtime() {
     assert!(context.starts_with("# Context"), "{context}");
 
     // One engine per workspace: a second start is refused while this one runs (R14).
-    let second = VizierRuntime::start(RuntimeOptions { config }).await;
+    let second = VizierRuntime::start(RuntimeOptions {
+        config,
+        ..Default::default()
+    }).await;
     let error = second.err().expect("a second runtime on the same workspace is refused");
     assert!(error.to_string().contains("already in use"), "{error}");
 
@@ -282,6 +286,8 @@ async fn dummyplug_agent_answers_through_the_runtime() {
     };
     assert_eq!(stopped, "scheduler");
     let health = runtime.health().await;
+    // Fleet (#161): the default runtime is every role in one process.
+    assert!(health.roles.is_all(), "{:?}", health.roles);
     assert!(health.subsystems.iter().any(|(name, state)| *name == "scheduler"
         && matches!(state, SubsystemState::Stopped { .. })));
     assert!(health.subsystems.iter().any(|(name, state)| *name == "agent manager"
@@ -291,7 +297,10 @@ async fn dummyplug_agent_answers_through_the_runtime() {
     runtime.shutdown().await.unwrap();
     // The workspace is free again once the runtime is gone.
     let config = VizierConfig::with_workspace(dir.path().to_path_buf());
-    VizierRuntime::start(RuntimeOptions { config })
+    VizierRuntime::start(RuntimeOptions {
+        config,
+        ..Default::default()
+    })
         .await
         .unwrap()
         .shutdown()
@@ -311,6 +320,7 @@ async fn a_project_session_can_run_the_workspace_shell() {
     let dir = tempfile::tempdir().unwrap();
     let runtime = VizierRuntime::start(RuntimeOptions {
         config: VizierConfig::with_workspace(dir.path().to_path_buf()),
+        ..Default::default()
     })
     .await
     .unwrap();
@@ -463,7 +473,10 @@ async fn an_agents_identity_is_a_memory_at_core_soul() {
 
     let dir = tempfile::tempdir().unwrap();
     let config = VizierConfig::with_workspace(dir.path().to_path_buf());
-    let runtime = VizierRuntime::start(RuntimeOptions { config }).await.unwrap();
+    let runtime = VizierRuntime::start(RuntimeOptions {
+        config,
+        ..Default::default()
+    }).await.unwrap();
     runtime
         .deps()
         .storage
@@ -566,6 +579,9 @@ async fn an_agents_identity_is_a_memory_at_core_soul() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_runtime_needs_an_explicit_workspace() {
     let config = VizierConfig::with_workspace("".into());
-    let error = VizierRuntime::start(RuntimeOptions { config }).await.err();
+    let error = VizierRuntime::start(RuntimeOptions {
+        config,
+        ..Default::default()
+    }).await.err();
     assert!(error.expect("refused").to_string().contains("workspace"));
 }

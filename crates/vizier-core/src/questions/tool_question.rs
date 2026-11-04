@@ -13,12 +13,11 @@ use crate::{
     agents::tools::{ToolCategory, ToolContext, VizierTool},
     error::VizierError,
     questions::{
-        Questions, submit,
-        limits,
+        Questions, limits,
         model::{QuestionAsked, QuestionSet, QuestionSetRecord, QuestionState},
-        validate,
+        submit, validate,
     },
-    schema::{VizierSession, VizierChannelId},
+    schema::{VizierChannelId, VizierSession},
     storage::{VizierStorage, question::QuestionStorage},
     transport::VizierTransport,
 };
@@ -156,7 +155,11 @@ impl VizierTool for AskQuestion {
         description()
     }
 
-    async fn call(&self, args: Self::Input, ctx: &ToolContext) -> Result<Self::Output, VizierError> {
+    async fn call(
+        &self,
+        args: Self::Input,
+        ctx: &ToolContext,
+    ) -> Result<Self::Output, VizierError> {
         if !ctx.interactive {
             return Err(VizierError(
                 "nobody can answer here: this turn is unattended, so ask in your reply instead"
@@ -232,21 +235,20 @@ impl VizierTool for AskQuestion {
 
 #[cfg(test)]
 mod tests {
-    use parking_lot::Mutex;
 
     use super::*;
     use crate::{
         agents::tools::{ENDS_TURN_NOTICE, with_ends_turn_notice},
-        storage::{document::LocalDocumentStore, sqlite::SqliteStorage},
+        storage::{document::BlobDocumentStore, sqlite::SqlStorage},
     };
 
     fn tool() -> (AskQuestion, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
         let conn = rusqlite::Connection::open_in_memory().unwrap();
         crate::storage::sqlite::init_question_schema(&conn).unwrap();
-        let storage = SqliteStorage::new(
-            Arc::new(Mutex::new(conn)),
-            Arc::new(LocalDocumentStore::new(dir.path().to_path_buf())),
+        let storage = SqlStorage::new(
+            crate::storage::sql::SqlStore::sqlite(conn),
+            Arc::new(BlobDocumentStore::local(dir.path().to_path_buf())),
         );
         (
             AskQuestion::new(
@@ -319,7 +321,10 @@ mod tests {
     #[test]
     fn the_turn_ending_notice_is_appended_exactly_once() {
         let own = description();
-        assert!(!own.contains(ENDS_TURN_NOTICE), "the author's text must not carry it");
+        assert!(
+            !own.contains(ENDS_TURN_NOTICE),
+            "the author's text must not carry it"
+        );
         let shown = with_ends_turn_notice(own.clone(), AskQuestion::ends_turn());
         assert_eq!(shown.matches(ENDS_TURN_NOTICE).count(), 1);
         // Applying it again changes nothing.

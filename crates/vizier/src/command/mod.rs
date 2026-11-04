@@ -8,6 +8,7 @@ use vizier_core::{
     config::VizierConfig,
     dependencies::VizierDependencies,
     schema::{CommandRequest, CommandResponse},
+    server_role::ServerRoleSet,
 };
 use anyhow::Result;
 
@@ -16,11 +17,13 @@ const COMMAND_TIMEOUT: Duration = Duration::from_secs(15);
 
 pub struct VizierCommandServer {
     deps: VizierDependencies,
+    /// The roles this process runs, answered without a round trip: the server itself knows.
+    roles: ServerRoleSet,
 }
 
 impl VizierCommandServer {
-    pub fn new(deps: VizierDependencies) -> Result<Self> {
-        Ok(Self { deps })
+    pub fn new(deps: VizierDependencies, roles: ServerRoleSet) -> Result<Self> {
+        Ok(Self { deps, roles })
     }
 
     pub async fn run(&self) -> Result<()> {
@@ -74,9 +77,10 @@ impl VizierCommandServer {
         }
 
         let response = match serde_json::from_slice::<CommandRequest>(&msg[..n]) {
+            // The process's own roles, which nothing in the engine has to be asked about.
+            Ok(CommandRequest::Roles) => CommandResponse::Ok(self.roles.to_string()),
             Ok(request) => {
-                self.deps.transport.send_command_request(request).await?;
-                self.deps.transport.recv_command_response().await?
+                self.deps.transport.send_command(request).await?
             }
             Err(e) => CommandResponse::Error(format!("not a command: {e}")),
         };

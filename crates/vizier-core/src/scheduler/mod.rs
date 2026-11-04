@@ -1,4 +1,4 @@
-use std::{collections::HashMap, str::FromStr, time::Duration};
+use std::{collections::HashMap, str::FromStr, sync::Arc, time::Duration};
 
 use anyhow::Result;
 use chrono::{DateTime, TimeZone, Utc};
@@ -6,6 +6,7 @@ use croner::Cron;
 
 use crate::{
     dependencies::VizierDependencies,
+    runtime::Gate,
     schema::{
         Task, TaskRunState, TaskSchedule, VizierChannelId, VizierRequest, VizierResponse,
         VizierResponseContent, VizierSession,
@@ -18,16 +19,26 @@ mod dream;
 use dream::DreamScheduler;
 
 pub struct VizierScheduler {
+    /// Dream triggers from the bus, subscribed in `new` so none sent after startup is missed.
+    dream_commands: crate::transport::DreamCommands,
     deps: VizierDependencies,
     dream_scheduler: DreamScheduler,
+    /// Whether this node owns control. `vizier run --role all` asks [`AlwaysYes`], so nothing
+    /// changes there; a Fleet node asks its lease (#166).
+    ///
+    /// [`AlwaysYes`]: crate::runtime::AlwaysYes
+    gate: Arc<dyn Gate>,
 }
 
 impl VizierScheduler {
-    pub async fn new(deps: VizierDependencies) -> Result<VizierScheduler> {
+    pub async fn new(deps: VizierDependencies, gate: Arc<dyn Gate>) -> Result<VizierScheduler> {
         let dream_scheduler = DreamScheduler::new(deps.clone());
+        let dream_commands = deps.transport.serve_dream_commands().await?;
         Ok(VizierScheduler {
+            dream_commands,
             deps,
             dream_scheduler,
+            gate,
         })
     }
 
@@ -72,7 +83,9 @@ impl VizierScheduler {
     }
 
     pub async fn run(&mut self) -> Result<()> {
-        self.recover().await;
+        if self.gate.may_run() {
+            self.recover().await;
+        }
         let mut schedules: HashMap<(DateTime<Utc>, String), Task> = HashMap::new();
         let mut interval = tokio::time::interval(Duration::from_mins(1));
         // Startup already purged, so the first daily purge is a day from now.
@@ -81,6 +94,12 @@ impl VizierScheduler {
         loop {
             tokio::select! {
                 _ = interval.tick() => {
+                    // A closed gate is "not now", never "stop": a standby waits for the lease
+                    // and takes over on a later tick (#159), so the subsystem keeps running.
+                    if !self.gate.may_run() {
+                        tracing::debug!("the control gate is closed; skipping this tick");
+                        continue;
+                    }
                     // Task scheduling
                     if let Err(e) = self.tick_tasks(&mut schedules).await {
                         tracing::error!("Task scheduler error: {}", e);
@@ -101,16 +120,20 @@ impl VizierScheduler {
                         }
                     }
                 }
-                cmd = self.deps.transport.recv_dream_command() => {
+                cmd = self.dream_commands.recv() => {
+                    if !self.gate.may_run() {
+                        tracing::debug!("the control gate is closed; ignoring a dream command");
+                        continue;
+                    }
                     match cmd {
-                        Ok(cmd) => {
+                        Some(cmd) => {
                             tracing::info!("Received dream command for agent '{}'", cmd.agent_id);
                             if let Err(e) = self.dream_scheduler.trigger_dream(&cmd.agent_id).await {
                                 tracing::error!("Dream trigger error for '{}': {}", cmd.agent_id, e);
                             }
                         }
-                        Err(e) => {
-                            tracing::error!("Dream command channel error: {}", e);
+                        None => {
+                            return Err(anyhow::anyhow!("the dream command subscription closed"));
                         }
                     }
                 }
@@ -118,14 +141,12 @@ impl VizierScheduler {
         }
     }
 
-    /// The same predicate `DreamScheduler` uses to recognise the end of a turn.
+    /// The same predicate `DreamScheduler` uses to recognise the end of a turn, and the one every
+    /// other reader of a turn's frames uses (`VizierResponse::ends_turn`). It includes `Error`,
+    /// because a turn that failed the way a scheduled task fails on an ended session is over: the
+    /// run closes on that frame instead of waiting for a channel that may never close (FR-017).
     fn is_final_response(response: &VizierResponse) -> bool {
-        matches!(
-            response.content,
-            VizierResponseContent::Message { .. }
-                | VizierResponseContent::Abort
-                | VizierResponseContent::Empty
-        )
+        response.ends_turn()
     }
 
     /// Is a run of this task already in flight?
@@ -299,7 +320,15 @@ impl VizierScheduler {
             }
         };
 
-        let (response_tx, response_rx) = flume::unbounded::<VizierResponse>();
+        let (response_tx, response_rx) = match self.deps.transport.reply_channel().await {
+            Ok(pair) => pair,
+            Err(e) => {
+                tracing::error!("Failed to open a reply stream for task '{}': {}", task_slug, e);
+                self.close_run(run_id, &agent_id, &task_slug, &title, TaskRunState::NoResponse)
+                    .await;
+                return;
+            }
+        };
 
         let dispatched = self
             .deps
@@ -403,5 +432,47 @@ impl VizierScheduler {
                 .task_run_ended(agent_id, task_slug, title, run_id, state, Utc::now())
                 .await;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+    use crate::schema::{ErrorKind, VizierResponse, VizierResponseContent};
+
+    fn frame(content: VizierResponseContent) -> VizierResponse {
+        VizierResponse {
+            content,
+            ..Default::default()
+        }
+    }
+
+    /// FR-017: a scheduled task whose turn ended on an ended session closes on that frame. The
+    /// sender is deliberately kept alive — an agent still holding the channel — so a predicate
+    /// that ignored `Error` would keep the run open until the timeout instead of ending it.
+    #[tokio::test]
+    async fn a_scheduled_turn_that_failed_end_session_closes_the_run() {
+        let (tx, rx) = flume::unbounded::<VizierResponse>();
+        tx.send(frame(VizierResponseContent::ThinkingStart)).unwrap();
+        tx.send(frame(VizierResponseContent::Error {
+            kind: ErrorKind::Completion,
+            message: crate::llm::sso::SsoError::SessionExpired.to_string(),
+        }))
+        .unwrap();
+
+        let ended = tokio::time::timeout(Duration::from_secs(1), async {
+            while let Ok(response) = rx.recv_async().await {
+                if VizierScheduler::is_final_response(&response) {
+                    return true;
+                }
+            }
+            false
+        })
+        .await
+        .expect("the run must end on the failure, not wait for the channel to close");
+
+        assert!(ended);
+        drop(tx);
     }
 }

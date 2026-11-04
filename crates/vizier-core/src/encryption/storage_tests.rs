@@ -9,8 +9,7 @@ use std::{
     sync::Arc,
 };
 
-use parking_lot::Mutex;
-use rusqlite::{Connection, ToSql};
+use crate::storage::sql::ToSql;
 use serde_json::{Value, json};
 
 use crate::{
@@ -36,13 +35,13 @@ use crate::{
         integration::IntegrationStorage,
         provider::{CustomProviderStorage, ProviderStorage},
         secret::SecretStorage,
-        sqlite::SqliteStorage,
+        sqlite::SqlStorage,
     },
 };
 use chrono::Utc;
 
 pub(crate) struct Harness {
-    pub storage: SqliteStorage,
+    pub storage: SqlStorage,
     pub dir: tempfile::TempDir,
 }
 
@@ -59,16 +58,14 @@ pub(crate) fn file_backed_with(
     secret_paths: Arc<dyn IntegrationSecretPaths>,
 ) -> Harness {
     let dir = tempfile::tempdir().unwrap();
-    let conn = SqliteStorage::open_connection(dir.path().to_str().unwrap()).unwrap();
+    let workspace = dir.path().to_str().unwrap().to_string();
+    let store = crate::tests_support::test_store(|| {
+        crate::storage::sql::SqlStore::sqlite(SqlStorage::open_connection(&workspace).unwrap())
+    });
     let document_store: Arc<dyn crate::storage::document::DocumentStore> = Arc::new(
-        crate::storage::document::LocalDocumentStore::new(dir.path().join("agents")),
+        crate::storage::document::BlobDocumentStore::local(dir.path().join("agents")),
     );
-    let storage = SqliteStorage::with_secrets(
-        Arc::new(Mutex::new(conn)),
-        document_store,
-        cipher,
-        secret_paths,
-    );
+    let storage = SqlStorage::with_secrets(store, document_store, cipher, secret_paths);
     Harness { storage, dir }
 }
 
@@ -76,23 +73,23 @@ pub(crate) fn vizier_storage(harness: &Harness) -> VizierStorage {
     VizierStorage::new(harness.storage.clone())
 }
 
-pub(crate) fn raw_value(storage: &SqliteStorage, sql: &str, params: &[&dyn ToSql]) -> String {
-    let conn = storage.conn.lock();
+pub(crate) fn raw_value(storage: &SqlStorage, sql: &str, params: &[&dyn ToSql]) -> String {
+    let conn = storage.conn.lock().unwrap();
     conn.query_row(sql, params, |row| row.get(0)).unwrap()
 }
 
-pub(crate) fn raw_rows(storage: &SqliteStorage, sql: &str) -> Vec<String> {
-    let conn = storage.conn.lock();
+pub(crate) fn raw_rows(storage: &SqlStorage, sql: &str) -> Vec<String> {
+    let conn = storage.conn.lock().unwrap();
     let mut stmt = conn.prepare(sql).unwrap();
     stmt.query_map([], |row| row.get::<_, String>(0))
         .unwrap()
-        .collect::<rusqlite::Result<Vec<_>>>()
+        .collect::<crate::storage::sql::Result<Vec<_>>>()
         .unwrap()
 }
 
 /// Flush the WAL so the bytes the assertions read are the bytes SQLite would leave behind.
-pub(crate) fn flush(storage: &SqliteStorage) {
-    let conn = storage.conn.lock();
+pub(crate) fn flush(storage: &SqlStorage) {
+    let conn = storage.conn.lock().unwrap();
     conn.execute_batch("PRAGMA wal_checkpoint(FULL);").unwrap();
 }
 
@@ -428,7 +425,7 @@ async fn tampered_values_fail_instead_of_disappearing() {
         .await
         .unwrap();
     {
-        let conn = s.conn.lock();
+        let conn = s.conn.lock().unwrap();
         conn.execute("UPDATE agent_secret SET value = value || 'x'", [])
             .unwrap();
     }

@@ -178,12 +178,10 @@ impl SessionFiles {
 mod tests {
     use std::sync::Arc;
 
-    use parking_lot::Mutex;
-
     use super::*;
     use crate::schema::VizierChannelId;
-    use crate::storage::document::LocalDocumentStore;
-    use crate::storage::sqlite::SqliteStorage;
+    use crate::storage::document::BlobDocumentStore;
+    use crate::storage::sqlite::SqlStorage;
 
     struct Harness {
         session_files: SessionFiles,
@@ -194,12 +192,15 @@ mod tests {
     fn setup() -> Harness {
         let dir = tempfile::tempdir().unwrap();
         let conn = rusqlite::Connection::open_in_memory().unwrap();
-        SqliteStorage::init_schema(&conn).unwrap();
-        let storage = Arc::new(VizierStorage::new(SqliteStorage::new(
-            Arc::new(Mutex::new(conn)),
-            Arc::new(LocalDocumentStore::new(dir.path().to_path_buf())),
+        SqlStorage::init_schema(&conn).unwrap();
+        let storage = Arc::new(VizierStorage::new(SqlStorage::new(
+            crate::storage::sql::SqlStore::sqlite(conn),
+            Arc::new(BlobDocumentStore::local(dir.path().to_path_buf())),
         )));
-        let fm = FileManager::new(dir.path().to_string_lossy().to_string());
+        let fm = FileManager::new(
+            dir.path(),
+            Arc::new(crate::storage::blob::LocalBlobStore::new(dir.path())),
+        );
         Harness {
             session_files: SessionFiles::new(storage.clone(), fm),
             storage,

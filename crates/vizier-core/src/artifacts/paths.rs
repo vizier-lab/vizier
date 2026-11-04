@@ -1,35 +1,36 @@
 //! The artifact content store (`specs/035-add-artifacts`, contracts/artifact-storage.md §2).
 //!
-//! Layout: `<workspace>/artifacts/<agent_id>/<artifact_id>/content.v<n>`. A new version is
-//! written to a temporary name in the same directory and renamed to its version name, which is
-//! always a new file — a live file is never replaced, so no platform-specific replace-on-rename
-//! behaviour is involved.
+//! Keys: `artifacts/<agent_id>/<artifact_id>/content.v<n>` in the [`BlobStore`] (locally,
+//! exactly the old `<workspace>/artifacts/...` files). A new version is always a new key and a
+//! live version is never overwritten; each `put` is atomic.
 
-use std::path::PathBuf;
+use std::sync::Arc;
 
 use anyhow::{Result, anyhow};
+use bytes::Bytes;
 
-#[derive(Debug, Clone)]
+use crate::storage::blob::{BlobKey, BlobRef, BlobStore};
+
+#[derive(Clone)]
 pub struct ArtifactPaths {
-    workspace: PathBuf,
+    blobs: Arc<dyn BlobStore>,
 }
 
 impl ArtifactPaths {
-    pub fn new(workspace: impl Into<PathBuf>) -> Self {
-        Self {
-            workspace: workspace.into(),
-        }
+    pub fn new(blobs: Arc<dyn BlobStore>) -> Self {
+        Self { blobs }
     }
 
-    pub fn artifact_dir(&self, agent_id: &str, artifact_id: &str) -> PathBuf {
-        self.workspace
-            .join("artifacts")
-            .join(agent_id)
-            .join(artifact_id)
+    fn agent_key(agent_id: &str) -> Result<BlobKey> {
+        BlobKey::new("artifacts")?.join(agent_id)
     }
 
-    pub fn content_path(&self, agent_id: &str, artifact_id: &str, file: &str) -> PathBuf {
-        self.artifact_dir(agent_id, artifact_id).join(file)
+    fn artifact_key(agent_id: &str, artifact_id: &str) -> Result<BlobKey> {
+        Self::agent_key(agent_id)?.join(artifact_id)
+    }
+
+    pub fn content_key(agent_id: &str, artifact_id: &str, file: &str) -> Result<BlobKey> {
+        Self::artifact_key(agent_id, artifact_id)?.join(file)
     }
 
     /// Write `bytes` as `content.v<version>` and return that file name.
@@ -40,26 +41,14 @@ impl ArtifactPaths {
         version: u32,
         bytes: &[u8],
     ) -> Result<String> {
-        let dir = self.artifact_dir(agent_id, artifact_id);
-        tokio::fs::create_dir_all(&dir).await?;
         let file = format!("content.v{version}");
-        let target = dir.join(&file);
+        let key = Self::content_key(agent_id, artifact_id, &file)?;
         // Never overwrite a live version: the same version number is only written for a brand
         // new artifact, and a leftover from a failed attempt is removed by the caller.
-        if tokio::fs::try_exists(&target).await? {
-            return Err(anyhow!(
-                "artifact content {} already exists",
-                target.display()
-            ));
+        if self.blobs.head(&key).await?.is_some() {
+            return Err(anyhow!("artifact content {key} already exists"));
         }
-        let temp = dir.join(format!("{file}.tmp-{}", uuid::Uuid::new_v4()));
-        {
-            use tokio::io::AsyncWriteExt;
-            let mut handle = tokio::fs::File::create(&temp).await?;
-            handle.write_all(bytes).await?;
-            handle.flush().await?;
-        }
-        tokio::fs::rename(&temp, &target).await?;
+        self.blobs.put(&key, Bytes::copy_from_slice(bytes)).await?;
         Ok(file)
     }
 
@@ -69,48 +58,89 @@ impl ArtifactPaths {
         artifact_id: &str,
         file: &str,
     ) -> Result<Vec<u8>> {
-        let path = self.content_path(agent_id, artifact_id, file);
-        tokio::fs::read(&path)
+        let key = Self::content_key(agent_id, artifact_id, file)?;
+        self.blobs
+            .get(&key)
             .await
-            .map_err(|e| anyhow!("failed to read artifact content {}: {e}", path.display()))
+            .map_err(|e| anyhow!("failed to read artifact content {key}: {e}"))?
+            .map(|b| b.to_vec())
+            .ok_or_else(|| anyhow!("artifact content {key} is missing"))
+    }
+
+    /// The version's object for streaming, `None` when it is missing.
+    pub async fn content_ref(
+        &self,
+        agent_id: &str,
+        artifact_id: &str,
+        file: &str,
+    ) -> Result<Option<BlobRef>> {
+        let key = Self::content_key(agent_id, artifact_id, file)?;
+        Ok(self.blobs.head(&key).await?.map(|meta| BlobRef {
+            store: self.blobs.clone(),
+            meta,
+        }))
+    }
+
+    /// Remove one version. Missing is fine.
+    pub async fn delete_version(
+        &self,
+        agent_id: &str,
+        artifact_id: &str,
+        file: &str,
+    ) -> Result<()> {
+        self.blobs
+            .delete(&Self::content_key(agent_id, artifact_id, file)?)
+            .await
+    }
+
+    /// The version file names present for an artifact.
+    pub async fn versions(&self, agent_id: &str, artifact_id: &str) -> Result<Vec<String>> {
+        let base = Self::artifact_key(agent_id, artifact_id)?;
+        Ok(self
+            .blobs
+            .list(&base)
+            .await?
+            .into_iter()
+            .filter_map(|meta| meta.key.strip_prefix(&base).map(str::to_string))
+            .filter(|name| name.starts_with("content.v") && !name.contains('/'))
+            .collect())
     }
 
     pub async fn delete_artifact(&self, agent_id: &str, artifact_id: &str) -> Result<()> {
-        let dir = self.artifact_dir(agent_id, artifact_id);
-        match tokio::fs::remove_dir_all(&dir).await {
-            Ok(()) => Ok(()),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            Err(e) => Err(anyhow!(
-                "failed to remove artifact directory {}: {e}",
-                dir.display()
-            )),
-        }
+        let key = Self::artifact_key(agent_id, artifact_id)?;
+        self.blobs
+            .delete_prefix(&key)
+            .await
+            .map_err(|e| anyhow!("failed to remove artifact content {key}: {e}"))
     }
 
     pub async fn delete_agent(&self, agent_id: &str) -> Result<()> {
-        let dir = self.workspace.join("artifacts").join(agent_id);
-        match tokio::fs::remove_dir_all(&dir).await {
-            Ok(()) => Ok(()),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            Err(e) => Err(anyhow!(
-                "failed to remove agent artifacts {}: {e}",
-                dir.display()
-            )),
-        }
+        let key = Self::agent_key(agent_id)?;
+        self.blobs
+            .delete_prefix(&key)
+            .await
+            .map_err(|e| anyhow!("failed to remove agent artifacts {key}: {e}"))
     }
 
-    pub fn exists(&self, agent_id: &str, artifact_id: &str, file: &str) -> bool {
-        self.content_path(agent_id, artifact_id, file).is_file()
+    pub async fn exists(&self, agent_id: &str, artifact_id: &str, file: &str) -> bool {
+        match Self::content_key(agent_id, artifact_id, file) {
+            Ok(key) => matches!(self.blobs.head(&key).await, Ok(Some(_))),
+            Err(_) => false,
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::storage::blob::LocalBlobStore;
 
     fn paths() -> (ArtifactPaths, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
-        (ArtifactPaths::new(dir.path()), dir)
+        (
+            ArtifactPaths::new(Arc::new(LocalBlobStore::new(dir.path()))),
+            dir,
+        )
     }
 
     #[tokio::test]
@@ -118,17 +148,20 @@ mod tests {
         let (p, dir) = paths();
         let file = p.write_version("a", "id", 1, b"hello").await.unwrap();
         assert_eq!(file, "content.v1");
-        let path = p.content_path("a", "id", &file);
+        let key = ArtifactPaths::content_key("a", "id", &file).unwrap();
+        assert_eq!(key.as_str(), "artifacts/a/id/content.v1");
         assert_eq!(
-            path,
-            dir.path()
-                .join("artifacts")
-                .join("a")
-                .join("id")
-                .join("content.v1")
+            std::fs::read(
+                dir.path()
+                    .join("artifacts")
+                    .join("a")
+                    .join("id")
+                    .join("content.v1")
+            )
+            .unwrap(),
+            b"hello"
         );
         assert_eq!(p.read_current("a", "id", &file).await.unwrap(), b"hello");
-        assert!(!path.to_string_lossy().contains("uploads"));
     }
 
     #[tokio::test]
@@ -150,12 +183,15 @@ mod tests {
             p.read_current("a", "id", "content.v2").await.unwrap(),
             b"v2"
         );
+        let mut versions = p.versions("a", "id").await.unwrap();
+        versions.sort();
+        assert_eq!(versions, vec!["content.v1", "content.v2"]);
     }
 
     #[tokio::test]
     async fn a_failed_write_leaves_no_referenced_file() {
         let (p, dir) = paths();
-        // A plain file where the agent directory should be makes create_dir_all fail.
+        // A plain file where the agent directory should be makes the write fail.
         tokio::fs::create_dir_all(dir.path().join("artifacts"))
             .await
             .unwrap();
@@ -163,7 +199,7 @@ mod tests {
             .await
             .unwrap();
         assert!(p.write_version("a", "id", 1, b"x").await.is_err());
-        assert!(!p.exists("a", "id", "content.v1"));
+        assert!(!p.exists("a", "id", "content.v1").await);
     }
 
     #[tokio::test]
@@ -173,13 +209,13 @@ mod tests {
         p.write_version("a", "id2", 1, b"y").await.unwrap();
         p.write_version("b", "id3", 1, b"z").await.unwrap();
         p.delete_artifact("a", "id1").await.unwrap();
-        assert!(!p.exists("a", "id1", "content.v1"));
-        assert!(p.exists("a", "id2", "content.v1"));
-        assert!(p.exists("b", "id3", "content.v1"));
+        assert!(!p.exists("a", "id1", "content.v1").await);
+        assert!(p.exists("a", "id2", "content.v1").await);
+        assert!(p.exists("b", "id3", "content.v1").await);
         // Deleting again is fine.
         p.delete_artifact("a", "id1").await.unwrap();
         p.delete_agent("a").await.unwrap();
-        assert!(!p.exists("a", "id2", "content.v1"));
-        assert!(p.exists("b", "id3", "content.v1"));
+        assert!(!p.exists("a", "id2", "content.v1").await);
+        assert!(p.exists("b", "id3", "content.v1").await);
     }
 }

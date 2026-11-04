@@ -57,13 +57,13 @@ mod artifacts;
 mod background_jobs;
 pub mod brave_search;
 mod consult;
-#[cfg(feature = "discord")]
+#[cfg(feature = "channel-discord")]
 pub mod discord;
 mod dream_journal;
 pub mod fetch;
 pub mod http_client;
 mod image_gen;
-#[cfg(feature = "documents")]
+#[cfg(feature = "addon-documents")]
 pub mod office;
 mod python;
 mod read_image;
@@ -76,7 +76,7 @@ pub mod shell;
 mod skill;
 pub mod stt;
 mod subagents;
-#[cfg(feature = "telegram")]
+#[cfg(feature = "channel-telegram")]
 pub mod telegram;
 mod think;
 pub mod tts;
@@ -1594,18 +1594,18 @@ mod tests {
         },
     };
 
-    #[cfg(feature = "documents")]
+    #[cfg(feature = "addon-documents")]
     use crate::agents::tools::office::{
         OfficeDocxRead, OfficeDocxWrite, OfficePdfRead, OfficePdfRenderPage,
         OfficePdfWriteFromDocx, OfficePdfWriteFromHtml, OfficeXlsxRead, OfficeXlsxReadCsv,
         OfficeXlsxWrite,
     };
-    #[cfg(feature = "discord")]
+    #[cfg(feature = "channel-discord")]
     use crate::agents::tools::discord::{
         GetDiscordChannelInfo, GetDiscordGuildInfo, GetDiscordMemberInfo, GetDiscordMessage,
         ReactDiscordMessage, SendDiscordMessage,
     };
-    #[cfg(feature = "telegram")]
+    #[cfg(feature = "channel-telegram")]
     use crate::agents::tools::telegram::{
         GetTelegramMessage, ReactTelegramMessage, SendTelegramMessage,
     };
@@ -1663,15 +1663,15 @@ mod tests {
             entry::<ReadTmp>(),
             entry::<BraveSearch<WebOnlySearch>>(),
             entry::<BraveSearch<NewsOnlySearch>>(),
-            #[cfg(feature = "documents")]
+            #[cfg(feature = "addon-documents")]
             entry::<OfficeDocxRead>(),
-            #[cfg(feature = "documents")]
+            #[cfg(feature = "addon-documents")]
             entry::<OfficeXlsxRead>(),
-            #[cfg(feature = "documents")]
+            #[cfg(feature = "addon-documents")]
             entry::<OfficeXlsxReadCsv>(),
-            #[cfg(feature = "documents")]
+            #[cfg(feature = "addon-documents")]
             entry::<OfficeDocxWrite>(),
-            #[cfg(feature = "documents")]
+            #[cfg(feature = "addon-documents")]
             entry::<OfficeXlsxWrite>(),
             #[cfg(feature = "documents")]
             entry::<OfficePdfRead>(),
@@ -1686,23 +1686,23 @@ mod tests {
             entry::<TtsGenerate>(),
             entry::<SttTranscribe>(),
             entry::<ImageGenerate>(),
-            #[cfg(feature = "discord")]
+            #[cfg(feature = "channel-discord")]
             entry::<SendDiscordMessage>(),
-            #[cfg(feature = "discord")]
+            #[cfg(feature = "channel-discord")]
             entry::<ReactDiscordMessage>(),
-            #[cfg(feature = "discord")]
+            #[cfg(feature = "channel-discord")]
             entry::<GetDiscordMessage>(),
-            #[cfg(feature = "discord")]
+            #[cfg(feature = "channel-discord")]
             entry::<GetDiscordGuildInfo>(),
-            #[cfg(feature = "discord")]
+            #[cfg(feature = "channel-discord")]
             entry::<GetDiscordChannelInfo>(),
-            #[cfg(feature = "discord")]
+            #[cfg(feature = "channel-discord")]
             entry::<GetDiscordMemberInfo>(),
-            #[cfg(feature = "telegram")]
+            #[cfg(feature = "channel-telegram")]
             entry::<SendTelegramMessage>(),
-            #[cfg(feature = "telegram")]
+            #[cfg(feature = "channel-telegram")]
             entry::<ReactTelegramMessage>(),
-            #[cfg(feature = "telegram")]
+            #[cfg(feature = "channel-telegram")]
             entry::<GetTelegramMessage>(),
             entry::<SendWebuiMessage>(),
             entry::<ListWebuiTopics>(),
@@ -1725,7 +1725,7 @@ mod tests {
         ]
     }
 
-    #[cfg(all(feature = "discord", feature = "telegram", feature = "documents"))]
+    #[cfg(all(feature = "channel-discord", feature = "channel-telegram", feature = "addon-documents"))]
     #[test]
     fn every_tool_is_in_its_category() {
         use ToolCategory::*;
@@ -1779,23 +1779,23 @@ mod tests {
             ("tts_generate", Audio),
             ("stt_transcribe", Audio),
             ("image_generate", Media),
-            #[cfg(feature = "discord")]
+            #[cfg(feature = "channel-discord")]
             ("discord_send_message", Discord),
-            #[cfg(feature = "discord")]
+            #[cfg(feature = "channel-discord")]
             ("discord_react_message", Discord),
-            #[cfg(feature = "discord")]
+            #[cfg(feature = "channel-discord")]
             ("discord_get_message_by_id", Discord),
-            #[cfg(feature = "discord")]
+            #[cfg(feature = "channel-discord")]
             ("discord_get_guild_info", Discord),
-            #[cfg(feature = "discord")]
+            #[cfg(feature = "channel-discord")]
             ("discord_get_channel_info", Discord),
-            #[cfg(feature = "discord")]
+            #[cfg(feature = "channel-discord")]
             ("discord_get_member_info", Discord),
-            #[cfg(feature = "telegram")]
+            #[cfg(feature = "channel-telegram")]
             ("telegram_send_message", Telegram),
-            #[cfg(feature = "telegram")]
+            #[cfg(feature = "channel-telegram")]
             ("telegram_react_message", Telegram),
-            #[cfg(feature = "telegram")]
+            #[cfg(feature = "channel-telegram")]
             ("telegram_get_message_by_id", Telegram),
             ("webui_send_message", Webui),
             ("webui_list_topics", Webui),
@@ -1815,15 +1815,15 @@ mod tests {
         const ADDON: &[(&str, &str)] = &[
             ("brave_search_web", "brave_search"),
             ("brave_search_news", "brave_search"),
-            #[cfg(feature = "documents")]
+            #[cfg(feature = "addon-documents")]
             ("office_docx_read_as_md", "office"),
-            #[cfg(feature = "documents")]
+            #[cfg(feature = "addon-documents")]
             ("office_xlsx_read_as_cells", "office"),
-            #[cfg(feature = "documents")]
+            #[cfg(feature = "addon-documents")]
             ("office_xlsx_read_as_csv", "office"),
-            #[cfg(feature = "documents")]
+            #[cfg(feature = "addon-documents")]
             ("office_docx_write_from_md", "office"),
-            #[cfg(feature = "documents")]
+            #[cfg(feature = "addon-documents")]
             ("office_xlsx_write_from_sheets", "office"),
             #[cfg(feature = "documents")]
             ("office_pdf_read_as_md", "office"),
@@ -1837,15 +1837,15 @@ mod tests {
         const UNCATEGORISED: &[&str] = &[
             "brave_search_web",
             "brave_search_news",
-            #[cfg(feature = "documents")]
+            #[cfg(feature = "addon-documents")]
             "office_docx_read_as_md",
-            #[cfg(feature = "documents")]
+            #[cfg(feature = "addon-documents")]
             "office_xlsx_read_as_cells",
-            #[cfg(feature = "documents")]
+            #[cfg(feature = "addon-documents")]
             "office_xlsx_read_as_csv",
-            #[cfg(feature = "documents")]
+            #[cfg(feature = "addon-documents")]
             "office_docx_write_from_md",
-            #[cfg(feature = "documents")]
+            #[cfg(feature = "addon-documents")]
             "office_xlsx_write_from_sheets",
             #[cfg(feature = "documents")]
             "office_pdf_read_as_md",

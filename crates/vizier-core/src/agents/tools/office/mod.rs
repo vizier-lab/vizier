@@ -17,13 +17,13 @@ use crate::{
 };
 
 pub mod docx;
-mod formula;
-pub mod pdf;
-pub mod xlsx;
 #[cfg(test)]
 mod fixture_tests;
+mod formula;
+pub mod pdf;
 #[cfg(test)]
 mod pdf_tests;
+pub mod xlsx;
 
 pub use crate::agents::tools::session_files::{DOCX_MIME, PDF_MIME, PNG_MIME, XLS_MIME, XLSX_MIME};
 
@@ -45,9 +45,16 @@ pub enum Cell {
     Bool(bool),
     Number(Number),
     Text(String),
-    Date { date: String },
-    Error { error: String },
-    Formula { value: Option<Box<Cell>>, formula: String },
+    Date {
+        date: String,
+    },
+    Error {
+        error: String,
+    },
+    Formula {
+        value: Option<Box<Cell>>,
+        formula: String,
+    },
 }
 
 impl Cell {
@@ -56,7 +63,9 @@ impl Cell {
         if value.is_finite() && value.fract() == 0.0 && value.abs() < 1e15 {
             return Cell::Number(Number::from(value as i64));
         }
-        Number::from_f64(value).map(Cell::Number).unwrap_or(Cell::Null)
+        Number::from_f64(value)
+            .map(Cell::Number)
+            .unwrap_or(Cell::Null)
     }
 }
 
@@ -123,7 +132,9 @@ pub struct WorkbookCsv {
 /// One sheet of a workbook to write.
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 pub struct SheetInput {
-    #[schemars(description = "Sheet name: 1 to 31 characters, none of []:*?/\\, unique in the workbook")]
+    #[schemars(
+        description = "Sheet name: 1 to 31 characters, none of []:*?/\\, unique in the workbook"
+    )]
     pub name: String,
     #[schemars(
         description = "Rows of cells. A cell is text, a number, true/false, {\"date\": \"2026-11-01\"} (or with a time, \"2026-11-01T09:30:00\") or null for blank. The first row is the header: it is written bold and frozen. Text is always stored as text, even when it starts with =."
@@ -150,7 +161,12 @@ fn format_of(mime: &str, filename: &str) -> Format {
         PDF_MIME => return Format::Pdf,
         _ => {}
     }
-    match filename.rsplit('.').next().map(str::to_ascii_lowercase).as_deref() {
+    match filename
+        .rsplit('.')
+        .next()
+        .map(str::to_ascii_lowercase)
+        .as_deref()
+    {
         Some("docx") => Format::Docx,
         Some("xlsx") => Format::Xlsx,
         Some("xls") => Format::Xls,
@@ -260,13 +276,20 @@ impl VizierTool for OfficeDocxRead {
             .to_string()
     }
 
-    async fn call(&self, args: Self::Input, ctx: &ToolContext) -> Result<Self::Output, VizierError> {
+    async fn call(
+        &self,
+        args: Self::Input,
+        ctx: &ToolContext,
+    ) -> Result<Self::Output, VizierError> {
         let (mime, bytes) = load(&self.storage, &self.file_manager, ctx, &args.filename).await?;
         let format = format_of(&mime, &args.filename);
         if format != Format::Docx {
             return Err(wrong_tool(&args.filename, format, Self::name().as_str()));
         }
-        let max = args.max_chars.unwrap_or(READ_MAX_CHARS).clamp(1, READ_MAX_CHARS);
+        let max = args
+            .max_chars
+            .unwrap_or(READ_MAX_CHARS)
+            .clamp(1, READ_MAX_CHARS);
         docx::to_markdown(&bytes, max)
     }
 }
@@ -314,7 +337,11 @@ impl VizierTool for OfficeXlsxRead {
             .to_string()
     }
 
-    async fn call(&self, args: Self::Input, ctx: &ToolContext) -> Result<Self::Output, VizierError> {
+    async fn call(
+        &self,
+        args: Self::Input,
+        ctx: &ToolContext,
+    ) -> Result<Self::Output, VizierError> {
         let (mime, bytes) = load(&self.storage, &self.file_manager, ctx, &args.filename).await?;
         let format = format_of(&mime, &args.filename);
         let Some(flavour) = flavour(format) else {
@@ -370,7 +397,11 @@ impl VizierTool for OfficeXlsxReadCsv {
             .to_string()
     }
 
-    async fn call(&self, args: Self::Input, ctx: &ToolContext) -> Result<Self::Output, VizierError> {
+    async fn call(
+        &self,
+        args: Self::Input,
+        ctx: &ToolContext,
+    ) -> Result<Self::Output, VizierError> {
         let (mime, bytes) = load(&self.storage, &self.file_manager, ctx, &args.filename).await?;
         let format = format_of(&mime, &args.filename);
         let Some(flavour) = flavour(format) else {
@@ -387,7 +418,13 @@ impl VizierTool for OfficeXlsxReadCsv {
             .await
             .map_err(|e| VizierError(format!("The calculation could not finish: {e}")))?;
         }
-        xlsx::read_csv(&bytes, flavour, args.sheet.as_deref(), args.range.as_deref(), false)
+        xlsx::read_csv(
+            &bytes,
+            flavour,
+            args.sheet.as_deref(),
+            args.range.as_deref(),
+            false,
+        )
     }
 }
 
@@ -406,7 +443,9 @@ fn normalise_filename(raw: &str, extension: &str) -> Result<String, VizierError>
         return Err(VizierError("The filename is empty.".into()));
     }
     if name.chars().any(char::is_control) {
-        return Err(VizierError("The filename must not contain control characters.".into()));
+        return Err(VizierError(
+            "The filename must not contain control characters.".into(),
+        ));
     }
     if name.contains('/') || name.contains('\\') {
         return Err(VizierError(
@@ -444,12 +483,18 @@ async fn write_session_file(
         .save_session_file(session, &filename, mime, record.size, &record.id)
         .await
         .map_err(|e| VizierError(e.to_string()))?;
-    Ok(FileWritten { status: "ok".into(), filename, size: record.size })
+    Ok(FileWritten {
+        status: "ok".into(),
+        filename,
+        size: record.size,
+    })
 }
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct DocxWriteArgs {
-    #[schemars(description = "Name for the new file, such as report.docx (.docx is added if missing). A name only, no folder.")]
+    #[schemars(
+        description = "Name for the new file, such as report.docx (.docx is added if missing). A name only, no folder."
+    )]
     pub filename: String,
     #[schemars(
         description = "The document as Markdown: # headings, **bold**, *italic*, `code`, nested - and 1. lists, | pipe | tables, [links](url), > quotes and --- rules. Images and raw HTML become their text."
@@ -482,15 +527,30 @@ impl VizierTool for OfficeDocxWrite {
             .to_string()
     }
 
-    async fn call(&self, args: Self::Input, ctx: &ToolContext) -> Result<Self::Output, VizierError> {
+    async fn call(
+        &self,
+        args: Self::Input,
+        ctx: &ToolContext,
+    ) -> Result<Self::Output, VizierError> {
         let bytes = docx::from_markdown(&args.markdown, args.title.as_deref())?;
-        write_session_file(&self.storage, &self.file_manager, &ctx.session, &args.filename, "docx", DOCX_MIME, bytes).await
+        write_session_file(
+            &self.storage,
+            &self.file_manager,
+            &ctx.session,
+            &args.filename,
+            "docx",
+            DOCX_MIME,
+            bytes,
+        )
+        .await
     }
 }
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct XlsxWriteArgs {
-    #[schemars(description = "Name for the new file, such as budget.xlsx (.xlsx is added if missing). A name only, no folder.")]
+    #[schemars(
+        description = "Name for the new file, such as budget.xlsx (.xlsx is added if missing). A name only, no folder."
+    )]
     pub filename: String,
     #[schemars(description = "The sheets, in order: each has a name and rows of cells")]
     pub sheets: Vec<SheetInput>,
@@ -519,9 +579,22 @@ impl VizierTool for OfficeXlsxWrite {
             .to_string()
     }
 
-    async fn call(&self, args: Self::Input, ctx: &ToolContext) -> Result<Self::Output, VizierError> {
+    async fn call(
+        &self,
+        args: Self::Input,
+        ctx: &ToolContext,
+    ) -> Result<Self::Output, VizierError> {
         let bytes = xlsx::write_workbook(&args.sheets)?;
-        write_session_file(&self.storage, &self.file_manager, &ctx.session, &args.filename, "xlsx", XLSX_MIME, bytes).await
+        write_session_file(
+            &self.storage,
+            &self.file_manager,
+            &ctx.session,
+            &args.filename,
+            "xlsx",
+            XLSX_MIME,
+            bytes,
+        )
+        .await
     }
 }
 
@@ -783,14 +856,30 @@ mod tests {
             (Cell::number(12.0), json!(12)),
             (Cell::number(2.5), json!(2.5)),
             (Cell::Text("a".into()), json!("a")),
-            (Cell::Date { date: "2026-11-01".into() }, json!({"date": "2026-11-01"})),
-            (Cell::Error { error: "#DIV/0!".into() }, json!({"error": "#DIV/0!"})),
             (
-                Cell::Formula { value: Some(Box::new(Cell::number(3.0))), formula: "=1+2".into() },
+                Cell::Date {
+                    date: "2026-11-01".into(),
+                },
+                json!({"date": "2026-11-01"}),
+            ),
+            (
+                Cell::Error {
+                    error: "#DIV/0!".into(),
+                },
+                json!({"error": "#DIV/0!"}),
+            ),
+            (
+                Cell::Formula {
+                    value: Some(Box::new(Cell::number(3.0))),
+                    formula: "=1+2".into(),
+                },
                 json!({"value": 3, "formula": "=1+2"}),
             ),
             (
-                Cell::Formula { value: None, formula: "=A1".into() },
+                Cell::Formula {
+                    value: None,
+                    formula: "=A1".into(),
+                },
                 json!({"value": null, "formula": "=A1"}),
             ),
         ];
@@ -806,7 +895,10 @@ mod tests {
         assert_eq!(format_of(DOCX_MIME, "x"), Format::Docx);
         assert_eq!(format_of(XLSX_MIME, "x"), Format::Xlsx);
         assert_eq!(format_of(XLS_MIME, "x"), Format::Xls);
-        assert_eq!(format_of("application/octet-stream", "Budget.XLSX"), Format::Xlsx);
+        assert_eq!(
+            format_of("application/octet-stream", "Budget.XLSX"),
+            Format::Xlsx
+        );
         assert_eq!(format_of(PDF_MIME, "x"), Format::Pdf);
         assert_eq!(format_of("application/octet-stream", "report.PDF"), Format::Pdf);
         assert_eq!(format_of("text/plain", "a.txt"), Format::Other);
@@ -817,7 +909,10 @@ mod tests {
         let docx = wrong_tool("a.docx", Format::Docx, "office_xlsx_read_as_cells");
         assert!(docx.0.contains("office_docx_read_as_md"));
         let xlsx = wrong_tool("a.xlsx", Format::Xlsx, "office_docx_read_as_md");
-        assert!(xlsx.0.contains("office_xlsx_read_as_cells") && xlsx.0.contains("office_xlsx_read_as_csv"));
+        assert!(
+            xlsx.0.contains("office_xlsx_read_as_cells")
+                && xlsx.0.contains("office_xlsx_read_as_csv")
+        );
         let pdf = wrong_tool("a.pdf", Format::Pdf, "office_docx_read_as_md");
         assert!(pdf.0.contains("office_pdf_read_as_md") && pdf.0.contains("office_pdf_render_page_as_png"));
         let other = wrong_tool("a.txt", Format::Other, "office_docx_read_as_md");
@@ -827,11 +922,22 @@ mod tests {
     #[test]
     fn a_filename_is_a_name_ending_in_the_extension() {
         assert_eq!(normalise_filename("report", "docx").unwrap(), "report.docx");
-        assert_eq!(normalise_filename("  report.docx ", "docx").unwrap(), "report.docx");
-        assert_eq!(normalise_filename("Report.DOCX", "docx").unwrap(), "Report.DOCX");
-        assert_eq!(normalise_filename("my.budget", "xlsx").unwrap(), "my.budget.xlsx");
+        assert_eq!(
+            normalise_filename("  report.docx ", "docx").unwrap(),
+            "report.docx"
+        );
+        assert_eq!(
+            normalise_filename("Report.DOCX", "docx").unwrap(),
+            "Report.DOCX"
+        );
+        assert_eq!(
+            normalise_filename("my.budget", "xlsx").unwrap(),
+            "my.budget.xlsx"
+        );
         assert_eq!(normalise_filename(".xlsx", "xlsx").unwrap(), ".xlsx.xlsx");
-        for bad in ["", "  ", "a/b.docx", "..\\x", "../x", "a\nb", "a\0b", ".", ".."] {
+        for bad in [
+            "", "  ", "a/b.docx", "..\\x", "../x", "a\nb", "a\0b", ".", "..",
+        ] {
             assert!(normalise_filename(bad, "docx").is_err(), "{bad:?}");
         }
     }
@@ -843,25 +949,53 @@ mod tests {
             "CREATE TABLE session_file (id TEXT PRIMARY KEY, session_slug TEXT NOT NULL, agent_id TEXT NOT NULL, data TEXT NOT NULL);",
         )
         .unwrap();
-        let storage = VizierStorage::new(crate::storage::sqlite::SqliteStorage::new(
-            Arc::new(parking_lot::Mutex::new(conn)),
-            Arc::new(crate::storage::document::LocalDocumentStore::new(dir.path().to_path_buf())),
+        let storage = VizierStorage::new(crate::storage::sqlite::SqlStorage::new(
+            crate::storage::sql::SqlStore::sqlite(conn),
+            Arc::new(crate::storage::document::BlobDocumentStore::local(
+                dir.path().to_path_buf(),
+            )),
         ));
-        let manager = FileManager::new(dir.path().to_string_lossy().to_string());
+        let manager = FileManager::new(
+            dir.path(),
+            Arc::new(crate::storage::blob::LocalBlobStore::new(dir.path())),
+        );
         (Arc::new(storage), manager, dir)
     }
 
     #[tokio::test]
     async fn a_written_file_is_stored_with_its_media_type_and_replaced_by_the_same_name() {
         let (storage, manager, _dir) = files();
-        let session = VizierSession("agent".into(), crate::schema::VizierChannelId::HTTP("u".into(), "c".into()), None);
-        let first = write_session_file(&storage, &manager, &session, "report", "docx", DOCX_MIME, b"one".to_vec())
-            .await
-            .unwrap();
-        assert_eq!((first.status.as_str(), first.filename.as_str(), first.size), ("ok", "report.docx", 3));
-        let second = write_session_file(&storage, &manager, &session, "report.docx", "docx", DOCX_MIME, b"second".to_vec())
-            .await
-            .unwrap();
+        let session = VizierSession(
+            "agent".into(),
+            crate::schema::VizierChannelId::HTTP("u".into(), "c".into()),
+            None,
+        );
+        let first = write_session_file(
+            &storage,
+            &manager,
+            &session,
+            "report",
+            "docx",
+            DOCX_MIME,
+            b"one".to_vec(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            (first.status.as_str(), first.filename.as_str(), first.size),
+            ("ok", "report.docx", 3)
+        );
+        let second = write_session_file(
+            &storage,
+            &manager,
+            &session,
+            "report.docx",
+            "docx",
+            DOCX_MIME,
+            b"second".to_vec(),
+        )
+        .await
+        .unwrap();
         assert_eq!(second.size, 6);
 
         let listed = storage.list_session_files(&session).await.unwrap();

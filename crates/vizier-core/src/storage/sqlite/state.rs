@@ -1,26 +1,28 @@
+use crate::storage::sql::params;
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 
 use crate::{
     schema::DreamStatus,
-    storage::{dream::DreamStorage, state::StateStorage, sqlite::SqliteStorage},
+    storage::{dream::DreamStorage, sqlite::SqlStorage, state::StateStorage},
 };
 
 #[async_trait::async_trait]
-impl StateStorage for SqliteStorage {
+impl StateStorage for SqlStorage {
     async fn save_state(&self, key: String, value: serde_json::Value) -> Result<()> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         conn.execute(
-            "INSERT OR REPLACE INTO state (key, value) VALUES (?1, ?2)",
-            rusqlite::params![key, serde_json::to_string(&value)?],
+            "INSERT INTO state (key, value) VALUES (?1, ?2) \
+             ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+            params![key, serde_json::to_string(&value)?],
         )?;
         Ok(())
     }
 
     async fn get_state(&self, key: String) -> Result<Option<serde_json::Value>> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let mut stmt = conn.prepare("SELECT value FROM state WHERE key = ?1")?;
-        let mut rows = stmt.query_map(rusqlite::params![key], |row| {
+        let mut rows = stmt.query_map(params![key], |row| {
             let val: String = row.get(0)?;
             Ok(val)
         })?;
@@ -33,14 +35,14 @@ impl StateStorage for SqliteStorage {
     }
 
     async fn delete_state(&self, key: String) -> Result<()> {
-        let conn = self.conn.lock();
-        conn.execute("DELETE FROM state WHERE key = ?1", rusqlite::params![key])?;
+        let conn = self.conn.lock()?;
+        conn.execute("DELETE FROM state WHERE key = ?1", params![key])?;
         Ok(())
     }
 }
 
 #[async_trait::async_trait]
-impl DreamStorage for SqliteStorage {
+impl DreamStorage for SqlStorage {
     async fn get_last_dream_time(&self, agent_id: &str) -> Result<Option<DateTime<Utc>>> {
         let key = format!("dream_last_time:{}", agent_id);
         match self.get_state(key).await? {
@@ -62,8 +64,7 @@ impl DreamStorage for SqliteStorage {
         let key = format!("dream_status:{}", agent_id);
         match self.get_state(key).await? {
             Some(val) => {
-                let status: DreamStatus =
-                    serde_json::from_value(val).unwrap_or(DreamStatus::Idle);
+                let status: DreamStatus = serde_json::from_value(val).unwrap_or(DreamStatus::Idle);
                 Ok(Some(status))
             }
             None => Ok(None),

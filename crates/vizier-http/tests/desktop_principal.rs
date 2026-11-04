@@ -25,7 +25,10 @@ async fn network_router_never_accepts_a_desktop_identity() {
     let dir = tempfile::tempdir().unwrap();
     let mut config = VizierConfig::with_workspace(dir.path().to_path_buf());
     config.channels.http.as_mut().unwrap().jwt_secret = "test-secret".into();
-    let runtime = VizierRuntime::start(RuntimeOptions { config }).await.unwrap();
+    let runtime = VizierRuntime::start(RuntimeOptions {
+        config,
+        ..Default::default()
+    }).await.unwrap();
     let storage = runtime.deps().storage.clone();
 
     let role = storage.create_role("owner", vec![], true).await.unwrap();
@@ -65,7 +68,10 @@ async fn cors_allow_list_refuses_other_origins() {
     let http = config.channels.http.as_mut().unwrap();
     http.jwt_secret = "test-secret".into();
     http.cors_origins = Some(vec!["http://127.0.0.1:9999".into()]);
-    let runtime = VizierRuntime::start(RuntimeOptions { config }).await.unwrap();
+    let runtime = VizierRuntime::start(RuntimeOptions {
+        config,
+        ..Default::default()
+    }).await.unwrap();
     let http_cfg = runtime.deps().config.channels.http.clone().unwrap();
 
     let preflight = |origin: &'static str| {

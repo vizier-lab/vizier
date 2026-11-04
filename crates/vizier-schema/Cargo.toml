@@ -1,0 +1,23 @@
+[package]
+name = "vizier-schema"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "The Fleet bus contract: subjects, envelopes, messaging, leases and shared state traits, an in-process backend and a conformance suite"
+keywords = ["ai", "agent", "message-bus"]
+categories = ["asynchronous"]
+readme = "README.md"
+include = ["/src/**/*", "/Cargo.toml", "/README.md"]
+
+[dependencies]
+async-trait.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = ["sync", "time", "rt", "macros"] }
+uuid.workspace = true
+
+[dev-dependencies]
+async-trait.workspace = true
+tokio = { workspace = true, features = ["test-util", "rt", "macros", "time", "sync"] }

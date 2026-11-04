@@ -65,26 +65,15 @@ pub async fn endpoint(
     id: &ProviderId,
     model: String,
 ) -> crate::Result<Endpoint> {
-    if *id == ProviderId::AMAZON_BEDROCK {
-        // One saved connection (access key pair + region) serves embeddings and images; the
-        // same region/pair rules as the chat resolver decide the host (research R6/R7).
-        let env = crate::llm::resolve::provider_env(&deps.catalogue, id);
-        let credentials = crate::provider_keys::resolve_credentials(&deps.storage, id, &env)
-            .await
-            .map(|(c, _)| c)
-            .unwrap_or_default();
-        let region = crate::llm::resolve::bedrock_region(&credentials)?;
-        let (access_key_id, secret_access_key, session_token) =
-            crate::llm::resolve::bedrock_keys(&credentials)?;
+    if *id == ProviderId::AMAZON_BEDROCK || *id == ProviderId::AMAZON_BEDROCK_SSO {
+        // One saved connection serves embeddings and images with the same region rules as chat
+        // (research R6/R7). The credential comes from the shared helper, so the static pair and
+        // the SSO session differ in exactly one place (FR-002, FR-009d).
+        let bedrock = crate::llm::resolve::bedrock_role_credentials(deps, id, None).await?;
         return Ok(Endpoint {
             http: deps.http.clone(),
-            base_url: crate::llm::bedrock::runtime_endpoint(&region),
-            credential: crate::llm::auth::SigV4Credential::bedrock(
-                access_key_id,
-                secret_access_key,
-                session_token,
-                region,
-            ),
+            base_url: crate::llm::bedrock::runtime_endpoint(&bedrock.region),
+            credential: bedrock.credential,
             model,
         });
     }
@@ -117,4 +106,88 @@ pub async fn endpoint(
         credential,
         model,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::VizierConfig;
+    use crate::schema::{ProviderCredentials, ProviderEntry};
+    use crate::storage::provider::ProviderStorage;
+
+    async fn deps() -> (VizierDependencies, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        let config = VizierConfig {
+            workspace: dir.path().to_string_lossy().to_string(),
+            ..Default::default()
+        };
+        (VizierDependencies::new(config).await.unwrap(), dir)
+    }
+
+    fn sso_row() -> ProviderEntry {
+        ProviderEntry {
+            id: ProviderId::AMAZON_BEDROCK_SSO,
+            credentials: ProviderCredentials {
+                start_url: Some("https://acme.awsapps.com/start".into()),
+                sso_region: Some("us-east-1".into()),
+                account_id: Some("123456789012".into()),
+                role_name: Some("BedrockOperator".into()),
+                sso_profile: Some("acme-bedrock".into()),
+                region: Some("eu-west-1".into()),
+                ..Default::default()
+            },
+        }
+    }
+
+    fn static_row() -> ProviderEntry {
+        ProviderEntry {
+            id: ProviderId::AMAZON_BEDROCK,
+            credentials: ProviderCredentials {
+                region: Some("eu-west-1".into()),
+                access_key_id: Some("AKIAEXAMPLE".into()),
+                secret_access_key: Some("secret".into()),
+                ..Default::default()
+            },
+        }
+    }
+
+    /// FR-002/FR-033: both Bedrock connections reach the runtime endpoint through the one
+    /// credential helper, so media never signs in a second time — for the SSO row there is no
+    /// API key and no stored session here, and building the endpoint still succeeds.
+    #[tokio::test]
+    async fn both_bedrock_connections_build_their_endpoint_from_the_shared_helper() {
+        let (deps, _dir) = deps().await;
+        deps.storage.upsert_provider(&sso_row()).await.unwrap();
+        deps.storage.upsert_provider(&static_row()).await.unwrap();
+
+        let model = crate::llm::media::bedrock::DEFAULT_EMBEDDING_MODEL.to_string();
+        for id in [ProviderId::AMAZON_BEDROCK_SSO, ProviderId::AMAZON_BEDROCK] {
+            let endpoint = endpoint(&deps, &id, model.clone())
+                .await
+                .unwrap_or_else(|e| panic!("{id}: {e}"));
+            assert_eq!(endpoint.model, model);
+            assert_eq!(
+                endpoint.base_url,
+                crate::llm::bedrock::runtime_endpoint("eu-west-1"),
+                "{id}: the Bedrock region, not the SSO region"
+            );
+        }
+    }
+
+    /// A missing connection is still named as a connection problem, not as a missing API key.
+    #[tokio::test]
+    async fn an_unconfigured_sso_connection_is_not_reported_as_a_missing_key() {
+        let (deps, _dir) = deps().await;
+        let error = endpoint(
+            &deps,
+            &ProviderId::AMAZON_BEDROCK_SSO,
+            crate::llm::media::bedrock::DEFAULT_EMBEDDING_MODEL.to_string(),
+        )
+        .await
+        .err()
+        .expect("an unconfigured connection is refused")
+        .0;
+        assert!(error.contains("amazon-bedrock-sso"), "{error}");
+        assert!(!error.contains("API key"), "{error}");
+    }
 }

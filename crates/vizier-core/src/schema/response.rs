@@ -148,11 +148,28 @@ pub enum VizierResponseContent {
 }
 
 impl VizierResponse {
+    /// Whether this frame ends the turn, so a reader waiting on a response channel can stop.
+    ///
+    /// Every path that consumes a turn's frames reads this one predicate — a scheduled task, a
+    /// dream cycle, a chat-platform renderer — because a failure **is** the end of a turn: without
+    /// [`VizierResponseContent::Error`] among them a scheduled task would keep waiting for a
+    /// frame that will never come (FR-017). `Abort` and `Empty` are turns that produced nothing,
+    /// and `Message`/`AudioReply` are turns that answered.
+    pub fn ends_turn(&self) -> bool {
+        matches!(
+            self.content,
+            VizierResponseContent::Message { .. }
+                | VizierResponseContent::AudioReply(..)
+                | VizierResponseContent::Abort
+                | VizierResponseContent::Empty
+                | VizierResponseContent::Error { .. }
+        )
+    }
+
     /// This tool response as the result of call `call_id`.
-    pub fn to_tool_result(
+    pub async fn to_tool_result(
         &self,
         call_id: String,
-        workspace: &str,
         resolver: &dyn crate::schema::request::AttachmentResolver,
     ) -> Result<Message> {
         let text = match &self.content {
@@ -167,7 +184,7 @@ impl VizierResponse {
         };
         let mut content = vec![Part::Text(text)];
         for attachment in &self.attachments {
-            content.push(attachment.to_part(workspace, resolver)?);
+            content.push(attachment.to_part(resolver).await?);
         }
         Ok(Message::ToolResult { call_id, content })
     }
@@ -176,6 +193,45 @@ impl VizierResponse {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A failure ends a turn exactly like an answer: the scheduler, the dream cycle and the chat
+    /// renderers all read this one predicate, so a frame they disagreed about would be a turn that
+    /// never ends (FR-017).
+    #[test]
+    fn a_turn_ends_on_an_answer_a_failure_or_a_stop() {
+        let frame = |content| VizierResponse {
+            content,
+            ..Default::default()
+        };
+        for ending in [
+            VizierResponseContent::Message {
+                content: "done".into(),
+                stats: None,
+            },
+            VizierResponseContent::Error {
+                kind: ErrorKind::Completion,
+                message: "the AWS SSO session has ended".into(),
+            },
+            VizierResponseContent::Abort,
+            VizierResponseContent::Empty,
+        ] {
+            assert!(frame(ending.clone()).ends_turn(), "{ending:?}");
+        }
+        for middle in [
+            VizierResponseContent::ThinkingStart,
+            VizierResponseContent::Thinking("…".into()),
+            VizierResponseContent::ToolChoice {
+                name: "read_file".into(),
+                args: serde_json::json!({}),
+            },
+            VizierResponseContent::ToolResponse {
+                response: serde_json::json!({}),
+            },
+            VizierResponseContent::Checkpoint { handover: None },
+        ] {
+            assert!(!frame(middle.clone()).ends_turn(), "{middle:?}");
+        }
+    }
 
     /// A reply's stats are counts, durations and the names of the model and the turn-ending tool.
     /// Pinning the key list means a free-text field cannot join them unnoticed, which is what

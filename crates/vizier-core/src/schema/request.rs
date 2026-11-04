@@ -1,5 +1,4 @@
 use std::fmt::Display;
-use std::path::PathBuf;
 
 use crate::llm::types::{Message, Part};
 use anyhow::Result;
@@ -202,18 +201,31 @@ pub struct VizierAttachment {
     pub content: VizierAttachmentContent,
 }
 
-/// Turns an artifact identity into its current content path (`specs/035-add-artifacts` R3).
-/// Synchronous because model-part conversion is; the implementation is a single indexed SQLite
-/// read plus one content-file existence check.
+/// Reads the bytes behind stored attachments: uploads (`/api/v1/files/<id>`) and artifacts
+/// (`specs/035-add-artifacts` R3). Both live in the [`crate::storage::blob::BlobStore`].
+#[async_trait::async_trait]
 pub trait AttachmentResolver: Send + Sync {
-    fn artifact_path(&self, agent_id: &str, artifact_id: &str) -> Result<Option<PathBuf>>;
+    /// The bytes of upload `file_id`.
+    async fn upload_bytes(&self, file_id: &str) -> Result<Vec<u8>>;
+
+    /// The artifact's current bytes; `None` when its row or its content is gone.
+    async fn artifact_bytes(&self, agent_id: &str, artifact_id: &str) -> Result<Option<Vec<u8>>>;
 }
 
-/// A resolver for tests and the offline provider: every artifact is unavailable.
+/// A resolver for tests and the offline provider: no uploads, every artifact unavailable.
 pub struct NoopAttachmentResolver;
 
+#[async_trait::async_trait]
 impl AttachmentResolver for NoopAttachmentResolver {
-    fn artifact_path(&self, _agent_id: &str, _artifact_id: &str) -> Result<Option<PathBuf>> {
+    async fn upload_bytes(&self, file_id: &str) -> Result<Vec<u8>> {
+        Err(VizierError(format!("upload {file_id} is not available here")).into())
+    }
+
+    async fn artifact_bytes(
+        &self,
+        _agent_id: &str,
+        _artifact_id: &str,
+    ) -> Result<Option<Vec<u8>>> {
         Ok(None)
     }
 }
@@ -221,14 +233,19 @@ impl AttachmentResolver for NoopAttachmentResolver {
 impl VizierAttachment {
     /// The attachment as a message part. Whether the model gets it, or a note saying it was
     /// attached, is decided by capability in `llm::prepare` (FR-013).
-    pub fn to_part(&self, workspace: &str, resolver: &dyn AttachmentResolver) -> Result<Part> {
+    pub async fn to_part(&self, resolver: &dyn AttachmentResolver) -> Result<Part> {
         let mime = get_mime_type(&self.filename);
         let data = match &self.content {
             VizierAttachmentContent::Bytes(bytes) => bytes.clone(),
             VizierAttachmentContent::Base64(b64) => base64::engine::general_purpose::STANDARD
                 .decode(b64)
                 .map_err(|e| VizierError(format!("attachment {}: {e}", self.filename)))?,
-            VizierAttachmentContent::Local(path) => Self::resolve_local_bytes(workspace, path)?,
+            VizierAttachmentContent::Local(path) => {
+                let file_id = path.trim_start_matches("/api/v1/files/");
+                resolver.upload_bytes(file_id).await.map_err(|e| {
+                    VizierError(format!("failed to read attachment {}: {e}", self.filename))
+                })?
+            }
             VizierAttachmentContent::Url(url) => {
                 return Ok(Part::Text(format!("[attachment {}: {url}]", self.filename)));
             }
@@ -236,14 +253,8 @@ impl VizierAttachment {
                 agent_id,
                 artifact_id,
                 ..
-            } => match resolver.artifact_path(agent_id, artifact_id) {
-                Ok(Some(path)) => std::fs::read(&path).map_err(|e| {
-                    VizierError(format!(
-                        "failed to read artifact {} at {}: {e}",
-                        self.filename,
-                        path.display()
-                    ))
-                })?,
+            } => match resolver.artifact_bytes(agent_id, artifact_id).await {
+                Ok(Some(bytes)) => bytes,
                 // A deleted artifact is a readable note, never a failed turn.
                 _ => {
                     return Ok(Part::Text(format!(
@@ -258,30 +269,6 @@ impl VizierAttachment {
             data,
             name: Some(self.filename.clone()),
         })
-    }
-
-    pub fn resolve_local_bytes(workspace: &str, path: &str) -> Result<Vec<u8>> {
-        let file_id = path.trim_start_matches("/api/v1/files/");
-        let uploads_dir = PathBuf::from(workspace).join("uploads").join(file_id);
-        let mut entries = std::fs::read_dir(&uploads_dir).map_err(|e| {
-            VizierError(format!(
-                "Failed to read uploads dir {}: {}",
-                uploads_dir.display(),
-                e
-            ))
-        })?;
-        let file_path = entries
-            .next()
-            .and_then(|r| r.ok())
-            .ok_or_else(|| VizierError(format!("No file found in {}", uploads_dir.display())))?
-            .path();
-        Ok(std::fs::read(&file_path).map_err(|e| {
-            VizierError(format!(
-                "Failed to read local file {}: {}",
-                file_path.display(),
-                e
-            ))
-        })?)
     }
 }
 
@@ -475,17 +462,13 @@ impl VizierRequest {
         }))?)
     }
 
-    pub fn to_message(
-        &self,
-        workspace: &str,
-        resolver: &dyn AttachmentResolver,
-    ) -> Result<Message> {
+    pub async fn to_message(&self, resolver: &dyn AttachmentResolver) -> Result<Message> {
         let mut contents = vec![Part::Text(
             self.to_prompt()
                 .map_err(|err| VizierError(err.to_string()))?,
         )];
         for attachment in self.attachments.iter() {
-            contents.push(attachment.to_part(workspace, resolver)?);
+            contents.push(attachment.to_part(resolver).await?);
         }
         Ok(Message::User(contents))
     }

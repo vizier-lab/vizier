@@ -741,11 +741,18 @@ impl VizierAgent {
         // open now that the turn has started (specs/019-client-tools R4). They are named
         // against this snapshot's catalogue, and the client is told the names before the
         // model runs. Taken off the request so nothing downstream holds the connection.
-        ctx.client = match req.client.take() {
-            Some(binding) if binding.connection.is_open() => {
+        // The binding only names the connection; one that is not on this node, or has closed,
+        // reads as closed.
+        let live_binding = req.client.take().and_then(|binding| {
+            let connection = self.deps.client_connections.get(&binding.connection_id)?;
+            connection.is_open().then_some((binding, connection))
+        });
+        ctx.client = match live_binding {
+            Some((binding, connection)) => {
                 let catalogue = tools.router.catalogue(&ctx).await;
                 let client = crate::agents::client::ClientTools::resolve(
                     &binding,
+                    connection,
                     &catalogue,
                     &tools.router.client_reserved_categories(),
                     session.clone(),
@@ -755,7 +762,7 @@ impl VizierAgent {
                 client.announce();
                 Some(client)
             }
-            _ => None,
+            None => None,
         };
 
         let mut history = self
@@ -904,9 +911,9 @@ impl VizierAgent {
                 if let VizierRequestContent::Chat(text) = &mut model_req.content {
                     *text = invoked.message().to_string();
                 }
-                model_req.to_message(&self.global_workspace, self.deps.artifacts.as_ref())?
+                model_req.to_message(self.deps.artifacts.as_ref()).await?
             }
-            None => req.to_message(&self.global_workspace, self.deps.artifacts.as_ref())?,
+            None => req.to_message(self.deps.artifacts.as_ref()).await?,
         };
         // What became of the person's files, on their own message: the ones that could not be
         // stored (loudly, #47) and the ones that did. Without the second, the model is handed a
@@ -1420,11 +1427,8 @@ impl VizierAgent {
                 }
 
                 let response_content = tool_res
-                    .to_tool_result(
-                        call_id.clone(),
-                        &self.global_workspace,
-                        self.deps.artifacts.as_ref(),
-                    )
+                    .to_tool_result(call_id.clone(), self.deps.artifacts.as_ref())
+                    .await
                     .map_err(|e| {
                         fail_turn(e, full_history.clone(), None, tool_responses.clone())
                     })?;
@@ -1459,7 +1463,8 @@ impl VizierAgent {
             for attachment in ctx.loaded_images.lock().await.drain(..) {
                 pending_images.push(
                     attachment
-                        .to_part(&self.global_workspace, self.deps.artifacts.as_ref())
+                        .to_part(self.deps.artifacts.as_ref())
+                        .await
                         .map_err(|e| {
                             fail_turn(e, full_history.clone(), None, tool_responses.clone())
                         })?,
@@ -1834,7 +1839,7 @@ impl VizierAgent {
                 &snapshot,
                 &dream_model,
                 with_context(
-                    req.to_message(&self.global_workspace, self.deps.artifacts.as_ref())?,
+                    req.to_message(self.deps.artifacts.as_ref()).await?,
                     context_md(
                         &[],
                         &[],
@@ -2078,16 +2083,16 @@ impl VizierAgent {
                         }
                     }
 
-                    tool_responses.push(tool_res.to_tool_result(
-                        call_id.clone(),
-                        &self.global_workspace,
-                        self.deps.artifacts.as_ref(),
-                    )?);
+                    tool_responses.push(
+                        tool_res
+                            .to_tool_result(call_id.clone(), self.deps.artifacts.as_ref())
+                            .await?,
+                    );
                 }
 
                 for attachment in ctx.loaded_images.lock().await.drain(..) {
                     pending_attachments.push(
-                        attachment.to_part(&self.global_workspace, self.deps.artifacts.as_ref())?,
+                        attachment.to_part(self.deps.artifacts.as_ref()).await?,
                     );
                 }
 

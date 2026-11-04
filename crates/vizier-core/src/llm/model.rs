@@ -89,6 +89,9 @@ impl<D: Dialect> HttpModel<D> {
         req
     }
 
+    /// One request to the provider, signed by the resolved credential and sent at most twice: a
+    /// credential rejection renews once and retries once with the fresh credentials
+    /// ([`auth::send_signed`](super::auth::send_signed), FR-015).
     async fn send_once(
         &self,
         url: &str,
@@ -99,16 +102,19 @@ impl<D: Dialect> HttpModel<D> {
         // exact bytes sent. `.json(body)` would re-serialize after signing.
         let bytes = serde_json::to_vec(body)
             .map_err(|e| LlmError::Decode(format!("cannot serialize the request body: {e}")))?;
-        let req = self
-            .with_fixed_headers(self.http.post(url))
-            .header(reqwest::header::CONTENT_TYPE, "application/json")
-            .body(bytes.clone());
-        let req = self
-            .resolved
-            .credential
-            .authorize_with_body(req, info, "POST", url, &bytes)
-            .await?;
-        http::send(req).await
+        super::auth::send_signed(
+            self.resolved.credential.as_ref(),
+            info,
+            "POST",
+            url,
+            &bytes,
+            || {
+                self.with_fixed_headers(self.http.post(url))
+                    .header(reqwest::header::CONTENT_TYPE, "application/json")
+                    .body(bytes.clone())
+            },
+        )
+        .await
     }
 }
 
@@ -137,15 +143,8 @@ impl<D: Dialect> HttpModel<D> {
         let info = request_info(&prepared);
         let url = join_url(&self.base_url().await?, &self.dialect.path(&self.resolved));
 
-        let response = match self.send_once(&url, &body, &info).await {
-            // A token-exchange source may hold an expired token: drop it and try once more.
-            Err(LlmError::Http { status: 401, .. })
-                if self.resolved.credential.invalidate().await =>
-            {
-                self.send_once(&url, &body, &info).await?
-            }
-            other => other?,
-        };
+        // A credential rejection is renewed once and retried once inside the sender (FR-015).
+        let response = self.send_once(&url, &body, &info).await?;
 
         let value = match self.dialect.read_body(&self.resolved) {
             BodyKind::Json => response.json()?,
@@ -538,6 +537,43 @@ mod tests {
             .unwrap_err();
         assert!(err.to_string().starts_with(RATE_LIMITED));
         assert_eq!(model.calls.load(Ordering::SeqCst), 1);
+    }
+
+    /// FR-017: a session that ended is a permanent failure, so work that runs without a person
+    /// present — a scheduled task, a dream, a sub-agent — makes exactly one attempt and ends the
+    /// turn. No backoff, no second request, nothing that waits for a sign-in that nobody is there
+    /// to perform.
+    #[tokio::test]
+    async fn an_ended_session_is_attempted_once_and_ends_the_turn() {
+        use crate::llm::sso::SsoError;
+
+        let error = SsoError::SessionExpired.to_llm_error();
+        let model = Scripted::new(vec![
+            Some(Err(error)),
+            Some(Ok(())),
+            Some(Ok(())),
+        ]);
+        let started = Instant::now();
+        let err = run(&model, &fast_config(4), None).await.unwrap_err();
+
+        assert_eq!(
+            model.calls.load(Ordering::SeqCst),
+            1,
+            "a session failure must not be retried: {err}"
+        );
+        assert!(
+            err.to_string().contains("AWS SSO session has ended"),
+            "the session is the cause: {err}"
+        );
+        assert!(
+            err.to_string().contains("sign in again"),
+            "the action is named: {err}"
+        );
+        assert!(
+            started.elapsed() < Duration::from_millis(100),
+            "the turn ends promptly, without a backoff: {:?}",
+            started.elapsed()
+        );
     }
 
     #[test]

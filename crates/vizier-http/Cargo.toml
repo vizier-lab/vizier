@@ -35,7 +35,6 @@ mime_guess.workspace = true
 parking_lot.workspace = true
 rand.workspace = true
 reqwest.workspace = true
-rusqlite.workspace = true
 rust-embed = { workspace = true, features = ["interpolate-folder-path"] }
 serde.workspace = true
 serde_json.workspace = true

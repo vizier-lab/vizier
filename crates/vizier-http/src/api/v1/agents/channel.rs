@@ -15,7 +15,7 @@ use tokio::sync::mpsc;
 
 use vizier_core::{
     agents::client::{
-        ClientAnswer, ClientBinding, ClientConnection, DeferredClaims, declare, deliver_deferred,
+        ClientAnswer, ClientConnection, declare, deliver_deferred,
     },
     channels::reactions::{self, ApplyOutcome, ReactionChange, ReactionKind, ReactionTarget},
     schema::{
@@ -403,8 +403,6 @@ pub struct ClientLimits {
     pub events: std::sync::Arc<RateLimiter>,
     /// Saved state, keyed by call id.
     pub state_saves: std::sync::Arc<RateLimiter>,
-    /// Deferred calls being delivered by some socket right now.
-    pub deferred: std::sync::Arc<DeferredClaims>,
 }
 
 /// Deliver deferred calls to this socket in the background (research R18), so a slow answer
@@ -414,15 +412,13 @@ pub(crate) fn spawn_delivery(
     transport: &VizierTransport,
     session: &VizierSession,
     connection: &std::sync::Arc<ClientConnection>,
-    claims: &std::sync::Arc<DeferredClaims>,
     call_ids: Option<Vec<String>>,
 ) {
-    let (storage, transport, session, connection, claims) = (
+    let (storage, transport, session, connection) = (
         storage.clone(),
         transport.clone(),
         session.clone(),
         connection.clone(),
-        claims.clone(),
     );
     tokio::spawn(async move {
         let call_ids = match call_ids {
@@ -436,14 +432,7 @@ pub(crate) fn spawn_delivery(
             },
         };
         futures::future::join_all(call_ids.iter().map(|call_id| {
-            deliver_deferred(
-                &storage,
-                &transport,
-                &session,
-                &connection,
-                &claims,
-                call_id,
-            )
+            deliver_deferred(&storage, &transport, &session, &connection, call_id)
         }))
         .await;
     });
@@ -708,6 +697,7 @@ pub(crate) fn check_client_context(request: &mut VizierRequest) -> Result<(), se
 pub(crate) fn bind_client_tools(
     request: &mut VizierRequest,
     connection: &std::sync::Arc<ClientConnection>,
+    connections: &vizier_core::agents::client::ClientConnections,
 ) -> Result<(), serde_json::Value> {
     let tools = std::mem::take(&mut request.client_tools);
     let categories = std::mem::take(&mut request.client_categories);
@@ -722,11 +712,7 @@ pub(crate) fn bind_client_tools(
         return Ok(());
     }
     declare::validate(&tools, &categories).map_err(|err| err.frame())?;
-    request.client = Some(ClientBinding {
-        connection: connection.clone(),
-        tools,
-        categories,
-    });
+    request.client = Some(connections.bind(connection, tools, categories));
     Ok(())
 }
 

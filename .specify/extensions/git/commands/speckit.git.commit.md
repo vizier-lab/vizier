@@ -4,7 +4,7 @@ description: "Auto-commit changes after a Spec Kit command completes"
 
 # Auto-Commit Changes
 
-Automatically stage and commit all changes after a Spec Kit command completes.
+Automatically commit the Spec Kit artefacts written by a command.
 
 ## Behavior
 
@@ -15,7 +15,11 @@ This command is invoked as a hook after (or before) core commands. It:
 3. Looks up the specific event key to see if auto-commit is enabled
 4. Falls back to `auto_commit.default` if no event-specific key exists
 5. Uses the per-command `message` if configured, otherwise a default message
-6. If enabled and there are uncommitted changes, runs `git add .` + `git commit`
+6. If enabled and there are uncommitted changes, stages only `specs/` and `.specify/`
+   (whichever of them exist) and runs `git commit`
+7. If any other path is already staged in the index — a `webui/` lock file, another
+   person's work in progress — it commits nothing, leaves the index exactly as it is,
+   warns, and exits 0 so the Spec Kit command is not blocked
 
 ## Execution
 
@@ -46,3 +50,5 @@ auto_commit:
 - If Git is not available or the current directory is not a repository: skips with a warning
 - If no config file exists: skips (disabled by default)
 - If no changes to commit: skips with a message
+- If a path outside `specs/` and `.specify/` is staged: skips with a warning naming it
+  and leaves the index as it was (nothing is unstaged)

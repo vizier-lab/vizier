@@ -4,8 +4,9 @@
 //!
 //! - **Stable**: [`runtime::VizierRuntime`] and its options, events and health, [`auth`],
 //!   [`config`], [`error`], [`schema`] (the request/response types a host sends and reads),
-//!   [`transport::VizierTransport`] and [`access`]. These are documented and checked
-//!   for breaking changes.
+//!   [`server_role`] (which of the server's roles a process runs), [`transport::VizierTransport`],
+//!   [`agents_client`] (the seam the gateway side reaches agents through) and [`access`]. These
+//!   are documented and checked for breaking changes.
 //! - **Adapter surface** (`#[doc(hidden)]`): the modules the HTTP adapter and the command-line
 //!   binary reach into today (`dependencies`, `storage`, `agents`, …). They are public only so
 //!   those crates can be built on top of this one, are **not** part of the API, and will be
@@ -20,7 +21,11 @@
 //!
 //! # async fn run() -> vizier_core::Result<()> {
 //! let config = VizierConfig::with_workspace("/path/I/choose".into());
-//! let mut runtime = VizierRuntime::start(RuntimeOptions { config }).await?;
+//! let mut runtime = VizierRuntime::start(RuntimeOptions {
+//!     config,
+//!     ..Default::default()
+//! })
+//! .await?;
 //!
 //! match runtime.wait().await {
 //!     RuntimeExit::Requested => {}
@@ -48,13 +53,15 @@ pub type Result<T> = std::result::Result<T, VizierError>;
 pub mod prelude {
     pub use crate::Result;
     pub use crate::access::Caller;
+    pub use crate::agents_client::{AgentUnavailable, AgentUnavailableReason, AgentsClient};
     pub use crate::auth::{AuthMethod, Principal, Role};
     pub use crate::config::VizierConfig;
     pub use crate::error::VizierError;
     pub use crate::runtime::{
-        HealthReport, RuntimeEvent, RuntimeEvents, RuntimeExit, RuntimeOptions, SubsystemState,
-        VizierRuntime,
+        AlwaysYes, Gate, HealthReport, RuntimeEvent, RuntimeEvents, RuntimeExit, RuntimeOptions,
+        SubsystemState, VizierRuntime,
     };
+    pub use crate::server_role::{ServerRole, ServerRoleSet};
     pub use crate::schema::{
         AgentCommand, AgentCommandResult, AgentConfig, VizierChannelId, VizierRequest,
         VizierRequestContent, VizierResponse, VizierResponseContent, VizierSession,
@@ -64,11 +71,13 @@ pub mod prelude {
 
 // Stable tier.
 pub mod access;
+pub mod agents_client;
 pub mod auth;
 pub mod config;
 pub mod error;
 pub mod runtime;
 pub mod schema;
+pub mod server_role;
 pub mod service;
 pub mod transport;
 

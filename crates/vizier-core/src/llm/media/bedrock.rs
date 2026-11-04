@@ -9,7 +9,7 @@ use crate::Result;
 use crate::VizierError;
 use crate::embedding::VizierEmbeddingModel;
 use crate::image_generation::VizierImageGenModel;
-use crate::llm::bedrock::model_path;
+use crate::llm::bedrock::{model_path, parse_inference_profile_arn};
 use crate::llm::media::Endpoint;
 
 /// The documented default when an agent leaves the embedding model empty.
@@ -20,6 +20,24 @@ pub const DEFAULT_IMAGE_MODEL: &str = "amazon.nova-canvas-v1:0";
 const COHERE_BATCH: usize = 96;
 /// The documented default image size (both families accept it).
 const DEFAULT_IMAGE_SIZE: (u32, u32) = (1024, 1024);
+
+/// An inference-profile ARN is a chat model: it names a routing resource, never an embedding or
+/// image foundation model, so it is refused **before** the family check — no request is built and
+/// no vector or file can be written from a call that could not have produced one (FR-033a).
+///
+/// Both resource types are refused identically, because `parse_inference_profile_arn` is the whole
+/// test: a message that named only the application form would leave a system-defined profile's
+/// owner unsure whether the rule applied to them.
+fn refuse_inference_profile_arn(model: &str, capability: &str, models: &str) -> Result<()> {
+    if parse_inference_profile_arn(model).is_err() {
+        return Ok(());
+    }
+    Err(VizierError(format!(
+        "an inference-profile ARN is a chat model; it cannot be used for {capability}. \
+         Use one of the foundation models this connection supports ({models}), \
+         or leave the field empty for the default."
+    )))
+}
 
 /// Region-prefixed model ids (`us.`, `eu.`, `apac.`, `global.`) name the same family.
 fn family_id(model: &str) -> &str {
@@ -58,6 +76,20 @@ impl EmbeddingFamily {
          Titan Text Embeddings V1 (amazon.titan-embed-text-v1) and Cohere Embed v3 \
          (cohere.embed-english-v3, cohere.embed-multilingual-v3)"
     }
+
+    /// The same families as bare model ids, for the ARN refusal (FR-033a).
+    pub const MODELS: &'static str = "amazon.titan-embed-text-v2:0, \
+         amazon.titan-embed-text-v1, cohere.embed-english-v3, cohere.embed-multilingual-v3";
+
+    /// Every foundation model this capability accepts, in the order a picker shows them: the
+    /// documented default first. The embedding picker offers exactly these and never an ARN,
+    /// because an ARN is a chat model and no embedding can be derived from one (FR-033a).
+    pub const ALL: [&'static str; 4] = [
+        DEFAULT_EMBEDDING_MODEL,
+        "amazon.titan-embed-text-v1",
+        "cohere.embed-english-v3",
+        "cohere.embed-multilingual-v3",
+    ];
 }
 
 /// Bedrock embeddings: Titan embeds one text per call; Cohere batches.
@@ -69,6 +101,11 @@ pub struct BedrockEmbeddings {
 impl BedrockEmbeddings {
     /// Build the client, refusing a model outside the supported families before any request.
     pub fn new(endpoint: Endpoint) -> Result<Self> {
+        refuse_inference_profile_arn(
+            &endpoint.model,
+            "memory embeddings",
+            EmbeddingFamily::MODELS,
+        )?;
         let family = EmbeddingFamily::detect(&endpoint.model).ok_or_else(|| {
             VizierError(format!(
                 "unsupported Bedrock embedding model {:?}: use {}",
@@ -79,6 +116,8 @@ impl BedrockEmbeddings {
         Ok(Self { endpoint, family })
     }
 
+    /// The provider's own refusal (an unsupported family, a model the account does not have) is
+    /// passed through with only the capability prefixed, never reinterpreted (FR-033b).
     async fn invoke(&self, body: &Value) -> anyhow::Result<Value> {
         let response = self
             .endpoint
@@ -190,6 +229,12 @@ impl ImageFamily {
         "Amazon Nova Canvas (amazon.nova-canvas-v1:0) and Titan Image Generator V2 \
          (amazon.titan-image-generator-v2:0)"
     }
+
+    /// The same families as bare model ids, for the ARN refusal (FR-033a).
+    pub const MODELS: &'static str = "amazon.nova-canvas-v1:0, amazon.titan-image-generator-v2:0";
+
+    /// Every foundation model this capability accepts, documented default first (FR-033a).
+    pub const ALL: [&'static str; 2] = [DEFAULT_IMAGE_MODEL, "amazon.titan-image-generator-v2:0"];
 }
 
 /// Bedrock image generation: Nova Canvas or Titan Image Generator V2, one image per call.
@@ -200,6 +245,7 @@ pub struct BedrockImages {
 
 impl BedrockImages {
     pub fn new(endpoint: Endpoint) -> Result<Self> {
+        refuse_inference_profile_arn(&endpoint.model, "image generation", ImageFamily::MODELS)?;
         let family = ImageFamily::detect(&endpoint.model).ok_or_else(|| {
             VizierError(format!(
                 "unsupported Bedrock image model {:?}: use {}",
@@ -292,6 +338,11 @@ impl VizierImageGenModel for BedrockImages {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use crate::llm::auth::{CredentialSource, RequestInfo};
+
     use super::*;
 
     #[test]
@@ -393,6 +444,393 @@ mod tests {
             "GIF is not requested from these models"
         );
         assert_eq!(sniff_image(b"not an image"), None);
+    }
+
+    /// Both ARN resource types, as AWS writes them.
+    const SYSTEM_ARN: &str =
+        "arn:aws:bedrock:us-east-1:123456789012:inference-profile/us.anthropic.claude-sonnet-4-5-20250929-v1:0";
+    const APPLICATION_ARN: &str =
+        "arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/abc123def456";
+
+    fn endpoint_with(model: &str) -> Endpoint {
+        Endpoint {
+            http: reqwest::Client::new(),
+            base_url: crate::llm::bedrock::runtime_endpoint("us-east-1"),
+            credential: crate::llm::auth::StaticKey::none(),
+            model: model.to_string(),
+        }
+    }
+
+    /// FR-033a: an ARN is a chat model. Both capabilities refuse it, both resource types alike, and
+    /// the refusal is the ARN one — proving it happens **before** the family check, so no request is
+    /// built and no vector or file can come out of it.
+    #[test]
+    fn an_inference_profile_arn_is_refused_before_the_family_check() {
+        for arn in [SYSTEM_ARN, APPLICATION_ARN] {
+            assert!(
+                crate::llm::bedrock::parse_inference_profile_arn(arn).is_ok(),
+                "the grammar accepts {arn}"
+            );
+
+            let error = BedrockEmbeddings::new(endpoint_with(arn)).err().unwrap().0;
+            assert!(error.contains("memory embeddings"), "{error}");
+            assert!(
+                !error.contains("unsupported Bedrock embedding model"),
+                "the ARN is refused before the family check: {error}"
+            );
+            assert!(
+                error.contains("leave the field empty for the default"),
+                "{error}"
+            );
+            for model in [
+                "amazon.titan-embed-text-v2:0",
+                "amazon.titan-embed-text-v1",
+                "cohere.embed-english-v3",
+                "cohere.embed-multilingual-v3",
+            ] {
+                assert!(error.contains(model), "{model} missing from: {error}");
+            }
+
+            let error = BedrockImages::new(endpoint_with(arn)).err().unwrap().0;
+            assert!(error.contains("image generation"), "{error}");
+            assert!(
+                !error.contains("unsupported Bedrock image model"),
+                "the ARN is refused before the family check: {error}"
+            );
+            assert!(
+                error.contains("leave the field empty for the default"),
+                "{error}"
+            );
+            for model in ["amazon.nova-canvas-v1:0", "amazon.titan-image-generator-v2:0"] {
+                assert!(error.contains(model), "{model} missing from: {error}");
+            }
+        }
+    }
+
+    /// FR-033a: the wording names an **inference-profile ARN**, never only the application form, so
+    /// a system-defined profile's owner is not left wondering whether the rule applies to them.
+    #[test]
+    fn the_refusal_names_both_arn_forms_by_the_generic_noun() {
+        let error = BedrockEmbeddings::new(endpoint_with(SYSTEM_ARN)).err().unwrap().0;
+        assert!(error.starts_with("an inference-profile ARN is a chat model"), "{error}");
+        assert!(!error.contains("application-inference-profile"), "{error}");
+    }
+
+    /// FR-033b: leaving the field empty keeps the documented defaults, which are the models these
+    /// families already accept — so an SSO-only agent needs no extra configuration.
+    #[test]
+    fn an_empty_field_keeps_the_documented_defaults() {
+        assert_eq!(DEFAULT_EMBEDDING_MODEL, "amazon.titan-embed-text-v2:0");
+        assert_eq!(DEFAULT_IMAGE_MODEL, "amazon.nova-canvas-v1:0");
+        assert_eq!(
+            EmbeddingFamily::detect(DEFAULT_EMBEDDING_MODEL),
+            Some(EmbeddingFamily::TitanV2)
+        );
+        assert_eq!(ImageFamily::detect(DEFAULT_IMAGE_MODEL), Some(ImageFamily::NovaCanvas));
+
+        // Both default strings build, which is what "the field may stay empty" means.
+        let embeddings = BedrockEmbeddings::new(endpoint_with(DEFAULT_EMBEDDING_MODEL));
+        assert!(embeddings.is_ok());
+        assert!(BedrockImages::new(endpoint_with(DEFAULT_IMAGE_MODEL)).is_ok());
+    }
+
+    /// FR-033a/b: a foundation model outside the families is refused **by name**, with the model it
+    /// was given — nothing is swapped for a default and nothing is derived from a saved entry.
+    #[test]
+    fn an_unsupported_family_is_refused_by_name_and_never_swapped_for_another_model() {
+        for model in ["anthropic.claude-haiku-4-5-20251001-v1:0", "stability.stable-diffusion-xl-v1"] {
+            let error = BedrockEmbeddings::new(endpoint_with(model)).err().unwrap().0;
+            assert!(
+                error.starts_with("unsupported Bedrock embedding model"),
+                "{error}"
+            );
+            assert!(error.contains(model), "the model is named: {error}");
+            for id in ["amazon.titan-embed-text-v2:0", "cohere.embed-multilingual-v3"] {
+                assert!(error.contains(id), "{id} missing from: {error}");
+            }
+            assert!(!error.contains("inference-profile"), "{error}");
+        }
+
+        let error = BedrockImages::new(endpoint_with("meta.llama3-70b-instruct-v1:0"))
+            .err()
+            .unwrap()
+            .0;
+        assert!(error.starts_with("unsupported Bedrock image model"), "{error}");
+        for id in ["amazon.nova-canvas-v1:0", "amazon.titan-image-generator-v2:0"] {
+            assert!(error.contains(id), "{id} missing from: {error}");
+        }
+    }
+
+    /// FR-033b: the provider's own refusal — an unsupported family, a model the account does not
+    /// have — reaches the person with its text intact, prefixed only with the capability.
+    #[tokio::test]
+    async fn the_provider_own_refusal_passes_through_unchanged() {
+        let body = r#"{"message":"This model is not supported for embeddings."}"#;
+        let base = refusal_server(400, body).await;
+        let embeddings =
+            BedrockEmbeddings::new(endpoint_at(&base, DEFAULT_EMBEDDING_MODEL)).unwrap();
+        let error = embeddings.embed_text("hello").await.unwrap_err().to_string();
+        assert!(
+            error.contains("This model is not supported for embeddings."),
+            "the provider's words survive: {error}"
+        );
+        assert!(error.starts_with("embeddings: "), "{error}");
+
+        let body = r#"{"message":"The provided model identifier is invalid."}"#;
+        let base = refusal_server(400, body).await;
+        let images = BedrockImages::new(endpoint_at(&base, DEFAULT_IMAGE_MODEL)).unwrap();
+        let error = images.generate("a red fox", None).await.err().unwrap().0;
+        assert!(
+            error.contains("The provided model identifier is invalid."),
+            "the provider's words survive: {error}"
+        );
+    }
+
+    /// A local server answering `status` with `body`, so the refusal's text is testable without AWS.
+    async fn refusal_server(status: u16, body: &'static str) -> String {
+        counting_server(status, body, Arc::new(AtomicUsize::new(0))).await
+    }
+
+    fn endpoint_at(base: &str, model: &str) -> Endpoint {
+        Endpoint {
+            base_url: base.to_string(),
+            ..endpoint_with(model)
+        }
+    }
+
+    /// The ended session exactly as the real `SsoRoleCredential` reports it: the `SsoError` text
+    /// through `to_llm_error`, which is `LlmError::Config` — chat renders that message unchanged
+    /// (`LlmError`'s `Display` for `Config` adds nothing), so this text *is* chat's explanation of
+    /// the same cause (FR-016).
+    fn ended_session() -> crate::llm::error::LlmError {
+        crate::llm::sso::error::SsoError::SessionExpired.to_llm_error()
+    }
+
+    /// Chat's line for an ended session, with no capability prefix.
+    fn chat_explanation() -> String {
+        crate::llm::sso::error::SsoError::SessionExpired.to_string()
+    }
+
+    /// A credential whose session ended, failing where `Endpoint::post_json` actually meets it:
+    /// the body-aware path, because SigV4 signs the payload. Media never calls `authorize`, so a
+    /// fake that only failed there would let a request through unsigned. Every consultation is
+    /// counted, so a test can tell "never signed" from "signed once and refused".
+    struct EndedSession {
+        attempts: Arc<AtomicUsize>,
+    }
+
+    impl EndedSession {
+        fn source() -> (Arc<dyn CredentialSource>, Arc<AtomicUsize>) {
+            let attempts = Arc::new(AtomicUsize::new(0));
+            let source = Arc::new(Self {
+                attempts: attempts.clone(),
+            });
+            (source, attempts)
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl CredentialSource for EndedSession {
+        async fn authorize(
+            &self,
+            _req: reqwest::RequestBuilder,
+            _info: &RequestInfo,
+        ) -> std::result::Result<reqwest::RequestBuilder, crate::llm::error::LlmError> {
+            Err(ended_session())
+        }
+
+        async fn authorize_with_body(
+            &self,
+            _req: reqwest::RequestBuilder,
+            _info: &RequestInfo,
+            _method: &str,
+            _url: &str,
+            _body: &[u8],
+        ) -> std::result::Result<reqwest::RequestBuilder, crate::llm::error::LlmError> {
+            self.attempts.fetch_add(1, Ordering::SeqCst);
+            Err(ended_session())
+        }
+    }
+
+    /// [`refusal_server`], but counting every request that reaches it: the witness that a call
+    /// refused before it was signed never got as far as the wire.
+    async fn counting_server(status: u16, body: &'static str, hits: Arc<AtomicUsize>) -> String {
+        let app = axum::Router::new().fallback(
+            move |_request: axum::extract::Request| {
+                let hits = hits.clone();
+                async move {
+                    hits.fetch_add(1, Ordering::SeqCst);
+                    (
+                        axum::http::StatusCode::from_u16(status).expect("a valid status"),
+                        [("content-type", "application/json")],
+                        body,
+                    )
+                }
+            },
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        url
+    }
+
+    /// US4 acceptance 4: on an ended session a media call fails with **chat's** explanation, is
+    /// never re-read as an unsupported model or a decode fault, and never reaches the wire. Both
+    /// capabilities, and both embedding families (one text per call, one batch per call).
+    #[tokio::test]
+    async fn every_media_call_on_an_ended_session_keeps_the_chat_explanation() {
+        let (credential, attempts) = EndedSession::source();
+        let hits = Arc::new(AtomicUsize::new(0));
+        let base = counting_server(200, r#"{"embedding":[0.1]}"#, hits.clone()).await;
+
+        for model in [DEFAULT_EMBEDDING_MODEL, "cohere.embed-english-v3"] {
+            let embeddings = BedrockEmbeddings::new(Endpoint {
+                credential: credential.clone(),
+                ..endpoint_at(&base, model)
+            })
+            .unwrap();
+            let error = embeddings.embed_text("hello").await.unwrap_err().to_string();
+            assert_eq!(
+                error,
+                format!("embeddings: {}", chat_explanation()),
+                "{model}: the session is the cause, in chat's own words"
+            );
+            assert!(
+                !error.contains("unsupported") && !error.contains("unexpected provider response"),
+                "{model}: not re-read as a model or a decode fault: {error}"
+            );
+            assert!(
+                crate::llm::sso::is_session_failure_message(&error),
+                "{model}: the turn's error frame still recognises the session failure: {error}"
+            );
+        }
+
+        let images = BedrockImages::new(Endpoint {
+            credential,
+            ..endpoint_at(&base, DEFAULT_IMAGE_MODEL)
+        })
+        .unwrap();
+        let error = images.generate("a red fox", None).await.err().unwrap().0;
+        assert_eq!(
+            error,
+            format!("image generation: {}", chat_explanation()),
+            "image generation says the same thing chat does, prefixed with its capability"
+        );
+        assert!(!error.contains("unsupported"), "{error}");
+        assert!(
+            crate::llm::sso::is_session_failure_message(&error),
+            "{error}"
+        );
+
+        assert_eq!(
+            attempts.load(Ordering::SeqCst),
+            3,
+            "one refused sign-in per call: the session is not retried into a storm"
+        );
+        assert_eq!(
+            hits.load(Ordering::SeqCst),
+            0,
+            "no unsigned request was built or sent"
+        );
+    }
+
+    /// US4 acceptance 4, the vector half: a batch that met an ended session is an `Err`, never a
+    /// shorter `Vec`. An `Ok` here would be a list the caller could index and persist as though it
+    /// held every document's vector, so no partial result can ever be written. Titan embeds one
+    /// text per call, so the single attempt also shows the loop stopped at the first refusal
+    /// instead of carrying on with the remaining documents.
+    #[tokio::test]
+    async fn an_ended_session_yields_no_partial_batch_of_vectors() {
+        for model in [DEFAULT_EMBEDDING_MODEL, "cohere.embed-english-v3"] {
+            let (credential, attempts) = EndedSession::source();
+            let hits = Arc::new(AtomicUsize::new(0));
+            let base = counting_server(
+                200,
+                r#"{"embeddings":[[0.1],[0.2],[0.3]]}"#,
+                hits.clone(),
+            )
+            .await;
+            let embeddings = BedrockEmbeddings::new(Endpoint {
+                credential,
+                ..endpoint_at(&base, model)
+            })
+            .unwrap();
+
+            let documents = vec!["one".to_string(), "two".to_string(), "three".to_string()];
+            let outcome = embeddings.embed_texts(documents).await;
+            assert!(
+                outcome.is_err(),
+                "{model}: three documents and a sign-in that failed must not be an Ok vector list"
+            );
+            let error = outcome.unwrap_err().to_string();
+            assert_eq!(
+                error,
+                format!("embeddings: {}", chat_explanation()),
+                "{model}: the session's explanation survives the batch"
+            );
+            assert_eq!(
+                attempts.load(Ordering::SeqCst),
+                1,
+                "{model}: the first refused call ends the batch"
+            );
+            assert_eq!(
+                hits.load(Ordering::SeqCst),
+                0,
+                "{model}: nothing signed, nothing sent"
+            );
+        }
+    }
+
+    /// US4 acceptance 4, the file half: a failed generation hands back no `(bytes, mime)` pair, so
+    /// there is nothing to save and the directory stays empty — no half-written, no truncated, no
+    /// mislabelled file. `image_generate` writes exactly what `generate` returned
+    /// (`agents/tools/image_gen`), so mirroring that here makes the empty directory a real witness
+    /// rather than an assumption.
+    #[tokio::test]
+    async fn an_ended_session_writes_no_image_file() {
+        let (credential, attempts) = EndedSession::source();
+        let hits = Arc::new(AtomicUsize::new(0));
+        let base = counting_server(200, r#"{"images":["iVBORw0KGgo="]}"#, hits.clone()).await;
+        let images = BedrockImages::new(Endpoint {
+            credential,
+            ..endpoint_at(&base, DEFAULT_IMAGE_MODEL)
+        })
+        .unwrap();
+
+        let dir = tempfile::tempdir().unwrap();
+        if let Ok((bytes, mime)) = images.generate("a red fox", None).await {
+            std::fs::write(dir.path().join(format!("img.{mime}")), bytes).unwrap();
+        }
+        assert!(
+            std::fs::read_dir(dir.path()).unwrap().next().is_none(),
+            "a refused generation leaves no file behind"
+        );
+        assert_eq!(attempts.load(Ordering::SeqCst), 1);
+        assert_eq!(hits.load(Ordering::SeqCst), 0, "nothing was sent");
+    }
+
+    /// The other "wrong-sized" side, which the session test cannot reach: a provider answering 2xx
+    /// with fewer vectors than inputs is refused, never accepted as a shorter list. Cohere batches,
+    /// so the count is the only thing tying a reply's vectors to the documents sent.
+    #[tokio::test]
+    async fn a_reply_with_fewer_vectors_than_inputs_is_refused() {
+        let base = counting_server(
+            200,
+            r#"{"embeddings":[[0.1,0.2],[0.3,0.4]]}"#,
+            Arc::new(AtomicUsize::new(0)),
+        )
+        .await;
+        let embeddings =
+            BedrockEmbeddings::new(endpoint_at(&base, "cohere.embed-english-v3")).unwrap();
+        let error = embeddings
+            .embed_texts(vec!["one".into(), "two".into(), "three".into()])
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("2 vectors for 3 inputs"),
+            "the mismatch is named, not silently trimmed: {error}"
+        );
     }
 
     #[test]

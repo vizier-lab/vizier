@@ -8,7 +8,10 @@ use std::{
 use serde::Serialize;
 use tokio::{sync::{Mutex, broadcast}, task::JoinHandle};
 use vizier_core::{
-    config::VizierConfig,
+    config::{
+        VizierConfig,
+        storage::{ObjectsConfig, StorageConfig},
+    },
     runtime::{RuntimeEvent, RuntimeOptions, VizierRuntime},
     storage::user::{AVAILABLE_PERMISSIONS, UserStorage},
 };
@@ -170,6 +173,10 @@ impl Engine {
             return;
         }
         let mut config = VizierConfig::with_workspace(workspace.to_path_buf());
+        // Desktop is an embedded host: server-only environment variables must never select a
+        // managed database or object store here.
+        config.storage = StorageConfig::Sqlite;
+        config.objects = ObjectsConfig::Local;
         // The key doubles as the JWT secret of the opt-in web listener (research R10); it is
         // part of the runtime's config because the router reads it from there.
         match web_access::ensure_key(workspace) {
@@ -183,7 +190,10 @@ impl Engine {
                 return;
             }
         }
-        let runtime = match VizierRuntime::start(RuntimeOptions { config }).await {
+        let runtime = match VizierRuntime::start(RuntimeOptions {
+        config,
+        ..Default::default()
+    }).await {
             Ok(rt) => rt,
             Err(e) => {
                 let message = e.0;

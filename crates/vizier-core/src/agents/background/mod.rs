@@ -138,7 +138,7 @@ pub fn classify(content: &VizierResponseContent) -> Option<PieceOutcome> {
 /// without answering, which is what happens when the executor's process is shut down
 /// (an agent respawn): a turn that merely fails still sends an `Error` frame. So the
 /// closed channel is reported as a restart (research D9).
-async fn first_terminal(rx: &flume::Receiver<VizierResponse>) -> PieceOutcome {
+async fn first_terminal(rx: &crate::transport::ResponseStream) -> PieceOutcome {
     loop {
         match rx.recv_async().await {
             Ok(frame) => {
@@ -167,7 +167,7 @@ async fn cancelled(mut rx: watch::Receiver<bool>) {
 /// Where a piece's outcome comes from.
 enum PieceSource {
     /// The response channel the job dispatched it with, or `None` when it is already closed.
-    Dispatched(Option<flume::Receiver<VizierResponse>>),
+    Dispatched(Option<crate::transport::ResponseStream>),
     /// A recovered piece: read from its session.
     Session,
 }
@@ -352,8 +352,8 @@ impl BackgroundJobs {
         depth: u8,
         transient: bool,
         scope: Option<&crate::schema::ProjectScope>,
-    ) -> crate::Result<flume::Receiver<VizierResponse>> {
-        let (tx, rx) = flume::unbounded();
+    ) -> crate::Result<crate::transport::ResponseStream> {
+        let (tx, rx) = self.transport.reply_channel().await?;
         self.transport
             .send_request(
                 session.clone(),
@@ -377,7 +377,7 @@ impl BackgroundJobs {
     /// Wait for one dispatched piece, stopping it if it runs past its limit.
     pub(crate) async fn await_piece(
         &self,
-        rx: &flume::Receiver<VizierResponse>,
+        rx: &crate::transport::ResponseStream,
         limit: Duration,
         session: &VizierSession,
         origin: &AgentId,
@@ -622,7 +622,7 @@ impl BackgroundJobs {
                 .send_request(
                     job.origin.clone(),
                     request,
-                    Some(self.transport.broadcast_sender(job.origin.clone())),
+                    self.transport.broadcast_sender(job.origin.clone()).await.ok(),
                 )
                 .await
             {
@@ -933,7 +933,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_closed_channel_without_an_answer_reads_as_a_restart() {
-        let (tx, rx) = flume::unbounded::<VizierResponse>();
+        let (tx, rx) = crate::transport::standalone_reply_channel().await;
         tx.send(VizierResponse {
             timestamp: Utc::now(),
             content: VizierResponseContent::ThinkingStart,
@@ -962,9 +962,9 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let conn = rusqlite::Connection::open_in_memory().unwrap();
         crate::storage::sqlite::init_background_job_schema(&conn).unwrap();
-        let storage = VizierStorage::new(crate::storage::sqlite::SqliteStorage::new(
-            Arc::new(Mutex::new(conn)),
-            Arc::new(crate::storage::document::LocalDocumentStore::new(
+        let storage = VizierStorage::new(crate::storage::sqlite::SqlStorage::new(
+            crate::storage::sql::SqlStore::sqlite(conn),
+            Arc::new(crate::storage::document::BlobDocumentStore::local(
                 dir.path().to_path_buf(),
             )),
         ));
@@ -1018,4 +1018,3 @@ fn project_scope(ctx: &ToolContext) -> Option<crate::schema::ProjectScope> {
         mode: project.mode,
     })
 }
-

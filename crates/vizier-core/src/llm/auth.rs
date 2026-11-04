@@ -13,6 +13,10 @@ use tokio::sync::Mutex;
 use super::error::LlmError;
 use super::http;
 use super::sigv4::{self, SigV4Request};
+use super::sso::session::needs_renewal;
+use super::sso::{RoleCredentials, SessionFailures, SsoClient, SsoError, SsoSessions};
+use crate::config::provider::ProviderId;
+use crate::storage::sso_session::SsoSessionStorage;
 
 /// What a credential source may need to know about the request it authorises.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -51,11 +55,92 @@ pub trait CredentialSource: Send + Sync {
         Ok(None)
     }
 
-    /// Drop a cached token after a 401. Returns whether anything was dropped, i.e. whether a
-    /// retry can succeed.
+    /// Drop a cached credential after the provider rejected it ([`is_credential_rejection`]).
+    /// Returns whether anything was dropped, i.e. whether a retry can succeed.
     async fn invalidate(&self) -> bool {
         false
     }
+}
+
+/// Whether `error` is the provider saying the **credentials themselves** are no longer valid —
+/// the one answer a renewal can fix (FR-015).
+///
+/// A `401` always is. AWS reports an expired or revoked session token as a `403` whose body names
+/// the fault ([`CREDENTIAL_FAULTS`]), which is why the status alone is not enough; a permission or
+/// model-access refusal is deliberately **not** a credential rejection, so a genuine `403` is not
+/// retried with freshly renewed credentials that would fail the same way.
+pub fn is_credential_rejection(error: &LlmError) -> bool {
+    let LlmError::Http { status, body, .. } = error else {
+        return false;
+    };
+    if *status == 401 {
+        return true;
+    }
+    if *status != 403 {
+        return false;
+    }
+    let body = body.to_ascii_lowercase();
+    CREDENTIAL_FAULTS
+        .iter()
+        .any(|fault| body.contains(fault))
+}
+
+/// The `403` bodies AWS uses for a dead credential, lowercased because a body's casing is not a
+/// contract. `ExpiredToken` alone covers `ExpiredTokenException`.
+const CREDENTIAL_FAULTS: [&str; 6] = [
+    "expiredtoken",
+    "unrecognizedclientexception",
+    "invalidclienttokenid",
+    "invalidaccesskeyid",
+    "security token included in the request is expired",
+    "security token included in the request is invalid",
+];
+
+/// Sign and send one request, retrying **exactly once** when the provider rejects the credentials
+/// (FR-015, US3 acceptance 7).
+///
+/// The rejection drops whatever the source cached, so the retry renews and sends with the fresh
+/// credential. A second rejection is returned untouched — the provider's own explanation ends the
+/// turn — and there is no third attempt, so a credentials fault can never become a retry storm.
+pub async fn send_signed<F>(
+    credential: &dyn CredentialSource,
+    info: &RequestInfo,
+    method: &str,
+    url: &str,
+    body: &[u8],
+    build: F,
+) -> Result<http::HttpResponse, LlmError>
+where
+    F: Fn() -> RequestBuilder,
+{
+    match send_once(credential, info, method, url, body, &build).await {
+        // `invalidate` answers whether a retry could succeed: a source that holds nothing to drop
+        // (a fixed key) is not sent twice, so its refusal is returned as it came.
+        Err(error) if is_credential_rejection(&error) && credential.invalidate().await => {
+            tracing::debug!(url = %http::redact(url), "the credentials were rejected; renewing once");
+            send_once(credential, info, method, url, body, &build).await
+        }
+        other => other,
+    }
+}
+
+/// One signed send: the builder is rebuilt for every attempt, so the second one carries the fresh
+/// credential's headers rather than the rejected one's.
+async fn send_once<F>(
+    credential: &dyn CredentialSource,
+    info: &RequestInfo,
+    method: &str,
+    url: &str,
+    body: &[u8],
+    build: &F,
+) -> Result<http::HttpResponse, LlmError>
+where
+    F: Fn() -> RequestBuilder,
+{
+    let req = credential
+        .authorize_with_body(build(), info, method, url, body)
+        .await?;
+    http::send(req).await
 }
 
 /// How a static key is sent.
@@ -170,9 +255,7 @@ impl CredentialSource for SigV4Credential {
         _req: RequestBuilder,
         _info: &RequestInfo,
     ) -> Result<RequestBuilder, LlmError> {
-        Err(LlmError::Config(
-            "SigV4 signing requires the request body; use the body-aware path".into(),
-        ))
+        Err(LlmError::Config(SIGV4_BODY_REQUIRED.into()))
     }
 
     async fn authorize_with_body(
@@ -200,14 +283,196 @@ impl CredentialSource for SigV4Credential {
             service: self.service,
             now: chrono::Utc::now(),
         });
+        // `content-type` is deliberately **not** added here: every caller sends it once
+        // (`model.rs::send_once`, `media/openai_shaped.rs::post_json`,
+        // `bedrock.rs::list_foundation_models`) and the signature covers that single copy.
+        // Appending a second one makes AWS canonicalise `application/json,application/json`
+        // and answer 403 "signature does not match".
         let mut req = req
-            .header(reqwest::header::CONTENT_TYPE, "application/json")
             .header("x-amz-date", signature.amz_date)
             .header(reqwest::header::AUTHORIZATION, signature.authorization);
         if let Some(token) = &self.session_token {
             req = req.header("x-amz-security-token", token);
         }
         Ok(req)
+    }
+}
+
+// AWS Bedrock over IAM Identity Center (spec 044).
+
+/// Why a SigV4 signature cannot be computed without the body: the payload hash covers the exact
+/// bytes sent, so an unsigned-body request would be a configuration error, never a request with a
+/// missing header.
+const SIGV4_BODY_REQUIRED: &str = "SigV4 signing requires the request body; use the body-aware path";
+
+/// The half of an SSO connection a role credential needs: which stored session, which role, and
+/// the Bedrock region the signed requests go to. Every field is non-secret.
+#[derive(Debug, Clone)]
+pub struct SsoRoleTarget {
+    /// The profile name the session row is keyed by (FR-009e).
+    pub profile: String,
+    pub account_id: String,
+    pub role_name: String,
+    /// The **Bedrock** region — the SSO region lives with the client (FR-010).
+    pub region: String,
+}
+
+/// A Bedrock credential whose three halves are derived from an IAM Identity Center session
+/// (FR-002, FR-009d, research D5).
+///
+/// The role credentials live in [`SsoRoleCredential::cache`] — one mutex per connection, and the
+/// lock is what serializes renewal, so concurrent turns collapse into one renewal (FR-014) — and
+/// nowhere else: nothing here can be written to disk. Signing is delegated to the same [`SigV4Credential`] the static-keys provider
+/// uses, so the wire behaviour is shared rather than copied.
+pub struct SsoRoleCredential {
+    client: SsoClient,
+    storage: Arc<dyn SsoSessionStorage + Send + Sync>,
+    target: SsoRoleTarget,
+    cache: Mutex<Option<RoleCredentials>>,
+    /// Where a session failure is reported, when a surface asked for it (FR-018).
+    failures: Option<Arc<SessionFailures>>,
+    /// The connection the failure belongs to; only the SSO provider builds this credential.
+    provider: ProviderId,
+}
+
+impl SsoRoleCredential {
+    pub fn new(
+        client: SsoClient,
+        storage: Arc<dyn SsoSessionStorage + Send + Sync>,
+        target: SsoRoleTarget,
+    ) -> Self {
+        Self {
+            client,
+            storage,
+            target,
+            cache: Mutex::new(None),
+            failures: None,
+            provider: ProviderId::AMAZON_BEDROCK_SSO,
+        }
+    }
+
+    /// Report this connection's session failures to `failures`, so agent health and the provider
+    /// row can say why a turn failed until a sign-in clears it (spec 044, FR-018).
+    pub fn reporting(mut self, provider: ProviderId, failures: Arc<SessionFailures>) -> Self {
+        self.provider = provider;
+        self.failures = Some(failures);
+        self
+    }
+
+    /// The role's three halves, from the cache or exactly one renewal.
+    ///
+    /// The guard is the **first** statement: a turn with a credential that is still more than five
+    /// minutes from expiry ([`needs_renewal`]) makes no request at all (FR-013). Everything past
+    /// the check runs with the guard held — reading the session, the token half and the portal
+    /// call — so N turns that arrive together at an expiry queue behind one renewal and every one
+    /// of them signs with its result (FR-014, US3 acceptance 2).
+    async fn role_credentials(&self) -> Result<RoleCredentials, LlmError> {
+        let mut cache = self.cache.lock().await;
+        if let Some(cached) = cache.as_ref()
+            && !needs_renewal(cached, chrono::Utc::now())
+        {
+            return Ok(cached.clone());
+        }
+
+        match self.renew_now().await {
+            Ok(credentials) => {
+                // A renewal that worked proves the session is live again, whatever a surface last
+                // reported (FR-018). The cache is filled under the same guard, so it cannot be
+                // stale by the time this returns.
+                self.report(None);
+                *cache = Some(credentials.clone());
+                Ok(credentials)
+            }
+            Err(error) => {
+                // Only a session failure lands in the registry (FR-016); health keeps naming it
+                // until a sign-in clears it (FR-018).
+                self.report(Some(&error));
+                Err(error)
+            }
+        }
+    }
+
+    /// The renewal itself: the stored session, its token half when that expired, and exactly one
+    /// `GetRoleCredentials` — with the cache guard held by the caller (FR-013, FR-014).
+    async fn renew_now(&self) -> Result<RoleCredentials, LlmError> {
+        let sessions = SsoSessions::new(self.storage.as_ref());
+        let session = sessions
+            .load(&self.target.profile)
+            .await?
+            .ok_or(SsoError::SessionExpired)?;
+        sessions
+            .renew(
+                &self.client,
+                &self.target.profile,
+                session,
+                &self.target.account_id,
+                &self.target.role_name,
+            )
+            .await
+            .map_err(LlmError::from)
+    }
+
+    /// Tell the surfaces, when one was given, what this attempt met (FR-018): a session failure
+    /// is recorded, a success clears what an earlier failure left.
+    fn report(&self, error: Option<&LlmError>) {
+        let Some(failures) = &self.failures else { return };
+        match error {
+            Some(error) => {
+                failures.record(&self.provider, &error.to_string());
+            }
+            None => failures.clear(&self.provider),
+        }
+    }
+}
+
+impl std::fmt::Debug for SsoRoleCredential {
+    /// Names the connection and the expiry, never a credential half (research D8.3, FR-035).
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SsoRoleCredential")
+            .field("profile", &self.target.profile)
+            .field("account_id", &self.target.account_id)
+            .field("role_name", &self.target.role_name)
+            .field("region", &self.target.region)
+            .field("cached", &self.cache.try_lock().map(|c| c.is_some()).unwrap_or(true))
+            .finish()
+    }
+}
+
+#[async_trait::async_trait]
+impl CredentialSource for SsoRoleCredential {
+    async fn authorize(
+        &self,
+        _req: RequestBuilder,
+        _info: &RequestInfo,
+    ) -> Result<RequestBuilder, LlmError> {
+        Err(LlmError::Config(SIGV4_BODY_REQUIRED.into()))
+    }
+
+    async fn authorize_with_body(
+        &self,
+        req: RequestBuilder,
+        info: &RequestInfo,
+        method: &str,
+        url: &str,
+        body: &[u8],
+    ) -> Result<RequestBuilder, LlmError> {
+        let credentials = self.role_credentials().await?;
+        let signer = SigV4Credential {
+            access_key_id: credentials.access_key_id,
+            secret_access_key: credentials.secret_access_key,
+            session_token: Some(credentials.session_token),
+            region: self.target.region.clone(),
+            service: super::bedrock::SERVICE,
+        };
+        signer
+            .authorize_with_body(req, info, method, url, body)
+            .await
+    }
+
+    /// A rejection clears the cache, so the retry [`send_signed`] makes renews once and sends once
+    /// (FR-015). `false` when nothing was cached: a retry could not succeed.
+    async fn invalidate(&self) -> bool {
+        self.cache.lock().await.take().is_some()
     }
 }
 
@@ -546,7 +811,11 @@ mod tests {
             .unwrap_err();
         assert!(err.to_string().contains("body-aware"));
 
-        let req = reqwest::Client::new().post(url);
+        // A caller's single `content-type`, as `send_once` sets it: the signer must sign it and
+        // must not append a copy of its own (one copy on the wire, one in the canonical headers).
+        let req = reqwest::Client::new()
+            .post(url)
+            .header(reqwest::header::CONTENT_TYPE, "application/json");
         let built = credential
             .authorize_with_body(req, &RequestInfo::default(), "POST", url, br#"{"messages":[]}"#)
             .await
@@ -574,10 +843,625 @@ mod tests {
             "session-token"
         );
         assert!(built.headers().get("x-amz-date").is_some());
-        assert_eq!(
-            built.headers().get(reqwest::header::CONTENT_TYPE).unwrap(),
-            "application/json"
+        assert!(
+            authorization
+                .contains("SignedHeaders=content-type;host;x-amz-date;x-amz-security-token"),
+            "content-type is signed: {authorization}"
         );
+        assert_eq!(
+            built
+                .headers()
+                .get_all(reqwest::header::CONTENT_TYPE)
+                .iter()
+                .count(),
+            1,
+            "the caller's content-type is signed, never duplicated"
+        );
+    }
+
+    fn sso_session(expires_at: chrono::DateTime<chrono::Utc>) -> crate::schema::SsoSessionSecret {
+        crate::schema::SsoSessionSecret {
+            access_token: "access-token-value".into(),
+            refresh_token: Some("refresh-token-value".into()),
+            token_expires_at: expires_at,
+            client_id: "client-id".into(),
+            client_secret: "client-secret-value".into(),
+            client_secret_expires_at: None,
+            issued_at: chrono::Utc::now(),
+            revision: 0,
+        }
+    }
+
+    #[tokio::test]
+    async fn sso_role_credentials_are_fetched_once_and_reused_until_invalidated() {
+        use crate::llm::sso::tests_support::{MemSessions, Reply, Stub};
+        use crate::storage::sso_session::SsoSessionStorage;
+
+        let stub = Stub::start_portal(
+            Reply::ok(serde_json::json!({"accountList": []})),
+            Reply::ok(serde_json::json!({"roleList": []})),
+            Reply::ok(serde_json::json!({"roleCredentials": {
+                "accessKeyId": "ASIAEXAMPLEKEYID",
+                "secretAccessKey": "secret-access-value",
+                "sessionToken": "session-token-value",
+                "expiration": 4102444800000_i64
+            }})),
+        )
+        .await;
+        let storage = std::sync::Arc::new(MemSessions::default());
+        storage
+            .put_sso_session(
+                "acme-bedrock",
+                &sso_session(chrono::Utc::now() + chrono::TimeDelta::hours(1)),
+                None,
+            )
+            .await
+            .unwrap();
+        let credential = SsoRoleCredential::new(
+            SsoClient::at(reqwest::Client::new(), stub.base()),
+            storage,
+            SsoRoleTarget {
+                profile: "acme-bedrock".into(),
+                account_id: "123456789012".into(),
+                role_name: "BedrockOperator".into(),
+                region: "us-east-1".into(),
+            },
+        );
+        let url = "https://bedrock-runtime.us-east-1.amazonaws.com/model/arn/converse";
+
+        for _ in 0..2 {
+            let built = credential
+                .authorize_with_body(
+                    reqwest::Client::new().post(url),
+                    &RequestInfo::default(),
+                    "POST",
+                    url,
+                    br#"{"messages":[]}"#,
+                )
+                .await
+                .unwrap()
+                .build()
+                .unwrap();
+            let authorization = built
+                .headers()
+                .get(reqwest::header::AUTHORIZATION)
+                .unwrap()
+                .to_str()
+                .unwrap();
+            assert!(
+                authorization.starts_with("AWS4-HMAC-SHA256 Credential=ASIAEXAMPLEKEYID/"),
+                "{authorization}"
+            );
+            assert_eq!(
+                built
+                    .headers()
+                    .get("x-amz-security-token")
+                    .unwrap()
+                    .to_str()
+                    .unwrap(),
+                "session-token-value"
+            );
+        }
+        // The second call was answered from the cache: zero extra portal requests (FR-013).
+        assert_eq!(stub.path_count("/federation/credentials"), 1);
+
+        assert!(credential.invalidate().await);
+        assert!(!credential.invalidate().await, "nothing left to drop");
+
+        credential
+            .authorize_with_body(
+                reqwest::Client::new().post(url),
+                &RequestInfo::default(),
+                "POST",
+                url,
+                br#"{"messages":[]}"#,
+            )
+            .await
+            .unwrap();
+        assert_eq!(stub.path_count("/federation/credentials"), 2);
+    }
+
+    /// One signed-and-built request through the credential, as a turn would send it: the
+    /// `Authorization` header it would put on the wire.
+    async fn signed(credential: &SsoRoleCredential, url: &str) -> String {
+        credential
+            .authorize_with_body(
+                reqwest::Client::new().post(url),
+                &RequestInfo::default(),
+                "POST",
+                url,
+                br#"{"messages":[]}"#,
+            )
+            .await
+            .unwrap()
+            .build()
+            .unwrap()
+            .headers()
+            .get(reqwest::header::AUTHORIZATION)
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_string()
+    }
+
+    #[tokio::test]
+    async fn turns_that_arrive_together_at_an_expiry_share_one_renewal() {
+        use crate::llm::sso::tests_support::{MemSessions, Reply, Stub};
+
+        let credentials = |key: &str, life_seconds: i64| {
+            Reply::ok(serde_json::json!({
+                "roleCredentials": {
+                    "accessKeyId": key,
+                    "secretAccessKey": "secret-access-value",
+                    "sessionToken": "session-token-value",
+                    "expiration": (chrono::Utc::now() + chrono::TimeDelta::seconds(life_seconds))
+                        .timestamp_millis(),
+                }
+            }))
+        };
+        let stub = Stub::start_replies(vec![(
+            "/federation/credentials",
+            vec![
+                // The first turn's answer: already inside the five-minute window.
+                credentials("ASIASTALEKEYID", 60),
+                // The renewal the concurrent turns must share.
+                credentials("ASIAFRESHKEYID", 3600),
+            ],
+        )])
+        .await;
+        let storage = std::sync::Arc::new(MemSessions::default());
+        storage
+            .put_sso_session(
+                "acme-bedrock",
+                &sso_session(chrono::Utc::now() + chrono::TimeDelta::hours(1)),
+                None,
+            )
+            .await
+            .unwrap();
+        let credential = std::sync::Arc::new(SsoRoleCredential::new(
+            SsoClient::at(reqwest::Client::new(), stub.base()),
+            storage,
+            SsoRoleTarget {
+                profile: "acme-bedrock".into(),
+                account_id: "123456789012".into(),
+                role_name: "BedrockOperator".into(),
+                region: "us-east-1".into(),
+            },
+        ));
+        let url = "https://bedrock-runtime.us-east-1.amazonaws.com/model/arn/converse";
+
+        let first = signed(&credential, url).await;
+        assert!(
+            first.starts_with("AWS4-HMAC-SHA256 Credential=ASIASTALEKEYID/"),
+            "{first}"
+        );
+        assert_eq!(stub.path_count("/federation/credentials"), 1);
+
+        // Eight turns reach the expiry at the same moment.
+        let mut handles = Vec::new();
+        for _ in 0..8 {
+            let credential = credential.clone();
+            handles.push(tokio::spawn(async move { signed(&credential, url).await }));
+        }
+        for handle in handles {
+            let authorization = handle.await.unwrap();
+            assert!(
+                authorization.starts_with("AWS4-HMAC-SHA256 Credential=ASIAFRESHKEYID/"),
+                "every turn uses the fresh credentials: {authorization}"
+            );
+        }
+
+        assert_eq!(
+            stub.path_count("/federation/credentials"),
+            2,
+            "N turns at an expiry make one renewal (FR-014)"
+        );
+        // And a turn that finds the fresh cache does not call anything at all (FR-013).
+        assert!(
+            signed(&credential, url)
+                .await
+                .starts_with("AWS4-HMAC-SHA256 Credential=ASIAFRESHKEYID/")
+        );
+        assert_eq!(stub.path_count("/federation/credentials"), 2);
+        assert_eq!(stub.path_count("/token"), 0, "the access token was still good");
+    }
+
+    /// The credential under test, over `stub`, with a session that is good for an hour.
+    async fn credential_against(stub: &crate::llm::sso::tests_support::Stub) -> SsoRoleCredential {
+        use crate::llm::sso::tests_support::MemSessions;
+        use crate::storage::sso_session::SsoSessionStorage;
+
+        let storage = std::sync::Arc::new(MemSessions::default());
+        storage
+            .put_sso_session(
+                "acme-bedrock",
+                &sso_session(chrono::Utc::now() + chrono::TimeDelta::hours(1)),
+                None,
+            )
+            .await
+            .unwrap();
+        SsoRoleCredential::new(
+            SsoClient::at(reqwest::Client::new(), stub.base()),
+            storage,
+            SsoRoleTarget {
+                profile: "acme-bedrock".into(),
+                account_id: "123456789012".into(),
+                role_name: "BedrockOperator".into(),
+                region: "us-east-1".into(),
+            },
+        )
+    }
+
+    /// A portal answer carrying `key`, good for `life_seconds` from now.
+    fn role_credentials_reply(
+        key: &str,
+        life_seconds: i64,
+    ) -> crate::llm::sso::tests_support::Reply {
+        crate::llm::sso::tests_support::Reply::ok(serde_json::json!({
+            "roleCredentials": {
+                "accessKeyId": key,
+                "secretAccessKey": "secret-access-value",
+                "sessionToken": "session-token-value",
+                "expiration": (chrono::Utc::now() + chrono::TimeDelta::seconds(life_seconds))
+                    .timestamp_millis(),
+            }
+        }))
+    }
+
+    #[tokio::test]
+    async fn a_cache_that_is_still_valid_makes_no_portal_request() {
+        use crate::llm::sso::tests_support::Stub;
+
+        // Six minutes of life: outside the five-minute renewal window for the whole test.
+        let stub = Stub::start_replies(vec![(
+            "/federation/credentials",
+            vec![role_credentials_reply("ASIACACHEDKEYID", 360)],
+        )])
+        .await;
+        let credential = credential_against(&stub).await;
+        let url = format!("{}/model/arn/converse", stub.base());
+
+        for _ in 0..5 {
+            let authorization = signed(&credential, &url).await;
+            assert!(
+                authorization.starts_with("AWS4-HMAC-SHA256 Credential=ASIACACHEDKEYID/"),
+                "{authorization}"
+            );
+        }
+
+        assert_eq!(
+            stub.path_count("/federation/credentials"),
+            1,
+            "one renewal for five turns: the cache answers the rest (FR-013)"
+        );
+        assert_eq!(
+            stub.seen().len(),
+            1,
+            "zero extra requests while the cache is valid (FR-013)"
+        );
+        assert_eq!(
+            stub.path_count("/token"),
+            0,
+            "the session token was still good"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_credential_inside_the_renewal_window_is_renewed_exactly_once() {
+        use crate::llm::sso::tests_support::Stub;
+
+        let stub = Stub::start_replies(vec![(
+            "/federation/credentials",
+            vec![
+                // Four minutes of life: inside the five-minute window, so the next turn renews.
+                role_credentials_reply("ASIASHORTKEYID", 240),
+                role_credentials_reply("ASIAFRESHKEYID", 3600),
+            ],
+        )])
+        .await;
+        let credential = credential_against(&stub).await;
+        let url = format!("{}/model/arn/converse", stub.base());
+
+        let first = signed(&credential, &url).await;
+        assert!(
+            first.starts_with("AWS4-HMAC-SHA256 Credential=ASIASHORTKEYID/"),
+            "{first}"
+        );
+
+        let renewed = signed(&credential, &url).await;
+        assert!(
+            renewed.starts_with("AWS4-HMAC-SHA256 Credential=ASIAFRESHKEYID/"),
+            "approaching expiry renews rather than signing with a dying credential: {renewed}"
+        );
+        assert_eq!(
+            stub.path_count("/federation/credentials"),
+            2,
+            "one renewal at the threshold (FR-013)"
+        );
+
+        // The renewed credential is an hour from expiry, so the turns after it are quiet again.
+        for _ in 0..3 {
+            let authorization = signed(&credential, &url).await;
+            assert!(
+                authorization.starts_with("AWS4-HMAC-SHA256 Credential=ASIAFRESHKEYID/"),
+                "{authorization}"
+            );
+        }
+        assert_eq!(
+            stub.path_count("/federation/credentials"),
+            2,
+            "exactly one renewal, not one per turn (FR-013, FR-014)"
+        );
+    }
+
+    #[tokio::test]
+    async fn concurrent_turns_on_a_cold_cache_share_one_renewal() {
+        use crate::llm::sso::tests_support::Stub;
+
+        let stub = Stub::start_replies(vec![(
+            "/federation/credentials",
+            vec![role_credentials_reply("ASIAFIRSTKEYID", 3600)],
+        )])
+        .await;
+        let credential = std::sync::Arc::new(credential_against(&stub).await);
+        let url = format!("{}/model/arn/converse", stub.base());
+
+        // Eight turns race into an empty cache: the per-connection mutex lets one renew and the
+        // rest sign with its result (FR-014).
+        let mut handles = Vec::new();
+        for _ in 0..8 {
+            let credential = credential.clone();
+            let url = url.clone();
+            handles.push(tokio::spawn(async move { signed(&credential, &url).await }));
+        }
+        for handle in handles {
+            let authorization = handle.await.unwrap();
+            assert!(
+                authorization.starts_with("AWS4-HMAC-SHA256 Credential=ASIAFIRSTKEYID/"),
+                "every turn signs with the one renewal: {authorization}"
+            );
+        }
+
+        assert_eq!(
+            stub.path_count("/federation/credentials"),
+            1,
+            "one renewal for eight concurrent turns (FR-014)"
+        );
+        assert_eq!(
+            stub.path_count("/token"),
+            0,
+            "the session token was still good"
+        );
+    }
+
+    #[test]
+    fn only_a_credential_fault_is_a_rejection() {
+        let http = |status: u16, body: &str| LlmError::Http {
+            status,
+            retry_after: None,
+            body: body.into(),
+        };
+
+        assert!(is_credential_rejection(&http(
+            401,
+            r#"{"message":"Incorrect API key provided"}"#
+        )));
+        assert!(is_credential_rejection(&http(
+            403,
+            r#"{"message":"The security token included in the request is expired"}"#
+        )));
+        assert!(is_credential_rejection(&http(
+            403,
+            r#"{"__type":"ExpiredTokenException","message":"expired"}"#
+        )));
+        assert!(is_credential_rejection(&http(
+            403,
+            r#"{"__type":"UnrecognizedClientException"}"#
+        )));
+
+        // Refusals a renewal cannot fix are not retried with credentials that would fail again.
+        assert!(!is_credential_rejection(&http(
+            403,
+            r#"{"message":"AccessDeniedException: no access to this model"}"#
+        )));
+        assert!(!is_credential_rejection(&http(
+            400,
+            r#"{"message":"ValidationException"}"#
+        )));
+        assert!(!is_credential_rejection(&http(429, "ThrottlingException")));
+        assert!(!is_credential_rejection(&LlmError::Timeout));
+    }
+
+    #[tokio::test]
+    async fn a_rejected_credential_is_renewed_and_the_request_retried_once() {
+        use crate::llm::sso::tests_support::{Reply, Stub};
+
+        let credentials = |key: &str| {
+            Reply::ok(serde_json::json!({
+                "roleCredentials": {
+                    "accessKeyId": key,
+                    "secretAccessKey": "secret-access-value",
+                    "sessionToken": "session-token-value",
+                    "expiration": (chrono::Utc::now() + chrono::TimeDelta::hours(1))
+                        .timestamp_millis(),
+                }
+            }))
+        };
+        let stub = Stub::start_replies(vec![
+            (
+                "/federation/credentials",
+                vec![
+                    credentials("ASIABEFOREKEYID"),
+                    credentials("ASIAFRESHKEYID"),
+                ],
+            ),
+            (
+                "/model/arn/converse",
+                vec![
+                    Reply {
+                        status: 403,
+                        body: serde_json::json!({
+                            "__type": "ExpiredTokenException",
+                            "message": "The security token included in the request is expired",
+                        }),
+                    },
+                    Reply::ok(serde_json::json!({"output": {}})),
+                ],
+            ),
+        ])
+        .await;
+        let credential = credential_against(&stub).await;
+        let url = format!("{}/model/arn/converse", stub.base());
+
+        let response = send_signed(
+            &credential,
+            &RequestInfo::default(),
+            "POST",
+            &url,
+            br#"{"messages":[]}"#,
+            || {
+                reqwest::Client::new()
+                    .post(&url)
+                    .header(reqwest::header::CONTENT_TYPE, "application/json")
+                    .body(r#"{"messages":[]}"#.to_string())
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(response.status, 200);
+        assert_eq!(
+            stub.path_count("/model/arn/converse"),
+            2,
+            "one rejection, one retry"
+        );
+        assert_eq!(
+            stub.path_count("/federation/credentials"),
+            2,
+            "the rejection dropped the cache, so the retry renewed once"
+        );
+        // The two attempts, as they were signed (the bearer calls to the portal are not SigV4).
+        let signatures: Vec<String> = stub
+            .authorizations()
+            .into_iter()
+            .filter(|authorization| authorization.starts_with("AWS4-HMAC-SHA256"))
+            .collect();
+        assert_eq!(signatures.len(), 2, "two signed attempts");
+        assert!(
+            signatures[0].contains("ASIABEFOREKEYID"),
+            "the rejected attempt signed with the old credential: {signatures:?}"
+        );
+        assert!(
+            signatures[1].contains("ASIAFRESHKEYID"),
+            "the retry signs with the renewed credential: {signatures:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_second_rejection_ends_the_turn_with_the_providers_words() {
+        use crate::llm::sso::tests_support::{Reply, Stub};
+
+        let expired = || Reply {
+            status: 403,
+            body: serde_json::json!({
+                "__type": "ExpiredTokenException",
+                "message": "The security token included in the request is expired",
+            }),
+        };
+        let stub = Stub::start_replies(vec![
+            (
+                "/federation/credentials",
+                vec![Reply::ok(serde_json::json!({
+                    "roleCredentials": {
+                        "accessKeyId": "ASIAEXAMPLEKEYID",
+                        "secretAccessKey": "secret-access-value",
+                        "sessionToken": "session-token-value",
+                        "expiration": (chrono::Utc::now() + chrono::TimeDelta::hours(1))
+                            .timestamp_millis(),
+                    }
+                }))],
+            ),
+            ("/model/arn/converse", vec![expired(), expired()]),
+        ])
+        .await;
+        let credential = credential_against(&stub).await;
+        let url = format!("{}/model/arn/converse", stub.base());
+
+        let error = match send_signed(
+            &credential,
+            &RequestInfo::default(),
+            "POST",
+            &url,
+            b"{}",
+            || reqwest::Client::new().post(&url).body("{}"),
+        )
+        .await
+        {
+            Ok(response) => panic!("the second refusal must end the turn, got {}", response.status),
+            Err(error) => error,
+        };
+
+        assert_eq!(
+            stub.path_count("/model/arn/converse"),
+            2,
+            "at most one retry: no third attempt"
+        );
+        assert_eq!(
+            stub.path_count("/federation/credentials"),
+            2,
+            "the rejected credential was renewed once for the retry, and not again (FR-015)"
+        );
+        assert!(
+            matches!(error, LlmError::Http { status: 403, .. }),
+            "{error:?}"
+        );
+        assert!(
+            error
+                .to_string()
+                .contains("The security token included in the request is expired"),
+            "the provider's own explanation ends the turn: {error}"
+        );
+    }
+
+    #[tokio::test]
+    async fn sso_authorize_without_a_body_is_a_configuration_error() {
+        use crate::llm::sso::tests_support::MemSessions;
+
+        let credential = SsoRoleCredential::new(
+            SsoClient::at(reqwest::Client::new(), "http://127.0.0.1:1"),
+            std::sync::Arc::new(MemSessions::default()),
+            SsoRoleTarget {
+                profile: "acme-bedrock".into(),
+                account_id: "123456789012".into(),
+                role_name: "BedrockOperator".into(),
+                region: "us-east-1".into(),
+            },
+        );
+        let error = credential
+            .authorize(reqwest::Client::new().post("https://example.test"), &RequestInfo::default())
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("body-aware"));
+    }
+
+    #[tokio::test]
+    async fn sso_debug_never_prints_a_credential_half() {
+        use crate::llm::sso::tests_support::MemSessions;
+
+        let credential = SsoRoleCredential::new(
+            SsoClient::at(reqwest::Client::new(), "http://127.0.0.1:1"),
+            std::sync::Arc::new(MemSessions::default()),
+            SsoRoleTarget {
+                profile: "acme-bedrock".into(),
+                account_id: "123456789012".into(),
+                role_name: "BedrockOperator".into(),
+                region: "us-east-1".into(),
+            },
+        );
+        let printed = format!("{credential:?}");
+        assert!(printed.contains("acme-bedrock"));
+        assert!(printed.contains("passwords") == false);
+        assert!(printed.contains("[redacted]") || printed.contains("cached"));
     }
 
     #[test]

@@ -17,6 +17,8 @@ pub mod revision;
 pub mod secret;
 mod session;
 pub mod session_file;
+/// The Bedrock SSO session: the non-secret view and the encrypted payload (spec 044).
+pub mod sso;
 mod storage;
 mod task;
 pub mod usage;
@@ -39,7 +41,7 @@ pub use background::{
 pub use commands::{
     AgentCommand, AgentCommandResult, AgentHealthStatus, AgentModelInfo, AgentRunState,
     AgentSummary, ChannelHealth, ChannelPlatform, ChannelState, CommandRequest, CommandResponse,
-    FileCommand, MemoryOpEnvelope, MemoryOpRequest, MemoryOpResponse,
+    MemoryOpRequest, MemoryOpResponse,
 };
 pub use dream_journal::{DreamJournalEntry, DreamJournalEntryFrontMatter};
 pub use file::FileRecord;
@@ -63,7 +65,8 @@ pub use project::{
     Worktree, WorktreeRef,
 };
 pub use provider::{
-    CustomModel, CustomProtocol, CustomProvider, ProviderCredentials, ProviderEntry,
+    CustomModel, CustomProtocol, CustomProvider, LimitsEdited, ProfileEntry, ProviderCredentials,
+    ProviderEntry,
 };
 pub use request::{
     AttachmentResolver, ClientEvent, NoopAttachmentResolver, PlatformMessageId, ReactionAction,
@@ -77,6 +80,7 @@ pub use revision::{
     RevisionTrigger, RollbackResponse,
 };
 pub use secret::{AgentSecretEvent, SecretAction};
+pub use sso::{SsoSession, SsoSessionSecret, SsoSessionState};
 pub use session::{
     AgentId, DreamStage, DreamStatus, TopicId, VizierChannelId, VizierSession, VizierSessionDetail,
 };

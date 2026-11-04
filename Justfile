@@ -152,6 +152,83 @@ push:
   done
   git push -u origin HEAD
 
+# Install the commit-msg hook everywhere: `core.hooksPath` in the workspace and, as an absolute
+# path, in every submodule. A submodule is a separate repository with no `.githooks/` of its own, so
+# a relative path there points at nothing and the hook silently never runs.
+# Ends with a self-test against the spec-kit commit messages, so a broken rule fails loudly here.
+hooks:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  hookdir="$(pwd)/.githooks"
+  if [ ! -x "$hookdir/commit-msg" ]; then
+    echo -e "\033[1;31m$hookdir/commit-msg is missing or not executable\033[0m"
+    exit 1
+  fi
+  git config core.hooksPath .githooks
+  echo -e "\033[1;32mworkspace: core.hooksPath -> .githooks\033[0m"
+  mods=$(git submodule --quiet foreach 'echo $sm_path')
+  for sm in $mods; do
+    git -C "$sm" config core.hooksPath "$hookdir"
+    echo -e "\033[1;32m$sm: core.hooksPath -> $hookdir\033[0m"
+  done
+
+  # Self-test. Valid: the seven `docs:` messages of the spec-kit config, one `feat:`, one `chore:`,
+  # and a breaking change. Invalid: the old `doc:` type, a free-form subject, a `[Spec Kit]` prefix.
+  cfg=.specify/extensions/git/git-config.yml
+  messages=$(sed -n 's/^[[:space:]]*[a-z_]*message: "\(.*\)"$/\1/p' "$cfg")
+  docs_msgs=$(printf '%s\n' "$messages" | grep '^docs:' || true)
+  n_docs=$(printf '%s\n' "$docs_msgs" | grep -c . || true)
+  if [ "$n_docs" -ne 7 ]; then
+    echo -e "\033[1;31mexpected 7 docs: messages in $cfg, found $n_docs\033[0m"
+    exit 1
+  fi
+  tmp=$(mktemp)
+  trap 'rm -f "$tmp"' EXIT
+  accepted=0
+  rejected=0
+  failed=0
+  accept() {
+    printf '%s\n' "$1" > "$tmp"
+    if sh .githooks/commit-msg "$tmp"; then
+      accepted=$((accepted + 1))
+    else
+      echo -e "\033[1;31mrejected a valid message: $1\033[0m"
+      failed=$((failed + 1))
+    fi
+  }
+  reject() {
+    printf '%s\n' "$1" > "$tmp"
+    if sh .githooks/commit-msg "$tmp" 2>/dev/null; then
+      echo -e "\033[1;31maccepted an invalid message: $1\033[0m"
+      failed=$((failed + 1))
+    else
+      rejected=$((rejected + 1))
+    fi
+  }
+  while IFS= read -r m; do
+    if [ -n "$m" ]; then accept "$m"; fi
+  done <<< "$docs_msgs"
+  feat_msg=$(printf '%s\n' "$messages" | grep '^feat:' | head -n 1 || true)
+  chore_msg=$(printf '%s\n' "$messages" | grep '^chore:' | head -n 1 || true)
+  if [ -n "$feat_msg" ]; then accept "$feat_msg"; fi
+  if [ -n "$chore_msg" ]; then accept "$chore_msg"; fi
+  accept 'feat(bedrock-sso)!: add credential source'
+  reject 'doc: add tasks'
+  reject 'update files'
+  reject '[Spec Kit] add specification'
+
+  echo -e "\n\033[1;34mcore.hooksPath\033[0m"
+  printf '  %-10s %s\n' workspace "$(git config --get core.hooksPath || echo '(unset)')"
+  for sm in $mods; do
+    printf '  %-10s %s\n' "$sm" "$(git -C "$sm" config --get core.hooksPath || echo '(unset)')"
+  done
+  printf '\n  self-test: %s valid accepted, %s invalid rejected, %s failed\n' "$accepted" "$rejected" "$failed"
+  if [ "$failed" -ne 0 ]; then
+    echo -e "\033[1;31m$failed hook self-test failure(s)\033[0m"
+    exit 1
+  fi
+  echo -e "\n\033[1;32mcommit-msg hook installed and self-tested\033[0m"
+
 # Delete <branch> in the workspace and every submodule that has it.
 # Safe by default: only merged branches, local only. Flags: --force (delete unmerged too), --remote (also delete it on origin).
 branch-rm branch *flags:

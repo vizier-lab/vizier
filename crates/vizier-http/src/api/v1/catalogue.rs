@@ -141,6 +141,10 @@ pub struct ModelsQuery {
     /// Every model, deprecated and not tool-capable ones included.
     #[serde(default)]
     pub all: bool,
+    /// What is being picked: `chat` when absent. `embedding` and `image` answer with that
+    /// capability's foundation models only and never a saved inference-profile entry, because an
+    /// ARN is a chat model (FR-033a).
+    pub capability: Option<String>,
 }
 
 #[utoipa::path(
@@ -149,6 +153,7 @@ pub struct ModelsQuery {
     params(("id" = String, Path, description = "Provider id"), ModelsQuery),
     responses(
         (status = 200, description = "The provider's models, newest first", body = APIResponse<Vec<ModelSummary>>),
+        (status = 400, description = "Unknown capability", body = APIResponse<String>),
         (status = 404, description = "Unknown provider", body = APIResponse<String>)
     )
 )]
@@ -157,7 +162,7 @@ pub async fn list_models(
     Path(id): Path<String>,
     Query(query): Query<ModelsQuery>,
 ) -> models::response::Response<Vec<ModelSummary>> {
-    match service::list_models(&state.deps, &id, query.all).await {
+    match service::list_models(&state.deps, &id, query.all, query.capability.as_deref()).await {
         Ok(models) => api_response(StatusCode::OK, models),
         Err(e) => fail(e),
     }
@@ -268,7 +273,6 @@ mod tests {
                 1,
                 std::time::Duration::from_secs(60),
             )),
-            deferred_client_calls: Default::default(),
         };
         (state, dir)
     }
@@ -307,7 +311,9 @@ mod tests {
         assert!(
             summaries
                 .iter()
-                .filter(|p| p.id != ProviderId::AMAZON_BEDROCK)
+                .filter(|p| {
+                    p.id != ProviderId::AMAZON_BEDROCK && p.id != ProviderId::AMAZON_BEDROCK_SSO
+                })
                 .all(|p| p.guide.is_none()),
             "no other provider has a guide"
         );

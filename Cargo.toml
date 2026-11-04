@@ -67,6 +67,13 @@ flate2 = "1.1.10"
 mime_guess = "2.0.5"
 rusqlite = { version = "0.40", features = ["bundled"] }
 sqlite-vec = "0.1.9"
+# Opt-in PostgreSQL backend (spec 045): sync client + pool, rustls TLS on the existing stack.
+postgres = "0.19.14"
+r2d2 = "0.8.10"
+r2d2_postgres = "0.18.2"
+tokio-postgres-rustls = "0.14.0"
+rustls-platform-verifier = "0.7.1"
+bytes = "1"
 # Pinned (#73): newer fastembed pulls ort rc.13, which has no x86_64-apple-darwin
 # binaries. Keep the pin until that target is available.
 fastembed = "=4.9.1"
@@ -123,9 +130,11 @@ opentelemetry_sdk = { version = "0.33" }
 tracing-opentelemetry = { version = "0.34" }
 opentelemetry-otlp = { version = "0.33", default-features = false, features = ["trace", "metrics", "http-proto", "reqwest-blocking-client"] }
 libc = "0.2"
-# The workspace's own crates. One version for all four, bumped in this file only.
+# The workspace's own crates. One version for all five, bumped in this file only.
 vizier-derive = { path = "crates/vizier-derive", version = "0.14.1" }
 vizier-core = { path = "crates/vizier-core", version = "0.14.1" }
+vizier-fleet = { path = "crates/vizier-fleet", version = "0.14.1" }
+vizier-schema = { path = "crates/vizier-schema", version = "0.14.1" }
 vizier-http = { path = "crates/vizier-http", version = "0.14.1" }
 
 # Dependencies are compiled optimised even in dev builds. Local speech (candle for Kokoro,

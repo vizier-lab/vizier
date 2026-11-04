@@ -101,7 +101,7 @@ impl SecretCipher {
         Self::from_key(key, KeySource::Test).expect("a 32-byte test key is always valid")
     }
 
-    /// No encryption: reads and writes are plaintext. Used by `SqliteStorage::new` for the
+    /// No encryption: reads and writes are plaintext. Used by `SqlStorage::new` for the
     /// existing tests and the pre-encryption filesystem import, never for production data.
     pub fn disabled() -> Self {
         Self { inner: None }

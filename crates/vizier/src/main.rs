@@ -30,9 +30,16 @@ fn main() -> Result<()> {
         ),
         None => (None, None),
     };
+    // `vizier storage …` prints a JSON report on stdout, so its logs go to stderr; every other
+    // command keeps logging to stdout (detached runs split stdout/stderr into separate files).
+    let writer = if std::env::args().nth(1).as_deref() == Some("storage") {
+        fmt::writer::BoxMakeWriter::new(std::io::stderr)
+    } else {
+        fmt::writer::BoxMakeWriter::new(std::io::stdout)
+    };
     tracing_subscriber::registry()
         .with(filter)
-        .with(fmt::layer().compact())
+        .with(fmt::layer().compact().with_writer(writer))
         .with(otel_layer)
         .init();
     if let Some(e) = telemetry_error {

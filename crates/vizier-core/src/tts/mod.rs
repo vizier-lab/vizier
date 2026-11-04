@@ -1,5 +1,5 @@
 pub mod elevenlabs;
-#[cfg(feature = "media")]
+#[cfg(feature = "provider-media")]
 pub mod kokoro;
 
 use std::sync::Arc;
@@ -34,14 +34,14 @@ impl VizierTts {
         let provider = &settings.provider;
         let model = resolved_model(settings);
         let model: Arc<dyn VizierTtsModel> = match (provider, provider.credentials()) {
-            #[cfg(feature = "media")]
+            #[cfg(feature = "provider-media")]
             (TtsProvider::Kokoro, _) => Arc::new(kokoro::KokoroTtsModel::new(
                 model,
                 workspace,
                 deps.setup.clone(),
                 agent_id.to_string(),
             )),
-            #[cfg(not(feature = "media"))]
+            #[cfg(not(feature = "provider-media"))]
             (TtsProvider::Kokoro, _) => {
                 return Err(VizierError(
                     "local speech (kokoro) is not compiled into this build".into(),
@@ -74,7 +74,7 @@ impl VizierTts {
     }
 }
 
-#[cfg(feature = "media")]
+#[cfg(feature = "provider-media")]
 mod mp3 {
     use crate::{Result, VizierError};
 
@@ -272,19 +272,19 @@ mod mp3 {
     }
 }
 
-#[cfg(feature = "media")]
+#[cfg(feature = "provider-media")]
 pub use mp3::mp3_to_wav;
 
 /// Without the `media` feature there is no MP3 decoder: a provider that answers in MP3 fails
 /// with this, and one that answers in WAV is unaffected.
-#[cfg(not(feature = "media"))]
+#[cfg(not(feature = "provider-media"))]
 pub fn mp3_to_wav(_mp3_bytes: &[u8]) -> Result<Vec<u8>> {
     Err(VizierError(
         "MP3 audio decoding is not compiled into this build".into(),
     ))
 }
 
-#[cfg(all(test, feature = "media"))]
+#[cfg(all(test, feature = "provider-media"))]
 mod tests {
     use super::mp3::*;
     use super::*;

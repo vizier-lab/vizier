@@ -59,9 +59,11 @@ Settings → Providers, and create an agent.
 | `VIZIER_CONFIG` | Path to a `.vizier.yaml` (loaded first, then env overrides). | unset |
 | `VIZIER_DATA_DIR` / `VIZIER_WORKSPACE` | Container data directory. Use a volume to persist. | `$HOME/.vizier` |
 | `VIZIER_PORT` | HTTP server port. | `9999` |
-| `VIZIER_STORAGE` | `sqlite` (only supported value). | `sqlite` |
+| `VIZIER_STORAGE` | `sqlite` or `postgres` using `VIZIER_DATABASE_URL`. | `sqlite` |
+| `VIZIER_OBJECTS` | `local` or `s3` using `VIZIER_S3_*`. | `local` |
 | `VIZIER_WORKERS` | Tokio worker thread count. | `4` |
 | `VIZIER_WS_IDLE_TIMEOUT` | WebSocket idle timeout (seconds). | `300` |
+| `VIZIER_SHUTDOWN_GRACE` | Maximum graceful shutdown drain (seconds). | `30` |
 | `VIZIER_JWT_SECRET` | JWT signing secret. **Set to a strong value in production.** | `vizier-default-secret-change-me` |
 | `VIZIER_EXTRA_ARGS` | Append arbitrary extra CLI args. | unset |
 | `RUST_LOG` | Log filter, e.g. `vizier=debug`. | unset |

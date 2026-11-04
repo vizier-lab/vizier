@@ -388,23 +388,19 @@ fn draft(
 
 #[cfg(test)]
 mod tests {
-    use parking_lot::Mutex;
+    use crate::storage::sql::{SqlStore, params};
 
     use super::*;
     use crate::{
         schema::NotificationFilter,
         storage::{
-            document::LocalDocumentStore,
+            document::BlobDocumentStore,
             notification::NotificationStorage,
-            sqlite::{SqliteStorage, init_history_schema, init_notification_schema},
+            sqlite::{SqlStorage, init_history_schema, init_notification_schema},
         },
     };
 
-    fn setup() -> (
-        Notifications,
-        Arc<Mutex<rusqlite::Connection>>,
-        tempfile::TempDir,
-    ) {
+    fn setup() -> (Notifications, SqlStore, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
         let conn = rusqlite::Connection::open_in_memory().unwrap();
         init_notification_schema(&conn).unwrap();
@@ -415,15 +411,15 @@ mod tests {
              CREATE TABLE \"user\" (user_id TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE, data TEXT NOT NULL);",
         )
         .unwrap();
-        let conn = Arc::new(Mutex::new(conn));
-        let storage = VizierStorage::new(SqliteStorage::new(
+        let conn = SqlStore::sqlite(conn);
+        let storage = VizierStorage::new(SqlStorage::new(
             conn.clone(),
-            Arc::new(LocalDocumentStore::new(dir.path().to_path_buf())),
+            Arc::new(BlobDocumentStore::local(dir.path().to_path_buf())),
         ));
         (Notifications::new(Arc::new(storage)), conn, dir)
     }
 
-    fn agent(conn: &Arc<Mutex<rusqlite::Connection>>, id: &str) {
+    fn agent(conn: &SqlStore, id: &str) {
         let config = crate::schema::AgentConfig {
             name: format!("Agent {id}"),
             owner_id: None,
@@ -456,9 +452,10 @@ mod tests {
             completion_retry: Default::default(),
         };
         conn.lock()
+            .unwrap()
             .execute(
                 "INSERT OR IGNORE INTO agent_config (agent_id, data) VALUES (?1, ?2)",
-                rusqlite::params![id, serde_json::to_string(&config).unwrap()],
+                params![id, serde_json::to_string(&config).unwrap()],
             )
             .unwrap();
     }
@@ -521,11 +518,11 @@ mod tests {
         agent(&conn, "a");
         const HOUR_MS_LOCAL: i64 = 3_600_000;
         {
-            let c = conn.lock();
+            let c = conn.lock().unwrap();
             let mut put = |uid: i64, channel: &str, ts: i64| {
                 c.execute(
                     "INSERT INTO session_history (uid, agent_id, channel, topic, timestamp, content_type, data, seq) VALUES (?1, 'a', ?2, NULL, ?3, 'Response', '{}', ?4)",
-                    rusqlite::params![format!("h{uid}"), channel, ts, uid],
+                    params![format!("h{uid}"), channel, ts, uid],
                 )
                 .unwrap();
             };
@@ -564,7 +561,7 @@ mod tests {
         assert_eq!(items.len(), 2, "the still-open hour is not projected");
     }
 
-    fn user(conn: &Arc<Mutex<rusqlite::Connection>>, id: &str, username: &str) {
+    fn user(conn: &SqlStore, id: &str, username: &str) {
         let user = crate::storage::user::User {
             user_id: id.into(),
             username: username.into(),
@@ -573,9 +570,10 @@ mod tests {
             created_at: Utc::now(),
         };
         conn.lock()
+            .unwrap()
             .execute(
                 r#"INSERT OR IGNORE INTO "user" (user_id, username, data) VALUES (?1, ?2, ?3)"#,
-                rusqlite::params![id, username, serde_json::to_string(&user).unwrap()],
+                params![id, username, serde_json::to_string(&user).unwrap()],
             )
             .unwrap();
     }

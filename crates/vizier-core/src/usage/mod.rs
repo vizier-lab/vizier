@@ -8,23 +8,26 @@ use chrono::{DateTime, Duration, NaiveDate, Utc};
 
 use crate::{
     catalogue::{Catalogue, data::Cost},
-    integrations::{IntegrationKinds, kind::ConversationNames},
     config::provider::ProviderId,
+    integrations::{IntegrationKinds, kind::ConversationNames},
     llm::DialectKind,
     schema::{
         VizierChannelId,
         metrics::{TokenCounts, add_cost, estimate_cost},
+        provider::ProfileEntry,
         usage::{
             BreakdownRow, CallRow, ConversationRow, ConversationUsage, DailyUsage, DayActivity,
             FailedTotals, ModelRow, NoLinkReason, PeriodTotals, UnpricedNote, UsageActivity,
             UsageLink, UsageLinkKind, UsageRange, UsageReport, UsageSummary,
         },
     },
+    service::catalogue::entry_pricing,
     storage::{
         VizierStorage,
         background_job::BackgroundJobStorage,
         integration::IntegrationStorage,
         project::ProjectStorage,
+        provider::ProviderStorage,
         state::StateStorage,
         task::TaskStorage,
         usage::{UsageGroup, UsageGrouping, UsageQuery, UsageStorage},
@@ -37,14 +40,30 @@ const COSTLIEST: usize = 10;
 /// Catalogue prices, looked up once per `(provider, model)` per report.
 pub struct Pricer<'a> {
     catalogue: &'a Catalogue,
+    /// The saved inference-profile entries, by `(provider, arn)`, read once per report. An ARN is
+    /// priced from its entry before the catalogue is asked (FR-034, FR-034b).
+    entries: HashMap<(String, String), ProfileEntry>,
     prices: HashMap<(String, String), Option<Cost>>,
     outside: HashMap<String, bool>,
 }
 
 impl<'a> Pricer<'a> {
     pub fn new(catalogue: &'a Catalogue) -> Self {
+        Self::with_entries(catalogue, HashMap::new())
+    }
+
+    /// A pricer that knows the saved inference-profile entries. An ARN row is priced by its entry
+    /// — the hand-entered price, then the paired model — before the catalogue is consulted for the
+    /// model string, so a report prices an ARN the way the settings row describes it (FR-034,
+    /// research D13). An entry with nothing to price from yields the `None` that already means
+    /// unpriced, never zero (FR-034b).
+    pub fn with_entries(
+        catalogue: &'a Catalogue,
+        entries: HashMap<(String, String), ProfileEntry>,
+    ) -> Self {
         Self {
             catalogue,
+            entries,
             prices: HashMap::new(),
             outside: HashMap::new(),
         }
@@ -71,11 +90,18 @@ impl<'a> Pricer<'a> {
         if let Some(c) = self.prices.get(&key) {
             return c.clone();
         }
-        let c = provider
-            .parse::<ProviderId>()
-            .ok()
-            .and_then(|id| self.catalogue.model(&id, model))
-            .and_then(|m| m.cost);
+        // An ARN's own entry comes first and decides alone: it has no catalogue row, and the order
+        // — explicit price, then the paired model, then unpriced — is the one `entry_pricing`
+        // fixes, so a report and the settings row can never disagree (FR-034, FR-034b).
+        let c = if let Some(entry) = self.entries.get(&key) {
+            entry_pricing(self.catalogue, entry).cost().cloned()
+        } else {
+            provider
+                .parse::<ProviderId>()
+                .ok()
+                .and_then(|id| self.catalogue.model(&id, model))
+                .and_then(|m| m.cost)
+        };
         self.prices.insert(key, c.clone());
         c
     }
@@ -96,6 +122,21 @@ impl<'a> Pricer<'a> {
         (tokens.cached, whole)
     }
 }
+
+/// Every saved inference-profile entry, keyed by `(provider, arn)`, from one read of the provider
+/// rows. A report builds this once, so the turn itself does no pricing work at all (FR-034a.5,
+/// research D13 §3).
+pub async fn saved_entries(storage: &VizierStorage) -> HashMap<(String, String), ProfileEntry> {
+    let mut entries = HashMap::new();
+    for provider in storage.list_providers().await.unwrap_or_default() {
+        let id = provider.id.as_str().to_string();
+        for entry in provider.credentials.profiles {
+            entries.insert((id.clone(), entry.arn.clone()), entry);
+        }
+    }
+    entries
+}
+
 
 /// Running totals for one bucket of groups.
 #[derive(Debug, Default, Clone)]
@@ -152,7 +193,13 @@ impl Tally {
         }
     }
 
-    fn row(&self, key: String, label: String, detail: Option<String>, total: Option<f64>) -> BreakdownRow {
+    fn row(
+        &self,
+        key: String,
+        label: String,
+        detail: Option<String>,
+        total: Option<f64>,
+    ) -> BreakdownRow {
         BreakdownRow {
             key,
             label,
@@ -206,7 +253,7 @@ pub async fn build_report(
     kinds: &IntegrationKinds,
     q: UsageQuery,
 ) -> Result<UsageReport> {
-    let mut pricer = Pricer::new(catalogue);
+    let mut pricer = Pricer::with_entries(catalogue, saved_entries(storage).await);
 
     let activity_groups = storage.usage_groups(&q, UsageGrouping::Activity).await?;
     let all = tally(&mut pricer, &activity_groups);
@@ -217,7 +264,9 @@ pub async fn build_report(
             activity: None,
             ..q.clone()
         };
-        let everything = storage.usage_groups(&unfiltered, UsageGrouping::Activity).await?;
+        let everything = storage
+            .usage_groups(&unfiltered, UsageGrouping::Activity)
+            .await?;
         summary.share_of_all = share(all.cost, tally(&mut pricer, &everything).cost);
     }
 
@@ -233,7 +282,14 @@ pub async fn build_report(
         }
         let mut rows: Vec<BreakdownRow> = buckets
             .into_iter()
-            .map(|(a, t)| t.row(a.as_str().to_string(), a.label().to_string(), None, all.cost))
+            .map(|(a, t)| {
+                t.row(
+                    a.as_str().to_string(),
+                    a.label().to_string(),
+                    None,
+                    all.cost,
+                )
+            })
             .collect();
         rows.sort_by(|a, b| by_cost_then_tokens((a.cost_usd, a.tokens), (b.cost_usd, b.tokens)));
         rows
@@ -246,7 +302,9 @@ pub async fn build_report(
             end: q.start - Duration::milliseconds(1),
             ..q.clone()
         };
-        let groups = storage.usage_groups(&before, UsageGrouping::Activity).await?;
+        let groups = storage
+            .usage_groups(&before, UsageGrouping::Activity)
+            .await?;
         (!groups.is_empty()).then(|| {
             let t = tally(&mut pricer, &groups);
             PeriodTotals {
@@ -257,7 +315,11 @@ pub async fn build_report(
         })
     };
 
-    let daily = daily(&mut pricer, &q, storage.usage_groups(&q, UsageGrouping::Day).await?);
+    let daily = daily(
+        &mut pricer,
+        &q,
+        storage.usage_groups(&q, UsageGrouping::Day).await?,
+    );
 
     let model_groups = storage.usage_groups(&q, UsageGrouping::Model).await?;
     let (by_model, unpriced) = by_model(&mut pricer, &model_groups, all.cost);
@@ -272,7 +334,12 @@ pub async fn build_report(
     // Every Discord channel and Telegram chat in range is one place, so the places name every
     // conversation the costliest list can show. The costliest places are looked up first.
     let mut ranked_places: Vec<_> = place_buckets.iter().collect();
-    ranked_places.sort_by(|a, b| by_cost_then_tokens((a.1.cost, a.1.tokens.total()), (b.1.cost, b.1.tokens.total())));
+    ranked_places.sort_by(|a, b| {
+        by_cost_then_tokens(
+            (a.1.cost, a.1.tokens.total()),
+            (b.1.cost, b.1.tokens.total()),
+        )
+    });
     let names = NameBook::resolve(
         storage,
         kinds,
@@ -293,7 +360,9 @@ pub async fn build_report(
         &names,
         &mut pricer,
         &q.agent_id,
-        storage.usage_groups(&q, UsageGrouping::Conversation).await?,
+        storage
+            .usage_groups(&q, UsageGrouping::Conversation)
+            .await?,
     )
     .await?;
 
@@ -352,7 +421,9 @@ fn by_model(
 ) -> (Vec<ModelRow>, UnpricedNote) {
     let mut buckets: BTreeMap<(String, String), (Tally, BTreeSet<String>)> = BTreeMap::new();
     for g in groups {
-        let (t, served) = buckets.entry((g.provider.clone(), g.model.clone())).or_default();
+        let (t, served) = buckets
+            .entry((g.provider.clone(), g.model.clone()))
+            .or_default();
         t.add(pricer, g);
         if let Some(s) = &g.served_model
             && s != &g.model
@@ -388,7 +459,10 @@ fn by_model(
         })
         .collect();
     rows.sort_by(|a, b| {
-        by_cost_then_tokens((a.row.cost_usd, a.row.tokens), (b.row.cost_usd, b.row.tokens))
+        by_cost_then_tokens(
+            (a.row.cost_usd, a.row.tokens),
+            (b.row.cost_usd, b.row.tokens),
+        )
     });
     (rows, unpriced)
 }
@@ -419,7 +493,10 @@ async fn costliest(
             .or_default();
         add_cost(&mut a.0, cost);
         a.1 += g.tokens.total();
-        let m = conv.by_model.entry(model_key(&g.provider, &g.model)).or_default();
+        let m = conv
+            .by_model
+            .entry(model_key(&g.provider, &g.model))
+            .or_default();
         add_cost(&mut m.0, cost);
         m.1 += g.tokens.total();
     }
@@ -436,7 +513,8 @@ async fn costliest(
     let mut rows = Vec::with_capacity(ranked.len());
     for ((channel, topic), conv) in ranked {
         let exists = conversation_exists(storage, agent_id, &channel, topic.as_deref()).await;
-        let (label, detail) = conversation_label(storage, names, agent_id, &channel, topic.as_deref()).await;
+        let (label, detail) =
+            conversation_label(storage, names, agent_id, &channel, topic.as_deref()).await;
         rows.push(ConversationRow {
             activity: top(&conv.by_activity).unwrap_or(UsageActivity::Other),
             model: top(&conv.by_model).unwrap_or_default(),
@@ -480,10 +558,15 @@ pub async fn conversation_usage(
     limit: usize,
 ) -> Result<ConversationUsage> {
     let (channel, topic) = q.conversation.clone().unwrap_or_default();
-    let mut pricer = Pricer::new(catalogue);
+    let mut pricer = Pricer::with_entries(catalogue, saved_entries(storage).await);
 
-    let all = tally(&mut pricer, &storage.usage_groups(&q, UsageGrouping::Activity).await?);
-    let rows = storage.conversation_usage(&q, limit.saturating_mul(4)).await?;
+    let all = tally(
+        &mut pricer,
+        &storage.usage_groups(&q, UsageGrouping::Activity).await?,
+    );
+    let rows = storage
+        .conversation_usage(&q, limit.saturating_mul(4))
+        .await?;
 
     let mut calls: Vec<CallRow> = rows
         .rows
@@ -514,10 +597,13 @@ pub async fn conversation_usage(
     calls.truncate(limit);
     let more = rows.total.saturating_sub(calls.len() as u64);
 
-    let names = NameBook::resolve(storage, kinds, &q.agent_id, slug_place(&channel).as_deref()).await;
-    let (label, detail) = conversation_label(storage, &names, &q.agent_id, &channel, topic.as_deref()).await;
+    let names =
+        NameBook::resolve(storage, kinds, &q.agent_id, slug_place(&channel).as_deref()).await;
+    let (label, detail) =
+        conversation_label(storage, &names, &q.agent_id, &channel, topic.as_deref()).await;
     let exists = conversation_exists(storage, &q.agent_id, &channel, topic.as_deref()).await;
-    let (link, no_link_reason) = conversation_link(storage, &q.agent_id, &channel, topic.as_deref(), exists).await;
+    let (link, no_link_reason) =
+        conversation_link(storage, &q.agent_id, &channel, topic.as_deref(), exists).await;
 
     Ok(ConversationUsage {
         label,
@@ -637,7 +723,10 @@ impl NameBook {
         if wanted.is_empty() {
             return Self::default();
         }
-        let integrations = storage.list_agent_integrations(agent_id).await.unwrap_or_default();
+        let integrations = storage
+            .list_agent_integrations(agent_id)
+            .await
+            .unwrap_or_default();
         // The agent's enabled connection for each platform, by the place prefix it names.
         let connection = |prefix: &str| {
             integrations.iter().filter(|i| i.enabled).find_map(|i| {
@@ -658,7 +747,11 @@ impl NameBook {
             };
             let key = (integration.id.clone(), place.to_string());
             if let Some((at, cached)) = name_cache().lock().get(&key).cloned() {
-                let ttl = if cached.is_some() { NAME_TTL } else { NAME_FAILED_TTL };
+                let ttl = if cached.is_some() {
+                    NAME_TTL
+                } else {
+                    NAME_FAILED_TTL
+                };
                 if now.duration_since(at) < ttl {
                     if let Some(names) = cached {
                         book.0.insert(place.to_string(), names);
@@ -668,14 +761,19 @@ impl NameBook {
             }
             if let Some(lookup) = kind.conversation_names(integration, chat_id) {
                 lookups.push(async move {
-                    let found = tokio::time::timeout(NAME_TIMEOUT, lookup).await.ok().flatten();
+                    let found = tokio::time::timeout(NAME_TIMEOUT, lookup)
+                        .await
+                        .ok()
+                        .flatten();
                     (key, found)
                 });
             }
         }
 
         for (key, found) in futures::future::join_all(lookups).await {
-            name_cache().lock().insert(key.clone(), (std::time::Instant::now(), found.clone()));
+            name_cache()
+                .lock()
+                .insert(key.clone(), (std::time::Instant::now(), found.clone()));
             if let Some(names) = found {
                 book.0.insert(key.1, names);
             }
@@ -693,9 +791,18 @@ impl NameBook {
         let parts: Vec<&str> = self
             .0
             .get(place)
-            .map(|n| [n.space.as_deref(), n.conversation.as_deref()].into_iter().flatten().collect())
+            .map(|n| {
+                [n.space.as_deref(), n.conversation.as_deref()]
+                    .into_iter()
+                    .flatten()
+                    .collect()
+            })
             .unwrap_or_default();
-        if parts.is_empty() { fallback() } else { parts.join(" / ") }
+        if parts.is_empty() {
+            fallback()
+        } else {
+            parts.join(" / ")
+        }
     }
 }
 
@@ -729,7 +836,9 @@ async fn conversation_exists(
     let found = match slug_kind(channel) {
         SlugKind::Dream(_) => return true,
         SlugKind::Http | SlugKind::Project(_) => {
-            storage.session_detail_exists(agent_id, channel, topic).await
+            storage
+                .session_detail_exists(agent_id, channel, topic)
+                .await
         }
         _ => storage.conversation_exists(agent_id, channel, topic).await,
     };
@@ -763,7 +872,10 @@ async fn place_label(
                 .await
                 .ok()
                 .flatten();
-            (title.unwrap_or_else(|| "WebUI topic".into()), Some("WebUI topic".into()))
+            (
+                title.unwrap_or_else(|| "WebUI topic".into()),
+                Some("WebUI topic".into()),
+            )
         }
         "project" => {
             let (channel, topic) = rest.rsplit_once(':').unwrap_or((rest, ""));
@@ -778,15 +890,30 @@ async fn place_label(
                 .flatten()
                 .unwrap_or_else(|| "Project chat".into());
             match project {
-                Some(project) => (format!("{} / {title}", project.name), Some("Project".into())),
+                Some(project) => (
+                    format!("{} / {title}", project.name),
+                    Some("Project".into()),
+                ),
                 None => (title, Some("Project".into())),
             }
         }
-        "discord" => (names.label(place, || format!("Discord channel {rest}")), Some("Discord".into())),
-        "telegram" => (names.label(place, || format!("Telegram chat {rest}")), Some("Telegram".into())),
-        "task" => (task_title(storage, agent_id, rest).await, Some("Scheduled task".into())),
+        "discord" => (
+            names.label(place, || format!("Discord channel {rest}")),
+            Some("Discord".into()),
+        ),
+        "telegram" => (
+            names.label(place, || format!("Telegram chat {rest}")),
+            Some("Telegram".into()),
+        ),
+        "task" => (
+            task_title(storage, agent_id, rest).await,
+            Some("Scheduled task".into()),
+        ),
         "dreams" => ("Dream cycle".into(), Some("Unattended reflection".into())),
-        "background" => ("Background jobs".into(), Some("Subtasks, delegations and consults".into())),
+        "background" => (
+            "Background jobs".into(),
+            Some("Subtasks, delegations and consults".into()),
+        ),
         _ => ("System".into(), None),
     }
 }
@@ -798,34 +925,60 @@ async fn conversation_label(
     channel: &str,
     topic: Option<&str>,
 ) -> (String, Option<String>) {
-    let title = storage.session_title(agent_id, channel, topic).await.ok().flatten();
+    let title = storage
+        .session_title(agent_id, channel, topic)
+        .await
+        .ok()
+        .flatten();
     match slug_kind(channel) {
-        SlugKind::Http => (title.unwrap_or_else(|| "WebUI topic".into()), Some("WebUI topic".into())),
+        SlugKind::Http => (
+            title.unwrap_or_else(|| "WebUI topic".into()),
+            Some("WebUI topic".into()),
+        ),
         SlugKind::Project(id) => {
             let project = storage.get_project(agent_id, id).await.ok().flatten();
             let title = title.unwrap_or_else(|| "Project chat".into());
             match project {
-                Some(project) => (format!("{} / {title}", project.name), Some("Project".into())),
+                Some(project) => (
+                    format!("{} / {title}", project.name),
+                    Some("Project".into()),
+                ),
                 None => (title, Some("Project".into())),
             }
         }
         // `Vizier HQ / #general / <topic>`: the live names, then the topic's title once it has one.
         SlugKind::Discord(id) => (
-            with_topic(names.label(&format!("discord:{id}"), || format!("Discord channel {id}")), title, topic),
+            with_topic(
+                names.label(&format!("discord:{id}"), || format!("Discord channel {id}")),
+                title,
+                topic,
+            ),
             Some("Discord".into()),
         ),
         SlugKind::Telegram(id) => (
-            with_topic(names.label(&format!("telegram:{id}"), || format!("Telegram chat {id}")), title, topic),
+            with_topic(
+                names.label(&format!("telegram:{id}"), || format!("Telegram chat {id}")),
+                title,
+                topic,
+            ),
             Some("Telegram".into()),
         ),
-        SlugKind::Task(slug) => (task_title(storage, agent_id, slug).await, Some("Scheduled run".into())),
+        SlugKind::Task(slug) => (
+            task_title(storage, agent_id, slug).await,
+            Some("Scheduled run".into()),
+        ),
         SlugKind::Dream(stage) => (
             format!("Dream {}", if stage.is_empty() { "cycle" } else { stage }),
             Some("Unattended reflection".into()),
         ),
         // A piece's session title is its fresh topic id: say what it is instead.
-        SlugKind::Background if channel == "SUBAGENT" => ("Subtask".into(), Some("Subagent".into())),
-        SlugKind::Background => ("Agent conversation".into(), Some("Delegation or consult".into())),
+        SlugKind::Background if channel == "SUBAGENT" => {
+            ("Subtask".into(), Some("Subagent".into()))
+        }
+        SlugKind::Background => (
+            "Agent conversation".into(),
+            Some("Delegation or consult".into()),
+        ),
         SlugKind::System => ("System".into(), None),
     }
 }
@@ -853,11 +1006,18 @@ async fn conversation_link(
             ),
             None => none(NoLinkReason::NoWebPage),
         },
-        SlugKind::Task(slug) => link(UsageLinkKind::TaskRun, format!("/{agent_id}/tasks?task={slug}")),
+        SlugKind::Task(slug) => link(
+            UsageLinkKind::TaskRun,
+            format!("/{agent_id}/tasks?task={slug}"),
+        ),
         SlugKind::Dream(_) => link(UsageLinkKind::Dream, format!("/{agent_id}/dream")),
         SlugKind::Background => {
             let job = match topic {
-                Some(t) => storage.background_job_by_piece(agent_id, t).await.ok().flatten(),
+                Some(t) => storage
+                    .background_job_by_piece(agent_id, t)
+                    .await
+                    .ok()
+                    .flatten(),
                 None => None,
             };
             match job {
@@ -878,7 +1038,9 @@ async fn conversation_link(
                 None => none(NoLinkReason::NoWebPage),
             }
         }
-        SlugKind::Discord(_) | SlugKind::Telegram(_) | SlugKind::System => none(NoLinkReason::NoWebPage),
+        SlugKind::Discord(_) | SlugKind::Telegram(_) | SlugKind::System => {
+            none(NoLinkReason::NoWebPage)
+        }
     }
 }
 
@@ -910,9 +1072,16 @@ mod tests {
             "1 turn failed (errored, timed out or was aborted); $3.94 of $4.12 bought no answer. \
              The longest ran 46 rounds."
         );
-        assert!(insight(&tally(1.0, 0.6, 2), None).unwrap().starts_with("2 turns failed"));
+        assert!(
+            insight(&tally(1.0, 0.6, 2), None)
+                .unwrap()
+                .starts_with("2 turns failed")
+        );
         assert!(insight(&tally(1.0, 0.4, 2), Some(3)).is_none());
-        assert!(insight(&tally(1.0, 0.9, 0), None).is_none(), "no failed turn, no insight");
+        assert!(
+            insight(&tally(1.0, 0.9, 0), None).is_none(),
+            "no failed turn, no insight"
+        );
     }
 
     #[test]
@@ -923,13 +1092,19 @@ mod tests {
             SlugKind::Project("p3xY9aQ2mZ")
         ));
         assert!(matches!(slug_kind("discord__42"), SlugKind::Discord("42")));
-        assert!(matches!(slug_kind("task__morning__brief__1700000000000"), SlugKind::Task("morning__brief")));
+        assert!(matches!(
+            slug_kind("task__morning__brief__1700000000000"),
+            SlugKind::Task("morning__brief")
+        ));
         assert!(matches!(
             slug_kind("DREAM__a__discord__1__DEFAULT__extraction"),
             SlugKind::Dream("extraction")
         ));
         assert!(matches!(slug_kind("SUBAGENT"), SlugKind::Background));
-        assert!(matches!(slug_kind("inter_agent__[a__b]"), SlugKind::Background));
+        assert!(matches!(
+            slug_kind("inter_agent__[a__b]"),
+            SlugKind::Background
+        ));
         assert!(matches!(slug_kind("SYSTEM"), SlugKind::System));
     }
 
@@ -938,24 +1113,41 @@ mod tests {
         let mut book = NameBook::default();
         book.0.insert(
             "discord:1".into(),
-            ConversationNames { space: Some("Vizier HQ".into()), conversation: Some("#general".into()) },
+            ConversationNames {
+                space: Some("Vizier HQ".into()),
+                conversation: Some("#general".into()),
+            },
         );
         book.0.insert(
             "telegram:-5".into(),
-            ConversationNames { space: None, conversation: Some("Family chat".into()) },
+            ConversationNames {
+                space: None,
+                conversation: Some("Family chat".into()),
+            },
         );
         let fallback = || "Discord channel 2".to_string();
         assert_eq!(book.label("discord:1", fallback), "Vizier HQ / #general");
         assert_eq!(book.label("telegram:-5", fallback), "Family chat");
-        assert_eq!(book.label("discord:2", fallback), "Discord channel 2", "not looked up");
+        assert_eq!(
+            book.label("discord:2", fallback),
+            "Discord channel 2",
+            "not looked up"
+        );
 
         let base = || book.label("discord:1", fallback);
         assert_eq!(
             with_topic(base(), Some("Trip planning".into()), Some("9f2c")),
             "Vizier HQ / #general / Trip planning"
         );
-        assert_eq!(with_topic(base(), Some("9f2c".into()), Some("9f2c")), "Vizier HQ / #general", "untitled topic");
-        assert_eq!(with_topic(base(), Some("DEFAULT".into()), None), "Vizier HQ / #general");
+        assert_eq!(
+            with_topic(base(), Some("9f2c".into()), Some("9f2c")),
+            "Vizier HQ / #general",
+            "untitled topic"
+        );
+        assert_eq!(
+            with_topic(base(), Some("DEFAULT".into()), None),
+            "Vizier HQ / #general"
+        );
         assert_eq!(with_topic(base(), None, None), "Vizier HQ / #general");
         assert_eq!(slug_place("discord__42").as_deref(), Some("discord:42"));
         assert_eq!(slug_place("http__u__webui"), None);
@@ -963,9 +1155,17 @@ mod tests {
 
     #[test]
     fn unpriced_sorts_last_and_cost_sorts_descending() {
-        let mut v = vec![(None, 900u64), (Some(1.0), 10), (Some(3.0), 5), (None, 1000)];
+        let mut v = vec![
+            (None, 900u64),
+            (Some(1.0), 10),
+            (Some(3.0), 5),
+            (None, 1000),
+        ];
         v.sort_by(|a, b| by_cost_then_tokens(*a, *b));
-        assert_eq!(v, vec![(Some(3.0), 5), (Some(1.0), 10), (None, 1000), (None, 900)]);
+        assert_eq!(
+            v,
+            vec![(Some(3.0), 5), (Some(1.0), 10), (None, 1000), (None, 900)]
+        );
     }
 
     fn bedrock_catalogue() -> Catalogue {
@@ -1017,19 +1217,72 @@ mod tests {
                 "{media} must not be chat-priced"
             );
         }
-        assert!(c.model(&ProviderId::AMAZON_BEDROCK, "amazon.nova-canvas-v1:0").is_none());
+        assert!(
+            c.model(&ProviderId::AMAZON_BEDROCK, "amazon.nova-canvas-v1:0")
+                .is_none()
+        );
+    }
+
+    /// FR-034, FR-034b: an ARN's saved entry decides its price before the catalogue is asked —
+    /// the hand-entered figure, then the paired model, then the existing unpriced `None`.
+    #[test]
+    fn an_arn_is_priced_from_its_entry_before_the_catalogue() {
+        let c = bedrock_catalogue();
+        let arn = "arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/abc";
+        let key = ("amazon-bedrock-sso".to_string(), arn.to_string());
+        let tokens = TokenCounts {
+            input: 1_000_000,
+            output: 500_000,
+            ..Default::default()
+        };
+        let entry = |price: Option<Cost>, model: Option<&str>| ProfileEntry {
+            arn: arn.into(),
+            price,
+            model: model.map(str::to_string),
+            ..Default::default()
+        };
+        let hand = Cost { input: 2.0, output: 8.0, cache_read: None, cache_write: None };
+
+        // The hand-entered price wins over the paired model, which the catalogue would price.
+        let mut priced = Pricer::with_entries(
+            &c,
+            HashMap::from([(key.clone(), entry(Some(hand), Some("amazon.nova-lite-v1:0")))]),
+        );
+        let cost = priced.cost("amazon-bedrock-sso", arn, &tokens).unwrap();
+        assert!((cost - (2.0 + 4.0)).abs() < 1e-9, "{cost}");
+
+        // No hand-entered price: the paired model's catalogue cost, through the provider alias.
+        let mut paired = Pricer::with_entries(
+            &c,
+            HashMap::from([(key.clone(), entry(None, Some("amazon.nova-lite-v1:0")))]),
+        );
+        let cost = paired.cost("amazon-bedrock-sso", arn, &tokens).unwrap();
+        assert!((cost - (0.06 + 0.12)).abs() < 1e-9, "{cost}");
+
+        // Nothing to price from — no pairing, and a pair the catalogue carries without a price —
+        // is unpriced, never zero.
+        for model in [None, Some("amazon.nova-pro-v1:0")] {
+            let mut unpriced = Pricer::with_entries(
+                &c,
+                HashMap::from([(key.clone(), entry(None, model))]),
+            );
+            assert_eq!(unpriced.cost("amazon-bedrock-sso", arn, &tokens), None, "{model:?}");
+        }
+
+        // A catalogue model id is untouched by the entry map.
+        let mut plain = Pricer::with_entries(&c, HashMap::from([(key, entry(None, None))]));
+        assert!(plain.cost("amazon-bedrock", "amazon.nova-lite-v1:0", &tokens).is_some());
     }
 
     mod report {
         use std::sync::Arc;
 
-        use parking_lot::Mutex;
         use rusqlite::Connection;
 
         use super::super::*;
         use crate::{
             schema::usage::UsageEvent,
-            storage::{document::LocalDocumentStore, sqlite::SqliteStorage},
+            storage::{document::BlobDocumentStore, sqlite::SqlStorage},
         };
 
         const DAY: i64 = 86_400_000;
@@ -1043,12 +1296,13 @@ mod tests {
                 "CREATE TABLE state (key TEXT PRIMARY KEY, value TEXT NOT NULL);
                  CREATE TABLE session_detail (id TEXT PRIMARY KEY, agent_id TEXT NOT NULL,
                      channel TEXT NOT NULL, topic TEXT, data TEXT NOT NULL);
-                 CREATE TABLE task (agent_id TEXT, slug TEXT, data TEXT);",
+                 CREATE TABLE task (agent_id TEXT, slug TEXT, data TEXT);
+                 CREATE TABLE provider_config (variant TEXT PRIMARY KEY, data TEXT NOT NULL);",
             )
             .unwrap();
-            let storage = VizierStorage::new(SqliteStorage::new(
-                Arc::new(Mutex::new(conn)),
-                Arc::new(LocalDocumentStore::new(dir.path().to_path_buf())),
+            let storage = VizierStorage::new(SqlStorage::new(
+                crate::storage::sql::SqlStore::sqlite(conn),
+                Arc::new(BlobDocumentStore::local(dir.path().to_path_buf())),
             ));
             (storage, dir)
         }
@@ -1104,15 +1358,203 @@ mod tests {
             }
         }
 
+        /// T038: a report prices a saved profile by its ARN — the report's own pricer, not the
+        /// catalogue alone (FR-034, FR-034a.1).
+        #[tokio::test]
+        async fn a_report_prices_a_saved_arns_entry() {
+            use crate::schema::{ProviderCredentials, ProviderEntry};
+
+            let (s, _d) = storage();
+            let catalogue = super::bedrock_catalogue();
+            let arn = "arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/abc";
+            s.upsert_provider(&ProviderEntry {
+                id: ProviderId::AMAZON_BEDROCK_SSO,
+                credentials: ProviderCredentials {
+                    profiles: vec![ProfileEntry {
+                        arn: arn.into(),
+                        price: Some(Cost {
+                            input: 2.0,
+                            output: 8.0,
+                            cache_read: None,
+                            cache_write: None,
+                        }),
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                },
+            })
+            .await
+            .unwrap();
+            s.record_usage(event(DAY, "discord__1", "amazon-bedrock-sso", arn, 1_000_000))
+                .await
+                .unwrap();
+
+            let r = build_report(&s, &catalogue, &IntegrationKinds::builtin(), q())
+                .await
+                .unwrap();
+            let cost = r.summary.cost_usd.expect("priced from the entry");
+            // 1M input at 2.0/M and 100k output at 8.0/M — the hand-entered figure, not 0.
+            assert!((cost - (2.0 + 0.8)).abs() < 1e-9, "{cost}");
+            assert!(r.unpriced.models.is_empty(), "the ARN is priced: {:?}", r.unpriced.models);
+        }
+
+        /// T044 (FR-034a.5, FR-034b, SC-021): a missing or stale price still records the turn.
+        /// The usage row keeps the provider, the ARN as the model and the tokens, with an absent
+        /// cost — never 0, never a fabricated figure — and the report never fails over it.
+        #[tokio::test]
+        async fn an_unpriced_or_stale_arn_still_records_its_row() {
+            use crate::schema::{ProviderCredentials, ProviderEntry};
+
+            let (s, _d) = storage();
+            let catalogue = super::bedrock_catalogue();
+            let unpriced =
+                "arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/unpriced";
+            let stale =
+                "arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/stale";
+            s.upsert_provider(&ProviderEntry {
+                id: ProviderId::AMAZON_BEDROCK_SSO,
+                credentials: ProviderCredentials {
+                    profiles: vec![
+                        // Nothing paired and no hand-entered price.
+                        ProfileEntry { arn: unpriced.into(), ..Default::default() },
+                        // A pairing the catalogue has since dropped: the price is stale, the
+                        // selection and the turn are not.
+                        ProfileEntry {
+                            arn: stale.into(),
+                            model: Some("anthropic.claude-3-5-sonnet-20240620-v1:0".into()),
+                            ..Default::default()
+                        },
+                    ],
+                    ..Default::default()
+                },
+            })
+            .await
+            .unwrap();
+            s.record_usage(event(DAY, "discord__1", "amazon-bedrock-sso", unpriced, 1_000_000))
+                .await
+                .unwrap();
+            s.record_usage(event(DAY + 1, "discord__1", "amazon-bedrock-sso", stale, 500_000))
+                .await
+                .unwrap();
+
+            let r = build_report(&s, &catalogue, &IntegrationKinds::builtin(), q())
+                .await
+                .unwrap();
+
+            // Both calls are recorded: provider and ARN survive, and the tokens are the row's own.
+            assert_eq!(r.by_model.len(), 2, "{:?}", r.by_model);
+            let row = |arn: &str| r.by_model.iter().find(|row| row.model == arn).unwrap();
+            for (arn, tokens) in [(unpriced, 1_100_000), (stale, 550_000)] {
+                let row = row(arn);
+                assert_eq!(row.provider, "amazon-bedrock-sso");
+                assert_eq!(row.row.tokens, tokens, "input plus output, recorded as sent");
+                assert_eq!(row.row.cost_usd, None, "unpriced is absent, never 0 (FR-034b)");
+                assert!(!row.priced);
+            }
+
+            // The report states the absence rather than costing it: no summary figure, and both
+            // models named as unpriced with their token counts.
+            assert_eq!(r.summary.cost_usd, None, "nothing was costed at zero");
+            assert_eq!(r.unpriced.tokens, 1_650_000);
+            for arn in [unpriced, stale] {
+                assert!(
+                    r.unpriced.models.contains(&format!("amazon-bedrock-sso/{arn}")),
+                    "{} missing from {:?}",
+                    arn,
+                    r.unpriced.models
+                );
+            }
+        }
+        /// T064 (FR-034, US5 acceptance 1): a completion answered over the SSO connection is
+        /// attributed to `amazon-bedrock-sso` — its own provider, its own tokens — and priced
+        /// through the entry map, while the same model answered by static Bedrock is a second row.
+        #[tokio::test]
+        async fn an_sso_completion_is_attributed_and_priced_apart_from_static_bedrock() {
+            use crate::schema::{ProviderCredentials, ProviderEntry};
+
+            let (s, _d) = storage();
+            let catalogue = super::bedrock_catalogue();
+            let arn = "arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/abc";
+            let model = "amazon.nova-lite-v1:0";
+            s.upsert_provider(&ProviderEntry {
+                id: ProviderId::AMAZON_BEDROCK_SSO,
+                credentials: ProviderCredentials {
+                    profiles: vec![ProfileEntry {
+                        arn: arn.into(),
+                        price: Some(Cost {
+                            input: 2.0,
+                            output: 8.0,
+                            cache_read: None,
+                            cache_write: None,
+                        }),
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                },
+            })
+            .await
+            .unwrap();
+
+            // The event `VizierModel::record` writes for an answered call: the provider that
+            // answered, the selected ARN as the model, the tokens the reply reported.
+            let mut answered = event(DAY, "discord__1", "amazon-bedrock-sso", arn, 1_000_000);
+            answered.served_model = Some(model.into());
+            s.record_usage(answered).await.unwrap();
+            // The other Bedrock provider answers the very same catalogue model.
+            s.record_usage(event(DAY, "discord__1", "amazon-bedrock", model, 1_000_000))
+                .await
+                .unwrap();
+
+            let r = build_report(&s, &catalogue, &IntegrationKinds::builtin(), q())
+                .await
+                .unwrap();
+
+            // Two rows, never merged: the ARN under the SSO provider and the model under the
+            // static one, each carrying only its own tokens.
+            assert_eq!(r.by_model.len(), 2, "{:?}", r.by_model);
+            let row = |provider: &str| {
+                r.by_model
+                    .iter()
+                    .find(|row| row.provider == provider)
+                    .unwrap_or_else(|| panic!("no row for {provider}: {:?}", r.by_model))
+            };
+            let sso = row("amazon-bedrock-sso");
+            assert_eq!(sso.model, arn);
+            assert_eq!(sso.row.tokens, 1_100_000, "input plus output, recorded as sent");
+            assert!(sso.served_models.contains(&model.to_string()), "{:?}", sso.served_models);
+            // Priced from the entry map: 1M input at 2.0/M, 100k output at 8.0/M.
+            let cost = sso.row.cost_usd.expect("priced from the entry");
+            assert!((cost - (2.0 + 0.8)).abs() < 1e-9, "{cost}");
+            assert!(sso.priced);
+
+            let plain = row("amazon-bedrock");
+            assert_eq!(plain.model, model);
+            assert_eq!(plain.row.tokens, 1_100_000, "the SSO row's tokens did not merge in");
+            assert!(plain.priced, "the catalogue price still applies to static Bedrock");
+
+            // And the summary counts both, each at its own price.
+            let total = r.summary.cost_usd.expect("both priced");
+            assert!((total - (2.8 + 0.084)).abs() < 1e-9, "{total}");
+            assert!(r.unpriced.models.is_empty(), "{:?}", r.unpriced.models);
+        }
+
+
+
         #[tokio::test]
         async fn a_model_switch_splits_by_model_and_an_unpriced_model_is_reported() {
             let (s, _d) = storage();
             let catalogue = Catalogue::new(crate::catalogue::seed::load_seed());
             let (provider, model) = priced(&catalogue);
-            s.record_usage(event(DAY, "discord__1", &provider, &model, 1_000_000)).await.unwrap();
-            s.record_usage(event(5 * DAY, "discord__1", "custom-local", "qwen", 50_000)).await.unwrap();
+            s.record_usage(event(DAY, "discord__1", &provider, &model, 1_000_000))
+                .await
+                .unwrap();
+            s.record_usage(event(5 * DAY, "discord__1", "custom-local", "qwen", 50_000))
+                .await
+                .unwrap();
 
-            let r = build_report(&s, &catalogue, &IntegrationKinds::builtin(), q()).await.unwrap();
+            let r = build_report(&s, &catalogue, &IntegrationKinds::builtin(), q())
+                .await
+                .unwrap();
             assert_eq!(r.daily.len(), 7, "every date, empty ones too");
             assert_eq!(r.by_model.len(), 2);
             assert!(r.by_model[0].priced, "priced first");
@@ -1121,7 +1563,10 @@ mod tests {
             assert_eq!(r.unpriced.tokens, 55_000);
             assert_eq!(r.unpriced.models, vec!["custom-local/qwen".to_string()]);
             let priced_cost = r.by_model[0].row.cost_usd.unwrap();
-            assert!((r.summary.cost_usd.unwrap() - priced_cost).abs() < 1e-12, "unpriced excluded");
+            assert!(
+                (r.summary.cost_usd.unwrap() - priced_cost).abs() < 1e-12,
+                "unpriced excluded"
+            );
             assert!(r.previous.is_none(), "nothing before the range");
             assert!(r.summary.share_of_all.is_none());
         }
@@ -1133,9 +1578,13 @@ mod tests {
             let (provider, model) = priced(&catalogue);
             for i in 0..12u64 {
                 let channel = format!("discord__{i}");
-                s.record_usage(event(DAY, &channel, &provider, &model, 1000 * (i + 1))).await.unwrap();
+                s.record_usage(event(DAY, &channel, &provider, &model, 1000 * (i + 1)))
+                    .await
+                    .unwrap();
             }
-            let r = build_report(&s, &catalogue, &IntegrationKinds::builtin(), q()).await.unwrap();
+            let r = build_report(&s, &catalogue, &IntegrationKinds::builtin(), q())
+                .await
+                .unwrap();
             assert_eq!(r.costliest.len(), 10);
             assert_eq!(r.costliest[0].channel, "discord__11");
             assert!(!r.costliest[0].exists, "no history saved for it");
@@ -1143,12 +1592,15 @@ mod tests {
 
             let mut conv = q();
             conv.conversation = Some(("discord__11".into(), None));
-            let d = conversation_usage(&s, &catalogue, &IntegrationKinds::builtin(), conv, 20).await.unwrap();
+            let d = conversation_usage(&s, &catalogue, &IntegrationKinds::builtin(), conv, 20)
+                .await
+                .unwrap();
             assert_eq!(d.calls.len(), 1);
             assert_eq!(d.no_link_reason, Some(NoLinkReason::Deleted));
             assert!(d.insight.is_none());
 
-            let (link, reason) = conversation_link(&s, "a", "http__u__webui", Some("t1"), true).await;
+            let (link, reason) =
+                conversation_link(&s, "a", "http__u__webui", Some("t1"), true).await;
             assert_eq!(link.unwrap().path, "/a/chat/t1");
             assert!(reason.is_none());
             let (link, _) = conversation_link(&s, "a", "task__brief__17", None, true).await;
@@ -1165,7 +1617,9 @@ mod tests {
             let (s, _d) = storage();
             let catalogue = Catalogue::new(crate::catalogue::seed::load_seed());
             let (provider, model) = priced(&catalogue);
-            s.record_usage(event(DAY, "discord__1", &provider, &model, 3000)).await.unwrap();
+            s.record_usage(event(DAY, "discord__1", &provider, &model, 3000))
+                .await
+                .unwrap();
             let mut dream = event(DAY, "DREAM__x__extraction", &provider, &model, 1000);
             dream.activity = UsageActivity::Dreams;
             dream.place = "dreams".into();
@@ -1173,7 +1627,9 @@ mod tests {
 
             let mut filtered = q();
             filtered.activity = Some(UsageActivity::Dreams);
-            let r = build_report(&s, &catalogue, &IntegrationKinds::builtin(), filtered).await.unwrap();
+            let r = build_report(&s, &catalogue, &IntegrationKinds::builtin(), filtered)
+                .await
+                .unwrap();
             assert!(r.by_activity.is_empty());
             assert_eq!(r.summary.calls, 1);
             assert!((r.summary.share_of_all.unwrap() - 0.25).abs() < 1e-9);
@@ -1191,7 +1647,13 @@ mod tests {
             let activities = UsageActivity::ALL;
             let mut batch = Vec::with_capacity(100_000);
             for i in 0..100_000i64 {
-                let mut e = event((i * 90 * DAY) / 100_000, &format!("discord__{}", i % 400), &provider, &model, 1000 + (i as u64 % 5000));
+                let mut e = event(
+                    (i * 90 * DAY) / 100_000,
+                    &format!("discord__{}", i % 400),
+                    &provider,
+                    &model,
+                    1000 + (i as u64 % 5000),
+                );
                 e.activity = activities[(i as usize) % activities.len()];
                 e.place = format!("discord:{}", i % 400);
                 e.turn_id = Some(format!("t{}", i / 4));
@@ -1206,7 +1668,9 @@ mod tests {
                 conversation: None,
             };
             let started = std::time::Instant::now();
-            let r = build_report(&s, &catalogue, &IntegrationKinds::builtin(), q).await.unwrap();
+            let r = build_report(&s, &catalogue, &IntegrationKinds::builtin(), q)
+                .await
+                .unwrap();
             let took = started.elapsed();
             assert_eq!(r.summary.calls, 100_000);
             println!("90-day report over 100k events: {took:?}");

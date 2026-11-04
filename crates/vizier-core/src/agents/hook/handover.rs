@@ -7,12 +7,12 @@ use crate::{
 
 #[derive(Debug, Clone)]
 pub struct HandoverSenderHook {
-    response_tx: flume::Sender<VizierResponse>,
+    response_tx: crate::transport::ResponseSender,
     session: VizierSession,
 }
 
 impl HandoverSenderHook {
-    pub fn new(response_tx: flume::Sender<VizierResponse>, session: VizierSession) -> Self {
+    pub fn new(response_tx: crate::transport::ResponseSender, session: VizierSession) -> Self {
         Self {
             response_tx,
             session,
