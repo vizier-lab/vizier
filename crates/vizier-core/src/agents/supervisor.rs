@@ -244,8 +244,19 @@ impl AgentStatus {
     }
 }
 
-fn set_status(status: &SharedStatus, f: impl FnOnce(&mut AgentStatus)) {
+/// Change the agent's status and publish the new health view.
+///
+/// The view is what a gateway reads, so it has to follow every change of the agent's state
+/// (`specs/163-agent-service-seam` contracts/shared-state-views.md, rule 5).
+fn set_status(
+    deps: &crate::dependencies::VizierDependencies,
+    agent_id: &AgentId,
+    status: &SharedStatus,
+    f: impl FnOnce(&mut AgentStatus),
+) {
     f(&mut status.write().unwrap_or_else(|p| p.into_inner()));
+    let health = AgentStatus::health(status, &deps.channel_board, agent_id);
+    crate::agents::views::publish_health(deps, agent_id, &health);
 }
 
 pub struct Supervisor {
@@ -272,7 +283,7 @@ impl Supervisor {
             let built = match prebuilt.take() {
                 Some(built) => Ok(built),
                 None => {
-                    set_status(&self.status, |s| s.state = AgentRunState::Starting);
+                    set_status(&self.deps, &self.agent_id, &self.status, |s| s.state = AgentRunState::Starting);
                     tokio::select! {
                         built = async {
                             if failures == 0 {
@@ -301,7 +312,7 @@ impl Supervisor {
                         context_source: info.context_source,
                     });
                     let warnings = built.agent.health_warnings();
-                    set_status(&self.status, |s| {
+                    set_status(&self.deps, &self.agent_id, &self.status, |s| {
                         *s = AgentStatus {
                             state: AgentRunState::Running,
                             failures: s.failures,
@@ -346,7 +357,7 @@ impl Supervisor {
                 retry_in_secs = wait.as_secs(),
                 "{error}"
             );
-            set_status(&self.status, |s| {
+            set_status(&self.deps, &self.agent_id, &self.status, |s| {
                 *s = AgentStatus {
                     state: AgentRunState::Failed,
                     last_error: Some(error.clone()),
@@ -383,7 +394,7 @@ impl Supervisor {
                 break;
             }
         }
-        set_status(&self.status, |s| s.state = AgentRunState::Stopped);
+        set_status(&self.deps, &self.agent_id, &self.status, |s| s.state = AgentRunState::Stopped);
     }
 
     /// Serve requests with a built agent until it stops. `Ok` is a requested stop (shutdown,

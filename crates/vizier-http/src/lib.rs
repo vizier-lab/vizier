@@ -80,7 +80,6 @@ pub(crate) fn new_state(runtime: &VizierRuntime, auth: state::AuthMode) -> HTTPS
             1,
             std::time::Duration::from_secs(60),
         )),
-        deferred_client_calls: Default::default(),
     }
 }
 

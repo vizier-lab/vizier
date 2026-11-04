@@ -30,6 +30,26 @@ pub trait ClientCallStorage {
     /// `pending → deferred`: the call waits for a client to reconnect (research R18).
     async fn defer_client_call(&self, uid: &str) -> Result<bool>;
 
+    /// Take the claim on a deferred call: exactly one gateway delivers it at a time.
+    ///
+    /// The claim is a lease on the stored row, **not** a new status: [`ClientCallOutcome`]
+    /// stays the final-outcome vocabulary the WebUI reads, and an unknown status reads as
+    /// `interrupted` (`crates/vizier-core/src/schema/history.rs`). One conditional update
+    /// decides the winner, so exactly one caller's claim changes the row; returns whether
+    /// this caller won it.
+    ///
+    /// A claim older than `timeout` has lapsed - the gateway that held it died - so the
+    /// call is free again and the row stays `deferred`.
+    async fn claim_client_call(
+        &self,
+        uid: &str,
+        claimant: &str,
+        timeout: chrono::Duration,
+    ) -> Result<bool>;
+
+    /// Give the claim on a deferred call back, so the next gateway can deliver it.
+    async fn release_client_call_claim(&self, uid: &str, claimant: &str) -> Result<bool>;
+
     /// The session's deferred calls, oldest first.
     async fn deferred_client_calls(&self, session: &VizierSession) -> Result<Vec<String>>;
 }
@@ -54,6 +74,19 @@ impl ClientCallStorage for VizierStorage {
 
     async fn defer_client_call(&self, uid: &str) -> Result<bool> {
         self.0.defer_client_call(uid).await
+    }
+
+    async fn claim_client_call(
+        &self,
+        uid: &str,
+        claimant: &str,
+        timeout: chrono::Duration,
+    ) -> Result<bool> {
+        self.0.claim_client_call(uid, claimant, timeout).await
+    }
+
+    async fn release_client_call_claim(&self, uid: &str, claimant: &str) -> Result<bool> {
+        self.0.release_client_call_claim(uid, claimant).await
     }
 
     async fn deferred_client_calls(&self, session: &VizierSession) -> Result<Vec<String>> {

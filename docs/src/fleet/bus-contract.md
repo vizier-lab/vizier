@@ -77,9 +77,10 @@ identifier is written as one token by percent-encoding every byte outside `[A-Za
 | Subject | Carries | Direction |
 |---|---|---|
 | `agent.{id}.req` | a turn's request | into an agent's inbox |
+| `agent.{id}.cmd` | one agent's lifecycle command | request and reply, to the agent's owner only |
 | `reply.{uuid}` | the frames of one request, then an end frame | back to the requester, who subscribes first |
 | `agent.{id}.memop` | a memory operation | request and reply |
-| `agents.cmd` | an agent lifecycle command | request and reply |
+| `agents.cmd` | the fleet-wide agent commands, the create among them | request and reply |
 | `files.cmd` | a file upload or read | request and reply (bytes are staged in the blob store) |
 | `dream.cmd` | a dream trigger | fire and forget |
 | `process.cmd` | a command from the command socket | request and reply |
@@ -90,6 +91,43 @@ identifier is written as one token by percent-encoding every byte outside `[A-Za
 The `gateway.{node}.client` subject is reserved for the HTTP gateway work (#169) and is not created
 yet. The process exit signal and a client tool's live socket stay local to the process: they are
 that process's own lifecycle, not traffic between roles.
+
+## The agent seam (#163)
+
+The gateway side reaches an agent through one trait, `AgentsClient`
+(`vizier_core::agents_client`). The operations address the agent and nothing else: no operation
+takes a host, a node or a lease, and none of them reveals which node owns the agent.
+
+| Operation | Subject |
+|---|---|
+| `request`, `abort` | `agent.{id}.req` |
+| `update`, `delete`, `restart`, `health`, `integration_status`, `refresh_integrations` | `agent.{id}.cmd` |
+| `create` | `agents.cmd` |
+
+Only the agent's owner subscribes to `agent.{id}.cmd`, so a command reaches exactly one handler:
+delivery is at-most-once, so a command a non-owner consumed would be lost.
+
+**Two availability reasons, one kind.** An agent that cannot be reached fails with
+`ErrorKind::AgentUnavailable` - the kind the WebUI and the channels read today - and the reason
+travels in the message:
+
+| Reason | What happened | How it is told apart |
+|---|---|---|
+| *no owner* | nobody is subscribed to the agent's subject | the bus answers `NoResponders`, so it fails at once |
+| *owner lost* | a responder existed and the reply never came | the bus answers `Timeout`, so the request ends within its deadline |
+
+## The published views (#163)
+
+The owner writes what a gateway cannot ask for, because a gateway never learns who owns an agent.
+
+| Key | Written by | Read by |
+|---|---|---|
+| `agent.{id}.health` | the host that holds the agent | `core::service` (the agent list, the health endpoint, the overview counts) |
+| `agent.{id}.setup` | the setup board | `core::service` (the setup-state endpoint the WebUI polls) |
+
+The value is `{"expires_at_ms": <ms>, "data": <payload>}`. The deadline is **in the value**,
+because `SharedState` has no TTL of its own. A missing or expired entry reads as *unknown*, never
+as a stale value.
 
 ## Messages
 
@@ -110,9 +148,9 @@ today; the sub-issue that builds the role fills its row in.
 
 | Role | Needs from the bus | Subscribes | Publishes | Leases | Filled in by |
 |---|---|---|---|---|---|
-| `gateway-http` | messaging | none yet | none yet | none yet | #169 |
+| `gateway-http` | messaging | none yet | `agent.*.req`, `agent.*.cmd`, `agents.cmd` | none yet | #163, then #169 |
 | `gateway-grpc` | messaging | none yet | none yet | none yet | #170 |
-| `worker` | messaging, leases | none yet | none yet | none yet | #168 |
+| `worker` | messaging, leases | `agent.*.req`, `agent.*.cmd`, `agents.cmd` | none yet | `lease.agent.*` | #163, then #168 |
 | `channels` | messaging, leases | none yet | none yet | none yet | #167 |
 | `control` | messaging, leases | none yet | none yet | none yet | #166 |
 

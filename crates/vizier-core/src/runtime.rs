@@ -24,7 +24,8 @@ use tokio::{
 };
 
 use crate::{
-    agents::VizierAgents,
+    agents::AgentHost,
+    agents::placement::Placement,
     channels::ChannelReaders,
     config::VizierConfig,
     dependencies::VizierDependencies,
@@ -178,9 +179,19 @@ impl VizierRuntime {
 
         let mut readers = None;
         if roles.contains(ServerRole::Worker) {
-            // Agents first: `VizierAgents::new` registers every agent's request channel, so the
+            // Placement decides which agents the local host holds; the host runs only those
+            // (`specs/163-agent-service-seam` contracts/agent-host-placement.md). In a single
+            // node that is every stored agent, so nothing changes.
+            let placement = crate::agents::placement::SingleNodePlacement::new(deps.storage.clone());
+            let held = placement.assign().await.map_err(|e| VizierError(e.0))?;
+            // Agents first: the host registers every agent's request channel, so the
             // scheduler's immediate first tick queues a due task instead of losing it (#26).
-            let mut agents = VizierAgents::new(deps.clone()).await.map_err(err)?;
+            let mut agents = AgentHost::new(
+                deps.clone(),
+                held.into_iter().map(|placed| placed.agent_id).collect(),
+            )
+            .await
+            .map_err(err)?;
             // After the agents re-sent their pending turns, so a recovered job finds them
             // running.
             deps.background_jobs.recover().await;

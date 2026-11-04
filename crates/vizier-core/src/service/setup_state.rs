@@ -9,18 +9,31 @@ use crate::{
 };
 
 /// Every setup in progress, plus recently finished ones, of the agents `user` can view.
+///
+/// The setups this process holds come from its own board, which is the live progress. The
+/// setups of agents another node holds come from the published views
+/// (`specs/163-agent-service-seam` contracts/shared-state-views.md). In one node the board
+/// holds everything, so what is shown is exactly what it was before.
 pub async fn states(services: &Services, user: &Principal) -> Result<SetupStates, ServiceError> {
     let deps = services.deps();
-    let setups = deps.setup.snapshot();
-    if setups.is_empty() {
-        return Ok(SetupStates { setups });
-    }
-    // Only the agents this person may see: build errors can carry provider details.
+    let mut setups = deps.setup.snapshot();
     let agents = deps
         .storage
         .list_agents()
         .await
         .map_err(|e| ServiceError::Internal(e.to_string()))?;
+    for (id, _) in &agents {
+        if setups.iter().any(|setup| &setup.agent_id == id) {
+            continue;
+        }
+        if let Some(view) = crate::agents::views::read_setup(deps, id).await {
+            setups.push(view);
+        }
+    }
+    if setups.is_empty() {
+        return Ok(SetupStates { setups });
+    }
+    // Only the agents this person may see: build errors can carry provider details.
     let setups = setups
         .into_iter()
         .filter(|setup| match agents.iter().find(|(id, _)| *id == setup.agent_id) {

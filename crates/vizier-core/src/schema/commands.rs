@@ -153,6 +153,13 @@ pub enum AgentCommand {
     HealthCheck {
         resp: tokio::sync::oneshot::Sender<Vec<AgentHealthStatus>>,
     },
+    /// One agent's health, answered on `agent.{id}.cmd`. The fleet-wide `HealthCheck` is the
+    /// list of every agent the manager holds; this is the one agent the caller named
+    /// (`specs/163-agent-service-seam` contracts/agents-client.md).
+    AgentHealth {
+        agent_id: String,
+        resp: tokio::sync::oneshot::Sender<AgentHealthStatus>,
+    },
     /// Rebuild the running agent's integration tools from storage, without a restart. A
     /// no-op for an agent that isn't running: its next build reads storage.
     RefreshIntegrations { agent_id: String },
@@ -170,6 +177,23 @@ pub enum AgentCommand {
         agent_id: String,
         resp: tokio::sync::oneshot::Sender<AgentCommandResult>,
     },
+}
+
+impl AgentCommand {
+    /// The agent the command is about, when it is about one. The fleet-wide health check is
+    /// about every agent, and has none.
+    pub fn agent_id(&self) -> &str {
+        match self {
+            Self::Create { agent_id, .. }
+            | Self::Update { agent_id, .. }
+            | Self::Delete { agent_id, .. }
+            | Self::RefreshIntegrations { agent_id }
+            | Self::IntegrationStatus { agent_id, .. }
+            | Self::Restart { agent_id, .. }
+            | Self::AgentHealth { agent_id, .. } => agent_id,
+            Self::HealthCheck { .. } => "",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
