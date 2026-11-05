@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.15.0-rc.4] - 2026-11-05
+
+### ⚙️ Miscellaneous Tasks
+
+- Bump webui submodule (status panel width)
+- Bump design and webui submodules (user avatar, message meta row)
+- Bump design submodule (square settings avatars)
+- Bump design and webui submodules (copy button, sending avatar seed)
 ## [0.15.0-rc.1] - 2026-11-04
 
 ### 🚀 Features
@@ -83,6 +91,7 @@ All notable changes to this project will be documented in this file.
 - Bump design and webui submodules (status strip)
 - Bump design and webui submodules (model override picker)
 - Bump webui submodule (quiet model trigger)
+- Bump version to 0.15.0-rc.1
 ## [0.14.1] - 2026-11-01
 
 ### 🚀 Features
