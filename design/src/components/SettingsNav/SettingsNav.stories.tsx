@@ -7,7 +7,7 @@ const meta = {
   tags: ["approved"],
   parameters: { vizier: { id: "D6", replaces: "webui/app/routes/settingsRoot.tsx" }, layout: "fullscreen" },
   args: { active: "providers", hrefFor: (p) => `#${p}` },
-  argTypes: { active: { control: "select", options: ["profile", "password", "api-keys", "providers", "users", "roles"] } },
+  argTypes: { active: { control: "select", options: ["profile", "appearance", "api-keys", "providers", "users", "roles"] } },
   decorators: [(Story) => <div className="h-720">{Story()}</div>],
 } satisfies Meta<typeof SettingsNav>;
 

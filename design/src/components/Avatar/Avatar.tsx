@@ -1,6 +1,7 @@
 import type { HTMLAttributes } from "react";
 import BoringAvatar from "boring-avatars";
 import { cx } from "../../lib/cx";
+import { useSchemeColors } from "../../lib/useSchemeColors";
 
 export type AvatarProps = {
   /** The person's name: seeds the generated face and gives the accessible name. */
@@ -22,12 +23,13 @@ const SIZES = {
 
 // Monochrome plus live, as hex (boring-avatars reads hex to pick the face colour, so no CSS variables):
 // live, ink, text-soft, chart-4, chart-5, border. Light-theme values, used in both themes: the face is a
-// picture, not a surface.
+// picture, not a surface. A colour scheme with its own colours replaces them, in the same order.
 export const AVATAR_COLORS = ["#059669", "#111114", "#3f3f46", "#6b6b76", "#a1a1aa", "#e4e4e7"];
 
 /** A person: a boring-avatars beam seeded by their name, or their photo (D40). Agents use Sigil. */
 export function Avatar({ name, src, size = "md", square, className, style, ...rest }: AvatarProps & HTMLAttributes<HTMLSpanElement>) {
   const { box, px, radius } = SIZES[size];
+  const colors = useSchemeColors() ?? AVATAR_COLORS;
   return (
     <span
       role="img"
@@ -42,7 +44,7 @@ export function Avatar({ name, src, size = "md", square, className, style, ...re
       {...rest}
     >
       <span aria-hidden className="contents">
-        <BoringAvatar name={name} variant="beam" size={px} colors={AVATAR_COLORS} square={square} />
+        <BoringAvatar name={name} variant="beam" size={px} colors={colors} square={square} />
       </span>
       {src && <img src={src} alt="" className="absolute inset-0 size-full object-cover" />}
     </span>
