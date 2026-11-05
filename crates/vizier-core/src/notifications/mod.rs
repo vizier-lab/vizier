@@ -10,20 +10,22 @@
 pub mod cursor;
 pub mod text;
 
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 
 use crate::{
     schema::{
-        EventAction, IntegrationFamily, JobKind, JobState, NotificationCategory, NotificationDraft,
-        NotificationTone, Requester, TaskRunState, VizierChannelId, VizierSession,
+        EventAction, InsertedNotification, IntegrationFamily, JobKind, JobState,
+        NotificationCategory, NotificationDraft, NotificationTone, Requester, TaskRunState,
+        VizierChannelId, VizierSession,
     },
     storage::{
         VizierStorage, agent::AgentStorage, notification::NotificationStorage, state::StateStorage,
         user::UserStorage,
     },
+    transport::{InboxEvent, VizierTransport},
 };
 
 /// The state key holding the last closed UTC hour projected into channel-reply notifications.
@@ -37,15 +39,40 @@ const CATCH_UP_HOURS: i64 = 30 * 24;
 #[derive(Clone)]
 pub struct Notifications {
     storage: Arc<VizierStorage>,
+    /// Where inserted rows are announced for the live inbox stream, once the transport exists.
+    /// A row inserted before then is simply not announced; the table is the replay buffer.
+    transport: Arc<RwLock<Option<VizierTransport>>>,
 }
 
 impl Notifications {
     pub fn new(storage: Arc<VizierStorage>) -> Self {
-        Self { storage }
+        Self { storage, transport: Arc::default() }
     }
 
     pub fn storage(&self) -> &VizierStorage {
         &self.storage
+    }
+
+    /// Announce new rows on the inbox stream from now on. Called once, when the transport
+    /// exists, like `SetupBoard::install_publisher`.
+    pub fn install_transport(&self, transport: VizierTransport) {
+        if let Ok(mut slot) = self.transport.write() {
+            *slot = Some(transport);
+        }
+    }
+
+    /// Tell the inbox stream a row now exists. Publishing never fails the caller.
+    fn announce(&self, inserted: Vec<InsertedNotification>) {
+        if inserted.is_empty() {
+            return;
+        }
+        let Some(transport) = self.transport.read().ok().and_then(|slot| slot.clone()) else {
+            return;
+        };
+        for InsertedNotification { item, audience } in inserted {
+            let source_session = item.source_session.clone();
+            transport.publish_inbox_event(InboxEvent::Created { item, audience, source_session });
+        }
     }
 
     /// Record one notification, best-effort. A row for an agent that no longer exists is
@@ -62,8 +89,9 @@ impl Notifications {
                 return;
             }
         }
-        if let Err(e) = self.storage.insert_notifications(&[draft]).await {
-            tracing::warn!("failed to record a notification: {e}");
+        match self.storage.insert_notifications(&[draft]).await {
+            Ok(inserted) => self.announce(inserted),
+            Err(e) => tracing::warn!("failed to record a notification: {e}"),
         }
     }
 
@@ -71,7 +99,11 @@ impl Notifications {
     /// writes). Storage skips drafts for missing agents.
     pub async fn record_all(&self, drafts: Vec<NotificationDraft>) -> usize {
         match self.storage.insert_notifications(&drafts).await {
-            Ok(inserted) => inserted,
+            Ok(inserted) => {
+                let count = inserted.len();
+                self.announce(inserted);
+                count
+            }
             Err(e) => {
                 tracing::warn!("failed to record {} notification(s): {e}", drafts.len());
                 0
@@ -130,30 +162,36 @@ impl Notifications {
         .await;
     }
 
-    /// One background job at a terminal state; a job still in flight records nothing.
-    #[allow(clippy::too_many_arguments)]
+    /// One background job at a terminal state; a job still in flight records nothing. `origin`
+    /// is the conversation the job was launched from: one on Discord or Telegram notifies
+    /// nobody (the report still posts in the channel), and any other is kept as the row's
+    /// source so its title can be shown to the person it belongs to.
     pub async fn job_ended(
         &self,
         job_id: &str,
-        agent_id: &str,
+        origin: &VizierSession,
         kind: JobKind,
         state: JobState,
         reason: Option<&str>,
         at: DateTime<Utc>,
     ) {
+        if origin.1.platform().is_some() {
+            return;
+        }
         let Some((summary, tone)) = text::background_job(kind, state, reason) else {
             return;
         };
-        self.record(draft(
+        let mut draft = draft(
             format!("job:{job_id}"),
-            agent_id,
+            &origin.0,
             NotificationCategory::BackgroundJob,
             tone,
             summary,
-            text::chat_href(agent_id),
+            text::chat_href(&origin.0),
             at,
-        ))
-        .await;
+        );
+        draft.source_session = Some(origin.clone());
+        self.record(draft).await;
     }
 
     /// One notification per affected agent after an integration write committed. Never
@@ -383,6 +421,9 @@ fn draft(
         summary,
         href,
         created_at: at,
+        source_session: None,
+        source_title: None,
+        excerpt: None,
     }
 }
 
@@ -493,6 +534,73 @@ mod tests {
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].text, "Task “Brief” answered.");
         assert_eq!(items[0].href, "/a/tasks?task=brief&run=7");
+    }
+
+    #[tokio::test]
+    async fn a_new_row_is_announced_once_and_a_duplicate_event_key_announces_nothing() {
+        let (n, conn, _d) = setup();
+        agent(&conn, "a");
+        let transport = VizierTransport::new();
+        n.install_transport(transport.clone());
+        let mut rx = transport.subscribe_inbox_events();
+        let at = Utc::now();
+        n.task_run_ended("a", "brief", "Brief", 7, TaskRunState::Answered, at).await;
+        n.task_run_ended("a", "brief", "Brief", 7, TaskRunState::Answered, at).await;
+
+        let got = tokio::time::timeout(std::time::Duration::from_secs(5), rx.recv())
+            .await
+            .expect("an announcement in time")
+            .unwrap();
+        let InboxEvent::Created { item, audience, .. } = got else { panic!("expected created") };
+        assert_eq!(item.agent_id, "a");
+        assert_eq!(item.text, "Task “Brief” answered.");
+        assert!(!item.read);
+        assert!(audience.is_none(), "an agent-wide row has no audience");
+
+        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+        assert!(rx.try_recv().is_err(), "the duplicate was announced");
+    }
+
+    #[tokio::test]
+    async fn a_row_is_stored_even_when_nothing_is_listening() {
+        let (n, conn, _d) = setup();
+        agent(&conn, "a");
+        // No transport installed: the table is still the source of truth.
+        n.task_run_ended("a", "brief", "Brief", 1, TaskRunState::Answered, Utc::now()).await;
+        assert_eq!(n.storage.notification_counts("u", &["a".into()]).await.unwrap().all, 1);
+    }
+
+    #[tokio::test]
+    async fn a_job_launched_from_discord_or_telegram_notifies_nobody() {
+        let (n, conn, _d) = setup();
+        agent(&conn, "a");
+        for channel in [VizierChannelId::DiscordChanel(1), VizierChannelId::TelegramChannel(2)] {
+            let origin = VizierSession("a".into(), channel, None);
+            n.job_ended("j-ext", &origin, JobKind::Batch, JobState::Reported, None, Utc::now())
+                .await;
+        }
+        assert_eq!(n.storage.notification_counts("u", &["a".into()]).await.unwrap().all, 0);
+    }
+
+    #[tokio::test]
+    async fn a_job_launched_from_the_webui_keeps_its_session_as_the_source() {
+        let (n, conn, _d) = setup();
+        agent(&conn, "a");
+        let origin = VizierSession(
+            "a".into(),
+            VizierChannelId::HTTP("ana".into(), "vizier-webui".into()),
+            Some("topic-1".into()),
+        );
+        n.job_ended("j-web", &origin, JobKind::Delegation, JobState::Reported, None, Utc::now())
+            .await;
+        let items = n
+            .storage
+            .list_notifications("u", &["a".into()], NotificationFilter::All, None, 10)
+            .await
+            .unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].category, NotificationCategory::BackgroundJob);
+        assert_eq!(items[0].source_session.as_ref(), Some(&origin));
     }
 
     #[tokio::test]

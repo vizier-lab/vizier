@@ -229,6 +229,11 @@ pub fn v1(state: HTTPState) -> Router<HTTPState> {
                 .layer(middleware::from_fn_with_state(state.clone(), require_auth)),
         )
         .nest(
+            "/inbox",
+            notifications::inbox()
+                .layer(middleware::from_fn_with_state(state.clone(), require_auth)),
+        )
+        .nest(
             "/overview",
             overview::overview().layer(middleware::from_fn_with_state(state.clone(), require_auth)),
         )

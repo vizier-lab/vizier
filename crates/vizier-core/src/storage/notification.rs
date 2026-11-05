@@ -6,7 +6,10 @@ use anyhow::Result;
 use chrono::{DateTime, Utc};
 
 use crate::{
-    schema::{NotificationCounts, NotificationDraft, NotificationFilter, NotificationItem, ReplyBatch},
+    schema::{
+        InsertedNotification, NotificationCounts, NotificationDraft, NotificationFilter,
+        NotificationItem, ReplyBatch,
+    },
     storage::VizierStorage,
 };
 
@@ -16,8 +19,12 @@ pub const RETENTION_DAYS: i64 = 30;
 /// One notification's inbox read.
 #[async_trait::async_trait]
 pub trait NotificationStorage {
-    /// Idempotent batch insert on `event_key`; returns how many were new.
-    async fn insert_notifications(&self, drafts: &[NotificationDraft]) -> Result<usize>;
+    /// Idempotent batch insert on `event_key`; returns the rows this call actually inserted,
+    /// so a duplicate announces nothing.
+    async fn insert_notifications(
+        &self,
+        drafts: &[NotificationDraft],
+    ) -> Result<Vec<InsertedNotification>>;
 
     /// Newest first, filtered by state and the visible agent whitelist.
     async fn list_notifications(
@@ -35,6 +42,11 @@ pub trait NotificationStorage {
         user_id: &str,
         agents: &[String],
     ) -> Result<NotificationCounts>;
+
+    /// The highest id this person may see over the visible agents and the retention window,
+    /// or `0` when there is none. Ids only grow, so a client that holds this id has seen
+    /// everything up to it.
+    async fn latest_notification_id(&self, user_id: &str, agents: &[String]) -> Result<i64>;
 
     /// Read/unread for one visible notification; false when missing, invisible or expired.
     async fn set_notification_read(
@@ -66,7 +78,10 @@ pub trait NotificationStorage {
 
 #[async_trait::async_trait]
 impl NotificationStorage for VizierStorage {
-    async fn insert_notifications(&self, drafts: &[NotificationDraft]) -> Result<usize> {
+    async fn insert_notifications(
+        &self,
+        drafts: &[NotificationDraft],
+    ) -> Result<Vec<InsertedNotification>> {
         self.0.insert_notifications(drafts).await
     }
 
@@ -89,6 +104,10 @@ impl NotificationStorage for VizierStorage {
         agents: &[String],
     ) -> Result<NotificationCounts> {
         self.0.notification_counts(user_id, agents).await
+    }
+
+    async fn latest_notification_id(&self, user_id: &str, agents: &[String]) -> Result<i64> {
+        self.0.latest_notification_id(user_id, agents).await
     }
 
     async fn set_notification_read(

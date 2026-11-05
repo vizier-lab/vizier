@@ -25,8 +25,8 @@ description: "Task list for realtime notifications"
 
 **Purpose**: Branches and a clean baseline
 
-- [ ] T001 Commit the plan pointer change in `CLAUDE.md` on `051-realtime-notifications`
-- [ ] T002 Create the matching branch in every submodule with `just checkout 051-realtime-notifications` from WSL or Linux, and confirm with `just status`
+- [X] T001 Commit the plan pointer change in `CLAUDE.md` on `051-realtime-notifications`
+- [X] T002 Create the matching branch in every submodule with `just checkout 051-realtime-notifications` from WSL or Linux, and confirm with `just status`
 - [ ] T003 Record the baseline by running `cargo test --workspace` and `cd webui && npm test`, noting any failure that predates this work in `specs/051-realtime-notifications/quickstart.md`
 
 ---
@@ -37,16 +37,16 @@ description: "Task list for realtime notifications"
 
 **⚠️ CRITICAL**: No story can start until this phase is complete.
 
-- [ ] T004 [P] Add `Subject::inbox_events()` returning `inbox.events`, with a test, in `crates/vizier-schema/src/subject.rs`
-- [ ] T005 [P] Add nullable `source_session`, `source_title` and `excerpt` through `add_column_if_missing` in `init_notification_schema` in `crates/vizier-core/src/storage/sqlite/mod.rs`
-- [ ] T006 [P] Create `crates/vizier-core/src/storage/sql/postgres/migrations/0003_notification_source.sql` adding the same three columns, and register it wherever migrations are listed
-- [ ] T007 Add `source_session`, `source_title` and `excerpt` to `NotificationDraft`, and `title`, `excerpt` and `source_session` (`serde(skip)`) to `NotificationItem`, omitting absent values when serialized, in `crates/vizier-core/src/schema/notification.rs`, and set the new draft fields to `None` in the `draft` helper in `crates/vizier-core/src/notifications/mod.rs`
-- [ ] T008 Write and read the new columns in `crates/vizier-core/src/storage/sqlite/notification.rs`, and change the insert to return the rows it actually inserted using `ON CONFLICT DO NOTHING RETURNING id`. Confirm on both SQLite and PostgreSQL; if `SqlConn` can't express it, select by `event_key` after inserting (plan.md, Risks). Update the trait in `crates/vizier-core/src/storage/notification.rs`
-- [ ] T009 Define `InboxEvent` per data-model.md and add `KIND_INBOX_EVENT`, `Outgoing::Inbox`, a third `select!` arm, a `broadcast` channel, `publish_inbox_event` and `subscribe_inbox_events` in `crates/vizier-core/src/transport/events.rs` and `crates/vizier-core/src/transport/mod.rs`, with the same local-delivery fallback and tests as the session events
-- [ ] T010 Add a transport slot with `install_transport` to `Notifications`, publish `InboxEvent::Created` for each inserted row after commit in `record` and `record_all`, in `crates/vizier-core/src/notifications/mod.rs`, and install it where the transport is built in `crates/vizier-core/src/dependencies.rs`. A duplicate `event_key` must publish nothing, pinned by a test
-- [ ] T011 Change `job_ended` to take the origin `&VizierSession` in place of `agent_id` in `crates/vizier-core/src/notifications/mod.rs`, and update the callers in `crates/vizier-core/src/agents/background/mod.rs` and `crates/vizier-core/src/dependencies.rs`, confirming the startup-sweep row exposes its origin
-- [ ] T012 Extract a `can_see_setup(user, agents, agent_id, owner_id)` rule from `states` in `crates/vizier-core/src/service/setup_state.rs` for the stream to share, with no behaviour change
-- [ ] T013 Regenerate `crates/vizier-core/public-api.txt` for the changed public types, using the same command CI's check documents
+- [X] T004 [P] Add `Subject::inbox_events()` returning `inbox.events`, with a test, in `crates/vizier-schema/src/subject.rs`
+- [X] T005 [P] Add nullable `source_session`, `source_title` and `excerpt` through `add_column_if_missing` in `init_notification_schema` in `crates/vizier-core/src/storage/sqlite/mod.rs`
+- [X] T006 [P] Create `crates/vizier-core/src/storage/sql/postgres/migrations/0003_notification_source.sql` adding the same three columns, and register it wherever migrations are listed
+- [X] T007 Add `source_session`, `source_title` and `excerpt` to `NotificationDraft`, and `title`, `excerpt` and `source_session` (`serde(skip)`) to `NotificationItem`, omitting absent values when serialized, in `crates/vizier-core/src/schema/notification.rs`, and set the new draft fields to `None` in the `draft` helper in `crates/vizier-core/src/notifications/mod.rs`
+- [X] T008 Write and read the new columns in `crates/vizier-core/src/storage/sqlite/notification.rs`, and change the insert to return the rows it actually inserted using `ON CONFLICT DO NOTHING RETURNING id`. Confirm on both SQLite and PostgreSQL; if `SqlConn` can't express it, select by `event_key` after inserting (plan.md, Risks). Update the trait in `crates/vizier-core/src/storage/notification.rs`
+- [X] T009 Define `InboxEvent` per data-model.md and add `KIND_INBOX_EVENT`, `Outgoing::Inbox`, a third `select!` arm, a `broadcast` channel, `publish_inbox_event` and `subscribe_inbox_events` in `crates/vizier-core/src/transport/events.rs` and `crates/vizier-core/src/transport/mod.rs`, with the same local-delivery fallback and tests as the session events
+- [X] T010 Add a transport slot with `install_transport` to `Notifications`, publish `InboxEvent::Created` for each inserted row after commit in `record` and `record_all`, in `crates/vizier-core/src/notifications/mod.rs`, and install it where the transport is built in `crates/vizier-core/src/dependencies.rs`. A duplicate `event_key` must publish nothing, pinned by a test
+- [X] T011 Change `job_ended` to take the origin `&VizierSession` in place of `agent_id` in `crates/vizier-core/src/notifications/mod.rs`, and update the callers in `crates/vizier-core/src/agents/background/mod.rs` and `crates/vizier-core/src/dependencies.rs`, confirming the startup-sweep row exposes its origin
+- [X] T012 Extract a `can_see_setup(user, agents, agent_id, owner_id)` rule from `states` in `crates/vizier-core/src/service/setup_state.rs` for the stream to share, with no behaviour change
+- [X] T013 Regenerate `crates/vizier-core/public-api.txt` for the changed public types, using the same command CI's check documents
 
 **Checkpoint**: The workspace builds and tests pass. Nothing is visible to a client yet.
 
@@ -60,29 +60,29 @@ description: "Task list for realtime notifications"
 
 ### Tests for User Story 1
 
-- [ ] T014 [P] [US1] Unit test the delivery decision in `crates/vizier-core/src/service/inbox.rs`: visible agent, hidden agent, `audience_user_id` match and mismatch, setup of a not-yet-stored agent as owner and as stranger, `Read` for another person
-- [ ] T015 [P] [US1] Unit test in `crates/vizier-core/src/setup.rs` that `download_progress` publishes at most one event per 250 ms per agent, that every other transition publishes at once, and that an entry `snapshot()` no longer returns publishes `SetupCleared`
-- [ ] T016 [P] [US1] Create `crates/vizier-http/tests/inbox_stream.rs` covering `hello` first, a `notification` frame with counts, `read` across two sockets of one person, revoked access receiving nothing, and a socket staying open past `ws_idle_timeout_secs`
-- [ ] T017 [P] [US1] Create `webui/app/lib/inboxFrames.test.ts` for each frame type against store state, ignoring unknown types, ETA samples from `setup` frames, and removing a terminal entry after 5 s
+- [X] T014 [P] [US1] Unit test the delivery decision in `crates/vizier-core/src/service/inbox.rs`: visible agent, hidden agent, `audience_user_id` match and mismatch, setup of a not-yet-stored agent as owner and as stranger, `Read` for another person
+- [X] T015 [P] [US1] Unit test in `crates/vizier-core/src/setup.rs` that `download_progress` publishes at most one event per 250 ms per agent, that every other transition publishes at once, and that an entry `snapshot()` no longer returns publishes `SetupCleared`
+- [X] T016 [P] [US1] Create `crates/vizier-http/tests/inbox_stream.rs` covering `hello` first, a `notification` frame with counts, `read` across two sockets of one person, revoked access receiving nothing, and a socket staying open past `ws_idle_timeout_secs`
+- [X] T017 [P] [US1] Create `webui/app/lib/inboxFrames.test.ts` for each frame type against store state, ignoring unknown types, ETA samples from `setup` frames, and removing a terminal entry after 5 s
 
 ### Implementation for User Story 1
 
-- [ ] T018 [US1] Make `SetupBoard::publish` also publish `InboxEvent::Setup` with `owner_id` as its own field and `SetupCleared` when pruned, throttling only `download_progress` per research R6, in `crates/vizier-core/src/setup.rs`, and install the transport wherever `install_publisher` is called
-- [ ] T019 [US1] Create `crates/vizier-core/src/service/inbox.rs` with `snapshot(services, principal)` returning counts, `latest_id` and setups, and `decide(services, principal, event)` returning the frame to send or none, re-resolving the principal per call. Register it in `crates/vizier-core/src/service/mod.rs`
-- [ ] T020 [US1] Publish `InboxEvent::Read` from `set_read` and `read_all` in `crates/vizier-core/src/service/notifications.rs`
-- [ ] T021 [US1] Create `crates/vizier-http/src/inbox.rs` with `InboxConnection::open(state, principal, out)` and `run()`: subscribe first, send `hello`, then deliver per `decide`, coalesce count lookups in a burst, and close when the person no longer resolves. Register it in `crates/vizier-http/src/lib.rs`
-- [ ] T022 [US1] Add `GET /inbox/stream` to `crates/vizier-http/src/api/v1/notifications.rs` and mount it in `crates/vizier-http/src/api/v1/mod.rs`, with a socket loop that pings every 30 s and has **no** idle deadline (research R10), plus the OpenAPI entry in `crates/vizier-http/src/lib.rs`
-- [ ] T023 [US1] Add the route to `crates/vizier-http/tests/conformance/pending.txt` as the deliberate exception noted in the contract
-- [ ] T024 [US1] Add `Dispatcher::open_inbox` beside `open_topic` in `crates/vizier-http/src/embedded.rs`
-- [ ] T025 [US1] Add an `Inboxes` collection beside `Topics` in `app/src-tauri/src/ipc.rs`, add `inbox_open` and `inbox_close` commands in `app/src-tauri/src/shell.rs` to both `generate_handler!` lists, and close them in the same place topics close
-- [ ] T026 [US1] Generalise `TopicSocket` in `webui/app/api/transport/websocket.ts` so both connections share it, keeping the existing behaviour for chat
-- [ ] T027 [US1] Add `openInbox` to `Transport` in `webui/app/api/transport/common.ts`, and implement it in `webui/app/api/transport/http.ts`, `webui/app/api/transport/tauri.ts` and `webui/app/api/transport/index.ts`
-- [ ] T028 [US1] Regenerate `webui/app/api/schema.d.ts` with `scripts/openapi.mjs`, and add `title` and `excerpt` to `webui/app/api/endpoints/notifications.ts`
-- [ ] T029 [US1] Create `webui/app/lib/inboxFrames.ts` with pure handlers for `hello`, `notification`, `read`, `setup`, `setup_cleared` and `resync`
-- [ ] T030 [US1] Replace the timer in `start()` with `transport.openInbox` in `webui/app/stores/notifications.ts`, keeping the first-page merge and "fresh" logic for `resync`, and update `webui/app/stores/notifications.test.ts`
-- [ ] T031 [US1] Remove `pollDelay` from `webui/app/lib/desktop.ts` and `webui/app/lib/desktop.test.ts`
-- [ ] T032 [US1] Remove the setup interval and `refreshSetups` from `webui/app/stores/agents.ts`, keeping `setups`, `samples` and the health poll, fill them from frames, and add the 5 s terminal timer
-- [ ] T033 [US1] Create `scripts/inbox-e2e.mjs` on the model of `scripts/client-tools-e2e.mjs` against a dummyplug agent, covering quickstart steps 1 to 4, and run it
+- [X] T018 [US1] Make `SetupBoard::publish` also publish `InboxEvent::Setup` with `owner_id` as its own field and `SetupCleared` when pruned, throttling only `download_progress` per research R6, in `crates/vizier-core/src/setup.rs`, and install the transport wherever `install_publisher` is called
+- [X] T019 [US1] Create `crates/vizier-core/src/service/inbox.rs` with `snapshot(services, principal)` returning counts, `latest_id` and setups, and `decide(services, principal, event)` returning the frame to send or none, re-resolving the principal per call. Register it in `crates/vizier-core/src/service/mod.rs`
+- [X] T020 [US1] Publish `InboxEvent::Read` from `set_read` and `read_all` in `crates/vizier-core/src/service/notifications.rs`
+- [X] T021 [US1] Create `crates/vizier-http/src/inbox.rs` with `InboxConnection::open(state, principal, out)` and `run()`: subscribe first, send `hello`, then deliver per `decide`, coalesce count lookups in a burst, and close when the person no longer resolves. Register it in `crates/vizier-http/src/lib.rs`
+- [X] T022 [US1] Add `GET /inbox/stream` to `crates/vizier-http/src/api/v1/notifications.rs` and mount it in `crates/vizier-http/src/api/v1/mod.rs`, with a socket loop that pings every 30 s and has **no** idle deadline (research R10), plus the OpenAPI entry in `crates/vizier-http/src/lib.rs`
+- [X] T023 [US1] Add the route to `crates/vizier-http/tests/conformance/pending.txt` as the deliberate exception noted in the contract
+- [X] T024 [US1] Add `Dispatcher::open_inbox` beside `open_topic` in `crates/vizier-http/src/embedded.rs`
+- [X] T025 [US1] Add an `Inboxes` collection beside `Topics` in `app/src-tauri/src/ipc.rs`, add `inbox_open` and `inbox_close` commands in `app/src-tauri/src/shell.rs` to both `generate_handler!` lists, and close them in the same place topics close
+- [X] T026 [US1] Generalise `TopicSocket` in `webui/app/api/transport/websocket.ts` so both connections share it, keeping the existing behaviour for chat
+- [X] T027 [US1] Add `openInbox` to `Transport` in `webui/app/api/transport/common.ts`, and implement it in `webui/app/api/transport/http.ts`, `webui/app/api/transport/tauri.ts` and `webui/app/api/transport/index.ts`
+- [X] T028 [US1] Regenerate `webui/app/api/schema.d.ts` with `scripts/openapi.mjs`, and add `title` and `excerpt` to `webui/app/api/endpoints/notifications.ts`
+- [X] T029 [US1] Create `webui/app/lib/inboxFrames.ts` with pure handlers for `hello`, `notification`, `read`, `setup`, `setup_cleared` and `resync`
+- [X] T030 [US1] Replace the timer in `start()` with `transport.openInbox` in `webui/app/stores/notifications.ts`, keeping the first-page merge and "fresh" logic for `resync`, and update `webui/app/stores/notifications.test.ts`
+- [X] T031 [US1] Remove `pollDelay` from `webui/app/lib/desktop.ts` and `webui/app/lib/desktop.test.ts`
+- [X] T032 [US1] Remove the setup interval and `refreshSetups` from `webui/app/stores/agents.ts`, keeping `setups`, `samples` and the health poll, fill them from frames, and add the 5 s terminal timer
+- [X] T033 [US1] Create `scripts/inbox-e2e.mjs` on the model of `scripts/client-tools-e2e.mjs` against a dummyplug agent, covering quickstart steps 1 to 4, and run it
 
 **Checkpoint**: The existing panel updates live and the network panel shows no polling. US1 is shippable alone.
 

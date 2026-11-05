@@ -132,17 +132,47 @@ impl Default for Entry {
     }
 }
 
+/// At most one progress event per agent in this window: `download_file` reports per MiB, which
+/// is many a second on a fast link, and a person needs a few a second
+/// (`specs/051-realtime-notifications` research R6).
+const PROGRESS_INTERVAL: Duration = Duration::from_millis(250);
+
+/// What the board has told the inbox stream, so progress can be throttled and a setup that
+/// went away is announced as cleared exactly once.
+#[derive(Default)]
+struct Feed {
+    last_progress: HashMap<String, Instant>,
+    live: std::collections::HashSet<String>,
+}
+
+impl Feed {
+    /// Whether a progress event for `agent_id` may go out at `now`; records it when it may.
+    fn allow_progress(&mut self, agent_id: &str, now: Instant) -> bool {
+        match self.last_progress.get(agent_id) {
+            Some(last) if now.duration_since(*last) < PROGRESS_INTERVAL => false,
+            _ => {
+                self.last_progress.insert(agent_id.to_string(), now);
+                true
+            }
+        }
+    }
+}
+
 /// Shared, in-memory setup state. Cloned onto `VizierDependencies` and read by the API.
 ///
 /// The board is also the **publisher** of the setup view: it owns the state, so it is the
 /// one place that writes a copy for the gateways that are not in this process
 /// (`specs/048-agent-service-seam` contracts/shared-state-views.md, "The setup board is
-/// the publisher").
+/// the publisher"), and of the live events the inbox stream pushes
+/// (`specs/051-realtime-notifications`).
 #[derive(Clone, Default)]
 pub struct SetupBoard {
     entries: Arc<RwLock<HashMap<String, Entry>>>,
     /// Where the setup views are published, once the transport exists.
     publisher: Arc<RwLock<Option<crate::agents::views::Publisher>>>,
+    /// Where live setup changes are announced, once the transport exists.
+    inbox: Arc<RwLock<Option<crate::transport::VizierTransport>>>,
+    feed: Arc<std::sync::Mutex<Feed>>,
 }
 
 fn upsert(downloads: &mut Vec<DownloadStatus>, kind: DownloadKind) -> &mut DownloadStatus {
@@ -214,8 +244,29 @@ impl SetupBoard {
         }
     }
 
-    /// Publish this agent's setup view, so a gateway in another process can read it.
+    /// Announce live setup changes on the inbox stream from now on. Called once, when the
+    /// transport exists.
+    pub fn install_inbox(&self, transport: crate::transport::VizierTransport) {
+        if let Ok(mut slot) = self.inbox.write() {
+            *slot = Some(transport);
+        }
+    }
+
+    /// Publish this agent's setup view, so a gateway in another process can read it, and tell
+    /// the inbox stream. Every transition goes out at once.
     fn publish(&self, agent_id: &str) {
+        self.publish_view(agent_id);
+        self.announce(agent_id, false);
+    }
+
+    /// Like [`Self::publish`] for a byte count moving: the inbox event is throttled, because
+    /// a final state can never be swallowed by it (a finish or a failure goes through `publish`).
+    fn publish_progress(&self, agent_id: &str) {
+        self.publish_view(agent_id);
+        self.announce(agent_id, true);
+    }
+
+    fn publish_view(&self, agent_id: &str) {
         let Ok(slot) = self.publisher.read() else {
             return;
         };
@@ -226,6 +277,42 @@ impl SetupBoard {
             return;
         };
         publisher.publish_setup(agent_id, &state);
+    }
+
+    fn announce(&self, agent_id: &str, throttled: bool) {
+        use crate::transport::InboxEvent;
+        let Some(transport) = self.inbox.read().ok().and_then(|slot| slot.clone()) else {
+            return;
+        };
+        if throttled
+            && !self
+                .feed
+                .lock()
+                .map(|mut feed| feed.allow_progress(agent_id, Instant::now()))
+                .unwrap_or(true)
+        {
+            return;
+        }
+        let state = self.snapshot().into_iter().find(|s| s.agent_id == agent_id);
+        let Ok(mut feed) = self.feed.lock() else {
+            return;
+        };
+        match state {
+            Some(state) => {
+                feed.live.insert(agent_id.to_string());
+                let owner_id = state.owner_id.clone();
+                transport.publish_inbox_event(InboxEvent::Setup { state, owner_id });
+            }
+            // The entry went away (a lone download finished): tell the clients once.
+            None => {
+                feed.last_progress.remove(agent_id);
+                if feed.live.remove(agent_id) {
+                    transport.publish_inbox_event(InboxEvent::SetupCleared {
+                        agent_id: agent_id.to_string(),
+                    });
+                }
+            }
+        }
     }
 
     /// A build for `agent_id` has started. The first one resets its entry; one that overlaps
@@ -358,7 +445,7 @@ impl SetupBoard {
             }
             download.status = status;
         });
-        self.publish(agent_id);
+        self.publish_progress(agent_id);
     }
 
     /// A download finished successfully.
@@ -540,6 +627,98 @@ impl SetupBoard {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use crate::transport::{InboxEvent, VizierTransport};
+
+    #[test]
+    fn progress_is_allowed_once_per_interval_per_agent() {
+        let mut feed = Feed::default();
+        let t0 = Instant::now();
+        assert!(feed.allow_progress("a", t0), "the first one goes out");
+        assert!(!feed.allow_progress("a", t0 + Duration::from_millis(100)));
+        assert!(!feed.allow_progress("a", t0 + Duration::from_millis(249)));
+        assert!(feed.allow_progress("a", t0 + Duration::from_millis(250)));
+        assert!(
+            feed.allow_progress("b", t0 + Duration::from_millis(100)),
+            "another agent has its own window"
+        );
+    }
+
+    fn board_with_inbox() -> (SetupBoard, tokio::sync::broadcast::Receiver<InboxEvent>) {
+        let transport = VizierTransport::new();
+        let rx = transport.subscribe_inbox_events();
+        let board = SetupBoard::default();
+        board.install_inbox(transport);
+        (board, rx)
+    }
+
+    async fn next(rx: &mut tokio::sync::broadcast::Receiver<InboxEvent>) -> InboxEvent {
+        tokio::time::timeout(Duration::from_secs(5), rx.recv())
+            .await
+            .expect("an event in time")
+            .expect("an open channel")
+    }
+
+    async fn drain(rx: &mut tokio::sync::broadcast::Receiver<InboxEvent>) -> Vec<InboxEvent> {
+        tokio::time::sleep(Duration::from_millis(150)).await;
+        let mut out = vec![];
+        while let Ok(ev) = rx.try_recv() {
+            out.push(ev);
+        }
+        out
+    }
+
+    #[tokio::test]
+    async fn every_transition_but_progress_is_published_at_once_with_the_owner() {
+        let (board, mut rx) = board_with_inbox();
+        let guard = board.build_started("a", "Atlas", Some("u1".into()), "Building");
+        let InboxEvent::Setup { state, owner_id } = next(&mut rx).await else { panic!("setup") };
+        assert_eq!(state.phase, SetupPhase::Starting);
+        assert_eq!(owner_id.as_deref(), Some("u1"), "carried beside the state, which skips it");
+
+        board.download_started("a", DownloadKind::Model, "llama");
+        let InboxEvent::Setup { state, .. } = next(&mut rx).await else { panic!("setup") };
+        assert_eq!(state.phase, SetupPhase::Downloading);
+
+        board.download_failed("a", DownloadKind::Model, "no network");
+        let InboxEvent::Setup { state, .. } = next(&mut rx).await else { panic!("setup") };
+        assert_eq!(state.downloads[0].error.as_deref(), Some("no network"));
+
+        guard.finished();
+        let InboxEvent::Setup { state, .. } = next(&mut rx).await else { panic!("setup") };
+        assert_eq!(state.phase, SetupPhase::Ready, "a final state is never swallowed");
+    }
+
+    #[tokio::test]
+    async fn a_burst_of_progress_publishes_at_most_one_event() {
+        let (board, mut rx) = board_with_inbox();
+        let _guard = board.build_started("a", "Atlas", None, "Building");
+        board.download_started("a", DownloadKind::Model, "llama");
+        drain(&mut rx).await;
+
+        for step in 1..=50u64 {
+            board.download_progress("a", DownloadKind::Model, step * 1024, 100 * 1024, "pulling");
+        }
+        let events = drain(&mut rx).await;
+        assert!(events.len() <= 1, "{} progress events in a burst", events.len());
+
+        // The end of the download is not throttled, so the client always sees it.
+        board.download_finished("a", DownloadKind::Model);
+        let InboxEvent::Setup { state, .. } = next(&mut rx).await else { panic!("setup") };
+        assert!(state.downloads.is_empty());
+    }
+
+    #[tokio::test]
+    async fn an_entry_that_is_pruned_is_announced_as_cleared_once() {
+        let (board, mut rx) = board_with_inbox();
+        // A lone download with no build: finishing it leaves nothing worth showing.
+        board.download_started("a", DownloadKind::Embedding, "bge");
+        assert!(matches!(next(&mut rx).await, InboxEvent::Setup { .. }));
+        board.download_finished("a", DownloadKind::Embedding);
+        assert!(matches!(next(&mut rx).await, InboxEvent::SetupCleared { agent_id } if agent_id == "a"));
+        board.download_finished("a", DownloadKind::Embedding);
+        assert!(drain(&mut rx).await.is_empty(), "cleared announced twice");
+    }
 
     #[test]
     fn a_dropped_build_reports_failure() {

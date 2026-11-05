@@ -22,6 +22,7 @@ pub mod auth;
 pub mod embedded;
 pub mod error;
 pub mod health;
+pub mod inbox;
 mod state;
 #[cfg(test)]
 mod test_support;
@@ -280,6 +281,7 @@ where
         api::v1::notifications::count,
         api::v1::notifications::set_read,
         api::v1::notifications::read_all,
+        api::v1::notifications::stream,
     ),
     components(
         schemas(

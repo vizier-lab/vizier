@@ -26,6 +26,7 @@ pub mod custom_providers;
 pub mod usage;
 pub mod catalogue;
 pub mod embedding;
+pub mod inbox;
 pub mod notifications;
 pub mod overview;
 pub mod files;

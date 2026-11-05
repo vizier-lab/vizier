@@ -11,6 +11,7 @@ use crate::{
     schema::{NotificationCounts, NotificationFilter, NotificationPage},
     service::{ServiceError, Services, overview::visible_agents},
     storage::notification::NotificationStorage,
+    transport::InboxEvent,
 };
 
 const DEFAULT_LIMIT: usize = 20;
@@ -104,6 +105,12 @@ pub async fn set_read(
         Ok(false) => return Err(ServiceError::NotFound("notification not found".into())),
         Err(e) => return Err(internal(e)),
     }
+    // This person's other clients learn of it at once; nobody else is told.
+    services.deps().transport.publish_inbox_event(InboxEvent::Read {
+        user_id: user.user_id.clone(),
+        id: Some(id),
+        read,
+    });
     storage
         .notification_counts(&user.user_id, &agents)
         .await
@@ -118,6 +125,11 @@ pub async fn read_all(services: &Services, user: &Principal) -> Result<Notificat
         .mark_all_notifications_read(&user.user_id, Utc::now(), &agents)
         .await
         .map_err(internal)?;
+    services.deps().transport.publish_inbox_event(InboxEvent::Read {
+        user_id: user.user_id.clone(),
+        id: None,
+        read: true,
+    });
     storage
         .notification_counts(&user.user_id, &agents)
         .await

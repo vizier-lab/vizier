@@ -28,6 +28,9 @@ use crate::schema::{
 const SESSION_EVENTS_CAPACITY: usize = 1024;
 /// Integration changes are rare; a subscriber that still falls behind reconciles everything.
 const INTEGRATION_EVENTS_CAPACITY: usize = 64;
+/// Inbox events are infrequent and setup progress is throttled, so this is generous; a
+/// connection that still falls behind is told to resynchronise.
+const INBOX_EVENTS_CAPACITY: usize = 256;
 /// How long a file upload or read may take.
 const FILE_COMMAND_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5 * 60);
 /// How long the command socket waits for the process to answer.
@@ -104,6 +107,39 @@ pub enum SessionFrame {
     },
 }
 
+/// Something the inbox stream (`specs/051-realtime-notifications`) turns into a frame for the
+/// people who may see it. It travels the bus on `inbox.events` and is never sent to a client
+/// as it is: each gateway decides per delivery who gets what, from the audience facts carried
+/// here.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub enum InboxEvent {
+    /// One notification row was inserted. `audience` is the row's `audience_user_id`. The
+    /// item's own `source_session` is not serialized, so it travels as its own field.
+    Created {
+        item: crate::schema::NotificationItem,
+        audience: Option<String>,
+        source_session: Option<VizierSession>,
+    },
+    /// One person's read state changed. `id: None` means mark-all.
+    Read {
+        user_id: String,
+        id: Option<i64>,
+        read: bool,
+    },
+    /// Live setup of one agent. `SetupState` skips `owner_id` in serde, so it is carried here.
+    Setup {
+        state: crate::setup::SetupState,
+        owner_id: Option<String>,
+    },
+    SetupCleared { agent_id: String },
+    /// Rows may have changed (a conversation deleted, a title arrived): the clients concerned
+    /// reload. `user` limits it to one person, `agent_id` to the viewers of one agent.
+    Stale {
+        user: Option<String>,
+        agent_id: Option<String>,
+    },
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct DreamCommand {
     pub agent_id: AgentId,
@@ -159,6 +195,8 @@ pub struct VizierTransport {
 
     integration_events: tokio::sync::broadcast::Sender<IntegrationChanged>,
 
+    inbox_events: tokio::sync::broadcast::Sender<InboxEvent>,
+
     /// Where durable requests are journaled (`specs/023-persist-turn-activity`). `None` for
     /// a transport nothing restarts around, such as the tests'.
     journal: Option<JournalHandle>,
@@ -182,6 +220,7 @@ impl VizierTransport {
             staging: None,
             session_events: tokio::sync::broadcast::channel(SESSION_EVENTS_CAPACITY).0,
             integration_events: tokio::sync::broadcast::channel(INTEGRATION_EVENTS_CAPACITY).0,
+            inbox_events: tokio::sync::broadcast::channel(INBOX_EVENTS_CAPACITY).0,
             pump: Arc::new(std::sync::OnceLock::new()),
             journal: None,
         }
@@ -194,8 +233,35 @@ impl VizierTransport {
         }
         tokio::runtime::Handle::try_current().ok()?;
         Some(self.pump.get_or_init(|| {
-            events::start(self.bus.clone(), self.session_events.clone(), self.integration_events.clone())
+            events::start(
+                self.bus.clone(),
+                self.session_events.clone(),
+                self.integration_events.clone(),
+                self.inbox_events.clone(),
+            )
         }))
+    }
+
+    #[doc(hidden)]
+    /// Publish an inbox event on `inbox.events`. Having no subscribers is the normal case, and a
+    /// failure to publish never reaches the work that caused the event.
+    pub fn publish_inbox_event(&self, ev: InboxEvent) {
+        match self.pump() {
+            Some(outbox) => {
+                let _ = outbox.send(events::Outgoing::Inbox(ev));
+            }
+            None => {
+                let _ = self.inbox_events.send(ev);
+            }
+        }
+    }
+
+    /// Receive every inbox event, from this node or another. Subscribe **before** reading a
+    /// snapshot so nothing between the two is missed. A subscriber that falls behind sees
+    /// `Lagged` and should resynchronise.
+    pub fn subscribe_inbox_events(&self) -> tokio::sync::broadcast::Receiver<InboxEvent> {
+        let _ = self.pump();
+        self.inbox_events.subscribe()
     }
 
     #[doc(hidden)]

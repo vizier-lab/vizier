@@ -12,7 +12,7 @@ use axum::{Router, body::Body};
 use tower::ServiceExt;
 use vizier_core::runtime::VizierRuntime;
 
-use crate::{api, state::AuthMode, topic::TopicConnection};
+use crate::{api, inbox::InboxConnection, state::AuthMode, topic::TopicConnection};
 
 pub struct Dispatcher {
     router: Router,
@@ -51,5 +51,21 @@ impl Dispatcher {
             .resolve(user_id, vizier_core::auth::AuthMethod::Desktop)
             .await?;
         TopicConnection::open(&self.state, &principal, agent_id, channel_id, topic_id, out).await
+    }
+
+    /// Opens the inbox stream as the desktop person: the same frames as
+    /// `GET /api/v1/inbox/stream`, with no socket. The app's IPC drives
+    /// [`InboxConnection::run`] and forwards each frame to its Tauri channel.
+    pub async fn open_inbox(
+        &self,
+        out: flume::Sender<serde_json::Value>,
+    ) -> Result<InboxConnection, vizier_core::service::ServiceError> {
+        let AuthMode::Desktop { user_id } = &self.state.auth else {
+            unreachable!("a dispatcher is always desktop mode")
+        };
+        let principal = vizier_core::service::Services::new(self.state.deps.clone())
+            .resolve(user_id, vizier_core::auth::AuthMethod::Desktop)
+            .await?;
+        InboxConnection::open(&self.state, &principal, out).await
     }
 }

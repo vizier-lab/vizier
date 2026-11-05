@@ -1,11 +1,11 @@
-use crate::storage::sql::{self, Connection, ToSql, params, params_from_iter};
+use crate::storage::sql::{self, Connection, OptionalExtension, ToSql, params, params_from_iter};
 use anyhow::Result;
 use chrono::{DateTime, TimeZone, Utc};
 
 use crate::{
     schema::{
-        NotificationCategory, NotificationCounts, NotificationDraft, NotificationFilter,
-        NotificationItem, NotificationTone, ReplyBatch,
+        InsertedNotification, NotificationCategory, NotificationCounts, NotificationDraft,
+        NotificationFilter, NotificationItem, NotificationTone, ReplyBatch,
     },
     storage::{
         notification::NotificationStorage, notification::RETENTION_DAYS, sqlite::SqlStorage,
@@ -39,13 +39,16 @@ pub(super) fn delete_agent_notifications(conn: &Connection, agent_id: &str) -> R
 
 #[async_trait::async_trait]
 impl NotificationStorage for SqlStorage {
-    async fn insert_notifications(&self, drafts: &[NotificationDraft]) -> Result<usize> {
+    async fn insert_notifications(
+        &self,
+        drafts: &[NotificationDraft],
+    ) -> Result<Vec<InsertedNotification>> {
         if drafts.is_empty() {
-            return Ok(0);
+            return Ok(vec![]);
         }
         let conn = self.conn.lock()?;
         let tx = conn.unchecked_transaction()?;
-        let mut inserted = 0usize;
+        let mut inserted = Vec::new();
         for draft in drafts {
             // A programmer error, not user input: refuse the whole batch rather than storing a
             // row no client can render.
@@ -68,22 +71,55 @@ impl NotificationStorage for SqlStorage {
             if exists.is_none() {
                 continue;
             }
-            inserted += tx.execute(
-                "INSERT INTO notification
-                    (event_key, agent_id, audience_user_id, category, tone, summary, href, created_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
-                 ON CONFLICT DO NOTHING",
-                params![
-                    draft.event_key.as_str(),
-                    draft.agent_id.as_str(),
-                    draft.audience_user_id.as_deref(),
-                    draft.category.as_str(),
-                    draft.tone.as_str(),
-                    draft.summary.as_str(),
-                    draft.href.as_str(),
-                    draft.created_at.timestamp_millis(),
-                ],
-            )?;
+            let source_session = draft
+                .source_session
+                .as_ref()
+                .map(serde_json::to_string)
+                .transpose()?;
+            // `RETURNING` yields a row only when this call inserted one, so a duplicate
+            // `event_key` announces nothing.
+            let id: Option<i64> = tx
+                .query_row(
+                    "INSERT INTO notification
+                        (event_key, agent_id, audience_user_id, category, tone, summary, href,
+                         created_at, source_session, source_title, excerpt)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+                     ON CONFLICT DO NOTHING
+                     RETURNING id",
+                    params![
+                        draft.event_key.as_str(),
+                        draft.agent_id.as_str(),
+                        draft.audience_user_id.as_deref(),
+                        draft.category.as_str(),
+                        draft.tone.as_str(),
+                        draft.summary.as_str(),
+                        draft.href.as_str(),
+                        draft.created_at.timestamp_millis(),
+                        source_session.as_deref(),
+                        draft.source_title.as_deref(),
+                        draft.excerpt.as_deref(),
+                    ],
+                    |row| row.get(0),
+                )
+                .optional()?;
+            if let Some(id) = id {
+                inserted.push(InsertedNotification {
+                    item: NotificationItem {
+                        id,
+                        at: draft.created_at,
+                        agent_id: draft.agent_id.clone(),
+                        category: draft.category,
+                        tone: draft.tone,
+                        text: draft.summary.clone(),
+                        href: draft.href.clone(),
+                        read: false,
+                        title: draft.source_title.clone(),
+                        excerpt: draft.excerpt.clone(),
+                        source_session: draft.source_session.clone(),
+                    },
+                    audience: draft.audience_user_id.clone(),
+                });
+            }
         }
         tx.commit()?;
         Ok(inserted)
@@ -102,7 +138,8 @@ impl NotificationStorage for SqlStorage {
         }
         let mut sql = format!(
             "SELECT n.id, n.agent_id, n.category, n.tone, n.summary, n.href, n.created_at, \
-                    (r.notification_id IS NOT NULL) AS read \
+                    (r.notification_id IS NOT NULL) AS read, \
+                    n.source_session, n.source_title, n.excerpt \
              FROM notification n \
              LEFT JOIN notification_read r \
                ON r.notification_id = n.id AND r.user_id = ? \
@@ -141,6 +178,9 @@ impl NotificationStorage for SqlStorage {
                     row.get::<_, String>(5)?,
                     row.get::<_, i64>(6)?,
                     row.get::<_, i64>(7)?,
+                    row.get::<_, Option<String>>(8)?,
+                    row.get::<_, Option<String>>(9)?,
+                    row.get::<_, Option<String>>(10)?,
                 ))
             })?
             .collect::<sql::Result<Vec<_>>>()?;
@@ -148,7 +188,19 @@ impl NotificationStorage for SqlStorage {
         Ok(rows
             .into_iter()
             .filter_map(
-                |(id, agent_id, category, tone, summary, href, created_at, read)| {
+                |(
+                    id,
+                    agent_id,
+                    category,
+                    tone,
+                    summary,
+                    href,
+                    created_at,
+                    read,
+                    source_session,
+                    source_title,
+                    excerpt,
+                )| {
                     Some(NotificationItem {
                         id,
                         at: millis(created_at),
@@ -158,6 +210,11 @@ impl NotificationStorage for SqlStorage {
                         text: summary,
                         href,
                         read: read != 0,
+                        title: source_title,
+                        excerpt,
+                        // A row whose session no longer parses just loses its title.
+                        source_session: source_session
+                            .and_then(|json| serde_json::from_str(&json).ok()),
                     })
                 },
             )
@@ -198,6 +255,26 @@ impl NotificationStorage for SqlStorage {
             unread,
             read: all - unread,
         })
+    }
+
+    async fn latest_notification_id(&self, user_id: &str, agents: &[String]) -> Result<i64> {
+        if agents.is_empty() {
+            return Ok(0);
+        }
+        let sql = format!(
+            "SELECT COALESCE(MAX(n.id), 0) FROM notification n \
+             WHERE n.agent_id IN ({}) AND n.created_at >= ? \
+               AND (n.audience_user_id IS NULL OR n.audience_user_id = ?)",
+            marks(agents),
+        );
+        let mut params: Vec<Box<dyn ToSql>> = agents
+            .iter()
+            .map(|a| Box::new(a.clone()) as Box<dyn ToSql>)
+            .collect();
+        params.push(Box::new(cutoff()));
+        params.push(Box::new(user_id.to_string()));
+        let conn = self.conn.lock()?;
+        Ok(conn.query_row(&sql, params_from_iter(params.iter()), |row| row.get(0))?)
     }
 
     async fn set_notification_read(
@@ -371,6 +448,9 @@ mod tests {
             summary: format!("Task “{key}” answered."),
             href: format!("/{agent_id}/tasks"),
             created_at: at,
+            source_session: None,
+            source_title: None,
+            excerpt: None,
         }
     }
 
@@ -411,15 +491,19 @@ mod tests {
         let (s, _d) = setup();
         agent(&s, "a");
         let at = Utc::now();
-        assert_eq!(
-            s.insert_notifications(&[draft("task_run:1", "a", at)])
-                .await
-                .unwrap(),
-            1
-        );
+        let first = s
+            .insert_notifications(&[draft("task_run:1", "a", at)])
+            .await
+            .unwrap();
+        assert_eq!(first.len(), 1);
+        assert_eq!(first[0].item.text, "Task “task_run:1” answered.");
+        assert!(!first[0].item.read);
         let mut second = draft("task_run:1", "a", at);
         second.summary = "something else".into();
-        assert_eq!(s.insert_notifications(&[second]).await.unwrap(), 0);
+        assert!(
+            s.insert_notifications(&[second]).await.unwrap().is_empty(),
+            "a duplicate event_key returns nothing to announce"
+        );
         let items = s
             .list_notifications("u", &["a".into()], NotificationFilter::All, None, 10)
             .await
@@ -429,14 +513,71 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn the_source_and_excerpt_columns_round_trip() {
+        use crate::schema::{VizierChannelId, VizierSession};
+        let (s, _d) = setup();
+        agent(&s, "a");
+        let session = VizierSession(
+            "a".into(),
+            VizierChannelId::HTTP("ana".into(), "vizier-webui".into()),
+            Some("topic-1".into()),
+        );
+        let mut with = draft("chat:1", "a", Utc::now());
+        with.source_session = Some(session.clone());
+        with.excerpt = Some("The middle plan is underpriced.".into());
+        let mut task = draft("task:1", "a", Utc::now());
+        task.source_title = Some("Weekly brief".into());
+        let plain = draft("plain:1", "a", Utc::now());
+        let inserted = s.insert_notifications(&[with, task, plain]).await.unwrap();
+        assert_eq!(inserted.len(), 3);
+        assert_eq!(inserted[0].item.source_session.as_ref(), Some(&session));
+
+        let items = s
+            .list_notifications("u", &["a".into()], NotificationFilter::All, None, 10)
+            .await
+            .unwrap();
+        let by = |text: &str| items.iter().find(|i| i.text.contains(text)).unwrap();
+        let chat = by("chat:1");
+        assert_eq!(chat.source_session.as_ref(), Some(&session));
+        assert_eq!(
+            chat.excerpt.as_deref(),
+            Some("The middle plan is underpriced.")
+        );
+        assert_eq!(by("task:1").title.as_deref(), Some("Weekly brief"));
+        let plain = by("plain:1");
+        assert!(plain.title.is_none() && plain.excerpt.is_none() && plain.source_session.is_none());
+    }
+
+    #[tokio::test]
+    async fn the_latest_id_is_the_highest_one_this_person_may_see() {
+        let (s, _d) = setup();
+        agent(&s, "a");
+        agent(&s, "b");
+        assert_eq!(s.latest_notification_id("u", &["a".into()]).await.unwrap(), 0);
+        let mut addressed = draft("chat", "a", Utc::now());
+        addressed.audience_user_id = Some("ana".into());
+        s.insert_notifications(&[draft("1", "a", Utc::now()), draft("2", "b", Utc::now()), addressed])
+            .await
+            .unwrap();
+        assert_eq!(s.latest_notification_id("ana", &["a".into(), "b".into()]).await.unwrap(), 3);
+        assert_eq!(
+            s.latest_notification_id("bob", &["a".into(), "b".into()]).await.unwrap(),
+            2,
+            "another person's row does not move the mark"
+        );
+        assert_eq!(s.latest_notification_id("ana", &["a".into()]).await.unwrap(), 3);
+        assert_eq!(s.latest_notification_id("ana", &[]).await.unwrap(), 0);
+    }
+
+    #[tokio::test]
     async fn a_draft_for_a_missing_agent_is_skipped() {
         let (s, _d) = setup();
         agent(&s, "a");
-        assert_eq!(
+        assert!(
             s.insert_notifications(&[draft("k", "gone", Utc::now())])
                 .await
-                .unwrap(),
-            0
+                .unwrap()
+                .is_empty()
         );
         assert_eq!(
             s.notification_counts("u", &["gone".into()])
@@ -846,6 +987,8 @@ mod tests {
     }
 
     crate::postgres_tests!(
+        the_latest_id_is_the_highest_one_this_person_may_see,
+        the_source_and_excerpt_columns_round_trip,
         a_duplicate_event_key_inserts_once_and_never_updates,
         a_draft_for_a_missing_agent_is_skipped,
         list_and_counts_honour_visibility_filter_and_ties,

@@ -5,6 +5,8 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+use super::VizierSession;
+
 /// What kind of event a notification records. Exposed for semantics and tests; never offered as
 /// a filter.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, schemars::JsonSchema)]
@@ -128,6 +130,22 @@ pub struct NotificationDraft {
     pub summary: String,
     pub href: String,
     pub created_at: DateTime<Utc>,
+    /// The conversation the row is about, when it has one. Its current title is filled on read,
+    /// and the row goes away with the conversation.
+    pub source_session: Option<VizierSession>,
+    /// A stored title for a source with no session (a task, when its run ended).
+    pub source_title: Option<String>,
+    /// A short plain-text excerpt (`notifications::excerpt`). Never tool arguments, tool
+    /// results or reasoning.
+    pub excerpt: Option<String>,
+}
+
+/// A row the store has just inserted, as the live stream needs it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InsertedNotification {
+    pub item: NotificationItem,
+    /// The row's `audience_user_id`: `None` means everyone who can view the agent.
+    pub audience: Option<String>,
 }
 
 /// One row as the API returns it.
@@ -145,6 +163,16 @@ pub struct NotificationItem {
     pub href: String,
     /// This person's read state.
     pub read: bool,
+    /// The conversation's current title or the task's title. Absent when the source has none,
+    /// or when the viewer may not see it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    /// A short plain-text excerpt of what the source said.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub excerpt: Option<String>,
+    /// Used by the service to fill and gate `title`; never sent.
+    #[serde(skip)]
+    pub source_session: Option<VizierSession>,
 }
 
 /// Counts over the whole visible, retained set, independent of the selected page/filter.

@@ -3,5 +3,6 @@
 /catalogue/logos/{file}
 /catalogue/media-models/{capability}/refresh
 /catalogue/refresh
+/inbox/stream
 /integrations/kinds/{id}/icon
 /providers/custom/test
