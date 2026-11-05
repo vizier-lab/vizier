@@ -89,13 +89,13 @@ Licences were checked against each repository on 2026-11-05. All are permissive,
 | Catppuccin | `catppuccin/catppuccin` | MIT | Latte, Mocha |
 | Gruvbox | `morhetz/gruvbox` | MIT/X11, stated in its README; GitHub detects none as there is no licence file | Light, dark |
 | Rosé Pine | `rose-pine/rose-pine-theme` | MIT | Dawn, Main |
-| Tokyo Night | `enkia/tokyo-night-vscode-theme` | MIT | Day, Night |
+| Tokyo Night | `enkia/tokyo-night-vscode-theme` | MIT | Light, Night |
 | Everforest | `sainnhe/everforest` | MIT | Light, dark |
 | Solarized | `altercation/solarized` | MIT | Light, dark |
 | Nord | `nordtheme/nord` | MIT | Dark only |
 | Dracula | `dracula/dracula-theme` | MIT | Dark only |
 
-Prefer `enkia/tokyo-night-vscode-theme` (MIT) over `folke/tokyonight.nvim` (Apache-2.0) to keep one licence and no NOTICE obligation. Take the colors from these sources, not from the mockup, whose values for these presets are from memory.
+Prefer `enkia/tokyo-night-vscode-theme` (MIT) over `folke/tokyonight.nvim` (Apache-2.0) to keep one licence and no NOTICE obligation. Its light variant is called Light, and is the one used; Day is `folke`'s. Take the colors from these sources, not from the mockup, whose values for these presets are from memory.
 
 ## R10. Vizier's code colors
 
@@ -129,4 +129,4 @@ All meet SC-005: 4.5:1 for code, 3:1 for comments. [mockup.html](./mockup.html) 
 
 **Decision**: Exchange `bg/shell` and `bg/panel` exactly, by decision of the feature's owner.
 
-**Measured**: Shell against panel is 1.13:1 in light and 1.02:1 in dark, so the dark swap is nearly invisible, as accepted in FR-002a. In light, cards (`bg/surface`) on the swapped inset are 1.03:1, so Vizier Swapped overrides light `bg/surface` to `#ffffff`, as FR-002a allows: cards then sit against the inset at 1.13:1, the same step as the frame around it. `bg/sidebar` is a different token used by side panels and is not swapped.
+**Measured**: Shell against panel is 1.13:1 in light and 1.02:1 in dark, so the dark swap is nearly invisible, as accepted in FR-002a. In light, cards (`bg/surface`) on the swapped inset are 1.03:1, so Vizier Swapped overrides light `bg/surface` to `#ffffff`, as FR-002a allows: cards then sit against the inset at 1.13:1, the same step as the frame around it. The swapped inset also takes `text/faint` to 4.47:1, so light moves it one step, to `#6e6d77`, to keep 4.5:1. `bg/sidebar` is a different token used by side panels and is not swapped.

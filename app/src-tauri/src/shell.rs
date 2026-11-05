@@ -257,6 +257,20 @@ async fn save_file(path: String, filename: String, app: AppHandle, shell: State<
     }
 }
 
+/// Saves text the WebUI made itself (an exported theme), which has no server path for `save_file`.
+#[tauri::command]
+async fn save_text(text: String, filename: String, app: AppHandle) -> Result<(), String> {
+    let name = desktop::safe_filename(&filename);
+    tauri::async_runtime::spawn_blocking(move || {
+        match app.dialog().file().set_file_name(name).blocking_save_file().and_then(|p| p.into_path().ok()) {
+            Some(dest) => std::fs::write(dest, text).map_err(|e| e.to_string()),
+            None => Ok(()),
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 async fn open_file(path: String, filename: String, app: AppHandle, shell: State<'_, Shell>) -> Result<(), String> {
     let file = desktop::open_file_path(&shell.engine, &path, &filename).await?;
@@ -341,7 +355,7 @@ pub fn run() {
         api, topic_open, topic_send, topic_close, desktop_state, desktop_setup_owner,
         desktop_choose_owner, desktop_open_workspace, desktop_pick_folder, runtime_restart,
         desktop_theme, desktop_settings_get,
-        desktop_settings_set, desktop_ready, save_file, open_file, notify, update_check,
+        desktop_settings_set, desktop_ready, save_file, save_text, open_file, notify, update_check,
         update_install, runtime_debug_stop_scheduler
     ]);
     #[cfg(not(debug_assertions))]
@@ -349,7 +363,7 @@ pub fn run() {
         api, topic_open, topic_send, topic_close, desktop_state, desktop_setup_owner,
         desktop_choose_owner, desktop_open_workspace, desktop_pick_folder, runtime_restart,
         desktop_theme, desktop_settings_get,
-        desktop_settings_set, desktop_ready, save_file, open_file, notify, update_check,
+        desktop_settings_set, desktop_ready, save_file, save_text, open_file, notify, update_check,
         update_install
     ]);
 

@@ -41,8 +41,10 @@ Each role lists the keys it depends on. Changing a key recomputes the non-overri
 | failed-line, retrying-line | their key, content | Key at medium weight over content |
 | failed-hover, failed-pressed | failed, content | Lightness shifted |
 | selection, selection-text | live, content | Live darkened for contrast; text white or black by contrast |
-| code keyword, string, number | accent, live, retrying | Accent, live-text and retrying |
+| code keyword, string, number | accent, content, text | Accent, and the accent's hue turned for strings and numbers; a grey accent stays grey |
 | code function, punctuation, comment | text, content | Default, muted and faint |
+
+Code colors never follow a status key, because SC-010 requires that changing a status color leaves them unchanged. Every derived code color is moved in lightness as far as it takes to reach its contrast pair on `bg/surface`.
 
 Step sizes are chosen during implementation and pinned by tests against the contrast pairs.
 
@@ -86,11 +88,11 @@ type Scheme = {
 | Scheme | Light | Dark | Notes |
 |---|---|---|---|
 | Vizier | yes | yes | From `tokens.css`; applies no overrides |
-| Vizier Swapped | yes | yes | Vizier with `bg/shell` and `bg/panel` exchanged; may override `bg/surface` in light; paints only the roles it changes (research R8a) |
+| Vizier Swapped | yes | yes | Vizier with `bg/shell` and `bg/panel` exchanged; in light, overrides `bg/surface` and `text/faint` (research R13); paints only the roles it changes (research R8a) |
 | Oxocarbon, Catppuccin, Gruvbox, Rosé Pine, Tokyo Night, Everforest, Solarized | yes | yes | Keys and published code colors; the rest derived |
 | Nord, Dracula | no | yes | Same |
 
-Presets are authored as `keys` plus `overrides` and expanded when the module loads.
+Presets are authored as `keys` plus `overrides` with their published values, and expanded when the module loads. At that point any color that misses a contrast pair is moved in lightness, as little as possible, so `presets.ts` stays comparable with its sources.
 
 ## Appearance selection
 
