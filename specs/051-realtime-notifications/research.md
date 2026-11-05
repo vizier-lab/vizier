@@ -8,7 +8,7 @@ No unknowns remained in the Technical Context; these are the design decisions, e
 
 **Rationale**: The WebUI already has `TopicSocket` (backoff, connection states, retry), `require_auth` already accepts the token as a query parameter for sockets, and `Message::Ping` keepalive already exists. Keeping writes on REST means no second write path, and every REST call stays in the conformance suite.
 
-**Alternatives**: Server-sent events: `EventSource` cannot send an auth header and would need its own reconnect handling, while the socket code already exists. A per-user multiplex over each chat socket: a person with no chat open would get nothing. Putting read/write frames on the socket: duplicates authorization and validation already in `service::notifications`.
+**Alternatives**: Server-sent events fit a read-only stream better, have built-in reconnection, and could authenticate with the same query token. Rejected because of the browser's connection limit: `vizier-http` serves plain HTTP through `axum::serve` with no TLS, so browsers use HTTP/1.1 unless a proxy adds HTTP/2, and HTTP/1.1 allows about 6 connections per host across all tabs. Each SSE stream holds one open, so six tabs would hang every REST call, while WebSockets don't count against that limit. Closing the stream in hidden tabs would mitigate this, but that is extra logic to guard against a failure WebSocket doesn't have. A per-user multiplex over each chat socket: a person with no chat open would get nothing. Putting read/write frames on the socket: duplicates authorization and validation already in `service::notifications`.
 
 ## R2. Desktop: the same stream through a Tauri Channel
 
