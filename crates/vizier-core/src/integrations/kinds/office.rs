@@ -8,7 +8,9 @@ use crate::{
     agents::tools::{
         VizierToolSet,
         office::{
-            OfficeDocxRead, OfficeDocxWrite, OfficeXlsxRead, OfficeXlsxReadCsv, OfficeXlsxWrite,
+            OfficeDocxRead, OfficeDocxWrite, OfficePdfRead, OfficePdfRenderPage,
+            OfficePdfWriteFromDocx, OfficePdfWriteFromHtml, OfficeXlsxRead, OfficeXlsxReadCsv,
+            OfficeXlsxWrite,
         },
     },
     integrations::kind::{AgentToolContext, Contribution, IntegrationKind, KindListing},
@@ -33,7 +35,7 @@ impl IntegrationKind for OfficeKind {
     fn listing(&self) -> KindListing {
         KindListing {
             name: "Office",
-            description: "Read and create Word and Excel files: Markdown, typed cells and CSV previews",
+            description: "Read and create Word, Excel and PDF files: Markdown, typed cells, CSV previews, PDF pages and conversions",
             icon: "office",
             fields: vec![],
         }
@@ -56,7 +58,11 @@ impl IntegrationKind for OfficeKind {
                 .tool(OfficeXlsxRead { storage: storage.clone(), file_manager: file_manager.clone() })
                 .tool(OfficeXlsxReadCsv { storage: storage.clone(), file_manager: file_manager.clone() })
                 .tool(OfficeDocxWrite { storage: storage.clone(), file_manager: file_manager.clone() })
-                .tool(OfficeXlsxWrite { storage, file_manager }),
+                .tool(OfficeXlsxWrite { storage: storage.clone(), file_manager: file_manager.clone() })
+                .tool(OfficePdfRead { storage: storage.clone(), file_manager: file_manager.clone() })
+                .tool(OfficePdfRenderPage { storage: storage.clone(), file_manager: file_manager.clone() })
+                .tool(OfficePdfWriteFromHtml { storage: storage.clone(), file_manager: file_manager.clone() })
+                .tool(OfficePdfWriteFromDocx { storage, file_manager }),
             mcp: None,
             addon: Some(self.id()),
         }
@@ -77,5 +83,13 @@ mod tests {
         assert!(OfficeKind.validate("office", &json!({})).is_ok());
         assert!(OfficeKind.validate("office", &Value::Null).is_ok());
         assert!(OfficeKind.validate("office", &json!({"x": 1})).is_err());
+    }
+
+    #[test]
+    fn its_catalogue_text_covers_every_format() {
+        let description = OfficeKind.listing().description;
+        for format in ["Word", "Excel", "PDF"] {
+            assert!(description.contains(format), "{description}");
+        }
     }
 }

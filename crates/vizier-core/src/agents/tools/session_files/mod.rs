@@ -18,6 +18,8 @@ use crate::{
 pub const DOCX_MIME: &str = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 pub const XLSX_MIME: &str = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 pub const XLS_MIME: &str = "application/vnd.ms-excel";
+pub const PDF_MIME: &str = "application/pdf";
+pub const PNG_MIME: &str = "image/png";
 
 mod send_attachment;
 pub use send_attachment::SendAttachment;
@@ -229,5 +231,14 @@ mod tests {
     fn text_still_reads_as_before() {
         assert_eq!(extract_text("text/plain", b"hello".to_vec()).unwrap(), "hello");
         assert!(extract_text("application/pdf", b"not a pdf".to_vec()).is_err());
+    }
+
+    /// Spec 044 adds PDF tools to the Office addon but leaves this reader's PDF path alone.
+    #[cfg(feature = "addon-documents")]
+    #[test]
+    fn a_pdf_still_reads_as_plain_text_here() {
+        let pdf = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/office/table.pdf")).to_vec();
+        let text = extract_text("application/pdf", pdf).unwrap();
+        assert!(text.contains("Quarterly Report") && text.contains("Widget"), "{text}");
     }
 }

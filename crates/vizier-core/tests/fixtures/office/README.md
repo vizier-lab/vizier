@@ -25,3 +25,21 @@ python3 fixtures/office/gen-office-fixtures.py
 ```
 
 It rewrites the five sample files in this folder. Only commit the result if a sample really changed.
+
+## PDF samples (spec 044)
+
+Read by `src/agents/tools/office/pdf_tests.rs`. Made by `gen-pdf-fixtures.py` with reportlab and pypdf, not by this
+crate's PDF writer.
+
+| File | What it holds |
+|------|---------------|
+| `table.pdf` | one page: heading, paragraph, bullet list, a bordered table |
+| `long.pdf` | 30 pages, each opening with a unique `PAGE-n` marker |
+| `scanned.pdf` | one page that is only a raster image, no text layer |
+| `locked.pdf` | encrypted, user password `vizier`, text "Locked Report" |
+| `corrupt.pdf` | the first 120 bytes of a real file: a header and nothing a page can be recovered from |
+
+```sh
+pip install reportlab pypdf pillow cryptography
+python3 gen-pdf-fixtures.py
+```

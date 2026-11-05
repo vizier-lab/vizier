@@ -1,6 +1,6 @@
 # Office addon
 
-The **Office** addon lets an agent read and create Word (`.docx`) and Excel (`.xlsx`, `.xls` for reading) files. It has no settings and is on by default: every new agent gets it, and agents that existed when it shipped were given it once, on first start. Turn it off or remove it from the agent's **Integrations › Addons** page; nothing turns it back on.
+The **Office** addon lets an agent read and create Word (`.docx`), Excel (`.xlsx`, `.xls` for reading) and PDF (`.pdf`) files. It has no settings and is on by default: every new agent gets it, and agents that existed when it shipped were given it once, on first start. Turn it off or remove it from the agent's **Integrations › Addons** page; nothing turns it back on.
 
 Files are session files: the agent reads what a person uploaded and delivers what it writes with `send_attachment`.
 
@@ -11,10 +11,24 @@ Files are session files: the agent reads what a person uploaded and delivers wha
 | `office_xlsx_read_as_csv` | Preview every sheet of a workbook as CSV in one call. Formulas show as text, or as calculated results with `executed_formula`. The calculation is done by the addon, not by Excel, so it can differ from what Excel shows; a cell it cannot calculate (an unknown function, a circular reference, a link to another file) keeps the value saved in the file and is named in `note`. Legacy `.xls` files are never calculated. |
 | `office_docx_write_from_md` | Create a new `.docx` from Markdown, with an optional title. |
 | `office_xlsx_write_from_sheets` | Create a new `.xlsx` from sheets of rows. Text such as `=1+1` is stored as text, never as a formula. |
+| `office_pdf_read_as_md` | Read a PDF as Markdown (headings, paragraphs, lists, tables). Reads `page_limit` pages (default 10) from `page_start`; the result gives `total_pages`, the range returned and, when pages remain, `next_page_start`. Add `password` for an encrypted file. `scanned_likely` flags a document with no text layer, and `failed_pages` lists pages that could not be parsed. |
+| `office_pdf_render_page_as_png` | Render one page (counted from 1) to a PNG file in the conversation, to look at with `read_image_file`: scans, charts, diagrams. `scale` is 0.1 to 4.0 (default 1.5; values outside are held to the range and the result reports the one used). |
+| `office_pdf_write_from_html` | Create a new `.pdf` from HTML and CSS (put the styles in a `<style>` element). Nothing outside the HTML is loaded: no images or stylesheets by URL or file, and no scripts. |
+| `office_pdf_write_from_docx` | Convert a `.docx` in the conversation to a new `.pdf`. Headings, emphasis, lists, tables and links are carried over from the document text; images, headers and footers, page numbers and tracked changes are not. The Word file is left unchanged. |
 
-Reads are capped (20 sheets, 1 000 rows and 100 columns per sheet, 200 000 characters of Markdown); a capped result says `truncated` and reports the real size.
+Reads are capped (20 sheets, 1 000 rows and 100 columns per sheet, 200 000 characters of Markdown); a capped result says `truncated` and reports the real size. A PDF read is also limited to 10 pages by default and 100 000 characters unless `max_chars` (at most 200 000) says otherwise.
 
 The write tools only generate **new** files; they never edit an existing one. A file with the same name is replaced, so give a new version a new name.
+
+## PDF limits
+
+The PDF tools run entirely inside Vizier (pure Rust; no PDF viewer, browser or other program is installed or called) and never fetch anything.
+
+- A PDF larger than 256 MB, a page that would render above 25 million pixels (lower `scale`) and HTML above 5 MB are refused with a message saying so.
+- A PDF read returns text, not pictures: images and drawings are skipped, and a document with no text layer is reported as `scanned_likely`. There is no OCR; render the page and look at it.
+- Written PDFs have no images: HTML cannot load them from a URL or from the conversation's files, and scripts do not run. Text in a script the renderer has no font for may be missing from the output.
+- A Word-to-PDF conversion lays the document's text out afresh. It does not reproduce Word's own layout, and images, headers and footers, page numbers and tracked changes are left out.
+- No tool edits, merges, splits, annotates or fills in an existing PDF.
 
 ## Calculated formulas
 

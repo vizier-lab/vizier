@@ -31,7 +31,7 @@ channel-discord = ["dep:twilight-gateway", "dep:twilight-http", "dep:twilight-mo
 channel-telegram = ["dep:teloxide"]
 provider-media = ["dep:whisper-rs", "dep:any-tts", "dep:symphonia", "dep:symphonia-adapter-opus-rs", "dep:hound"]
 addon-docker = ["dep:bollard", "dep:indicatif"]
-addon-documents = ["dep:pdf-extract", "dep:docx-rs", "dep:calamine", "dep:rust_xlsxwriter", "dep:ironcalc"]
+addon-documents = ["dep:pdf-extract", "dep:docx-rs", "dep:calamine", "dep:rust_xlsxwriter", "dep:ironcalc", "dep:pdf-agent"]
 utoipa = ["dep:utoipa"]
 telemetry = ["dep:opentelemetry", "dep:tracing-opentelemetry"]
 full = ["channel-discord", "channel-telegram", "provider-media", "addon-docker", "addon-documents", "utoipa", "telemetry"]
@@ -70,6 +70,7 @@ nanoid.workspace = true
 opentelemetry = { workspace = true, optional = true }
 parking_lot.workspace = true
 argon2.workspace = true
+pdf-agent = { workspace = true, optional = true }
 pdf-extract = { workspace = true, optional = true }
 pulldown-cmark.workspace = true
 rand.workspace = true

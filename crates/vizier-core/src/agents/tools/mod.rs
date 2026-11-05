@@ -1596,7 +1596,9 @@ mod tests {
 
     #[cfg(feature = "addon-documents")]
     use crate::agents::tools::office::{
-        OfficeDocxRead, OfficeDocxWrite, OfficeXlsxRead, OfficeXlsxReadCsv, OfficeXlsxWrite,
+        OfficeDocxRead, OfficeDocxWrite, OfficePdfRead, OfficePdfRenderPage,
+        OfficePdfWriteFromDocx, OfficePdfWriteFromHtml, OfficeXlsxRead, OfficeXlsxReadCsv,
+        OfficeXlsxWrite,
     };
     #[cfg(feature = "channel-discord")]
     use crate::agents::tools::discord::{
@@ -1671,6 +1673,14 @@ mod tests {
             entry::<OfficeDocxWrite>(),
             #[cfg(feature = "addon-documents")]
             entry::<OfficeXlsxWrite>(),
+            #[cfg(feature = "addon-documents")]
+            entry::<OfficePdfRead>(),
+            #[cfg(feature = "addon-documents")]
+            entry::<OfficePdfRenderPage>(),
+            #[cfg(feature = "addon-documents")]
+            entry::<OfficePdfWriteFromHtml>(),
+            #[cfg(feature = "addon-documents")]
+            entry::<OfficePdfWriteFromDocx>(),
             entry::<FetchWebpage>(),
             entry::<HttpClient>(),
             entry::<TtsGenerate>(),
@@ -1815,6 +1825,14 @@ mod tests {
             ("office_docx_write_from_md", "office"),
             #[cfg(feature = "addon-documents")]
             ("office_xlsx_write_from_sheets", "office"),
+            #[cfg(feature = "addon-documents")]
+            ("office_pdf_read_as_md", "office"),
+            #[cfg(feature = "addon-documents")]
+            ("office_pdf_render_page_as_png", "office"),
+            #[cfg(feature = "addon-documents")]
+            ("office_pdf_write_from_html", "office"),
+            #[cfg(feature = "addon-documents")]
+            ("office_pdf_write_from_docx", "office"),
         ];
         const UNCATEGORISED: &[&str] = &[
             "brave_search_web",
@@ -1829,6 +1847,14 @@ mod tests {
             "office_docx_write_from_md",
             #[cfg(feature = "addon-documents")]
             "office_xlsx_write_from_sheets",
+            #[cfg(feature = "addon-documents")]
+            "office_pdf_read_as_md",
+            #[cfg(feature = "addon-documents")]
+            "office_pdf_render_page_as_png",
+            #[cfg(feature = "addon-documents")]
+            "office_pdf_write_from_html",
+            #[cfg(feature = "addon-documents")]
+            "office_pdf_write_from_docx",
             "think",
             "execute_python",
             "list_tool_functions",

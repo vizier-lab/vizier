@@ -20,9 +20,12 @@ pub mod docx;
 #[cfg(test)]
 mod fixture_tests;
 mod formula;
+pub mod pdf;
+#[cfg(test)]
+mod pdf_tests;
 pub mod xlsx;
 
-pub use crate::agents::tools::session_files::{DOCX_MIME, XLS_MIME, XLSX_MIME};
+pub use crate::agents::tools::session_files::{DOCX_MIME, PDF_MIME, PNG_MIME, XLS_MIME, XLSX_MIME};
 
 /// Reads return at most this much text (about 200 KB), then say they were cut.
 pub const READ_MAX_CHARS: usize = 200_000;
@@ -145,6 +148,7 @@ enum Format {
     Docx,
     Xlsx,
     Xls,
+    Pdf,
     Other,
 }
 
@@ -154,6 +158,7 @@ fn format_of(mime: &str, filename: &str) -> Format {
         DOCX_MIME => return Format::Docx,
         XLSX_MIME => return Format::Xlsx,
         XLS_MIME => return Format::Xls,
+        PDF_MIME => return Format::Pdf,
         _ => {}
     }
     match filename
@@ -165,6 +170,7 @@ fn format_of(mime: &str, filename: &str) -> Format {
         Some("docx") => Format::Docx,
         Some("xlsx") => Format::Xlsx,
         Some("xls") => Format::Xls,
+        Some("pdf") => Format::Pdf,
         _ => Format::Other,
     }
 }
@@ -176,11 +182,25 @@ fn wrong_tool(filename: &str, format: Format, wanted: &str) -> VizierError {
         Format::Xlsx | Format::Xls => {
             "it is an Excel workbook: read it with office_xlsx_read_as_cells (typed cells) or office_xlsx_read_as_csv (a preview of every sheet)".to_string()
         }
+        Format::Pdf => {
+            "it is a PDF document: read it with office_pdf_read_as_md, or render a page with office_pdf_render_page_as_png".to_string()
+        }
         Format::Other => {
-            "it is not a Word or Excel file: use read_document_file for text and PDF, or read_image_file for images".to_string()
+            "it is not a Word, Excel or PDF file: use read_document_file for text, or read_image_file for images".to_string()
         }
     };
     VizierError(format!("{wanted} cannot read '{filename}': {hint}."))
+}
+
+/// Runs CPU-bound work (rendering, layout, parsing a large PDF) off the async runtime.
+async fn blocking<T, F>(work: F) -> Result<T, VizierError>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, VizierError> + Send + 'static,
+{
+    tokio::task::spawn_blocking(work)
+        .await
+        .map_err(|e| VizierError(format!("The PDF operation could not finish: {e}")))?
 }
 
 /// A session file's media type and bytes, or an error that names the files that do exist.
@@ -578,6 +598,250 @@ impl VizierTool for OfficeXlsxWrite {
     }
 }
 
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct PdfReadArgs {
+    #[schemars(description = "Filename of a .pdf file in this conversation's files")]
+    pub filename: String,
+    #[schemars(description = "1-indexed page number to start reading from. Default: 1")]
+    pub page_start: Option<usize>,
+    #[schemars(description = "Number of pages to read from page_start. Default: 10")]
+    pub page_limit: Option<usize>,
+    #[schemars(description = "Maximum character budget (default 100000, max 200000). The result says when it was cut.")]
+    pub max_chars: Option<usize>,
+    #[schemars(description = "Optional password if the PDF file is encrypted/password-protected")]
+    pub password: Option<String>,
+}
+
+pub struct OfficePdfRead {
+    pub storage: Arc<VizierStorage>,
+    pub file_manager: FileManager,
+}
+
+#[async_trait::async_trait]
+impl VizierTool for OfficePdfRead {
+    type Input = PdfReadArgs;
+    type Output = pdf::PdfRead;
+
+    fn category() -> Option<ToolCategory> {
+        None
+    }
+
+    fn name() -> String {
+        "office_pdf_read_as_md".to_string()
+    }
+
+    fn description(&self) -> String {
+        "Read a PDF document (.pdf) as Markdown: headings, paragraphs, lists and tables. It reads page_limit pages (default 10) from page_start (default 1) and returns total_pages, page_start, page_end and, when pages remain, next_page_start: call again with that page to continue. Output is also cut at max_chars (default 100000, at most 200000); the result says truncated when it was cut. Images and drawings are skipped. A document with no selectable text sets scanned_likely: render its pages with office_pdf_render_page_as_png and look at them with read_image_file. Pages that could not be parsed are listed in failed_pages while the others are returned. For an encrypted file pass password. This only reads: no tool here edits, merges or fills in an existing PDF."
+            .to_string()
+    }
+
+    async fn call(&self, args: Self::Input, ctx: &ToolContext) -> Result<Self::Output, VizierError> {
+        let (mime, bytes) = load(&self.storage, &self.file_manager, ctx, &args.filename).await?;
+        let format = format_of(&mime, &args.filename);
+        if format != Format::Pdf {
+            return Err(wrong_tool(&args.filename, format, Self::name().as_str()));
+        }
+        let max_chars = args.max_chars.map(|c| c.clamp(1, READ_MAX_CHARS));
+        blocking(move || {
+            pdf::to_markdown(&bytes, args.page_start, args.page_limit, max_chars, args.password.as_deref())
+        })
+        .await
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct PdfRenderPageArgs {
+    #[schemars(description = "Filename of a .pdf file in this conversation's files")]
+    pub filename: String,
+    #[schemars(description = "1-indexed page number to render as PNG image. Default: 1")]
+    pub page: Option<usize>,
+    #[schemars(description = "Rendering scale factor (0.1 to 4.0). Default: 1.5 (~108 DPI). 1.0 is 72 DPI, 2.0 is 144 DPI.")]
+    pub scale: Option<f32>,
+    #[schemars(description = "Optional name for the output PNG file. If omitted, defaults to <filename>_page_<page>.png")]
+    pub output_filename: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct PdfPageRendered {
+    pub status: String,
+    pub filename: String,
+    pub size: u64,
+    pub width: u32,
+    pub height: u32,
+    pub page: usize,
+    /// The scale the page was rendered at, after it was held to the supported range.
+    pub scale: f32,
+}
+
+pub struct OfficePdfRenderPage {
+    pub storage: Arc<VizierStorage>,
+    pub file_manager: FileManager,
+}
+
+#[async_trait::async_trait]
+impl VizierTool for OfficePdfRenderPage {
+    type Input = PdfRenderPageArgs;
+    type Output = PdfPageRendered;
+
+    fn category() -> Option<ToolCategory> {
+        None
+    }
+
+    fn name() -> String {
+        "office_pdf_render_page_as_png".to_string()
+    }
+
+    fn description(&self) -> String {
+        "Render one page of a PDF (.pdf) to a PNG image saved as a file in this conversation, then look at it with read_image_file. Use it for scanned pages, charts, diagrams and layouts that text cannot show. page counts from 1 (default 1). scale is 0.1 to 4.0 (default 1.5; 1.0 is 72 DPI): a value outside that range is held to it, and the result returns the scale used with the image width and height in pixels. A page too large to render at that scale is an error: try a smaller scale. The file is named <pdf name>_page_<n>.png unless output_filename is given; a file of the same name is replaced."
+            .to_string()
+    }
+
+    async fn call(&self, args: Self::Input, ctx: &ToolContext) -> Result<Self::Output, VizierError> {
+        let (mime, bytes) = load(&self.storage, &self.file_manager, ctx, &args.filename).await?;
+        let format = format_of(&mime, &args.filename);
+        if format != Format::Pdf {
+            return Err(wrong_tool(&args.filename, format, Self::name().as_str()));
+        }
+        let page = args.page.unwrap_or(1);
+        let scale = pdf::effective_scale(args.scale);
+        let (png_bytes, width, height) = blocking(move || pdf::render_page(&bytes, page, Some(scale))).await?;
+
+        let default_name = {
+            let base = args
+                .filename
+                .strip_suffix(".pdf")
+                .or_else(|| args.filename.strip_suffix(".PDF"))
+                .unwrap_or(&args.filename);
+            format!("{base}_page_{page}.png")
+        };
+        let out_name = args.output_filename.as_deref().unwrap_or(&default_name);
+
+        let written = write_session_file(
+            &self.storage,
+            &self.file_manager,
+            &ctx.session,
+            out_name,
+            "png",
+            PNG_MIME,
+            png_bytes,
+        )
+        .await?;
+
+        Ok(PdfPageRendered {
+            status: "ok".into(),
+            filename: written.filename,
+            size: written.size,
+            width,
+            height,
+            page,
+            scale,
+        })
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct PdfWriteHtmlArgs {
+    #[schemars(description = "Name for the new PDF file, such as document.pdf (.pdf is added if missing). A name only, no folder.")]
+    pub filename: String,
+    #[schemars(description = "The document as HTML/CSS content to render into PDF.")]
+    pub html: String,
+    #[schemars(description = "Optional title for the document")]
+    pub title: Option<String>,
+}
+
+pub struct OfficePdfWriteFromHtml {
+    pub storage: Arc<VizierStorage>,
+    pub file_manager: FileManager,
+}
+
+#[async_trait::async_trait]
+impl VizierTool for OfficePdfWriteFromHtml {
+    type Input = PdfWriteHtmlArgs;
+    type Output = FileWritten;
+
+    fn category() -> Option<ToolCategory> {
+        None
+    }
+
+    fn name() -> String {
+        "office_pdf_write_from_html".to_string()
+    }
+
+    fn description(&self) -> String {
+        "Create a new PDF file from HTML and CSS and save it as a file in this conversation. Put the styling in a <style> element: layout, typography, tables, borders and colours are supported (HTML up to 5 MB). Nothing outside the HTML is loaded: images and stylesheets by URL or from other files in the conversation are not available, and scripts do not run, so describe visuals with CSS and text. It always generates a new file and never edits an existing PDF. If a file with the same name already exists in this conversation it is replaced, so to make a version of an existing file use a new filename and the original is kept. .pdf is added to the name if missing. To deliver the result, call send_attachment with the returned filename."
+            .to_string()
+    }
+
+    async fn call(&self, args: Self::Input, ctx: &ToolContext) -> Result<Self::Output, VizierError> {
+        let (html, title) = (args.html, args.title);
+        let pdf_bytes = blocking(move || pdf::from_html(&html, title.as_deref())).await?;
+        write_session_file(
+            &self.storage,
+            &self.file_manager,
+            &ctx.session,
+            &args.filename,
+            "pdf",
+            PDF_MIME,
+            pdf_bytes,
+        )
+        .await
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct PdfWriteDocxArgs {
+    #[schemars(description = "Name for the new PDF file, such as report.pdf (.pdf is added if missing). A name only, no folder.")]
+    pub filename: String,
+    #[schemars(description = "Filename of an existing Word document (.docx) in this conversation's files to convert to PDF")]
+    pub docx_filename: String,
+    #[schemars(description = "Optional title for the document")]
+    pub title: Option<String>,
+}
+
+pub struct OfficePdfWriteFromDocx {
+    pub storage: Arc<VizierStorage>,
+    pub file_manager: FileManager,
+}
+
+#[async_trait::async_trait]
+impl VizierTool for OfficePdfWriteFromDocx {
+    type Input = PdfWriteDocxArgs;
+    type Output = FileWritten;
+
+    fn category() -> Option<ToolCategory> {
+        None
+    }
+
+    fn name() -> String {
+        "office_pdf_write_from_docx".to_string()
+    }
+
+    fn description(&self) -> String {
+        "Convert a Word document (.docx) in this conversation to a new PDF file. Headings, bold and italic, lists, tables and links are carried over from the document's text; images, headers and footers, page numbers and tracked changes are not, and the layout is a clean document layout, not Word's own. The Word file is left unchanged. title is optional and is also shown as the first heading. It always generates a new file and never edits an existing PDF. If a file with the same name already exists in this conversation it is replaced, so use a new filename to keep the original. .pdf is added to the name if missing. To deliver the result, call send_attachment with the returned filename."
+            .to_string()
+    }
+
+    async fn call(&self, args: Self::Input, ctx: &ToolContext) -> Result<Self::Output, VizierError> {
+        let (mime, docx_bytes) = load(&self.storage, &self.file_manager, ctx, &args.docx_filename).await?;
+        let format = format_of(&mime, &args.docx_filename);
+        if format != Format::Docx {
+            return Err(wrong_tool(&args.docx_filename, format, Self::name().as_str()));
+        }
+        let title = args.title;
+        let pdf_bytes = blocking(move || pdf::from_docx(&docx_bytes, title.as_deref())).await?;
+        write_session_file(
+            &self.storage,
+            &self.file_manager,
+            &ctx.session,
+            &args.filename,
+            "pdf",
+            PDF_MIME,
+            pdf_bytes,
+        )
+        .await
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;
@@ -635,7 +899,9 @@ mod tests {
             format_of("application/octet-stream", "Budget.XLSX"),
             Format::Xlsx
         );
-        assert_eq!(format_of("application/pdf", "a.pdf"), Format::Other);
+        assert_eq!(format_of(PDF_MIME, "x"), Format::Pdf);
+        assert_eq!(format_of("application/octet-stream", "report.PDF"), Format::Pdf);
+        assert_eq!(format_of("text/plain", "a.txt"), Format::Other);
     }
 
     #[test]
@@ -647,6 +913,8 @@ mod tests {
             xlsx.0.contains("office_xlsx_read_as_cells")
                 && xlsx.0.contains("office_xlsx_read_as_csv")
         );
+        let pdf = wrong_tool("a.pdf", Format::Pdf, "office_docx_read_as_md");
+        assert!(pdf.0.contains("office_pdf_read_as_md") && pdf.0.contains("office_pdf_render_page_as_png"));
         let other = wrong_tool("a.txt", Format::Other, "office_docx_read_as_md");
         assert!(other.0.contains("read_document_file"));
     }
@@ -674,7 +942,7 @@ mod tests {
         }
     }
 
-    fn files() -> (Arc<VizierStorage>, FileManager, tempfile::TempDir) {
+    pub(crate) fn files() -> (Arc<VizierStorage>, FileManager, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
         let conn = rusqlite::Connection::open_in_memory().unwrap();
         conn.execute_batch(
@@ -735,5 +1003,211 @@ mod tests {
         assert_eq!(listed[0].mime_type, DOCX_MIME);
         let (_, bytes) = manager.get(&listed[0].file_id).await.unwrap();
         assert_eq!(bytes, b"second");
+    }
+
+    #[tokio::test]
+    async fn all_office_tools_user_journey_and_anomalies() {
+        let (storage, manager, _dir) = files();
+        let session = VizierSession("agent-1".into(), crate::schema::VizierChannelId::HTTP("u".into(), "c".into()), None);
+        let ctx = ToolContext {
+            session: session.clone(),
+            pending_attachments: Default::default(),
+            hooks: None,
+            background_depth: 0,
+            deadline: None,
+            loaded_images: Default::default(),
+            recalled: Default::default(),
+            client: None,
+            questions: crate::questions::QuestionsHandle::new(Default::default()),
+            interactive: false,
+            dream_sources: vec![],
+            secret_redactor: Arc::new(crate::secrets::SecretRedactor::default()),
+            project: None,
+        };
+
+        // Instantiate tools
+        let docx_write = OfficeDocxWrite { storage: storage.clone(), file_manager: manager.clone() };
+        let docx_read = OfficeDocxRead { storage: storage.clone(), file_manager: manager.clone() };
+        let xlsx_write = OfficeXlsxWrite { storage: storage.clone(), file_manager: manager.clone() };
+        let xlsx_read = OfficeXlsxRead { storage: storage.clone(), file_manager: manager.clone() };
+        let xlsx_read_csv = OfficeXlsxReadCsv { storage: storage.clone(), file_manager: manager.clone() };
+        let pdf_write_html = OfficePdfWriteFromHtml { storage: storage.clone(), file_manager: manager.clone() };
+        let pdf_write_docx = OfficePdfWriteFromDocx { storage: storage.clone(), file_manager: manager.clone() };
+        let pdf_read = OfficePdfRead { storage: storage.clone(), file_manager: manager.clone() };
+        let pdf_render = OfficePdfRenderPage { storage: storage.clone(), file_manager: manager.clone() };
+
+        // === 1. DOCX: Write & Read ===
+        let docx_out = docx_write.call(DocxWriteArgs {
+            filename: "spec.docx".into(),
+            markdown: "# Office Specification\n\n**Important** note.\n\n| Feature | Status |\n|---|---|\n| DOCX | OK |\n| PDF | Phase 2 |".into(),
+            title: Some("Office Addon Spec".into()),
+        }, &ctx).await.expect("write docx");
+        assert_eq!(docx_out.filename, "spec.docx");
+        assert!(docx_out.size > 0);
+
+        let docx_content = docx_read.call(DocxReadArgs {
+            filename: "spec.docx".into(),
+            max_chars: None,
+        }, &ctx).await.expect("read docx");
+        assert!(docx_content.markdown.contains("Office Addon Spec") || docx_content.markdown.contains("Specification"));
+
+        // === 2. PDF: Write From DOCX & Read ===
+        let pdf_from_docx_out = pdf_write_docx.call(PdfWriteDocxArgs {
+            filename: "from_word.pdf".into(),
+            docx_filename: "spec.docx".into(),
+            title: Some("Converted PDF".into()),
+        }, &ctx).await.expect("docx to pdf");
+        assert_eq!(pdf_from_docx_out.filename, "from_word.pdf");
+
+        let pdf_from_docx_read = pdf_read.call(PdfReadArgs {
+            filename: "from_word.pdf".into(),
+            page_start: Some(1),
+            page_limit: Some(10),
+            max_chars: None,
+            password: None,
+        }, &ctx).await.expect("read pdf from docx");
+        assert!(pdf_from_docx_read.total_pages >= 1);
+        assert!(!pdf_from_docx_read.markdown.is_empty());
+
+        // === 3. PDF: Write From HTML, Render Page as PNG & Read ===
+        let html_content = r#"
+            <!DOCTYPE html>
+            <html>
+            <head><style>h1 { color: #0284c7; } table { border-collapse: collapse; } td, th { border: 1px solid #ccc; padding: 4px; }</style></head>
+            <body>
+                <h1>Invoice #1001</h1>
+                <p>Status: <strong>Paid</strong></p>
+                <table>
+                    <tr><th>Item</th><th>Price</th></tr>
+                    <tr><td>Consulting</td><td>$150.00</td></tr>
+                </table>
+            </body>
+            </html>
+        "#;
+        let pdf_html_out = pdf_write_html.call(PdfWriteHtmlArgs {
+            filename: "invoice.pdf".into(),
+            html: html_content.into(),
+            title: Some("Invoice #1001".into()),
+        }, &ctx).await.expect("write pdf from html");
+        assert_eq!(pdf_html_out.filename, "invoice.pdf");
+
+        // Render page 1 of invoice.pdf to PNG
+        let rendered_page = pdf_render.call(PdfRenderPageArgs {
+            filename: "invoice.pdf".into(),
+            page: Some(1),
+            scale: Some(1.5),
+            output_filename: Some("invoice_preview.png".into()),
+        }, &ctx).await.expect("render pdf page to png");
+        assert_eq!(rendered_page.filename, "invoice_preview.png");
+        assert!(rendered_page.width > 0 && rendered_page.height > 0);
+        assert!(rendered_page.size > 0);
+
+        // Read invoice.pdf as markdown
+        let read_invoice = pdf_read.call(PdfReadArgs {
+            filename: "invoice.pdf".into(),
+            page_start: None,
+            page_limit: None,
+            max_chars: None,
+            password: None,
+        }, &ctx).await.expect("read invoice pdf");
+        assert!(read_invoice.markdown.contains("Invoice") || read_invoice.markdown.contains("1001") || read_invoice.markdown.contains("Consulting"));
+
+        // === 4. XLSX: Write & Read (Cells + CSV) ===
+        let xlsx_out = xlsx_write.call(XlsxWriteArgs {
+            filename: "finance.xlsx".into(),
+            sheets: vec![
+                SheetInput {
+                    name: "Revenue".into(),
+                    rows: vec![
+                        vec![Cell::Text("Quarter".into()), Cell::Text("Amount".into())],
+                        vec![Cell::Text("Q1".into()), Cell::number(2500.0)],
+                        vec![Cell::Text("Q2".into()), Cell::number(3500.0)],
+                    ],
+                },
+            ],
+        }, &ctx).await.expect("write xlsx");
+        assert_eq!(xlsx_out.filename, "finance.xlsx");
+
+        let cells_read = xlsx_read.call(XlsxReadArgs {
+            filename: "finance.xlsx".into(),
+            sheet: Some("Revenue".into()),
+            range: None,
+            info: Some(false),
+            formulas: Some(false),
+        }, &ctx).await.expect("read xlsx cells");
+        assert_eq!(cells_read.sheets.len(), 1);
+        assert_eq!(cells_read.sheets[0].name, "Revenue");
+
+        let csv_read = xlsx_read_csv.call(XlsxCsvArgs {
+            filename: "finance.xlsx".into(),
+            sheet: None,
+            range: None,
+            executed_formula: Some(false),
+        }, &ctx).await.expect("read xlsx csv");
+        assert!(csv_read.sheets[0].csv.contains("Quarter,Amount"));
+
+        // === 5. ANOMALY CASES ===
+
+        // Anomaly A: Tool mismatch - Passing .docx file to office_pdf_read_as_md
+        let err_wrong_tool_pdf = pdf_read.call(PdfReadArgs {
+            filename: "spec.docx".into(),
+            page_start: None,
+            page_limit: None,
+            max_chars: None,
+            password: None,
+        }, &ctx).await.unwrap_err();
+        assert!(err_wrong_tool_pdf.0.contains("it is a Word document: read it with office_docx_read_as_md"), "Error message should guide user to correct tool: {}", err_wrong_tool_pdf.0);
+
+        // Anomaly B: Tool mismatch - Passing .pdf file to office_docx_read_as_md
+        let err_wrong_tool_docx = docx_read.call(DocxReadArgs {
+            filename: "invoice.pdf".into(),
+            max_chars: None,
+        }, &ctx).await.unwrap_err();
+        assert!(err_wrong_tool_docx.0.contains("it is a PDF document: read it with office_pdf_read_as_md"), "Error message should guide user: {}", err_wrong_tool_docx.0);
+
+        // Anomaly C: Tool mismatch - Passing .xlsx to office_pdf_render_page_as_png
+        let err_wrong_tool_render = pdf_render.call(PdfRenderPageArgs {
+            filename: "finance.xlsx".into(),
+            page: Some(1),
+            scale: None,
+            output_filename: None,
+        }, &ctx).await.unwrap_err();
+        assert!(err_wrong_tool_render.0.contains("it is an Excel workbook"), "Error message: {}", err_wrong_tool_render.0);
+
+        // Anomaly D: File Not Found - Lists files in conversation
+        let err_fnf = pdf_read.call(PdfReadArgs {
+            filename: "ghost_file.pdf".into(),
+            page_start: None,
+            page_limit: None,
+            max_chars: None,
+            password: None,
+        }, &ctx).await.unwrap_err();
+        assert!(err_fnf.0.contains("File not found: ghost_file.pdf"), "Error should clearly state missing file");
+        assert!(err_fnf.0.contains("Files in this conversation:"), "Error should list available files to help agent/user");
+
+        // Anomaly E: PDF Render out-of-bounds page
+        let err_page_oob = pdf_render.call(PdfRenderPageArgs {
+            filename: "invoice.pdf".into(),
+            page: Some(999),
+            scale: None,
+            output_filename: None,
+        }, &ctx).await.unwrap_err();
+        assert!(err_page_oob.0.contains("Failed to render PDF page 999"), "Should fail gracefully on OOB page");
+
+        // Anomaly F: Path traversal filename rejected
+        let err_traversal = pdf_write_html.call(PdfWriteHtmlArgs {
+            filename: "../hack.pdf".into(),
+            html: "<h1>Hacked</h1>".into(),
+            title: None,
+        }, &ctx).await.unwrap_err();
+        assert!(err_traversal.0.contains("without a folder") || err_traversal.0.contains("name only"), "Path traversal in filename must be rejected: {}", err_traversal.0);
+
+        // Anomaly G: Conversion from invalid docx filename
+        let err_docx_convert_mismatch = pdf_write_docx.call(PdfWriteDocxArgs {
+            filename: "out.pdf".into(),
+            docx_filename: "invoice.pdf".into(), // PDF is not a DOCX
+            title: None,
+        }, &ctx).await.unwrap_err();
+        assert!(err_docx_convert_mismatch.0.contains("cannot read 'invoice.pdf'"), "Should reject non-docx source: {}", err_docx_convert_mismatch.0);
     }
 }
