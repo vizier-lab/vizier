@@ -197,6 +197,8 @@ impl VizierScheduler {
             }
         };
 
+        schedules.clear();
+
         for task in tasks.iter() {
             if self.is_running(task).await {
                 continue;
@@ -440,6 +442,7 @@ mod tests {
     use super::*;
     use std::time::Duration;
     use crate::schema::{ErrorKind, VizierResponse, VizierResponseContent};
+    use crate::config::VizierConfig;
 
     fn frame(content: VizierResponseContent) -> VizierResponse {
         VizierResponse {
@@ -474,5 +477,44 @@ mod tests {
 
         assert!(ended);
         drop(tx);
+    }
+
+    #[tokio::test]
+    async fn deleted_task_is_not_fired_from_the_schedule_cache() {
+        let dir = tempfile::tempdir().unwrap();
+        let deps = VizierDependencies::new(VizierConfig {
+            workspace: dir.path().to_string_lossy().to_string(),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+        let scheduler = VizierScheduler::new(deps.clone(), Arc::new(crate::runtime::AlwaysYes))
+            .await
+            .unwrap();
+        let now = Utc::now();
+        let task = Task {
+            slug: "deleted".into(),
+            requester: crate::schema::Requester::Agent("agent".into()),
+            agent_id: "agent".into(),
+            title: "Deleted task".into(),
+            instruction: "must not run".into(),
+            is_active: true,
+            schedule: TaskSchedule::OneTimeTask(now),
+            last_executed_at: None,
+            timestamp: now,
+        };
+        let mut schedules = HashMap::from([((now, task.slug.clone()), task)]);
+
+        scheduler.tick_tasks(&mut schedules).await.unwrap();
+
+        let runs = deps
+            .storage
+            .list_task_runs("agent".into(), "deleted".into(), None, None, 10)
+            .await
+            .unwrap();
+        assert!(
+            runs.is_empty(),
+            "a deleted task was fired from stale scheduler state"
+        );
     }
 }
