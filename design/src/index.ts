@@ -12,6 +12,7 @@ export * from "./brand";
 export { MiddleTruncate, middleTruncate, type MiddleTruncateProps } from "./lib/MiddleTruncate";
 export { MotionProvider, Presence, useNativeDialog, dialogMotion, slideOverMotion, popoverMotion, scrimMotion } from "./lib/Motion";
 export { useDismiss, useBackdropDismiss } from "./lib/dismiss";
+export { useSchemeColors } from "./lib/useSchemeColors";
 
 // Components
 export * from "./components/ActionBar";
@@ -45,6 +46,7 @@ export * from "./components/Checkbox";
 export * from "./components/Chart";
 export * from "./components/CheckpointDivider";
 export * from "./components/CodeBlock";
+export * from "./components/ColorField";
 export * from "./components/CommandNote";
 export * from "./components/Composer";
 export * from "./components/ContextRing";
@@ -153,6 +155,8 @@ export * from "./components/TableRow";
 export * from "./components/TextField";
 export * from "./components/TextLink";
 export * from "./components/Textarea";
+export * from "./components/ThemeScope";
+export * from "./components/ThemeTile";
 export * from "./components/Thinking";
 export * from "./components/Thought";
 export * from "./components/Toast";

@@ -1,5 +1,4 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { useState } from "react";
 import { UserMenu } from "../UserMenu/UserMenu";
 import { SettingsNav } from "../SettingsNav/SettingsNav";
 import { AgentMenu } from "./AgentMenu";
@@ -92,7 +91,6 @@ function ProjectsAboveSessions() {
 }
 
 function Demo({ view, projects = false }: { view: "home" | "agent" | "settings"; projects?: boolean }) {
-  const [theme, setTheme] = useState(0);
   const rail = (
     <Rail
       homeHref="#home"
@@ -102,7 +100,7 @@ function Demo({ view, projects = false }: { view: "home" | "agent" | "settings";
       addHref="#new"
       settingsHref="#settings"
       settingsActive={view === "settings"}
-      onToggleTheme={() => setTheme(theme + 1)}
+      onToggleTheme={() => {}}
       user={<UserMenu name="admin" onSignOut={() => {}} collapsed />}
     />
   );

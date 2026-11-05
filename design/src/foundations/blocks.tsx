@@ -72,6 +72,7 @@ const GROUP_LABEL: Record<TokenGroup, string> = {
   fill: "Fill",
   state: "State",
   data: "Data",
+  code: "Code",
 };
 
 function Swatch({ value, label }: { value: string; label: string }) {

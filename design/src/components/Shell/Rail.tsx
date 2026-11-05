@@ -35,7 +35,8 @@ export type RailProps = {
   addActive?: boolean;
   settingsHref: string;
   settingsActive?: boolean;
-  onToggleTheme: () => void;
+  /** The light and dark switch; omit it when the current look has only one of them. */
+  onToggleTheme?: () => void;
   /** The avatar menu at the foot. */
   user: ReactNode;
 } & HTMLAttributes<HTMLElement>;
@@ -244,7 +245,7 @@ export function Rail({
         )}
       </div>
       <div className="flex flex-col items-center">
-        <RailButton icon="theme" label="Theme" onSelect={onToggleTheme} />
+        {onToggleTheme && <RailButton icon="theme" label="Theme" onSelect={onToggleTheme} />}
         <RailButton icon="settings" label="Settings" href={settingsHref} active={settingsActive} />
       </div>
       <span aria-hidden className="h-px w-22 bg-border" />

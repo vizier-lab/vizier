@@ -67,6 +67,14 @@
   --vz-chart-4: #6b6b76; /* data/chart-4 */
   --vz-chart-5: #a1a1aa; /* data/chart-5 */
 
+  /* Code: neutral shades with emerald on strings. Plain code is text/soft. */
+  --vz-code-keyword: #5b5b66; /* code/keyword */
+  --vz-code-string: #046c4e; /* code/string */
+  --vz-code-number: #2e2e33; /* code/number */
+  --vz-code-comment: #85858f; /* code/comment */
+  --vz-code-function: #111114; /* code/function */
+  --vz-code-punctuation: #6e6e78; /* code/punctuation */
+
   --vz-radius-xs: 4px; /* radius/xs */
   --vz-radius-sm: 6px; /* radius/sm */
   --vz-radius-md: 8px; /* radius/md */
@@ -111,8 +119,8 @@
     color-scheme: dark;
     --vz-ground: #0b0b0c; /* bg/ground */
     --vz-sidebar: #101012; /* bg/sidebar */
-    --vz-shell: #0b0b0c; /* bg/shell */
-    --vz-panel: #070708; /* bg/panel */
+    --vz-shell: #070708; /* bg/shell */
+    --vz-panel: #0b0b0c; /* bg/panel */
     --vz-surface: #151518; /* bg/surface */
     --vz-raised: #1c1c20; /* bg/raised */
     --vz-pressed: #26262b; /* bg/pressed */
@@ -157,6 +165,13 @@
     --vz-chart-3: #e58fb4; /* data/chart-3 */
     --vz-chart-4: #8e8e99; /* data/chart-4 */
     --vz-chart-5: #55555e; /* data/chart-5 */
+
+    --vz-code-keyword: #a8a8b2; /* code/keyword */
+    --vz-code-string: #10b981; /* code/string */
+    --vz-code-number: #ededef; /* code/number */
+    --vz-code-comment: #6e6e78; /* code/comment */
+    --vz-code-function: #ffffff; /* code/function */
+    --vz-code-punctuation: #82828c; /* code/punctuation */
   }
 }
 
@@ -164,8 +179,8 @@
   color-scheme: dark;
   --vz-ground: #0b0b0c; /* bg/ground */
   --vz-sidebar: #101012; /* bg/sidebar */
-  --vz-shell: #0b0b0c; /* bg/shell */
-  --vz-panel: #070708; /* bg/panel */
+  --vz-shell: #070708; /* bg/shell */
+  --vz-panel: #0b0b0c; /* bg/panel */
   --vz-surface: #151518; /* bg/surface */
   --vz-raised: #1c1c20; /* bg/raised */
   --vz-pressed: #26262b; /* bg/pressed */
@@ -210,6 +225,13 @@
   --vz-chart-3: #e58fb4; /* data/chart-3 */
   --vz-chart-4: #8e8e99; /* data/chart-4 */
   --vz-chart-5: #55555e; /* data/chart-5 */
+
+  --vz-code-keyword: #a8a8b2; /* code/keyword */
+  --vz-code-string: #10b981; /* code/string */
+  --vz-code-number: #ededef; /* code/number */
+  --vz-code-comment: #6e6e78; /* code/comment */
+  --vz-code-function: #ffffff; /* code/function */
+  --vz-code-punctuation: #82828c; /* code/punctuation */
 }
 
 /* Tone: the colour of an icon or glyph (currentColor). One class per mode. */
