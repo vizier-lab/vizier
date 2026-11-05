@@ -56,6 +56,7 @@ export const tauri: Transport = {
     },
     assetUrl: (path) => `${assetBase()}${API_BASE}${relativeToApi(path)}`,
     saveFile: (path, filename) => invoke('save_file', { path: `${API_BASE}${path}`, filename }),
+    saveText: (text, filename) => invoke('save_text', { text, filename }),
     openFile: (path, filename) => invoke('open_file', { path: `${API_BASE}${path}`, filename }),
     openTopic(t, opts: TopicOptions): TopicHandle {
         let id: number | null = null

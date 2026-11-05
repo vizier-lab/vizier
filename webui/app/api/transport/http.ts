@@ -55,6 +55,14 @@ export const http: Transport = {
         a.click()
         URL.revokeObjectURL(href)
     },
+    async saveText(text, filename) {
+        const href = URL.createObjectURL(new Blob([text], { type: 'application/json' }))
+        const a = document.createElement('a')
+        a.href = href
+        a.download = filename
+        a.click()
+        URL.revokeObjectURL(href)
+    },
     async openFile(path) {
         window.open(this.assetUrl(path), '_blank', 'noopener')
     },

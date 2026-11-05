@@ -1,12 +1,14 @@
 import { create } from 'zustand'
 import { transport, transportReady } from '../api/transport'
 import { applyTo, paintOf, readPaint, resolvePaint, type Paint, type Resolved } from '../lib/themes/apply'
-import { DEFAULT_SCHEME_ID, type Appearance, type Mode, type Scheme } from '../lib/themes/roles'
+import { nameProblem, serializeCustoms } from '../lib/themes/names'
+import { DEFAULT_SCHEME_ID, MAX_CUSTOM_SCHEMES, type Appearance, type Mode, type Scheme } from '../lib/themes/roles'
 import { toast } from './toasts'
 
 const MODE_KEY = 'vizier.theme'
 const SCHEME_KEY = 'vizier.scheme'
 const PAINT_KEY = 'vizier.scheme.paint'
+const CUSTOMS_KEY = 'vizier.schemes'
 
 const hasWindow = typeof window !== 'undefined'
 const deviceQuery = () => window.matchMedia('(prefers-color-scheme: dark)')
@@ -72,13 +74,19 @@ type AppearanceStore = {
     deviceIsDark: boolean
     /** Empty until `load`: nobody on the default scheme pays for the palettes. */
     presets: Scheme[]
+    customs: Scheme[]
     loaded: boolean
 
     init: () => () => void
     load: () => Promise<void>
+    /** Falls back to the default for a selected id nothing answers to, and refreshes the cache. */
+    settle: () => void
     select: (schemeId: string) => void
     setMode: (mode: Mode) => void
     useDefault: () => void
+    /** Adds or replaces a custom scheme. The reason it can't, or null. Needs `load`. */
+    saveCustom: (scheme: Scheme) => string | null
+    deleteCustom: (schemeId: string) => void
 }
 
 export const useAppearance = create<AppearanceStore>()((set, get) => {
@@ -87,37 +95,19 @@ export const useAppearance = create<AppearanceStore>()((set, get) => {
         putOnPage(resolvePaint(paint, mode, deviceIsDark), animate)
     }
 
-    const find = (schemeId: string) => get().presets.find((scheme) => scheme.id === schemeId)
-
-    /** Falls back to the default for an id nothing answers to, and refreshes the cache. */
-    const settle = () => {
-        const { schemeId, paint } = get()
-        const scheme = find(schemeId)
-        if (!scheme) {
-            write(SCHEME_KEY, null)
-            write(PAINT_KEY, null)
-            set({ schemeId: DEFAULT_SCHEME_ID, paint: null })
-            show(false)
-            return
-        }
-        const next = paintOf(scheme)
-        if (JSON.stringify(next) === JSON.stringify(paint)) return
-        write(PAINT_KEY, next && JSON.stringify(next))
-        set({ paint: next })
-        show(false)
-    }
+    const find = (schemeId: string) => [...get().presets, ...get().customs].find((scheme) => scheme.id === schemeId)
 
     /** Another tab changed something: read it all again. The cache itself is never listened to. */
     const syncFromStorage = async () => {
         const schemeId = read(SCHEME_KEY) ?? DEFAULT_SCHEME_ID
         set({ mode: readMode(), schemeId })
-        if (schemeId === DEFAULT_SCHEME_ID) set({ paint: null })
-        else {
-            await get().load()
-            const scheme = find(schemeId)
-            set({ paint: scheme ? paintOf(scheme) : null })
-            if (!scheme) set({ schemeId: DEFAULT_SCHEME_ID })
-        }
+        if (get().loaded) {
+            const { parseCustoms } = await import('../lib/themes/customs')
+            set({ customs: parseCustoms(read(CUSTOMS_KEY)) })
+        } else if (schemeId !== DEFAULT_SCHEME_ID) await get().load()
+        const scheme = find(schemeId)
+        const lost = schemeId !== DEFAULT_SCHEME_ID && !scheme
+        set({ paint: scheme && !lost ? paintOf(scheme) : null, ...(lost && { schemeId: DEFAULT_SCHEME_ID }) })
         show(false)
     }
 
@@ -127,20 +117,21 @@ export const useAppearance = create<AppearanceStore>()((set, get) => {
         paint: hasWindow ? readPaint(read(PAINT_KEY)) : null,
         deviceIsDark: hasWindow ? deviceQuery().matches : false,
         presets: [],
+        customs: [],
         loaded: false,
 
         init: () => {
             const { schemeId, paint, mode, deviceIsDark } = get()
             // The pre-paint script has already coloured the page; only the window frame is left.
             paintWindow(resolvePaint(paint, mode, deviceIsDark).appearance)
-            if (schemeId !== DEFAULT_SCHEME_ID) void get().load().then(settle)
+            if (schemeId !== DEFAULT_SCHEME_ID) void get().load().then(get().settle)
 
             const onDevice = (e: MediaQueryListEvent) => {
                 set({ deviceIsDark: e.matches })
                 show(false)
             }
             const onStorage = (e: StorageEvent) => {
-                if (e.key === null || e.key === MODE_KEY || e.key === SCHEME_KEY) void syncFromStorage()
+                if (e.key === null || e.key === MODE_KEY || e.key === SCHEME_KEY || e.key === CUSTOMS_KEY) void syncFromStorage()
             }
             const query = deviceQuery()
             query.addEventListener('change', onDevice)
@@ -153,8 +144,25 @@ export const useAppearance = create<AppearanceStore>()((set, get) => {
 
         load: async () => {
             if (get().loaded) return
-            const { PRESETS } = await import('../lib/themes/presets')
-            set({ presets: PRESETS, loaded: true })
+            const [{ PRESETS }, { parseCustoms }] = await Promise.all([import('../lib/themes/presets'), import('../lib/themes/customs')])
+            set({ presets: PRESETS, customs: parseCustoms(read(CUSTOMS_KEY)), loaded: true })
+        },
+
+        settle: () => {
+            const { schemeId, paint } = get()
+            const scheme = find(schemeId)
+            if (!scheme) {
+                write(SCHEME_KEY, null)
+                write(PAINT_KEY, null)
+                set({ schemeId: DEFAULT_SCHEME_ID, paint: null })
+                show(false)
+                return
+            }
+            const next = paintOf(scheme)
+            if (JSON.stringify(next) === JSON.stringify(paint)) return
+            write(PAINT_KEY, next && JSON.stringify(next))
+            set({ paint: next })
+            show(false)
         },
 
         select: (schemeId) => {
@@ -179,6 +187,39 @@ export const useAppearance = create<AppearanceStore>()((set, get) => {
             set({ schemeId: DEFAULT_SCHEME_ID, paint: null, mode: 'system' })
             show(true)
             if (!saved.every(Boolean)) couldNotSave()
+        },
+
+        saveCustom: (scheme) => {
+            const { presets, customs, schemeId } = get()
+            const editing = customs.some((s) => s.id === scheme.id)
+            if (!editing && customs.length >= MAX_CUSTOM_SCHEMES) return `You've reached ${MAX_CUSTOM_SCHEMES} themes. Delete one to make another.`
+            const problem = nameProblem(scheme.name, [...presets, ...customs], scheme.id)
+            if (problem) return problem
+            const saved = { ...scheme, name: scheme.name.trim(), kind: 'custom' as const }
+            const next = editing ? customs.map((s) => (s.id === scheme.id ? saved : s)) : [...customs, saved]
+            const ok = [write(CUSTOMS_KEY, serializeCustoms(next))]
+            set({ customs: next })
+            if (schemeId === scheme.id) {
+                const paint = paintOf(saved)
+                ok.push(write(PAINT_KEY, paint && JSON.stringify(paint)))
+                set({ paint })
+                show(false)
+            }
+            if (!ok.every(Boolean)) couldNotSave()
+            return null
+        },
+
+        deleteCustom: (id) => {
+            const { customs, schemeId } = get()
+            const next = customs.filter((s) => s.id !== id)
+            const ok = [write(CUSTOMS_KEY, serializeCustoms(next))]
+            set({ customs: next })
+            if (schemeId === id) {
+                ok.push(write(SCHEME_KEY, null), write(PAINT_KEY, null))
+                set({ schemeId: DEFAULT_SCHEME_ID, paint: null })
+                show(true)
+            }
+            if (!ok.every(Boolean)) couldNotSave()
         },
     }
 })

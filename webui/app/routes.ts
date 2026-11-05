@@ -43,6 +43,7 @@ export default [
                 route('settings', 'routes/redirect-settings.tsx'),
                 route('settings/profile', 'routes/settings-profile.tsx'),
                 route('settings/appearance', 'routes/settings-appearance.tsx'),
+                route('settings/appearance/:schemeId', 'routes/settings-appearance-edit.tsx'),
                 route('settings/password', 'routes/redirect-password.tsx'),
                 route('settings/desktop', 'routes/settings-desktop.tsx'),
                 route('settings/api-keys', 'routes/settings-api-keys.tsx'),
