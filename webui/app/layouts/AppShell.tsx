@@ -34,8 +34,7 @@ export default function AppShell() {
     const [drawerAgent, setDrawerAgent] = useState<string>()
 
     useEffect(() => start(), [start])
-    // A fresh session starts from zero, then the badge is kept current by the
-    // store's own 15s poll.
+    // A fresh session starts from zero, then the badge is kept current by the inbox stream.
     useEffect(() => {
         resetNotifications()
         return useNotifications.getState().start()

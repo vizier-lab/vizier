@@ -1,18 +1,15 @@
 import { create } from 'zustand'
-import {
-    agentsHealth,
-    listAgents,
-    setupStates,
-    type Agent,
-    type AgentHealth,
-    type SetupState,
-} from '../api/endpoints/agents'
+import { agentsHealth, listAgents, type Agent, type AgentHealth, type SetupState } from '../api/endpoints/agents'
+import { TERMINAL_MS, dropTerminal, isTerminal, onHelloSetups, onSetup, onSetupCleared } from '../lib/inboxFrames'
+import { eta, setupProgress, type SetupSample } from '../lib/setupProgress'
+
+// The setup helpers live in lib/ so frame handling can use them; importers keep this path.
+export { eta, setupProgress, type SetupSample }
 
 const HEALTH_MS = 10_000
-const SETUP_MS = 1_000
-const SAMPLES = 5
 
-export type SetupSample = { at: number; progress: number }
+/** The timer that drops each agent's finished setup, so a newer frame can cancel it. */
+const terminalTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
 /** An agent whose creation is still running on the server: shown in the rail, busy, until it lands. */
 export type CreatingAgent = { agentId: string; name: string }
@@ -28,42 +25,20 @@ type AgentStore = {
     loaded: boolean
     refresh: () => Promise<void>
     refreshHealth: () => Promise<void>
-    refreshSetups: () => Promise<void>
+    /** One agent's setup changed (an inbox `setup` frame). */
+    applySetup: (state: SetupState) => void
+    /** One agent's setup is gone (`setup_cleared`). */
+    clearSetup: (agentId: string) => void
+    /** A snapshot replaces every setup (`hello`). */
+    replaceSetups: (list: SetupState[]) => void
+    /** Forget every setup, e.g. on sign-out. */
+    resetSetups: () => void
     /** Show an agent that is being created, before the server has it. */
     startCreating: (agent: CreatingAgent) => void
     /** The creation finished, one way or another: drop the busy tile. */
     finishCreating: (agentId: string) => void
     /** Polls while the tab is visible; returns a stop function. */
     start: () => () => void
-}
-
-/** 0..1 from a setup's downloads, or null when it reports none. */
-export function setupProgress(s: SetupState): number | null {
-    const ds = s.downloads.filter(
-        (d) =>
-            (typeof d.progress === 'number' && d.progress >= 0) ||
-            (typeof d.completed === 'number' &&
-                typeof d.total === 'number' &&
-                d.total > 0)
-    )
-    if (!ds.length) return null
-    return (
-        ds.reduce((a, d) => {
-            if (typeof d.progress === 'number')
-                return a + Math.min(1, Math.max(0, d.progress))
-            return a + (d.completed ?? 0) / (d.total ?? 1)
-        }, 0) / ds.length
-    )
-}
-
-/** Seconds left, extrapolated from the recent samples; null until there are two that moved. */
-export function eta(samples: SetupSample[] | undefined): number | null {
-    if (!samples || samples.length < 2) return null
-    const a = samples[0]
-    const b = samples[samples.length - 1]
-    const rate = (b.progress - a.progress) / ((b.at - a.at) / 1000)
-    if (!(rate > 0)) return null
-    return Math.ceil((1 - b.progress) / rate)
 }
 
 export const useAgents = create<AgentStore>()((set, get) => ({
@@ -92,29 +67,27 @@ export const useAgents = create<AgentStore>()((set, get) => ({
         }
     },
 
-    refreshSetups: async () => {
-        try {
-            const list = await setupStates()
-            const now = Date.now()
-            // Forget samples for agents that are no longer setting up, so a
-            // later build starts measuring from scratch.
-            const live = new Set(list.map((s) => s.agent_id))
-            const samples: Record<string, SetupSample[]> = {}
-            for (const [id, taken] of Object.entries(get().samples)) {
-                if (live.has(id)) samples[id] = taken
-            }
-            for (const s of list) {
-                const p = setupProgress(s)
-                if (p == null) continue
-                samples[s.agent_id] = [
-                    ...(samples[s.agent_id] ?? []),
-                    { at: now, progress: p },
-                ].slice(-SAMPLES)
-            }
-            set({ setups: Object.fromEntries(list.map((s) => [s.agent_id, s])), samples })
-        } catch {
-            /* ignore */
-        }
+    applySetup: (state) => {
+        set(onSetup(get(), state, Date.now()))
+        watchTerminal(state)
+    },
+
+    clearSetup: (agentId) => {
+        cancelTerminal(agentId)
+        set(onSetupCleared(get(), agentId))
+    },
+
+    replaceSetups: (list) => {
+        terminalTimers.forEach((timer) => clearTimeout(timer))
+        terminalTimers.clear()
+        set(onHelloSetups(get(), list, Date.now()))
+        list.forEach(watchTerminal)
+    },
+
+    resetSetups: () => {
+        terminalTimers.forEach((timer) => clearTimeout(timer))
+        terminalTimers.clear()
+        set({ setups: {}, samples: {} })
     },
 
     startCreating: (agent) =>
@@ -126,22 +99,37 @@ export const useAgents = create<AgentStore>()((set, get) => ({
         set((s) => ({ creating: s.creating.filter((c) => c.agentId !== agentId) })),
 
     start: () => {
-        const { refresh, refreshHealth, refreshSetups } = get()
+        const { refresh, refreshHealth } = get()
         void refresh()
         void refreshHealth()
         const health = setInterval(() => {
             if (document.visibilityState === 'visible') void get().refreshHealth()
         }, HEALTH_MS)
-        // Always poll setup state while the tab is visible: a build can start
-        // without any health saying "starting" yet, and the notification
-        // panel's activity indicator must not wait for it (spec 029 US4).
-        const setup = setInterval(() => {
-            if (document.visibilityState === 'visible') void get().refreshSetups()
-        }, SETUP_MS)
-        void refreshSetups()
-        return () => {
-            clearInterval(health)
-            clearInterval(setup)
-        }
+        // Setup state is not polled: it arrives on the inbox stream (`stores/notifications.ts`
+        // opens it), so a build that starts shows at once without a timer.
+        return () => clearInterval(health)
     },
 }))
+
+function cancelTerminal(agentId: string) {
+    const timer = terminalTimers.get(agentId)
+    if (timer) clearTimeout(timer)
+    terminalTimers.delete(agentId)
+}
+
+/**
+ * A finished setup is dropped after a few seconds: the server prunes it only when it is next
+ * read, so a client cannot wait to be told. A newer frame for the agent cancels the timer.
+ */
+function watchTerminal(state: SetupState) {
+    cancelTerminal(state.agent_id)
+    if (!isTerminal(state)) return
+    terminalTimers.set(
+        state.agent_id,
+        setTimeout(() => {
+            terminalTimers.delete(state.agent_id)
+            const next = dropTerminal(useAgents.getState(), state)
+            if (next) useAgents.setState(next)
+        }, TERMINAL_MS)
+    )
+}

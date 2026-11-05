@@ -1,5 +1,16 @@
 // The browser transport: fetch and a WebSocket per topic, with a bearer token.
-import { API_BASE, getToken, relativeToApi, settle, type Envelope, type Transport, type TopicHandle, type TopicOptions } from './common'
+import {
+    API_BASE,
+    getToken,
+    relativeToApi,
+    settle,
+    type Envelope,
+    type InboxHandle,
+    type InboxOptions,
+    type Transport,
+    type TopicHandle,
+    type TopicOptions,
+} from './common'
 import { TopicSocket } from './websocket'
 
 async function send<T>(method: string, path: string, body: unknown, init?: { signal?: AbortSignal; raw?: boolean }): Promise<T> {
@@ -27,6 +38,11 @@ async function send<T>(method: string, path: string, body: unknown, init?: { sig
 export function topicUrl(t: { agentId: string; channelId: string; topicId: string }, token: string): string {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
     return `${proto}//${location.host}${API_BASE}/agents/${t.agentId}/channel/${encodeURIComponent(t.channelId)}/topic/${encodeURIComponent(t.topicId)}/chat?token=${encodeURIComponent(token)}`
+}
+
+export function inboxUrl(token: string): string {
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
+    return `${proto}//${location.host}${API_BASE}/inbox/stream?token=${encodeURIComponent(token)}`
 }
 
 export const http: Transport = {
@@ -74,6 +90,15 @@ export const http: Transport = {
             url: () => {
                 const token = getToken()
                 return token ? topicUrl(t, token) : null
+            },
+        })
+    },
+    openInbox(opts: InboxOptions): InboxHandle {
+        return new TopicSocket({
+            ...opts,
+            url: () => {
+                const token = getToken()
+                return token ? inboxUrl(token) : null
             },
         })
     },
