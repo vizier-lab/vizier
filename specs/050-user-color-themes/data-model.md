@@ -44,7 +44,7 @@ Each role lists the keys it depends on. Changing a key recomputes the non-overri
 | code keyword, string, number | accent, live, retrying | Accent, live-text and retrying |
 | code function, punctuation, comment | text, content | Default, muted and faint |
 
-Step sizes are decided in the FigCraft pass and pinned by tests against the contrast pairs.
+Step sizes are chosen during implementation and pinned by tests against the contrast pairs.
 
 ## Variant
 

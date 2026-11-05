@@ -45,7 +45,7 @@ The approach leans on what already exists: every color in the UI is a `--vz-*` C
 | Commit order design → webui → vizier | Pass | Follows the phases below. |
 | Clippy, tests, typecheck | Pass | `just app-test` for the shell, `npm run typecheck` and `npm test` in both frontends. |
 | Dummyplug e2e | Pass | The HTTP/WebUI surface changes, so [quickstart.md](./quickstart.md) scripts it. |
-| Design first (CLAUDE.md) | **Blocked** | This is a new screen and new components, so it must be drawn in FigCraft before any code. The FigCraft MCP did not connect in this session. The chat mockup agreed the layout but is not the drawing. |
+| Design first (CLAUDE.md) | **Waived** | The feature's owner chose [mockup.html](./mockup.html) as the design in place of a FigCraft drawing, for this feature only. See Complexity Tracking. Components are still built in `design/` with stories first. |
 
 **Post-design re-check**: Same result. One Rust command was added after research (R7); it lives in the desktop shell, not the server, so FR-023 holds. No violations to justify.
 
@@ -59,6 +59,7 @@ specs/050-user-color-themes/
 ├── research.md
 ├── data-model.md
 ├── quickstart.md
+├── mockup.html             # the agreed design: layout and behaviour
 ├── contracts/
 │   ├── theme-file.md       # the exported file, a public format
 │   └── local-storage.md    # keys, pre-paint script, DOM application
@@ -111,7 +112,7 @@ docs/src/configuration/themes.md        # how to use the page and the file forma
 
 ### Delivery order
 
-1. **Gate**: submodule branches; FigCraft drawing of Appearance, the editor and the preset tiles in both themes.
+1. **Gate**: submodule branches.
 2. **Tokens** (`design`): code tokens and monochrome values, `CodeBlock`, stories. This alone delivers FR-008a and FR-008c.
 3. **Story 1** (`design`, `webui`): components, presets, apply, pre-paint, Appearance page, rail toggle removed.
 4. **Story 2** (`webui`): derive, editor, custom schemes.
@@ -120,10 +121,13 @@ docs/src/configuration/themes.md        # how to use the page and the file forma
 
 ## Complexity Tracking
 
-No constitution violations.
+No constitution violations. One deviation from `CLAUDE.md`, not the constitution:
+
+| Deviation | Why | What this means |
+|---|---|---|
+| No FigCraft drawing before code, against **Design first** | The feature's owner chose the reviewed, clickable [mockup.html](./mockup.html) instead | The rule stands for other work. `Vizier.figcraft` will not show this screen until someone draws it. Storybook remains the source of truth for what ships |
 
 ## Open risks
 
-- **FigCraft is unavailable**, which blocks step 1. Reconnect it before `/speckit-implement`.
 - **Open agent pages** keep their colors until they next mount (R8). This matches how they treat the light/dark switch today, but a person will notice it on a scheme change.
-- **Preset palettes in the chat mockup were from memory.** `presets.ts` must take its values from the sources listed in R9, and the contrast test decides any adjustment.
+- **Preset palettes in the mockup are from memory.** `presets.ts` must take its values from the sources listed in R9, and the contrast test decides any adjustment.

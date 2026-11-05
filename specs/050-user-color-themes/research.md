@@ -77,7 +77,7 @@ Sigils and generative UI need no change, as they draw from tokens. Sigils use `b
 
 **Decision**: Require accent and live to differ by at least 0.1 in OKLab distance (ΔEok). Presets are held to this by test, and custom schemes get a warning.
 
-**Rationale**: The dot differs from its neighbours by color alone, and a contrast ratio is the wrong measure, as two colors can have the same lightness and still be distinct. Measured: Vizier 0.437 light and 0.306 dark, Dracula 0.381, Catppuccin Mocha 0.236, Gruvbox dark 0.173. The chat mockup's values for Nord (`#88c0d0`, 0.095) and Everforest (`#a7c080`, 0) fail, so those presets need another accent.
+**Rationale**: The dot differs from its neighbours by color alone, and a contrast ratio is the wrong measure, as two colors can have the same lightness and still be distinct. Measured: Vizier 0.437 light and 0.306 dark, Dracula 0.381, Catppuccin Mocha 0.236, Gruvbox dark 0.173. The mockup's values for Nord (`#88c0d0`, 0.095) and Everforest (`#a7c080`, 0) fail, so those presets need another accent.
 
 ## R9. Preset sources and licences
 
@@ -95,7 +95,7 @@ Licences were checked against each repository on 2026-11-05. All are permissive,
 | Nord | `nordtheme/nord` | MIT | Dark only |
 | Dracula | `dracula/dracula-theme` | MIT | Dark only |
 
-Prefer `enkia/tokyo-night-vscode-theme` (MIT) over `folke/tokyonight.nvim` (Apache-2.0) to keep one licence and no NOTICE obligation. Take the colors from these sources, not from the chat mockup, whose values were from memory.
+Prefer `enkia/tokyo-night-vscode-theme` (MIT) over `folke/tokyonight.nvim` (Apache-2.0) to keep one licence and no NOTICE obligation. Take the colors from these sources, not from the mockup, whose values for these presets are from memory.
 
 ## R10. Vizier's code colors
 
@@ -111,7 +111,7 @@ Measured against `bg/surface`, the code block's ground. Plain code is `text/soft
 | Punctuation | `#6e6e78` | 4.59 | `#82828c` | 4.79 |
 | Comment | `#85858f` | 3.32 | `#6e6e78` | 3.61 |
 
-All meet SC-005: 4.5:1 for code, 3:1 for comments. The values may still move in the FigCraft pass.
+All meet SC-005: 4.5:1 for code, 3:1 for comments. [mockup.html](./mockup.html) uses these values.
 
 ## R11. What "interface elements" means in the contrast rule
 
@@ -129,4 +129,4 @@ All meet SC-005: 4.5:1 for code, 3:1 for comments. The values may still move in 
 
 **Decision**: Exchange `bg/shell` and `bg/panel` exactly, by decision of the feature's owner.
 
-**Measured**: Shell against panel is 1.13:1 in light and 1.02:1 in dark, so the dark swap is nearly invisible, as accepted in FR-002a. In light, cards (`bg/surface`) on the swapped inset are 1.03:1, so the FigCraft pass decides an override, as FR-002a allows. `bg/sidebar` is a different token used by side panels and is not swapped.
+**Measured**: Shell against panel is 1.13:1 in light and 1.02:1 in dark, so the dark swap is nearly invisible, as accepted in FR-002a. In light, cards (`bg/surface`) on the swapped inset are 1.03:1, so Vizier Swapped overrides light `bg/surface` to `#ffffff`, as FR-002a allows: cards then sit against the inset at 1.13:1, the same step as the frame around it. `bg/sidebar` is a different token used by side panels and is not swapped.
