@@ -98,17 +98,18 @@ A person exports any theme, preset or custom, to a file. They can use that file 
 
 - **FR-001**: Settings MUST have an Appearance page, available to every signed-in person with no permission required, in the web and the desktop editions.
 - **FR-002**: Vizier MUST ship these presets. **Light and dark**: Vizier (the current look, and the default), Vizier Swapped, Oxocarbon, Catppuccin, Gruvbox, Rosé Pine, Tokyo Night, Everforest and Solarized. **Dark only**: Nord and Dracula.
-- **FR-002a**: Vizier Swapped MUST be the Vizier scheme with the colors of the outer frame (rail and sidebars) and the inset content area exchanged exactly, in both variants, with no adjustment to those two colors. The dark variant's difference from Vizier is subtle by decision. Everything else, including its code colors, MUST match Vizier, except other colors that must change to keep content such as cards distinguishable from the inset.
+- **FR-002a**: Vizier Swapped MUST be the Vizier scheme with the colors of the outer frame (rail and sidebars) and the inset content area exchanged exactly, in both variants, with no adjustment to those two colors. It is therefore the one preset whose inset is darker than its frame. The dark variant's difference from Vizier is subtle by decision. Everything else, including its code colors, MUST match Vizier, except other colors that must change to keep content such as cards distinguishable from the inset.
+- **FR-002b**: In every preset except Vizier Swapped, the inset content area MUST be lighter than the outer frame, in every variant. This includes Vizier's dark variant, whose two colors are exchanged from what they were before this feature.
 - **FR-003**: Each scheme MUST be shown with a preview drawn from its own colors, and the active scheme MUST be clearly marked.
 - **FR-004**: Selecting a scheme MUST apply it across the whole interface immediately, without a reload.
 - **FR-005**: A scheme MUST define a light variant, a dark variant, or both. A scheme with one variant MUST always show it, whatever the device's setting is.
-- **FR-005a**: The light/dark toggle in the shell rail MUST be removed. Appearance is the one place the look is chosen.
+- **FR-005a**: The light/dark toggle in the shell rail MUST show only while the current scheme has both variants, and MUST switch between them. A scheme with one variant has no toggle.
 - **FR-005b**: For a scheme with both variants, Appearance MUST offer System, Light and Dark, with System the default. System follows the device, including when the device switches. For a scheme with one variant, this choice MUST NOT be offered.
 - **FR-005c**: When no scheme has been chosen, Vizier MUST use the Vizier scheme following the device's setting.
 - **FR-006**: The chosen scheme MUST be restored on every later load before the first paint, with no flash of other colors.
 - **FR-007**: Everything in the interface that follows the current light or dark appearance today MUST also follow the scheme and the variant on screen, including sigils, diagrams, charts, generative UI, agent-generated pages and the desktop window frame.
 - **FR-007a**: Generated user avatars MUST take their colors from the scheme on screen and MUST keep the shape they have for that person. Under the Vizier and Vizier Swapped schemes they MUST keep today's fixed colors. Uploaded pictures MUST NOT be recolored.
-- **FR-008**: People who never choose a scheme MUST see no visual change apart from the removed rail toggle and the Vizier scheme's new code colors (FR-008c). A light or dark choice made with the old toggle MUST carry over as the Vizier scheme fixed to that choice.
+- **FR-008**: People who never choose a scheme MUST see no visual change apart from the Vizier scheme's new code colors (FR-008c) and its dark frame and inset being exchanged (FR-002b). A light or dark choice made with the old toggle MUST carry over as the Vizier scheme fixed to that choice.
 
 **Code colors**
 
@@ -167,17 +168,17 @@ A person exports any theme, preset or custom, to a file. They can use that file 
 - **SC-005**: Every shipped preset meets 4.5:1 for body text and code colors, and 3:1 for code comments, large text and interface elements, in every variant it has, and its accent and live colors are clearly different.
 - **SC-006**: An export followed by an import reproduces every color exactly.
 - **SC-007**: No request to the server contains scheme data, and a network trace of the whole flow shows no new server traffic.
-- **SC-008**: People who never open Appearance see a pixel-identical interface compared with the previous release, apart from the removed rail toggle and Vizier's new monochromatic code colors.
+- **SC-008**: People who never open Appearance see a pixel-identical interface compared with the previous release, apart from Vizier's new monochromatic code colors and its exchanged dark frame and inset.
 - **SC-009**: In a test with damaged saved data, Vizier loads with the default scheme every time.
 - **SC-010**: Changing any status color in a custom scheme leaves all code colors unchanged, and the reverse.
 
 ## Assumptions
 
 - **Colors only**: A scheme changes colors. Fonts, spacing, corner radius and motion are out of scope.
-- **The rail toggle goes away**: Light and dark are chosen per scheme on the Appearance page, not with a global control. A person who wants Vizier dark on a light device fixes it there.
+- **The rail toggle stays for schemes with both variants**: It switches light and dark as it always has. Appearance also offers System, which the toggle does not.
 - **Syntax themes are not separate**: Code colors belong to the scheme. Choosing a code theme independently of the interface theme is out of scope, and so is adding languages or finer-grained kinds of code than the six that exist today.
 - **Per device, not per account**: Following the client-side request, nothing syncs across browsers or devices. Clearing site data removes custom schemes, which export and import mitigate. The web edition and the desktop app store separately.
-- **WebUI and desktop app only**: The website, documentation and component catalogue keep their own look. The desktop app's native window frame continues to follow light or dark only.
+- **WebUI and desktop app only**: The website, documentation and component catalogue keep their own look, though Vizier's exchanged dark frame and inset reach them through the shared tokens. The desktop app's title bar takes the scheme's frame color where the OS allows it to be painted, which today is Windows 11; elsewhere it follows light or dark only.
 - **Warn, don't block**: Contrast problems warn and never stop a save. It is the person's own interface.
 - **Preset palettes** come from each theme's published palette. Where one misses the contrast rule in SC-005 (Solarized's light body text is about 4.1:1), only the failing colors are adjusted, as little as possible, so a preset can differ slightly from the original. How each palette fills Vizier's status and chart roles is decided while authoring the presets.
 - **Preset licences** are believed to be permissive and are confirmed during planning, with any required credit added to the notices.

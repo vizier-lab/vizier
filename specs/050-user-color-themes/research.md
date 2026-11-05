@@ -57,7 +57,7 @@
 | Mermaid | Redraws when `useDark` changes | New `useAppearanceKey` also observes `style` on `<html>`, so it redraws on any scheme change |
 | Agent pages (`InteractivePage`) | Colors baked in when mounted | No change; picks up the scheme when next mounted |
 | 3D scenes (`resolvedColour`) | Read once in `useMemo` | No change; same |
-| Desktop window frame | Told light or dark | Told the variant on screen |
+| Desktop window frame | Told light or dark | Told the variant on screen and its `bg/shell`, which Windows 11 paints on the title bar |
 
 **Decision**: Leave agent pages and 3D scenes as they are. FR-007 asks them to follow as they do today, and they already keep old colors across a light/dark switch. Remounting them would reload the page and lose its state, which is worse than a stale color. Worth a follow-up if people notice.
 
@@ -128,5 +128,7 @@ All meet SC-005: 4.5:1 for code, 3:1 for comments. [mockup.html](./mockup.html) 
 ## R13. Vizier Swapped
 
 **Decision**: Exchange `bg/shell` and `bg/panel` exactly, by decision of the feature's owner.
+
+Vizier's own dark variant was then exchanged by the feature's owner, so the lighter color is the inset (FR-002b): shell `#070708`, panel `#0b0b0c`. Vizier Swapped's dark variant is therefore what Vizier's was.
 
 **Measured**: Shell against panel is 1.13:1 in light and 1.02:1 in dark, so the dark swap is nearly invisible, as accepted in FR-002a. In light, cards (`bg/surface`) on the swapped inset are 1.03:1, so Vizier Swapped overrides light `bg/surface` to `#ffffff`, as FR-002a allows: cards then sit against the inset at 1.13:1, the same step as the frame around it. The swapped inset also takes `text/faint` to 4.47:1, so light moves it one step, to `#6e6d77`, to keep 4.5:1. `bg/sidebar` is a different token used by side panels and is not swapped.

@@ -22,7 +22,7 @@ The WebUI tests pin, among others: every token is a role; every preset meets the
 
 ## 1. Defaults and upgrade (FR-005c, FR-008, SC-008)
 
-1. In a new browser profile, open Vizier. Expect today's look, following the OS's light or dark setting, and no Theme button in the rail.
+1. In a new browser profile, open Vizier. Expect today's look, following the OS's light or dark setting, and a Theme button in the rail that switches light and dark. Select Nord, which is dark only, and expect the button to go; select Catppuccin and expect it back.
 2. In the console, `localStorage.setItem('vizier.theme', 'dark')`, reload. Expect Vizier dark on a light OS, and Dark selected on the Appearance page.
 3. Inspect `<html>`. Expect no `--vz-*` inline properties.
 

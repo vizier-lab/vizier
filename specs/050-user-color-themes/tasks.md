@@ -209,6 +209,8 @@ Each story ends in its own commit and can be demonstrated alone: US1 presets, th
   - T056: no pixel comparison was run. By construction the default scheme paints no inline properties, and that is verified.
   - T057: pins and the shell are committed, but nothing has been pushed.
 - `rename` is in the editor's name field, rather than a separate dialog.
+- T013 and T027 removed the rail toggle; by later decision of the feature's owner it came back, shown only for a scheme with both variants (FR-005a).
+- Also by later decision: the lighter background is the inset in every preset but Vizier Swapped, including Vizier dark (FR-002b), and the Windows title bar takes the scheme's frame color.
 - T044 and T050 were committed together as `feat(themes): add custom scheme editor and theme export and import`, because the Appearance page depends on both.
 - Do not stage `app/src-tauri/gen/schemas/*.json` by accident. Those changes predate this feature.
 - The auto-commit hooks run `git add .`, so commit by path while unrelated changes are in the tree.

@@ -8,7 +8,7 @@
 
 People choose a color scheme on a new Settings › Appearance page, make their own, and export or import them as hand-editable files. Everything is stored in the browser, and the Vizier server does not change.
 
-The approach leans on what already exists: every color in the UI is a `--vz-*` CSS variable with values only in `design/src/tokens/tokens.css`. The Vizier scheme is those stylesheet values, with nothing applied on top. Any other scheme is a validated map of those variables, set as inline properties on `<html>`, where they beat the stylesheet. A small cached copy lets the existing pre-paint script apply a scheme before first paint. The rail toggle goes away, and six new `--vz-code-*` tokens separate code colors from status colors.
+The approach leans on what already exists: every color in the UI is a `--vz-*` CSS variable with values only in `design/src/tokens/tokens.css`. The Vizier scheme is those stylesheet values, with nothing applied on top. Any other scheme is a validated map of those variables, set as inline properties on `<html>`, where they beat the stylesheet. A small cached copy lets the existing pre-paint script apply a scheme before first paint. The rail toggle stays for schemes with both variants, and six new `--vz-code-*` tokens separate code colors from status colors.
 
 ## Technical Context
 
@@ -75,7 +75,7 @@ design/                                 # submodule, committed first
 ├── src/tokens/tokens.ts                # list code and selection roles
 ├── src/styles.css                      # --color-code-*
 ├── src/components/CodeBlock/           # tones use code tokens, not status tokens
-├── src/components/Shell/Rail.tsx       # remove the Theme button and onToggleTheme
+├── src/components/Shell/Rail.tsx       # onToggleTheme is optional; the Theme button shows only when given
 ├── src/components/Avatar/Avatar.tsx    # generated faces read the scheme's colors
 ├── src/lib/useSchemeColors.ts          # new: one shared observer of <html> for Avatar
 ├── src/components/SettingsNav/         # add the "appearance" page
@@ -98,7 +98,7 @@ webui/                                  # submodule, committed second
 ├── app/root.tsx                        # pre-paint script applies the paint cache
 ├── app/lib/useDark.ts                  # adds useAppearanceKey
 ├── app/screens/shared/Mermaid.tsx      # redraws on any scheme change
-├── app/screens/shell/ShellRail.tsx     # stops passing onToggleTheme
+├── app/screens/shell/ShellRail.tsx     # passes onToggleTheme only for a scheme with both variants
 ├── app/api/transport/                  # saveText on http and tauri
 ├── app/routes/settings-appearance.tsx
 ├── app/routes/settings-appearance-edit.tsx
@@ -114,7 +114,7 @@ docs/src/configuration/themes.md        # how to use the page and the file forma
 
 1. **Gate**: submodule branches.
 2. **Tokens** (`design`): code tokens and monochrome values, `CodeBlock`, stories. This alone delivers FR-008a and FR-008c.
-3. **Story 1** (`design`, `webui`): components, presets, apply, pre-paint, Appearance page, rail toggle removed.
+3. **Story 1** (`design`, `webui`): components, presets, apply, pre-paint, Appearance page, rail toggle only for schemes with both variants.
 4. **Story 2** (`webui`): derive, editor, custom schemes.
 5. **Story 3** (`webui`, `app/src-tauri`): export, import, `saveText`.
 6. **Close**: docs, pin bumps, quickstart.

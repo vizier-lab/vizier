@@ -6,7 +6,9 @@ Themes live in the browser (or, in the desktop app, its webview). Nothing is sen
 
 ## Choosing a theme
 
-Selecting a theme applies it at once, everywhere, and it is restored before the next page paints.
+Selecting a theme applies it at once, everywhere, and it is restored before the next page paints. On Windows 11 the desktop app's title bar takes the theme's frame color; on other systems it follows light or dark.
+
+In every shipped theme but one the content area is lighter than the frame around it. Vizier Swapped is that exception, by design.
 
 | Theme | Light | Dark |
 |---|---|---|
@@ -15,7 +17,7 @@ Selecting a theme applies it at once, everywhere, and it is restored before the 
 | Oxocarbon, Catppuccin, Gruvbox, Rosé Pine, Tokyo Night, Everforest, Solarized | yes | yes |
 | Nord, Dracula | no | yes |
 
-A theme with both variants offers **System**, **Light** and **Dark**. System follows the device, also when the device switches. A theme with one variant always shows it, and your choice is remembered for the next theme that offers both.
+A theme with both variants offers **System**, **Light** and **Dark**, and the **Theme** button in the rail switches between light and dark. System follows the device, also when the device switches. A theme with one variant always shows it, and your choice is remembered for the next theme that offers both.
 
 **Use default** returns to Vizier following the device. It keeps Vizier's own colors, so it stays readable whatever the current theme has done to the page.
 
