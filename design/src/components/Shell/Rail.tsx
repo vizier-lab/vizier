@@ -35,6 +35,8 @@ export type RailProps = {
   addActive?: boolean;
   settingsHref: string;
   settingsActive?: boolean;
+  /** The light and dark switch; omit it when the current look has only one of them. */
+  onToggleTheme?: () => void;
   /** The avatar menu at the foot. */
   user: ReactNode;
 } & HTMLAttributes<HTMLElement>;
@@ -103,23 +105,29 @@ function RailLink({ label, href, active, marker, children, className, onClick }:
   );
 }
 
-function RailButton({ icon, label, active, href }: { icon: IconName; label: string; active?: boolean; href: string }) {
+function RailButton({ icon, label, active, href, onSelect }: { icon: IconName; label: string; active?: boolean; href?: string; onSelect?: () => void }) {
   const cls = cx(
     "grid size-42 shrink-0 place-items-center rounded-lg transition-colors duration-[var(--vz-duration-base)]",
     active ? "bg-ink text-ground" : "text-muted hover:bg-surface hover:text-fg",
   );
   return (
     <RailTip label={label}>
-      <a href={href} aria-label={label} aria-current={active ? "page" : undefined} className={cls}>
-        <Icon name={icon} size={18} />
-      </a>
+      {href !== undefined ? (
+        <a href={href} aria-label={label} aria-current={active ? "page" : undefined} className={cls}>
+          <Icon name={icon} size={18} />
+        </a>
+      ) : (
+        <button type="button" aria-label={label} onClick={onSelect} className={cls}>
+          <Icon name={icon} size={18} />
+        </button>
+      )}
     </RailTip>
   );
 }
 
 /**
  * The narrow strip at the left edge of the app: Home, an agent tile for each agent, and at the foot
- * settings and the person. Choosing a tile opens that agent's pages in the context
+ * the theme, settings and the person. Choosing a tile opens that agent's pages in the context
  * sidebar beside it.
  */
 export function Rail({
@@ -132,6 +140,7 @@ export function Rail({
   addActive,
   settingsHref,
   settingsActive,
+  onToggleTheme,
   user,
   className,
   ...rest
@@ -236,6 +245,7 @@ export function Rail({
         )}
       </div>
       <div className="flex flex-col items-center">
+        {onToggleTheme && <RailButton icon="theme" label="Theme" onSelect={onToggleTheme} />}
         <RailButton icon="settings" label="Settings" href={settingsHref} active={settingsActive} />
       </div>
       <span aria-hidden className="h-px w-22 bg-border" />

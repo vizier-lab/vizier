@@ -100,6 +100,7 @@ function Demo({ view, projects = false }: { view: "home" | "agent" | "settings";
       addHref="#new"
       settingsHref="#settings"
       settingsActive={view === "settings"}
+      onToggleTheme={() => {}}
       user={<UserMenu name="admin" onSignOut={() => {}} collapsed />}
     />
   );

@@ -119,8 +119,8 @@
     color-scheme: dark;
     --vz-ground: #0b0b0c; /* bg/ground */
     --vz-sidebar: #101012; /* bg/sidebar */
-    --vz-shell: #0b0b0c; /* bg/shell */
-    --vz-panel: #070708; /* bg/panel */
+    --vz-shell: #070708; /* bg/shell */
+    --vz-panel: #0b0b0c; /* bg/panel */
     --vz-surface: #151518; /* bg/surface */
     --vz-raised: #1c1c20; /* bg/raised */
     --vz-pressed: #26262b; /* bg/pressed */
@@ -179,8 +179,8 @@
   color-scheme: dark;
   --vz-ground: #0b0b0c; /* bg/ground */
   --vz-sidebar: #101012; /* bg/sidebar */
-  --vz-shell: #0b0b0c; /* bg/shell */
-  --vz-panel: #070708; /* bg/panel */
+  --vz-shell: #070708; /* bg/shell */
+  --vz-panel: #0b0b0c; /* bg/panel */
   --vz-surface: #151518; /* bg/surface */
   --vz-raised: #1c1c20; /* bg/raised */
   --vz-pressed: #26262b; /* bg/pressed */
