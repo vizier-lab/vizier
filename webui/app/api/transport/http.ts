@@ -48,6 +48,8 @@ export const http: Transport = {
     },
     async saveFile(path, filename) {
         const res = await this.fetchFile(path)
+        // An error's body is not the file: saved under the file's name, it would look like a download.
+        if (!res.ok) settle(res.status, await res.json().catch(() => undefined), path)
         const href = URL.createObjectURL(await res.blob())
         const a = document.createElement('a')
         a.href = href

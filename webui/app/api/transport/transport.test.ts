@@ -102,3 +102,41 @@ describe('transports agree', () => {
         expect(h.isOpen).toBe(false)
     })
 })
+
+describe('saving a file in the browser', () => {
+    const createObjectURL = vi.fn(() => 'blob:x')
+    const click = vi.fn()
+    const anchor = { href: '', download: '', click }
+
+    beforeEach(() => {
+        createObjectURL.mockClear()
+        click.mockClear()
+        vi.stubGlobal('URL', Object.assign(URL, { createObjectURL, revokeObjectURL: vi.fn() }))
+        vi.stubGlobal('document', { createElement: () => anchor })
+        vi.stubGlobal('localStorage', { getItem: () => null })
+    })
+    afterEach(() => vi.unstubAllGlobals())
+
+    const answer = (status: number, body: string) => vi.stubGlobal('fetch', vi.fn(async () => new Response(body, { status })))
+
+    it('saves the bytes of a good response', async () => {
+        answer(200, 'the file')
+        await http.saveFile('/files/abc', 'notes.txt')
+        expect(click).toHaveBeenCalledOnce()
+        expect(anchor.download).toBe('notes.txt')
+    })
+
+    // The bug: a 404's JSON body was saved under the file's name, as if it had downloaded.
+    it('saves nothing for an error, and says what the server said', async () => {
+        answer(404, '{"status":404,"message":"File not found","data":null}')
+        await expect(http.saveFile('/files/abc', 'notes.txt')).rejects.toMatchObject({ status: 404, message: 'File not found' })
+        expect(createObjectURL).not.toHaveBeenCalled()
+        expect(click).not.toHaveBeenCalled()
+    })
+
+    it('saves nothing for an error whose body is not JSON', async () => {
+        answer(502, '<html>bad gateway</html>')
+        await expect(http.saveFile('/files/abc', 'notes.txt')).rejects.toMatchObject({ status: 502 })
+        expect(click).not.toHaveBeenCalled()
+    })
+})
