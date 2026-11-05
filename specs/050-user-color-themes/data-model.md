@@ -17,7 +17,7 @@ One color purpose. There are 50, each named by its design name and bound to one 
 | `data` (7) | graph-edge, graph-edge-strong, chart-1 to chart-5 |
 | `code` (6, new) | keyword, string, number, comment, function, punctuation |
 
-Plain code stays `text/soft`. Primary button text is not its own role: it reads `bg/ground` through the `inverse` tone, so the ground-on-ink pair is checked below. Implementation should confirm this against `Button`.
+Plain code stays `text/soft`. Primary button text is not its own role: `Button` draws it with `text-ground`, so the ground-on-ink pair is checked below, and likewise ground on failed for the destructive button.
 
 ## Key color
 
@@ -126,7 +126,7 @@ Used by the editor's warnings (FR-016) and by the preset test (SC-005).
 |---|---|---|
 | `text/default`, `text/muted`, `text/faint` | `bg/panel` | 4.5 |
 | `text/default` | `bg/surface` | 4.5 |
-| `bg/ground` | `fill/ink` | 4.5 |
+| `bg/ground` | `fill/ink`, `state/failed` | 4.5 |
 | `state/live-text`, `state/failed-text` | `bg/panel` | 4.5 |
 | `code/keyword`, `string`, `number`, `function`, `punctuation`, `text/soft` | `bg/surface` | 4.5 |
 | `code/comment` | `bg/surface` | 3 |
