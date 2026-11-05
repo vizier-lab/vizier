@@ -15,7 +15,7 @@ use crate::{
         AgentConfig, AgentHealthStatus, AgentSummary,
         AgentToolsConfig, EmbeddingConfig, ImageGenToolSettings, IndexerConfig,
         ReadImageToolSettings, ToolConfig, TtsToolSettings, VizierAttachment, VizierChannelId,
-        VizierRequest, VizierRequestContent, VizierResponseStats, VizierSession,
+        ModelOverride, VizierRequest, VizierRequestContent, VizierResponseStats, VizierSession,
         agent::{EmbeddingProvider, IndexerKind, SttToolSettings},
     },
     storage::{
@@ -266,6 +266,14 @@ pub struct PingResponse {
     pub alive: bool,
 }
 
+/// An explicit per-chat model choice. Provider and complete model id remain separate.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+pub struct ModelOverrideRequest {
+    pub provider: String,
+    pub model: String,
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct ChatRequest {
@@ -274,6 +282,34 @@ pub struct ChatRequest {
     pub content: String,
     #[serde(default)]
     pub attachments: Option<Vec<VizierAttachment>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_override: Option<ModelOverrideRequest>,
+}
+
+#[cfg(test)]
+mod model_override_request_tests {
+    use super::{ChatRequest, ModelOverrideRequest};
+
+    #[test]
+    fn legacy_rest_chat_requests_omit_model_override_and_slash_ids_round_trip() {
+        let legacy: ChatRequest = serde_json::from_value(serde_json::json!({
+            "channel_id": "vizier-webui",
+            "topic_id": "topic",
+            "content": "hello"
+        }))
+        .unwrap();
+        assert!(legacy.model_override.is_none());
+        assert!(serde_json::to_value(&legacy).unwrap().get("model_override").is_none());
+
+        let selected: ChatRequest = serde_json::from_value(serde_json::json!({
+            "channel_id": "vizier-webui",
+            "topic_id": "topic",
+            "content": "hello",
+            "model_override": { "provider": "opencode", "model": "deepseek/deepseek-flash" }
+        }))
+        .unwrap();
+        assert_eq!(selected.model_override.unwrap().model, "deepseek/deepseek-flash");
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -831,16 +867,35 @@ pub async fn chat(
     body: ChatRequest,
 ) -> Result<ChatResponse, ServiceError> {
     let deps = s.deps();
+    let who = if body.model_override.is_some() {
+        s.resolve(&who.user_id, who.method).await?
+    } else {
+        who.clone()
+    };
+    if let Some(choice) = &body.model_override {
+        if body.channel_id != "vizier-webui"
+            && !crate::projects::channel::is_project_channel(&body.channel_id)
+        {
+            return Err(ServiceError::Invalid {
+                status: 422,
+                message: "model override is supported only for WebUI chat channels".into(),
+                code: Some("model_override_unsupported".into()),
+            });
+        }
+        crate::access::require(&who, "model_override")?;
+        let choice = ModelOverride { provider: choice.provider.clone(), model: choice.model.clone() };
+        crate::service::catalogue::validate_chat_model_override(deps, &choice).await?;
+    }
     let config = match deps.storage.get_agent(agent_id).await {
         Ok(Some(config)) => config,
         Ok(None) => return Err(not_found_lowercase()),
         Err(e) => return Err(ServiceError::Internal(format!("failed to get agent: {}", e))),
     };
-    if !can_view_agent(who, &config) {
+    if !can_view_agent(&who, &config) {
         return Err(ServiceError::Forbidden("Access denied".into()));
     }
     // A REST chat naming a project channel goes through the same matrix as its socket.
-    super::topics::authorize_project_channel(s, who, &config, agent_id, &body.channel_id).await?;
+    super::topics::authorize_project_channel(s, &who, &config, agent_id, &body.channel_id).await?;
 
     let transport = deps.transport.clone();
     let session = VizierSession(
@@ -898,6 +953,10 @@ pub async fn chat(
         timestamp: Utc::now(),
         user: who.username.clone(),
         content: VizierRequestContent::Chat(body.content),
+        model_override: body.model_override.map(|choice| ModelOverride {
+            provider: choice.provider,
+            model: choice.model,
+        }),
         platform_message_id: None,
         metadata: serde_json::json!({}),
         attachments,

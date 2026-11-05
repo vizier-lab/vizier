@@ -11,6 +11,7 @@ pub const AVAILABLE_PERMISSIONS: &[&str] = &[
     "all_agents:delete",
     "owned_agents:delete",
     "settings:providers",
+    "model_override",
     "all_agents:integrations:manage",
     "owned_agents:integrations:manage",
     "all_agents:secret",
@@ -169,6 +170,13 @@ mod tests {
 
     /// The permission catalogue is the single list roles, the system role and the WebUI read;
     /// adding a project permission is a catalogue change, not a migration (spec 040 FR-019).
+    #[test]
+    fn model_override_is_one_unscoped_permission() {
+        assert!(AVAILABLE_PERMISSIONS.contains(&"model_override"));
+        assert!(!AVAILABLE_PERMISSIONS.contains(&"all_agents:model_override"));
+        assert!(!AVAILABLE_PERMISSIONS.contains(&"owned_agents:model_override"));
+    }
+
     #[test]
     fn the_project_permissions_are_pinned() {
         assert!(AVAILABLE_PERMISSIONS.contains(&"all_agents:projects"));
