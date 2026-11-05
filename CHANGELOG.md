@@ -285,6 +285,7 @@ All notable changes to this project will be documented in this file.
 - Bump webui for reaction undo and a steady memory explorer
 - Bump design for the memory graph background
 - Bump design for the agent card without its status dot
+- Prevent deleted, disabled, or rescheduled tasks from firing from stale scheduler state
 
 ### 💼 Other
 
