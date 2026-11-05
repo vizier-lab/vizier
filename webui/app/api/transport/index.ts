@@ -28,6 +28,7 @@ export const transport: Transport = {
     fetchFile: (p, i) => current.fetchFile(p, i),
     assetUrl: (p) => current.assetUrl(p),
     saveFile: (p, f) => current.saveFile(p, f),
+    saveText: (t, f) => current.saveText(t, f),
     openFile: (p, f) => current.openFile(p, f),
     openTopic: (t, o) => current.openTopic(t, o),
     notify: (n) => current.notify(n),

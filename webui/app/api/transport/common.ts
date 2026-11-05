@@ -60,7 +60,8 @@ export interface DesktopShell {
     settingsGet(): Promise<DesktopSettings>
     settingsSet(settings: DesktopSettings): Promise<DesktopSettings>
     /** Paint the window frame (the title bar) in this appearance's shell colour. */
-    theme(appearance: 'dark' | 'light'): Promise<void>
+    /** `frame` is the scheme's frame colour, for a title bar the OS lets us paint. */
+    theme(appearance: 'dark' | 'light', frame?: string): Promise<void>
     updateCheck(): Promise<UpdateInfo>
     onUpdate(fn: (u: UpdateInfo) => void): Promise<() => void>
     updateInstall(): Promise<void>
@@ -78,6 +79,8 @@ export interface Transport {
     fetchFile(path: string, init?: { range?: [number, number]; signal?: AbortSignal }): Promise<Response>
     assetUrl(path: string): string
     saveFile(path: string, filename: string): Promise<void>
+    /** Saves text made here, not fetched from a server path. Cancelling a save dialog is not an error. */
+    saveText(text: string, filename: string): Promise<void>
     openFile(path: string, filename: string): Promise<void>
     openTopic(t: { agentId: string; channelId: string; topicId: string }, opts: TopicOptions): TopicHandle
     notify(n: { title: string; body: string; href: string }): Promise<void>

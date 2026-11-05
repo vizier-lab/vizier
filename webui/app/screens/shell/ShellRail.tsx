@@ -5,6 +5,7 @@ import { transport } from '../../api/transport'
 import { agentState } from '../../api/endpoints/agents'
 import { useAgents } from '../../stores/agents'
 import { useNotifications } from '../../stores/notifications'
+import { hasBothVariants, useAppearance } from '../../stores/appearance'
 import { useSession } from '../../stores/session'
 import { assetSrc } from '../../lib/fileUrls'
 import { read, write } from '../../lib/remember'
@@ -23,7 +24,10 @@ function arranged<T extends { agentId: string }>(agents: T[], order: string[]): 
 export function ShellRail({ pathname, view, routeAgent }: { pathname: string; view: ShellView; routeAgent?: string }) {
     const navigate = useNavigate()
     const { search } = useLocation()
-    const { user, toggleTheme, signOut, can } = useSession()
+    const { user, signOut, can } = useSession()
+    // Only a theme with both variants has anything to switch between.
+    const canSwitch = useAppearance((s) => hasBothVariants(s.paint))
+    const toggleMode = useAppearance((s) => s.toggleMode)
     const { agents, health, creating } = useAgents()
     const resetNotifications = useNotifications((s) => s.reset)
     const [order, setOrder] = useState<string[]>(() => read(ORDER_KEY, []))
@@ -62,7 +66,7 @@ export function ShellRail({ pathname, view, routeAgent }: { pathname: string; vi
             addActive={newAgentOpen(new URLSearchParams(search))}
             settingsHref="/settings/profile"
             settingsActive={view === 'settings'}
-            onToggleTheme={toggleTheme}
+            onToggleTheme={canSwitch ? toggleMode : undefined}
             user={
                 // The desktop owner is signed in by opening the app: the design's Sign out is hidden.
                 <div className={transport.authMode === 'desktop' ? 'contents [&_button[aria-label="Sign out"]]:hidden' : 'contents'}>

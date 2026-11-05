@@ -1,6 +1,7 @@
 import { FilePreview, FilterTabs, Modal, Table, TableRow } from '@vizier/design'
 import { useEffect, useMemo, useState } from 'react'
 import { transport } from '../../api/transport'
+import { downloadFile } from '../../lib/download'
 import { Markdown } from './Markdown'
 
 /** How much of a text file the preview reads. */
@@ -124,7 +125,7 @@ export function FilePreviewModal({ files, index, onIndex, onClose }: Props) {
         })
     }, [rows, sort])
 
-    const download = () => transport.saveFile(url(file), file.name)
+    const download = () => downloadFile(url(file), file.name)
 
     const note = loaded?.partial ? `showing the first ${Math.round(PREVIEW_BYTES / 1024)} KB` : null
 

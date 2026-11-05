@@ -35,7 +35,7 @@ export const tauriShell: DesktopShell = {
     restart: () => invoke('runtime_restart'),
     settingsGet: () => invoke('desktop_settings_get'),
     settingsSet: (settings) => invoke('desktop_settings_set', { patch: settings }),
-    theme: (appearance) => invoke('desktop_theme', { appearance }),
+    theme: (appearance, frame) => invoke('desktop_theme', { appearance, frame }),
     onUpdate: (fn) => listen<UpdateInfo>('desktop://update', (e) => fn(e.payload)),
     updateCheck: () => invoke('update_check'),
     updateInstall: () => invoke('update_install'),
@@ -56,6 +56,7 @@ export const tauri: Transport = {
     },
     assetUrl: (path) => `${assetBase()}${API_BASE}${relativeToApi(path)}`,
     saveFile: (path, filename) => invoke('save_file', { path: `${API_BASE}${path}`, filename }),
+    saveText: (text, filename) => invoke('save_text', { text, filename }),
     openFile: (path, filename) => invoke('open_file', { path: `${API_BASE}${path}`, filename }),
     openTopic(t, opts: TopicOptions): TopicHandle {
         let id: number | null = null
