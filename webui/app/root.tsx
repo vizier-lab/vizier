@@ -7,14 +7,14 @@ import './app.css'
 import './lib/clientTools/builtin'
 import { transport } from './api/transport'
 import { bootstrapView } from './lib/desktop'
+import { PRE_PAINT_SCRIPT } from './lib/themes/apply'
 import { Bootstrap } from './screens/desktop/Bootstrap'
 import { RuntimeBanner } from './screens/desktop/RuntimeBanner'
+import { useAppearance } from './stores/appearance'
 import { useDesktop } from './stores/desktop'
 import { useNotifications } from './stores/notifications'
 import { useToasts } from './stores/toasts'
 
-// Applies the stored theme before first paint; no stored choice follows the OS.
-const themeScript = `try{var t=localStorage.getItem('vizier.theme');if(t==='dark'||t==='light')document.documentElement.setAttribute('data-theme',t)}catch(e){}`
 
 export function Layout({ children }: { children: React.ReactNode }) {
     return (
@@ -24,7 +24,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
                 <meta name="viewport" content="width=device-width, initial-scale=1" />
                 <title>Vizier</title>
                 <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-                <script dangerouslySetInnerHTML={{ __html: themeScript }} />
+                {/* The stored scheme before first paint; nothing stored follows the OS. */}
+                <script dangerouslySetInnerHTML={{ __html: PRE_PAINT_SCRIPT }} />
                 <Meta />
                 <Links />
             </head>
@@ -42,6 +43,7 @@ export default function App() {
     const { desktop, ready, state, update, init } = useDesktop()
 
     useEffect(() => init(), [init])
+    useEffect(() => useAppearance.getState().init(), [])
 
     // Notifications, `vizier://` links and the tray ask the window to go somewhere.
     useEffect(() => {

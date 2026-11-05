@@ -8,6 +8,7 @@ import { useSession } from '../stores/session'
 
 const ACCOUNT: { value: SettingsPage; label: string }[] = [
     { value: 'profile', label: 'Profile' },
+    { value: 'appearance', label: 'Appearance' },
     { value: 'api-keys', label: 'API keys' },
 ]
 const ADMIN: { value: SettingsPage; label: string }[] = [

@@ -33,3 +33,32 @@ export function useDark(): boolean {
 
     return dark
 }
+
+/** Everything that decides the colours on screen, as one string. */
+function appearanceKey(): string {
+    if (typeof document === 'undefined') return ''
+    const html = document.documentElement
+    return [html.getAttribute('data-theme'), html.getAttribute('style'), matchMedia('(prefers-color-scheme: dark)').matches].join('|')
+}
+
+/**
+ * A string that changes whenever the colours on screen change: a scheme, a variant or the device. For
+ * a drawing made in code from resolved colours; `useDark` stays for code that only needs light or dark.
+ */
+export function useAppearanceKey(): string {
+    const [key, setKey] = useState(appearanceKey)
+
+    useEffect(() => {
+        const read = () => setKey(appearanceKey())
+        const media = matchMedia('(prefers-color-scheme: dark)')
+        media.addEventListener('change', read)
+        const observer = new MutationObserver(read)
+        observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'style'] })
+        return () => {
+            media.removeEventListener('change', read)
+            observer.disconnect()
+        }
+    }, [])
+
+    return key
+}
