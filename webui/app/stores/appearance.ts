@@ -41,19 +41,22 @@ function readMode(): Mode {
 
 /**
  * The desktop window's frame (its title bar) is native chrome drawn by the OS, so it does not follow
- * `data-theme` on its own: the shell is told which appearance to paint it in. The transport is loaded
- * lazily on the desktop, which is why this waits for it.
+ * the page on its own: the shell is told the appearance and the frame colour on screen, so call this
+ * after painting. The transport is loaded lazily on the desktop, which is why this waits for it.
  */
 function paintWindow(appearance: Appearance) {
     if (transport.authMode !== 'desktop') return
-    void transportReady.then(() => transport.desktop?.theme(appearance)).catch(() => {
+    const frame = getComputedStyle(document.documentElement).getPropertyValue('--vz-shell').trim()
+    void transportReady.then(() => transport.desktop?.theme(appearance, frame)).catch(() => {
         /* a window that cannot be painted keeps its system frame */
     })
 }
 
 function putOnPage(resolved: Resolved, animate: boolean) {
-    const paint = () => applyTo(document.documentElement, resolved)
-    paintWindow(resolved.appearance)
+    const paint = () => {
+        applyTo(document.documentElement, resolved)
+        paintWindow(resolved.appearance)
+    }
     // The court changes light in one breath: the old and new grounds cross-fade instead of snapping.
     // Browsers without the API, and people who asked for less movement, get the change straight away.
     // So does the desktop window: a view transition snapshots the page through the compositor, which
@@ -83,11 +86,16 @@ type AppearanceStore = {
     settle: () => void
     select: (schemeId: string) => void
     setMode: (mode: Mode) => void
+    /** The other of light and dark than the one showing now, whatever chose it. */
+    toggleMode: () => void
     useDefault: () => void
     /** Adds or replaces a custom scheme. The reason it can't, or null. Needs `load`. */
     saveCustom: (scheme: Scheme) => string | null
     deleteCustom: (schemeId: string) => void
 }
+
+/** Whether the current scheme has both light and dark. Reads the paint, so no palette is loaded. */
+export const hasBothVariants = (paint: Paint | null) => !paint || (!!paint.light && !!paint.dark)
 
 export const useAppearance = create<AppearanceStore>()((set, get) => {
     const show = (animate: boolean) => {
@@ -180,6 +188,11 @@ export const useAppearance = create<AppearanceStore>()((set, get) => {
             set({ mode })
             show(true)
             if (!saved) couldNotSave()
+        },
+
+        toggleMode: () => {
+            const { paint, mode, deviceIsDark, setMode } = get()
+            setMode(resolvePaint(paint, mode, deviceIsDark).appearance === 'dark' ? 'light' : 'dark')
         },
 
         useDefault: () => {

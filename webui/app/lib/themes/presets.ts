@@ -3,7 +3,7 @@
 // Every palette comes from the repositories credited in docs/src/configuration/themes.md and is written
 // here as published. A published colour that misses the contrast rule is moved when the module loads,
 // by `fitted`: that colour only, in lightness only, as little as possible. presets.test.ts holds the
-// result to the rule.
+// result to the rule. In each palette the lighter background is the inset and the darker the frame.
 import { ensureContrast } from './color'
 import { CONTRAST_PAIRS } from './contrast'
 import { makeVariant } from './derive'
@@ -105,14 +105,14 @@ export const PRESETS: Scheme[] = [
             code: { keyword: '#ee5396', string: '#be95ff', number: '#ffab91', comment: '#525252', function: '#ff7eb6', punctuation: '#525252' },
         },
         dark: {
-            content: '#161616',
-            frame: '#2a2a2a',
+            content: '#2a2a2a',
+            frame: '#161616',
             text: '#f3f3f3',
             accent: '#78a9ff',
             live: '#42be65',
             retrying: '#ffab91',
             failed: '#ee5396',
-            roles: { 'bg/surface': '#2a2a2a', 'bg/raised': '#404040', 'line/border': '#404040', 'text/muted': '#d5d5d5' },
+            roles: { 'line/border': '#404040', 'text/muted': '#d5d5d5' },
             code: { keyword: '#78a9ff', string: '#be95ff', number: '#82cfff', comment: '#5c5c5c', function: '#3ddbd9', punctuation: '#d5d5d5' },
         },
     }),
@@ -177,14 +177,14 @@ export const PRESETS: Scheme[] = [
             code: { keyword: '#286983', string: '#ea9d34', number: '#ea9d34', comment: '#9893a5', function: '#d7827e', punctuation: '#797593' },
         },
         dark: {
-            content: '#191724',
-            frame: '#1f1d2e',
+            content: '#1f1d2e',
+            frame: '#191724',
             text: '#e0def4',
             accent: '#c4a7e7',
             live: '#9ccfd8',
             retrying: '#f6c177',
             failed: '#eb6f92',
-            roles: { 'bg/surface': '#1f1d2e', 'bg/raised': '#26233a', 'line/border': '#403d52', 'text/muted': '#908caa', 'text/faint': '#6e6a86' },
+            roles: { 'bg/surface': '#26233a', 'bg/raised': '#403d52', 'line/border': '#403d52', 'text/muted': '#908caa', 'text/faint': '#6e6a86' },
             code: { keyword: '#31748f', string: '#f6c177', number: '#f6c177', comment: '#6e6a86', function: '#ebbcba', punctuation: '#908caa' },
         },
     }),
@@ -248,14 +248,14 @@ export const PRESETS: Scheme[] = [
             code: { keyword: '#859900', string: '#2aa198', number: '#d33682', comment: '#93a1a1', function: '#268bd2', punctuation: '#657b83' },
         },
         dark: {
-            content: '#002b36',
-            frame: '#073642',
+            content: '#073642',
+            frame: '#002b36',
             text: '#93a1a1',
             accent: '#268bd2',
             live: '#859900',
             retrying: '#b58900',
             failed: '#dc322f',
-            roles: { 'bg/surface': '#073642', 'text/muted': '#839496', 'text/faint': '#839496' },
+            roles: { 'text/muted': '#839496', 'text/faint': '#839496' },
             code: { keyword: '#859900', string: '#2aa198', number: '#d33682', comment: '#586e75', function: '#268bd2', punctuation: '#839496' },
         },
     }),
@@ -264,14 +264,14 @@ export const PRESETS: Scheme[] = [
         'Nord',
         {
             dark: {
-                content: '#2e3440',
-                frame: '#3b4252',
+                content: '#3b4252',
+                frame: '#2e3440',
                 text: '#eceff4',
                 accent: '#81a1c1',
                 live: '#a3be8c',
                 retrying: '#ebcb8b',
                 failed: '#bf616a',
-                roles: { 'bg/surface': '#3b4252', 'bg/raised': '#434c5e', 'line/border': '#4c566a', 'text/muted': '#d8dee9' },
+                roles: { 'bg/surface': '#434c5e', 'bg/raised': '#4c566a', 'line/border': '#4c566a', 'text/muted': '#d8dee9' },
                 code: { keyword: '#81a1c1', string: '#a3be8c', number: '#b48ead', comment: '#616e88', function: '#88c0d0', punctuation: '#eceff4' },
             },
         },
@@ -295,6 +295,7 @@ export const PRESETS: Scheme[] = [
         },
         'Dark only'
     ),
+
 ]
 
 export const presetById = (id: string) => PRESETS.find((scheme) => scheme.id === id)

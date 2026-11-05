@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { makeVariant } from '../lib/themes/derive'
 import { nameProblem, parseCustoms, serializeCustoms } from '../lib/themes/customs'
 import { MAX_CUSTOM_SCHEMES, ROLES, type Keys, type Scheme } from '../lib/themes/roles'
+import { hasBothVariants } from './appearance'
 
 const KEYS: Keys = { content: '#1e1e2e', frame: '#181825', text: '#cdd6f4', accent: '#cba6f7', live: '#a6e3a1', retrying: '#f9e2af', failed: '#f38ba8' }
 const mine = (id = 'custom-1', name = 'Mine'): Scheme => ({ id, name, kind: 'custom', dark: makeVariant(KEYS) })
@@ -134,7 +135,7 @@ describe('the store', () => {
         state.failing = true
         useAppearance.getState().select('nord')
         expect(useAppearance.getState().schemeId).toBe('nord')
-        expect(style.get('--vz-panel')).toBe('#2e3440')
+        expect(style.get('--vz-panel')).toBe('#3b4252')
         expect(toasts).toEqual(["Your theme couldn't be saved in this browser."])
     })
 
@@ -176,6 +177,30 @@ describe('the store', () => {
         expect(useAppearance.getState().saveCustom(mine('custom-0', 'Renamed'))).toBeNull()
     })
 
+    it('switches light and dark from what is showing, for a scheme with both', async () => {
+        const { store, attrs } = fakeBrowser()
+        const useAppearance = await freshStore()
+        await useAppearance.getState().load()
+        expect(hasBothVariants(useAppearance.getState().paint)).toBe(true)
+        // The device is dark, so the first press goes to light, then back.
+        useAppearance.getState().toggleMode()
+        expect(useAppearance.getState().mode).toBe('light')
+        expect(attrs.get('data-theme')).toBe('light')
+        expect(store.get('vizier.theme')).toBe('light')
+        useAppearance.getState().toggleMode()
+        expect(useAppearance.getState().mode).toBe('dark')
+    })
+
+    it('offers no switch for a scheme with one variant, and keeps the choice for later', async () => {
+        fakeBrowser()
+        const useAppearance = await freshStore()
+        await useAppearance.getState().load()
+        useAppearance.getState().select('catppuccin')
+        expect(hasBothVariants(useAppearance.getState().paint)).toBe(true)
+        useAppearance.getState().select('nord')
+        expect(hasBothVariants(useAppearance.getState().paint)).toBe(false)
+    })
+
     it('follows a change made in another tab', async () => {
         const { store, style, listeners } = fakeBrowser()
         const useAppearance = await freshStore()
@@ -183,7 +208,7 @@ describe('the store', () => {
         useAppearance.getState().init()
         store.set('vizier.scheme', 'nord')
         listeners.get('storage')!({ key: 'vizier.scheme' })
-        await vi.waitFor(() => expect(style.get('--vz-panel')).toBe('#2e3440'))
+        await vi.waitFor(() => expect(style.get('--vz-panel')).toBe('#3b4252'))
         expect(useAppearance.getState().schemeId).toBe('nord')
     })
 })

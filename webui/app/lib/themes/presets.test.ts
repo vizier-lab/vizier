@@ -1,5 +1,6 @@
 // lint-tokens-exempt: pins palette values.
 import { describe, expect, it } from 'vitest'
+import { hexToOklch } from './color'
 import { colorProblems } from './contrast'
 import { appearancesOf, presetById, PRESETS, schemeDetail } from './presets'
 import { KEY_COLORS, KEY_ROLE, ROLES } from './roles'
@@ -36,6 +37,11 @@ describe('presets', () => {
         expect(colorProblems(variant.roles).map((p) => p.message)).toEqual([])
     })
 
+    // FR-002b: the lighter is the inset. Vizier Swapped exists to do the opposite.
+    it.each(variants.filter(([name]) => !name.startsWith('Vizier Swapped')))('%s has an inset lighter than its frame', (_name, variant) => {
+        expect(hexToOklch(variant.roles['bg/panel']).l).toBeGreaterThan(hexToOklch(variant.roles['bg/shell']).l)
+    })
+
     it('keep code colours apart from status colours (FR-008a)', () => {
         for (const [name, variant] of variants) {
             expect(variant.roles['code/keyword'], name).toBeDefined()
@@ -49,7 +55,7 @@ describe('presets', () => {
         const dracula = presetById('dracula')!.dark!
         expect(dracula.keys).toEqual({ content: '#282a36', frame: '#21222c', text: '#f8f8f2', accent: '#bd93f9', live: '#50fa7b', retrying: '#f1fa8c', failed: '#ff5555' })
         const solarized = presetById('solarized')!.dark!
-        expect(solarized.keys.content).toBe('#002b36')
+        expect(solarized.keys.frame).toBe('#002b36')
         expect(solarized.keys.live).toBe('#859900')
     })
 })

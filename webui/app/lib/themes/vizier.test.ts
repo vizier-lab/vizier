@@ -25,7 +25,7 @@ describe('tokens.css and the roles', () => {
 
     it('reads the same value the stylesheet has', () => {
         expect(VIZIER_LIGHT.roles['bg/shell']).toBe('#f1f1f3')
-        expect(VIZIER_DARK.roles['bg/shell']).toBe('#0b0b0c')
+        expect(VIZIER_DARK.roles['bg/shell']).toBe('#070708')
         expect(VIZIER_LIGHT.roles['code/string']).toBe('#046c4e')
         expect(VIZIER_DARK.roles['code/string']).toBe('#10b981')
     })

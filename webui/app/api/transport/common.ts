@@ -60,7 +60,8 @@ export interface DesktopShell {
     settingsGet(): Promise<DesktopSettings>
     settingsSet(settings: DesktopSettings): Promise<DesktopSettings>
     /** Paint the window frame (the title bar) in this appearance's shell colour. */
-    theme(appearance: 'dark' | 'light'): Promise<void>
+    /** `frame` is the scheme's frame colour, for a title bar the OS lets us paint. */
+    theme(appearance: 'dark' | 'light', frame?: string): Promise<void>
     updateCheck(): Promise<UpdateInfo>
     onUpdate(fn: (u: UpdateInfo) => void): Promise<() => void>
     updateInstall(): Promise<void>
