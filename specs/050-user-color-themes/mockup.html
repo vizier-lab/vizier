@@ -1,0 +1,118 @@
+<!doctype html>
+<!--
+  Agreed layout for Settings > Appearance and the scheme editor. Open it in a browser and click through.
+  This replaces the FigCraft drawing for this feature, by decision of the feature's owner.
+
+  Trust it for layout, structure, wording and behaviour, and for Vizier's values, which come from tokens.css
+  and research R10. Do NOT copy the other presets' hex values: they were written from memory. presets.ts
+  takes them from the sources in research R9. Role names in the export preview are illustrative too:
+  contracts/theme-file.md is the format.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Appearance mockup</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/tabler-icons.min.css">
+<style>
+body{margin:0;padding:16px;background:#808084;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+#vz{max-width:960px;margin:0 auto;border-radius:12px;overflow:hidden;display:flex;min-height:660px;font-size:13px;line-height:1.45;background:var(--s);color:var(--t)}
+#vz button{all:unset;cursor:pointer;box-sizing:border-box}
+#vz button:focus-visible{outline:2px solid var(--t);outline-offset:1px}
+#vz .card{background:var(--su);border:1px solid var(--b);border-radius:12px;padding:12px}
+#vz .btn{border:1px solid var(--b);border-radius:8px;padding:5px 10px;font-size:12px;color:var(--t);background:var(--p)}
+#vz .pri{background:var(--i);color:var(--oi);border-color:var(--i)}
+#vz .nav{padding:5px 8px;border-radius:8px;color:var(--m);display:flex;gap:8px;align-items:center}
+#vz .nav.on{background:var(--r);color:var(--t)}
+#vz .tile{display:block;border:1px solid var(--b);border-radius:10px;padding:6px;background:var(--p)}
+#vz .tile.on{border:2px solid var(--l);padding:5px}
+#vz input[type=color]{width:26px;height:26px;padding:0;border:1px solid var(--b);border-radius:6px;background:none}
+#vz input[type=text]{background:var(--p);color:var(--t);border:1px solid var(--b);border-radius:8px;height:30px;padding:0 8px;font-size:13px;width:100%;box-sizing:border-box}
+#vz .seg{display:inline-flex;border:1px solid var(--b);border-radius:8px;overflow:hidden}
+#vz .seg button{padding:4px 11px;font-size:12px;color:var(--m)}
+#vz .seg button.on{background:var(--r);color:var(--t)}
+#vz .lab{font-size:11px;color:var(--f)}
+#vz pre{margin:0;font-family:ui-monospace,Menlo,Monaco,"Courier New",monospace;font-size:11.5px;line-height:1.55;background:var(--su);border:1px solid var(--b);border-radius:8px;padding:8px 10px;overflow:hidden}
+</style>
+</head>
+<body>
+<div id="vz"><div style="padding:24px">Loading mockup</div></div>
+<script>
+const K=['s','p','su','r','b','t','m','f','i','oi','l','x','y','kw','st','nu','co','fn','pu'];
+const ROLE={s:'bg/shell',p:'bg/panel',su:'bg/surface',r:'bg/raised',b:'line/border',t:'text/default',m:'text/muted',f:'text/faint',i:'fill/ink',oi:'bg/ground',l:'state/live',x:'state/failed',y:'state/retrying',kw:'code/keyword',st:'code/string',nu:'code/number',co:'code/comment',fn:'code/function',pu:'code/punctuation'};
+const v=a=>Object.fromEntries(a.split(' ').map((c,i)=>[K[i],'#'+c]));
+const esc=s=>String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
+const vl={...v('f1f1f3 ffffff f4f4f5 e9e9ec e4e4e7 111114 5b5b66 6e6e78 111114 ffffff 046c4e c8371d a86a12 5b5b66 046c4e 2e2e33 85858f 111114 6e6e78'),so:'#3f3f46'};
+const vd={...v('0b0b0c 070708 151518 1c1c20 242428 ededef a0a0aa 8b8b96 f2f2f5 0b0b0c 10b981 e5654b e2b04a a8a8b2 10b981 ededef 6e6e78 ffffff 82828c'),so:'#d6d6dc'};
+const presets=[
+{n:'Vizier',d:'Default',L:vl,D:vd},
+{n:'Vizier Swapped',d:'Sidebar and inset exchanged',L:{...vl,s:vl.p,p:vl.s,su:'#ffffff'},D:{...vd,s:vd.p,p:vd.s}},
+{n:'Oxocarbon',L:v('f2f4f8 ffffff f2f4f8 dde1e6 dde1e6 161616 525252 6f6f6f 0f62fe ffffff 198038 da1e28 ff6f00 0f62fe 673ab7 007d79 6f6f6f d02670 525252'),D:v('262626 161616 262626 393939 393939 f2f4f8 dde1e6 8d8d8d 78a9ff 161616 42be65 ee5396 ffab91 78a9ff be95ff 82cfff 8d8d8d ff7eb6 08bdba')},
+{n:'Catppuccin',L:v('e6e9ef eff1f5 e6e9ef ccd0da ccd0da 4c4f69 5c5f77 6c6f85 8839ef ffffff 40a02b d20f39 df8e1d 8839ef 40a02b fe640b 6c6f85 1e66f5 5c5f77'),D:v('181825 1e1e2e 313244 45475a 45475a cdd6f4 bac2de a6adc8 cba6f7 1e1e2e a6e3a1 f38ba8 f9e2af cba6f7 a6e3a1 fab387 a6adc8 89b4fa bac2de')},
+{n:'Gruvbox',L:v('ebdbb2 fbf1c7 f2e5bc d5c4a1 d5c4a1 3c3836 504945 665c54 af3a03 fbf1c7 79740e 9d0006 b57614 9d0006 79740e 8f3f71 665c54 076678 504945'),D:v('1d2021 282828 32302f 3c3836 504945 ebdbb2 d5c4a1 a89984 fe8019 282828 b8bb26 fb4934 fabd2f fb4934 b8bb26 d3869b a89984 83a598 d5c4a1')},
+{n:'Rosé Pine',L:v('f2e9e1 faf4ed fffaf3 dfdad9 dfdad9 575279 6e6a86 797593 907aa9 faf4ed 286983 b4637a ea9d34 286983 ea9d34 d7827e 797593 907aa9 6e6a86'),D:v('1f1d2e 191724 26233a 403d52 403d52 e0def4 908caa 908caa c4a7e7 191724 9ccfd8 eb6f92 f6c177 31748f f6c177 ebbcba 908caa c4a7e7 908caa')},
+{n:'Tokyo Night',L:v('d0d5e3 e1e2e7 d5d6db c4c8da c4c8da 3760bf 6172b0 6172b0 2e7de9 ffffff 587539 f52a65 8c6c3e 9854f1 587539 b15c00 6172b0 2e7de9 6172b0'),D:v('16161e 1a1b26 24283b 292e42 292e42 c0caf5 a9b1d6 7a88cf 7aa2f7 1a1b26 9ece6a f7768e e0af68 bb9af7 9ece6a ff9e64 7a88cf 7aa2f7 89ddff')},
+{n:'Everforest',L:v('efebd4 fdf6e3 f4f0d9 e6e2cc e0dcc7 5c6a72 708089 829181 8da101 fdf6e3 8da101 f85552 dfa000 f85552 8da101 df69ba 829181 3a94c5 708089'),D:v('232a2e 2d353b 343f44 3d484d 475258 d3c6aa 9da9a0 859289 a7c080 2d353b a7c080 e67e80 dbbc7f e67e80 a7c080 d699b6 859289 7fbbb3 9da9a0')},
+{n:'Solarized',L:v('eee8d5 fdf6e3 eee8d5 e4ddc8 d9d2c0 586e75 5f7178 657b83 268bd2 fdf6e3 859900 dc322f b58900 859900 2aa198 d33682 657b83 268bd2 657b83'),D:v('073642 002b36 073642 0f4552 0f4552 93a1a1 839496 839496 268bd2 fdf6e3 859900 dc322f b58900 859900 2aa198 d33682 839496 268bd2 839496')},
+{n:'Nord',d:'Dark only',D:v('2e3440 3b4252 434c5e 4c566a 4c566a eceff4 d8dee9 a3adbf 88c0d0 2e3440 a3be8c bf616a ebcb8b 81a1c1 a3be8c b48ead a3adbf 88c0d0 d8dee9')},
+{n:'Dracula',d:'Dark only',D:v('21222c 282a36 343746 44475a 44475a f8f8f2 d6d6e0 9aa5ce bd93f9 282a36 50fa7b ff5555 f1fa8c ff79c6 f1fa8c bd93f9 9aa5ce 50fa7b f8f8f2')}
+];
+let S={sel:'Vizier',mode:'system',view:'list',custom:[],draft:null,dv:'D',adv:false,err:'',exp:false};
+const dark=()=>S.mode==='system'?matchMedia('(prefers-color-scheme: dark)').matches:S.mode==='dark';
+const all=()=>[...presets,...S.custom];
+const find=n=>all().find(t=>t.n===n);
+const showing=t=>t.L&&t.D?(dark()?t.D:t.L):(t.D||t.L);
+const code=c=>`<pre style="background:${c.su};border-color:${c.b};color:${c.so||c.t}"><span style="color:${c.co}"># find what the agent remembers</span>
+<span style="color:${c.kw}">def</span> <span style="color:${c.fn}">recall</span><span style="color:${c.pu}">(</span>query<span style="color:${c.pu}">):</span>
+    hits <span style="color:${c.pu}">=</span> <span style="color:${c.fn}">memory_search</span><span style="color:${c.pu}">(</span>query<span style="color:${c.pu}">,</span> limit<span style="color:${c.pu}">=</span><span style="color:${c.nu}">5</span><span style="color:${c.pu}">)</span>
+    <span style="color:${c.kw}">return</span> hits <span style="color:${c.kw}">or</span> <span style="color:${c.st}">"nothing yet"</span></pre>`;
+const preview=c=>`<div style="border:1px solid ${c.b};border-radius:12px;overflow:hidden;display:flex;background:${c.s};color:${c.t}">
+<div style="width:92px;padding:10px 8px;flex-shrink:0"><div style="font-size:11px;color:${c.f};margin-bottom:6px">Agent</div><div style="background:${c.r};border-radius:6px;padding:3px 6px;font-size:12px">Chat</div><div style="padding:3px 6px;font-size:12px;color:${c.m}">Memory</div><div style="padding:3px 6px;font-size:12px;color:${c.m}">Tasks</div></div>
+<div style="flex:1;min-width:0;background:${c.p};margin:8px 8px 8px 0;border:1px solid ${c.b};border-radius:10px;padding:10px;display:flex;flex-direction:column;gap:8px">
+<div style="display:flex;gap:10px;flex-wrap:wrap;font-size:11px"><span style="color:${c.l}">Live</span><span style="color:${c.y}">Retrying</span><span style="color:${c.x}">Failed</span></div>${code(c)}
+<div style="display:flex;gap:6px;align-items:center"><span style="background:${c.i};color:${c.oi};border-radius:6px;padding:3px 9px;font-size:12px">Send</span><span style="color:${c.f};font-size:11px">Faint helper text</span></div></div></div>`;
+const tile=t=>{const c=showing(t);return `<button class="tile ${S.sel===t.n?'on':''}" data-pick="${esc(t.n)}" aria-pressed="${S.sel===t.n}"><div style="display:flex;height:50px;border-radius:6px;overflow:hidden;background:${c.s};border:1px solid ${c.b}"><div style="width:26%"></div><div style="flex:1;background:${c.p};margin:4px 4px 4px 0;border-radius:4px;padding:5px;display:flex;flex-direction:column;gap:3px"><i style="height:3px;width:60%;background:${c.kw}"></i><i style="height:3px;width:80%;background:${c.st}"></i><i style="height:3px;width:45%;background:${c.fn}"></i><i style="height:3px;width:30%;background:${c.nu}"></i></div></div><div style="font-size:12px;margin-top:5px;color:var(--t)">${esc(t.n)}</div><div class="lab">${t.d||(t.custom?'Custom':'Light and dark')}</div></button>`};
+function lum(h){const a=[1,3,5].map(i=>parseInt(h.substr(i,2),16)/255).map(x=>x<=.03928?x/12.92:Math.pow((x+.055)/1.055,2.4));return .2126*a[0]+.7152*a[1]+.0722*a[2]}
+const ratio=(a,b)=>{const x=lum(a),y=lum(b);return (Math.max(x,y)+.05)/(Math.min(x,y)+.05)};
+const warnings=c=>[['Text on content',c.t,c.p,4.5],['Code strings on code background',c.st,c.su,4.5],['Primary button text',c.oi,c.i,4.5]].filter(w=>ratio(w[1],w[2])<w[3]).map(w=>`${w[0]} is ${ratio(w[1],w[2]).toFixed(1)}:1, below ${w[3]}:1`);
+const swatch=(k,lab,c)=>`<label style="display:flex;align-items:center;gap:8px;font-size:12px"><input type="color" data-k="${k}" value="${c[k]}" aria-label="${lab}">${lab}</label>`;
+const roles=c=>'{\n'+K.map(k=>`    "${ROLE[k]}": "${c[k]}"`).join(',\n')+'\n  }';
+const file=t=>'{\n  "format": "vizier-theme",\n  "version": 1,\n  "name": "'+t.n+'",'+(t.L?'\n  "light": '+roles(t.L)+(t.D?',':''):'')+(t.D?'\n  "dark": '+roles(t.D):'')+'\n}';
+const slug=n=>n.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')||'theme';
+const expCard=t=>`<div class="card" style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:4px"><div style="font-weight:500">${esc(slug(t.n))}.vizier-theme.json</div><button class="btn" data-exp-close aria-label="Close preview"><i class="ti ti-x" aria-hidden="true"></i></button></div><div style="color:var(--m);font-size:12px;margin-bottom:8px">The real button downloads this file. Change the name and any colors, then use Import to add it as a new theme.</div><pre style="max-width:100%;white-space:pre-wrap;word-break:break-word;color:var(--m)">${esc(file(t))}</pre></div>`;
+function list(){const t=find(S.sel);const both=t.L&&t.D;return `<div style="font-size:18px;font-weight:500">Appearance</div><div style="color:var(--m);margin-bottom:14px">How Vizier looks on this device. Nothing here is sent to the server.</div>
+<div class="card" style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px"><div style="font-weight:500">Theme</div>${both?`<div class="seg" role="group" aria-label="Light or dark">${['system','light','dark'].map(m=>`<button data-mode="${m}" class="${S.mode===m?'on':''}">${m[0].toUpperCase()+m.slice(1)}</button>`).join('')}</div>`:`<span class="lab">Always ${t.D?'dark':'light'}</span>`}</div>
+<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(112px,1fr));gap:8px">${presets.map(tile).join('')}</div>
+<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap"><button class="btn" data-dup>Duplicate</button><button class="btn" data-exp><i class="ti ti-download" aria-hidden="true" style="margin-right:4px"></i>Export</button><button class="btn" data-reset>Use default</button></div></div>
+${S.exp?expCard(t):''}
+<div class="card" style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:${S.custom.length?10:4}px"><div style="font-weight:500">Your themes</div><button class="btn" disabled style="opacity:.75;cursor:default"><i class="ti ti-upload" aria-hidden="true" style="margin-right:4px"></i>Import</button></div>${S.custom.length?`<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(112px,1fr));gap:8px">${S.custom.map(tile).join('')}</div>`:`<div style="color:var(--m);font-size:12px">Duplicate a theme to edit it here, or export one as a template and import your version. Yours stay in this browser, so export the ones you'd miss.</div>`}</div>
+<div class="card"><div style="font-weight:500;margin-bottom:8px">Preview</div>${preview(showing(t))}</div>`}
+function editor(){const d=S.draft,c=d[S.dv]||{};const has=d[S.dv];const w=has?warnings(c):[];return `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap"><div style="font-size:18px;font-weight:500">New theme</div><div style="display:flex;gap:6px"><button class="btn" data-cancel>Cancel</button><button class="btn pri" data-save>Save theme</button></div></div>
+<div style="color:var(--m);margin-bottom:12px">Your current theme stays on until you save and select this one.</div>
+<div class="card" style="margin-bottom:12px"><label class="lab" for="nm">Name</label><input type="text" id="nm" value="${esc(d.n)}" maxlength="40"><div id="nerr" style="color:var(--x);font-size:12px;min-height:16px;margin-top:2px">${S.err}</div>
+<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:4px"><div class="seg">${[['L','Light'],['D','Dark']].map(([k,l])=>`<button data-dv="${k}" class="${S.dv===k?'on':''}">${l}${d[k]?'':' (none)'}</button>`).join('')}</div>${has?`<button class="btn" data-rmv ${d.L&&d.D?'':'disabled style="opacity:.6;cursor:default"'}>Remove this variant</button>`:`<button class="btn" data-addv>Add this variant</button>`}</div></div>
+${has?`<div class="card" style="margin-bottom:12px"><div style="font-weight:500;margin-bottom:8px">Key colors</div><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px">${swatch('p','Content',c)}${swatch('s','Sidebar',c)}${swatch('t','Text',c)}${swatch('i','Accent',c)}${swatch('l','Live',c)}${swatch('y','Retrying',c)}${swatch('x','Failed',c)}</div>
+<div id="warn" style="margin-top:8px;font-size:12px;color:var(--y)">${w.join('<br>')}</div>
+<button class="btn" data-adv style="margin-top:8px">${S.adv?'Hide':'Show'} advanced</button>${S.adv?`<div style="margin-top:10px"><div class="lab" style="margin-bottom:6px">Code</div><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px">${swatch('kw','Keyword',c)}${swatch('st','String',c)}${swatch('nu','Number',c)}${swatch('co','Comment',c)}${swatch('fn','Function',c)}${swatch('pu','Punctuation',c)}</div><div class="lab" style="margin:10px 0 0">Backgrounds, lines, text tones, status tints and charts are listed here too in the real page.</div></div>`:''}</div>
+<div class="card"><div style="font-weight:500;margin-bottom:8px">Preview</div><div id="pv">${preview(c)}</div></div>`:`<div class="card" style="color:var(--m)">This theme has no ${S.dv==='L'?'light':'dark'} variant, so it always shows the other one.</div>`}`}
+function render(){const c=showing(find(S.sel));const r=document.getElementById('vz');const map={s:c.s,p:c.p,su:c.su,r:c.r,b:c.b,t:c.t,m:c.m,f:c.f,i:c.i,oi:c.oi,l:c.l,x:c.x,y:c.y};Object.entries(map).forEach(([k,x])=>r.style.setProperty('--'+k,x));
+r.innerHTML=`<div style="width:44px;flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:12px;padding:14px 0;color:var(--m);font-size:17px"><i class="ti ti-home" aria-hidden="true"></i><i class="ti ti-robot" aria-hidden="true"></i><div style="flex:1"></div><i class="ti ti-settings" style="color:var(--t)" aria-hidden="true"></i><i class="ti ti-user" aria-hidden="true"></i></div>
+<div style="width:128px;flex-shrink:0;padding:14px 8px 0 0"><div class="lab" style="padding:0 8px 4px">Account</div><div class="nav"><i class="ti ti-user" aria-hidden="true"></i>Profile</div><div class="nav on"><i class="ti ti-palette" aria-hidden="true"></i>Appearance</div><div class="nav"><i class="ti ti-key" aria-hidden="true"></i>API keys</div><div class="lab" style="padding:10px 8px 4px">Administration</div><div class="nav"><i class="ti ti-cloud" aria-hidden="true"></i>Providers</div><div class="nav"><i class="ti ti-users" aria-hidden="true"></i>Users</div><div class="nav"><i class="ti ti-shield" aria-hidden="true"></i>Roles</div></div>
+<main style="flex:1;min-width:0;margin:10px 10px 10px 0;background:var(--p);border:1px solid var(--b);border-radius:16px;padding:16px">${S.view==='list'?list():editor()}</main>`}
+const nameOk=n=>{const x=n.trim();if(!x)return 'Enter a name';if(all().some(t=>t.n.toLowerCase()===x.toLowerCase()))return 'That name is already taken. Try another.';return ''};
+document.getElementById('vz').addEventListener('click',e=>{const b=e.target.closest('button');if(!b||b.disabled)return;const a=b.dataset;
+if(a.pick)S.sel=a.pick;else if(a.mode)S.mode=a.mode;else if('reset' in a){S.sel='Vizier';S.mode='system'}
+else if('exp' in a)S.exp=true;else if('expClose' in a)S.exp=false;
+else if('dup' in a){const t=find(S.sel);S.draft={n:t.n+' copy',L:t.L&&{...t.L},D:t.D&&{...t.D},custom:true};S.dv=showing(t)===t.L?'L':'D';S.view='edit';S.adv=false;S.err=''}
+else if('cancel' in a){S.view='list';S.draft=null}
+else if(a.dv)S.dv=a.dv;else if('adv' in a)S.adv=!S.adv;
+else if('rmv' in a){S.draft[S.dv]=null;S.dv=S.dv==='L'?'D':'L'}
+else if('addv' in a){const o=S.draft[S.dv==='L'?'D':'L'];S.draft[S.dv]={...(S.dv==='L'?vl:vd),i:o.i,l:o.l}}
+else if('save' in a){S.err=nameOk(S.draft.n);if(!S.err){S.draft.n=S.draft.n.trim();S.custom.push(S.draft);S.sel=S.draft.n;S.draft=null;S.view='list'}}
+else return;render()});
+document.getElementById('vz').addEventListener('input',e=>{const t=e.target;if(t.id==='nm'){S.draft.n=t.value;S.err='';document.getElementById('nerr').textContent='';return}
+if(t.dataset.k){const c=S.draft[S.dv];c[t.dataset.k]=t.value;document.getElementById('pv').innerHTML=preview(c);document.getElementById('warn').innerHTML=warnings(c).join('<br>')}});
+render();
+</script>
+</body>
+</html>
