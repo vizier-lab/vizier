@@ -9,3 +9,7 @@
 ALTER TABLE notification ADD COLUMN IF NOT EXISTS source_session TEXT COLLATE "C";
 ALTER TABLE notification ADD COLUMN IF NOT EXISTS source_title TEXT;
 ALTER TABLE notification ADD COLUMN IF NOT EXISTS excerpt TEXT;
+
+-- Discord and Telegram no longer notify: drop the hourly aggregate rows an older build wrote.
+-- notification_read rows cascade.
+DELETE FROM notification WHERE category = 'channel_replies';

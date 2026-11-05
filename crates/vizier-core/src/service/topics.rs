@@ -417,6 +417,11 @@ pub async fn delete(
         Ok(_) => {
             // The stale-read ledger is per conversation and dies with it.
             s.deps().project_ledger.forget_session(&session.to_slug());
+            // Its notifications went with it: this person's clients drop them.
+            s.deps().transport.publish_inbox_event(crate::transport::InboxEvent::Stale {
+                user: Some(who.user_id.clone()),
+                agent_id: None,
+            });
             Ok("Topic deleted".into())
         }
         Err(ClearError::TurnActive) => Err(conflict(TURN_ACTIVE)),

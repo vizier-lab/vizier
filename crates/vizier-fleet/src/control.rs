@@ -1,5 +1,5 @@
 //! The `control` role (#166): the scheduler (cron, one-shot, dreams), retention purge,
-//! `project_replies`, migrations, catalogue refresh and agent placement.
+//! migrations, catalogue refresh and agent placement.
 //!
 //! One leader at a time (`lease.leader`) with standbys: a node that fails to renew stops the
 //! leased work immediately, before the lease can expire, so a paused node cannot fire cron jobs

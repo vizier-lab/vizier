@@ -583,6 +583,9 @@ pub fn init_notification_schema(conn: &Connection) -> Result<()> {
     add_column_if_missing(conn, "notification", "source_session", "TEXT")?;
     add_column_if_missing(conn, "notification", "source_title", "TEXT")?;
     add_column_if_missing(conn, "notification", "excerpt", "TEXT")?;
+    // Discord and Telegram no longer notify; the hourly aggregate rows an older build wrote are
+    // dropped (their read rows cascade). Tracked for removal on #82.
+    conn.execute("DELETE FROM notification WHERE category = 'channel_replies'", [])?;
     Ok(())
 }
 

@@ -86,6 +86,7 @@ identifier is written as one token by percent-encoding every byte outside `[A-Za
 | `process.cmd` | a command from the command socket | request and reply |
 | `session.{id}.events` | a session event | fan-out; subscribers use `session.>` |
 | `integration.changed` | an integration write | fan-out |
+| `inbox.events` | a notification created, read state changed, or live setup changed | fan-out; each gateway decides per connection who may see it |
 | `lease.{name}` | the lease name space | the `Leases` trait |
 
 The `gateway.{node}.client` subject is reserved for the HTTP gateway work (#169) and is not created

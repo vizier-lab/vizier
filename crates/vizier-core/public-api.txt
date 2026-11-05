@@ -3403,7 +3403,6 @@ pub enum vizier_core::schema::notification::NotificationCategory
 pub vizier_core::schema::notification::NotificationCategory::AgentSetupReady
 pub vizier_core::schema::notification::NotificationCategory::AgentStartFailure
 pub vizier_core::schema::notification::NotificationCategory::BackgroundJob
-pub vizier_core::schema::notification::NotificationCategory::ChannelReplies
 pub vizier_core::schema::notification::NotificationCategory::ChatReply
 pub vizier_core::schema::notification::NotificationCategory::DreamCycle
 pub vizier_core::schema::notification::NotificationCategory::Integration
@@ -3627,27 +3626,6 @@ impl core::marker::Unpin for vizier_core::schema::notification::NotificationPage
 impl core::marker::UnsafeUnpin for vizier_core::schema::notification::NotificationPage
 impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::schema::notification::NotificationPage
 impl core::panic::unwind_safe::UnwindSafe for vizier_core::schema::notification::NotificationPage
-pub struct vizier_core::schema::notification::ReplyBatch
-pub vizier_core::schema::notification::ReplyBatch::agent_id: alloc::string::String
-pub vizier_core::schema::notification::ReplyBatch::at: chrono::datetime::DateTime<chrono::offset::utc::Utc>
-pub vizier_core::schema::notification::ReplyBatch::channel: alloc::string::String
-pub vizier_core::schema::notification::ReplyBatch::hour: i64
-pub vizier_core::schema::notification::ReplyBatch::replies: u64
-impl core::clone::Clone for vizier_core::schema::notification::ReplyBatch
-pub fn vizier_core::schema::notification::ReplyBatch::clone(&self) -> Self
-impl core::cmp::Eq for vizier_core::schema::notification::ReplyBatch
-impl core::cmp::PartialEq for vizier_core::schema::notification::ReplyBatch
-pub fn vizier_core::schema::notification::ReplyBatch::eq(&self, &Self) -> bool
-impl core::fmt::Debug for vizier_core::schema::notification::ReplyBatch
-pub fn vizier_core::schema::notification::ReplyBatch::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::marker::StructuralPartialEq for vizier_core::schema::notification::ReplyBatch
-impl core::marker::Freeze for vizier_core::schema::notification::ReplyBatch
-impl core::marker::Send for vizier_core::schema::notification::ReplyBatch
-impl core::marker::Sync for vizier_core::schema::notification::ReplyBatch
-impl core::marker::Unpin for vizier_core::schema::notification::ReplyBatch
-impl core::marker::UnsafeUnpin for vizier_core::schema::notification::ReplyBatch
-impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::schema::notification::ReplyBatch
-impl core::panic::unwind_safe::UnwindSafe for vizier_core::schema::notification::ReplyBatch
 pub mod vizier_core::schema::project
 pub enum vizier_core::schema::project::ProjectMode
 pub vizier_core::schema::project::ProjectMode::Build
@@ -5913,7 +5891,6 @@ pub enum vizier_core::schema::NotificationCategory
 pub vizier_core::schema::NotificationCategory::AgentSetupReady
 pub vizier_core::schema::NotificationCategory::AgentStartFailure
 pub vizier_core::schema::NotificationCategory::BackgroundJob
-pub vizier_core::schema::NotificationCategory::ChannelReplies
 pub vizier_core::schema::NotificationCategory::ChatReply
 pub vizier_core::schema::NotificationCategory::DreamCycle
 pub vizier_core::schema::NotificationCategory::Integration
@@ -8462,27 +8439,6 @@ impl core::marker::Unpin for vizier_core::schema::RecalledPassage
 impl core::marker::UnsafeUnpin for vizier_core::schema::RecalledPassage
 impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::schema::RecalledPassage
 impl core::panic::unwind_safe::UnwindSafe for vizier_core::schema::RecalledPassage
-pub struct vizier_core::schema::ReplyBatch
-pub vizier_core::schema::ReplyBatch::agent_id: alloc::string::String
-pub vizier_core::schema::ReplyBatch::at: chrono::datetime::DateTime<chrono::offset::utc::Utc>
-pub vizier_core::schema::ReplyBatch::channel: alloc::string::String
-pub vizier_core::schema::ReplyBatch::hour: i64
-pub vizier_core::schema::ReplyBatch::replies: u64
-impl core::clone::Clone for vizier_core::schema::notification::ReplyBatch
-pub fn vizier_core::schema::notification::ReplyBatch::clone(&self) -> Self
-impl core::cmp::Eq for vizier_core::schema::notification::ReplyBatch
-impl core::cmp::PartialEq for vizier_core::schema::notification::ReplyBatch
-pub fn vizier_core::schema::notification::ReplyBatch::eq(&self, &Self) -> bool
-impl core::fmt::Debug for vizier_core::schema::notification::ReplyBatch
-pub fn vizier_core::schema::notification::ReplyBatch::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::marker::StructuralPartialEq for vizier_core::schema::notification::ReplyBatch
-impl core::marker::Freeze for vizier_core::schema::notification::ReplyBatch
-impl core::marker::Send for vizier_core::schema::notification::ReplyBatch
-impl core::marker::Sync for vizier_core::schema::notification::ReplyBatch
-impl core::marker::Unpin for vizier_core::schema::notification::ReplyBatch
-impl core::marker::UnsafeUnpin for vizier_core::schema::notification::ReplyBatch
-impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::schema::notification::ReplyBatch
-impl core::panic::unwind_safe::UnwindSafe for vizier_core::schema::notification::ReplyBatch
 pub struct vizier_core::schema::ReportEntry
 pub vizier_core::schema::ReportEntry::ordinal: u32
 pub vizier_core::schema::ReportEntry::prompt: alloc::string::String

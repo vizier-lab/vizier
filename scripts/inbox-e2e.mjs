@@ -124,6 +124,8 @@ check('a chat_reply notification arrived', !!note)
 check('it is unread and carries counts', note.item.read === false && note.counts.unread >= 1, note)
 check('the excerpt is short plain text', note.item.excerpt === undefined || note.item.excerpt.length <= 141, note.item.excerpt)
 check('the source session is never sent', !('source_session' in note.item))
+check('the row names its conversation', typeof note.item.title === 'string' && note.item.title.length > 0, note.item)
+check('the excerpt is present for a reply with words', typeof note.item.excerpt === 'string', note.item)
 const page = await api('GET', '/notifications?filter=unread')
 check('the same row is in the unread list', page.json?.data?.items?.some((i) => i.id === note.item.id))
 

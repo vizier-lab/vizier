@@ -19,7 +19,6 @@ pub enum NotificationCategory {
     DreamCycle,
     BackgroundJob,
     Integration,
-    ChannelReplies,
     /// A WebUI conversation's reply. Addressed to the person whose conversation it is
     /// (`audience_user_id`), not to everyone who can see the agent.
     ChatReply,
@@ -34,7 +33,6 @@ impl NotificationCategory {
             Self::DreamCycle => "dream_cycle",
             Self::BackgroundJob => "background_job",
             Self::Integration => "integration",
-            Self::ChannelReplies => "channel_replies",
             Self::ChatReply => "chat_reply",
         }
     }
@@ -47,7 +45,6 @@ impl NotificationCategory {
             "dream_cycle" => Some(Self::DreamCycle),
             "background_job" => Some(Self::BackgroundJob),
             "integration" => Some(Self::Integration),
-            "channel_replies" => Some(Self::ChannelReplies),
             "chat_reply" => Some(Self::ChatReply),
             _ => None,
         }
@@ -195,19 +192,6 @@ pub struct NotificationPage {
     pub next: Option<String>,
 }
 
-/// One agent's replies in one Discord or Telegram conversation within one closed hour, from
-/// which the channel-reply projection makes one notification.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ReplyBatch {
-    pub agent_id: String,
-    pub channel: String,
-    /// Hours since the Unix epoch.
-    pub hour: i64,
-    pub replies: u64,
-    /// The last reply in the bucket; becomes the notification's `created_at`.
-    pub at: DateTime<Utc>,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -221,7 +205,6 @@ mod tests {
             NotificationCategory::DreamCycle,
             NotificationCategory::BackgroundJob,
             NotificationCategory::Integration,
-            NotificationCategory::ChannelReplies,
             NotificationCategory::ChatReply,
         ] {
             assert_eq!(

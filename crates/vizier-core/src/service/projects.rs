@@ -1263,6 +1263,10 @@ pub async fn delete_worktree(
     s.deps()
         .project_ledger
         .forget_session(&session.to_slug());
+    s.deps().transport.publish_inbox_event(crate::transport::InboxEvent::Stale {
+        user: None,
+        agent_id: Some(agent_id.to_string()),
+    });
     s.deps()
         .storage
         .delete_worktree(&worktree.id)

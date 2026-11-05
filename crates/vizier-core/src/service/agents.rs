@@ -626,6 +626,12 @@ pub async fn delete(
         .delete(&agent_id, delete_workspace)
         .await
         .map_err(command_error)?;
+    // The agent's notifications went with it, and it can no longer be checked for who may
+    // view it, so every client reloads.
+    s.deps().transport.publish_inbox_event(crate::transport::InboxEvent::Stale {
+        user: None,
+        agent_id: None,
+    });
     Ok("deleted".into())
 }
 

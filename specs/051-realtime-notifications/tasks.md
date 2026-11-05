@@ -127,20 +127,20 @@ description: "Task list for realtime notifications"
 
 ### Tests for User Story 3
 
-- [ ] T047 [P] [US3] Create tests in `crates/vizier-core/src/notifications/excerpt.rs`: Markdown removed, code blocks, links and tables, a multi-byte cut at 140 characters, an all-code reply, and the "Sent a page", "Sent N files" and "Sent a voice reply" forms
-- [ ] T048 [P] [US3] Add tests in `crates/vizier-core/src/notifications/mod.rs`: chat, task and job rows carry the right fields, `summary` stays free of model output, and an excerpt built from a saved entry holds `[redacted]`, not the secret (SC-008)
-- [ ] T049 [P] [US3] Add service tests in `crates/vizier-core/src/service/notifications.rs`: a title follows a rename, a missing title reads "New conversation", another person's conversation yields neither title nor excerpt, and a deleted conversation's rows are gone
+- [X] T047 [P] [US3] Create tests in `crates/vizier-core/src/notifications/excerpt.rs`: Markdown removed, code blocks, links and tables, a multi-byte cut at 140 characters, an all-code reply, and the "Sent a page", "Sent N files" and "Sent a voice reply" forms
+- [X] T048 [P] [US3] Add tests in `crates/vizier-core/src/notifications/mod.rs`: chat, task and job rows carry the right fields, `summary` stays free of model output, and an excerpt built from a saved entry holds `[redacted]`, not the secret (SC-008)
+- [X] T049 [P] [US3] Add service tests in `crates/vizier-core/src/service/notifications.rs`: a title follows a rename, a missing title reads "New conversation", another person's conversation yields neither title nor excerpt, and a deleted conversation's rows are gone
 
 ### Implementation for User Story 3
 
-- [ ] T050 [US3] Create `crates/vizier-core/src/notifications/excerpt.rs` per research R7 using `pulldown-cmark`, and register it in `crates/vizier-core/src/notifications/mod.rs`
-- [ ] T051 [US3] Add a read of one history entry by uid to `crates/vizier-core/src/storage/history.rs` and `crates/vizier-core/src/storage/sqlite/history.rs`, with a stub or real read in `crates/vizier-core/src/storage/fs/history.rs` as that migration-only backend requires
-- [ ] T052 [US3] In `chat_replied`, build the excerpt from the saved entry and set `source_session`, in `crates/vizier-core/src/notifications/mod.rs`, passing what it needs from the call in `crates/vizier-core/src/agents/process.rs`
-- [ ] T053 [US3] In `task_run_ended`, set `source_title` and the excerpt from `storage::task_run::task_run_response`, in `crates/vizier-core/src/notifications/mod.rs`, with no change for its callers
-- [ ] T054 [US3] In `job_ended`, set `source_session` and use the outcome text as the excerpt, in `crates/vizier-core/src/notifications/mod.rs`
-- [ ] T055 [US3] Fill `title` once per distinct session on the page and clear `title` and `excerpt` for another person's conversation, in `list` in `crates/vizier-core/src/service/notifications.rs`, and apply the same fill and gate to `Created` in `decide` in `crates/vizier-core/src/service/inbox.rs`
-- [ ] T056 [US3] Delete rows whose `source_session` matches in the transaction of `delete_session` in `crates/vizier-core/src/storage/sqlite/session.rs`
-- [ ] T057 [US3] Publish `InboxEvent::Stale` after a conversation or agent delete, from `delete_conversation` in `crates/vizier-core/src/session_files/mod.rs` and from agent deletion, and for the conversation's person when a title arrives at `SessionFrame::Title` in `crates/vizier-core/src/agents/process.rs`. Map `Stale` to the `resync` frame in `decide`
+- [X] T050 [US3] Create `crates/vizier-core/src/notifications/excerpt.rs` per research R7 using `pulldown-cmark`, and register it in `crates/vizier-core/src/notifications/mod.rs`
+- [X] T051 [US3] Add a read of one history entry by uid to `crates/vizier-core/src/storage/history.rs` and `crates/vizier-core/src/storage/sqlite/history.rs`, with a stub or real read in `crates/vizier-core/src/storage/fs/history.rs` as that migration-only backend requires
+- [X] T052 [US3] In `chat_replied`, build the excerpt from the saved entry and set `source_session`, in `crates/vizier-core/src/notifications/mod.rs`, passing what it needs from the call in `crates/vizier-core/src/agents/process.rs`
+- [X] T053 [US3] In `task_run_ended`, set `source_title` and the excerpt from `storage::task_run::task_run_response`, in `crates/vizier-core/src/notifications/mod.rs`, with no change for its callers
+- [X] T054 [US3] In `job_ended`, set `source_session` and use the outcome text as the excerpt, in `crates/vizier-core/src/notifications/mod.rs`
+- [X] T055 [US3] Fill `title` once per distinct session on the page and clear `title` and `excerpt` for another person's conversation, in `list` in `crates/vizier-core/src/service/notifications.rs`, and apply the same fill and gate to `Created` in `decide` in `crates/vizier-core/src/service/inbox.rs`
+- [X] T056 [US3] Delete rows whose `source_session` matches in the transaction of `delete_session` in `crates/vizier-core/src/storage/sqlite/session.rs`
+- [X] T057 [US3] Publish `InboxEvent::Stale` after a conversation or agent delete, from `delete_conversation` in `crates/vizier-core/src/session_files/mod.rs` and from agent deletion, and for the conversation's person when a title arrives at `SessionFrame::Title` in `crates/vizier-core/src/agents/process.rs`. Map `Stale` to the `resync` frame in `decide`
 - [ ] T058 [US3] Extend `scripts/inbox-e2e.mjs` for the title, excerpt and deletion steps (quickstart steps 2 and 8)
 
 **Checkpoint**: Titles and excerpts appear over REST and the stream, and only for people allowed to see them.
@@ -157,18 +157,18 @@ description: "Task list for realtime notifications"
 
 ### Tests for User Story 4
 
-- [ ] T059 [P] [US4] Add tests in `crates/vizier-core/src/notifications/mod.rs`: `job_ended` with a Discord or Telegram origin records nothing, with a WebUI origin it records one row, and an integration change on a Discord connection still records. Keep the existing `chat_replied` Discord assertion and correct its comment
-- [ ] T060 [P] [US4] Add a schema test in `crates/vizier-core/src/storage/sqlite/notification.rs`: `channel_replies` rows and their read rows are gone after init and the counts agree
+- [X] T059 [P] [US4] Add tests in `crates/vizier-core/src/notifications/mod.rs`: `job_ended` with a Discord or Telegram origin records nothing, with a WebUI origin it records one row, and an integration change on a Discord connection still records. Keep the existing `chat_replied` Discord assertion and correct its comment
+- [X] T060 [P] [US4] Add a schema test in `crates/vizier-core/src/storage/sqlite/notification.rs`: `channel_replies` rows and their read rows are gone after init and the counts agree
 
 ### Implementation for User Story 4
 
-- [ ] T061 [US4] Return early from `job_ended` when `origin.1.platform().is_some()` in `crates/vizier-core/src/notifications/mod.rs`
-- [ ] T062 [US4] Remove `project_replies`, `REPLIES_THROUGH`, `HOUR_MS`, `CATCH_UP_HOURS` and their tests from `crates/vizier-core/src/notifications/mod.rs`, and `channel_replies` and its tests from `crates/vizier-core/src/notifications/text.rs`, along with `channel_href` if nothing else uses it
-- [ ] T063 [US4] Remove the `project` helper and its calls from `crates/vizier-core/src/service/notifications.rs`
-- [ ] T064 [US4] Remove `ChannelReplies` and `ReplyBatch` from `crates/vizier-core/src/schema/notification.rs` and its re-export in `crates/vizier-core/src/schema/mod.rs`, and `channel_reply_batches` from `crates/vizier-core/src/storage/notification.rs` and `crates/vizier-core/src/storage/sqlite/notification.rs`
-- [ ] T065 [US4] Add the idempotent `DELETE FROM notification WHERE category = 'channel_replies'` to `init_notification_schema` in `crates/vizier-core/src/storage/sqlite/mod.rs` and to `crates/vizier-core/src/storage/sql/postgres/migrations/0003_notification_source.sql`
-- [ ] T066 [US4] Remove `project_replies` from the `control` role's description in `crates/vizier-fleet/src/control.rs`
-- [ ] T067 [US4] Regenerate `crates/vizier-core/public-api.txt` and `webui/app/api/schema.d.ts`, and remove `channel_replies` from `webui/app/api/endpoints/notifications.ts`
+- [X] T061 [US4] Return early from `job_ended` when `origin.1.platform().is_some()` in `crates/vizier-core/src/notifications/mod.rs`
+- [X] T062 [US4] Remove `project_replies`, `REPLIES_THROUGH`, `HOUR_MS`, `CATCH_UP_HOURS` and their tests from `crates/vizier-core/src/notifications/mod.rs`, and `channel_replies` and its tests from `crates/vizier-core/src/notifications/text.rs`, along with `channel_href` if nothing else uses it
+- [X] T063 [US4] Remove the `project` helper and its calls from `crates/vizier-core/src/service/notifications.rs`
+- [X] T064 [US4] Remove `ChannelReplies` and `ReplyBatch` from `crates/vizier-core/src/schema/notification.rs` and its re-export in `crates/vizier-core/src/schema/mod.rs`, and `channel_reply_batches` from `crates/vizier-core/src/storage/notification.rs` and `crates/vizier-core/src/storage/sqlite/notification.rs`
+- [X] T065 [US4] Add the idempotent `DELETE FROM notification WHERE category = 'channel_replies'` to `init_notification_schema` in `crates/vizier-core/src/storage/sqlite/mod.rs` and to `crates/vizier-core/src/storage/sql/postgres/migrations/0003_notification_source.sql`
+- [X] T066 [US4] Remove `project_replies` from the `control` role's description in `crates/vizier-fleet/src/control.rs`
+- [X] T067 [US4] Regenerate `crates/vizier-core/public-api.txt` and `webui/app/api/schema.d.ts`, and remove `channel_replies` from `webui/app/api/endpoints/notifications.ts`
 
 **Checkpoint**: A workspace with old rows upgrades cleanly with correct counts.
 
@@ -182,13 +182,13 @@ description: "Task list for realtime notifications"
 
 **Depends on**: US1.
 
-- [ ] T068 [P] [US5] Test in `webui/app/stores/notifications.test.ts`: `hello` ahead of the mark fetches once and raises one burst toast, `hello` level with it fetches nothing, a failed fetch keeps the last list, and the second `hello` never re-toasts
-- [ ] T069 [P] [US5] Test in `crates/vizier-http/tests/inbox_stream.rs`: a lagged subscriber gets `resync`, and a socket closes at the token's expiry
-- [ ] T070 [US5] Handle `hello` when `latest_id` is above `lastSeenId` through the existing "fresh" path, priming only on the first one, in `webui/app/stores/notifications.ts`
-- [ ] T071 [US5] Send `resync` on a `broadcast` `Lagged` in `crates/vizier-http/src/inbox.rs`
-- [ ] T072 [US5] Pass the token's expiry from `require_auth` as a request extension in `crates/vizier-http/src/auth/middleware.rs`, and close the socket at that time in `crates/vizier-http/src/api/v1/notifications.rs`
-- [ ] T073 [US5] After `OFFLINE_AFTER` failures make one `GET /notifications/count`, so a real sign-out goes through `settle`'s 401 handling, in `webui/app/stores/notifications.ts`
-- [ ] T074 [US5] Reopen the inbox when the engine restarts, as topics do, in `webui/app/api/transport/tauri.ts`, and check that `app/src-tauri/src/ipc.rs` closes inboxes on restart
+- [X] T068 [P] [US5] Test in `webui/app/stores/notifications.test.ts`: `hello` ahead of the mark fetches once and raises one burst toast, `hello` level with it fetches nothing, a failed fetch keeps the last list, and the second `hello` never re-toasts
+- [X] T069 [P] [US5] Test in `crates/vizier-http/tests/inbox_stream.rs`: a lagged subscriber gets `resync`, and a socket closes at the token's expiry
+- [X] T070 [US5] Handle `hello` when `latest_id` is above `lastSeenId` through the existing "fresh" path, priming only on the first one, in `webui/app/stores/notifications.ts`
+- [X] T071 [US5] Send `resync` on a `broadcast` `Lagged` in `crates/vizier-http/src/inbox.rs`
+- [X] T072 [US5] Pass the token's expiry from `require_auth` as a request extension in `crates/vizier-http/src/auth/middleware.rs`, and close the socket at that time in `crates/vizier-http/src/api/v1/notifications.rs`
+- [X] T073 [US5] After `OFFLINE_AFTER` failures make one `GET /notifications/count`, so a real sign-out goes through `settle`'s 401 handling, in `webui/app/stores/notifications.ts`
+- [X] T074 [US5] Reopen the inbox when the engine restarts, as topics do, in `webui/app/api/transport/tauri.ts`, and check that `app/src-tauri/src/ipc.rs` closes inboxes on restart
 - [ ] T075 [US5] Extend `scripts/inbox-e2e.mjs` for reconnect (quickstart step 6) and run quickstart steps 5 and 11
 
 **Checkpoint**: Every story works, including across a dropped connection and an engine restart.
@@ -199,10 +199,10 @@ description: "Task list for realtime notifications"
 
 **Purpose**: Documentation, tracking and the full verification pass
 
-- [ ] T076 [P] Document the stream, its frames and the new item fields in `docs/src/api-integration/rest-api.md`, and remove the `channel_replies` category and projection sentence
-- [ ] T077 [P] Add `inbox.events` to the subject table in `docs/src/fleet/bus-contract.md`
-- [ ] T078 [P] Add excerpts to the readable-data list in `docs/src/configuration/encryption.md`, and state how live notifications arrive in `docs/src/getting-started/desktop-app.md`
-- [ ] T079 Update the Notifications section of `CLAUDE.md`: the stream, the bus subject, the popup, titles and excerpts, and no external channels, and correct its stale description of the panel
+- [X] T076 [P] Document the stream, its frames and the new item fields in `docs/src/api-integration/rest-api.md`, and remove the `channel_replies` category and projection sentence
+- [X] T077 [P] Add `inbox.events` to the subject table in `docs/src/fleet/bus-contract.md`
+- [X] T078 [P] Add excerpts to the readable-data list in `docs/src/configuration/encryption.md`, and state how live notifications arrive in `docs/src/getting-started/desktop-app.md`
+- [X] T079 Update the Notifications section of `CLAUDE.md`: the stream, the bus subject, the popup, titles and excerpts, and no external channels, and correct its stale description of the panel
 - [ ] T080 Ask the person to approve, then add #82 entries for the SQLite `channel_replies` delete, the stale `notifications.replies_through` state key and the unpolled `GET /utils/setup-state` route
 - [ ] T081 Run `cargo clippy --workspace`, `cargo test --workspace`, `cargo test -p vizier-core --no-default-features`, `cd app && cargo test`, and `cd webui && npm run typecheck && npm test`
 - [ ] T082 Run all of `specs/051-realtime-notifications/quickstart.md` on the running binary, and mark steps 9.1 to 9.3 as not run unless Discord or Telegram credentials were available

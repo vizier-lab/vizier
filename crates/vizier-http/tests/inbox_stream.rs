@@ -270,3 +270,14 @@ async fn a_missing_token_is_refused() {
         "a bad token was accepted"
     );
 }
+
+#[test]
+fn a_tokens_expiry_says_how_long_the_socket_may_live() {
+    use vizier_http::auth::middleware::TokenExpiry;
+    use std::time::Duration;
+    assert_eq!(TokenExpiry(1_000).remaining(400), Some(Duration::from_secs(600)));
+    // Already past: close at once rather than underflow.
+    assert_eq!(TokenExpiry(1_000).remaining(2_000), Some(Duration::ZERO));
+    // An API key or the desktop principal does not expire this way.
+    assert_eq!(TokenExpiry::NEVER.remaining(400), None);
+}

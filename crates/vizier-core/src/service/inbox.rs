@@ -82,11 +82,13 @@ pub fn judge(principal: &Principal, agents: &[(String, AgentConfig)], event: &In
     };
     let mine = |user: &str| user == principal.user_id;
     match event {
-        InboxEvent::Created { item, audience, .. } => {
+        InboxEvent::Created { item, audience, source_session } => {
             let visible = can_view(&item.agent_id) && audience.as_deref().is_none_or(mine);
-            visible.then(|| InboxFrame::Notification {
-                item: item.clone(),
-                counts: NotificationCounts::default(),
+            visible.then(|| {
+                // The item's own session is not serialized, so it came separately.
+                let mut item = item.clone();
+                item.source_session = source_session.clone();
+                InboxFrame::Notification { item, counts: NotificationCounts::default() }
             })
         }
         InboxEvent::Read { user_id, id, read } => mine(user_id).then(|| InboxFrame::Read {
@@ -144,6 +146,11 @@ pub async fn deliver(
         .iter()
         .filter_map(|event| judge(&principal, &agents, event))
         .collect();
+    for frame in frames.iter_mut() {
+        if let InboxFrame::Notification { item, .. } = frame {
+            super::notifications::fill_titles(services, &principal, std::slice::from_mut(item)).await;
+        }
+    }
     if frames.iter().any(InboxFrame::needs_counts) {
         match counts(services, &principal).await {
             Ok(fresh) => frames.iter_mut().for_each(|frame| frame.set_counts(fresh)),

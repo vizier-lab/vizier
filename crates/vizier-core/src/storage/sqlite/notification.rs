@@ -5,14 +5,12 @@ use chrono::{DateTime, TimeZone, Utc};
 use crate::{
     schema::{
         InsertedNotification, NotificationCategory, NotificationCounts, NotificationDraft,
-        NotificationFilter, NotificationItem, NotificationTone, ReplyBatch,
+        NotificationFilter, NotificationItem, NotificationTone,
     },
     storage::{
         notification::NotificationStorage, notification::RETENTION_DAYS, sqlite::SqlStorage,
     },
 };
-
-const HOUR_MS: i64 = 3_600_000;
 
 fn millis(ms: i64) -> DateTime<Utc> {
     Utc.timestamp_millis_opt(ms).single().unwrap_or_default()
@@ -350,34 +348,6 @@ impl NotificationStorage for SqlStorage {
         Ok(inserted as u64)
     }
 
-    async fn channel_reply_batches(&self, from_hour: i64, to_hour: i64) -> Result<Vec<ReplyBatch>> {
-        if from_hour > to_hour {
-            return Ok(vec![]);
-        }
-        let conn = self.conn.lock()?;
-        let mut stmt = conn.prepare(&format!(
-            r"SELECT agent_id, channel, timestamp / {HOUR_MS} AS hour, COUNT(*), MAX(timestamp) AS at
-              FROM session_history
-              WHERE content_type = 'Response'
-                AND (channel LIKE 'discord\_\_%' ESCAPE '\' OR channel LIKE 'telegram\_\_%' ESCAPE '\')
-                AND timestamp / {HOUR_MS} >= ?1 AND timestamp / {HOUR_MS} <= ?2
-              GROUP BY agent_id, channel, hour
-              ORDER BY hour, agent_id, channel"
-        ))?;
-        let rows = stmt
-            .query_map(params![from_hour, to_hour], |row| {
-                Ok(ReplyBatch {
-                    agent_id: row.get(0)?,
-                    channel: row.get(1)?,
-                    hour: row.get(2)?,
-                    replies: row.get::<_, i64>(3)?.max(0) as u64,
-                    at: millis(row.get(4)?),
-                })
-            })?
-            .collect::<sql::Result<Vec<_>>>()?;
-        Ok(rows)
-    }
-
     async fn purge_notifications_before(&self, at: DateTime<Utc>) -> Result<usize> {
         let conn = self.conn.lock()?;
         let deleted = conn.execute(
@@ -546,6 +516,24 @@ mod tests {
         assert_eq!(by("task:1").title.as_deref(), Some("Weekly brief"));
         let plain = by("plain:1");
         assert!(plain.title.is_none() && plain.excerpt.is_none() && plain.source_session.is_none());
+    }
+
+    #[test]
+    fn the_schema_drops_old_channel_reply_rows_and_their_read_rows() {
+        let conn = Connection::open_in_memory().unwrap();
+        crate::storage::sqlite::init_notification_schema(&conn).unwrap();
+        conn.execute_batch(
+            "INSERT INTO notification (id, event_key, agent_id, category, tone, summary, href, created_at)
+                VALUES (1, 'reply:a:discord__1:9', 'a', 'channel_replies', 'default', 'Replied once.', '/a/chat', 1),
+                       (2, 'task_run:1', 'a', 'task_run', 'default', 'Task answered.', '/a/tasks', 1);
+             INSERT INTO notification_read (user_id, notification_id, read_at) VALUES ('u', 1, 1), ('u', 2, 1);",
+        )
+        .unwrap();
+        // The next start runs the schema again.
+        crate::storage::sqlite::init_notification_schema(&conn).unwrap();
+        let count = |sql: &str| conn.query_row(sql, [], |r| r.get::<_, i64>(0)).unwrap();
+        assert_eq!(count("SELECT COUNT(*) FROM notification"), 1);
+        assert_eq!(count("SELECT COUNT(*) FROM notification WHERE category = 'channel_replies'"), 0);
     }
 
     #[tokio::test]
@@ -946,46 +934,6 @@ mod tests {
         assert_eq!(s.purge_orphaned_notifications().await.unwrap(), 1);
     }
 
-    #[tokio::test]
-    async fn channel_replies_group_per_conversation_hour_and_skip_other_channels() {
-        let (s, _d) = setup();
-        let hour = HOUR_MS;
-        {
-            let conn = s.conn.lock().unwrap();
-            let insert = format!(
-                "INSERT INTO session_history (uid, agent_id, channel, topic, timestamp, content_type, data, seq) \
-                 VALUES (CAST(?1 AS TEXT), 'a', ?2, NULL, ?3, ?4, '{{}}', {})",
-                conn.dialect().next_sequence_value("session_history", "seq")
-            );
-            let mut n = 0;
-            let mut put = |channel: &str, ts: i64, kind: &str| {
-                n += 1;
-                conn.execute(&insert, params![n, channel, ts, kind])
-                    .unwrap();
-            };
-            put("discord__1", 10 * hour + 5, "Response");
-            put("discord__1", 10 * hour + 9, "Response");
-            put("discord__1", 11 * hour + 1, "Response");
-            put("discord__1", 10 * hour + 7, "Request");
-            put("http__ana__x", 10 * hour + 7, "Response");
-            put("telegram__5", 10 * hour + 2, "Response");
-        }
-        let batches = s.channel_reply_batches(10, 11).await.unwrap();
-        let summary: Vec<(String, i64, u64)> = batches
-            .into_iter()
-            .map(|b| (b.channel, b.hour, b.replies))
-            .collect();
-        assert_eq!(
-            summary,
-            vec![
-                ("discord__1".into(), 10, 2),
-                ("telegram__5".into(), 10, 1),
-                ("discord__1".into(), 11, 1)
-            ]
-        );
-        assert!(s.channel_reply_batches(12, 11).await.unwrap().is_empty());
-    }
-
     crate::postgres_tests!(
         the_latest_id_is_the_highest_one_this_person_may_see,
         the_source_and_excerpt_columns_round_trip,
@@ -999,6 +947,5 @@ mod tests {
         deleting_an_agent_removes_its_notifications_and_read_rows_only,
         an_addressed_row_is_listed_counted_and_read_only_by_its_person,
         orphan_cleanup_drops_rows_for_agents_that_no_longer_exist,
-        channel_replies_group_per_conversation_hour_and_skip_other_channels,
     );
 }

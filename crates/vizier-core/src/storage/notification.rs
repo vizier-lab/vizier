@@ -8,7 +8,7 @@ use chrono::{DateTime, Utc};
 use crate::{
     schema::{
         InsertedNotification, NotificationCounts, NotificationDraft, NotificationFilter,
-        NotificationItem, ReplyBatch,
+        NotificationItem,
     },
     storage::VizierStorage,
 };
@@ -65,10 +65,6 @@ pub trait NotificationStorage {
         at: DateTime<Utc>,
         agents: &[String],
     ) -> Result<u64>;
-
-    /// Closed-hour reply aggregates for all agents, used by the projection.
-    async fn channel_reply_batches(&self, from_hour: i64, to_hour: i64)
-    -> Result<Vec<ReplyBatch>>;
 
     async fn purge_notifications_before(&self, at: DateTime<Utc>) -> Result<usize>;
 
@@ -130,14 +126,6 @@ impl NotificationStorage for VizierStorage {
         agents: &[String],
     ) -> Result<u64> {
         self.0.mark_all_notifications_read(user_id, at, agents).await
-    }
-
-    async fn channel_reply_batches(
-        &self,
-        from_hour: i64,
-        to_hour: i64,
-    ) -> Result<Vec<ReplyBatch>> {
-        self.0.channel_reply_batches(from_hour, to_hour).await
     }
 
     async fn purge_notifications_before(&self, at: DateTime<Utc>) -> Result<usize> {

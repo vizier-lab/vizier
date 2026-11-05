@@ -655,6 +655,15 @@ async fn refresh_session_detail(
         is_thinking: existing.is_thinking,
     };
     if storage.update_session_detail(detail).await.is_ok() {
+        // The person's inbox rows about this conversation named it before it had a title.
+        if let Some(username) = titled_session.1.web_user()
+            && let Ok(Some(user)) = crate::storage::user::UserStorage::get_user(&*storage, username).await
+        {
+            transport.publish_inbox_event(crate::transport::InboxEvent::Stale {
+                user: Some(user.user_id),
+                agent_id: None,
+            });
+        }
         transport.publish_session_event(SessionEvent {
             session: titled_session,
             frame: SessionFrame::Title { title },

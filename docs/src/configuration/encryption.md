@@ -68,7 +68,7 @@ Protected at rest:
 
 Not protected — by design:
 
-- conversation history and transcripts, agent memory and CORE documents, uploaded session files, task text, dream journals, notification summaries, usage records;
+- conversation history and transcripts, agent memory and CORE documents, uploaded session files, task text, dream journals, notification summaries and excerpts, usage records;
 - user password hashes and API-key hashes (already one-way);
 - `.vizier.yaml`, environment variables, and any credential passed inside a field that is not classified as secret (for example a token embedded in an MCP command argument);
 - the workspace key file itself when it is stored beside the data, and full-disk/OS-level encryption.
