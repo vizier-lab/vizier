@@ -75,6 +75,8 @@ design/                                 # submodule, committed first
 ├── src/styles.css                      # --color-code-*
 ├── src/components/CodeBlock/           # tones use code tokens, not status tokens
 ├── src/components/Shell/Rail.tsx       # remove the Theme button and onToggleTheme
+├── src/components/Avatar/Avatar.tsx    # generated faces read the scheme's colors
+├── src/lib/useSchemeColors.ts          # new: one shared observer of <html> for Avatar
 ├── src/components/SettingsNav/         # add the "appearance" page
 ├── src/components/ThemeTile/           # new: one scheme, drawn from its own colors
 ├── src/components/ColorField/          # new: picker plus hex input

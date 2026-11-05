@@ -27,6 +27,8 @@ A person opens Settings, goes to Appearance, and sees the color schemes Vizier s
 5. **Given** a person has never chosen a theme and has no earlier light or dark choice, **When** they open Vizier, **Then** they get the Vizier scheme following the device's light or dark setting.
 6. **Given** a person chose light or dark with the old rail control before this feature shipped, **When** they open Vizier after upgrading, **Then** they get the Vizier scheme fixed to that choice.
 7. **Given** any scheme is selected, **When** a code block is on screen, **Then** its keywords, strings, numbers, comments, functions and punctuation use that scheme's code colors.
+8. **Given** a scheme with its own colors is selected, **When** a person with no photo appears, **Then** their generated avatar keeps its shape and takes its colors from the scheme, and changes without a reload. **Given** the Vizier or Vizier Swapped scheme, **Then** generated avatars look as they do today. **Given** a person or agent with an uploaded picture, **Then** the picture is unchanged.
+9. **Given** any preset and a running agent, **When** its sigil is on screen, **Then** the sigil follows the scheme and its live dot is clearly distinguishable from the other dots.
 
 ---
 
@@ -104,7 +106,8 @@ A person exports any theme, preset or custom, to a file. They can use that file 
 - **FR-005b**: For a scheme with both variants, Appearance MUST offer System, Light and Dark, with System the default. System follows the device, including when the device switches. For a scheme with one variant, this choice MUST NOT be offered.
 - **FR-005c**: When no scheme has been chosen, Vizier MUST use the Vizier scheme following the device's setting.
 - **FR-006**: The chosen scheme MUST be restored on every later load before the first paint, with no flash of other colors.
-- **FR-007**: Everything in the interface that follows the current light or dark appearance today MUST also follow the scheme and the variant on screen, including diagrams, charts, agent-generated pages and the desktop window frame.
+- **FR-007**: Everything in the interface that follows the current light or dark appearance today MUST also follow the scheme and the variant on screen, including sigils, diagrams, charts, generative UI, agent-generated pages and the desktop window frame.
+- **FR-007a**: Generated user avatars MUST take their colors from the scheme on screen and MUST keep the shape they have for that person. Under the Vizier and Vizier Swapped schemes they MUST keep today's fixed colors. Uploaded pictures MUST NOT be recolored.
 - **FR-008**: People who never choose a scheme MUST see no visual change apart from the removed rail toggle and the Vizier scheme's new code colors (FR-008c). A light or dark choice made with the old toggle MUST carry over as the Vizier scheme fixed to that choice.
 
 **Code colors**
@@ -126,7 +129,7 @@ A person exports any theme, preset or custom, to a file. They can use that file 
 - **FR-013**: Each color MUST be settable through a visual picker and by typing a color value.
 - **FR-014**: The editor MUST show a live preview of representative interface elements, and MUST NOT change the active scheme until the person saves and selects it.
 - **FR-015**: A custom scheme's name MUST be 1 to 40 characters after trimming and unique among all schemes, ignoring case.
-- **FR-016**: The editor MUST warn about color pairs below a 4.5:1 contrast ratio for body text and 3:1 for large text and interface elements. It MUST NOT prevent saving.
+- **FR-016**: The editor MUST warn about color pairs below a 4.5:1 contrast ratio for body text and 3:1 for large text and interface elements. It MUST also warn when the accent and live colors are too alike to tell apart, because a sigil's live dot would disappear. It MUST NOT prevent saving.
 - **FR-017**: A person MUST be able to return to the default scheme in one action from Appearance, using a control that stays legible under any active scheme.
 - **FR-018**: A person MUST be able to keep at least 50 custom schemes on a device.
 
@@ -161,7 +164,7 @@ A person exports any theme, preset or custom, to a file. They can use that file 
 - **SC-002**: A person can duplicate a preset, change a color and save a custom scheme in under 2 minutes.
 - **SC-003**: 100% of screens show the selected scheme, with no leftover default colors in a walk through every top-level screen in each variant the scheme has.
 - **SC-004**: After a reload, no frame shows colors other than the selected scheme.
-- **SC-005**: Every shipped preset meets 4.5:1 for body text and code colors, and 3:1 for code comments, large text and interface elements, in every variant it has.
+- **SC-005**: Every shipped preset meets 4.5:1 for body text and code colors, and 3:1 for code comments, large text and interface elements, in every variant it has, and its accent and live colors are clearly different.
 - **SC-006**: An export followed by an import reproduces every color exactly.
 - **SC-007**: No request to the server contains scheme data, and a network trace of the whole flow shows no new server traffic.
 - **SC-008**: People who never open Appearance see a pixel-identical interface compared with the previous release, apart from the removed rail toggle and Vizier's new monochromatic code colors.

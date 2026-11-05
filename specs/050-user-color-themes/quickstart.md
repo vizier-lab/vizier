@@ -55,6 +55,9 @@ The WebUI tests pin, among others: every token is a role; every preset meets the
 2. Open that document in Memory and switch scheme → expect the diagram to redraw in the new colors.
 3. Send `ui_render` then the JSON from `specs/026-generative-ui-terminal-tools/quickstart.md` → expect the page in the current scheme. Switch scheme → expect the page's own design components to follow live.
 4. Send `execute_python` that calls a saved interactive page, if any are at hand. After switching scheme, expect it to keep its colors until reopened (research R8).
+5. With the dummyplug agent's chat open, send `tools` and watch its sigil while the turn runs → expect the sigil in the scheme's colors with a visible live dot, in every preset.
+6. On a user with no photo, select Dracula → expect the generated avatar in Dracula's colors with the same shape, without a reload. Select Vizier, then Vizier Swapped → expect the original colors both times. Compare against `AVATAR_COLORS`.
+7. Upload a photo for the user and an image for the agent → expect neither to change with the scheme.
 
 ## 5. Custom schemes (User Story 2)
 

@@ -86,7 +86,7 @@ type Scheme = {
 | Scheme | Light | Dark | Notes |
 |---|---|---|---|
 | Vizier | yes | yes | From `tokens.css`; applies no overrides |
-| Vizier Swapped | yes | yes | Vizier with `bg/shell` and `bg/panel` exchanged; may override `bg/surface` in light |
+| Vizier Swapped | yes | yes | Vizier with `bg/shell` and `bg/panel` exchanged; may override `bg/surface` in light; paints only the roles it changes (research R8a) |
 | Oxocarbon, Catppuccin, Gruvbox, Rosé Pine, Tokyo Night, Everforest, Solarized | yes | yes | Keys and published code colors; the rest derived |
 | Nord, Dracula | no | yes | Same |
 
@@ -133,3 +133,5 @@ Used by the editor's warnings (FR-016) and by the preset test (SC-005).
 | `line/focus`, `state/live`, `state/failed`, `state/retrying` | `bg/panel` | 3 |
 
 Hairline borders are excluded on purpose (research R11).
+
+One further check is a color difference, not a contrast ratio: `fill/ink` and `state/live` must be at least 0.1 apart in ΔEok, so a sigil's live dot stays visible (research R8b).

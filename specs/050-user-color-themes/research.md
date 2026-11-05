@@ -63,6 +63,22 @@
 
 `InteractivePage.tsx` has its own copy of `isDark`, which still works. Leave it.
 
+Sigils and generative UI need no change, as they draw from tokens. Sigils use `bg/ground`, `line/border-strong`, `fill/ink` and `state/live`. Generative UI's color names map to tokens in `registry/colours.ts`. Exceptions in generative UI: an agent's explicit `#rrggbb` stays as written, and the default terrain palette stays fixed because it stands for terrain.
+
+## R8a. Generated avatars
+
+**Decision**: `Avatar` stays self-contained in `design/`. A small `useSchemeColors` hook, with one shared `MutationObserver` on `<html>`, reads the six roles matching `AVATAR_COLORS` by position: live, ink, soft, chart-4, chart-5, border. If none of the six is set inline, it returns the fixed `AVATAR_COLORS`. If any is, it resolves all six through computed style.
+
+**Rationale**: `boring-avatars` needs real hex values, not CSS variables. It chooses shapes from the name and picks colors by position, so the same order keeps each person's shape. Reading inline properties gives Vizier today's exact pixels, which SC-008 requires, as today's values are light-theme ones used in both themes. Avatars appear in lists, so one observer is shared rather than one each. Passing colors as a prop would mean threading them through every design component that draws an avatar.
+
+**Consequence for Vizier Swapped**: it must paint only the roles it changes, not all 50, or it would count as having its own colors. `resolve` therefore omits roles equal to Vizier's for this one scheme, which also keeps its cache small. A custom copy of Vizier stores all its roles, so its avatars follow its colors, a slight change from the fixed set, which is acceptable for a scheme the person now owns.
+
+## R8b. Sigil live dot
+
+**Decision**: Require accent and live to differ by at least 0.1 in OKLab distance (ΔEok). Presets are held to this by test, and custom schemes get a warning.
+
+**Rationale**: The dot differs from its neighbours by color alone, and a contrast ratio is the wrong measure, as two colors can have the same lightness and still be distinct. Measured: Vizier 0.437 light and 0.306 dark, Dracula 0.381, Catppuccin Mocha 0.236, Gruvbox dark 0.173. The chat mockup's values for Nord (`#88c0d0`, 0.095) and Everforest (`#a7c080`, 0) fail, so those presets need another accent.
+
 ## R9. Preset sources and licences
 
 Licences were checked against each repository on 2026-11-05. All are permissive, and `docs/src/configuration/themes.md` credits them.
