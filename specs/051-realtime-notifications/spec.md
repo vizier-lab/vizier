@@ -38,7 +38,7 @@ A person presses the bell and a small popup opens anchored to it, floating over 
 
 **Acceptance Scenarios**:
 
-1. **Given** any page on a desktop width, **When** the bell is pressed, **Then** a popup about 380 pixels wide opens anchored to the bell, and the page content does not move or resize.
+1. **Given** any page on a desktop width, **When** the bell is pressed, **Then** a popup about 360 pixels wide opens anchored to the bell, and the page content does not move or resize.
 2. **Given** the popup is open, **When** the person presses Escape, a press outside it or its close button, **Then** it closes.
 3. **Given** a phone width, **When** the bell is pressed, **Then** the popup opens under the bell, within the screen margins, and never causes horizontal scrolling.
 4. **Given** the list is longer than the popup, **When** the person scrolls, **Then** only the list scrolls and the filters stay in reach.
@@ -56,11 +56,11 @@ Each conversation notification leads with the conversation's title, followed by 
 
 **Acceptance Scenarios**:
 
-1. **Given** an agent replies in a titled conversation, **When** the notification appears, **Then** the row shows the conversation title, the agent's name, and an excerpt of the reply of no more than two lines.
+1. **Given** an agent replies in a titled conversation, **When** the notification appears, **Then** the row shows the conversation title, an excerpt of the reply of no more than two lines, and the agent's name with the time.
 2. **Given** a reply with headings, links, tables or code, **When** it is excerpted, **Then** the excerpt reads as plain text with no markup characters and is cut at about 140 characters with an ellipsis.
 3. **Given** a task run closes, **When** its notification appears, **Then** the row shows the task title and, if the run answered, an excerpt of its answer; a failed run shows the reason instead.
 4. **Given** a background job ends, **When** its notification appears, **Then** the row shows the title of the conversation that launched it, with the job's outcome as the excerpt.
-5. **Given** a notification with no conversation behind it (an integration change, a dream cycle, an agent becoming ready), **When** it appears, **Then** the row shows the agent's name and the existing summary text, with no empty title or excerpt space.
+5. **Given** a notification with no conversation behind it (an integration change, a dream cycle, an agent becoming ready), **When** it appears, **Then** the row shows the existing summary text and the agent's name with the time, with no empty title or excerpt space.
 
 ---
 
@@ -142,7 +142,9 @@ A laptop sleeps, Wi-Fi drops or the server restarts. When the connection returns
 - **FR-015**: On every page that has a bell, pressing it MUST open a small popup anchored to the bell, in place of both the docked desktop column and the full-screen phone panel.
 - **FR-016**: The popup MUST NOT move or resize the page beneath it.
 - **FR-017**: The popup MUST close on a visible close button, Escape, and a press outside it, in line with the project's dismissal convention.
-- **FR-018**: The popup MUST show, in order: live setup activity when any is running, the Unread/Read/All filters with counts and "Mark all read", then the list with "Load older". The list scrolls within the popup; the filters do not.
+- **FR-018**: The popup MUST show, in order: Unread and All filters with mark-all-read and close icons on the same line, live setup activity when any is running, then the list with "Load older". It has no title bar, and the filters show no counts because the bell shows the unread count as a number. The list scrolls within the popup; the filters do not.
+- **FR-018a**: Each running setup MUST use the same row format as a notification: the agent's sigil, the current step as the title, the size done and percentage as the detail line, a thin progress bar, and a quiet line with the agent's name and time remaining. Where the size or time is unknown, that text is left out and the bar shows activity without a percentage. A failed download shows its error on the detail line. Rows for individual downloads are not shown, and a setup row has no read toggle.
+- **FR-018b**: Rows MUST be borderless: a small agent sigil, then a title, the excerpt and a quiet line with the agent's name and time. There is no unread dot: an unread row uses darker, heavier text than a read row, and says "unread" to screen readers. The read toggle MUST appear on hover or keyboard focus, and MUST remain reachable on touch screens.
 - **FR-019**: The popup MUST be usable at phone widths without horizontal scrolling and MUST respect the user's selected color theme and both light and dark modes.
 
 **Content of a notification**
@@ -152,7 +154,7 @@ A laptop sleeps, Wi-Fi drops or the server restarts. When the connection returns
 - **FR-022**: Excerpts MUST come only from content that has already been through secret scrubbing, and MUST NOT include tool arguments, tool results or the agent's reasoning.
 - **FR-023**: A person MUST only see a title or excerpt from content they are permitted to open. Where they may see the notification but not its source, the row MUST show the summary alone.
 - **FR-024**: Deleting a conversation or an agent MUST remove its excerpts and titles from the inbox.
-- **FR-025**: Notifications with no source content MUST render cleanly with the agent's name and summary only.
+- **FR-025**: Notifications with no source content MUST render cleanly with the summary, the agent's name and the time only.
 
 **External channels**
 
