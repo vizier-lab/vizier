@@ -9,7 +9,6 @@ export type NotificationCategory =
     | 'dream_cycle'
     | 'background_job'
     | 'integration'
-    | 'channel_replies'
     | 'chat_reply'
 
 export type NotificationTone = 'default' | 'failed' | 'success'
