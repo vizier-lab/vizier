@@ -4,7 +4,7 @@
  * are read from CSS at runtime (getComputedStyle), so nothing is written twice.
  */
 
-export type TokenGroup = "bg" | "line" | "dot" | "text" | "fill" | "state" | "data";
+export type TokenGroup = "bg" | "line" | "dot" | "text" | "fill" | "state" | "data" | "code";
 
 export type ColorToken = {
   /** Design name, e.g. "bg/surface". */
@@ -53,6 +53,8 @@ export const colorTokens: ColorToken[] = [
   { name: "state/retrying-line", cssVar: "--vz-retrying-line", tw: "retrying-line", group: "state", description: "Amber notice edge" },
   { name: "state/failed-hover", cssVar: "--vz-failed-hover", tw: "failed-hover", group: "state", description: "Destructive button fill under the pointer" },
   { name: "state/failed-pressed", cssVar: "--vz-failed-pressed", tw: "failed-pressed", group: "state", description: "Destructive button fill while pressed" },
+  { name: "state/selection", cssVar: "--vz-selection", tw: "selection", group: "state", description: "Selected text ground" },
+  { name: "state/selection-text", cssVar: "--vz-selection-text", tw: "selection-text", group: "state", description: "Selected text letters" },
   { name: "data/graph-edge", cssVar: "--vz-graph-edge", tw: "graph-edge", group: "data", description: "Memory graph links" },
   { name: "data/graph-edge-strong", cssVar: "--vz-graph-edge-strong", tw: "graph-edge-strong", group: "data", description: "Memory graph links of the selected node" },
   { name: "data/chart-1", cssVar: "--vz-chart-1", tw: "chart-1", group: "data", description: "Chart series: dreams" },
@@ -60,6 +62,12 @@ export const colorTokens: ColorToken[] = [
   { name: "data/chart-3", cssVar: "--vz-chart-3", tw: "chart-3", group: "data", description: "Chart series: vision" },
   { name: "data/chart-4", cssVar: "--vz-chart-4", tw: "chart-4", group: "data", description: "Chart series: background" },
   { name: "data/chart-5", cssVar: "--vz-chart-5", tw: "chart-5", group: "data", description: "Chart series: scheduled" },
+  { name: "code/keyword", cssVar: "--vz-code-keyword", tw: "code-keyword", group: "code", description: "Keywords in highlighted code" },
+  { name: "code/string", cssVar: "--vz-code-string", tw: "code-string", group: "code", description: "Strings in highlighted code" },
+  { name: "code/number", cssVar: "--vz-code-number", tw: "code-number", group: "code", description: "Numbers and literals in highlighted code" },
+  { name: "code/comment", cssVar: "--vz-code-comment", tw: "code-comment", group: "code", description: "Comments in highlighted code" },
+  { name: "code/function", cssVar: "--vz-code-function", tw: "code-function", group: "code", description: "Function and type names in highlighted code" },
+  { name: "code/punctuation", cssVar: "--vz-code-punctuation", tw: "code-punctuation", group: "code", description: "Punctuation in highlighted code" },
 ];
 
 export type SizeToken = { name: string; cssVar: string; kind: "radius" | "space" };
