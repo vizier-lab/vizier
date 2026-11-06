@@ -5,13 +5,18 @@ import { planActionsVisible, planOf } from './plans'
 function turn(key: string, report: unknown): Turn {
     return {
         key,
-        trail: [
+        blocks: [
             {
-                kind: 'python',
-                id: 'p1',
-                intent: null,
-                code: null,
-                report: report as never,
+                kind: 'trail',
+                events: [
+                    {
+                        kind: 'python',
+                        id: 'p1',
+                        intent: null,
+                        code: null,
+                        report: report as never,
+                    },
+                ],
             },
         ],
         live: false,

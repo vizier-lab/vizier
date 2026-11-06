@@ -7,7 +7,7 @@ import type {
     VizierResponseContent,
     VizierResponseStats,
 } from '../api/frames'
-import { abbreviate, cost as formatCost, count } from './format'
+import { abbreviate, cost as formatCost, count, duration } from './format'
 import { estimateCost, type Price } from './prices'
 import { zoned } from './timezone'
 
@@ -78,12 +78,16 @@ export function replyError(content: VizierResponseContent): { kind: string; mess
     return typeof content === 'object' && content !== null && 'error' in content ? content.error : null
 }
 
-/** "anthropic/claude-sonnet-5-5 · 6.1k in · 712 out · ~$0.03" */
-export function statsLine(stats: VizierResponseStats & { provider?: string; model?: string }, price?: Price | null): string {
+/**
+ * "anthropic/claude-sonnet-5-5 · 6.1k in · 712 out · ~$0.03". `totalMs` adds the turn's whole
+ * time, for a turn in several parts, whose trails each show only their own.
+ */
+export function statsLine(stats: VizierResponseStats & { provider?: string; model?: string }, price?: Price | null, totalMs?: number): string {
     const parts: string[] = []
     if (stats.model) parts.push(stats.provider ? `${stats.provider}/${stats.model}` : stats.model)
     parts.push(`${abbreviate(stats.total_input_tokens)} in`, `${abbreviate(stats.total_output_tokens)} out`)
     if (price) parts.push(formatCost(estimateCost(stats, price)))
+    if (totalMs !== undefined) parts.push(duration(totalMs))
     return parts.join(' · ')
 }
 

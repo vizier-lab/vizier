@@ -18,6 +18,7 @@ import type {
   ExecutionReport,
   TrailEvent,
   Turn,
+  TurnBlock,
   VizierResponseContent,
 } from '../api/frames'
 
@@ -41,6 +42,7 @@ const asArgs = (value: unknown): Record<string, unknown> =>
 
 // The tools that launch a background job, and the job id their result quotes.
 // Keep `paralel_subtasks` so saved history still renders as a job launch.
+// `delegate_agent` is retired (spec 053) and stays so saved history keeps its job link (#82).
 const JOB_LAUNCHING_TOOLS = new Set(['paralel_subtasks', 'background_subagents', 'delegate_agent'])
 const JOB_ID = /\bb-[0-9a-f]{6}\b/
 
@@ -51,15 +53,10 @@ export function launchedJobId(name: string, result: unknown): string | undefined
   return text.match(JOB_ID)?.[0]
 }
 
-/** Adjacent reasoning, and adjacent narration, read as one block rather than a list. */
+/** Adjacent reasoning reads as one block rather than a list. */
 function push(trail: TrailEvent[], event: TrailEvent): void {
   const last = trail[trail.length - 1]
-  if (
-    last &&
-    last.kind === event.kind &&
-    (event.kind === 'thought' || event.kind === 'narration') &&
-    (last.kind === 'thought' || last.kind === 'narration')
-  ) {
+  if (last && last.kind === 'thought' && event.kind === 'thought') {
     last.text = `${last.text}\n\n${event.text}`
     return
   }
@@ -68,17 +65,10 @@ function push(trail: TrailEvent[], event: TrailEvent): void {
 
 /**
  * The trail event one history entry produces, or `null` for an entry that is not part of a
- * trail — a request, an outcome, a divider, or a kind this version does not know about.
+ * trail — a request, a message, an outcome, a divider, or a kind this version does not know.
  */
 function historyEvent(entry: ChatMessage): TrailEvent | null {
   const { content } = entry
-
-  if (typeof content.AssistantMessage === 'string') {
-    return content.AssistantMessage
-      ? { kind: 'narration', id: entry.uid, text: content.AssistantMessage }
-      : null
-  }
-
   const call = content.ToolCall
   if (!call) return null
 
@@ -106,6 +96,48 @@ function historyEvent(entry: ChatMessage): TrailEvent | null {
 const STOP_NOTICE = /^(Stopped|Interrupted):/
 
 /**
+ * A turn-ending tool's call saves the model's text as a mid-turn message and again as the reply
+ * (`chat_turn` records every step of such a turn). It was said once, so it is drawn once, as the
+ * reply. Removing it can leave two trails side by side, which then read as one stretch of work.
+ */
+function dropEchoedMessage(turn: Turn, outcome: ChatMessage): void {
+  const content = outcome.content.Response?.content
+  if (typeof content !== 'object' || content === null || !('message' in content)) return
+  if (!content.message.stats?.ended_by_tool) return
+  const at = lastBlockOf(turn, 'message')
+  const found = turn.blocks[at]
+  if (!found || found.kind !== 'message' || found.text !== content.message.content) return
+  turn.blocks.splice(at, 1)
+  const before = turn.blocks[at - 1]
+  const after = turn.blocks[at]
+  if (before?.kind === 'trail' && after?.kind === 'trail') {
+    before.events.push(...after.events)
+    before.endedAt = after.endedAt ?? before.endedAt
+    turn.blocks.splice(at, 1)
+  }
+}
+
+/** The index of a turn's last block of one kind, or -1. */
+export function lastBlockOf(turn: Turn, kind: TurnBlock['kind']): number {
+  for (let i = turn.blocks.length - 1; i >= 0; i -= 1) {
+    if (turn.blocks[i].kind === kind) return i
+  }
+  return -1
+}
+
+/** Every trail event of a turn, across its blocks, in order. */
+export function turnEvents(turn: Turn): TrailEvent[] {
+  return turn.blocks.flatMap((block) => (block.kind === 'trail' ? block.events : []))
+}
+
+/** How long one stretch of work took, when its entries carry times. */
+export function blockDurationMs(block: Extract<TurnBlock, { kind: 'trail' }>): number | undefined {
+  if (!block.startedAt || !block.endedAt) return undefined
+  const span = Date.parse(block.endedAt) - Date.parse(block.startedAt)
+  return Number.isFinite(span) && span >= 0 ? span : undefined
+}
+
+/**
  * Stored history to turns.
  *
  * Pure, and deliberately **not** sorting: the storage layer already ordered the entries by
@@ -124,12 +156,14 @@ export function groupHistory(entries: ChatMessage[]): Turn[] {
   let pendingLaunch: Map<string, TrailEvent> = new Map()
   // call_id of any call event → the event, so a stop notice can mark it stopped.
   const callEvents: Map<string, TrailEvent> = new Map()
+  // call_id of any call event → its trail, since a result can land after a later block began.
+  const callBlocks: Map<string, Extract<TurnBlock, { kind: 'trail' }>> = new Map()
   let open: Turn | null = null
 
   // An agent-initiated turn — a scheduled task, a dream cycle — has no request. Its trail
   // still belongs to a turn rather than being dropped.
   const newTurn = (key: string, request?: ChatMessage): Turn => {
-    const turn: Turn = { key, request, trail: [], live: false, clientCalls: [], questions: [] }
+    const turn: Turn = { key, request, blocks: [], live: false, clientCalls: [], questions: [] }
     turns.push(turn)
     return turn
   }
@@ -163,6 +197,7 @@ export function groupHistory(entries: ChatMessage[]): Turn[] {
 
     if (content.Response !== undefined) {
       const turn = open ?? newTurn(entry.uid)
+      dropEchoedMessage(turn, entry)
       turn.outcome = entry
       turn.anchorUid = entry.uid
       turn.key = entry.uid
@@ -189,6 +224,8 @@ export function groupHistory(entries: ChatMessage[]): Turn[] {
 
     // A report pairs with its call by `call_id`, which history always carries.
     if (content.ToolResult) {
+      const holder = callBlocks.get(content.ToolResult.call_id)
+      if (holder && entry.timestamp) holder.endedAt = entry.timestamp
       if (STOP_NOTICE.test(content.ToolResult.content)) {
         const stopped = callEvents.get(content.ToolResult.call_id)
         if (stopped && (stopped.kind === 'tool' || stopped.kind === 'python')) stopped.stopped = true
@@ -210,12 +247,29 @@ export function groupHistory(entries: ChatMessage[]): Turn[] {
       continue
     }
 
+    // A mid-turn message ends the stretch of work before it; the next event opens a new one.
+    if (typeof content.AssistantMessage === 'string') {
+      if (!content.AssistantMessage) continue
+      if (!open) open = newTurn(entry.uid)
+      open.blocks.push({ kind: 'message', id: entry.uid, text: content.AssistantMessage })
+      continue
+    }
+
     const event = historyEvent(entry)
     if (!event) continue
 
     if (!open) open = newTurn(entry.uid)
-    push(open.trail, event)
-    if (content.ToolCall) callEvents.set(content.ToolCall.call_id, event)
+    let block = open.blocks[open.blocks.length - 1]
+    if (block?.kind !== 'trail') {
+      block = { kind: 'trail', events: [], startedAt: entry.timestamp }
+      open.blocks.push(block)
+    }
+    push(block.events, event)
+    if (entry.timestamp) block.endedAt = entry.timestamp
+    if (content.ToolCall) {
+      callEvents.set(content.ToolCall.call_id, event)
+      callBlocks.set(content.ToolCall.call_id, block)
+    }
     if (event.kind === 'python' && content.ToolCall) {
       pendingPython.set(content.ToolCall.call_id, event)
     }
@@ -328,11 +382,9 @@ export function applyClientState(
 }
 
 /**
- * One streamed frame to a trail event, or `null` for a frame that is not one.
- *
- * There is no `narration` here: intermediate assistant text is not streamed, so a turn
- * gains its narration only once reloaded from history. The asymmetry is accepted — the
- * alternative is a new WebSocket frame for a cosmetic gain.
+ * One streamed frame to a trail event, or `null` for a frame that is not one. A mid-turn message
+ * is not one of them: it reaches a running turn as a `history_entry` frame, like every saved step,
+ * and `groupHistory` draws it.
  */
 export function liveEvent(content: VizierResponseContent, id: string): TrailEvent | null {
   if (typeof content !== 'object' || content === null) return null
@@ -422,13 +474,12 @@ export function appendLiveEvent(
 
 /** Counts by kind plus the turn's duration, bounded regardless of how long the trail is. */
 export function trailSummary(trail: TrailEvent[], durationMs?: number): string {
-  const counts = { thought: 0, narration: 0, tool: 0, python: 0 }
+  const counts = { thought: 0, tool: 0, python: 0 }
   for (const event of trail) counts[event.kind] += 1
 
   const parts: string[] = []
   const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`
   if (counts.thought) parts.push(plural(counts.thought, 'thought', 'thoughts'))
-  if (counts.narration) parts.push(plural(counts.narration, 'note', 'notes'))
   if (counts.tool) parts.push(plural(counts.tool, 'tool', 'tools'))
   if (counts.python) parts.push(plural(counts.python, 'python run', 'python runs'))
 
