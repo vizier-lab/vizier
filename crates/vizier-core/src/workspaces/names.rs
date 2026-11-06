@@ -37,6 +37,13 @@ pub fn validate(name: &str) -> Result<(), NameError> {
     }
 }
 
+/// What a person typed, as a name: trimmed and lower-cased (the New workspace dialog does the
+/// same), so `OPS` is `ops` and collides with it (FR-001). Characters the rule refuses stay
+/// refused by [`validate`].
+pub fn normalize(typed: &str) -> String {
+    typed.trim().to_lowercase()
+}
+
 /// The key two names are compared by, so `Ops` and `ops` cannot both exist (FR-001).
 pub fn key(name: &str) -> String {
     name.to_lowercase()
@@ -61,6 +68,13 @@ mod tests {
         for name in ["-ops", "Ops", "ops team", "ops_team", "ops!", "é", "ops/x"] {
             assert_eq!(validate(name), Err(NameError::BadCharacters), "{name}");
         }
+    }
+
+    #[test]
+    fn typed_names_are_trimmed_and_lower_cased() {
+        assert_eq!(normalize("  OPS "), "ops");
+        assert_eq!(validate(&normalize("Daily-Incidents")), Ok(()));
+        assert_eq!(validate(&normalize("Not Allowed!")), Err(NameError::BadCharacters));
     }
 
     #[test]

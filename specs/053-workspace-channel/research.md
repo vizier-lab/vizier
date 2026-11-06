@@ -196,3 +196,9 @@ Opening a topic calls `POST /workspaces/{id}/topics/{tid}/read`, which inserts r
 **Decision**: Two new permissions in `AVAILABLE_PERMISSIONS`: `workspaces:create` and `all_workspaces:manage` (read, post and manage any). Decisions live in `workspaces/access.rs`, on the pattern of `projects/access.rs`. Membership is `owner` or `member`. An owner manages; several owners are allowed, and the last owner cannot be removed or demoted except by `all_workspaces:manage`.
 
 An `all_workspaces:manage` holder is treated as a member with management rights but does not appear in the member list or the mention menu until added.
+
+## R21. A typed name is trimmed and lower-cased before it is checked
+
+**Decision**: `workspaces::names::normalize` trims and lower-cases what a person typed, then `validate` applies the rule. So `OPS` is `ops` and collides with it (`409 name_in_use`), while `Not Allowed!` is still refused (`422 invalid_name`).
+
+**Rationale**: FR-001 says unique ignoring case, the quickstart expects `409` for `OPS`, and the mockup's New workspace dialog already lower-cases input. A strict reject would have answered `422` and never reached the uniqueness check. Found by the service test `names_are_unique_ignoring_case_and_follow_the_rule`.

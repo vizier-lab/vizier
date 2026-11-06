@@ -40,7 +40,7 @@ description: "Task list for the Workspace channel and mid-turn messages"
 - [X] T005 Add `VizierChannelId::Workspace(String)` with slug `workspace__{id}` in `core/schema/session.rs`, covering `to_slug`, `usage_place` (`workspace:{id}:{topic}`) and `usage_activity`, and the span recording match in `core/agents/agent/mod.rs`
 - [X] T006 Add `UsageActivity::Workspace`, labelled **Workspaces**, in `core/schema/usage.rs`, and `workspace__` in `slug_kind` in `core/usage/mod.rs`
 - [X] T007 Review each slug prefix check named in research R8 and exclude Workspace sessions from agent conversation pages: `core/service/conversations.rs` (`kind_of`), `core/service/topics.rs` (`readable_channel`), `core/access.rs`, `core/storage/session.rs`, `core/storage/sqlite/session.rs`. Leave `is_non_user_channel` in `core/storage/history.rs` false so dreams reflect on it
-- [ ] T008 Regenerate `crates/vizier-core/public-api.txt`
+- [ ] T008 (blocked: needs nightly rustdoc and `cargo public-api`, neither installed here) Regenerate `crates/vizier-core/public-api.txt`
 - [X] T009 Add `WorkspaceStorage` in `core/storage/workspace.rs` per `specs/053-workspace-channel/data-model.md`, and add it to `VizierStorageProvider` in `core/storage/mod.rs`
 - [X] T010 Implement `init_workspace_schema` and `impl WorkspaceStorage` in `core/storage/sqlite/workspace.rs` (tables `workspace`, `workspace_topic`, `workspace_member`, `workspace_entry`, `workspace_mention`, `workspace_read`, with cascade and `(workspace_id, handle)` unique), and register it in the list in `core/storage/sqlite/mod.rs`
 - [X] T011 Add `session_history(channel, topic, timestamp)` index, and nullable `workspace_id` and `author` on `notification`, in `core/storage/sqlite/mod.rs` and `core/storage/sqlite/notification.rs`
@@ -48,9 +48,9 @@ description: "Task list for the Workspace channel and mid-turn messages"
 - [X] T013 [P] Add the name rule with tests in `core/workspaces/names.rs`: 1 to 64 characters, `^[a-z0-9][a-z0-9-]*$`, for Workspaces and topics
 - [X] T014 Add `workspaces:create` and `all_workspaces:manage` to `AVAILABLE_PERMISSIONS` in `core/storage/user.rs`, with labels in `webui/app/lib/permissions.ts`, and decide which seeded roles get them
 - [X] T015 Add `core/workspaces/access.rs` on the pattern of `core/projects/access.rs`, the only place deciding member, owner and `all_workspaces:manage`, with tests for all three fixture kinds
-- [ ] T016 Add `core/service/workspaces.rs` and register it in `core/service/mod.rs`: create, get, list, topics create, members add and remove (`can_edit_agent` for agents, `409 handle_in_use`, `409 last_owner`), mapping failures onto `ServiceError`. A non-member gets `not_found` everywhere
-- [ ] T017 Add `http/api/v1/workspaces.rs` with the create, list, detail, topic and member routes from `specs/053-workspace-channel/contracts/http-api.md`, translating only, and nest it in `http/api/v1/mod.rs`
-- [ ] T018 Add `crates/vizier-http/tests/conformance/groups/workspaces.rs` with a vector per route for three fixture users, register it, and record with `CONFORMANCE_RECORD=1`. `tests/conformance/pending.txt` must not grow
+- [X] T016 Add `core/service/workspaces.rs` and register it in `core/service/mod.rs`: create, get, list, topics create, members add and remove (`can_edit_agent` for agents, `409 handle_in_use`, `409 last_owner`), mapping failures onto `ServiceError`. A non-member gets `not_found` everywhere
+- [X] T017 Add `http/api/v1/workspaces.rs` with the create, list, detail, topic and member routes from `specs/053-workspace-channel/contracts/http-api.md`, translating only, and nest it in `http/api/v1/mod.rs`
+- [X] T018 (vectors are reads and refusals only, since the harness sends each twice; success paths are in `crates/vizier-core/tests/workspaces_service.rs`) Add `crates/vizier-http/tests/conformance/groups/workspaces.rs` with a vector per route for three fixture users, register it, and record with `CONFORMANCE_RECORD=1`. `tests/conformance/pending.txt` must not grow
 
 **Checkpoint**: Workspaces, topics and members exist over HTTP, with access rules pinned. Nothing wakes yet.
 
