@@ -228,6 +228,33 @@ seen = live.entries().length
 await api('POST', `/workspaces/${wid}/topics/${tid}/entries`, { text: '@alpha tools' })
 check('an agent answers again after a stop', !!(await live.entry((e) => e.author.id === 'alpha' && e.is_final, seen)))
 
+// --- files and reactions -------------------------------------------------------------------------------
+section('files and reactions')
+const uploaded = await api('POST', '/files/upload', { file: Buffer.from('hello').toString('base64'), filename: 'notes.txt' })
+check('a file uploads', uploaded.status === 201, uploaded.body)
+seen = live.entries().length
+const withFile = await api('POST', `/workspaces/${wid}/topics/${tid}/entries`, { text: '@alpha context', files: [uploaded.data.file_id] })
+check('a message carries it', withFile.status === 201 && withFile.data.entry.files[0]?.name === 'notes.txt', withFile.body)
+const fileReply = await live.entry((e) => e.author.id === 'alpha' && e.is_final, seen)
+check('the woken agent answers', !!fileReply)
+const alone = await api('POST', `/workspaces/${wid}/topics/${tid}/entries`, { text: '', files: [uploaded.data.file_id] })
+check('a message can be files alone', alone.status === 201, alone.body)
+const noFile = await api('POST', `/workspaces/${wid}/topics/${tid}/entries`, { text: 'x', files: ['nope'] })
+check('an id nobody uploaded is refused', noFile.status === 422 && noFile.body.data?.error === 'unknown_file', noFile.body)
+const reacted = await api('POST', `/workspaces/${wid}/topics/${tid}/reactions`, { message_uid: fileReply.history_uid, emoji: '👍', action: 'added' })
+check('a reply takes a reaction', reacted.status === 200, reacted.body)
+const strayReaction = await api('POST', `/workspaces/${wid}/topics/${tid}/reactions`, { message_uid: 'nope', emoji: '👍', action: 'added' })
+check('a message outside the topic is a 404', strayReaction.status === 404, strayReaction.body)
+
+// A bare newline beside a call says nothing: no message, and no entry for anyone to read.
+seen = live.entries().length
+await api('POST', `/workspaces/${wid}/topics/${tid}/entries`, { text: `@alpha ${py('1', '\n\n')}` })
+await live.entry((e) => e.author.id === 'alpha' && e.is_final, seen)
+await sleep(300)
+const page = await api('GET', `/workspaces/${wid}/topics/${tid}/entries?limit=200`)
+check('blank narration is not saved as a step', !page.data.steps.some((s) => typeof s.entry.content.AssistantMessage === 'string' && !s.entry.content.AssistantMessage.trim()), page.data.steps.length)
+check('nor shown as a message', !live.entries().slice(seen).some((e) => e.kind === 'agent' && !e.body.trim()))
+
 // --- §10 notifications ------------------------------------------------------------------------------------
 // One person is signed in, so this checks the agent side: the owner is told about every message an
 // agent wrote and about none of their own. Who else is told is pinned in
@@ -276,18 +303,24 @@ const owner = detailNow.members.find((m) => m.kind === 'person' && m.role === 'o
 const last = await api('PATCH', `/workspaces/${wid}/members/person/${owner.handle}`, { role: 'member' })
 check('the last owner cannot step down', last.status === 409, last.body)
 
-// Removing an agent ends its turn at once (SC-006).
+// Removing an agent ends its turn at once (SC-006). The sandbox has no sleep, so the script counts:
+// long enough that the turn is still running when the removal lands.
 seen = live.entries().length
-await api('POST', `/workspaces/${wid}/topics/${tid}/entries`, { text: `@alpha ${py('import time\ntime.sleep(20)')}` })
+await api('POST', `/workspaces/${wid}/topics/${tid}/entries`, { text: `@alpha ${py('x = 0\nfor i in range(150000000):\n    x += i\nx')}` })
 await sleep(800)
+const running = (await api('GET', '/workspaces')).data.find((w) => w.id === wid)
+check('the turn is running when the agent is removed', running.working === true, running)
 const gone = await api('DELETE', `/workspaces/${wid}/members/agent/alpha`)
 check('an agent is removed', gone.status === 200, gone.body)
-await sleep(1500)
+await sleep(9000)
 const members = (await api('GET', `/workspaces/${wid}`)).data.members
 check('it is no longer a member', !members.some((m) => m.handle === 'alpha'))
+check('its turn wrote no reply', !live.entries().slice(seen).some((e) => e.author.id === 'alpha' && e.is_final), live.entries().slice(seen).map((e) => e.body.slice(0, 60)))
+const afterRemoval = (await api('GET', '/workspaces')).data.find((w) => w.id === wid)
+check('and nothing is working any more', afterRemoval.working === false, afterRemoval)
 await api('POST', `/workspaces/${wid}/topics/${tid}/entries`, { text: '@alpha are you there' })
 await sleep(1500)
-check('and it does not wake', !live.entries().slice(seen).some((e) => e.kind === 'agent' && e.author.id === 'alpha' && e.body.includes('are you there')))
+check('and it does not wake', !live.entries().slice(seen).some((e) => e.kind === 'agent' && e.author.id === 'alpha'))
 
 const renamed = await api('PATCH', `/workspaces/${wid}`, { name: `${NAME}-b` })
 check('the Workspace is renamed', renamed.status === 200 && renamed.data.name === `${NAME}-b`, renamed.body)

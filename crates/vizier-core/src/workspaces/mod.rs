@@ -15,8 +15,8 @@ pub mod names;
 use crate::{
     dependencies::VizierDependencies,
     schema::{
-        EntryKind, EntryMention, MemberKind, MentionState, NewEntry, VizierChannelId,
-        VizierRequest, VizierRequestContent, VizierSession, Workspace, WorkspaceEntry,
+        EntryKind, EntryMention, MemberKind, MentionState, NewEntry, VizierAttachment,
+        VizierAttachmentContent, VizierChannelId, VizierRequest, VizierRequestContent, VizierSession, Workspace, WorkspaceEntry,
     },
     storage::{VizierStorage, turn::TurnStorage, workspace::WorkspaceStorage},
     transport::{VizierTransport, WorkspaceEvent},
@@ -87,7 +87,7 @@ pub async fn write_entry(
     draft: NewEntry,
 ) -> Result<WorkspaceEntry, PostError> {
     if draft.kind != EntryKind::Note {
-        if draft.body.trim().is_empty() {
+        if draft.body.trim().is_empty() && draft.files.is_empty() {
             return Err(PostError::Empty);
         }
         if draft.body.chars().count() > MAX_MESSAGE_CHARS {
@@ -320,6 +320,15 @@ async fn wake(
             "workspace_entry": entry.seq,
             "workspace_plain": plain,
         }),
+        // The files the message came with, as in a direct chat.
+        attachments: entry
+            .files
+            .iter()
+            .map(|f| VizierAttachment {
+                filename: f.name.clone(),
+                content: VizierAttachmentContent::Local(format!("/api/v1/files/{}", f.file_id)),
+            })
+            .collect(),
         ..Default::default()
     };
     // Its frames reach whoever watches the topic, as a woken background report's do.

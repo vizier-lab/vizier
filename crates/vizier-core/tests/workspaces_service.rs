@@ -403,3 +403,39 @@ async fn an_idle_agent_is_brought_up_to_date_before_a_dream_cycle() {
     let direct = vizier_core::schema::VizierSession("alpha".into(), vizier_core::schema::VizierChannelId::HTTP("rafi".into(), "web".into()), Some("t".into()));
     assert!(catch_up::to_head(&hub, &direct).await.is_none());
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_message_carries_its_files_to_every_member_agent() {
+    use vizier_core::{service::files, storage::session_file::SessionFileStorage, workspaces};
+    let w = world().await;
+    let id = ops(&w).await;
+    ws::add_member(&w.s, &w.rafi, &id, add("agent", "alpha")).await.unwrap();
+    let topic = ws::detail(&w.s, &w.rafi, &id).await.unwrap().workspace.topics[0].id.clone();
+    // "hello" in base64.
+    let up = files::upload(&w.s, &w.rafi, "aGVsbG8=", "notes.txt".into()).await.unwrap();
+
+    let posted = ws::post(&w.s, &w.rafi, &id, &topic, ws::PostRequest { text: "see this".into(), files: vec![up.file_id.clone()] })
+        .await
+        .unwrap();
+    let entry = posted.entry.unwrap();
+    assert_eq!((entry.files[0].name.as_str(), entry.files[0].size), ("notes.txt", 5));
+    let saved = w.s.deps().storage.list_session_files(&workspaces::session_of("alpha", &id, &topic)).await.unwrap();
+    assert_eq!(saved.iter().map(|f| f.file_id.as_str()).collect::<Vec<_>>(), [up.file_id.as_str()]);
+
+    // An id nobody uploaded is refused, and nothing is written.
+    let refused = ws::post(&w.s, &w.rafi, &id, &topic, ws::PostRequest { text: "x".into(), files: vec!["nope".into()] })
+        .await
+        .unwrap_err();
+    assert_eq!((refused.status(), code(&refused)), (422, Some("unknown_file")));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_reaction_needs_a_message_in_this_topic() {
+    let w = world().await;
+    let id = ops(&w).await;
+    let topic = ws::detail(&w.s, &w.rafi, &id).await.unwrap().workspace.topics[0].id.clone();
+    let request = || ws::ReactRequest { message_uid: "nope".into(), emoji: "👍".into(), action: "added".into() };
+    assert_eq!(ws::react(&w.s, &w.rafi, &id, &topic, request()).await.unwrap_err().status(), 404);
+    // A stranger cannot tell the topic exists.
+    assert_eq!(ws::react(&w.s, &w.eve, &id, &topic, request()).await.unwrap_err().status(), 404);
+}

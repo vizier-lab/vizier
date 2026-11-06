@@ -37,6 +37,11 @@ pub fn vectors() -> Vec<Vector> {
         v("POST", "/workspaces/missing/topics/t1/entries", Some(json!({ "text": "/abort" }))),
         v("POST", "/workspaces/missing/topics/t1/turns/agent-a/stop", None),
         v("POST", "/workspaces/missing/topics/t1/read", None),
+        v(
+            "POST",
+            "/workspaces/missing/topics/t1/reactions",
+            Some(json!({ "message_uid": "u1", "emoji": "👍", "action": "added" })),
+        ),
         // A name the rule refuses is refused before anything is written: 422 for someone who
         // may create, 403 for someone who may not.
         v("POST", "/workspaces", Some(json!({ "name": "Not Allowed!" }))),

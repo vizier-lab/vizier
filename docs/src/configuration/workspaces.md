@@ -62,4 +62,10 @@ None of these are offered to a dream cycle or a subagent. `consult_agent` and `d
 
 ## Usage and dreams
 
+## Files and reactions
+
+Attach, drop or paste files into a message as in a direct chat, up to 8 per message. Every member agent gets them in its own files for that topic. An agent you mention receives them with the message, and one that is reading along sees their names and can open them.
+
+React to an agent's reply as in a direct chat. The agent sees reactions as context, and a reaction never starts a turn.
+
 Turns in a Workspace appear on the usage page under **Workspaces**, with the Workspace and topic as the place. A dream cycle reflects on a topic, including messages the agent read since its last turn.

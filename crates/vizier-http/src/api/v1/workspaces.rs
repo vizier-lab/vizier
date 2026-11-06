@@ -30,7 +30,7 @@ use crate::{
 
 pub use vizier_core::service::workspaces::{
     AddMemberRequest, AgentCandidate, AuthorView, CandidateGroup, Candidates, CommandView,
-    CommandsView, CreateTopicRequest, PersonCandidate, RenameRequest, SetRoleRequest,
+    CommandsView, CreateTopicRequest, PersonCandidate, ReactRequest, RenameRequest, SetRoleRequest,
     CreateWorkspaceRequest, EntryView, MemberView, MentionView, PostRequest, PostResponse,
     SkillView, StepView, StopResponse, Timeline, TopicSummary, WorkspaceDetail, WorkspaceSummary,
 };
@@ -50,6 +50,7 @@ pub fn workspaces() -> Router<HTTPState> {
         .route("/{id}/topics/{tid}/turns/{agent}/stop", post(stop_agent))
         .route("/{id}/topics/{tid}/stream", get(stream))
         .route("/{id}/topics/{tid}/read", post(mark_read))
+        .route("/{id}/topics/{tid}/reactions", post(react))
 }
 
 /// A service refusal in the existing envelope, with its stable `code` in `data.error`.
@@ -293,6 +294,26 @@ pub async fn set_role(
         return refusal(ServiceError::invalid("only a person has a role"));
     }
     respond(service::set_role(&svc(&state), &user, &id, &handle, body).await, StatusCode::OK)
+}
+
+#[utoipa::path(
+    post,
+    path = "/workspaces/{id}/topics/{tid}/reactions",
+    params(("id" = String, Path, description = "Workspace ID"), ("tid" = String, Path, description = "Topic ID")),
+    request_body = ReactRequest,
+    responses(
+        (status = 200, description = "Saved; the new set goes to every socket on the topic"),
+        (status = 404, description = "No such Workspace, topic or message"),
+        (status = 422, description = "Not a reply that can take a reaction")
+    )
+)]
+pub async fn react(
+    State(state): State<HTTPState>,
+    Extension(user): Extension<Principal>,
+    Path((id, tid)): Path<(String, String)>,
+    Json(body): Json<ReactRequest>,
+) -> Response {
+    respond(service::react(&svc(&state), &user, &id, &tid, body).await, StatusCode::OK)
 }
 
 #[derive(Debug, Deserialize, utoipa::IntoParams)]

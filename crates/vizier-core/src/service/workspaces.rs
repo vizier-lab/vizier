@@ -976,6 +976,33 @@ async fn note(
     view_one(s, &entry).await
 }
 
+/// The most files one message can carry.
+pub const MAX_FILES: usize = 8;
+
+/// Checks that each id is an upload that exists (from `POST /files/upload`) and names it.
+async fn attach_files(s: &Services, ids: &[String]) -> Result<Vec<crate::schema::EntryFile>, ServiceError> {
+    if ids.len() > MAX_FILES {
+        return Err(refusal(422, "too_many_files", format!("A message can carry at most {MAX_FILES} files")));
+    }
+    let mut files = Vec::new();
+    for id in ids {
+        if files.iter().any(|f: &crate::schema::EntryFile| f.file_id == *id) {
+            continue;
+        }
+        let blob = s
+            .deps()
+            .file_manager
+            .locate(id)
+            .await
+            .map_err(internal)?
+            .ok_or_else(|| refusal(422, "unknown_file", "One of the files was not uploaded"))?;
+        let name = blob.meta.key.file_name().to_string();
+        let mime_type = mime_guess::from_path(&name).first_or_octet_stream().to_string();
+        files.push(crate::schema::EntryFile { file_id: id.clone(), name, mime_type, size: blob.meta.size });
+    }
+    Ok(files)
+}
+
 /// Posts a message, or runs the command it is (research R19). A command posts no message: it
 /// answers a note.
 pub async fn post(
@@ -1044,6 +1071,7 @@ pub async fn post(
         _ => {}
     }
 
+    let files = attach_files(s, &request.files).await?;
     let entry = workspaces::write_entry(
         &hub,
         NewEntry {
@@ -1054,7 +1082,7 @@ pub async fn post(
             author: who.username.clone(),
             author_name: who.username.clone(),
             body: request.text,
-            files: vec![],
+            files: files.clone(),
             history_uid: None,
             source_session: None,
             origin: None,
@@ -1065,6 +1093,21 @@ pub async fn post(
     )
     .await
     .map_err(post_error)?;
+    // Every member agent has the files in its own record of the topic, so any of them can open
+    // them with its file tools, whether it is woken now or reads this later.
+    if !files.is_empty() {
+        use crate::storage::session_file::SessionFileStorage;
+        for member in members.iter().filter(|m| m.kind == MemberKind::Agent) {
+            let session = workspaces::session_of(&member.handle, &workspace.id, &topic.id);
+            for file in &files {
+                let _ = s
+                    .deps()
+                    .storage
+                    .save_session_file(&session, &file.name, &file.mime_type, file.size, &file.file_id)
+                    .await;
+            }
+        }
+    }
     Ok(PostResponse { entry: Some(view_one(s, &entry).await?), note: None })
 }
 
@@ -1119,6 +1162,59 @@ pub async fn stop_agent(
     )
     .await;
     Ok(StopResponse { stopped: stopped.stopped, dropped: stopped.dropped })
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+pub struct ReactRequest {
+    /// The history uid of an agent's reply in this topic.
+    pub message_uid: String,
+    pub emoji: String,
+    /// `added` or `removed`.
+    pub action: String,
+}
+
+/// A person's reaction on an agent's reply, as in a direct chat. It reaches the agent as context
+/// and never starts a turn. The new set goes to every socket on the topic.
+pub async fn react(
+    s: &Services,
+    who: &Principal,
+    workspace_id: &str,
+    topic_id: &str,
+    request: ReactRequest,
+) -> Result<(), ServiceError> {
+    use crate::channels::reactions::{self, ApplyOutcome, ReactionChange, ReactionKind, ReactionTarget};
+    use crate::storage::reaction::{ReactionStorage, Reactor};
+    let (workspace, _) = resolve(s, who, workspace_id).await?;
+    let topic = topic_of(s, &workspace, topic_id).await?;
+    let storage = &s.deps().storage;
+    // Scoped to this topic, so a member cannot reach another conversation by guessing a uid.
+    let in_topic = storage
+        .get_history_entry(&request.message_uid)
+        .await
+        .map_err(internal)?
+        .is_some_and(|entry| {
+            let session = &entry.vizier_session;
+            matches!(&session.1, crate::schema::VizierChannelId::Workspace(id) if *id == workspace.id)
+                && session.2.as_deref() == Some(topic.id.as_str())
+        });
+    if !in_topic {
+        return Err(ServiceError::NotFound("message not found in this topic".into()));
+    }
+    let kind = match request.action.as_str() {
+        "added" => ReactionKind::Add(request.emoji),
+        "removed" => ReactionKind::Remove(request.emoji),
+        _ => return Err(ServiceError::invalid("action must be added or removed")),
+    };
+    let change = ReactionChange {
+        target: ReactionTarget::History(request.message_uid),
+        reactor: Reactor { id: who.username.clone(), name: None },
+        kind,
+    };
+    match reactions::apply(storage, &s.deps().transport, change).await.map_err(internal)? {
+        ApplyOutcome::Applied => Ok(()),
+        ApplyOutcome::Ignored(reason) => Err(ServiceError::invalid(reason)),
+    }
 }
 
 // --- the `/` menu --------------------------------------------------------------------------------
@@ -1339,6 +1435,10 @@ pub async fn deliver_session(
             };
             vec![frame("agent_state", serde_json::json!({ "agent": agent, "phase": phase }))]
         }
+        SessionFrame::Reactions { history_uid, reactions } => vec![frame(
+            "reactions",
+            serde_json::json!({ "message_uid": history_uid, "reactions": reactions }),
+        )],
         _ => vec![],
     };
     Delivery::Frames(frames)

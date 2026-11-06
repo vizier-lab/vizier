@@ -30,7 +30,8 @@ All under `/api/v1`, behind `require_auth`, with handlers in `crates/vizier-http
 | `GET /workspaces/{id}/topics/{tid}/entries?before=&limit=` | Timeline page | Default 50, max 200. Below |
 | `POST /workspaces/{id}/topics/{tid}/entries` | Post | `{text, files?}`. Max 32,000 characters. `/<command> @<agent-id>` is parsed here (research R19): `422 not_in_workspace` for `/btw` and `/clear-files`, `403 cannot_lobotomy`. A command answers `{note}` and posts no message |
 | `GET /workspaces/{id}/commands` | For the `/` menu | Any member. `{commands: [{name, description}], skills: [{name, description, agents}]}`. Names only, no skill content |
-| `POST /workspaces/{id}/topics/{tid}/files` | Upload | Then pass ids to post |
+| `POST /files/upload` | Upload (the one upload route) | Then pass `file_id`s to post. At most 8 per message; an unknown id is `422 unknown_file`. A message can be files alone |
+| `POST /workspaces/{id}/topics/{tid}/reactions` | React to an agent's reply | Any member. `{message_uid, emoji, action}`. A uid outside the topic is `404`. The new set reaches every socket on the topic as a `reactions` frame |
 | `POST /workspaces/{id}/topics/{tid}/turns/{agent}/stop` | Stop one | Any member |
 | `POST /workspaces/{id}/stop` | Stop all | Any member. Answers `{stopped, dropped}` |
 | `POST /workspaces/{id}/topics/{tid}/questions/{set}/answer` | Answer a question | Any person who is a member. Records the answerer |

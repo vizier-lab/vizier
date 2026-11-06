@@ -6,7 +6,7 @@ use anyhow::Result;
 
 use crate::{
     schema::{
-        CatchUp, EntryKind, EntryMention, MemberKind, MentionState, NewEntry, SessionHistory,
+        CatchUp, EntryFile, EntryKind, EntryMention, MemberKind, MentionState, NewEntry, SessionHistory,
         SessionHistoryContent, VizierChannelId, VizierRequest, VizierRequestContent,
         VizierResponseContent, VizierSession, Workspace, WorkspaceEntry, WorkspaceMember,
         WorkspaceRole, WorkspaceTopic,
@@ -852,7 +852,7 @@ impl WorkspaceStorage for SqlStorage {
             let request = VizierRequest {
                 timestamp: at,
                 user: entry.author.clone(),
-                content: VizierRequestContent::SilentRead(entry.body.clone()),
+                content: VizierRequestContent::SilentRead(with_file_note(&entry.body, &entry.files)),
                 metadata: serde_json::json!({
                     "workspace_entry": entry.seq,
                     "workspace_author_kind": entry.author_kind.as_str(),
@@ -893,6 +893,16 @@ fn row_to_mention(row: &crate::storage::sql::Row) -> crate::storage::sql::Result
         target: row.get(2)?,
         state: MentionState::parse(&state).unwrap_or(MentionState::Pending),
     })
+}
+
+/// What a silent reader sees of a message's files: their names, which it can open from its own
+/// session files.
+fn with_file_note(body: &str, files: &[EntryFile]) -> String {
+    if files.is_empty() {
+        return body.to_string();
+    }
+    let names: Vec<&str> = files.iter().map(|f| f.name.as_str()).collect();
+    format!("{body}\n[attached: {}]", names.join(", "))
 }
 
 #[cfg(test)]
