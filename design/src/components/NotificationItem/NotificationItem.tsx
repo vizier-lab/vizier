@@ -26,9 +26,9 @@ export type NotificationItemProps = {
 
 /**
  * One notification as a card in the notifications popup: a sigil, the conversation title, what
- * happened and a short excerpt, and an eye beside the time that is also the unread mark (closed
- * is unread, open is read). An unread card is outlined in the live emerald. The eye is always
- * drawn, so it is as reachable on a phone as with a mouse.
+ * happened and a short excerpt, and a check beside the time that marks it read (faint once it is,
+ * and pressing it again marks it unread). An unread card is outlined in the live emerald. The
+ * check is always drawn, so it is as reachable on a phone as with a mouse.
  */
 export function NotificationItem({
   agentId,
@@ -72,8 +72,9 @@ export function NotificationItem({
           <IconButton
             variant="ghost"
             size="sm"
-            icon={read ? "eye" : "eye-closed"}
+            icon="check"
             aria-label={read ? "Mark as unread" : "Mark as read"}
+            className={read ? "text-faint" : undefined}
             onClick={onToggleRead}
           />
         )}
