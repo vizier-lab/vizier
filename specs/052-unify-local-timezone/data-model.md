@@ -41,7 +41,9 @@ Returned by `time::parse_schedule`.
 | Cron expression | `task.data` → `schedule.CronTask` | Text | Unchanged; now means local | **Never rewritten** |
 | Dream schedule | Agent config `dream_schedule` | Text | Unchanged; now means local | **Never rewritten** |
 | Other JSON times (`last_executed_at`, `timestamp`, history data) | JSON blobs | `…Z` | Local offset on new writes | Left as is; read as local |
-| Message `sent_at` and scheduled-run `timestamp` | Request metadata | UTC | Local RFC 3339 | Left as is; replayed verbatim for cache stability |
+| Message `sent_at` | Request metadata | UTC on Discord and Telegram; absent on the WebUI | Local RFC 3339, stamped by the server, on all three | Left as is, including absent; replayed verbatim for cache stability |
+| Request `timestamp` (WebUI and API) | Request | Client's clock | **Server's clock**; the client's value is discarded | Left as is |
+| Scheduled-run `timestamp` | Request metadata | UTC | Local RFC 3339 | Left as is; replayed verbatim |
 | Memory frontmatter (`created_at`, `updated_at`) | Memory documents | `…Z` | Local offset on new writes | Left as is; read as local |
 | Epoch-millisecond columns | Many tables | Instant | Unchanged | No change |
 | Text sort columns (`created_at`, `claimed_at`, …) | About 15 columns | UTC RFC 3339 | **Unchanged**, through `time::stored` | No change; see [R2](research.md#r2-text-columns-keep-a-fixed-sort-form-fr-006) |

@@ -34,6 +34,18 @@ A time with a positive offset contains `+`:
 - **Path** (`/runs/{run_id}`): `+` is literal. Clients percent-encode as usual.
 - **Query** (`before=`): a raw `+` decodes to a space. Clients must percent-encode. The server also accepts the decoded form, where a space stands before the offset, so a client that echoes a returned value unencoded keeps working.
 
+## Changed: chat socket requests
+
+Applies to `/agents/{id}/channel/{channel}/topic/{topic}/chat` and the desktop app's topic IPC.
+
+| Field | Behaviour |
+|---|---|
+| `timestamp` | Still required on input. **The value is discarded**; the server's receipt time replaces it |
+| `metadata.sent_at` | **Set by the server** to the same moment, in local RFC 3339. A client-sent value is overwritten |
+| Other `metadata` keys | Kept. A `null` or non-object `metadata` becomes an object holding only `sent_at` |
+
+History responses return the stored request, so a client sees the server's time once the entry is saved.
+
 ## Deprecated: `tz` query parameter
 
 On `/overview/*` and `/agents/{id}/dream/nights`. It is accepted and ignored; days always follow the instance's zone. The parameter stays in the OpenAPI document, marked deprecated. Removal is tracked on #82.

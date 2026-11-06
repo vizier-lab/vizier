@@ -13,6 +13,7 @@
 ### Session 2026-11-06
 
 - Q: When a person's browser is in a different timezone from the server, which timezone does the WebUI show? → A: The instance's timezone. There is one clock for everyone, matching what agents say, and the WebUI makes that timezone discoverable. Client-supplied offsets are ignored.
+- Q: Who sets a message's time? → A: The server, on every channel. Each person's message on the WebUI, Discord and Telegram carries a `sent_at` stamped by Vizier when it receives the message. A time supplied by a WebUI client is not trusted.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -81,6 +82,8 @@ The current time no longer arrives with every message. When an agent needs it, i
 3. **Given** an agent with default configuration, **When** it lists tool categories, **Then** `time` is present in chats, scheduled runs, dreams, background pieces and inter-agent turns, with no setup.
 4. **Given** a message such as "what's today's date?", **When** the agent answers, **Then** it has obtained the date from a time tool rather than guessing, as its standing instructions direct.
 5. **Given** an invalid input to a time tool (an unknown timezone, an unparseable date), **When** it is called, **Then** the agent receives a correctable explanation and the turn carries on.
+6. **Given** a person who writes again three days after their last message, on the WebUI, Discord or Telegram, **When** the agent reads the conversation, **Then** each message shows the local time Vizier received it, so the gap is visible without a tool call.
+7. **Given** a WebUI client whose clock is wrong or that sends its own time, **When** its message arrives, **Then** the recorded time is the server's.
 
 ---
 
@@ -108,7 +111,9 @@ The current time no longer arrives with every message. When an agent needs it, i
 - **Timezone cannot be determined**: the instance runs in UTC and logs that it did. **Timezone explicitly set to something invalid**: the instance refuses to start and names the bad value, because guessing would move every schedule silently.
 - **Containers**: a container with no timezone set is on UTC, so it behaves as today until the operator sets one, and setting a named zone must work in the published image.
 - **MCP server keyed `time`**: `time` becomes a reserved category name, so an existing server with that key has its tools listed under `time_mcp` from the upgrade, as for every other reserved name.
-- **Old replayed messages**: Discord and Telegram messages stored with a UTC `sent_at` are replayed unchanged; rewriting them would invalidate cached history and they are already unambiguous because they name UTC. New messages carry local time.
+- **Old replayed messages**: Discord and Telegram messages stored with a UTC `sent_at` are replayed unchanged, and WebUI messages stored with none stay without one; rewriting them would invalidate cached history. New messages carry local time.
+- **Resumed turns**: a turn resumed after a restart or an agent update keeps the `sent_at` of the original message.
+- **Late delivery**: a Discord or Telegram message delivered late, such as after a restart, shows when Vizier received it, not when the person sent it.
 - **A task row that cannot be read during migration**: it is left unchanged and logged, and the migration still completes for the others.
 - **External protocols**: request signing, HTTP dates, token expiry and exported telemetry keep whatever format their protocol requires. They are not a second clock people see.
 
@@ -139,6 +144,12 @@ The current time no longer arrives with every message. When an agent needs it, i
 - **FR-013**: The per-request context block MUST NOT contain the current date or time on any turn kind.
 - **FR-014**: Other per-turn prompt content MUST NOT carry the current time either. Times of past events that are fixed once written, and relative wording in sections that already vary (reactions), remain allowed.
 - **FR-015**: An agent's standing instructions MUST tell it that it does not know the current time and how to find out, in text identical across turns.
+
+**Message time**
+
+- **FR-023**: Every person's message that starts a turn on the WebUI (including project chats), Discord or Telegram MUST carry a `sent_at` that the agent sees with the message, in local time with its offset, stamped by the server when it receives the message.
+- **FR-024**: A time supplied by a WebUI or API client for a message (its request time or a `sent_at`) MUST NOT be trusted: the server's stamp replaces it, and other client-supplied metadata is kept.
+- **FR-025**: A message's `sent_at` MUST be fixed once stamped, and replayed unchanged on later turns and on a resumed turn, so it does not disturb cached history.
 
 **Time tools**
 
@@ -178,13 +189,15 @@ The current time no longer arrives with every message. When an agent needs it, i
 - **SC-006**: Running the migration a second time, or resuming it after interruption, changes 0 tasks' moments.
 - **SC-007**: Across the two daylight-saving transitions of a test timezone, each cron occurrence fires exactly once, and records list in true chronological order.
 - **SC-008**: An agent asked for the current date, a timezone conversion or "next Tuesday" answers correctly in all three, using `time` tools, on the offline end-to-end path.
+- **SC-009**: 100% of new messages from people on the WebUI, Discord and Telegram carry a server-stamped local `sent_at`, and a WebUI request sent with a false time is recorded with the server's time.
 
 ## Assumptions
 
 - "Local timezone" means the timezone of the machine or container running Vizier, read from the operating system's setting. There is no per-agent or per-person timezone in this feature.
 - Moments that are already zone-free (the epoch-millisecond columns) are correct as they are; only their presentation and day grouping change. Non-cron tasks are the only stored data migrated, as requested.
 - A one-time task migrates by keeping its moment, not its wall-clock digits: `03:00 UTC` becomes `10:00` in UTC+7, not `03:00` local.
-- Time tools are the only source of "now" for agents, as requested. Discord and Telegram messages keep their existing `sent_at`, now local; WebUI messages, which have no `sent_at` today, do not gain one in this feature.
+- Time tools are the only way for an agent to learn the time at an arbitrary moment, such as midway through a long turn. A message's `sent_at` tells it when that message arrived.
+- Discord and Telegram `sent_at` stays Vizier's receipt time rather than the platform's own message time. Both are stamped by the server, like the WebUI, and using the platform's time is a separate change.
 - Scheduled runs and dreams may spend a tool call to learn the time, and that cost is accepted in exchange for a stable prompt.
 - A multi-node deployment is one logical instance and its nodes are expected to share a timezone. Fleet roles are still skeletons, so enforcing this is left to the sub-issues that wire them.
 - The timezone indicator that FR-005 requires, and any change to the date picker's look, is drawn in FigCraft before code, per the project's design-first rule. A time merely displayed in a different zone needs no design pass.

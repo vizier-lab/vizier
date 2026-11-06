@@ -6,7 +6,7 @@
 
 ## Summary
 
-Vizier runs one clock: the host's timezone. A single `Timestamp = DateTime<Local>` replaces `DateTime<Utc>` across the crates, so stored JSON, the API, tool results and cron all become local together, while old `Z` values still read. Text columns used for sorting stay in UTC behind one helper, so ordering holds across offsets. The `## Time` context section goes, and four read-only tools in a new `time` category replace it. Existing one-time tasks are rewritten once, keeping their moment; cron tasks and dream schedules are never rewritten, and now mean local time. The WebUI shows the server's zone regardless of the browser's. Startup refuses a bad `TZ`, including the case where chrono would silently fall back to UTC.
+Vizier runs one clock: the host's timezone. A single `Timestamp = DateTime<Local>` replaces `DateTime<Utc>` across the crates, so stored JSON, the API, tool results and cron all become local together, while old `Z` values still read. Text columns used for sorting stay in UTC behind one helper, so ordering holds across offsets. The `## Time` context section goes, and four read-only tools in a new `time` category replace it. Every person's message on the WebUI, Discord and Telegram carries a `sent_at` stamped by the server on receipt, and a client's own time is discarded. Existing one-time tasks are rewritten once, keeping their moment; cron tasks and dream schedules are never rewritten, and now mean local time. The WebUI shows the server's zone regardless of the browser's. Startup refuses a bad `TZ`, including the case where chrono would silently fall back to UTC.
 
 ## Technical Context
 
@@ -56,7 +56,7 @@ Vizier runs one clock: the host's timezone. A single `Timestamp = DateTime<Local
 ```text
 specs/052-unify-local-timezone/
 ├── plan.md              # This file
-├── research.md          # Decisions R1–R13
+├── research.md          # Decisions R1–R14
 ├── data-model.md        # Types, stored values, migration state
 ├── quickstart.md        # Dummyplug verification script
 ├── contracts/
@@ -86,11 +86,14 @@ crates/vizier-core/src/
 ├── storage/
 │   ├── sql/{sqlite,postgres}.rs     # day_of_millis in the local zone
 │   └── sqlite/*.rs                  # time::stored for text sort columns
-└── channels/{discord,telegram}/     # sent_at local
+├── schema/request.rs                # VizierRequest::stamp_received
+└── channels/{discord,telegram}/     # Stamp through the helper; sent_at local
 
-crates/vizier-http/src/api/v1/
-├── utils.rs                         # GET /utils/timezone
-└── overview/, agents/dream.rs       # tz deprecated, ignored
+crates/vizier-http/src/
+├── topic.rs                         # Stamp on receipt; the client's time is discarded
+└── api/v1/
+    ├── utils.rs                     # GET /utils/timezone
+    └── overview/, agents/dream.rs   # tz deprecated, ignored
 
 crates/vizier/src/
 ├── main.rs                          # Local log timer
@@ -119,7 +122,7 @@ Each step leaves the tree building and tests passing.
 2. **Sweep** `Utc` to `Timestamp`, with text columns through `stored`, and `init_zone` in the runtime. Audit serialized-session keys (R2). A UTC instance is byte-identical at this point.
 3. **Day boundaries**: `day_of_millis`, overview and dream days, `tz` ignored.
 4. **Scheduling input and tools**, then the migration.
-5. **Prompt**: the `time` tools, then remove `## Time` and rewrite boot. These land together, so an agent is never left with neither.
+5. **Prompt**: `stamp_received` on all channels and the `time` tools, then remove `## Time` and rewrite boot. These land together, so an agent is never left with neither.
 6. **WebUI**: the endpoint and `lib/timezone.ts`, then the screens. FigCraft → design → webui for the indicator.
 7. **Edges**: logs, CLI, `tzdata`, the check script in CI, docs, CLAUDE.md, #82 entries, release notes.
 
@@ -131,6 +134,7 @@ Each step leaves the tree building and tests passing.
 | A value compared as text somewhere the audit misses | R2 audit; quickstart step 9; `052-utc-check.sh` stops new cases |
 | SQLite's `localtime` disagrees with chrono on an unusual host | Both read the same OS setting; the R4 self-check fails early when zone data is missing |
 | A client posts `before=` with an unencoded `+` | Server accepts the decoded form ([contract](contracts/http-api.md#changed-times-in-urls)) |
+| A Discord or Telegram request site carrying a person's message is missed by the stamp | Check each `metadata: {}` site when the code changes (R14); quickstart step 10 |
 | An agent guesses the date instead of asking | The boot section says it does not know; quickstart step 13 checks it on a live model |
 | Fleet nodes in different zones | Assumed the same in the spec; flag it when #166–#170 wire the roles |
 
