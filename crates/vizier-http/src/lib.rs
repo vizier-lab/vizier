@@ -27,6 +27,7 @@ mod state;
 #[cfg(test)]
 mod test_support;
 pub mod topic;
+pub mod workspace_topic;
 mod webui;
 
 /// The whole HTTP surface (REST API, WebSocket, OpenAPI and Swagger UI, the embedded WebUI)
@@ -246,6 +247,12 @@ where
         api::v1::workspaces::create_topic,
         api::v1::workspaces::add_member,
         api::v1::workspaces::remove_member,
+        api::v1::workspaces::timeline,
+        api::v1::workspaces::post_entry,
+        api::v1::workspaces::commands,
+        api::v1::workspaces::stop_all,
+        api::v1::workspaces::stop_agent,
+        api::v1::workspaces::stream,
         api::v1::agents::task::get_tasks,
         api::v1::agents::task::get_task,
         api::v1::agents::task::create_task,
@@ -392,6 +399,21 @@ where
             api::v1::workspaces::CreateWorkspaceRequest,
             api::v1::workspaces::CreateTopicRequest,
             api::v1::workspaces::AddMemberRequest,
+            api::v1::workspaces::AuthorView,
+            api::v1::workspaces::MentionView,
+            api::v1::workspaces::EntryView,
+            api::v1::workspaces::StepView,
+            api::v1::workspaces::Timeline,
+            api::v1::workspaces::PostRequest,
+            api::v1::workspaces::PostResponse,
+            api::v1::workspaces::StopResponse,
+            api::v1::workspaces::CommandView,
+            api::v1::workspaces::SkillView,
+            api::v1::workspaces::CommandsView,
+            crate::models::response::APIResponse<api::v1::workspaces::Timeline>,
+            crate::models::response::APIResponse<api::v1::workspaces::PostResponse>,
+            crate::models::response::APIResponse<api::v1::workspaces::StopResponse>,
+            crate::models::response::APIResponse<api::v1::workspaces::CommandsView>,
             crate::models::response::APIResponse<Vec<api::v1::workspaces::WorkspaceSummary>>,
             crate::models::response::APIResponse<api::v1::workspaces::WorkspaceDetail>,
             crate::models::response::APIResponse<api::v1::workspaces::TopicSummary>,

@@ -21,6 +21,15 @@ pub fn vectors() -> Vec<Vector> {
             Some(json!({ "kind": "agent", "handle": "agent-a" })),
         ),
         v("DELETE", "/workspaces/missing/members/agent/agent-a", None),
+        // The conversation routes answer the same for a Workspace that is missing and one the
+        // caller has no standing in.
+        v("GET", "/workspaces/missing/commands", None),
+        v("POST", "/workspaces/missing/stop", None),
+        v("GET", "/workspaces/missing/topics/t1/entries", None),
+        v("GET", "/workspaces/missing/topics/t1/entries?before=40&limit=5", None),
+        v("POST", "/workspaces/missing/topics/t1/entries", Some(json!({ "text": "@agent-a hello" }))),
+        v("POST", "/workspaces/missing/topics/t1/entries", Some(json!({ "text": "/abort" }))),
+        v("POST", "/workspaces/missing/topics/t1/turns/agent-a/stop", None),
         // A name the rule refuses is refused before anything is written: 422 for someone who
         // may create, 403 for someone who may not.
         v("POST", "/workspaces", Some(json!({ "name": "Not Allowed!" }))),

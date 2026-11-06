@@ -122,6 +122,7 @@ impl EntryKind {
 
 /// A file shared with an entry.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct EntryFile {
     pub file_id: String,
     pub name: String,

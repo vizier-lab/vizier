@@ -4,12 +4,16 @@
 
 use axum::{
     Extension, Json, Router,
-    extract::{Path, State},
+    extract::{
+        Path, Query, State, WebSocketUpgrade,
+        ws::{Message, WebSocket},
+    },
     response::Response,
     routing::{delete, get, post},
 };
+use futures::{SinkExt, StreamExt};
 use reqwest::StatusCode;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use vizier_core::{
     auth::Principal,
@@ -17,14 +21,17 @@ use vizier_core::{
 };
 
 use crate::{
+    auth::middleware::TokenExpiry,
     api::v1::integrations::{fail, ok, svc},
     models::response::APIResponse,
     state::HTTPState,
+    workspace_topic::WorkspaceConnection,
 };
 
 pub use vizier_core::service::workspaces::{
-    AddMemberRequest, CreateTopicRequest, CreateWorkspaceRequest, MemberView, TopicSummary,
-    WorkspaceDetail, WorkspaceSummary,
+    AddMemberRequest, AuthorView, CommandView, CommandsView, CreateTopicRequest,
+    CreateWorkspaceRequest, EntryView, MemberView, MentionView, PostRequest, PostResponse,
+    SkillView, StepView, StopResponse, Timeline, TopicSummary, WorkspaceDetail, WorkspaceSummary,
 };
 
 pub fn workspaces() -> Router<HTTPState> {
@@ -34,6 +41,11 @@ pub fn workspaces() -> Router<HTTPState> {
         .route("/{id}/topics", post(create_topic))
         .route("/{id}/members", post(add_member))
         .route("/{id}/members/{kind}/{handle}", delete(remove_member))
+        .route("/{id}/commands", get(commands))
+        .route("/{id}/stop", post(stop_all))
+        .route("/{id}/topics/{tid}/entries", get(timeline).post(post_entry))
+        .route("/{id}/topics/{tid}/turns/{agent}/stop", post(stop_agent))
+        .route("/{id}/topics/{tid}/stream", get(stream))
 }
 
 /// A service refusal in the existing envelope, with its stable `code` in `data.error`.
@@ -168,4 +180,218 @@ pub async fn remove_member(
         service::remove_member(&svc(&state), &user, &id, &kind, &handle).await,
         StatusCode::OK,
     )
+}
+
+#[derive(Debug, Deserialize, utoipa::IntoParams)]
+pub struct TimelineQuery {
+    /// The `next_before` of the previous page: entries older than this `seq`.
+    pub before: Option<i64>,
+    /// 1 to 200; default 50.
+    pub limit: Option<usize>,
+}
+
+#[utoipa::path(
+    get,
+    path = "/workspaces/{id}/topics/{tid}/entries",
+    params(
+        ("id" = String, Path, description = "Workspace ID"),
+        ("tid" = String, Path, description = "Topic ID"),
+        TimelineQuery
+    ),
+    responses(
+        (status = 200, description = "A page of messages, oldest first, with what the agents did in the same span", body = APIResponse<Timeline>),
+        (status = 404, description = "No such Workspace or topic, or the caller has no standing in it")
+    )
+)]
+pub async fn timeline(
+    State(state): State<HTTPState>,
+    Extension(user): Extension<Principal>,
+    Path((id, tid)): Path<(String, String)>,
+    Query(query): Query<TimelineQuery>,
+) -> Response {
+    respond(
+        service::timeline(&svc(&state), &user, &id, &tid, query.before, query.limit).await,
+        StatusCode::OK,
+    )
+}
+
+#[utoipa::path(
+    post,
+    path = "/workspaces/{id}/topics/{tid}/entries",
+    params(
+        ("id" = String, Path, description = "Workspace ID"),
+        ("tid" = String, Path, description = "Topic ID")
+    ),
+    request_body = PostRequest,
+    responses(
+        (status = 201, description = "Posted, or a command ran and left a note", body = APIResponse<PostResponse>),
+        (status = 403, description = "`cannot_lobotomy`"),
+        (status = 404, description = "No such Workspace or topic, or the caller has no standing in it"),
+        (status = 422, description = "`not_in_workspace` for /btw and /clear-files, or `too_long`")
+    )
+)]
+pub async fn post_entry(
+    State(state): State<HTTPState>,
+    Extension(user): Extension<Principal>,
+    Path((id, tid)): Path<(String, String)>,
+    Json(body): Json<PostRequest>,
+) -> Response {
+    respond(service::post(&svc(&state), &user, &id, &tid, body).await, StatusCode::CREATED)
+}
+
+#[utoipa::path(
+    get,
+    path = "/workspaces/{id}/commands",
+    params(("id" = String, Path, description = "Workspace ID")),
+    responses(
+        (status = 200, description = "For the `/` menu: commands, and each member agent's skills with the agents that have them. Names only", body = APIResponse<CommandsView>),
+        (status = 404, description = "No such Workspace, or the caller has no standing in it")
+    )
+)]
+pub async fn commands(
+    State(state): State<HTTPState>,
+    Extension(user): Extension<Principal>,
+    Path(id): Path<String>,
+) -> Response {
+    respond(service::commands_menu(&svc(&state), &user, &id).await, StatusCode::OK)
+}
+
+#[utoipa::path(
+    post,
+    path = "/workspaces/{id}/stop",
+    params(("id" = String, Path, description = "Workspace ID")),
+    responses(
+        (status = 200, description = "Every agent's turn in every topic aborted, and waiting mentions dropped", body = APIResponse<StopResponse>),
+        (status = 404, description = "No such Workspace, or the caller has no standing in it")
+    )
+)]
+pub async fn stop_all(
+    State(state): State<HTTPState>,
+    Extension(user): Extension<Principal>,
+    Path(id): Path<String>,
+) -> Response {
+    respond(service::stop_all(&svc(&state), &user, &id).await, StatusCode::OK)
+}
+
+#[utoipa::path(
+    post,
+    path = "/workspaces/{id}/topics/{tid}/turns/{agent}/stop",
+    params(
+        ("id" = String, Path, description = "Workspace ID"),
+        ("tid" = String, Path, description = "Topic ID"),
+        ("agent" = String, Path, description = "Agent ID")
+    ),
+    responses(
+        (status = 200, description = "That agent's turn in that topic aborted", body = APIResponse<StopResponse>),
+        (status = 404, description = "No such Workspace, topic or agent member, or the caller has no standing in it")
+    )
+)]
+pub async fn stop_agent(
+    State(state): State<HTTPState>,
+    Extension(user): Extension<Principal>,
+    Path((id, tid, agent)): Path<(String, String, String)>,
+) -> Response {
+    respond(service::stop_agent(&svc(&state), &user, &id, &tid, &agent).await, StatusCode::OK)
+}
+
+/// How often the server pings. There is no idle deadline: a Workspace is watched while quiet.
+const PING_EVERY: std::time::Duration = std::time::Duration::from_secs(30);
+
+#[utoipa::path(
+    get,
+    path = "/workspaces/{id}/topics/{tid}/stream",
+    params(
+        ("id" = String, Path, description = "Workspace ID"),
+        ("tid" = String, Path, description = "Topic ID")
+    ),
+    responses(
+        (status = 101, description = "WebSocket established. The server pushes `hello`, `workspace_entry`, `history_entry`, `workspace_mentions`, `agent_state`, `member_changed`, `closed` and `resync` frames; the client sends `{ \"post\": { \"text\": \"...\" } }`"),
+        (status = 404, description = "No such Workspace or topic, or the caller has no standing in it")
+    )
+)]
+pub async fn stream(
+    ws: WebSocketUpgrade,
+    State(state): State<HTTPState>,
+    Extension(user): Extension<Principal>,
+    Extension(expiry): Extension<TokenExpiry>,
+    Path((id, tid)): Path<(String, String)>,
+) -> Response {
+    let (out_tx, out_rx) = flume::unbounded();
+    let connection = match WorkspaceConnection::open(&state, &user, &id, &tid, out_tx).await {
+        Ok(connection) => connection,
+        Err(e) => {
+            if matches!(e, ServiceError::Internal(_)) {
+                tracing::error!("failed to open a Workspace stream: {e}");
+            }
+            return Response::builder()
+                .status(e.status())
+                .body(axum::body::Body::empty())
+                .unwrap();
+        }
+    };
+    ws.on_upgrade(move |socket| serve_socket(socket, connection, out_rx, expiry))
+}
+
+/// Writes the connection's frames to the socket, hands the client's frames to it, pings, and
+/// ends at the token's expiry.
+async fn serve_socket(
+    socket: WebSocket,
+    mut connection: WorkspaceConnection,
+    out_rx: flume::Receiver<serde_json::Value>,
+    expiry: TokenExpiry,
+) {
+    let (mut writer, mut reader) = socket.split();
+    let Some(outbound) = connection.outbound() else { return };
+    let pushing = tokio::spawn(outbound.run());
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs());
+    let until_expiry = expiry
+        .remaining(now)
+        .unwrap_or(std::time::Duration::from_secs(60 * 60 * 24 * 365));
+    let expired = tokio::time::sleep(until_expiry);
+    tokio::pin!(expired);
+    let mut ping = tokio::time::interval(PING_EVERY);
+    ping.tick().await;
+
+    loop {
+        tokio::select! {
+            _ = ping.tick() => {
+                if writer.send(Message::Ping(vec![].into())).await.is_err() {
+                    break;
+                }
+            }
+            frame = out_rx.recv_async() => match frame {
+                Ok(frame) => {
+                    if writer.send(Message::Text(frame.to_string().into())).await.is_err() {
+                        break;
+                    }
+                }
+                // The pushing half ended: the person was removed or the Workspace deleted.
+                Err(_) => {
+                    let _ = writer.send(Message::Close(None)).await;
+                    break;
+                }
+            },
+            msg = reader.next() => match msg {
+                Some(Ok(Message::Text(text))) => {
+                    if let Ok(frame) = serde_json::from_str::<serde_json::Value>(&text) {
+                        connection.handle_inbound(frame).await;
+                    }
+                }
+                Some(Ok(Message::Ping(data))) => {
+                    let _ = writer.send(Message::Pong(data)).await;
+                }
+                Some(Ok(Message::Close(_))) | Some(Err(_)) | None => break,
+                Some(Ok(_)) => {}
+            },
+            _ = &mut expired => {
+                let _ = writer.send(Message::Close(None)).await;
+                break;
+            }
+        }
+    }
+    pushing.abort();
+    connection.close();
 }

@@ -878,3 +878,162 @@ pub async fn commands_menu(
         skills,
     })
 }
+
+// --- the live stream -----------------------------------------------------------------------------
+
+/// What one event becomes for one connection.
+pub enum Delivery {
+    /// Frames to send, possibly none.
+    Frames(Vec<serde_json::Value>),
+    /// The person is out, or the Workspace is gone: send `closed` and end the connection.
+    Close(&'static str),
+}
+
+fn frame(name: &str, body: serde_json::Value) -> serde_json::Value {
+    serde_json::json!({ name: body })
+}
+
+/// The first frame of a connection: where the timeline ends and who is working. A client reads
+/// what it missed by `seq` (`specs/053-workspace-channel/contracts/socket-frames.md`).
+pub async fn hello(
+    s: &Services,
+    who: &Principal,
+    workspace_id: &str,
+    topic_id: &str,
+) -> Result<serde_json::Value, ServiceError> {
+    let (workspace, _) = resolve(s, who, workspace_id).await?;
+    let topic = topic_of(s, &workspace, topic_id).await?;
+    let latest_seq = s.deps().storage.head_seq(&workspace.id).await.map_err(internal)?;
+    let working: Vec<serde_json::Value> = busy_agents(s, &workspace.id, &topic.id)
+        .await
+        .into_iter()
+        .map(|agent| serde_json::json!({ "agent": agent, "phase": "thinking" }))
+        .collect();
+    Ok(frame("hello", serde_json::json!({ "latest_seq": latest_seq, "working": working })))
+}
+
+/// Agents with a turn running or queued in one topic.
+pub async fn busy_agents(s: &Services, workspace_id: &str, topic_id: &str) -> Vec<String> {
+    use crate::storage::turn::TurnStorage;
+    s.deps()
+        .storage
+        .sessions_with_pending_turns()
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|session| {
+            matches!(&session.1, crate::schema::VizierChannelId::Workspace(id) if id == workspace_id)
+                && session.2.as_deref() == Some(topic_id)
+        })
+        .map(|session| session.0)
+        .collect()
+}
+
+/// Membership is re-checked for every delivery, so a removal takes effect on an open socket at
+/// the next event (FR-004, SC-006).
+async fn still_a_member(
+    s: &Services,
+    user_id: &str,
+    method: crate::auth::AuthMethod,
+    workspace_id: &str,
+) -> Option<Principal> {
+    let who = s.resolve(user_id, method).await.ok()?;
+    resolve(s, &who, workspace_id).await.ok()?;
+    Some(who)
+}
+
+pub async fn deliver_workspace(
+    s: &Services,
+    user_id: &str,
+    method: crate::auth::AuthMethod,
+    workspace_id: &str,
+    topic_id: &str,
+    event: &WorkspaceEvent,
+) -> Delivery {
+    if event.workspace_id() != workspace_id {
+        return Delivery::Frames(vec![]);
+    }
+    if matches!(event, WorkspaceEvent::Deleted { .. }) {
+        return Delivery::Close("deleted");
+    }
+    if still_a_member(s, user_id, method, workspace_id).await.is_none() {
+        return Delivery::Close("removed");
+    }
+    match event {
+        WorkspaceEvent::Entry { entry, .. } if entry.topic_id == topic_id => {
+            match view_one(s, entry).await {
+                Ok(view) => Delivery::Frames(vec![frame(
+                    "workspace_entry",
+                    serde_json::to_value(view).unwrap_or_default(),
+                )]),
+                Err(_) => Delivery::Frames(vec![]),
+            }
+        }
+        WorkspaceEvent::Mentions { topic_id: t, seq, mentions, .. } if t == topic_id => {
+            let views: Vec<MentionView> = mentions
+                .iter()
+                .map(|m| MentionView {
+                    kind: m.target_kind.as_str().into(),
+                    handle: m.target.clone(),
+                    state: m.state.as_str().into(),
+                })
+                .collect();
+            Delivery::Frames(vec![frame(
+                "workspace_mentions",
+                serde_json::json!({ "seq": seq, "mentions": views }),
+            )])
+        }
+        WorkspaceEvent::MemberChanged { .. } => {
+            Delivery::Frames(vec![frame("member_changed", serde_json::json!({}))])
+        }
+        _ => Delivery::Frames(vec![]),
+    }
+}
+
+pub async fn deliver_session(
+    s: &Services,
+    user_id: &str,
+    method: crate::auth::AuthMethod,
+    workspace_id: &str,
+    topic_id: &str,
+    event: &crate::transport::SessionEvent,
+) -> Delivery {
+    use crate::schema::{VizierChannelId, VizierResponseContent as Content};
+    use crate::transport::SessionFrame;
+    let session = &event.session;
+    if !matches!(&session.1, VizierChannelId::Workspace(id) if id == workspace_id)
+        || session.2.as_deref() != Some(topic_id)
+    {
+        return Delivery::Frames(vec![]);
+    }
+    if still_a_member(s, user_id, method, workspace_id).await.is_none() {
+        return Delivery::Close("removed");
+    }
+    let agent = session.0.as_str();
+    let frames = match &event.frame {
+        // A step of a running turn, tagged with the agent that took it.
+        SessionFrame::HistoryEntry(entry) => vec![frame(
+            "history_entry",
+            serde_json::json!({ "agent_id": agent, "entry": entry }),
+        )],
+        // A turn's text arrives as a `workspace_entry` once saved, so a reply frame says only
+        // whether the agent is working.
+        SessionFrame::Response(response) => {
+            let phase = match &response.content {
+                Content::ThinkingStart
+                | Content::Thinking(_)
+                | Content::ToolChoice { .. }
+                | Content::ToolResponse { .. } => "thinking",
+                Content::Message { .. }
+                | Content::AudioReply(..)
+                | Content::Error { .. }
+                | Content::Empty
+                | Content::Abort => "idle",
+                Content::Checkpoint { .. } => return Delivery::Frames(vec![]),
+            };
+            vec![frame("agent_state", serde_json::json!({ "agent": agent, "phase": phase }))]
+        }
+        _ => vec![],
+    };
+    Delivery::Frames(frames)
+}

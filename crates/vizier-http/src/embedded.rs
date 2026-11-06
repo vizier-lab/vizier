@@ -12,7 +12,10 @@ use axum::{Router, body::Body};
 use tower::ServiceExt;
 use vizier_core::runtime::VizierRuntime;
 
-use crate::{api, inbox::InboxConnection, state::AuthMode, topic::TopicConnection};
+use crate::{
+    api, inbox::InboxConnection, state::AuthMode, topic::TopicConnection,
+    workspace_topic::WorkspaceConnection,
+};
 
 pub struct Dispatcher {
     router: Router,
@@ -67,5 +70,22 @@ impl Dispatcher {
             .resolve(user_id, vizier_core::auth::AuthMethod::Desktop)
             .await?;
         InboxConnection::open(&self.state, &principal, out).await
+    }
+
+    /// Opens a Workspace topic connection as the desktop person: the same frames as
+    /// `GET /api/v1/workspaces/{id}/topics/{tid}/stream`, with no socket.
+    pub async fn open_workspace(
+        &self,
+        workspace_id: &str,
+        topic_id: &str,
+        out: flume::Sender<serde_json::Value>,
+    ) -> Result<WorkspaceConnection, vizier_core::service::ServiceError> {
+        let AuthMode::Desktop { user_id } = &self.state.auth else {
+            unreachable!("a dispatcher is always desktop mode")
+        };
+        let principal = vizier_core::service::Services::new(self.state.deps.clone())
+            .resolve(user_id, vizier_core::auth::AuthMethod::Desktop)
+            .await?;
+        WorkspaceConnection::open(&self.state, &principal, workspace_id, topic_id, out).await
     }
 }
