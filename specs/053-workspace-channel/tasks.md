@@ -188,8 +188,8 @@ description: "Task list for the Workspace channel and mid-turn messages"
 - [X] T075 [US6] Add `send_message_to_workspace`, `list_workspaces` and `read_workspace_messages` in `core/agents/tools/workspaces.rs` per the contract, with `available` false in `Dream` and `Subagent` sessions, a topic created on send, and `not_found` identical for non-members
 - [X] T076 [US6] Set `origin` from the caller's session in `core/workspaces/mod.rs`: task slug, chat, Discord, Telegram or Workspace, with none when sent from the same topic
 - [X] T077 [US6] Register the three tools in `core/agents/tools/mod.rs`, add them to `every_tool_is_in_its_category`, and test availability in each conversation kind
-- [ ] T078 [US6] Run `catch_up` for idle Workspace sessions before a dream cycle in `core/scheduler/dream/mod.rs`, skipping a session with a turn running, so dreams see what was read
-- [ ] T079 [US6] Draw the origin badge in `webui/app/screens/workspaces/WorkspaceTimeline.tsx`
+- [X] T078 [US6] Run `catch_up` for idle Workspace sessions before a dream cycle in `core/scheduler/dream/mod.rs`, skipping a session with a turn running, so dreams see what was read
+- [X] T079 [US6] Draw the origin badge in `webui/app/screens/workspaces/WorkspaceTimeline.tsx`
 - [ ] T080 [US6] Extend `scripts/workspace-e2e.mjs` with quickstart §8 and §11's dream step, and run it
 
 **Checkpoint**: Scheduled tasks can orchestrate a Workspace.
