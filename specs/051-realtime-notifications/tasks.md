@@ -98,20 +98,20 @@ description: "Task list for realtime notifications"
 
 ### Design for User Story 2
 
-- [ ] T034 [US2] **BLOCKED on FigCraft**: draw the popup on the notifications surface of `Vizier.figcraft`, in both themes, at desktop and 375 px, and have it reviewed. Match the agreed mockup: filters with icons on one line, setup row, sigil rows with no dot and no dividers, the number on the bell. Decide there how the read toggle is reached on touch and whether the bell keeps its busy indicator
-- [ ] T035 [P] [US2] Create `design/src/components/NotificationItem/` with the component and stories: sigil, title, two-line excerpt, agent and time, read and unread text, failed tone, no-title form, and a toggle shown on hover and focus and reachable on touch
-- [ ] T036 [P] [US2] Create `design/src/components/SetupItem/` with the component and stories: sigil, step, size and percent, progress bar, agent and time left, unknown size, and failed
-- [ ] T037 [US2] Add an indeterminate state to `design/src/components/ProgressBar/ProgressBar.tsx` with a story, if it doesn't draw one already
-- [ ] T038 [US2] Commit in `design/` and bump the pin in the workspace
+- [x] T034 [US2] draw the popup on the notifications surface of `Vizier.figcraft`, in both themes, at desktop and 375 px, and have it reviewed. Match the agreed mockup: filters with icons on one line, setup row, sigil rows with no dot and no dividers, the number on the bell. Decide there how the read toggle is reached on touch and whether the bell keeps its busy indicator
+- [x] T035 [P] [US2] Create `design/src/components/NotificationItem/` with the component and stories: sigil, title, two-line excerpt, agent and time, read and unread text, failed tone, no-title form, and a toggle shown on hover and focus and reachable on touch
+- [x] T036 [P] [US2] Create `design/src/components/SetupItem/` with the component and stories: sigil, step, size and percent, progress bar, agent and time left, unknown size, and failed
+- [x] T037 [US2] Add an indeterminate state to `design/src/components/ProgressBar/ProgressBar.tsx` with a story, if it doesn't draw one already (`ProgressBar` already had an indeterminate state and story; nothing to add)
+- [x] T038 [US2] Commit in `design/` and bump the pin in the workspace
 
 ### Implementation for User Story 2
 
-- [ ] T039 [US2] Add the bell's anchor element and a toggle to `webui/app/stores/notifications.ts`, and narrow the WebUI's `filter` to `unread | all`, keeping the REST `read` filter
-- [ ] T040 [US2] Register the anchor and call the toggle in `webui/app/screens/shared/NotificationsBell.tsx`, keeping `count`
-- [ ] T041 [US2] Map rows onto the design component in `webui/app/screens/notifications/NotificationRow.tsx`, falling back to the summary when `title` and `excerpt` are absent
-- [ ] T042 [US2] Map setup onto the design component in `webui/app/screens/notifications/SetupActivity.tsx`, keeping `eta` and `setupProgress` and showing one row per agent
-- [ ] T043 [US2] Create `webui/app/screens/notifications/NotificationsPopup.tsx` using `Floating` (`align="end"`, width `min(360, viewport − 16)`) and `useDismiss` with the bell as `ignore`: filter line with mark-all and × icons, setup rows, a scrolling list and "Load older". Add a fixed top-right anchor for when no bell is mounted
-- [ ] T044 [US2] Delete `webui/app/screens/notifications/NotificationsPanel.tsx`, and in `webui/app/layouts/AppShell.tsx` render one `NotificationsPopup` in both layouts and drop the `aside` prop and `SlideOver` panel
+- [x] T039 [US2] Add the bell's anchor element and a toggle to `webui/app/stores/notifications.ts`, and narrow the WebUI's `filter` to `unread | all`, keeping the REST `read` filter
+- [x] T040 [US2] Register the anchor and call the toggle in `webui/app/screens/shared/NotificationsBell.tsx`, keeping `count`
+- [x] T041 [US2] Map rows onto the design component in `webui/app/screens/notifications/NotificationRow.tsx`, falling back to the summary when `title` and `excerpt` are absent
+- [x] T042 [US2] Map setup onto the design component in `webui/app/screens/notifications/SetupActivity.tsx`, keeping `eta` and `setupProgress` and showing one row per agent
+- [x] T043 [US2] Create `webui/app/screens/notifications/NotificationsPopup.tsx` using `Floating` (`align="end"`, width `min(360, viewport − 16)`) and `useDismiss` with the bell as `ignore`: filter line with mark-all and × icons, setup rows, a scrolling list and "Load older". Add a fixed top-right anchor for when no bell is mounted
+- [x] T044 [US2] Delete `webui/app/screens/notifications/NotificationsPanel.tsx`, and in `webui/app/layouts/AppShell.tsx` render one `NotificationsPopup` in both layouts and drop the `aside` prop and `SlideOver` panel
 - [ ] T045 [P] [US2] Test in `webui/app/screens/notifications/NotificationsPopup.test.tsx`: the order of sections, all three dismissals, the bell toggling, and opening with no bell mounted
 - [ ] T046 [US2] Check `webui/app/screens/shared/NotificationToasts.tsx`, `webui/app/screens/chat/AgentStateBanner.tsx` and `webui/app/root.tsx` still open the popup, then run `cd webui && npm run typecheck && npm test` and quickstart step 10
 
