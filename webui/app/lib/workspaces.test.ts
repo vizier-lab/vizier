@@ -102,6 +102,25 @@ describe('a Workspace topic as things to draw', () => {
         expect(message.kind === 'message' && message.text).toBe('@beta tools')
     })
 
+    it('keeps a python call paired with its result across a mention_agent message', () => {
+        // The script posts a mention while it runs; its result arrives afterwards.
+        const python = step('alpha', 'call-py', 1, {
+            ToolCall: { call_id: 'py', name: 'execute_python', arguments: { intent: 'ask', code: 'mention_agent(["beta"], "tools")' } },
+        })
+        const report = step('alpha', 'res-py', 3, {
+            ToolResult: { call_id: 'py', content: JSON.stringify({ ok: true, duration_ms: 1, result: { status: 'posted' }, stdout: '', tool_calls: [] }) },
+        })
+        const entries = [person('@alpha ask beta', 0), agentEntry('alpha', '@beta tools', 2, null)]
+        const items = buildTimeline([...entries, agentEntry('alpha', 'asked', 5, 'u-done', true)], [python, report, reply('alpha', 'u-done', 5, 'asked')])
+        const events = items
+            .flatMap((i) => (i.kind === 'run' ? i.segment.blocks : []))
+            .flatMap((b) => (b.kind === 'trail' ? b.events : []))
+            .filter((e) => e.kind === 'python')
+        expect(events).toHaveLength(1)
+        const only = events[0]
+        expect(only.kind === 'python' && only.report?.ok).toBe(true)
+    })
+
     it('draws a shown message whose step is not on the page', () => {
         const items = buildTimeline([agentEntry('alpha', 'earlier answer', 1, 'gone', true)], [])
         const run = items[0]
