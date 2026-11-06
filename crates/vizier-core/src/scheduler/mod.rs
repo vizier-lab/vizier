@@ -19,6 +19,14 @@ mod dream;
 
 use dream::DreamScheduler;
 
+fn normalize_task_instruction(instruction: String) -> String {
+    if instruction.contains("\\n") {
+        instruction.replace("\\n", "\n")
+    } else {
+        instruction
+    }
+}
+
 pub struct VizierScheduler {
     /// Dream triggers from the bus, subscribed in `new` so none sent after startup is missed.
     dream_commands: crate::transport::DreamCommands,
@@ -341,7 +349,9 @@ impl VizierScheduler {
                 VizierRequest {
                     timestamp: now,
                     user: task.requester.to_frontmatter(),
-                    content: crate::schema::VizierRequestContent::Unattended(task.instruction),
+                    content: crate::schema::VizierRequestContent::Unattended(
+                        normalize_task_instruction(task.instruction),
+                    ),
                     // The run's time is the request's own `timestamp`, which the agent sees as `sent_at`.
                     metadata: serde_json::json!({}),
                     // What turns the frontmatter's `sender` from a person's name into
@@ -599,6 +609,14 @@ mod tests {
         assert_eq!(
             occurrences("0 9 * * *", at_in(&utc, "2026-11-06T10:00"), 1),
             ["2026-11-07T09:00:00+00:00"]
+        );
+    }
+
+    #[test]
+    fn literal_newline_escapes_become_newlines() {
+        assert_eq!(
+            normalize_task_instruction("first line\\nsecond line".to_string()),
+            "first line\nsecond line"
         );
     }
 }

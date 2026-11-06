@@ -35,6 +35,7 @@ All notable changes to this project will be documented in this file.
 
 ### 🐛 Bug Fixes
 
+- Normalize literal `\n` escapes in agent-created task instructions
 - *(test)* Produce the over-cap stream with posix awk, not a bashism
 - *(app)* Do not let the linux build trip -D warnings on the window binding
 - Make managed storage CI reproducible
