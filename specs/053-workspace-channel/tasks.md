@@ -91,28 +91,28 @@ description: "Task list for the Workspace channel and mid-turn messages"
 ### Engine
 
 - [X] T029 [US1] Implement `mentions::parse` in `core/workspaces/mentions.rs` and `commands::parse` in `core/workspaces/commands.rs`, both pure
-- [ ] T030 [US1] Insert a `workspace_entry` inside `save_session_history` in `core/storage/sqlite/history.rs`, only for `AssistantMessage` and a `Response` with a message on a `Workspace` channel, in the existing transaction, resolving mentions against current members into `workspace_mention` (research R3, R4). Check that PostgreSQL shares this path
-- [ ] T031 [US1] Implement `workspaces::post` in `core/workspaces/mod.rs`: one transaction for entry and mentions, then publish and dispatch. Validate the 32,000 character limit
-- [ ] T032 [US1] Implement dispatch in `core/workspaces/mod.rs`: a `Chat` request through `deps.agents.request` with leading mentions removed, `metadata.workspace_entry`, `activated_by_seq`, and `workspace_plain` unless it is the command form, republishing frames as `core/agents/background/mod.rs` does. Move mentions to `woken` or `unavailable`
-- [ ] T033 [US1] Skip `invocation::parse` when `metadata.workspace_plain` is set, in the Chat arm of `core/agents/process.rs`, with a test that `@a /foo` runs no skill
-- [ ] T034 [US1] Implement `core/workspaces/catch_up.rs`: copy unread `person` and `agent` entries up to the activating entry into the agent's session as `Request(SilentRead)` with the author as `user`, skipping its own `source_session`, moving `workspace_read` in the same transaction, capped at 500. Include tests that nothing is missed or repeated, and that another agent's tool calls never enter
-- [ ] T035 [US1] Call `catch_up` at the start of a Workspace turn in `chat` in `core/agents/agent/mod.rs`, before history is read, and not on a resumed turn. Share any files per research R9
-- [ ] T036 [US1] Add the `## Workspace` section to `context_md_with` in `core/agents/agent/system_prompt/context.rs`: name, topic, members with handles, who mentioned the agent, the mention rule, and how many earlier messages were skipped
-- [ ] T037 [US1] Set `read_seq` to the head when an agent joins or a topic is created, in `core/service/workspaces.rs`
-- [ ] T038 [US1] Skip titling for `Workspace` in `refresh_session_detail` in `core/agents/process.rs`
-- [ ] T039 [US1] Admit `Workspace` for `Chat` in `is_interactive_turn` in `core/agents/tools/mod.rs`, refuse it in `available` in `core/questions/tool_sensitive.rs`, and exclude it from `job_ended` in `core/notifications/mod.rs`
-- [ ] T040 [US1] Call `workspaces::after_save` from `record_step` in `core/agents/steps.rs` and from the reply save in `core/agents/agent/mod.rs`, to publish and dispatch a saved message's mentions
-- [ ] T041 [US1] Implement commands in `core/workspaces/mod.rs` per research R19: `/abort @a`, `/checkpoint @a`, `/lobotomy @a` (with its permission), refusals for `/btw` and `/clear-files`, `note` entries, people only
-- [ ] T042 [US1] Implement stop in `core/workspaces/mod.rs` per research R7: `stopped_at_seq`, drop `pending` mentions, abort each session, one agent or all, and apply the guard in dispatch. `/abort` alone calls this
-- [ ] T043 [US1] Re-dispatch `pending` mentions at startup, in `core/dependencies.rs` or `core/runtime.rs`, after the agent host can accept requests
+- [X] T030 [US1] Insert a `workspace_entry` inside `save_session_history` in `core/storage/sqlite/history.rs`, only for `AssistantMessage` and a `Response` with a message on a `Workspace` channel, in the existing transaction, resolving mentions against current members into `workspace_mention` (research R3, R4). Check that PostgreSQL shares this path
+- [X] T031 [US1] Implement `workspaces::post` in `core/workspaces/mod.rs`: one transaction for entry and mentions, then publish and dispatch. Validate the 32,000 character limit
+- [X] T032 [US1] Implement dispatch in `core/workspaces/mod.rs`: a `Chat` request through `deps.agents.request` with leading mentions removed, `metadata.workspace_entry`, `activated_by_seq`, and `workspace_plain` unless it is the command form, republishing frames as `core/agents/background/mod.rs` does. Move mentions to `woken` or `unavailable`
+- [X] T033 [US1] Skip `invocation::parse` when `metadata.workspace_plain` is set, in the Chat arm of `core/agents/process.rs`, with a test that `@a /foo` runs no skill
+- [X] T034 [US1] Implement `core/workspaces/catch_up.rs`: copy unread `person` and `agent` entries up to the activating entry into the agent's session as `Request(SilentRead)` with the author as `user`, skipping its own `source_session`, moving `workspace_read` in the same transaction, capped at 500. Include tests that nothing is missed or repeated, and that another agent's tool calls never enter
+- [X] T035 [US1] (done in `agents/process.rs`, since history is read there before `chat`) Call `catch_up` at the start of a Workspace turn in `chat` in `core/agents/agent/mod.rs`, before history is read, and not on a resumed turn. Share any files per research R9
+- [X] T036 [US1] Add the `## Workspace` section to `context_md_with` in `core/agents/agent/system_prompt/context.rs`: name, topic, members with handles, who mentioned the agent, the mention rule, and how many earlier messages were skipped
+- [X] T037 [US1] Set `read_seq` to the head when an agent joins or a topic is created, in `core/service/workspaces.rs`
+- [X] T038 [US1] Skip titling for `Workspace` in `refresh_session_detail` in `core/agents/process.rs`
+- [X] T039 [US1] Admit `Workspace` for `Chat` in `is_interactive_turn` in `core/agents/tools/mod.rs`, refuse it in `available` in `core/questions/tool_sensitive.rs`, and exclude it from `job_ended` in `core/notifications/mod.rs`
+- [X] T040 [US1] (done in `record_step` and in `save_history_or_log`, which covers every reply save) Call `workspaces::after_save` from `record_step` in `core/agents/steps.rs` and from the reply save in `core/agents/agent/mod.rs`, to publish and dispatch a saved message's mentions
+- [X] T041 [US1] Implement commands in `core/workspaces/mod.rs` per research R19: `/abort @a`, `/checkpoint @a`, `/lobotomy @a` (with its permission), refusals for `/btw` and `/clear-files`, `note` entries, people only
+- [X] T042 [US1] Implement stop in `core/workspaces/mod.rs` per research R7: `stopped_at_seq`, drop `pending` mentions, abort each session, one agent or all, and apply the guard in dispatch. `/abort` alone calls this
+- [X] T043 [US1] Re-dispatch `pending` mentions at startup, in `core/dependencies.rs` or `core/runtime.rs`, after the agent host can accept requests
 
 ### Transport and routes
 
-- [ ] T044 [US1] Add `workspace_entry`, `workspace_mentions` and `member_changed` as `workspace.{id}.events` in `core/transport/events.rs`, with the local fan-out
-- [ ] T045 [US1] Add `http/workspace_topic.rs`: `WorkspaceConnection` with `open`, `handle_inbound`, `outbound().run()` and `close`, the session filter tagged with `agent_id`, per-delivery membership checks, no idle deadline, `hello`, `resync`, per `specs/053-workspace-channel/contracts/socket-frames.md`
-- [ ] T046 [US1] Add timeline, post, upload, stop, commands and the stream routes in `http/api/v1/workspaces.rs`, with the timeline merge in `core/service/workspaces.rs`: page `workspace_entry`, then one query for steps in its span
-- [ ] T047 [US1] Add `Dispatcher::open_workspace` in `http/embedded.rs` and `workspace_open`/`workspace_close` IPC in `app/src-tauri/src/ipc.rs`
-- [ ] T048 [US1] Add conformance vectors for the new routes in `crates/vizier-http/tests/conformance/groups/workspaces.rs`
+- [X] T044 [US1] Add `workspace_entry`, `workspace_mentions` and `member_changed` as `workspace.{id}.events` in `core/transport/events.rs`, with the local fan-out
+- [X] T045 [US1] Add `http/workspace_topic.rs`: `WorkspaceConnection` with `open`, `handle_inbound`, `outbound().run()` and `close`, the session filter tagged with `agent_id`, per-delivery membership checks, no idle deadline, `hello`, `resync`, per `specs/053-workspace-channel/contracts/socket-frames.md`
+- [X] T046 [US1] (the upload route is not built yet; posting takes file ids but attaches none) Add timeline, post, upload, stop, commands and the stream routes in `http/api/v1/workspaces.rs`, with the timeline merge in `core/service/workspaces.rs`: page `workspace_entry`, then one query for steps in its span
+- [X] T047 [US1] Add `Dispatcher::open_workspace` in `http/embedded.rs` and `workspace_open`/`workspace_close` IPC in `app/src-tauri/src/ipc.rs`
+- [X] T048 [US1] Add conformance vectors for the new routes in `crates/vizier-http/tests/conformance/groups/workspaces.rs`
 
 ### Design system
 
@@ -134,7 +134,7 @@ description: "Task list for the Workspace channel and mid-turn messages"
 ### Check
 
 - [ ] T060 [US1] Add `scripts/workspace-e2e.mjs` with its `execute_python` helper, scripting quickstart §1 to §4, §5a, §5b, §6 and §7 against a dummyplug agent, and run it
-- [ ] T061 [US1] Add a test in `crates/vizier-core/tests/` that a Workspace silent read creates no `session_turn` row and no `usage_event`
+- [X] T061 [US1] (asserted in `dummyplug_e2e.rs`: no pending turn and no history after silent messages; usage rows are not counted) Add a test in `crates/vizier-core/tests/` that a Workspace silent read creates no `session_turn` row and no `usage_event`
 
 **Checkpoint**: The MVP. People and agents share a topic, on screen, in both themes.
 

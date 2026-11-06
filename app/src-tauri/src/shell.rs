@@ -21,7 +21,7 @@ use tauri_plugin_updater::UpdaterExt;
 use crate::{
     desktop::{self, Navigator},
     engine::{CommandError, Engine, SettingsPatch},
-    ipc::{self, Inboxes, IpcError, Topics},
+    ipc::{self, Inboxes, IpcError, Topics, Workspaces},
     settings::DesktopSettings,
 };
 
@@ -29,6 +29,7 @@ struct Shell {
     engine: Engine,
     topics: Arc<Topics>,
     inboxes: Arc<Inboxes>,
+    workspaces: Arc<Workspaces>,
     nav: Arc<Navigator>,
     quitting: std::sync::atomic::AtomicBool,
 }
@@ -63,6 +64,7 @@ async fn quit(app: AppHandle) {
     shell.quitting.store(true, std::sync::atomic::Ordering::SeqCst);
     shell.topics.close_all();
     shell.inboxes.close_all();
+    shell.workspaces.close_all();
     shell.engine.shutdown().await;
     app.exit(0);
 }
@@ -138,6 +140,38 @@ async fn inbox_open(frames: Channel<Value>, shell: State<'_, Shell>) -> Result<V
 #[tauri::command]
 fn inbox_close(id: u64, shell: State<'_, Shell>) {
     shell.inboxes.close(id);
+}
+
+/// Opens a Workspace topic stream (`specs/053-workspace-channel`): the frames
+/// `GET /api/v1/workspaces/{id}/topics/{tid}/stream` pushes, the `hello` first.
+#[tauri::command]
+async fn workspace_open(
+    workspace_id: String,
+    topic_id: String,
+    frames: Channel<Value>,
+    shell: State<'_, Shell>,
+) -> Result<Value, Value> {
+    match shell
+        .workspaces
+        .open(&shell.engine, &workspace_id, &topic_id, move |frame| {
+            let _ = frames.send(frame);
+        })
+        .await
+    {
+        Ok(id) => Ok(json!({ "id": id })),
+        Err(refused) => Err(json!({ "status": refused.status })),
+    }
+}
+
+#[tauri::command]
+async fn workspace_send(id: u64, frame: Value, shell: State<'_, Shell>) -> Result<(), ()> {
+    shell.workspaces.send(id, frame).await;
+    Ok(())
+}
+
+#[tauri::command]
+fn workspace_close(id: u64, shell: State<'_, Shell>) {
+    shell.workspaces.close(id);
 }
 
 // ---------------------------------------------------------------- commands: desktop shell
@@ -229,6 +263,7 @@ async fn desktop_open_workspace(path: Option<String>, app: AppHandle, shell: Sta
     let Some(path) = chosen else { return Ok(()) };
     shell.topics.close_all();
     shell.inboxes.close_all();
+    shell.workspaces.close_all();
     shell.engine.open_workspace(path).await;
     Ok(())
 }
@@ -250,6 +285,7 @@ async fn desktop_pick_folder(app: AppHandle) -> Result<Option<String>, CommandEr
 async fn runtime_restart(shell: State<'_, Shell>) -> Result<(), ()> {
     shell.topics.close_all();
     shell.inboxes.close_all();
+    shell.workspaces.close_all();
     shell.engine.restart().await;
     Ok(())
 }
@@ -339,6 +375,7 @@ async fn update_install(app: AppHandle, shell: State<'_, Shell>) -> Result<(), S
     update.download_and_install(|_, _| {}, || {}).await.map_err(|e| e.to_string())?;
     shell.topics.close_all();
     shell.inboxes.close_all();
+    shell.workspaces.close_all();
     shell.engine.shutdown().await;
     app.restart();
 }
@@ -390,7 +427,7 @@ pub fn run() {
 
     #[cfg(debug_assertions)]
     let handler: Box<dyn Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Sync> = Box::new(tauri::generate_handler![
-        api, topic_open, topic_send, topic_close, inbox_open, inbox_close, desktop_state, desktop_setup_owner,
+        api, topic_open, topic_send, topic_close, inbox_open, inbox_close, workspace_open, workspace_send, workspace_close, desktop_state, desktop_setup_owner,
         desktop_choose_owner, desktop_open_workspace, desktop_pick_folder, runtime_restart,
         desktop_theme, desktop_settings_get,
         desktop_settings_set, desktop_ready, save_file, save_text, open_file, notify, update_check,
@@ -398,7 +435,7 @@ pub fn run() {
     ]);
     #[cfg(not(debug_assertions))]
     let handler: Box<dyn Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Sync> = Box::new(tauri::generate_handler![
-        api, topic_open, topic_send, topic_close, inbox_open, inbox_close, desktop_state, desktop_setup_owner,
+        api, topic_open, topic_send, topic_close, inbox_open, inbox_close, workspace_open, workspace_send, workspace_close, desktop_state, desktop_setup_owner,
         desktop_choose_owner, desktop_open_workspace, desktop_pick_folder, runtime_restart,
         desktop_theme, desktop_settings_get,
         desktop_settings_set, desktop_ready, save_file, save_text, open_file, notify, update_check,
@@ -417,6 +454,7 @@ pub fn run() {
                 engine: engine.clone(),
                 topics: Arc::new(Topics::default()),
                 inboxes: Arc::new(Inboxes::default()),
+                workspaces: Arc::new(Workspaces::default()),
                 nav: Arc::new(Navigator::default()),
                 quitting: Default::default(),
             });
@@ -517,6 +555,7 @@ pub fn run() {
                 WindowEvent::Destroyed => {
                     shell.topics.close_all();
                     shell.inboxes.close_all();
+                    shell.workspaces.close_all();
                 }
                 _ => {}
             }
