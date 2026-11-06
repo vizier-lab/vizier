@@ -13,7 +13,6 @@ use crate::{
     agents::mcp::McpServer,
     agents::tools::{
         background_jobs::{CancelBackgroundJob, ListBackgroundJobs},
-        consult::{ConsultAgent, DelegateAgent},
         dream_journal::ReadDreamJournal,
         fetch::FetchWebpage,
         http_client::HttpClient,
@@ -25,6 +24,7 @@ use crate::{
             ScheduleOneTimeTask,
         },
         scratchpad::{AppendTmp, ReadTmp, WriteTmp},
+        workspaces::{ListWorkspaces, MentionAgent, ReadWorkspaceMessages, SendMessageToWorkspace},
         time::{ConvertTime, CurrentTime, ShiftTime, TimeBetween},
         secrets::{GetSecret, SetSecret},
         session_files::{
@@ -57,7 +57,6 @@ use crate::{
 mod artifacts;
 mod background_jobs;
 pub mod brave_search;
-mod consult;
 #[cfg(feature = "channel-discord")]
 pub mod discord;
 mod dream_journal;
@@ -84,6 +83,7 @@ mod time;
 pub mod tts;
 mod vector_memory;
 mod webui;
+mod workspaces;
 
 pub type VizierToolDef = Arc<Box<dyn VizierToolDyn + Send + Sync + 'static>>;
 
@@ -117,10 +117,13 @@ pub enum ToolCategory {
     /// The time tools (`specs/052-unify-local-timezone`): the prompt carries no clock, so an agent
     /// asks these for the time, converts between zones and does date arithmetic.
     Time,
+    /// The Workspace tools (`specs/053-workspace-channel`): wake other agents by mentioning them
+    /// in a shared topic, and reach a Workspace from any other conversation.
+    Workspaces,
 }
 
 impl ToolCategory {
-    pub const ALL: [ToolCategory; 18] = [
+    pub const ALL: [ToolCategory; 19] = [
         Self::Memory,
         Self::Scheduling,
         Self::Agents,
@@ -139,6 +142,7 @@ impl ToolCategory {
         Self::Secrets,
         Self::Questions,
         Self::Time,
+        Self::Workspaces,
     ];
 
     pub fn name(self) -> &'static str {
@@ -161,6 +165,7 @@ impl ToolCategory {
             Self::Secrets => "secrets",
             Self::Questions => "questions",
             Self::Time => "time",
+            Self::Workspaces => "workspaces",
         }
     }
 
@@ -168,9 +173,7 @@ impl ToolCategory {
         match self {
             Self::Memory => "Search, read, write and organise long-term memory",
             Self::Scheduling => "Schedule one-time and recurring tasks and check their results",
-            Self::Agents => {
-                "Consult or delegate to other agents, run parallel subagents, manage background jobs"
-            }
+            Self::Agents => "Run parallel subagents and manage background jobs",
             Self::Skills => "Create, find and use reusable skills",
             Self::Files => "Read files attached to this conversation and send attachments",
             Self::Scratchpad => {
@@ -198,6 +201,9 @@ impl ToolCategory {
             Self::Time => {
                 "The current time, timezone conversion and date arithmetic; the prompt does not carry a clock"
             }
+            Self::Workspaces => {
+                "Wake other agents in a shared Workspace by mentioning them, and post to or read a Workspace from any conversation"
+            }
         }
     }
 }
@@ -209,6 +215,14 @@ pub const RETIRED_TOOL_NAMES: &[(&str, &str)] = &[
     (
         "paralel_subtasks",
         "paralel_subtasks was replaced by parallel_subagents (waits for the results) and background_subagents (results arrive later as a background report)",
+    ),
+    (
+        "consult_agent",
+        "consult_agent and delegate_agent were replaced: use mention_agent inside a Workspace, and send_message_to_workspace outside one. Both agents must be members of the Workspace.",
+    ),
+    (
+        "delegate_agent",
+        "consult_agent and delegate_agent were replaced: use mention_agent inside a Workspace, and send_message_to_workspace outside one. Both agents must be members of the Workspace.",
     ),
     (
         "ui_render_interactive_ui",
@@ -1241,15 +1255,6 @@ impl BaseTools {
         let agent_workspace_path = agent_workspace(&workspace, &agent_id);
         let agent_workspace = agent_workspace_path.to_string_lossy().to_string();
 
-        let other_agents: HashMap<String, crate::schema::AgentConfig> = deps
-            .storage
-            .list_agents()
-            .await
-            .unwrap_or_default()
-            .into_iter()
-            .filter(|(aid, _)| aid != &agent_id)
-            .collect();
-
         let mut default_toolset = VizierToolSet::new();
         let mut user_toolset = VizierToolSet::new();
 
@@ -1282,12 +1287,11 @@ impl BaseTools {
                 agent_id: agent_id.clone(),
                 storage: deps.storage.clone(),
             })
-            .tool(ConsultAgent::new(
-                agent_id.clone(),
-                other_agents.clone(),
-                deps.transport.clone(),
-            ))
-            .tool(DelegateAgent::new(other_agents.clone(), deps.clone()))
+            // Workspaces (spec 053): wake agents by mention inside one, and reach one from anywhere.
+            .tool(MentionAgent { hub: crate::workspaces::Hub::from(&deps) })
+            .tool(SendMessageToWorkspace { hub: crate::workspaces::Hub::from(&deps) })
+            .tool(ListWorkspaces { hub: crate::workspaces::Hub::from(&deps) })
+            .tool(ReadWorkspaceMessages { hub: crate::workspaces::Hub::from(&deps) })
             .tool(BackgroundSubagentsTool::new(deps.clone()))
             .tool(ParallelSubagentsTool::new(deps.clone()))
             .tool(ListBackgroundJobs::new(deps.clone()))
@@ -1657,8 +1661,10 @@ mod tests {
             entry::<DeleteTask>(),
             entry::<ListTaskRuns>(),
             entry::<GetTaskRunDetail>(),
-            entry::<ConsultAgent>(),
-            entry::<DelegateAgent>(),
+            entry::<MentionAgent>(),
+            entry::<SendMessageToWorkspace>(),
+            entry::<ListWorkspaces>(),
+            entry::<ReadWorkspaceMessages>(),
             entry::<BackgroundSubagentsTool>(),
             entry::<ParallelSubagentsTool>(),
             entry::<ListBackgroundJobs>(),
@@ -1774,8 +1780,10 @@ mod tests {
             ("delete_task", Scheduling),
             ("list_task_runs", Scheduling),
             ("get_task_run_detail", Scheduling),
-            ("consult_agent", Agents),
-            ("delegate_agent", Agents),
+            ("mention_agent", Workspaces),
+            ("send_message_to_workspace", Workspaces),
+            ("list_workspaces", Workspaces),
+            ("read_workspace_messages", Workspaces),
             ("background_subagents", Agents),
             ("parallel_subagents", Agents),
             ("list_background_jobs", Agents),
@@ -1997,8 +2005,10 @@ mod tests {
             .iter()
             .map(|category| category.name())
             .collect();
-        assert_eq!(names.last(), Some(&"time"));
-        assert_eq!(names.len(), 18);
+        // `workspaces` (spec 053) is the last; `time` (spec 052) is the one before it.
+        assert_eq!(names.last(), Some(&"workspaces"));
+        assert_eq!(names[names.len() - 2], "time");
+        assert_eq!(names.len(), 19);
         // `coding` sits before `integrations`, but no agent-wide tool uses it (its tools are
         // per-turn project contributions).
         assert_eq!(names[13], "coding");

@@ -1,5 +1,5 @@
 //! Background jobs (`specs/012-background-subagent-results/`): work an agent hands off with
-//! `background_subagents` or `delegate_agent`, which reports back to the conversation that
+//! `background_subagents` (or `delegate_agent` in history saved before spec 053), which reports back to the conversation that
 //! launched it as one `BackgroundReport` turn.
 //!
 //! Delivery is the same for every conversation. Nothing here branches on `VizierChannelId`:

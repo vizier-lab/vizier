@@ -115,6 +115,10 @@ pub trait WorkspaceStorage {
     /// mentions were dropped and the head.
     async fn stop_all(&self, workspace_id: &str, now: i64) -> Result<(usize, i64)>;
 
+    /// The entry that started an agent's current turn in a topic, or `None`. A tool that writes
+    /// an entry while a turn runs carries it, so Stop all can tell a chain it already covered.
+    async fn current_activation(&self, session: &VizierSession) -> Result<Option<i64>>;
+
     /// What the member agents did in a topic between two moments: the rows of their own
     /// sessions that are not requests (thoughts, calls, results, messages), oldest first. The
     /// timeline merges these with its entries by time (research R3); one query for the span of
@@ -289,6 +293,10 @@ impl WorkspaceStorage for VizierStorage {
 
     async fn stop_all(&self, workspace_id: &str, now: i64) -> Result<(usize, i64)> {
         self.0.stop_all(workspace_id, now).await
+    }
+
+    async fn current_activation(&self, session: &VizierSession) -> Result<Option<i64>> {
+        self.0.current_activation(session).await
     }
 
     async fn steps_between(

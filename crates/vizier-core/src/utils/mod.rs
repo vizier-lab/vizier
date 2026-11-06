@@ -138,8 +138,8 @@ pub fn format_thinking(name: &String, args: &serde_json::Value) -> String {
         "read_dream_journal" => "💤 Reading dream journal:".to_string(),
         "schedule_one_time_task" => "⏰ Scheduling task:".to_string(),
         "schedule_cron_task" => "🔄 Setting up recurring task:".to_string(),
-        "consult_agent" => "🤝 Consulting agent:".to_string(),
-        "delegate_agent" => "👤 Delegating task:".to_string(),
+        "mention_agent" => "📣 Mentioning agents:".to_string(),
+        "send_message_to_workspace" => "📨 Posting to a Workspace:".to_string(),
         "parallel_subagents" => "⚡ Running subagents".to_string(),
         "background_subagents" => "⚡ Starting background subagents".to_string(),
         "create_skill" => "🎯 Creating skill:".to_string(),
@@ -278,13 +278,19 @@ pub fn format_thinking(name: &String, args: &serde_json::Value) -> String {
         "schedule_one_time_task" | "schedule_cron_task" => {
             format!("'{}'", args["title"].as_str().unwrap_or("?"))
         }
-        "consult_agent" | "delegate_agent" => {
-            format!(
-                "agent {} about '{}'",
-                args["agent_id"].as_str().unwrap_or("?"),
-                args["prompt"].as_str().unwrap_or("")
-            )
-        }
+        "mention_agent" => format!(
+            "{} about '{}'",
+            args["agents"]
+                .as_array()
+                .map(|a| a.iter().filter_map(|x| x.as_str()).map(|x| format!("@{}", x.trim_start_matches('@'))).collect::<Vec<_>>().join(" "))
+                .unwrap_or_default(),
+            args["message"].as_str().unwrap_or("")
+        ),
+        "send_message_to_workspace" => format!(
+            "{} / {}",
+            args["workspace_name"].as_str().unwrap_or("?"),
+            args["workspace_topic"].as_str().unwrap_or("?")
+        ),
         "create_skill" => format!("'{}'", args["name"].as_str().unwrap_or("?")),
         "webui_send_message" => {
             format!("@{}", args["username"].as_str().unwrap_or("?"))

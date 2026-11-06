@@ -11,8 +11,8 @@ Every agent gets these regardless of configuration:
 | `think` | Scratchpad for reasoning |
 | `schedule_one_time_task`, `schedule_cron_task`, `list_task`, `get_task_detail`, `delete_task` | Scheduler — tasks run as the agent in a dedicated `Task` session |
 | `current_time`, `convert_time`, `shift_time`, `time_between` | Time — the current time, zone conversion and date arithmetic. The prompt carries no clock, so an agent asks these. See [Time](./time.md) |
-| `consult_agent` | Ask another agent and wait for its reply |
-| `delegate_agent` | Hand a task to another agent |
+| `mention_agent` | Inside a Workspace: wake other member agents by mentioning them. See [Workspaces](./workspaces.md) |
+| `send_message_to_workspace`, `list_workspaces`, `read_workspace_messages` | Reach a Workspace you are a member of from any conversation, including a scheduled task |
 | `parallel_subagents` | Run several sub-prompts in parallel and wait for their results in the current turn |
 | `background_subagents` | Run several sub-prompts in parallel in the background; results arrive later as a background report |
 | `create_skill`, `update_skill`, `delete_skill`, `list_skills`, `get_skill_details`, `use_skill`, `read_skill_resource`, `execute_skill_resource` | Skills — see [Skills](./skills.md) |

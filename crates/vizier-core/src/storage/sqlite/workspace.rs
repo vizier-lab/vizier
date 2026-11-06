@@ -240,6 +240,31 @@ pub(super) fn insert_entry_row(
     Ok(seq)
 }
 
+/// The entry that started an agent's current turn in a topic: the newest request in its record
+/// that is not a copied read. `None` when the turn was not started from the Workspace.
+pub(super) fn activation_seq(
+    conn: &crate::storage::sql::Connection,
+    agent_id: &str,
+    channel_slug: &str,
+    topic_id: &str,
+) -> Result<Option<i64>> {
+    let mut stmt = conn.prepare(
+        "SELECT data FROM session_history \
+         WHERE agent_id = ?1 AND channel = ?2 AND topic = ?3 AND content_type = 'Request' \
+         ORDER BY seq DESC LIMIT 8",
+    )?;
+    let rows = stmt.query_map(params![agent_id, channel_slug, topic_id], |row| row.get::<_, String>(0))?;
+    for data in rows {
+        let Ok(entry) = serde_json::from_str::<SessionHistory>(&data?) else { continue };
+        let SessionHistoryContent::Request(request) = entry.content else { continue };
+        if matches!(request.content, VizierRequestContent::SilentRead(_)) {
+            continue;
+        }
+        return Ok(request.metadata.get("workspace_entry").and_then(|v| v.as_i64()));
+    }
+    Ok(None)
+}
+
 /// Writes the shown part of a saved history row into the shared timeline, inside the history
 /// save's own transaction. Only an agent's text in a `Workspace` session counts: an
 /// `AssistantMessage`, or a final reply with a message. Everything else (tool calls, results,
@@ -295,27 +320,7 @@ pub(super) fn index_history_entry(
         .and_then(|config| config.get("name").and_then(|n| n.as_str()).map(str::to_string))
         .unwrap_or_else(|| agent_id.to_string());
 
-    // The entry that started this turn: the newest request that is not a copied read.
-    let mut activated_by_seq = None;
-    {
-        let mut stmt = conn.prepare(
-            "SELECT data FROM session_history \
-             WHERE agent_id = ?1 AND channel = ?2 AND topic = ?3 AND content_type = 'Request' \
-             ORDER BY seq DESC LIMIT 8",
-        )?;
-        let rows = stmt.query_map(params![agent_id, session.1.to_slug(), topic_id], |row| {
-            row.get::<_, String>(0)
-        })?;
-        for data in rows {
-            let Ok(entry) = serde_json::from_str::<SessionHistory>(&data?) else { continue };
-            let SessionHistoryContent::Request(request) = entry.content else { continue };
-            if matches!(request.content, VizierRequestContent::SilentRead(_)) {
-                continue;
-            }
-            activated_by_seq = request.metadata.get("workspace_entry").and_then(|v| v.as_i64());
-            break;
-        }
-    }
+    let activated_by_seq = activation_seq(conn, agent_id, &session.1.to_slug(), topic_id)?;
 
     // Members, to resolve `@handle`. An agent does not wake itself by naming itself.
     let mut handles: Vec<(String, MemberKind)> = Vec::new();
@@ -727,6 +732,12 @@ impl WorkspaceStorage for SqlStorage {
         )?;
         tx.commit()?;
         Ok((dropped, head))
+    }
+
+    async fn current_activation(&self, session: &VizierSession) -> Result<Option<i64>> {
+        let Some(topic) = session.2.as_deref() else { return Ok(None) };
+        let conn = self.conn.lock()?;
+        activation_seq(&conn, &session.0, &session.1.to_slug(), topic)
     }
 
     async fn steps_between(

@@ -23,7 +23,7 @@ mod memory;
 pub(crate) mod memory_revision;
 mod notification;
 mod project;
-mod workspace;
+pub(crate) mod workspace;
 mod provider;
 mod question;
 mod reaction;
