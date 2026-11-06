@@ -208,9 +208,12 @@ export function Composer({
           )}
           {recording && !voice && <p className="type-body text-fg">Recording · press the mic again to stop</p>}
           <div className="flex items-center gap-8">
-            <button type="button" aria-label="Attach files" onClick={onAttach} disabled={disabled} className={toolButton}>
-              <Icon name="attach" />
-            </button>
+            {/* A host that takes no files (a Workspace topic) passes no handler, so there is no button. */}
+            {onAttach && (
+              <button type="button" aria-label="Attach files" onClick={onAttach} disabled={disabled} className={toolButton}>
+                <Icon name="attach" />
+              </button>
+            )}
             {skills.length > 0 && (
               <button type="button" aria-label="Skills" onClick={() => onValueChange("/")} disabled={disabled} className={toolButton}>
                 <Icon name="slash" />
