@@ -92,6 +92,8 @@ export interface Transport {
     saveText(text: string, filename: string): Promise<void>
     openFile(path: string, filename: string): Promise<void>
     openTopic(t: { agentId: string; channelId: string; topicId: string }, opts: TopicOptions): TopicHandle
+    /** One Workspace topic: the `hello`, then entries, steps and states. Sends `{ post }` back. */
+    openWorkspace(t: { workspaceId: string; topicId: string }, opts: TopicOptions): TopicHandle
     /** One live connection for notifications and setup status; reconnects with the topic backoff. */
     openInbox(opts: InboxOptions): InboxHandle
     notify(n: { title: string; body: string; href: string }): Promise<void>

@@ -379,7 +379,7 @@ export type TrailEvent =
 // on the way (specs/053-workspace-channel/contracts/turn-rendering.md). A trail is never empty.
 export type TurnBlock =
   | { kind: 'trail'; events: TrailEvent[]; startedAt?: string; endedAt?: string }
-  | { kind: 'message'; id: string; text: string }
+  | { kind: 'message'; id: string; text: string; at?: string }
 
 // One exchange: what was asked, what the agent did on the way, and what came back.
 export interface Turn {

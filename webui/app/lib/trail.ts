@@ -251,7 +251,7 @@ export function groupHistory(entries: ChatMessage[]): Turn[] {
     if (typeof content.AssistantMessage === 'string') {
       if (!content.AssistantMessage) continue
       if (!open) open = newTurn(entry.uid)
-      open.blocks.push({ kind: 'message', id: entry.uid, text: content.AssistantMessage })
+      open.blocks.push({ kind: 'message', id: entry.uid, text: content.AssistantMessage, at: entry.timestamp })
       continue
     }
 
