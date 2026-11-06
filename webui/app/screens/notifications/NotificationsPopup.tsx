@@ -102,7 +102,7 @@ function Popup({
             <div
                 role="dialog"
                 aria-label="Notifications"
-                className="flex max-h-[min(560px,calc(100dvh-80px))] flex-col overflow-hidden rounded-2xl border border-border bg-surface shadow-popover"
+                className="flex max-h-[min(560px,calc(100dvh-80px))] flex-col overflow-hidden rounded-2xl border border-border-strong surface-float shadow-popover"
             >
                 <div
                     ref={heading}
