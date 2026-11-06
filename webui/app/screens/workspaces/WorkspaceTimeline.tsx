@@ -73,6 +73,7 @@ function Run({
                     const handles = entry?.mentions.map((m) => m.handle)
                     return (
                         <div key={block.id} className="flex flex-col gap-6">
+                            {entry?.origin && <OriginBadge kind={entry.origin.kind} label={entry.origin.label} />}
                             <Markdown>{mentionsAsCode(block.text, handles)}</Markdown>
                             <Failed entry={entry} names={names} />
                         </div>
