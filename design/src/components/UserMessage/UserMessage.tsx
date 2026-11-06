@@ -48,7 +48,7 @@ export function UserMessage({ name = "You", seed, time, avatarSrc, skill, attach
         className={cx(
           "flex max-w-480 min-w-0 flex-col items-start gap-6 rounded-lg px-14 py-10 [overflow-wrap:anywhere]",
           queued ? "border border-dashed border-border-strong" : "bg-surface",
-          mentioned && "shadow-[inset_2px_0_0_var(--vz-rank)]",
+          mentioned && "border-l-2 border-l-rank",
         )}
       >
         {skill && <SkillChip skill={skill} />}

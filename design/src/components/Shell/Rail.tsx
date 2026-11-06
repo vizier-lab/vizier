@@ -254,12 +254,12 @@ export function Rail({
       {w.unread ? (
         <span
           aria-hidden
-          className="absolute -top-4 -right-4 grid h-16 min-w-16 place-items-center rounded-pill bg-rank-text px-4 type-mono-xs-medium text-shell shadow-[0_0_0_2px_var(--vz-shell)]"
+          className="absolute -top-4 -right-4 grid h-16 min-w-16 place-items-center rounded-pill bg-rank-text px-4 type-mono-xs-medium text-shell ring-2 ring-shell"
         >
           {w.unread > 99 ? "99+" : w.unread}
         </span>
       ) : null}
-      {w.working && <span aria-hidden className="absolute -right-2 -bottom-2 size-10 rounded-pill bg-live shadow-[0_0_0_2px_var(--vz-shell)]" />}
+      {w.working && <span aria-hidden className="absolute -right-2 -bottom-2 size-10 rounded-pill bg-live ring-2 ring-shell" />}
     </RailLink>
   );
   const tile = (a: RailAgent) =>
