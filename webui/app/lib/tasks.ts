@@ -1,9 +1,10 @@
 import type { Task, TaskInput, TaskRun, TaskSchedule } from '../api/endpoints/tasks'
+import { zoned } from './timezone'
 
 export const isCron = (s: TaskSchedule): s is { CronTask: string } => 'CronTask' in s
 
 /** "0 9 * * 1", or the one-time moment. */
-export const scheduleText = (s: TaskSchedule) => (isCron(s) ? s.CronTask : new Date(s.OneTimeTask).toLocaleString())
+export const scheduleText = (s: TaskSchedule) => (isCron(s) ? s.CronTask : zoned(s.OneTimeTask).toLocaleString())
 
 /** "@dani (DiscordId: 182…)" → "@dani": the name a person is known by, without the platform id. */
 export function personName(person: string): string {

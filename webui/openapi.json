@@ -2140,8 +2140,9 @@
           {
             "name": "tz",
             "in": "path",
-            "description": "The person's UTC offset, e.g. `+07:00`; default UTC.",
+            "description": "Ignored. Nights follow the instance's timezone. Kept so older clients keep working.",
             "required": true,
+            "deprecated": true,
             "schema": {
               "type": [
                 "string",
@@ -6094,6 +6095,18 @@
             "schema": {
               "type": "boolean"
             }
+          },
+          {
+            "name": "capability",
+            "in": "path",
+            "description": "What is being picked: `chat` when absent. `embedding` and `image` answer with that\ncapability's foundation models only and never a saved inference-profile entry, because an\nARN is a chat model (FR-033a).",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
           }
         ],
         "responses": {
@@ -6103,6 +6116,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/APIResponse_Vec_ModelSummary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unknown capability",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
                 }
               }
             }
@@ -6293,6 +6316,29 @@
           },
           "404": {
             "description": "File not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/inbox/stream": {
+      "get": {
+        "tags": [
+          "api::v1::notifications"
+        ],
+        "operationId": "stream",
+        "responses": {
+          "101": {
+            "description": "WebSocket established. The server pushes JSON frames (`hello`, `notification`, `read`, `setup`, `setup_cleared`, `resync`) and ignores anything the client sends"
+          },
+          "401": {
+            "description": "Missing, invalid or expired credentials",
             "content": {
               "application/json": {
                 "schema": {
@@ -6674,8 +6720,9 @@
           {
             "name": "tz",
             "in": "path",
-            "description": "The person's UTC offset, e.g. `+07:00`; default UTC.",
+            "description": "Ignored. Days follow the instance's timezone. Kept so older clients keep working.",
             "required": true,
+            "deprecated": true,
             "schema": {
               "type": [
                 "string",
@@ -6723,8 +6770,9 @@
           {
             "name": "tz",
             "in": "path",
-            "description": "The person's UTC offset, e.g. `+07:00`; default UTC.",
+            "description": "Ignored. Days follow the instance's timezone. Kept so older clients keep working.",
             "required": true,
+            "deprecated": true,
             "schema": {
               "type": [
                 "string",
@@ -7784,6 +7832,26 @@
           }
         }
       }
+    },
+    "/utils/timezone": {
+      "get": {
+        "tags": [
+          "api::v1::utils"
+        ],
+        "operationId": "timezone",
+        "responses": {
+          "200": {
+            "description": "The timezone this instance runs in. Every time it returns is in this zone",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_Zone"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -8176,6 +8244,13 @@
                   "null"
                 ],
                 "format": "date-time"
+              },
+              "session_failure": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Why the agent's provider is refusing while the agent itself is available: the AWS SSO\nsession ended, and signing in again clears it (spec 044, FR-018). Never a token, never a\nkey or a model — only the session's own wording (FR-009b)."
               },
               "state": {
                 "$ref": "#/components/schemas/AgentRunState"
@@ -10824,6 +10899,13 @@
                 "format": "date-time",
                 "description": "When the stored session's access token expires."
               },
+              "session_failure": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "What the connection last failed with, when that failure was about the session itself —\na session revoked in AWS while its token still looked valid, for instance (FR-016,\nFR-018). Cleared by the next successful sign-in, which needs no Vizier restart."
+              },
               "source": {
                 "type": [
                   "string",
@@ -11444,11 +11526,25 @@
               "ok"
             ],
             "properties": {
+              "billing": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "The marker of one billable inference call. Set only when the test really invoked a model —\nthe SSO test spends exactly one call (FR-012a, SC-018) — and never by a listing or a\nfailure, which spend nothing."
+              },
               "error": {
                 "type": [
                   "string",
                   "null"
                 ]
+              },
+              "model": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "The target the test invoked, when the test is a real call: the SSO provider's test proves\none model or inference profile, so it names it (contract `media-and-test.md` §1)."
               },
               "model_count": {
                 "type": [
@@ -12727,6 +12823,17 @@
                     "null"
                   ]
                 },
+                "limits_edited": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/LimitsEdited",
+                      "description": "Which of the two limits the person set by hand, so a re-pairing refreshes only the others\n(FR-034a.7). Server-owned: the client never sets it, and `null` on an entry saved before\nthis rule reads as \"true wherever a number is present\"."
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
                 "model": {
                   "type": [
                     "string",
@@ -13124,6 +13231,13 @@
                   ],
                   "format": "date-time",
                   "description": "When the stored session's access token expires."
+                },
+                "session_failure": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "What the connection last failed with, when that failure was about the session itself —\na session revoked in AWS while its token still looked valid, for instance (FR-016,\nFR-018). Cleared by the next successful sign-in, which needs no Vizier restart."
                 },
                 "source": {
                   "type": [
@@ -13645,6 +13759,45 @@
           }
         }
       },
+      "APIResponse_Zone": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "The instance's timezone, as reported to clients and the startup log.",
+            "required": [
+              "offset"
+            ],
+            "properties": {
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "IANA name, such as `Asia/Jakarta`. `None` only when the host's zone cannot be named."
+              },
+              "offset": {
+                "type": "string",
+                "description": "The current offset, such as `+07:00`. It changes with daylight saving, so it is computed\non every read."
+              }
+            }
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
       "AccountList": {
         "type": "object",
         "description": "The account list, with the free-text fallback only when the portal listed nothing (FR-007).",
@@ -14071,6 +14224,13 @@
               "null"
             ],
             "format": "date-time"
+          },
+          "session_failure": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why the agent's provider is refusing while the agent itself is available: the AWS SSO\nsession ended, and signing in again clears it (spec 044, FR-018). Never a token, never a\nkey or a model — only the session's own wording (FR-009b)."
           },
           "state": {
             "$ref": "#/components/schemas/AgentRunState"
@@ -15300,7 +15460,7 @@
             "type": "string"
           },
           "model_override": {
-            "anyOf": [
+            "oneOf": [
               {
                 "$ref": "#/components/schemas/ModelOverrideRequest"
               },
@@ -15310,21 +15470,6 @@
             ]
           },
           "topic_id": {
-            "type": "string"
-          }
-        }
-      },
-      "ModelOverrideRequest": {
-        "type": "object",
-        "required": [
-          "provider",
-          "model"
-        ],
-        "properties": {
-          "provider": {
-            "type": "string"
-          },
-          "model": {
             "type": "string"
           }
         }
@@ -18246,6 +18391,24 @@
           }
         }
       },
+      "LimitsEdited": {
+        "type": "object",
+        "description": "Which of an entry's two limits the person set by hand (FR-034a.7 rule 1). Two bits, written by\nthe server on every entry write: the numbers the person typed are never overwritten by the\nlimit fill, and the ones they did not type are the fill's to refresh when the pair changes.",
+        "required": [
+          "context",
+          "output"
+        ],
+        "properties": {
+          "context": {
+            "type": "boolean",
+            "description": "The context window is the person's, not the paired model's."
+          },
+          "output": {
+            "type": "boolean",
+            "description": "The output limit is the person's, not the paired model's."
+          }
+        }
+      },
       "LocalShellConfig": {
         "type": "object",
         "required": [
@@ -18785,6 +18948,37 @@
           }
         }
       },
+      "ModelOverride": {
+        "type": "object",
+        "required": [
+          "provider",
+          "model"
+        ],
+        "properties": {
+          "model": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          }
+        }
+      },
+      "ModelOverrideRequest": {
+        "type": "object",
+        "description": "An explicit per-chat model choice. Provider and complete model id remain separate.",
+        "required": [
+          "provider",
+          "model"
+        ],
+        "properties": {
+          "model": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          }
+        }
+      },
       "ModelRow": {
         "allOf": [
           {
@@ -19011,6 +19205,13 @@
           "category": {
             "$ref": "#/components/schemas/NotificationCategory"
           },
+          "excerpt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "A short plain-text excerpt of what the source said."
+          },
           "href": {
             "type": "string"
           },
@@ -19027,22 +19228,15 @@
             "type": "string",
             "description": "The stored summary; the WebUI renders it as text."
           },
-          "tone": {
-            "$ref": "#/components/schemas/NotificationTone"
-          },
-          "excerpt": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "A short plain-text excerpt of what the source said."
-          },
           "title": {
             "type": [
               "string",
               "null"
             ],
-            "description": "The current conversation title or the task title. Absent when there is none or the viewer may not see it."
+            "description": "The conversation's current title or the task's title. Absent when the source has none,\nor when the viewer may not see it."
+          },
+          "tone": {
+            "$ref": "#/components/schemas/NotificationTone"
           }
         }
       },
@@ -19314,6 +19508,17 @@
             ],
             "description": "Whether the profile takes images; unset is unknown."
           },
+          "limits_edited": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/LimitsEdited",
+                "description": "Which of the two limits the person set by hand, so a re-pairing refreshes only the others\n(FR-034a.7). **Server-owned**: recomputed on every write from the stored entry and the\nsubmitted numbers, and whatever the client sends here is ignored — that is what makes\nechoing a displayed value back a no-op. `None` on an entry saved before this rule reads as\n\"true wherever a number is present\", so no old number is mistaken for a fill."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "model": {
             "type": [
               "string",
@@ -19391,6 +19596,17 @@
             "type": [
               "boolean",
               "null"
+            ]
+          },
+          "limits_edited": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/LimitsEdited",
+                "description": "Which of the two limits the person set by hand, so a re-pairing refreshes only the others\n(FR-034a.7). Server-owned: the client never sets it, and `null` on an entry saved before\nthis rule reads as \"true wherever a number is present\"."
+              },
+              {
+                "type": "null"
+              }
             ]
           },
           "model": {
@@ -19843,6 +20059,13 @@
             ],
             "format": "date-time",
             "description": "When the stored session's access token expires."
+          },
+          "session_failure": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "What the connection last failed with, when that failure was about the session itself —\na session revoked in AWS while its token still looked valid, for instance (FR-016,\nFR-018). Cleared by the next successful sign-in, which needs no Vizier restart."
           },
           "source": {
             "type": [
@@ -20739,6 +20962,7 @@
           },
           {
             "type": "object",
+            "description": "RFC 3339 with an offset is that exact moment; a date and time with no offset\n(`2026-11-07T09:00`) is the instance's local time.",
             "required": [
               "datetime",
               "type"
@@ -21897,11 +22121,25 @@
           "ok"
         ],
         "properties": {
+          "billing": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The marker of one billable inference call. Set only when the test really invoked a model —\nthe SSO test spends exactly one call (FR-012a, SC-018) — and never by a listing or a\nfailure, which spend nothing."
+          },
           "error": {
             "type": [
               "string",
               "null"
             ]
+          },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The target the test invoked, when the test is a real call: the SSO provider's test proves\none model or inference profile, so it names it (contract `media-and-test.md` §1)."
           },
           "model_count": {
             "type": [
@@ -22267,6 +22505,13 @@
               "string",
               "null"
             ]
+          },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The target of a **Test** on the SSO provider: the model id or inference-profile ARN to\ninvoke (contract `media-and-test.md` §1). Upsert ignores it — it is not a credential, so it\nis deliberately absent from [`Self::sent`] and [`Self::into_credentials`], and saving\nneither stores nor clears anything for it."
           },
           "profiles": {
             "type": [
@@ -22714,6 +22959,17 @@
             "description": "Files and folders a project chat's message mentions (FR-018). Their contents are\nresolved when the turn starts and never stored."
           },
           "metadata": {},
+          "model_override": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ModelOverride",
+                "description": "Explicit provider/model for this chat turn; absent means the configured agent model."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "platform_message_id": {
             "oneOf": [
               {
@@ -23273,6 +23529,26 @@
           },
           "name": {
             "type": "string"
+          }
+        }
+      },
+      "Zone": {
+        "type": "object",
+        "description": "The instance's timezone, as reported to clients and the startup log.",
+        "required": [
+          "offset"
+        ],
+        "properties": {
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "IANA name, such as `Asia/Jakarta`. `None` only when the host's zone cannot be named."
+          },
+          "offset": {
+            "type": "string",
+            "description": "The current offset, such as `+07:00`. It changes with daylight saving, so it is computed\non every read."
           }
         }
       }

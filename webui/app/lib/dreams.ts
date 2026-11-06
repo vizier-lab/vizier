@@ -1,6 +1,7 @@
 import type { DreamChange, DreamCycle, DreamNight } from '../api/endpoints/dream'
 import { absoluteTime } from './format'
 import { docHref } from './memoryTree'
+import { zoned } from './timezone'
 
 /** "Oct 20 · 3 memories · 1 identity", the line a night says on hover. */
 export function nightHint(n: DreamNight): string {
@@ -26,7 +27,7 @@ export function nightLabel(n: DreamNight, index: number, count: number): string 
 export function cycleWhen(c: Pick<DreamCycle, 'started_at' | 'ended_at' | 'state'>): string {
     const start = absoluteTime(c.started_at)
     if (c.state === 'running' || !c.ended_at) return `${start} · running`
-    const end = new Date(c.ended_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+    const end = zoned(c.ended_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
     return `${start} – ${end}`
 }
 

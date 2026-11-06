@@ -16,6 +16,8 @@ import { AgentSidebar } from '../screens/shell/AgentSidebar'
 import { viewOf } from '../screens/shell/pages'
 import { ShellRail } from '../screens/shell/ShellRail'
 import { useSession } from '../stores/session'
+import { getInstanceZone } from '../api/endpoints/timezone'
+import { setInstanceZone } from '../lib/timezone'
 import { ToastRegion } from './ToastRegion'
 
 export default function AppShell() {
@@ -31,6 +33,15 @@ export default function AppShell() {
     const resetNotifications = useNotifications((s) => s.reset)
     const setViewing = useNotifications((s) => s.setViewing)
     const [drawerAgent, setDrawerAgent] = useState<string>()
+    // Times are drawn in the instance's zone, so the pages wait for it. If it can't be read they
+    // carry on in the browser's zone rather than show nothing.
+    const [zoneKnown, setZoneKnown] = useState(false)
+    useEffect(() => {
+        getInstanceZone()
+            .then(setInstanceZone)
+            .catch((e) => console.warn("Couldn't read the instance's timezone; using the browser's", e))
+            .finally(() => setZoneKnown(true))
+    }, [])
 
     useEffect(() => start(), [start])
     // A fresh session starts from zero, then the badge is kept current by the inbox stream.
@@ -96,7 +107,7 @@ export default function AppShell() {
                 transition: { duration: motionDurations.base, ease: motionEases.arrive },
             }}
         >
-            <Outlet />
+            {zoneKnown && <Outlet />}
         </motion.div>
     )
 

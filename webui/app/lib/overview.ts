@@ -1,6 +1,7 @@
 import type { ActivityRow as GridRow } from '@vizier/design'
 import type { Activity, Overview } from '../api/endpoints/overview'
 import { cost } from './format'
+import { zoned } from './timezone'
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString('en-US')} ${n === 1 ? one : many}`
 
@@ -13,11 +14,11 @@ export function greetingMeta(o: Overview): string {
     return parts.join(' · ')
 }
 
-/** The tooltip of every hour's dot: "14:00 · 3 turns", in the person's own hours. */
+/** The tooltip of every hour's dot: "14:00 · 3 turns", in the instance's hours. */
 export function hourHints(hours: string[], turns: number[]): string[] {
     return hours.map((h, i) => {
         const n = turns[i] ?? 0
-        const at = new Date(h)
+        const at = zoned(h)
         const label = `${String(at.getHours()).padStart(2, '0')}:00`
         return `${label} · ${n === 0 ? 'no turns' : plural(n, 'turn')}`
     })

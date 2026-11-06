@@ -2,6 +2,7 @@ import { Cron } from 'croner'
 import type { Task, TaskRun } from '../api/endpoints/tasks'
 import { describeCron } from './cron'
 import { isCron } from './tasks'
+import { zoned } from './timezone'
 
 /** What the Schedule page's filter tabs can say. `active` is the default. */
 export type ScheduleFilter = 'active' | 'last_run_failed' | 'all'
@@ -36,7 +37,7 @@ export function countTasks(tasks: Task[]): Record<ScheduleFilter, number> {
 
 const pad = (n: number) => String(n).padStart(2, '0')
 
-/** "2026-10-30", the local calendar day of a moment. */
+/** "2026-10-30", the calendar day of a `zoned` date. */
 export const dayKey = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
 
 /** Local midnight of a "2026-10-30", or null when it isn't a real date. */
@@ -80,11 +81,14 @@ const MATCH_MS = 90_000
 
 const crons = new Map<string, Cron | null>()
 
-/** The server evaluates cron expressions in UTC, so the calendar does too. */
+/**
+ * The server evaluates cron expressions in its local time. The calendar works on `zoned` dates, whose
+ * browser-local fields are that clock, so evaluating in the browser's local time gives the same fields.
+ */
 function cronOf(expression: string): Cron | null {
     if (!crons.has(expression)) {
         try {
-            crons.set(expression, new Cron(expression, { timezone: 'UTC' }))
+            crons.set(expression, new Cron(expression))
         } catch {
             crons.set(expression, null)
         }
@@ -92,10 +96,10 @@ function cronOf(expression: string): Cron | null {
     return crons.get(expression) ?? null
 }
 
-/** Every moment the schedule names in [from, to), up to the cap. */
+/** Every moment the schedule names in [from, to), up to the cap. All three are `zoned` dates. */
 export function scheduledAt(task: Task, from: Date, to: Date, cap = MOMENT_CAP): { at: Date[]; capped: boolean } {
     if (!isCron(task.schedule)) {
-        const at = new Date(task.schedule.OneTimeTask)
+        const at = zoned(task.schedule.OneTimeTask)
         return { at: at >= from && at < to ? [at] : [], capped: false }
     }
     const cron = cronOf(task.schedule.CronTask)
@@ -120,7 +124,7 @@ const RUN_CHIP: Record<TaskRun['state'], ChipState> = {
 /** How a moment reads: the run that happened there, what is ahead, a paused task, or an unrecorded past. */
 export function momentState(task: Task, at: Date, now: Date): ChipState {
     const run = task.last_run
-    if (run && Math.abs(Date.parse(run.ran_at) - at.getTime()) <= MATCH_MS) return RUN_CHIP[run.state]
+    if (run && Math.abs(zoned(run.ran_at).getTime() - at.getTime()) <= MATCH_MS) return RUN_CHIP[run.state]
     if (!task.is_active) return at > now ? 'paused' : 'past'
     return at > now ? 'upcoming' : 'past'
 }

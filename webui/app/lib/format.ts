@@ -1,3 +1,5 @@
+import { zoned } from './timezone'
+
 export { middleTruncate } from '@vizier/design'
 
 const en = new Intl.NumberFormat('en-US')
@@ -52,7 +54,7 @@ export function relativeTime(date: string | number | Date, now: number = Date.no
 
 /** "Oct 23, 14:05", or just the date when `dateOnly`. */
 export function absoluteTime(date: string | number | Date, dateOnly = false): string {
-    const d = new Date(date)
+    const d = zoned(date)
     const day = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
     if (dateOnly) return day
     const time = d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
@@ -61,10 +63,10 @@ export function absoluteTime(date: string | number | Date, dateOnly = false): st
 
 /** "21:04" today, "yesterday", then a short date. */
 export function feedTime(at: string, now: Date = new Date()): string {
-    const d = new Date(at)
+    const d = zoned(at)
     const day = (x: Date) =>
         new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime()
-    const days = Math.round((day(now) - day(d)) / 86_400_000)
+    const days = Math.round((day(zoned(now)) - day(d)) / 86_400_000)
     if (days <= 0)
         return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
     if (days === 1) return 'yesterday'
