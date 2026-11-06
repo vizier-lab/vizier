@@ -83,6 +83,8 @@ export * from "./components/KeyValueList";
 export * from "./components/KeywordInput";
 export * from "./components/Legend";
 export * from "./components/ListItem";
+export * from "./components/NotificationItem";
+export * from "./components/SetupItem";
 export * from "./components/MemoryGraph";
 export * from "./components/LoadMore";
 export * from "./components/MarkdownEditor";
