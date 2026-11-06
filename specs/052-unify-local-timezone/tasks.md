@@ -69,7 +69,7 @@ description: "Task list for Unified Local Time"
 - [ ] T022 [P] [US1] Use `ChronoLocal::rfc_3339()` on the fmt layer in `crates/vizier/src/main.rs` (R11)
 - [ ] T023 [P] [US1] Remove the UTC label from the retry time in `crates/vizier/src/cli/agent.rs`, printing local time with its offset
 - [ ] T024 [P] [US1] Convert the platform message timestamp to local in `crates/vizier-core/src/agents/tools/discord/mod.rs`
-- [ ] T025 [US1] Regenerate `webui/app/api/schema.d.ts` with `webui/scripts/openapi.mjs`
+- [ ] T025 [US1] Regenerate `webui/openapi.json` with `scripts/openapi.mjs`, then `webui/app/api/schema.d.ts` with `npm run gen:api` in `webui/`
 
 ### WebUI
 
@@ -113,7 +113,7 @@ description: "Task list for Unified Local Time"
 - [ ] T041 [P] [US3] Add tests to `crates/vizier-core/src/scheduler/mod.rs` with `last_executed_at` from before the upgrade: a cron task whose local occurrence has passed fires exactly one catch-up and then follows the local schedule; on a UTC zone nothing moves (R3, FR-019)
 - [ ] T042 [P] [US3] Check that `crates/vizier-core/src/scheduler/dream/mod.rs` and `crates/vizier-core/src/service/dream.rs` follow the same catch-up rule through `get_last_dream_time`, and add a test for it
 - [ ] T043 [P] [US3] Create `docs/src/configuration/time.md` and add it to `docs/src/SUMMARY.md`: how an instance's zone is chosen, setting `TZ` for Docker, compose and Kubernetes, why a POSIX `TZ` is refused, and cron and dream schedules meaning local time with the catch-up and the second-run-west-of-UTC behaviour
-- [ ] T044 [US3] Add release notes for the cron behaviour and the refusal of a POSIX `TZ` to the docs' upgrade notes and to the breaking commit's body, so `cliff.toml` renders it, using `feat!:`
+- [ ] T044 [US3] Add an "Upgrading" section on the cron behaviour and the refusal of a POSIX `TZ` to `docs/src/configuration/time.md`, and state the same in a `BREAKING CHANGE:` footer on the `feat!:` commit, so the `cliff.toml` changelog carries it
 - [ ] T045 [US3] Run quickstart.md step 7
 
 **Checkpoint**: An operator can read what will move before upgrading.
@@ -167,8 +167,8 @@ These land only once the tools above work, so an agent is never left with neithe
 - [ ] T063 [P] [US5] Change `day_of_millis` in `crates/vizier-core/src/storage/sql/sqlite.rs` to `date(col / 1000, 'unixepoch', 'localtime')`, and test the usage day grouping in `crates/vizier-core/src/storage/sqlite/usage.rs` under `TZ=Asia/Jakarta`
 - [ ] T064 [P] [US5] Change `day_of_millis` in `crates/vizier-core/src/storage/sql/postgres.rs` to `AT TIME ZONE` with the name from `time::zone()`, or the numeric offset when the name is `None` (R9). The name comes only from the validated resolver.
 - [ ] T065 [US5] Replace the `offset_minutes` arguments in `crates/vizier-core/src/service/overview.rs` with the local-day helpers, and update its tests
-- [ ] T066 [US5] Replace the offset arguments of `night_of` and `build_nights` in `crates/vizier-core/src/service/dream.rs` and the dream journal module with the local-day helpers, and remove `parse_offset` and its test
-- [ ] T067 [US5] Keep `tz` accepted and ignored in `crates/vizier-http/src/api/v1/overview/mod.rs` and `crates/vizier-http/src/api/v1/agents/dream.rs`, mark it deprecated in OpenAPI, and regenerate `webui/app/api/schema.d.ts`
+- [ ] T066 [US5] Replace the offset arguments of `night_of` and `build_nights` in `crates/vizier-core/src/schema/dream_journal.rs` and their callers in `crates/vizier-core/src/service/dream.rs` with the local-day helpers, and remove `parse_offset` and its test
+- [ ] T067 [US5] Keep `tz` accepted and ignored in `crates/vizier-http/src/api/v1/overview/mod.rs` and `crates/vizier-http/src/api/v1/agents/dream.rs`, mark it deprecated in OpenAPI, and regenerate the client as in T025
 - [ ] T068 [P] [US5] Stop sending `tz` from `webui/app/api/endpoints/overview.ts` and `webui/app/api/endpoints/dream.ts`
 - [ ] T069 [US5] Add the ignored `tz` parameter and the query-space leniency from T014 as checklist entries on [#82](https://github.com/vizier-lab/vizier/issues/82)
 - [ ] T070 [US5] Run quickstart.md step 8 on SQLite and on PostgreSQL
