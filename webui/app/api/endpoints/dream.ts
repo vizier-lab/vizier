@@ -50,18 +50,10 @@ export interface DreamStatus {
     dream_model?: string | null
 }
 
-/** Minutes east of UTC as `+07:00`, for the server's night boundaries. */
-export const utcOffset = (now = new Date()) => {
-    const m = -now.getTimezoneOffset()
-    const sign = m < 0 ? '-' : '+'
-    const a = Math.abs(m)
-    return `${sign}${String(Math.floor(a / 60)).padStart(2, '0')}:${String(a % 60).padStart(2, '0')}`
-}
-
 const base = (agentId: string) => `/agents/${agentId}/dream`
 
 export const dreamNights = (agentId: string, days = 30) =>
-    api.get<{ nights: DreamNight[]; unattributed: number }>(`${base(agentId)}/nights?days=${days}&tz=${encodeURIComponent(utcOffset())}`)
+    api.get<{ nights: DreamNight[]; unattributed: number }>(`${base(agentId)}/nights?days=${days}`)
 
 export const dreamCycles = (agentId: string, before?: string, limit = 20) =>
     api.get<{ cycles: DreamCycle[]; next: string | null }>(`${base(agentId)}/cycles?limit=${limit}${before ? `&before=${encodeURIComponent(before)}` : ''}`)

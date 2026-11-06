@@ -18,15 +18,5 @@ export type Activity = {
     today_by_kind?: { chat: number; scheduled: number; dream_stages: number; background: number } | null
 }
 
-/** The person's UTC offset as the API reads it: `+07:00`, `-05:30`, `+00:00`. */
-export function tzParam(date: Date = new Date()): string {
-    const minutes = -date.getTimezoneOffset()
-    const sign = minutes < 0 ? '-' : '+'
-    const abs = Math.abs(minutes)
-    return `${sign}${String(Math.floor(abs / 60)).padStart(2, '0')}:${String(abs % 60).padStart(2, '0')}`
-}
-
-const tz = () => encodeURIComponent(tzParam())
-
-export const getOverview = () => api.get<Overview>(`/overview?tz=${tz()}`)
-export const getActivity = (rank: Rank) => api.get<Activity>(`/overview/activity?rank=${rank}&tz=${tz()}`)
+export const getOverview = () => api.get<Overview>('/overview')
+export const getActivity = (rank: Rank) => api.get<Activity>(`/overview/activity?rank=${rank}`)

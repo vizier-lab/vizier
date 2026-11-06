@@ -1,3 +1,4 @@
+import { wallClockString } from './timezone'
 import { describe, expect, it } from 'vitest'
 import type { Task, TaskRun } from '../api/endpoints/tasks'
 import {
@@ -25,9 +26,11 @@ const task = (over: Partial<Task> = {}): Task => ({
     ...over,
 })
 
-const run = (over: Partial<TaskRun> = {}): TaskRun => ({ run_id: 'r', id: 1, ran_at: '2026-10-30T12:00:00Z', state: 'answered', ...over })
+const run = (over: Partial<TaskRun> = {}): TaskRun => ({ run_id: 'r', id: 1, ran_at: '2026-10-30T12:00:00', state: 'answered', ...over })
 
-const utc = (s: string) => new Date(`${s}Z`)
+// A wall-clock time, as `zoned` dates are: its browser-local fields are the instance's clock.
+const wall = (s: string) => new Date(s)
+const fields = (d: Date) => wallClockString(d)
 
 describe('days', () => {
     it('round-trips a day key and refuses a date that is not real', () => {
@@ -50,49 +53,49 @@ describe('days', () => {
 })
 
 describe('scheduledAt', () => {
-    it('lists a cron task in UTC', () => {
-        const { at } = scheduledAt(task(), utc('2026-10-30T00:00:00'), utc('2026-11-01T00:00:00'))
-        expect(at.map((d) => d.toISOString())).toEqual(['2026-10-30T12:00:00.000Z', '2026-10-31T12:00:00.000Z'])
+    it('lists a cron task on the instance clock', () => {
+        const { at } = scheduledAt(task(), wall('2026-10-30T00:00:00'), wall('2026-11-01T00:00:00'))
+        expect(at.map(fields)).toEqual(['2026-10-30T12:00:00', '2026-10-31T12:00:00'])
     })
 
     it('includes the first instant of the range and leaves out the last', () => {
-        const { at } = scheduledAt(task(), utc('2026-10-30T12:00:00'), utc('2026-10-31T12:00:00'))
-        expect(at.map((d) => d.toISOString())).toEqual(['2026-10-30T12:00:00.000Z'])
+        const { at } = scheduledAt(task(), wall('2026-10-30T12:00:00'), wall('2026-10-31T12:00:00'))
+        expect(at.map(fields)).toEqual(['2026-10-30T12:00:00'])
     })
 
     it('puts a one-time task only inside its own range', () => {
-        const once = task({ schedule: { OneTimeTask: '2026-10-31T08:30:00Z' } })
-        expect(scheduledAt(once, utc('2026-10-31T00:00:00'), utc('2026-11-01T00:00:00')).at).toHaveLength(1)
-        expect(scheduledAt(once, utc('2026-10-30T00:00:00'), utc('2026-10-31T00:00:00')).at).toHaveLength(0)
+        const once = task({ schedule: { OneTimeTask: '2026-10-31T08:30:00' } })
+        expect(scheduledAt(once, wall('2026-10-31T00:00:00'), wall('2026-11-01T00:00:00')).at).toHaveLength(1)
+        expect(scheduledAt(once, wall('2026-10-30T00:00:00'), wall('2026-10-31T00:00:00')).at).toHaveLength(0)
     })
 
     it('ignores an expression it cannot read', () => {
-        expect(scheduledAt(task({ schedule: { CronTask: 'nonsense' } }), utc('2026-10-30T00:00:00'), utc('2026-11-01T00:00:00')).at).toEqual([])
+        expect(scheduledAt(task({ schedule: { CronTask: 'nonsense' } }), wall('2026-10-30T00:00:00'), wall('2026-11-01T00:00:00')).at).toEqual([])
     })
 
     it('stops at the cap and says so', () => {
         const every = task({ schedule: { CronTask: '* * * * *' } })
-        const r = scheduledAt(every, utc('2026-10-30T00:00:00'), utc('2026-10-31T00:00:00'), 50)
+        const r = scheduledAt(every, wall('2026-10-30T00:00:00'), wall('2026-10-31T00:00:00'), 50)
         expect(r.at).toHaveLength(50)
         expect(r.capped).toBe(true)
     })
 })
 
 describe('momentState', () => {
-    const now = utc('2026-10-30T12:04:00')
+    const now = wall('2026-10-30T12:04:00')
 
     it('takes the state of the run that happened there', () => {
-        expect(momentState(task({ last_run: run({ state: 'no_response' }) }), utc('2026-10-30T12:00:00'), now)).toBe('no-response')
-        expect(momentState(task({ last_run: run({ state: 'running' }) }), utc('2026-10-30T12:00:00'), now)).toBe('running')
+        expect(momentState(task({ last_run: run({ state: 'no_response' }) }), wall('2026-10-30T12:00:00'), now)).toBe('no-response')
+        expect(momentState(task({ last_run: run({ state: 'running' }) }), wall('2026-10-30T12:00:00'), now)).toBe('running')
     })
 
     it('calls an unrecorded past just past, and the future upcoming', () => {
-        expect(momentState(task(), utc('2026-10-29T12:00:00'), now)).toBe('past')
-        expect(momentState(task(), utc('2026-10-31T12:00:00'), now)).toBe('upcoming')
+        expect(momentState(task(), wall('2026-10-29T12:00:00'), now)).toBe('past')
+        expect(momentState(task(), wall('2026-10-31T12:00:00'), now)).toBe('upcoming')
     })
 
     it('marks a paused task ahead as paused', () => {
-        expect(momentState(task({ is_active: false }), utc('2026-10-31T12:00:00'), now)).toBe('paused')
+        expect(momentState(task({ is_active: false }), wall('2026-10-31T12:00:00'), now)).toBe('paused')
     })
 })
 
@@ -132,12 +135,12 @@ describe('dayChips', () => {
     })
 
     it('leaves out a past moment nobody recorded', () => {
-        expect(dayChips([task()], utc('2026-10-28T12:00:00'), now)).toEqual([])
+        expect(dayChips([task()], wall('2026-10-28T12:00:00'), now)).toEqual([])
     })
 
     it('keeps the run on record in the past', () => {
-        const t = task({ last_run: run({ ran_at: '2026-10-28T12:00:00Z' }) })
-        const [chip] = dayChips([t], utc('2026-10-28T12:00:00'), now)
+        const t = task({ last_run: run({ ran_at: '2026-10-28T12:00:00' }) })
+        const [chip] = dayChips([t], wall('2026-10-28T12:00:00'), now)
         expect(chip.kind === 'single' && chip.state).toBe('answered')
     })
 

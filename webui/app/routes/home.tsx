@@ -14,6 +14,7 @@ import { ActivityPanel } from '../screens/home/ActivityPanel'
 import { useAgents } from '../stores/agents'
 import { NotificationsBell } from '../screens/shared/NotificationsBell'
 import { useSession } from '../stores/session'
+import { zoned } from '../lib/timezone'
 
 type AgentRow = Agent & { last_active?: string }
 
@@ -167,7 +168,7 @@ export default function Home() {
         )
     }, [agents.length])
 
-    const hour = new Date().getHours()
+    const hour = zoned(new Date()).getHours()
     const hello = user ? `Good ${hour < 12 ? 'morning' : hour < 18 ? 'afternoon' : 'evening'}, ${user.username}.` : 'Welcome'
     const firstRun = loaded && agents.length === 0
     const mobile = useMobile()

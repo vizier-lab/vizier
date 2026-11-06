@@ -1161,6 +1161,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/inbox/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["stream"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/integrations/kinds": {
         parameters: {
             query?: never;
@@ -1565,6 +1581,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/utils/timezone": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["timezone"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1654,6 +1686,12 @@ export interface components {
                 model?: components["schemas"]["AgentModelInfo"] | null;
                 /** Format: date-time */
                 next_retry_at?: string | null;
+                /**
+                 * @description Why the agent's provider is refusing while the agent itself is available: the AWS SSO
+                 *     session ended, and signing in again clears it (spec 044, FR-018). Never a token, never a
+                 *     key or a model — only the session's own wording (FR-009b).
+                 */
+                session_failure?: string | null;
                 state?: components["schemas"]["AgentRunState"];
                 /** @description Configuration that works but probably isn't what was meant (FR-033). */
                 warnings?: string[];
@@ -2348,6 +2386,12 @@ export interface components {
                  * @description When the stored session's access token expires.
                  */
                 session_expires_at?: string | null;
+                /**
+                 * @description What the connection last failed with, when that failure was about the session itself —
+                 *     a session revoked in AWS while its token still looked valid, for instance (FR-016,
+                 *     FR-018). Cleared by the next successful sign-in, which needs no Vizier restart.
+                 */
+                session_failure?: string | null;
                 /** @description `saved`, `env:NAME`, or `null` for a local provider on its default address. */
                 source?: string | null;
                 /** @description The non-secret handle the session is stored under (FR-009e). */
@@ -2526,7 +2570,18 @@ export interface components {
         APIResponse_TestResult: {
             /** @description The answer to "Test connection". */
             data?: {
+                /**
+                 * @description The marker of one billable inference call. Set only when the test really invoked a model —
+                 *     the SSO test spends exactly one call (FR-012a, SC-018) — and never by a listing or a
+                 *     failure, which spend nothing.
+                 */
+                billing?: string | null;
                 error?: string | null;
+                /**
+                 * @description The target the test invoked, when the test is a real call: the SSO provider's test proves
+                 *     one model or inference profile, so it names it (contract `media-and-test.md` §1).
+                 */
+                model?: string | null;
                 model_count?: number | null;
                 ok: boolean;
                 /** Format: int32 */
@@ -2845,6 +2900,7 @@ export interface components {
                 display_name: string;
                 edited: boolean;
                 image_input?: boolean | null;
+                limits_edited?: components["schemas"]["LimitsEdited"] | null;
                 /** @description The catalogue model id the entry is priced from, when the person paired one (FR-034a.1). */
                 model?: string | null;
                 name?: string | null;
@@ -2961,6 +3017,12 @@ export interface components {
                  * @description When the stored session's access token expires.
                  */
                 session_expires_at?: string | null;
+                /**
+                 * @description What the connection last failed with, when that failure was about the session itself —
+                 *     a session revoked in AWS while its token still looked valid, for instance (FR-016,
+                 *     FR-018). Cleared by the next successful sign-in, which needs no Vizier restart.
+                 */
+                session_failure?: string | null;
                 /** @description `saved`, `env:NAME`, or `null` for a local provider on its default address. */
                 source?: string | null;
                 /** @description The non-secret handle the session is stored under (FR-009e). */
@@ -3102,6 +3164,21 @@ export interface components {
             /** Format: int32 */
             status: number;
         };
+        APIResponse_Zone: {
+            /** @description The instance's timezone, as reported to clients and the startup log. */
+            data?: {
+                /** @description IANA name, such as `Asia/Jakarta`. `None` only when the host's zone cannot be named. */
+                name?: string | null;
+                /**
+                 * @description The current offset, such as `+07:00`. It changes with daylight saving, so it is computed
+                 *     on every read.
+                 */
+                offset: string;
+            };
+            message?: string | null;
+            /** Format: int32 */
+            status: number;
+        };
         /** @description The account list, with the free-text fallback only when the portal listed nothing (FR-007). */
         AccountList: {
             accounts: components["schemas"]["AccountView"][];
@@ -3198,6 +3275,12 @@ export interface components {
             model?: components["schemas"]["AgentModelInfo"] | null;
             /** Format: date-time */
             next_retry_at?: string | null;
+            /**
+             * @description Why the agent's provider is refusing while the agent itself is available: the AWS SSO
+             *     session ended, and signing in again clears it (spec 044, FR-018). Never a token, never a
+             *     key or a model — only the session's own wording (FR-009b).
+             */
+            session_failure?: string | null;
             state?: components["schemas"]["AgentRunState"];
             /** @description Configuration that works but probably isn't what was meant (FR-033). */
             warnings?: string[];
@@ -3553,10 +3636,6 @@ export interface components {
             content: string;
             model_override?: components["schemas"]["ModelOverrideRequest"] | null;
             topic_id: string;
-        };
-        ModelOverrideRequest: {
-            model: string;
-            provider: string;
         };
         ChatResponse: {
             attachments: components["schemas"]["VizierAttachment"][];
@@ -4357,6 +4436,17 @@ export interface components {
             /** Format: int64 */
             output?: number | null;
         };
+        /**
+         * @description Which of an entry's two limits the person set by hand (FR-034a.7 rule 1). Two bits, written by
+         *     the server on every entry write: the numbers the person typed are never overwritten by the
+         *     limit fill, and the ones they did not type are the fill's to refresh when the pair changes.
+         */
+        LimitsEdited: {
+            /** @description The context window is the person's, not the paired model's. */
+            context: boolean;
+            /** @description The output limit is the person's, not the paired model's. */
+            output: boolean;
+        };
         LocalShellConfig: {
             env?: {
                 [key: string]: string;
@@ -4519,6 +4609,15 @@ export interface components {
             reasoning?: boolean | null;
             tool_call?: boolean | null;
         };
+        ModelOverride: {
+            model: string;
+            provider: string;
+        };
+        /** @description An explicit per-chat model choice. Provider and complete model id remain separate. */
+        ModelOverrideRequest: {
+            model: string;
+            provider: string;
+        };
         ModelRow: components["schemas"]["BreakdownRow"] & {
             /** Format: double */
             cache_hit_rate?: number | null;
@@ -4590,7 +4689,10 @@ export interface components {
             read: boolean;
             /** @description The stored summary; the WebUI renders it as text. */
             text: string;
-            /** @description The current conversation title or the task title. Absent when there is none or the viewer may not see it. */
+            /**
+             * @description The conversation's current title or the task's title. Absent when the source has none,
+             *     or when the viewer may not see it.
+             */
             title?: string | null;
             tone: components["schemas"]["NotificationTone"];
         };
@@ -4683,6 +4785,7 @@ export interface components {
             edited?: boolean;
             /** @description Whether the profile takes images; unset is unknown. */
             image_input?: boolean | null;
+            limits_edited?: components["schemas"]["LimitsEdited"] | null;
             /**
              * @description The pricing pairing: one catalogue Bedrock model id, re-resolved on every read so a
              *     catalogue refresh reprices the entry and an id that has left the catalogue stays saved
@@ -4717,6 +4820,7 @@ export interface components {
             display_name: string;
             edited: boolean;
             image_input?: boolean | null;
+            limits_edited?: components["schemas"]["LimitsEdited"] | null;
             /** @description The catalogue model id the entry is priced from, when the person paired one (FR-034a.1). */
             model?: string | null;
             name?: string | null;
@@ -4860,6 +4964,12 @@ export interface components {
              * @description When the stored session's access token expires.
              */
             session_expires_at?: string | null;
+            /**
+             * @description What the connection last failed with, when that failure was about the session itself —
+             *     a session revoked in AWS while its token still looked valid, for instance (FR-016,
+             *     FR-018). Cleared by the next successful sign-in, which needs no Vizier restart.
+             */
+            session_failure?: string | null;
             /** @description `saved`, `env:NAME`, or `null` for a local provider on its default address. */
             source?: string | null;
             /** @description The non-secret handle the session is stored under (FR-009e). */
@@ -5498,7 +5608,18 @@ export interface components {
         };
         /** @description The answer to "Test connection". */
         TestResult: {
+            /**
+             * @description The marker of one billable inference call. Set only when the test really invoked a model —
+             *     the SSO test spends exactly one call (FR-012a, SC-018) — and never by a listing or a
+             *     failure, which spend nothing.
+             */
+            billing?: string | null;
             error?: string | null;
+            /**
+             * @description The target the test invoked, when the test is a real call: the SSO provider's test proves
+             *     one model or inference profile, so it names it (contract `media-and-test.md` §1).
+             */
+            model?: string | null;
             model_count?: number | null;
             ok: boolean;
             /** Format: int32 */
@@ -5607,6 +5728,13 @@ export interface components {
             api_key?: string | null;
             base_url?: string | null;
             endpoint?: string | null;
+            /**
+             * @description The target of a **Test** on the SSO provider: the model id or inference-profile ARN to
+             *     invoke (contract `media-and-test.md` §1). Upsert ignores it — it is not a credential, so it
+             *     is deliberately absent from [`Self::sent`] and [`Self::into_credentials`], and saving
+             *     neither stores nor clears anything for it.
+             */
+            model?: string | null;
             /**
              * @description Amazon Bedrock (SSO): the whole inference-profile list, one operation — omitted keeps the
              *     stored list, `[]` clears it (FR-021).
@@ -5753,6 +5881,7 @@ export interface components {
              */
             mentions?: string[];
             metadata: unknown;
+            model_override?: components["schemas"]["ModelOverride"] | null;
             platform_message_id?: components["schemas"]["PlatformMessageId"] | null;
             project_scope?: components["schemas"]["ProjectScope"] | null;
             /**
@@ -5910,6 +6039,16 @@ export interface components {
             branch: string;
             id: string;
             name: string;
+        };
+        /** @description The instance's timezone, as reported to clients and the startup log. */
+        Zone: {
+            /** @description IANA name, such as `Asia/Jakarta`. `None` only when the host's zone cannot be named. */
+            name?: string | null;
+            /**
+             * @description The current offset, such as `+07:00`. It changes with daylight saving, so it is computed
+             *     on every read.
+             */
+            offset: string;
         };
     };
     responses: never;
@@ -7240,7 +7379,10 @@ export interface operations {
                 agent_id: string;
                 /** @description 1–90; default 30. */
                 days: number | null;
-                /** @description The person's UTC offset, e.g. `+07:00`; default UTC. */
+                /**
+                 * @deprecated
+                 * @description Ignored. Nights follow the instance's timezone. Kept so older clients keep working.
+                 */
                 tz: string | null;
             };
             cookie?: never;
@@ -9901,6 +10043,12 @@ export interface operations {
                 id: string;
                 /** @description Every model, deprecated and not tool-capable ones included. */
                 all: boolean;
+                /**
+                 * @description What is being picked: `chat` when absent. `embedding` and `image` answer with that
+                 *     capability's foundation models only and never a saved inference-profile entry, because an
+                 *     ARN is a chat model (FR-033a).
+                 */
+                capability: string | null;
             };
             cookie?: never;
         };
@@ -9913,6 +10061,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["APIResponse_Vec_ModelSummary"];
+                };
+            };
+            /** @description Unknown capability */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_String"];
                 };
             };
             /** @description Unknown provider */
@@ -10070,6 +10227,33 @@ export interface operations {
             };
             /** @description File not found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_String"];
+                };
+            };
+        };
+    };
+    stream: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description WebSocket established. The server pushes JSON frames (`hello`, `notification`, `read`, `setup`, `setup_cleared`, `resync`) and ignores anything the client sends */
+            101: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Missing, invalid or expired credentials */
+            401: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -10366,7 +10550,10 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The person's UTC offset, e.g. `+07:00`; default UTC. */
+                /**
+                 * @deprecated
+                 * @description Ignored. Days follow the instance's timezone. Kept so older clients keep working.
+                 */
                 tz: string | null;
             };
             cookie?: never;
@@ -10390,7 +10577,10 @@ export interface operations {
             header?: never;
             path: {
                 rank: components["schemas"]["Rank"] | null;
-                /** @description The person's UTC offset, e.g. `+07:00`; default UTC. */
+                /**
+                 * @deprecated
+                 * @description Ignored. Days follow the instance's timezone. Kept so older clients keep working.
+                 */
                 tz: string | null;
             };
             cookie?: never;
@@ -11154,6 +11344,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["APIResponse_SetupStates"];
+                };
+            };
+        };
+    };
+    timezone: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The timezone this instance runs in. Every time it returns is in this zone */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_Zone"];
                 };
             };
         };

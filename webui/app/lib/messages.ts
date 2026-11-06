@@ -9,6 +9,7 @@ import type {
 } from '../api/frames'
 import { abbreviate, cost as formatCost, count } from './format'
 import { estimateCost, type Price } from './prices'
+import { zoned } from './timezone'
 
 /** What a person typed (or a stand-in for what they did), for their bubble. */
 export function requestText(content: VizierRequestContent): string {
@@ -87,7 +88,7 @@ export function statsLine(stats: VizierResponseStats & { provider?: string; mode
 }
 
 export const time = (timestamp?: string) =>
-    timestamp ? new Date(timestamp).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : ''
+    timestamp ? zoned(timestamp).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : ''
 
 export const tokens = count
 
