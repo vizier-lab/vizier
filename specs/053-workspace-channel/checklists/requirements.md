@@ -32,5 +32,7 @@
 ## Notes
 
 - Two clarifications were resolved with the requester on 2026-11-06. `mention_agent` only builds a message containing `@<agent-id>`, and agents wake on that mention however it was written (FR-012, FR-014). Only people who can edit an agent may add it, after which all members may use it (FR-005).
-- Tool names (`mention_agent`, `consult_agent`, `delegate_agent`) and `@<agent-id>` appear because they are the agent-facing and person-facing product surface, not implementation choices.
+- Later the same day the requester removed the chain limit (FR-016), and added the cross-channel tool `send_message_to_workspace`, which brought topics into Workspaces (FR-001, FR-002, FR-028). `list_workspaces` and `read_workspace_messages` (FR-029) were added to complete that set and are open to the requester's review.
+- The requester then added mid-turn messages to every WebUI and desktop chat, with `mention_agent` drawn as one (User Story 7, FR-034 to FR-039). That mid-turn messages count as real messages in a Workspace, read by other agents and waking on mention (FR-007, FR-008), follows from the requester's rules and is open to their review.
+- Tool names (`mention_agent`, `send_message_to_workspace`, `list_workspaces`, `read_workspace_messages`, `consult_agent`, `delegate_agent`) and `@<agent-id>` appear because they are the agent-facing and person-facing product surface, not implementation choices.
 - FR-019 names the #82 tracker and FR-027 the offline test provider because the project constitution requires both.
