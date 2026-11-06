@@ -152,7 +152,17 @@ export function WorkspaceTopic({ workspaceId, topicId }: { workspaceId: string; 
                     />
                 </div>
             </div>
-            <MembersDialog open={membersOpen} members={detail?.members ?? []} onClose={closeMembers} />
+            <MembersDialog
+                open={membersOpen}
+                workspaceId={workspaceId}
+                members={detail?.members ?? []}
+                canManage={detail?.role === 'owner' || detail?.role === 'admin'}
+                onClose={closeMembers}
+                onChanged={() => {
+                    void load()
+                    getWorkspace(workspaceId).then(setDetail).catch(() => {})
+                }}
+            />
         </div>
     )
 }

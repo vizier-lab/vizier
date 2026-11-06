@@ -81,6 +81,23 @@ export const addMember = (id: string, kind: 'person' | 'agent', handle: string, 
 export const removeMember = (id: string, kind: 'person' | 'agent', handle: string) =>
     api.delete<void>(`${base(id)}/members/${kind}/${encodeURIComponent(handle)}`)
 
+export const renameWorkspace = (id: string, name: string) => api.patch<WorkspaceSummary>(base(id), { name })
+export const deleteWorkspace = (id: string) => api.delete<void>(base(id))
+export const renameTopic = (id: string, topic: string, name: string) =>
+    api.patch<TopicSummary>(topicBase(id, topic), { name })
+export const deleteTopic = (id: string, topic: string) => api.delete<void>(topicBase(id, topic))
+export const setRole = (id: string, handle: string, role: 'owner' | 'member') =>
+    api.patch<WorkspaceMember>(`${base(id)}/members/person/${encodeURIComponent(handle)}`, { role })
+
+export type AgentCandidate = { id: string; name: string; member: boolean; addable: boolean; reason: 'cannot_edit' | null }
+export type PersonCandidate = { username: string; name: string; member: boolean }
+export type Candidates = {
+    agents: { items: AgentCandidate[]; more: number }
+    people: { items: PersonCandidate[]; more: number }
+}
+export const getCandidates = (id: string, q: string, limit?: number) =>
+    api.get<Candidates>(`${base(id)}/candidates${queryString({ q, limit })}`)
+
 export const getTimeline = (id: string, topic: string, before?: number | null, limit?: number) =>
     api.get<Timeline>(`${topicBase(id, topic)}/entries${queryString({ before: before ?? undefined, limit })}`)
 export const postEntry = (id: string, topic: string, text: string, files: string[] = []) =>
