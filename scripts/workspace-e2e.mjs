@@ -198,6 +198,7 @@ check('posting works', other.status === 201)
 
 // --- §9 the old tools are gone -----------------------------------------------------------------------------
 section('§9 the old tools are gone')
+await sleep(2500) // let the §8 turn finish so its closing message is not taken for this one
 seen = live.entries().length
 await api('POST', `/workspaces/${wid}/topics/${tid}/entries`, { text: `@alpha ${py('consult_agent(agent_id="beta", prompt="hi")')}` })
 const retired = await live.entry((e) => e.author.id === 'alpha' && e.is_final, seen)
@@ -226,6 +227,26 @@ check('stop all answers counts', stop.status === 200 && typeof stop.data.stopped
 seen = live.entries().length
 await api('POST', `/workspaces/${wid}/topics/${tid}/entries`, { text: '@alpha tools' })
 check('an agent answers again after a stop', !!(await live.entry((e) => e.author.id === 'alpha' && e.is_final, seen)))
+
+// --- §10 notifications ------------------------------------------------------------------------------------
+// One person is signed in, so this checks the agent side: the owner is told about every message an
+// agent wrote and about none of their own. Who else is told is pinned in
+// crates/vizier-core/tests/workspaces_service.rs.
+section('§10 every message notifies the others')
+await sleep(500)
+const agentMessages = live.entries().filter((e) => e.kind === 'agent')
+const inbox = await api('GET', '/notifications?filter=all&limit=50')
+const rows = (inbox.data?.items ?? []).filter((n) => n.category === 'workspace_message')
+// Other topics (§8's `daily`) also notify, and their entries are not on this socket, so this is a floor.
+check('the owner has a row for each agent message', rows.length >= Math.min(agentMessages.length, 50), { rows: rows.length, agent: agentMessages.length })
+check('and none for their own', !rows.some((n) => n.text.startsWith('e2e in ')), rows.map((n) => n.text))
+check('each links to the topic', rows.every((n) => n.href.startsWith(`/workspaces/${wid}/`)), rows[0])
+const unreadBefore = (await api('GET', '/workspaces')).data.find((w) => w.id === wid)
+check('the Workspace shows them as unread', unreadBefore.unread === rows.length, unreadBefore)
+const read = await api('POST', `/workspaces/${wid}/topics/${tid}/read`)
+check('opening the topic reads them', read.status === 200 && read.data.marked > 0, read.body)
+const unreadAfter = (await api('GET', '/workspaces')).data.find((w) => w.id === wid)
+check('its topic has none left unread', unreadAfter.topics.find((t) => t.id === tid).unread === 0, unreadAfter)
 
 live.close()
 console.log('\nAll Workspace checks passed.')

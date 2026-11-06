@@ -151,7 +151,7 @@ description: "Task list for the Workspace channel and mid-turn messages"
 - [X] T064 [US2] Register it on `default_toolset` in `core/agents/tools/mod.rs`, add it to `every_tool_is_in_its_category`, and confirm it is absent from `DREAM_TOOL_NAMES`
 - [X] T065 [US2] Test in `core/agents/tools/workspaces.rs`: non-member, self, all unavailable, partly unavailable, and that a call during a running `execute_python` adds no history row
 - [ ] T066 [US2] Make `groupHistory`'s run building in `webui/app/lib/workspaces.ts` keep a python call paired across a `mention_agent` message, with a test
-- [ ] T067 [US2] Extend `scripts/workspace-e2e.mjs` with quickstart §5 and run it
+- [X] T067 [US2] Extend `scripts/workspace-e2e.mjs` with quickstart §5 and run it
 
 **Checkpoint**: Agents coordinate in a Workspace.
 
@@ -171,7 +171,7 @@ description: "Task list for the Workspace channel and mid-turn messages"
 - [X] T071 [US5] Keep `InterAgent`, `JobKind::Delegation` and `delegated_to` compiling for reads, and adjust `launch` in `core/agents/background/mod.rs` if it is now the only constructor path, with no `allow(dead_code)` where a read path exists
 - [X] T072 [US5] Keep `delegate_agent` in `JOB_LAUNCHING_TOOLS` in `webui/app/lib/trail.ts` with a comment for saved history, and confirm `webui/app/screens/chat/MessageList.tsx` and `ChatStatusStrip.tsx` still render an old delegation
 - [ ] T073 [US5] Add a checklist entry to issue #82 naming each kept item from `specs/053-workspace-channel/data-model.md`. This writes to GitHub, so confirm the text with the owner first
-- [ ] T074 [US5] Extend `scripts/workspace-e2e.mjs` with quickstart §9 and run it
+- [X] T074 [US5] Extend `scripts/workspace-e2e.mjs` with quickstart §9 and run it
 
 **Checkpoint**: The breaking change is complete and fails helpfully.
 
@@ -210,7 +210,7 @@ description: "Task list for the Workspace channel and mid-turn messages"
 - [ ] T086 [US3] Delete a topic's or Workspace's notifications with it in `core/service/workspaces.rs`
 - [ ] T087 [US3] Link a row to its topic and auto-mark read while viewing in `webui/app/stores/notifications.ts` and `webui/app/lib/notifications.ts`, and show the row in `webui/app/screens/notifications/NotificationsPopup.tsx` with the author's sigil or avatar
 - [ ] T088 [US3] Update rail and sidebar counts from frames in `webui/app/stores/workspaces.ts`, and highlight a mention of the signed-in person in `webui/app/screens/workspaces/WorkspaceTimeline.tsx`
-- [ ] T089 [US3] Extend `scripts/workspace-e2e.mjs` with quickstart §10 and run it
+- [X] T089 [US3] Extend `scripts/workspace-e2e.mjs` with quickstart §10 and run it
 
 **Checkpoint**: People hear about messages when away.
 
