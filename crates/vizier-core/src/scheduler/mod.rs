@@ -18,6 +18,14 @@ mod dream;
 
 use dream::DreamScheduler;
 
+fn normalize_task_instruction(instruction: String) -> String {
+    if instruction.contains("\\n") {
+        instruction.replace("\\n", "\n")
+    } else {
+        instruction
+    }
+}
+
 pub struct VizierScheduler {
     /// Dream triggers from the bus, subscribed in `new` so none sent after startup is missed.
     dream_commands: crate::transport::DreamCommands,
@@ -340,7 +348,9 @@ impl VizierScheduler {
                 VizierRequest {
                     timestamp: now,
                     user: task.requester.to_frontmatter(),
-                    content: crate::schema::VizierRequestContent::Unattended(task.instruction),
+                    content: crate::schema::VizierRequestContent::Unattended(
+                        normalize_task_instruction(task.instruction),
+                    ),
                     metadata: serde_json::json!({
                         "timestamp": now,
                     }),
@@ -515,6 +525,14 @@ mod tests {
         assert!(
             runs.is_empty(),
             "a deleted task was fired from stale scheduler state"
+        );
+    }
+
+    #[test]
+    fn literal_newline_escapes_become_newlines() {
+        assert_eq!(
+            normalize_task_instruction("first line\\nsecond line".to_string()),
+            "first line\nsecond line"
         );
     }
 }
