@@ -10,7 +10,7 @@ Available only during a turn in a `Workspace` session.
 { "agents": ["archivist", "scribe"], "message": "have we seen this lock before?" }
 ```
 
-Posts `@archivist @scribe have we seen this lock before?` to the current topic, unless the message already contains those mentions. The result of posting is the same as if the text had been written (FR-014).
+Posts `@archivist @scribe have we seen this lock before?` to the current topic, unless the message already contains those mentions. A message starting with a skill puts them after it: `"/status-note outage"` posts `/status-note @archivist @scribe outage`. The result of posting is the same as if the text had been written (FR-014).
 
 | `status` | When | Extra |
 |---|---|---|

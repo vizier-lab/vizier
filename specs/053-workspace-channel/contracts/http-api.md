@@ -15,7 +15,8 @@ All under `/api/v1`, behind `require_auth`, with handlers in `crates/vizier-http
 
 | Method and path | Purpose | Notes |
 |---|---|---|
-| `GET /workspaces` | The caller's Workspaces | Each: `id, name, role, topics, unread_mentions, working` (drives the rail) |
+| `GET /workspaces` | The caller's Workspaces | Each: `id, name, role, unread, working`, and `topics` with their own `unread` (drives the rail) |
+| `POST /workspaces/{id}/topics/{tid}/read` | Mark a topic read | Any member. Marks its notifications read |
 | `POST /workspaces` | Create | `{name, first_topic?}`, default topic `general`. `409 name_in_use`, `422 invalid_name` |
 | `GET /workspaces/{id}` | Detail | With members and their states |
 | `PATCH /workspaces/{id}` | Rename | Owner |
@@ -27,7 +28,8 @@ All under `/api/v1`, behind `require_auth`, with handlers in `crates/vizier-http
 | `POST /workspaces/{id}/topics` | Add topic | `{name}`. `409 name_in_use` |
 | `PATCH`/`DELETE /workspaces/{id}/topics/{tid}` | Rename, delete | Owner. `409 last_topic` |
 | `GET /workspaces/{id}/topics/{tid}/entries?before=&limit=` | Timeline page | Default 50, max 200. Below |
-| `POST /workspaces/{id}/topics/{tid}/entries` | Post | `{text, files?}`. Max 32,000 characters |
+| `POST /workspaces/{id}/topics/{tid}/entries` | Post | `{text, files?}`. Max 32,000 characters. `/<command> @<agent-id>` is parsed here (research R19): `422 not_in_workspace` for `/btw` and `/clear-files`, `403 cannot_lobotomy`. A command answers `{note}` and posts no message |
+| `GET /workspaces/{id}/commands` | For the `/` menu | Any member. `{commands: [{name, description}], skills: [{name, description, agents}]}`. Names only, no skill content |
 | `POST /workspaces/{id}/topics/{tid}/files` | Upload | Then pass ids to post |
 | `POST /workspaces/{id}/topics/{tid}/turns/{agent}/stop` | Stop one | Any member |
 | `POST /workspaces/{id}/stop` | Stop all | Any member. Answers `{stopped, dropped}` |
@@ -54,19 +56,27 @@ Refusals: `403 cannot_edit_agent` (adding an agent you may not edit), `409 handl
 
 ## Timeline entry
 
+A page has two lists, so a client merges them by `at`:
+
 ```json
 {
-  "seq": 812,
-  "kind": "person | agent | step",
-  "author": { "kind": "agent", "id": "pathfinder", "name": "Pathfinder", "available": true },
-  "body": "text, or null for a step",
-  "at": 1793968660043,
-  "mentions": [{ "kind": "agent", "handle": "archivist", "state": "woken" }],
-  "origin": null,
-  "is_final": false,
-  "activated_by_seq": 790,
-  "history": { "uid": "...", "content": {}, "reactions": [], "stats": {} }
+  "entries": [{
+    "seq": 812,
+    "kind": "person | agent | note",
+    "author": { "kind": "agent", "id": "pathfinder", "name": "Pathfinder", "available": true },
+    "body": "text",
+    "at": 1793968660043,
+    "mentions": [{ "kind": "agent", "handle": "archivist", "state": "woken" }],
+    "origin": null,
+    "is_final": false,
+    "activated_by_seq": 790,
+    "history_uid": "...",
+    "reactions": [],
+    "stats": {}
+  }],
+  "steps": [{ "agent_id": "pathfinder", "entry": {} }],
+  "next_before": 790
 }
 ```
 
-`history` is the joined `session_history` entry for steps and turn text, in the shape `ChatMessage` has today, so `groupHistory` reads it. Entries in a topic come back ordered by `seq`.
+`entries` are ordered by `seq`. `steps` are the `session_history` rows of this topic's sessions in the page's time span, excluding `Request` rows, in the `ChatMessage` shape `groupHistory` reads today. `stats` and `reactions` are filled from the entry's history row when `is_final`.

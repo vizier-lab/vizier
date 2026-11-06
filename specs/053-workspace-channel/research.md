@@ -27,13 +27,28 @@ Together those would break SC-001 and scale as messages × agents.
 
 **Consequence**: an agent's session history holds what it read only as of its last activation. That is invisible from outside, because people read the timeline, not agent sessions.
 
-## R3. The timeline is an index written inside the history save
+## R3. Each agent keeps its own record; the timeline holds only messages
 
-**Decision**: `SqlStorage::save_session_history` adds one `workspace_entry` row in its existing transaction when the session's channel is `Workspace`, the same way it already writes `artifact_reference`. Request entries are skipped. Text entries (`AssistantMessage`, a `Response` with a message) copy their saved text into `body`, after redaction. Everything else is a `step` row that points to the history row by uid.
+**Decision**: As on Discord, each agent has its own record of the Workspace, one session history per topic:
 
-**Rationale**: `save_session_history` is the single write path for steps and replies, so no call site can forget, and the order is the actual order of saving. The timeline read joins step rows back to `session_history`, so `groupHistory` can use the same entries.
+| In agent A's record | Entered as |
+|---|---|
+| People's messages | `Request(SilentRead)`, or `Request(Chat)` for the one that activated it |
+| Other agents' mid-turn and final messages | `Request(SilentRead)`, with `sender` set to that agent |
+| A's own thoughts, tool calls, results and messages | Its normal turn entries |
+| Other agents' thoughts, tool calls and results | **Never** |
+| Other agents' checkpoints, commands | **Never** |
 
-**Alternatives**: Writing from `record_step` plus the reply path. There are at least three save paths (`record_step`, `save_history_or_log`, the turn flush), so one would eventually be missed.
+`workspace_entry` is what people and agents see as messages. `SqlStorage::save_session_history` adds a row in its existing transaction, the same way it already writes `artifact_reference`, only for text (`AssistantMessage`, a `Response` with a message), copying the saved text into `body` after redaction.
+
+Trails are not copied anywhere. A timeline read pages `workspace_entry`, then runs one query for the channel's non-`Request` rows of `session_history` in that page's time span, and merges them by time. Live steps already arrive as tagged `history_entry` frames. This needs an index on `session_history(channel, topic, timestamp)`.
+
+**Rationale**: `save_session_history` is the single write path, so no call site can forget. An agent's checkpoint, handover, resume and dream all then work on its own record unchanged. A trail stays where it was produced, in the agent's own record.
+
+**Alternatives**:
+- *A `workspace_entry` row per step.* I drafted this first. It stored pointers to data that already has a time, for no gain.
+- *Writing from `record_step` plus the reply path.* There are at least three save paths (`record_step`, `save_history_or_log`, the turn flush), so one would eventually be missed.
+- *Copying messages into every agent's record at once, as Discord does.* The final record is identical, but see R2 for why the copy waits until activation.
 
 ## R4. Mentions are parsed against the member list, and dispatched through an outbox
 
@@ -47,7 +62,7 @@ A handle clash, where a person's username equals an agent id in one Workspace, i
 
 ## R5. An activated turn is an ordinary `Chat` request
 
-**Decision**: Dispatch sends `VizierRequestContent::Chat(text)` through `deps.agents.request` with `user` set to the author, leading mentions of the target removed (as Discord's `command_text` does, so `@a /skill x` resolves), and `metadata.workspace_entry = seq`. A response sender republishes the frames on the session-event broadcast, exactly as a background report's woken turn does (`agents/background/mod.rs`).
+**Decision**: Dispatch sends `VizierRequestContent::Chat(text)` through `deps.agents.request` with `user` set to the author, leading mentions removed for that request (as Discord's `command_text` does), `metadata.workspace_entry = seq`, and the skill rule in R19. A response sender republishes the frames on the session-event broadcast, exactly as a background report's woken turn does (`agents/background/mod.rs`).
 
 **Rationale**: Durable turns, resume, skills, queuing and abort all work unchanged. It goes through `AgentsClient`, the one seam the gateway side may use (#163); the existing chat socket calling `transport.send_request` directly is not a model to copy.
 
@@ -136,6 +151,45 @@ The category stays listed for agents in no Workspace, so `SANDBOX.md` stays byte
 **Decision**: No `channel-*` flag.
 
 **Rationale**: The constitution's flag rule covers *optional* capabilities. Workspace has no external dependency, and with `consult_agent`/`delegate_agent` gone it is the only way agents coordinate, so a build without it would have a hole.
+
+## R19. Skills and commands use `/<command> @<agent-id>`
+
+**Decision**: The format is `/<command> @<agent-id> [input]`. `workspaces::commands::parse` reads a message's start: `/word` (or `/skill word`), then one or more mentions, then the input. It is pure and server-side, so the API and every client agree.
+
+| Message | Effect | Other agents read it? | Who |
+|---|---|---|---|
+| `/name @a input`, `/skill name @a input` | a receives `/name input` as `Chat`, which runs through the existing `skill::invocation` | Yes, as typed | Any member, or an agent |
+| `/skills @a`, or an unknown name | Answered directly with no model call, as today, and shown as a's reply | Yes | Any member, or an agent |
+| `/name @a @b input` | Each resolves against its own skills | Yes | Any member, or an agent |
+| `/abort @a` | Stops a's turn in this topic. A `note` entry says who | No | Any member |
+| `/abort` alone | The same as Stop all | No | Any member |
+| `/checkpoint @a` | Runs on a's own record of this topic. A `note` entry says who | No | Any member |
+| `/lobotomy @a` | Same, without a handover | No | Owner, or someone who may edit a |
+| `/btw ...`, `/clear-files` | Refused, not posted: 'Side chats and clearing files are not available in a Workspace.' Files are shared, and a side chat implies a privacy a shared room can't give | No | Nobody |
+| Any other `/word` with no mention right after it | Plain message. It is not refused, since it may be plain text such as a path. Mentions later in it still wake those agents, as plain mentions | Yes | Anyone |
+| `@a /foo` | A plain mention. a wakes and reads `/foo` as text, and no skill runs | Yes | Anyone |
+
+**Plain mentions must not run a skill.** The Chat arm of `agents/process.rs` parses any text starting with `/`, and R5 removes leading mentions, so `@a /foo` would otherwise reach it as `/foo`. Dispatch therefore sets `metadata.workspace_plain = true` on every request that isn't the command form, and the Chat arm skips `invocation::parse` when it is set.
+
+**Commands come from people only.** An agent writing `/abort @b` or `/lobotomy @b` does not run the command. `b` wakes with that text as a skill request, the skill parser finds no such skill, and it answers directly with no model call. Otherwise an agent could reset another agent's context, which no one asked for.
+
+**Rationale**: Each agent having its own record is what makes `/checkpoint` and `/lobotomy` well defined: they affect one agent and one topic, and nobody else's context. Commands stay out of other agents' records, since they're instructions to the system and not conversation.
+
+**Discovery**: The command comes first, so the composer's `/` menu lists everything at once. `GET /workspaces/{id}/commands` returns the commands plus each member agent's skill names and descriptions, each with the agents that have it. The `@` menu after a chosen command offers only those agents. A member may lack view access to an agent, and adding it already shared its use (FR-005), so this exposes names only and not content.
+
+## R20. One notification row per message, seen by current members
+
+**Decision**: Every `person` and `agent` entry creates one `notification` row, category `workspace_message`, with `event_key = workspace:{seq}`, `workspace_id` and `author` set, and `audience_user_id` null. It's created by the post path, `after_save` and the tools. The startup sweep that re-dispatches `pending` mentions also inserts any missing row, and `event_key`'s uniqueness makes that safe. Notes create none.
+
+The visibility clause on list, counts, per-id read and mark-all gains: `workspace_id IN (the person's Workspaces) AND author != me`.
+
+Opening a topic calls `POST /workspaces/{id}/topics/{tid}/read`, which inserts read rows for its unread notifications. A topic on screen does this for each arrival, using the existing `isViewing` path. The rail's counts come from the same clause, grouped by Workspace and topic.
+
+**Rationale**: "Unread is the absence of a read row" already means no per-person fan-out, so a message costs one insert whatever the membership. Evaluating membership at read time means removal takes effect at once with nothing to delete, and a person added later sees earlier notifications only within 30-day retention: acceptable, as they now have access to those messages anyway. The inbox stream's `judge` uses the same rule per delivery.
+
+**Alternatives**: One row per recipient. Rejected, since it scales with members × messages and needs deleting on removal.
+
+**Accepted**: a topic with long unread history writes many read rows at once when opened. Retention bounds this at 30 days.
 
 ## R18. Permissions
 

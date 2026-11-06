@@ -15,8 +15,9 @@ Stop and answers are REST routes, so they work without a socket.
 | Frame | When |
 |---|---|
 | `hello` | First. `{ latest_seq, working: [{agent, phase}] }`. The client reads missed entries by `seq` |
-| `workspace_entry` | A new entry: same shape as the timeline, so it also carries step rows |
-| `workspace_mentions` | `{ seq, mentions }`: states changed, drives the "woke" line |
+| `workspace_entry` | A new message or note, in the shape of a timeline entry |
+| `history_entry` | `{ agent_id, entry }`: a step in a running turn, from the existing frame, tagged with the agent |
+| `workspace_mentions` | `{ seq, mentions }`: states changed. The client draws a note only for `unavailable` |
 | `agent_state` | `{ agent, phase: "thinking" \| "idle", queued }`, from the existing thinking frames tagged with the agent |
 | `member_changed` | Membership changed. The client reloads the member list. A removed person gets `closed` instead |
 | `closed` | `{ reason: "removed" \| "deleted" \| "token_expired" }`, then the socket closes |

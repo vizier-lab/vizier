@@ -173,6 +173,7 @@ p{margin:0}
 /* Mentions */
 .m{display:inline-block;padding:0 4px;border-radius:4px;background:var(--rank-bg);color:var(--rank-text);font-weight:500;line-height:20px}
 .m.you{background:var(--rank-text);color:var(--panel)}
+.skillchip{display:inline-flex;align-items:center;gap:4px;padding:0 6px;border-radius:4px;background:var(--raised);font:500 12px/20px var(--mono);vertical-align:1px}
 .m.off{background:none;color:var(--faint);padding:0;font-weight:400;text-decoration:line-through}
 
 /* People */
@@ -232,6 +233,9 @@ p{margin:0}
 .sbox input::placeholder{color:var(--faint)}
 .notice{display:flex;gap:8px;padding:10px 12px;border-radius:8px;border:1px solid var(--retrying-line);background:var(--retrying-bg);font-size:13px;line-height:19px}
 .notice i{color:var(--retrying);font-size:15px;margin-top:2px}
+.choice{display:flex;align-items:center;gap:12px;width:100%;padding:12px;border:1px solid var(--border);border-radius:10px}
+.choice:hover{border-color:var(--border-hover);background:var(--surface)}
+.choice .i{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
 .field{display:flex;flex-direction:column;gap:6px}
 .field label{font-size:13px;font-weight:500}
 .field input{height:34px;border:1px solid var(--border-strong);border-radius:8px;background:var(--panel);padding:0 10px}
@@ -320,7 +324,8 @@ function trail({title,counts='',live=false,open=false,bad=false,steps=[],dots=[]
   </div>`}
 const head=(id,name,time,live,extra='')=>`<div class="ahead">${sigil(id,'sm',live)}<span class="strong">${name}</span>${time?`<span class="mono-xs">${time}</span>`:''}${extra}</div>`;
 const mid=(html,woke='')=>`<div class="mid"><div class="prose">${html}</div>${woke}</div>`;
-const woke=(who,bad)=>`<div class="woke mono-xs">${ic('corner-down-right',13,'ic')}${bad?`<span class="bad">${who}</span>`:`woke ${who}`}</div>`;
+/* A successful mention draws nothing beyond its chip. Only a failed one leaves a note. */
+const woke=(who,bad)=>bad?`<div class="woke mono-xs">${ic('corner-down-right',13,'ic')}<span class="bad">${who}</span></div>`:'';
 const final=(html,stats,reacts='')=>`<div class="reply"><div class="prose">${html}</div>${stats||reacts?`<div class="meta">${reacts}${stats?`<span class="mono-xs">${stats}</span>`:''}</div>`:''}</div>`;
 const mine=(html,time)=>`<div class="me"><div class="mehead"><span class="mono-xs">${time}</span><span class="strong">You</span>${ava('maya')}</div><div class="bub prose">${html}</div></div>`;
 const other=(n,html,time,c='')=>`<div class="me other ${c}"><div class="mehead">${ava(n)}<span class="strong">${n}</span><span class="mono-xs">${time}</span></div><div class="bub prose">${html}</div></div>`;
@@ -411,15 +416,14 @@ function members(){return [...AGENTS.map(a=>sigil(a.id,'sm')),...PEOPLE.map(p=>a
 function rail(){return `<nav class="rail" aria-label="Agents">
   <a class="rbtn mark" aria-label="Home" href="#">V</a>
   <span class="rsep"></span>
-  ${workspaces().map(w=>{const work=w.work&&!stopped;return `<button class="rtile ws ${w.id===curWs?'on':''}" data-ws="${w.id}" title="${w.id}" aria-label="${w.id}${w.mentions?`, ${w.mentions} mention${w.mentions>1?'s':''} of you`:''}${work?', an agent is working':''}" ${w.id===curWs?'aria-current="page"':''}>
+  ${workspaces().map(w=>{const work=w.work&&!stopped;return `<button class="rtile ws ${w.id===curWs?'on':''}" data-ws="${w.id}" title="${w.id}" aria-label="${w.id}${w.mentions?`, ${w.mentions} unread`:''}${work?', an agent is working':''}" ${w.id===curWs?'aria-current="page"':''}>
     <span class="wtile" aria-hidden="true">${w.ini}</span>
     ${w.mentions?`<span class="wcount" aria-hidden="true">${w.mentions}</span>`:''}
     ${work?'<span class="wlive" aria-hidden="true"></span>':''}
   </button>`}).join('')}
-  <button class="rbtn radd" data-go="new" aria-label="New workspace" title="New workspace">${ic('plus',18)}</button>
   <span class="rsep"></span>
-  ${AGENTS.map(a=>`<a href="#" class="rtile" aria-label="${a.n}" title="${a.n}">${sigil(a.id,'rail',a.id!=='nope')}</a>`).join('')}
-  <button class="rbtn radd" aria-label="New agent" title="New agent">${ic('plus',18)}</button>
+  ${AGENTS.map(a=>`<a href="#" class="rtile" aria-label="${a.n}" title="${a.n}">${sigil(a.id,'rail',false)}</a>`).join('')}
+  <button class="rbtn radd" data-create-open aria-label="Create a workspace or an agent" title="Create">${ic('plus',18)}</button>
   <span class="sp"></span>
   <button class="rbtn" aria-label="Settings">${ic('settings',18)}</button>
   ${ava('maya',30)}
@@ -436,7 +440,7 @@ function ctx(){const w=workspaces().find(x=>x.id===curWs);return `<nav class="ct
   <div class="ctx-h"><span class="heading" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${w.id}</span><button class="ibtn" data-members aria-label="Members of ${w.id}" title="Members">${ic('users',16)}</button></div>
   <span class="label" style="padding:6px 10px 2px">Topics</span>
   <div style="display:flex;flex-direction:column;gap:2px">
-    ${w.topics.map((t,i)=>`<a href="#" class="nav ${i===0?'on':''}"><span class="t"># ${t.t}</span>${t.work&&!stopped?'<span class="ring" role="img" aria-label="An agent is working"></span>':''}${t.m?`<span class="badge rank" aria-label="${t.m} mention${t.m>1?'s':''} of you">@${t.m}</span>`:''}</a>`).join('')}
+    ${w.topics.map((t,i)=>`<a href="#" class="nav ${i===0?'on':''}"><span class="t"># ${t.t}</span>${t.work&&!stopped?'<span class="ring" role="img" aria-label="An agent is working"></span>':''}${t.m?`<span class="badge rank" aria-label="${t.m} unread">${t.m}</span>`:''}</a>`).join('')}
     <button class="nav faint">${ic('plus',14)}<span class="t">New topic</span></button>
   </div>
 </nav>`}
@@ -504,6 +508,19 @@ function membersInner(){const q=memberQuery.trim().toLowerCase(),p=ALL_AGENTS.fi
 function refreshMembers(){const d=document.querySelector('.dlg');if(!d)return;const top=d.scrollTop;d.innerHTML=membersInner();d.scrollTop=top;mActive=Math.min(mActive,Math.max(d.querySelectorAll('[data-pick]').length-1,0));markActive();const i=d.querySelector('[data-msearch]');i.focus();i.setSelectionRange(i.value.length,i.value.length)}
 function markActive(){document.querySelectorAll('[data-pick]').forEach((b,i)=>b.classList.toggle('kb',i===mActive))}
 function membersDialog(){return `<div class="scrim" data-scrim><div class="dlg fixed" role="dialog" aria-modal="true" aria-label="Members of ${curWs}">${membersInner()}</div></div>`}
+/* The rail's one "+". Someone who may create only one of the two skips this and goes straight there; someone who may create neither has no "+". */
+function createDialog(){const opt=(k,icon,t,d)=>`<button class="choice" data-choose="${k}">${ic(icon,20)}<span class="i"><span class="strong">${t}</span><span class="small muted">${d}</span></span>${ic('chevron-right',16,'faint')}</button>`;
+  return `<div class="scrim" data-scrim><div class="dlg" style="width:min(440px,100%)" role="dialog" aria-modal="true" aria-label="Create">
+  <div class="dh"><span class="heading">Create</span><button class="ibtn" data-close aria-label="Close">${ic('x',16)}</button></div>
+  <div class="db" style="gap:8px">
+    ${opt('workspace','messages-square','Workspace','A shared space for people and agents')}
+    ${opt('agent','bot','Agent','A new agent with its own tools and memory')}
+  </div>
+</div></div>`}
+function agentStub(){return `<div class="scrim" data-scrim><div class="dlg" style="width:min(440px,100%)" role="dialog" aria-modal="true" aria-label="New agent">
+  <div class="dh"><span class="heading">New agent</span><button class="ibtn" data-close aria-label="Close">${ic('x',16)}</button></div>
+  <div class="db"><p class="muted">The existing new-agent form opens here, unchanged.</p></div>
+</div></div>`}
 function newDialog(){return `<div class="scrim" data-scrim><div class="dlg" role="dialog" aria-modal="true" aria-label="New workspace">
   <div class="dh"><span class="heading">New workspace</span><button class="ibtn" data-close aria-label="Close">${ic('x',16)}</button></div>
   <div class="db">
@@ -527,7 +544,8 @@ function emptyMain(){const w=workspaces().find(x=>x.id===curWs),t=w.topics[0].t;
 /* --- Page: states -------------------------------------------------------- */
 function pageStates(){const row=(t,s,b)=>`<section class="card"><div class="ch"><span class="heading">${t}</span><span class="mono-xs">${s}</span></div>${b}</section>`;
  return `<div class="wrap"><div class="gal">
- ${row('Someone mentions you','highlighted, one notification',other('Rafi',`${at('maya','you')} can you sign off on the note?`,'09:21','mentioned'))}
+ ${row('Someone mentions you','highlighted in the conversation, same notification as any message',other('Rafi',`${at('maya','you')} can you sign off on the note?`,'09:21','mentioned'))}
+ ${row('Notification for a message','one per message, not for your own',`<div class="card" style="padding:12px;gap:6px;border-color:var(--live)"><div style="display:flex;align-items:center;gap:10px">${sigil('pathfinder','md')}<div style="flex:1;min-width:0"><p class="small"><b style="font-weight:600">Pathfinder</b> in ops / # daily-incidents</p><p class="small muted" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Both failed on the same migration lock, so the second…</p></div><span class="mono-xs">09:02</span></div></div>`)}
  ${row('A mention from outside','origin shows who it really came from',turn(head('archivist','Archivist','09:30',false,`<span class="badge">${ic('message-circle',11)}from Discord</span>`),final(`<p>${at('scribe')} add the billing outage to this week's notes.</p>`),woke('scribe')))}
  ${row('Mentioned agent is down','the message posts, nobody hangs',turn(head('pathfinder','Pathfinder','09:33'),mid(`${at('scribe')} can you check this wording?`,woke('scribe is restarting, so it was not woken',true))))}
  ${row('Not a mention','plain text, wakes no one',`<div class="prose">Ask <code>@scribe</code> later, and ping @nobody-here too. Scribe wrote the last one.</div>`)}
@@ -536,6 +554,9 @@ function pageStates(){const row=(t,s,b)=>`<section class="card"><div class="ch">
  ${row('Question from an agent','any person can answer, agents can\'t',`<div class="q"><p class="strong">Retry the billing deploy now?</p><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn">Yes</button><button class="btn">Not yet</button></div><p class="mono-xs">Asked by Pathfinder · answered by Rafi at 09:44</p></div>`)}
  ${row('Sensitive input isn\'t offered','the agent redirects instead',turn(head('pathfinder','Pathfinder','09:50'),final('<p>I need an API key for that, and this room is shared. Please message me directly and I will ask there.</p>')))}
  ${row('Attaching a file','told before sending',`<div class="comp" style="width:100%"><div class="attach"><span class="chip">${ic('file-text',14)}incident-notes.pdf<button aria-label="Remove file">${ic('x',13)}</button></span><span class="small muted">Everyone in ops can see this file, agents included.</span></div><div class="crow"><span class="faint">Add a message</span><span class="sp"></span><button class="send" aria-label="Send">${ic('arrow-up',16)}</button></div></div>`)}
+ ${row('Running a skill','/&lt;command&gt; @&lt;agent-id&gt;, and everyone sees it',other('Rafi',`<span class="skillchip">${ic('sparkles',12)}/status-note</span> ${at('scribe')} billing outage, keep it short`,'10:02'))}
+ ${row('Running a command','a note, not a message, and no agent reads it',`<div class="note">Rafi started a checkpoint for Scribe · 10:04</div><div class="note">Maya stopped Pathfinder · 10:05</div>`)}
+ ${row('Refused commands','not posted, explained where you typed',`<p class="small" style="color:var(--failed-text);display:flex;gap:6px;align-items:flex-start">${ic('alert-circle',14)}Side chats and clearing files are not available in a Workspace.</p>`)}
  ${row('Mention menu, no match','Enter sends it as text',`<div class="menu" style="position:static;width:100%;box-shadow:none"><p class="empty-m">No member matches “@zed”. Enter sends it as text.</p></div>`)}
  </div></div>`}
 
@@ -548,7 +569,7 @@ function render(){
   const P=document.getElementById('page');
   if(!dlg){memberQuery='';pickedAgent=null;mActive=0}
   document.getElementById('tabs').innerHTML=TABS.map(([k,l])=>`<button class="tab" role="tab" aria-selected="${k===tab}" data-tab="${k}">${l}</button>`).join('');
-  const d=dlg==='members'?membersDialog():dlg==='new'?newDialog():'';
+  const d=dlg==='members'?membersDialog():dlg==='new'?newDialog():dlg==='create'?createDialog():dlg==='agent'?agentStub():'';
   if(tab==='turn')P.innerHTML=pageTurn();
   else if(tab==='states')P.innerHTML=pageStates();
   else if(tab==='new'||curWs!=='ops')P.innerHTML=(tab==='phone'?x=>`<div class="phonewrap">${x}</div>`:x=>x)(shell(tab==='phone'||narrow(),emptyMain(),d));
@@ -564,6 +585,8 @@ document.addEventListener('click',e=>{
   const c=(s)=>e.target.closest(s);let x;
   if(x=c('[data-tab]'))return go(x.dataset.tab);
   if(x=c('[data-go]'))return go(x.dataset.go);
+  if(c('[data-create-open]')){dlg='create';return render()}
+  if(x=c('[data-choose]')){if(x.dataset.choose==='workspace')return go('new');dlg='agent';return render()}
   if(x=c('[data-ws]')){curWs=x.dataset.ws;dlg=null;return render()}
   if(c('[data-stop]')){stopped=true;return render()}
   if(c('[data-members]')){dlg='members';return render()}
@@ -598,14 +621,26 @@ function wireComposer(root){
   const ta=root.querySelector('textarea'),send=root.querySelector('.send');let menu=null,items=[],active=0,start=-1;
   const close=()=>{menu?.remove();menu=null;ta.removeAttribute('aria-activedescendant');ta.removeAttribute('aria-controls')};
   function token(){const v=ta.value,c=ta.selectionStart;const m=/(^|\s)@([\w-]*)$/.exec(v.slice(0,c));return m?{q:m[2],at:c-m[2].length-1}:null}
-  function draw(){const t=token();if(!t)return close();start=t.at;const q=t.q.toLowerCase();
+  /* /<command> @<agent-id>: "/" at the start lists everything, then "@" offers only the agents that have it. */
+  function slash(){const m=/^\/([\w-]*)$/.exec(ta.value.slice(0,ta.selectionStart));return m?{q:m[1],at:0}:null}
+  const ALL=['pathfinder','archivist','scribe'];
+  const SLASH=[{id:'status-note',d:'Draft a status page note',g:'Skills',agents:['scribe']},{id:'release-notes',d:'Summarise changes since the last tag',g:'Skills',agents:['scribe','archivist']},{id:'skills',d:'List an agent\'s skills',g:'Commands',agents:ALL},{id:'abort',d:'Stop an agent, or everyone with no mention',g:'Commands',agents:ALL},{id:'checkpoint',d:'Save a checkpoint with a handover',g:'Commands',agents:ALL},{id:'lobotomy',d:'Save a checkpoint with no handover',g:'Commands',agents:ALL}];
+  function drawSlash(s){start=s.at;const q=s.q.toLowerCase();items=SLASH.filter(x=>x.id.includes(q)).map(x=>({...x,k:'s'}));if(active>=items.length)active=0;
+    if(!menu){menu=document.createElement('div');menu.className='menu';menu.id='mm';root.appendChild(menu);ta.setAttribute('aria-controls','mm')}
+    const groups=[...new Set(items.map(x=>x.g))];
+    menu.innerHTML=items.length?`<div role="listbox" aria-label="Skills and commands">${groups.map(g=>`<span class="label">${g}</span>${items.map((x,i)=>x.g===g?`<div class="mi" id="mi-${i}" role="option" aria-selected="${i===active}" data-i="${i}" style="flex-wrap:wrap;gap:2px 8px"><span class="n mono-sm" style="white-space:nowrap">/${x.id}</span>${x.g==='Skills'?`<span class="st mono-xs">${x.agents.join(', ')}</span>`:''}<span class="small muted" style="width:100%">${x.d}</span></div>`:'').join('')}`).join('')}</div>`:`<p class="empty-m">No skill or command matches “/${s.q}”.</p>`;
+    if(items.length)ta.setAttribute('aria-activedescendant','mi-'+active)}
+  /* After a chosen command, the "@" menu is agents only, and only those that can run it. */
+  function commandAgents(){const m=/^\/([\w-]+)\s/.exec(ta.value);if(!m)return null;const c=SLASH.find(x=>x.id===m[1]);return c?c.agents:null}
+  function draw(){const s=slash();if(s)return drawSlash(s);const t=token();if(!t)return close();start=t.at;const q=t.q.toLowerCase();
     const f=x=>x.id.includes(q)||x.n.toLowerCase().includes(q);
-    const a=AGENTS.filter(f).map(x=>({...x,k:'a'})),p=PEOPLE.filter(x=>!x.me&&f(x)).map(x=>({...x,k:'p'}));items=[...a,...p];if(active>=items.length)active=0;
+    const only=commandAgents();
+    const a=AGENTS.filter(x=>f(x)&&(!only||only.includes(x.id))).map(x=>({...x,k:'a'})),p=only?[]:PEOPLE.filter(x=>!x.me&&f(x)).map(x=>({...x,k:'p'}));items=[...a,...p];if(active>=items.length)active=0;
     if(!menu){menu=document.createElement('div');menu.className='menu';menu.id='mm';root.appendChild(menu);ta.setAttribute('aria-controls','mm')}
     const opt=(x,i)=>`<div class="mi" id="mi-${i}" role="option" aria-selected="${i===active}" data-i="${i}">${x.k==='a'?sigil(x.id,'sm',x.id==='pathfinder'):ava(x.n)}<span class="n">${x.n}</span><span class="id mono-xs">@${x.id}</span>${x.k==='a'?`<span class="st mono-xs">${x.id==='scribe'?'restarting':x.id==='pathfinder'?'working':'reading'}</span>`:''}</div>`;
     menu.innerHTML=items.length?`<div role="listbox" aria-label="Members">${a.length?`<span class="label">Agents</span>${a.map((x,i)=>opt(x,i)).join('')}`:''}${p.length?`<span class="label">People</span>${p.map((x,i)=>opt(x,i+a.length)).join('')}`:''}</div>`:`<p class="empty-m">No member matches “@${t.q}”. Enter sends it as text.</p>`;
     if(items.length)ta.setAttribute('aria-activedescendant','mi-'+active)}
-  function pick(i){const x=items[i];if(!x)return;const c=ta.selectionStart;ta.value=ta.value.slice(0,start)+'@'+x.id+' '+ta.value.slice(c);const n=start+x.id.length+2;ta.setSelectionRange(n,n);close();ta.focus();sync()}
+  function pick(i){const x=items[i];if(!x)return;const c=ta.selectionStart;const mark=x.k==='s'?'/':'@';ta.value=ta.value.slice(0,start)+mark+x.id+' '+ta.value.slice(c);const n=start+x.id.length+2;ta.setSelectionRange(n,n);close();ta.focus();sync()}
   function sync(){send.disabled=!ta.value.trim();ta.style.height='auto';ta.style.height=Math.min(ta.scrollHeight,160)+'px'}
   ta.addEventListener('input',()=>{active=0;draw();sync()});
   ta.addEventListener('keydown',e=>{if(!menu)return;

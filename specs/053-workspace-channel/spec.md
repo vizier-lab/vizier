@@ -26,7 +26,11 @@ A person creates a Workspace, adds a few colleagues and a few agents, and posts 
 4. **Given** A has silently read ten messages, **When** A is mentioned, **Then** A's reply can draw on those ten messages without anyone repeating them.
 5. **Given** two members with the Workspace open, **When** either posts, or an agent replies or is working, **Then** both see it live, with no reload.
 6. **Given** a member reopens a Workspace while an agent is mid-reply, **When** the page loads, **Then** the member sees the conversation so far and the rest of the reply as it arrives.
-7. **Given** a Workspace with two topics, **When** A is mentioned in one, **Then** A's context includes what it read in that topic and not what was said in the other.
+7. **Given** agents A and B, **When** B runs tools and writes a mid-turn and a final message, **Then** A's record holds those two messages and none of B's tool calls.
+8. **Given** A has a skill `greet` and B doesn't, **When** a member posts `/greet @A Rafi` and `/greet @B`, **Then** A runs the skill and B answers that it has no such skill, with no model call.
+9. **Given** a member posts `/checkpoint @A`, **When** it runs, **Then** only A's record of this topic changes, members see a note, and no other agent reads it.
+10. **Given** an agent writes `/abort @B`, **When** it posts, **Then** B's running turn continues.
+11. **Given** a Workspace with two topics, **When** A is mentioned in one, **Then** A's context includes what it read in that topic and not what was said in the other.
 
 ---
 
@@ -49,20 +53,23 @@ While working on something in a Workspace, an agent mentions another member agen
 
 ---
 
-### User Story 3 - Mention a person and be told about it (Priority: P2)
+### User Story 3 - Be told about new messages, and mention people (Priority: P2)
 
-A member, or an agent, mentions a person in a Workspace. The person is notified and can jump straight to that message, even when the Workspace is not open.
+Everyone in a Workspace is notified of each message someone else posts there, and can jump straight to it, even when the Workspace is not open. That includes an agent's answer, so someone who asked a question and left hears back. Mentioning a person highlights it for them, in the conversation.
 
-**Why this priority**: The conversation is useful with the Workspace open, but a mix of people and agents only works asynchronously if a mention actually reaches someone. Agents often need a human decision.
+**Why this priority**: The conversation is useful with the Workspace open, but a mix of people and agents only works asynchronously if new messages actually reach someone. Agents often need a human decision.
 
-**Independent Test**: Have an agent's reply mention a member who does not have the Workspace open. Confirm that the member gets one notification which links to the message, and that mentioning a person never activates an agent.
+**Independent Test**: Have one member post, and an agent reply mid-turn and finally, while another member does not have the Workspace open. Confirm that the other member gets one notification per message, each linking to its message, and that the author gets none for their own.
 
 **Acceptance Scenarios**:
 
-1. **Given** member P does not have the Workspace open, **When** another member or an agent mentions P, **Then** P receives one notification linking to that message.
-2. **Given** P has that Workspace open, **When** P is mentioned, **Then** the mention is highlighted and no separate unread notification is left behind.
-3. **Given** someone composes a message, **When** they type the mention marker, **Then** they get suggestions drawn from that Workspace's members, both people and agents, and the two are visually distinct.
-4. **Given** a message contains an at-sign followed by something that is not a member, **When** it is posted, **Then** it remains plain text, and it activates and notifies no one.
+1. **Given** member P does not have the Workspace open, **When** another member or an agent posts a message, **Then** P receives one notification linking to that message, whether or not it mentions P.
+2. **Given** P posts a message, **When** it is saved, **Then** P gets no notification for it, and everyone else in the Workspace does.
+3. **Given** P has that topic open, **When** a message arrives, **Then** no unread notification is left behind, and a mention of P is highlighted.
+4. **Given** P has unread notifications from a topic, **When** P opens that topic, **Then** they are marked read and the rail's count falls.
+5. **Given** someone composes a message, **When** they type the mention marker, **Then** they get suggestions drawn from that Workspace's members, both people and agents, and the two are visually distinct.
+6. **Given** a message contains an at-sign followed by something that is not a member, **When** it is posted, **Then** it remains plain text and activates no one.
+7. **Given** P is removed from a Workspace, **When** it takes effect, **Then** P no longer sees its notifications or receives new ones.
 
 ---
 
@@ -133,7 +140,7 @@ A person watches an agent work in any WebUI or desktop chat, Workspace or not. T
 1. **Given** an agent writes text between two tool rounds, **When** the turn runs, **Then** the text appears as a message as soon as that round's text is saved, the finished trail folds above it, and a new trail opens below it for the next work.
 2. **Given** a finished turn, **When** it is reloaded, **Then** it renders the same as it did live, with one trail per stretch of work.
 3. **Given** a conversation saved before this change, **When** it is opened, **Then** its mid-turn text renders as messages, with no data change.
-4. **Given** a turn with several messages, **When** it ends, **Then** stats, total time, reactions and the notification belong to the final message only.
+4. **Given** a turn with several messages, **When** it ends, **Then** stats, total time and reactions belong to the final message only.
 5. **Given** an agent's text comes before any tool call, **When** the turn runs, **Then** the message appears with no empty trail above it.
 6. **Given** a turn is stopped or fails, **When** it ends, **Then** its mid-turn messages stay in the conversation.
 7. **Given** an agent in a Workspace calls `mention_agent`, including from inside a script, **When** the message posts, **Then** it appears as a mid-turn message at that point in the turn, not as a row in the trail, and the script's own detail still lists the call.
@@ -185,8 +192,10 @@ A person watches an agent work in any WebUI or desktop chat, Workspace or not. T
 - **FR-009**: An activated agent MUST have access to what it silently read in that topic, and only that topic, subject to its normal context limits, and MUST be told who is in the Workspace with the mention to use for each, who mentioned it, and that an agent wakes only when mentioned, so it must mention whoever it needs to act next.
 - **FR-010**: A message mentioning several agents MUST activate each exactly once, concurrently, independent of the others.
 - **FR-011**: A mention MUST be resolved when the message is complete, against current members. Text that resolves to no member, or that sits inside a code span, a code block or a quoted passage, MUST stay plain text and activate no one.
-- **FR-012**: Mentions MUST work the same whoever writes them and however the message was built: a person's message, an agent's reply text and `mention_agent` activate agents and notify people by the same rule.
-- **FR-013**: Skills MUST remain invokable by mention (a mention followed by the skill command). `/skills` and side chats are out of scope in a Workspace.
+- **FR-012**: Mentions MUST work the same whoever writes them and however the message was built: a person's message, an agent's reply text and `mention_agent` activate agents and highlight people by the same rule.
+- **FR-013**: The format for skills and commands MUST be `/<command> @<agent-id> [input]`: a message that starts with `/name`, `/skill name` or `/skills`, followed directly by one or more mentions, MUST run it on each mentioned agent, resolved against that agent's own skills, from a person or an agent. Any other message MUST NOT run a skill: `/name` with no mention right after it is plain text, and `@a /name` is a plain mention of a.
+- **FR-041**: Each agent MUST keep its own record of each topic, as on Discord: its own turns (thoughts, tool calls and results), plus the mid-turn and final messages shown in that topic, in order. Another agent's thoughts, tool calls and results MUST NOT enter its record. An agent's record MAY be brought up to date when it is activated or starts a dream, as long as it never misses or repeats a message it was entitled to read (FR-007).
+- **FR-042**: People MUST be able to run commands in the same format, acting on that agent and topic only and leaving a visible note instead of a message: `/abort @a` (any member), `/checkpoint @a` (any member), and `/lobotomy @a` (an owner, or someone who may edit that agent). `/abort` with no mention MUST act as stopping everything (FR-023). `/btw` and `/clear-files` MUST be refused with an explanation and post nothing. Commands MUST NOT enter other agents' records, and MUST have no effect when written by an agent.
 
 **`mention_agent`**
 
@@ -214,15 +223,15 @@ A person watches an agent work in any WebUI or desktop chat, Workspace or not. T
 
 - **FR-034**: In every WebUI and desktop conversation, text an agent writes between tool rounds MUST appear as a message in the conversation, at the same reading size as the final message, and MUST NOT appear inside the activity trail. Thoughts and tool calls stay in the trail.
 - **FR-035**: A turn MUST show one trail per stretch of work, each with its own time and counts. The stretch running now stays open, and finished ones fold. A stretch with no work MUST show no trail.
-- **FR-036**: Stats, total time and reactions MUST appear on the final message only, and a completed turn MUST notify as it does today, once. In a Workspace, a mention in any message still notifies the person mentioned (FR-022).
+- **FR-036**: Stats, total time and reactions MUST appear on the final message only, and outside a Workspace a completed turn MUST notify as it does today, once. In a Workspace, FR-022 applies instead.
 - **FR-037**: A turn MUST render the same live and after a reload. Conversations saved before this change MUST pick up this rendering with no data migration.
 - **FR-038**: Where another member's message lands within a turn in a Workspace, the agent's name MUST appear again where its work continues.
 - **FR-039**: Mid-turn messages MUST NOT change what is posted to Discord or Telegram.
 
 **Experience**
 
-- **FR-021**: People MUST be able to reach their Workspaces from the WebUI and the desktop app, with mention suggestions while composing and visible status for each agent that is working. Each Workspace the person belongs to MUST have its own entry in the app rail, grouped apart from Home and from agents by separators and visually distinct from an agent, showing how many mentions of that person are unread and whether an agent is working there. Selecting one MUST show that Workspace's topics.
-- **FR-022**: Being mentioned MUST create one notification for that person, linked to the message, following the visibility rules of FR-004. A person viewing that Workspace MUST NOT accumulate an unread notification for it.
+- **FR-021**: People MUST be able to reach their Workspaces from the WebUI and the desktop app, with mention suggestions while composing and visible status for each agent that is working. Each Workspace the person belongs to MUST have its own entry in the app rail, grouped apart from Home and from agents by separators and visually distinct from an agent, showing how many of that person's notifications from it are unread and whether an agent is working there. Selecting one MUST show that Workspace's topics. The rail MUST have one create control, which asks whether to create a Workspace or an agent. Someone allowed to create only one of them MUST go straight to it, and someone allowed neither MUST NOT see the control.
+- **FR-022**: Every message posted to a Workspace, by a person or an agent, mid-turn or final, MUST notify every person who is a member, except its author, linked to the message. Being mentioned adds no second notification. Notes from commands MUST NOT notify. A person with that topic open MUST NOT accumulate unread notifications for it, and opening a topic MUST mark its notifications read. Who is notified MUST follow current membership (FR-004).
 - **FR-023**: Members MUST be able to stop one agent's turn, or every running turn in the Workspace. Stopping everything MUST also drop mentions still queued in that Workspace, so that an exchange between agents actually ends.
 - **FR-024**: Model usage from Workspace turns MUST be attributed to the agent that ran them and reported as its own activity in usage reports. Silent reading MUST record no model usage.
 - **FR-025**: Deleting a Workspace MUST remove its timeline, stop its running turns, and remove its files, but MUST NOT affect its member agents' memory, or usage already recorded.
@@ -235,7 +244,9 @@ A person watches an agent work in any WebUI or desktop chat, Workspace or not. T
 - **Topic**: A named conversation inside a Workspace, with its own timeline. Separates subjects, and each member agent's context, within one membership.
 - **Workspace Member**: A person or an agent belonging to a Workspace. A person may hold management rights. An agent may be available or unavailable.
 - **Workspace Message**: One entry on a topic's timeline: its author (person or agent), content, attachments, resolved mentions, time and, when sent from outside the Workspace, its origin.
-- **Mention**: A resolved reference from a message to a member. Activates an agent, or notifies a person.
+- **Mention**: A resolved reference from a message to a member. Activates an agent, or highlights the message for a person.
+- **Agent Record**: One agent's own history of one topic: its own turns, plus the messages shown there.
+- **Note**: A line on the timeline saying that someone ran a command. Not a message, and not read by agents.
 - **Read Position**: What a given agent has seen of a topic's timeline, so nothing is missed or read twice, including across restarts.
 
 ## Success Criteria *(mandatory)*
@@ -272,4 +283,6 @@ A person watches an agent work in any WebUI or desktop chat, Workspace or not. T
 - **No chain limit for now, as requested**: a limit can be added later if runaway exchanges turn out to be a problem in use.
 - **Mid-turn text appears whole**: it appears when its round's text is saved, not word by word. Streaming it is out of scope.
 - **Scope of mid-turn messages**: they change every WebUI and desktop chat, not only Workspaces, as requested. They reach other agents only in a Workspace.
+- **Notification volume**: every message notifies, by design, so a busy Workspace, or agents talking at length, can fill the inbox. Muting is not in this version.
+- **A turn with no message**: a turn that fails or is stopped before writing anything creates no notification, since no message was posted.
 - **Design**: the agreed layout is [mockup.html](mockup.html), in place of a FigCraft drawing, which was not reachable (constitution v2.2.0).

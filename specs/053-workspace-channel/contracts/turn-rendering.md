@@ -40,9 +40,10 @@ type Turn = { /* existing fields, with `trail` replaced by: */ blocks: TurnBlock
 
 Pure, in `webui/app/lib/workspaces.ts`:
 
-- Entries of a topic become an ordered list of people's messages and per-agent turn runs. A run ends when another author's entry lands, and continues under a repeated head if the same turn goes on. Turn identity is `activated_by_seq` plus agent.
-- A `mention_agent` entry has no `history_uid`. It becomes a `message` block in its author's turn at its `seq`, and its python call pairs across the gap.
-- The "woke" line comes from `mentions`, for `agent` targets.
+- A page's `entries` and `steps` merge by time into an ordered list of people's messages, notes and per-agent turn runs. A run ends when another author's entry lands, and continues under a repeated head if the same turn goes on. Turn identity is `activated_by_seq` plus agent.
+- A `mention_agent` entry has no `history_uid`. It becomes a `message` block in its author's turn at its time, and its python call pairs across the gap.
+- A successful mention draws nothing beyond its chip. A note appears only when `mentions` has `unavailable`.
+- A `note` entry (`Rafi stopped Pathfinder`, `Maya started a checkpoint for Scribe`) draws as a centred line.
 
 ## Design components
 
@@ -50,11 +51,13 @@ Changed in `design/` first, with stories, then used in `webui/`.
 
 | Component | Change |
 |---|---|
-| `Rail` | New `workspaces` prop: initials tile, mention count, working dot, marker, its own `+`, separators |
+| `Rail` | New `workspaces` prop: initials tile, unread count, working dot, marker, separators. One `+` at the end of the agents, replacing `addHref` with an `onCreate` the host decides. An agent tile shows no dot while `live` or `running`, and no lit sigil cell: `StatusDot` draws only `starting`, `retrying`, `failed` and `stopped` |
+| `CreateChooser` | New dialog: Workspace or Agent. The host skips it when the person may create only one |
 | `UserMessage` | New `side="left"`, for other people, with mention highlight |
 | `MentionChip` | New. Tones: resolved, you |
 | `MentionMenu` | Items may be agents or people, with a sigil or avatar and status |
-| `WakeNote` | New. "woke X", or a failed tone |
+| `MentionNote` | New. Failed tone only: "scribe is restarting, so it was not woken" |
+| `SkillMenu` | At the start of a message: lists commands and every member agent's skills, naming the agents that have each |
 | `OriginBadge` | New, built on `Badge` |
 | `MemberSearch` | New. Combobox over grouped results with a cap note, built like `Picker` |
 | `ActivityTrail` | No change. A turn draws several |

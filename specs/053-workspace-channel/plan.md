@@ -8,7 +8,7 @@
 
 A Workspace is a shared space with people, agents and topics. Agents read along for free, and wake only on `@<agent-id>`. This replaces `consult_agent` and `delegate_agent` with `mention_agent` inside a Workspace, and `send_message_to_workspace`, `list_workspaces` and `read_workspace_messages` from anywhere. Separately, every WebUI chat begins drawing mid-turn text as messages.
 
-**Approach**: Each agent keeps its own session on a new `Workspace` channel, so the agent loop barely changes. One new table holds the shared order, written inside the existing history save. Reads are lazy: an activated agent copies what it missed into its session just before its turn, which is what makes silent reading free ([research R1 to R3](research.md)). Activation is an ordinary `Chat` request through `AgentsClient`.
+**Approach**: As on Discord, each agent keeps its own record of the Workspace, one session per topic on a new `Workspace` channel, holding its own turns plus what was shown as messages: never another agent's tool calls. One new table holds only those shown messages, in the shared order, written inside the existing history save. Records fill lazily: an activated agent copies what it missed just before its turn, which is what makes silent reading free ([research R1 to R3](research.md)). Activation is an ordinary `Chat` request through `AgentsClient`. Skills and commands use the format `/<command> @<agent-id>` (R19).
 
 ## Technical Context
 
@@ -28,7 +28,7 @@ A Workspace is a shared space with people, agents and topics. Agents read along 
 
 **Constraints**: Silent reading makes no model call and no queue entry (SC-001). A person who is not a member cannot tell a Workspace exists (SC-006). No new required external service
 
-**Scale/Scope**: Hundreds of people and agents on an installation (SC-012), 40 requirements, 7 user stories, roughly 8 new design components, 1 new screen family
+**Scale/Scope**: Hundreds of people and agents on an installation (SC-012), 42 requirements, 7 user stories, roughly 8 new design components, 1 new screen family
 
 ## Constitution Check
 
@@ -80,6 +80,7 @@ crates/vizier-core/src/
 │   ├── access.rs                # The only permission matrix
 │   ├── catch_up.rs              # Lazy reads into an agent's session
 │   ├── mentions.rs              # Pure parser
+│   ├── commands.rs              # Pure parser for /<command> @<agent-id>
 │   └── names.rs                 # Name rule
 ├── storage/workspace.rs         # WorkspaceStorage trait, new
 ├── storage/sqlite/workspace.rs  # init_workspace_schema + impl, new
@@ -94,7 +95,7 @@ crates/vizier-core/src/
 ├── agents/steps.rs              # after_save call
 ├── agents/process.rs            # No titling for Workspace
 ├── schema/session.rs            # Workspace variant
-├── notifications/               # workspace_mention
+├── notifications/               # workspace_message: one row per message
 ├── transport/events.rs          # Workspace event arm
 └── scheduler/dream/             # catch_up before a cycle
 
@@ -143,6 +144,7 @@ Each step leaves `develop` working, and later steps depend on earlier ones.
 | A prefix check misses the new slug and exposes a session | Reviewed list in R8. Conformance vectors with three fixture users |
 | Timeline rows drift from history | Written in the same transaction (R3) |
 | Sharing files between agent sessions assumes `save_session_file` accepts an existing id | Confirm early (R9). Failing that, keep the reference on the entry and resolve at read |
+| Every message notifies, so chatty agents can fill the inbox | Accepted by the owner. Toasts already group into bursts, and muting can follow (R20) |
 | Long unseen backlog | Capped at 500 with a pointer to `read_workspace_messages` (R2) |
 | Filler text at full size and in other agents' context | Accepted. To be judged with a live provider (quickstart 13.7) |
 | Non-members reach a Workspace through Discord or Telegram | Accepted for this version. A separate spec tightens it |

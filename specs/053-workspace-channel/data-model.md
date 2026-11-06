@@ -42,17 +42,19 @@ Timestamps are epoch milliseconds, so the text-sort rule in spec 052 does not ap
 
 A second PK-like unique index on `(workspace_id, handle)` makes `409 handle_in_use` (research R4) a storage rule.
 
-### `workspace_entry`: the shared order
+### `workspace_entry`: what is shown as messages
+
+Holds no tool calls or thoughts: those stay in the author's own record (research R3).
 
 | Column | Type | Notes |
 |---|---|---|
 | `seq` | integer PK | Autoincrement. The one order |
 | `workspace_id`, `topic_id` | text FK | `ON DELETE CASCADE`. Index on `(topic_id, seq)` |
-| `kind` | text | `person`, `agent` or `step` |
+| `kind` | text | `person`, `agent` or `note` (a command someone ran, never copied into a record) |
 | `author_kind` | text | `person`, `agent` |
 | `author` | text | Username or agent id |
 | `author_name` | text | Snapshot, so history survives a deleted agent (US4 #5) |
-| `body` | text null | Text after redaction. Null for `step` |
+| `body` | text | Text after redaction |
 | `files` | text null | JSON list of `file_id` and name |
 | `history_uid` | text null | Its `session_history` row. Null for `person`, and for entries from `mention_agent` or `send_message_to_workspace` |
 | `source_session` | text null | Slug of the session that wrote it. Used by `catch_up` to skip an agent's own text |
@@ -63,7 +65,7 @@ A second PK-like unique index on `(workspace_id, handle)` makes `409 handle_in_u
 
 Written from `save_session_history` for turns, and directly for people and tools (research R3, R6).
 
-### `workspace_mention`: outbox and the "woke" line
+### `workspace_mention`: outbox, and the unavailable note
 
 | Column | Type | Notes |
 |---|---|---|
@@ -73,7 +75,7 @@ Written from `save_session_history` for turns, and directly for people and tools
 | `state` | text | See below |
 | `updated_at` | integer | |
 
-**Agent mention states**: `pending` → `woken` | `unavailable` | `dropped`. A `pending` row is re-dispatched at startup. Person mentions go straight to `notified`.
+**Agent mention states**: `pending` → `woken` | `unavailable` | `dropped`. A `pending` row is re-dispatched at startup. Person mentions stay `resolved`, and only drive the highlight.
 
 ### `workspace_read`: Read Position
 
@@ -91,21 +93,22 @@ Written in the same transaction as the copied rows, so a restart neither loses n
 |---|---|
 | `VizierChannelId` | New variant `Workspace(String)`, slug `workspace__{id}`. Regenerate `public-api.txt` |
 | `UsageActivity` | New variant `Workspace`, label **Workspaces** |
-| `NotificationCategory` | New `workspace_mention`, with `audience_user_id` set |
+| `NotificationCategory` | New `workspace_message`, one row per message |
+| `notification` | New nullable columns `workspace_id` and `author`, added with `add_column_if_missing` and `0004_workspaces.sql` |
 | `ToolCategory` | New `Workspaces`, category name `workspaces` |
 | `AVAILABLE_PERMISSIONS` | `workspaces:create`, `all_workspaces:manage` |
-| `session_history` | No schema change. Holds copied reads as `Request(SilentRead)`, with `metadata.workspace_entry` |
+| `session_history` | New index on `(channel, topic, timestamp)` for the timeline read. Holds copied reads as `Request(SilentRead)`, with `metadata.workspace_entry` |
 
-**Notifications visibility**: the list clause `agent_id IN (visible)` gains `OR (category = 'workspace_mention' AND audience_user_id = me)`, since a member may be mentioned by someone with no visible agent. `agent_id` for such a row is the mentioning agent's id, or empty for a person. Removing a member deletes their rows for that Workspace, identified by `workspace_id` in `source_session`.
+**Notifications visibility**: the list clause `agent_id IN (visible)` gains `OR (workspace_id IN (my Workspaces) AND author != me)`, since a member may be notified about an agent they can't view (research R20). `agent_id` for such a row is the author agent's id, or empty for a person. Nothing is deleted when a member leaves, because the clause reads current membership.
 
 ## Deletion
 
 | Deleted | Effect |
 |---|---|
-| Topic or Workspace | Stops its turns, deletes each agent's sessions for it (history, files, scratchpads) by channel slug, including former members'. Rows cascade. Agents' memory and recorded usage stay (FR-025) |
+| Topic or Workspace | Stops its turns, deletes each agent's sessions for it (history, files, scratchpads) by channel slug, including former members', and its notifications. Rows cascade. Agents' memory and recorded usage stay (FR-025) |
 | Member agent | Member row goes, turns in it are aborted, and entries stay with `author_name` |
 | Agent itself | `delete_agent` removes its `workspace_member` and `workspace_read` rows. Entries stay |
-| Member person | Member row and their mention notifications for it go. Entries stay |
+| Member person | Member row goes, so its notifications stop showing to them. Entries stay |
 
 ## State transitions
 
