@@ -1,4 +1,5 @@
-import { Rail, UserMenu } from '@vizier/design'
+import { Rail, UserMenu, type RailAgentPage } from '@vizier/design'
+import { nanoid } from 'nanoid'
 import { useState } from 'react'
 import { useLocation, useNavigate } from 'react-router'
 import { transport } from '../../api/transport'
@@ -7,10 +8,13 @@ import { useAgents } from '../../stores/agents'
 import { useNotifications } from '../../stores/notifications'
 import { hasBothVariants, useAppearance } from '../../stores/appearance'
 import { useSession } from '../../stores/session'
+import { canManageSecrets, canViewArtifacts } from '../../lib/access'
 import { assetSrc } from '../../lib/fileUrls'
 import { read, write } from '../../lib/remember'
+import { useMobile } from '../../lib/useMobile'
+import { useNav } from '../../stores/nav'
 import { newAgentOpen, withNewAgent } from '../agents/NewAgentDialog'
-import type { ShellView } from './pages'
+import { PAGE_PATH, pageOf, type ShellView } from './pages'
 
 const ORDER_KEY = 'vizier.rail.order'
 
@@ -24,12 +28,15 @@ function arranged<T extends { agentId: string }>(agents: T[], order: string[]): 
 export function ShellRail({ pathname, view, routeAgent }: { pathname: string; view: ShellView; routeAgent?: string }) {
     const navigate = useNavigate()
     const { search } = useLocation()
-    const { user, signOut, can } = useSession()
+    const { user, signOut, can, canEditAgent } = useSession()
     // Only a theme with both variants has anything to switch between.
     const canSwitch = useAppearance((s) => hasBothVariants(s.paint))
     const toggleMode = useAppearance((s) => s.toggleMode)
     const { agents, health, creating } = useAgents()
     const resetNotifications = useNotifications((s) => s.reset)
+    const mobile = useMobile()
+    const sidebarCollapsed = useNav((s) => s.sidebarCollapsed)
+    const toggleSidebar = useNav((s) => s.toggleSidebar)
     const [order, setOrder] = useState<string[]>(() => read(ORDER_KEY, []))
     // A tile for each agent the server has, then one busy tile for each still being created.
     const tiles = arranged(
@@ -39,9 +46,16 @@ export function ShellRail({ pathname, view, routeAgent }: { pathname: string; vi
             name: a.name,
             state: agentState(health[a.agent_id]),
             href: `/${a.agent_id}/chat`,
+            // The same rules as the agent's own column and card.
+            hiddenPages: [
+                ...(canViewArtifacts(a) ? [] : (['artifacts'] as const)),
+                ...(canManageSecrets(a) ? [] : (['secrets'] as const)),
+            ],
+            disabledPages: canEditAgent(a) ? [] : (['config'] as const),
         })),
         order
     )
+    const page = pageOf(pathname)
     const pending = creating
         .filter((c) => !agents.some((a) => a.agent_id === c.agentId))
         .map((c) => ({
@@ -67,6 +81,21 @@ export function ShellRail({ pathname, view, routeAgent }: { pathname: string; vi
             settingsHref="/settings/profile"
             settingsActive={view === 'settings'}
             onToggleTheme={canSwitch ? toggleMode : undefined}
+            agentMenu={{
+                activePage: page && page !== 'chat' ? page : undefined,
+                onNew: (id) => navigate(`/${id}/chat/${nanoid(10)}`),
+                onSelect: (id, p: RailAgentPage) => navigate(`/${id}${PAGE_PATH[p]}`),
+            }}
+            // Only an agent's column collapses, and a phone's drawer always shows it in full.
+            sidebarToggle={
+                !mobile && view === 'agent'
+                    ? {
+                          collapsed: sidebarCollapsed,
+                          onToggle: toggleSidebar,
+                          shortcut: /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘B' : 'Ctrl B',
+                      }
+                    : undefined
+            }
             user={
                 // The desktop owner is signed in by opening the app: the design's Sign out is hidden.
                 <div className={transport.authMode === 'desktop' ? 'contents [&_button[aria-label="Sign out"]]:hidden' : 'contents'}>

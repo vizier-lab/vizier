@@ -30,6 +30,8 @@ export default function AppShell() {
     const mobile = useMobile()
     const navOpen = useNav((s) => s.open)
     const setNavOpen = useNav((s) => s.setOpen)
+    const sidebarCollapsed = useNav((s) => s.sidebarCollapsed)
+    const toggleSidebar = useNav((s) => s.toggleSidebar)
     const resetNotifications = useNotifications((s) => s.reset)
     const setViewing = useNotifications((s) => s.setViewing)
     const [drawerAgent, setDrawerAgent] = useState<string>()
@@ -65,6 +67,18 @@ export default function AppShell() {
     useEffect(() => {
         if (routeAgent) setDrawerAgent(routeAgent)
     }, [routeAgent])
+    // Ctrl B (or ⌘B) shuts the agent column. A rich text editor keeps the key for bold.
+    useEffect(() => {
+        if (mobile || view !== 'agent') return
+        const on = (e: KeyboardEvent) => {
+            if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey || e.key.toLowerCase() !== 'b') return
+            if (e.defaultPrevented || (e.target as HTMLElement | null)?.isContentEditable) return
+            e.preventDefault()
+            toggleSidebar()
+        }
+        window.addEventListener('keydown', on)
+        return () => window.removeEventListener('keydown', on)
+    }, [mobile, view, toggleSidebar])
 
     // Which screen is showing, rather than which URL: a screen keeps its
     // identity while its parameters change, so switching conversation or
@@ -160,6 +174,7 @@ export default function AppShell() {
                 rail={<ShellRail pathname={pathname} view={view} routeAgent={routeAgent} />}
                 sidebar={sidebar}
                 sidebarKey={sidebarKey}
+                collapsed={view === 'agent' && sidebarCollapsed}
             >
                 {page}
             </ShellFrame>
