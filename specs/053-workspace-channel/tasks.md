@@ -24,10 +24,10 @@ description: "Task list for the Workspace channel and mid-turn messages"
 
 **Purpose**: Branches and a clean baseline
 
-- [ ] T001 Commit the plan pointer change in `CLAUDE.md` on `053-workspace-channel`
-- [ ] T002 Check the uncommitted `package-lock.json` changes in `webui/` and `landing/` with `just status`, ask the owner what to do with them, then create the matching branch everywhere with `just checkout 053-workspace-channel`
-- [ ] T003 Record the baseline by running `cargo test --workspace` and `cd webui && npm test`, noting any failure that predates this work in `specs/053-workspace-channel/quickstart.md`
-- [ ] T004 [P] Confirm that `save_session_file` in `core/storage/session_file.rs` accepts an existing `file_id` (research R9). If not, record the fallback in `specs/053-workspace-channel/research.md` before T016
+- [X] T001 Commit the plan pointer change in `CLAUDE.md` on `053-workspace-channel`
+- [X] T002 Check the uncommitted `package-lock.json` changes in `webui/` and `landing/` with `just status`, ask the owner what to do with them, then create the matching branch everywhere with `just checkout 053-workspace-channel`
+- [X] T003 Record the baseline by running `cargo test --workspace` and `cd webui && npm test`, noting any failure that predates this work in `specs/053-workspace-channel/quickstart.md`
+- [X] T004 [P] Confirm that `save_session_file` in `core/storage/session_file.rs` accepts an existing `file_id` (research R9). If not, record the fallback in `specs/053-workspace-channel/research.md` before T016
 
 ---
 
@@ -62,15 +62,15 @@ description: "Task list for the Workspace channel and mid-turn messages"
 
 **Independent Test**: Quickstart §12. A turn writing text between two tool rounds shows as its own message between separate trails, live and after a reload, including in a conversation saved earlier.
 
-**Depends on**: nothing, so this can merge as its own PR. T019 and T020 are in `crates/`; everything else is in `webui/`.
+**Depends on**: nothing, so this can merge as its own PR. T019 is in `dummyplug/`, T020 in `specs/`; everything else is in `webui/`.
 
-- [ ] T019 [US7] Add the additive `say` key to `crates/vizier-core/src/agents/agent/model/dummyplug.rs`, emitting the text in the same model message as the tool call, with a unit test
-- [ ] T020 [P] [US7] Document `say` in `specs/008-dummyplug-provider/contracts/dummyplug-protocol.md`
-- [ ] T021 [US7] Write failing vitest cases for blocks in `webui/app/lib/trail.test.ts`: text between rounds, text first, no empty trail, `ToolResult` pairing across blocks, a stopped turn, per-block time, old saved history
-- [ ] T022 [US7] Change `Turn` to `blocks: TurnBlock[]` in `webui/app/api/frames.ts` and implement it in `groupHistory` in `webui/app/lib/trail.ts` per `specs/053-workspace-channel/contracts/turn-rendering.md`. Remove `narration` from `TrailEvent` and `note` from `trailSummary`, and delete the stale comment on `liveEvent`
-- [ ] T023 [US7] Draw blocks in `block` and the live branch of `webui/app/screens/chat/MessageList.tsx`: one trail per block, live and expanded only for the last while running, a message at `type-prose` with no stats, reactions or copy
-- [ ] T024 [US7] Give each trail its own time and counts in `webui/app/screens/chat/Trail.tsx`, and keep total time on the final message's stats in `webui/app/lib/messages.ts`
-- [ ] T025 [US7] Update tests that assume one trail per turn in `webui/app/screens/chat/MessageList.test.tsx`, and run `cd webui && npm test && npm run typecheck`
+- [X] T019 [US7] Add the additive `say` key to `dummyplug/src/protocol.mjs` (the `dummyplug` submodule; the Rust `model/dummyplug.rs` is not compiled), emitting the text in the same model message as the tool call, with a test in `dummyplug/test/legacy-protocol.test.mjs`
+- [X] T020 [P] [US7] Document `say` in `specs/008-dummyplug-provider/contracts/dummyplug-protocol.md`
+- [X] T021 [US7] Write failing vitest cases for blocks in `webui/app/lib/trail.test.ts`: text between rounds, text first, no empty trail, `ToolResult` pairing across blocks, a stopped turn, per-block time, old saved history
+- [X] T022 [US7] Change `Turn` to `blocks: TurnBlock[]` in `webui/app/api/frames.ts` and implement it in `groupHistory` in `webui/app/lib/trail.ts` per `specs/053-workspace-channel/contracts/turn-rendering.md`. Remove `narration` from `TrailEvent` and `note` from `trailSummary`, and delete the stale comment on `liveEvent`
+- [X] T023 [US7] Draw blocks in `block` and the live branch of `webui/app/screens/chat/MessageList.tsx`: one trail per block, live and expanded only for the last while running, a message at `type-prose` with no stats, reactions or copy
+- [X] T024 [US7] Give each trail its own time and counts in `webui/app/screens/chat/Trail.tsx`, and keep total time on the final message's stats in `webui/app/lib/messages.ts`
+- [X] T025 [US7] Update tests that assume one trail per turn in `webui/app/screens/chat/MessageList.test.tsx`, and run `cd webui && npm test && npm run typecheck`
 - [ ] T026 [US7] Run quickstart §12 against a dummyplug agent and record the result in `specs/053-workspace-channel/quickstart.md`
 
 **Checkpoint**: Mid-turn messages work everywhere. Can ship alone.

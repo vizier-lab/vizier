@@ -144,7 +144,7 @@ The category stays listed for agents in no Workspace, so `SANDBOX.md` stays byte
 
 **Decision**: `{ "say": "text", "tool": "...", "arguments": {} }` makes dummyplug emit the text in the same model message as the tool call. It is additive, since other keys are already ignored, so existing scripts keep working. The protocol contract is updated in the same change.
 
-**Rationale**: Mid-turn messages and mid-turn mentions are agent-observable and must be checked with dummyplug (constitution). Dummyplug has no other way to write text before a tool call. Final-text mentions need nothing new, because the tool-result echo already carries the result text.
+**Rationale**: Mid-turn messages and mid-turn mentions are agent-observable and must be checked with dummyplug (constitution). The real dummyplug is the Node server in the `dummyplug` submodule (the Rust `model/dummyplug.rs` is not compiled). It has no other way to write text before a tool call. Final-text mentions need nothing new, because the tool-result echo already carries the result text.
 
 ## R17. Not behind a feature flag
 

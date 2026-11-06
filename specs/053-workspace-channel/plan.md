@@ -116,7 +116,7 @@ webui/app/
 ├── screens/chat/MessageList.tsx, Trail.tsx
 └── screens/shell/ShellRail.tsx
 
-crates/vizier-core/src/agents/agent/model/dummyplug.rs   # say key
+dummyplug/src/protocol.mjs   # say key (the dummyplug submodule)
 specs/008-dummyplug-provider/contracts/dummyplug-protocol.md   # Documents say
 scripts/workspace-e2e.mjs        # New
 docs/src/                        # New Workspace page, tools tables, usage, observability
