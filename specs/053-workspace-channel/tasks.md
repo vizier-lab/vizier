@@ -241,7 +241,7 @@ description: "Task list for the Workspace channel and mid-turn messages"
 - [X] T099 [P] Add `docs/src/configuration/workspaces.md` and its line in `docs/src/SUMMARY.md`: members, mentions, the command format, notifications, what sharing an agent means, the accepted risks, and the naming difference from the data folder
 - [X] T100 [P] Update `docs/src/configuration/tools-embedding.md`, `docs/src/configuration/agents.md` and `docs/src/configuration/observability.md` for the removed and new tools and the Workspaces usage activity
 - [X] T101 Add a Workspace section to `CLAUDE.md`, and update Tools and Background jobs for the removal
-- [ ] T102 Extend `scripts/workspace-e2e.mjs` with quickstart §11's usage step, and run the whole script
+- [X] T102 Extend `scripts/workspace-e2e.mjs` with quickstart §11's usage step, and run the whole script
 - [ ] T103 Check quickstart §13 against `specs/053-workspace-channel/mockup.html` in both themes at desktop width and 375 px, and record the result
 - [ ] T104 Run quickstart §13.7 with a real model, *live provider*, and record how agents use mentions and how noisy filler and notifications are
 - [ ] T105 Run `cargo test --workspace`, `cargo clippy --workspace`, `cargo test -p vizier-core --no-default-features`, `cd webui && npm test && npm run typecheck`, `cd design && npm test`, and `scripts/048-agent-state-read-check.sh`

@@ -248,6 +248,15 @@ check('opening the topic reads them', read.status === 200 && read.data.marked > 
 const unreadAfter = (await api('GET', '/workspaces')).data.find((w) => w.id === wid)
 check('its topic has none left unread', unreadAfter.topics.find((t) => t.id === tid).unread === 0, unreadAfter)
 
+// --- usage ------------------------------------------------------------------------------------------
+section('usage names the Workspace and topic')
+await sleep(1000)
+const usage = await api('GET', '/agents/alpha/usage')
+check('the report answers', usage.status === 200, usage.body)
+const rowsByPlace = usage.data.by_place ?? []
+check('Workspace activity is counted', (usage.data.by_activity ?? []).some((r) => r.key === 'workspace' && r.calls > 0), usage.data.by_activity)
+check('its place is named Workspace / #topic', rowsByPlace.some((r) => r.label.includes(' / #')), rowsByPlace)
+
 // --- §11 managing a Workspace ------------------------------------------------------------------------
 section('§11 managing a Workspace')
 const found = await api('GET', `/workspaces/${wid}/candidates?q=bet`)
