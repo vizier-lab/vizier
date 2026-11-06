@@ -657,6 +657,8 @@ enum SlugKind<'a> {
     Http,
     /// A project chat; the id is the project the conversation belongs to.
     Project(&'a str),
+    /// A Workspace topic: the Workspace id (`specs/053-workspace-channel`).
+    Workspace(&'a str),
     Discord(&'a str),
     Telegram(&'a str),
     Task(&'a str),
@@ -668,6 +670,8 @@ enum SlugKind<'a> {
 fn slug_kind(channel: &str) -> SlugKind<'_> {
     if channel.starts_with(crate::projects::channel::PREFIX) {
         SlugKind::Project(channel.rsplit_once("__").map_or("", |(_, id)| id))
+    } else if let Some(id) = channel.strip_prefix(crate::workspaces::PREFIX) {
+        SlugKind::Workspace(id)
     } else if channel.starts_with("http__") {
         SlugKind::Http
     } else if let Some(id) = channel.strip_prefix("discord__") {
@@ -947,6 +951,12 @@ async fn conversation_label(
                 None => (title, Some("Project".into())),
             }
         }
+        // Names come from the Workspace tables once the label lookup reads them (the topic id
+        // stands in until then).
+        SlugKind::Workspace(_) => (
+            title.unwrap_or_else(|| "Workspace topic".into()),
+            Some("Workspace".into()),
+        ),
         // `Vizier HQ / #general / <topic>`: the live names, then the topic's title once it has one.
         SlugKind::Discord(id) => (
             with_topic(
@@ -1005,6 +1015,10 @@ async fn conversation_link(
                 UsageLinkKind::Topic,
                 format!("/{agent_id}/projects/{id}/chat/{t}"),
             ),
+            None => none(NoLinkReason::NoWebPage),
+        },
+        SlugKind::Workspace(id) => match topic {
+            Some(t) => link(UsageLinkKind::Topic, format!("/workspaces/{id}/{t}")),
             None => none(NoLinkReason::NoWebPage),
         },
         SlugKind::Task(slug) => link(

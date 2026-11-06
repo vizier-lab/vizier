@@ -273,7 +273,8 @@ pub async fn activity(
             match activity {
                 // A project chat is still a person's chat turn in the today summary; the
                 // usage report is where project work is broken out (FR-016).
-                Chat | Project => kinds.chat += n,
+                // A Workspace turn is a chat turn too.
+                Chat | Project | Workspace => kinds.chat += n,
                 Scheduled => kinds.scheduled += n,
                 Dreams => kinds.dream_stages += n,
                 Background => kinds.background += n,

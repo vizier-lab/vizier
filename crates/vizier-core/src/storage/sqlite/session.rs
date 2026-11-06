@@ -122,8 +122,10 @@ impl SessionStorage for SqlStorage {
         for (channel, topic, first, last) in spans {
             // Project chats are listed by their project, never by the regular session list
             // (FR-014): the new slug is `project__<user>__<id>`.
+            // A Workspace topic is listed by its Workspace, to its members only (spec 053).
             if is_non_user_channel(&channel)
                 || channel.starts_with(crate::projects::channel::PREFIX)
+                || channel.starts_with(crate::workspaces::PREFIX)
             {
                 continue;
             }

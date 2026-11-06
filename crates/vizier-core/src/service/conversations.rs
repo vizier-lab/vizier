@@ -35,6 +35,11 @@ fn kind_of(channel: &str, username: &str) -> Option<ConversationKind> {
     if channel.starts_with(crate::projects::channel::PREFIX) {
         return None;
     }
+    // Workspace topics are reached through membership, never an agent's conversation pages
+    // (spec 053 R8).
+    if channel.starts_with(crate::workspaces::PREFIX) {
+        return None;
+    }
     if channel.starts_with("discord__") {
         Some(ConversationKind::Discord)
     } else if channel.starts_with("telegram__") {

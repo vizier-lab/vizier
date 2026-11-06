@@ -23,6 +23,7 @@ mod memory;
 pub(crate) mod memory_revision;
 mod notification;
 mod project;
+mod workspace;
 mod provider;
 mod question;
 mod reaction;
@@ -466,6 +467,10 @@ impl SqlStorage {
         init_media_catalogue_schema(conn)?;
         init_notification_schema(conn)?;
         project::init_project_schema(conn)?;
+        workspace::init_workspace_schema(conn)?;
+        // Spec 053: who a Workspace message came from, and which Workspace it belongs to.
+        add_column_if_missing(conn, "notification", "workspace_id", "TEXT")?;
+        add_column_if_missing(conn, "notification", "author", "TEXT")?;
 
         Ok(())
     }

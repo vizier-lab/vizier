@@ -2583,6 +2583,10 @@ fn record_channel(span: &tracing::Span, channel: &crate::schema::VizierChannelId
             span.record("vizier.channel.id", id.as_str());
             "project"
         }
+        VizierChannelId::Workspace(id) => {
+            span.record("vizier.channel.id", id.as_str());
+            "workspace"
+        }
         VizierChannelId::Task(slug, _) => {
             span.record("vizier.task.slug", slug.as_str());
             "task"

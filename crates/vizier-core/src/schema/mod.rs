@@ -10,6 +10,7 @@ pub mod integration;
 pub mod metrics;
 pub mod notification;
 pub mod project;
+pub mod workspace;
 pub mod provider;
 mod request;
 mod response;
@@ -64,6 +65,7 @@ pub use project::{
     OUTPUT_CAP_BYTES, PROJECT_ID_LEN, Project, ProjectMode, ProjectScope, ProjectSessionRow,
     Worktree, WorktreeRef,
 };
+pub use workspace::{MemberKind, Workspace, WorkspaceMember, WorkspaceRole, WorkspaceTopic};
 pub use provider::{
     CustomModel, CustomProtocol, CustomProvider, LimitsEdited, ProfileEntry, ProviderCredentials,
     ProviderEntry,
