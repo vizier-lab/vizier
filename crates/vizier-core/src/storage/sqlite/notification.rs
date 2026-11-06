@@ -67,7 +67,8 @@ impl NotificationStorage for SqlStorage {
                     |row| row.get(0),
                 )
                 .ok();
-            if exists.is_none() {
+            // A Workspace row belongs to the Workspace, not to an agent (spec 053).
+            if exists.is_none() && !draft.agent_id.starts_with(crate::schema::WORKSPACE_SCOPE_PREFIX) {
                 continue;
             }
             let source_session = draft
@@ -81,8 +82,8 @@ impl NotificationStorage for SqlStorage {
                 .query_row(
                     "INSERT INTO notification
                         (event_key, agent_id, audience_user_id, category, tone, summary, href,
-                         created_at, source_session, source_title, excerpt)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+                         created_at, source_session, source_title, excerpt, workspace_id, author)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
                      ON CONFLICT DO NOTHING
                      RETURNING id",
                     params![
@@ -97,6 +98,8 @@ impl NotificationStorage for SqlStorage {
                         source_session.as_deref(),
                         draft.source_title.as_deref(),
                         draft.excerpt.as_deref(),
+                        draft.workspace_id.as_deref(),
+                        draft.author.as_deref(),
                     ],
                     |row| row.get(0),
                 )
@@ -117,6 +120,7 @@ impl NotificationStorage for SqlStorage {
                         source_session: draft.source_session.clone(),
                     },
                     audience: draft.audience_user_id.clone(),
+                    author: draft.author.clone(),
                 });
             }
         }
@@ -143,7 +147,7 @@ impl NotificationStorage for SqlStorage {
              LEFT JOIN notification_read r \
                ON r.notification_id = n.id AND r.user_id = ? \
              WHERE n.agent_id IN ({}) AND n.created_at >= ? \
-               AND (n.audience_user_id IS NULL OR n.audience_user_id = ?)",
+               AND (n.audience_user_id IS NULL OR n.audience_user_id = ?) AND (n.author IS NULL OR n.author <> ?)",
             marks(agents),
         );
         match filter {
@@ -154,6 +158,7 @@ impl NotificationStorage for SqlStorage {
         let mut params: Vec<Box<dyn ToSql>> = vec![Box::new(user_id.to_string())];
         params.extend(agents.iter().map(|a| Box::new(a.clone()) as Box<dyn ToSql>));
         params.push(Box::new(cutoff()));
+        params.push(Box::new(user_id.to_string()));
         params.push(Box::new(user_id.to_string()));
         if let Some((at, id)) = before {
             sql.push_str(" AND (n.created_at < ? OR (n.created_at = ? AND n.id < ?))");
@@ -235,12 +240,13 @@ impl NotificationStorage for SqlStorage {
              LEFT JOIN notification_read r \
                ON r.notification_id = n.id AND r.user_id = ? \
              WHERE n.agent_id IN ({}) AND n.created_at >= ? \
-               AND (n.audience_user_id IS NULL OR n.audience_user_id = ?)",
+               AND (n.audience_user_id IS NULL OR n.audience_user_id = ?) AND (n.author IS NULL OR n.author <> ?)",
             marks(agents),
         );
         let mut params: Vec<Box<dyn ToSql>> = vec![Box::new(user_id.to_string())];
         params.extend(agents.iter().map(|a| Box::new(a.clone()) as Box<dyn ToSql>));
         params.push(Box::new(cutoff()));
+        params.push(Box::new(user_id.to_string()));
         params.push(Box::new(user_id.to_string()));
         let conn = self.conn.lock()?;
         let (all, unread): (i64, i64) =
@@ -263,7 +269,7 @@ impl NotificationStorage for SqlStorage {
         let sql = format!(
             "SELECT COALESCE(MAX(n.id), 0) FROM notification n \
              WHERE n.agent_id IN ({}) AND n.created_at >= ? \
-               AND (n.audience_user_id IS NULL OR n.audience_user_id = ?)",
+               AND (n.audience_user_id IS NULL OR n.audience_user_id = ?) AND (n.author IS NULL OR n.author <> ?)",
             marks(agents),
         );
         let mut params: Vec<Box<dyn ToSql>> = agents
@@ -271,6 +277,7 @@ impl NotificationStorage for SqlStorage {
             .map(|a| Box::new(a.clone()) as Box<dyn ToSql>)
             .collect();
         params.push(Box::new(cutoff()));
+        params.push(Box::new(user_id.to_string()));
         params.push(Box::new(user_id.to_string()));
         let conn = self.conn.lock()?;
         Ok(conn.query_row(&sql, params_from_iter(params.iter()), |row| row.get(0))?)
@@ -291,12 +298,13 @@ impl NotificationStorage for SqlStorage {
         let sql = format!(
             "SELECT 1 FROM notification \
              WHERE id = ? AND agent_id IN ({}) AND created_at >= ? \
-               AND (audience_user_id IS NULL OR audience_user_id = ?)",
+               AND (audience_user_id IS NULL OR audience_user_id = ?) AND (author IS NULL OR author <> ?)",
             marks(agents)
         );
         let mut params: Vec<Box<dyn ToSql>> = vec![Box::new(notification_id)];
         params.extend(agents.iter().map(|a| Box::new(a.clone()) as Box<dyn ToSql>));
         params.push(Box::new(cutoff()));
+        params.push(Box::new(user_id.to_string()));
         params.push(Box::new(user_id.to_string()));
         let visible: Option<i64> = conn
             .query_row(&sql, params_from_iter(params.iter()), |row| row.get(0))
@@ -333,7 +341,7 @@ impl NotificationStorage for SqlStorage {
             "INSERT INTO notification_read (user_id, notification_id, read_at) \
              SELECT CAST(? AS TEXT), n.id, CAST(? AS BIGINT) FROM notification n \
              WHERE n.agent_id IN ({}) AND n.created_at >= ? \
-               AND (n.audience_user_id IS NULL OR n.audience_user_id = ?) \
+               AND (n.audience_user_id IS NULL OR n.audience_user_id = ?) AND (n.author IS NULL OR n.author <> ?) \
              ON CONFLICT DO NOTHING",
             marks(agents)
         );
@@ -343,6 +351,7 @@ impl NotificationStorage for SqlStorage {
         ];
         params.extend(agents.iter().map(|a| Box::new(a.clone()) as Box<dyn ToSql>));
         params.push(Box::new(cutoff()));
+        params.push(Box::new(user_id.to_string()));
         params.push(Box::new(user_id.to_string()));
         let conn = self.conn.lock()?;
         let inserted = conn.execute(&sql, params_from_iter(params.iter()))?;
@@ -358,11 +367,67 @@ impl NotificationStorage for SqlStorage {
         Ok(deleted)
     }
 
+    async fn workspace_unread(&self, user_id: &str, workspace_ids: &[String]) -> Result<Vec<(String, String, u64)>> {
+        if workspace_ids.is_empty() {
+            return Ok(vec![]);
+        }
+        let sql = format!(
+            "SELECT n.workspace_id, n.href, COUNT(*) FROM notification n \
+             LEFT JOIN notification_read r ON r.notification_id = n.id AND r.user_id = ? \
+             WHERE n.workspace_id IN ({}) AND n.created_at >= ? AND r.notification_id IS NULL \
+               AND (n.author IS NULL OR n.author <> ?) \
+             GROUP BY n.workspace_id, n.href",
+            marks(workspace_ids),
+        );
+        let mut params: Vec<Box<dyn ToSql>> = vec![Box::new(user_id.to_string())];
+        params.extend(workspace_ids.iter().map(|w| Box::new(w.clone()) as Box<dyn ToSql>));
+        params.push(Box::new(cutoff()));
+        params.push(Box::new(user_id.to_string()));
+        let conn = self.conn.lock()?;
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt
+            .query_map(params_from_iter(params.iter()), |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?))
+            })?
+            .collect::<sql::Result<Vec<_>>>()?;
+        // The topic is the last segment of the row's link: `/workspaces/{id}/{topic}`.
+        Ok(rows
+            .into_iter()
+            .map(|(workspace, href, n)| (workspace, href.rsplit('/').next().unwrap_or_default().to_string(), n.max(0) as u64))
+            .collect())
+    }
+
+    async fn mark_topic_read(&self, user_id: &str, workspace_id: &str, topic_id: &str, at: Timestamp) -> Result<u64> {
+        let conn = self.conn.lock()?;
+        let inserted = conn.execute(
+            "INSERT INTO notification_read (user_id, notification_id, read_at) \
+             SELECT CAST(?1 AS TEXT), n.id, CAST(?2 AS BIGINT) FROM notification n \
+             WHERE n.workspace_id = ?3 AND n.href = ?4 AND n.created_at >= ?5 \
+               AND (n.author IS NULL OR n.author <> ?1) \
+             ON CONFLICT DO NOTHING",
+            params![user_id, at.timestamp_millis(), workspace_id, format!("/workspaces/{workspace_id}/{topic_id}"), cutoff()],
+        )?;
+        Ok(inserted as u64)
+    }
+
+    async fn delete_workspace_notifications(&self, workspace_id: &str, topic_id: Option<&str>) -> Result<u64> {
+        let conn = self.conn.lock()?;
+        let deleted = match topic_id {
+            Some(topic) => conn.execute(
+                "DELETE FROM notification WHERE workspace_id = ?1 AND href = ?2",
+                params![workspace_id, format!("/workspaces/{workspace_id}/{topic}")],
+            )?,
+            None => conn.execute("DELETE FROM notification WHERE workspace_id = ?1", params![workspace_id])?,
+        };
+        Ok(deleted as u64)
+    }
+
     async fn purge_orphaned_notifications(&self) -> Result<usize> {
         let conn = self.conn.lock()?;
         let deleted = conn.execute(
             "DELETE FROM notification \
-             WHERE agent_id NOT IN (SELECT agent_id FROM agent_config)",
+             WHERE agent_id NOT IN (SELECT agent_id FROM agent_config) \
+               AND agent_id NOT LIKE 'workspace:%'",
             [],
         )?;
         Ok(deleted)
@@ -411,6 +476,8 @@ mod tests {
 
     fn draft(key: &str, agent_id: &str, at: Timestamp) -> NotificationDraft {
         NotificationDraft {
+            workspace_id: None,
+            author: None,
             event_key: key.into(),
             agent_id: agent_id.into(),
             audience_user_id: None,

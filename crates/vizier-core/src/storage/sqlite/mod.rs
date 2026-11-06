@@ -468,9 +468,6 @@ impl SqlStorage {
         init_notification_schema(conn)?;
         project::init_project_schema(conn)?;
         workspace::init_workspace_schema(conn)?;
-        // Spec 053: who a Workspace message came from, and which Workspace it belongs to.
-        add_column_if_missing(conn, "notification", "workspace_id", "TEXT")?;
-        add_column_if_missing(conn, "notification", "author", "TEXT")?;
 
         Ok(())
     }
@@ -588,6 +585,10 @@ pub fn init_notification_schema(conn: &Connection) -> Result<()> {
     add_column_if_missing(conn, "notification", "source_session", "TEXT")?;
     add_column_if_missing(conn, "notification", "source_title", "TEXT")?;
     add_column_if_missing(conn, "notification", "excerpt", "TEXT")?;
+    // Spec 053: which Workspace a message was written in, and who wrote it (a person's user id or
+    // an agent's id), so its author is never notified of it.
+    add_column_if_missing(conn, "notification", "workspace_id", "TEXT")?;
+    add_column_if_missing(conn, "notification", "author", "TEXT")?;
     // Discord and Telegram no longer notify; the hourly aggregate rows an older build wrote are
     // dropped (their read rows cascade). Tracked for removal on #82.
     conn.execute("DELETE FROM notification WHERE category = 'channel_replies'", [])?;

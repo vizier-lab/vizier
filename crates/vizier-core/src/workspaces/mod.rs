@@ -162,8 +162,59 @@ pub async fn write_note(
     .await
 }
 
-/// Tells everyone watching about an entry, then wakes the agents it mentions.
+/// One notification row for a message: seen by every current member but its author
+/// (`specs/053-workspace-channel` research R20). A note makes none, and `event_key` makes a second
+/// call for the same entry a no-op, so the startup sweep can repeat it safely.
+pub async fn notify(hub: &Hub, entry: &WorkspaceEntry) {
+    use crate::{
+        notifications::{Notifications, excerpt},
+        schema::{NotificationCategory, NotificationDraft, NotificationTone, workspace_scope},
+        storage::user::UserStorage,
+    };
+    if entry.kind == EntryKind::Note {
+        return;
+    }
+    let (Ok(Some(workspace)), Ok(Some(topic))) = (
+        hub.storage.get_workspace(&entry.workspace_id).await,
+        hub.storage.get_topic(&entry.workspace_id, &entry.topic_id).await,
+    ) else {
+        return;
+    };
+    // The author is a user id for a person (what a viewer is compared with), an agent id otherwise.
+    let author = match entry.author_kind {
+        MemberKind::Person => hub
+            .storage
+            .get_user(&entry.author)
+            .await
+            .ok()
+            .flatten()
+            .map_or_else(|| entry.author.clone(), |u| u.user_id),
+        MemberKind::Agent => entry.author.clone(),
+    };
+    let draft = NotificationDraft {
+        event_key: format!("workspace:{}", entry.seq),
+        agent_id: workspace_scope(&entry.workspace_id),
+        audience_user_id: None,
+        category: NotificationCategory::WorkspaceMessage,
+        tone: NotificationTone::Default,
+        summary: format!("{} in {} #{}", entry.author_name, workspace.name, topic.name),
+        href: format!("/workspaces/{}/{}", workspace.id, topic.id),
+        created_at: crate::time::from_millis(entry.at),
+        source_session: None,
+        source_title: Some(format!("{} #{}", workspace.name, topic.name)),
+        excerpt: excerpt::from_markdown(&entry.body),
+        workspace_id: Some(entry.workspace_id.clone()),
+        author: Some(author),
+    };
+    let notifications = Notifications::new(std::sync::Arc::new(hub.storage.clone()));
+    notifications.install_transport(hub.transport.clone());
+    notifications.record_all(vec![draft]).await;
+}
+
+/// Tells everyone watching about an entry, notifies the other members, then wakes the agents it
+/// mentions.
 pub async fn announce_and_dispatch(hub: &Hub, entry: &WorkspaceEntry) {
+    notify(hub, entry).await;
     let mentions = hub
         .storage
         .mentions_of(&[entry.seq])
@@ -298,6 +349,8 @@ pub async fn redispatch_pending(hub: &Hub) {
             continue;
         }
         if let Ok(Some(entry)) = hub.storage.get_entry(mention.entry_seq).await {
+            // A row lost between the save and the stop is made now; one already there is kept.
+            notify(hub, &entry).await;
             dispatch_mentions(hub, &entry).await;
         }
     }

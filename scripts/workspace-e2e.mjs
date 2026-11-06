@@ -168,6 +168,41 @@ const after = await api('GET', `/workspaces/${wid}/topics/${tid}/entries`)
 const mention = after.data.entries.find((e) => e.seq === said.seq)?.mentions.find((m) => m.handle === 'beta')
 check('the mention reads woken', mention?.state === 'woken', mention)
 
+// --- §5a the tool, called from a script ---------------------------------------------------------------
+section('§5a mention_agent from a script')
+seen = live.entries().length
+await api('POST', `/workspaces/${wid}/topics/${tid}/entries`, { text: `@alpha ${py('mention_agent(agents=["beta"], message="tools")')}` })
+const viaTool = await live.entry((e) => e.author.id === 'alpha' && e.body.includes('@beta tools') && e.history_uid === null, seen)
+check('alpha posts the mention as a message with no history row of its own', !!viaTool, live.entries().slice(seen))
+check('beta answers it', !!(await live.entry((e) => e.author.id === 'beta' && e.is_final && e.body.includes('Available tools'), seen)))
+seen = live.entries().length
+await api('POST', `/workspaces/${wid}/topics/${tid}/entries`, { text: `@alpha ${py('mention_agent(agents=["stranger"], message="hi")')}` })
+const refused = await live.entry((e) => e.author.id === 'alpha' && e.is_final, seen)
+check('a non-member is reported, not posted', refused?.body.includes('not_a_member'), refused?.body)
+check('and nothing was posted to them', !live.entries().slice(seen).some((e) => e.body.includes('@stranger')))
+
+// --- §8 reaching a Workspace from elsewhere --------------------------------------------------------------
+section('§8 reaching a Workspace')
+seen = live.entries().length
+await api('POST', `/workspaces/${wid}/topics/${tid}/entries`, { text: `@alpha ${py(`list_workspaces()`)}` })
+const listed = await live.entry((e) => e.author.id === 'alpha' && e.is_final, seen)
+check('list_workspaces names this Workspace', listed?.body.includes(NAME), listed?.body)
+seen = live.entries().length
+await api('POST', `/workspaces/${wid}/topics/${tid}/entries`, { text: `@alpha ${py(`send_message_to_workspace(workspace_name="${NAME}", workspace_topic="daily", message="@beta tools")`)}` })
+const daily = await live.entry((e) => e.author.id === 'beta' && e.is_final, seen, 25_000)
+check('beta answers in the new topic', !!daily)
+const topics = await api('GET', `/workspaces/${wid}`)
+check('the topic was created', topics.data.topics.some((t) => t.name === 'daily'), topics.data.topics)
+const other = await api('POST', `/workspaces/${wid}/topics/${tid}/entries`, { text: `@alpha ${py('send_message_to_workspace(workspace_name="no-such", workspace_topic="x", message="hi")')}` })
+check('posting works', other.status === 201)
+
+// --- §9 the old tools are gone -----------------------------------------------------------------------------
+section('§9 the old tools are gone')
+seen = live.entries().length
+await api('POST', `/workspaces/${wid}/topics/${tid}/entries`, { text: `@alpha ${py('consult_agent(agent_id="beta", prompt="hi")')}` })
+const retired = await live.entry((e) => e.author.id === 'alpha' && e.is_final, seen)
+check('a script calling consult_agent gets the new guidance', retired?.body.includes('mention_agent'), retired?.body)
+
 // --- §5b commands -------------------------------------------------------------------------------------
 section('§5b skills and commands')
 const btw = await api('POST', `/workspaces/${wid}/topics/${tid}/entries`, { text: '/btw @alpha hello' })

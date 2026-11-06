@@ -14,7 +14,10 @@ use crate::{
         EntryKind, EntryMention, MemberKind, NewEntry, Workspace, WorkspaceEntry, WorkspaceMember,
         WorkspaceRole, WorkspaceTopic,
     },
-    storage::{agent::AgentStorage, user::UserStorage, workspace::WorkspaceStorage},
+    storage::{
+        agent::AgentStorage, notification::NotificationStorage, user::UserStorage,
+        workspace::WorkspaceStorage,
+    },
     transport::WorkspaceEvent,
     workspaces::{
         self, Hub, PostError,
@@ -173,24 +176,41 @@ pub async fn resolve_manager(
 
 async fn summary(
     s: &Services,
+    who: &Principal,
     workspace: &Workspace,
     standing: Standing,
 ) -> Result<WorkspaceSummary, ServiceError> {
-    let topics = s
-        .deps()
-        .storage
+    let storage = &s.deps().storage;
+    let unread = storage
+        .workspace_unread(&who.user_id, std::slice::from_ref(&workspace.id))
+        .await
+        .map_err(internal)?;
+    let topics: Vec<TopicSummary> = storage
         .list_topics(&workspace.id)
         .await
         .map_err(internal)?
         .into_iter()
-        .map(|t| TopicSummary { id: t.id, name: t.name, unread: 0 })
+        .map(|t| {
+            let count = unread.iter().find(|(_, topic, _)| *topic == t.id).map_or(0, |(_, _, n)| *n);
+            TopicSummary { id: t.id, name: t.name, unread: count }
+        })
         .collect();
+    // An agent working in any topic of the Workspace.
+    let working = {
+        use crate::storage::turn::TurnStorage;
+        storage
+            .sessions_with_pending_turns()
+            .await
+            .unwrap_or_default()
+            .iter()
+            .any(|session| matches!(&session.1, crate::schema::VizierChannelId::Workspace(id) if *id == workspace.id))
+    };
     Ok(WorkspaceSummary {
         id: workspace.id.clone(),
         name: workspace.name.clone(),
         role: role_word(standing).into(),
-        unread: 0,
-        working: false,
+        unread: topics.iter().map(|t| t.unread).sum(),
+        working,
         topics,
     })
 }
@@ -209,7 +229,7 @@ pub async fn list(s: &Services, who: &Principal) -> Result<Vec<WorkspaceSummary>
             WorkspaceRole::Owner => Standing::Owner,
             WorkspaceRole::Member => Standing::Member,
         };
-        rows.push(summary(s, &workspace, standing).await?);
+        rows.push(summary(s, who, &workspace, standing).await?);
     }
     Ok(rows)
 }
@@ -284,7 +304,7 @@ pub async fn detail(
     for m in s.deps().storage.list_members(&workspace.id).await.map_err(internal)? {
         members.push(member_view(s, &m).await?);
     }
-    Ok(WorkspaceDetail { workspace: summary(s, &workspace, standing).await?, members })
+    Ok(WorkspaceDetail { workspace: summary(s, who, &workspace, standing).await?, members })
 }
 
 async fn member_view(s: &Services, m: &WorkspaceMember) -> Result<MemberView, ServiceError> {
@@ -302,6 +322,31 @@ async fn member_view(s: &Services, m: &WorkspaceMember) -> Result<MemberView, Se
         role: m.role.as_str().into(),
         available,
     })
+}
+
+/// Marks a topic's messages read for the caller. Opening a topic does this.
+pub async fn mark_topic_read(
+    s: &Services,
+    who: &Principal,
+    workspace_id: &str,
+    topic_id: &str,
+) -> Result<u64, ServiceError> {
+    let (workspace, _) = resolve(s, who, workspace_id).await?;
+    let topic = topic_of(s, &workspace, topic_id).await?;
+    let marked = s
+        .deps()
+        .storage
+        .mark_topic_read(&who.user_id, &workspace.id, &topic.id, crate::time::now())
+        .await
+        .map_err(internal)?;
+    if marked > 0 {
+        // Every open tab of theirs counts again.
+        s.deps().transport.publish_inbox_event(crate::transport::InboxEvent::Stale {
+            user: Some(who.user_id.clone()),
+            agent_id: None,
+        });
+    }
+    Ok(marked)
 }
 
 pub async fn create_topic(

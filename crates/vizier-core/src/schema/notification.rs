@@ -22,6 +22,9 @@ pub enum NotificationCategory {
     /// A WebUI conversation's reply. Addressed to the person whose conversation it is
     /// (`audience_user_id`), not to everyone who can see the agent.
     ChatReply,
+    /// A message in a Workspace (`specs/053-workspace-channel`), one row per message. Seen by
+    /// every current member except its author.
+    WorkspaceMessage,
 }
 
 impl NotificationCategory {
@@ -34,6 +37,7 @@ impl NotificationCategory {
             Self::BackgroundJob => "background_job",
             Self::Integration => "integration",
             Self::ChatReply => "chat_reply",
+            Self::WorkspaceMessage => "workspace_message",
         }
     }
 
@@ -46,6 +50,7 @@ impl NotificationCategory {
             "background_job" => Some(Self::BackgroundJob),
             "integration" => Some(Self::Integration),
             "chat_reply" => Some(Self::ChatReply),
+            "workspace_message" => Some(Self::WorkspaceMessage),
             _ => None,
         }
     }
@@ -111,6 +116,16 @@ impl NotificationFilter {
     }
 }
 
+/// The `agent_id` of a Workspace row starts with this and is followed by the Workspace id. The
+/// service adds one such id for every Workspace a person is in to the agents they may see, so the
+/// visibility clause every query already has covers Workspace rows too.
+pub const WORKSPACE_SCOPE_PREFIX: &str = "workspace:";
+
+/// The scope id of a Workspace's notifications.
+pub fn workspace_scope(workspace_id: &str) -> String {
+    format!("{WORKSPACE_SCOPE_PREFIX}{workspace_id}")
+}
+
 /// A row the `Notifications` service asks storage to insert. Not exposed by the API.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NotificationDraft {
@@ -135,6 +150,10 @@ pub struct NotificationDraft {
     /// A short plain-text excerpt (`notifications::excerpt`). Never tool arguments, tool
     /// results or reasoning.
     pub excerpt: Option<String>,
+    /// The Workspace a message was written in (spec 053).
+    pub workspace_id: Option<String>,
+    /// Who wrote it: a person's user id or an agent's id. Its author never sees the row.
+    pub author: Option<String>,
 }
 
 /// A row the store has just inserted, as the live stream needs it.
@@ -143,6 +162,8 @@ pub struct InsertedNotification {
     pub item: NotificationItem,
     /// The row's `audience_user_id`: `None` means everyone who can view the agent.
     pub audience: Option<String>,
+    /// The row's author, so a live frame is not sent to them.
+    pub author: Option<String>,
 }
 
 /// One row as the API returns it.

@@ -46,6 +46,7 @@ pub fn workspaces() -> Router<HTTPState> {
         .route("/{id}/topics/{tid}/entries", get(timeline).post(post_entry))
         .route("/{id}/topics/{tid}/turns/{agent}/stop", post(stop_agent))
         .route("/{id}/topics/{tid}/stream", get(stream))
+        .route("/{id}/topics/{tid}/read", post(mark_read))
 }
 
 /// A service refusal in the existing envelope, with its stable `code` in `data.error`.
@@ -394,4 +395,32 @@ async fn serve_socket(
     }
     pushing.abort();
     connection.close();
+}
+
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+pub struct ReadMarked {
+    pub marked: u64,
+}
+
+#[utoipa::path(
+    post,
+    path = "/workspaces/{id}/topics/{tid}/read",
+    params(
+        ("id" = String, Path, description = "Workspace ID"),
+        ("tid" = String, Path, description = "Topic ID")
+    ),
+    responses(
+        (status = 200, description = "The topic's messages are read for the caller; its notifications too", body = APIResponse<ReadMarked>),
+        (status = 404, description = "No such Workspace or topic, or the caller has no standing in it")
+    )
+)]
+pub async fn mark_read(
+    State(state): State<HTTPState>,
+    Extension(user): Extension<Principal>,
+    Path((id, tid)): Path<(String, String)>,
+) -> Response {
+    respond(
+        service::mark_topic_read(&svc(&state), &user, &id, &tid).await.map(|marked| ReadMarked { marked }),
+        StatusCode::OK,
+    )
 }

@@ -335,6 +335,8 @@ mod tests {
                 source_session: None,
                 source_title: None,
                 excerpt: None,
+                workspace_id: None,
+                author: None,
             }])
             .await
             .unwrap();

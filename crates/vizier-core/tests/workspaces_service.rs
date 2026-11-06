@@ -214,3 +214,94 @@ async fn the_last_owner_cannot_leave_but_an_administrator_can_remove_them() {
     assert_eq!(code(&last), Some("last_owner"));
     ws::remove_member(&w.s, &w.admin, &id, "person", "maya").await.unwrap();
 }
+
+// --- notifications (spec 053 US3) -------------------------------------------------------------------
+
+use vizier_core::service::notifications as inbox;
+
+async fn unread_of(w: &World, who: &Principal) -> u64 {
+    inbox::count(&w.s, who).await.unwrap().unread
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn every_message_notifies_every_other_member_once_and_nobody_else() {
+    let w = world().await;
+    let id = ops(&w).await;
+    ws::add_member(&w.s, &w.rafi, &id, add("person", "maya")).await.unwrap();
+    let topic = ws::detail(&w.s, &w.rafi, &id).await.unwrap().workspace.topics[0].id.clone();
+
+    let say = |text: &str| ws::PostRequest { text: text.into(), files: vec![] };
+    ws::post(&w.s, &w.rafi, &id, &topic, say("hello team")).await.unwrap();
+
+    // The member is told, with the topic as the place and a short excerpt.
+    assert_eq!(unread_of(&w, &w.maya).await, 1);
+    let page = inbox::list(&w.s, &w.maya, None, None, None).await.unwrap();
+    assert_eq!(page.items.len(), 1);
+    assert_eq!(page.items[0].category, vizier_core::schema::NotificationCategory::WorkspaceMessage);
+    assert_eq!(page.items[0].excerpt.as_deref(), Some("hello team"));
+    assert_eq!(page.items[0].href, format!("/workspaces/{id}/{topic}"));
+    // Not its author, and not someone outside the Workspace.
+    assert_eq!(unread_of(&w, &w.rafi).await, 0);
+    assert_eq!(unread_of(&w, &w.eve).await, 0);
+    assert_eq!(unread_of(&w, &w.admin).await, 0, "an administrator who is not a member is not notified");
+
+    // A command leaves a note, and a note notifies nobody.
+    ws::post(&w.s, &w.rafi, &id, &topic, say("/abort")).await.unwrap();
+    assert_eq!(unread_of(&w, &w.maya).await, 1);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn unread_is_counted_per_topic_and_clears_when_the_topic_is_read() {
+    let w = world().await;
+    let id = ops(&w).await;
+    ws::add_member(&w.s, &w.rafi, &id, add("person", "maya")).await.unwrap();
+    let general = ws::detail(&w.s, &w.rafi, &id).await.unwrap().workspace.topics[0].id.clone();
+    let daily = ws::create_topic(&w.s, &w.rafi, &id, CreateTopicRequest { name: "daily".into() }).await.unwrap().id;
+    let say = |text: &str| ws::PostRequest { text: text.into(), files: vec![] };
+    for _ in 0..2 {
+        ws::post(&w.s, &w.rafi, &id, &general, say("one")).await.unwrap();
+    }
+    ws::post(&w.s, &w.rafi, &id, &daily, say("two")).await.unwrap();
+
+    let before = ws::list(&w.s, &w.maya).await.unwrap().remove(0);
+    assert_eq!(before.unread, 3);
+    let by_topic: std::collections::BTreeMap<_, _> = before.topics.iter().map(|t| (t.name.clone(), t.unread)).collect();
+    assert_eq!(by_topic, [("daily".to_string(), 1), ("general".to_string(), 2)].into());
+    // The author sees none of her own.
+    assert_eq!(ws::list(&w.s, &w.rafi).await.unwrap()[0].unread, 0);
+
+    assert_eq!(ws::mark_topic_read(&w.s, &w.maya, &id, &general).await.unwrap(), 2);
+    let after = ws::list(&w.s, &w.maya).await.unwrap().remove(0);
+    assert_eq!((after.unread, after.topics.iter().find(|t| t.name == "daily").unwrap().unread), (1, 1));
+    assert_eq!(unread_of(&w, &w.maya).await, 1);
+    // Reading again changes nothing, and a stranger cannot read it.
+    assert_eq!(ws::mark_topic_read(&w.s, &w.maya, &id, &general).await.unwrap(), 0);
+    assert_eq!(ws::mark_topic_read(&w.s, &w.eve, &id, &general).await.unwrap_err().status(), 404);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn removing_a_member_takes_their_notifications_away_at_once() {
+    let w = world().await;
+    let id = ops(&w).await;
+    ws::add_member(&w.s, &w.rafi, &id, add("person", "maya")).await.unwrap();
+    let topic = ws::detail(&w.s, &w.rafi, &id).await.unwrap().workspace.topics[0].id.clone();
+    ws::post(&w.s, &w.rafi, &id, &topic, ws::PostRequest { text: "secret plans".into(), files: vec![] }).await.unwrap();
+    assert_eq!(unread_of(&w, &w.maya).await, 1);
+
+    ws::remove_member(&w.s, &w.rafi, &id, "person", "maya").await.unwrap();
+    assert_eq!(unread_of(&w, &w.maya).await, 0);
+    assert!(inbox::list(&w.s, &w.maya, None, None, None).await.unwrap().items.is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_member_is_notified_about_an_agent_they_cannot_view() {
+    let w = world().await;
+    let id = ops(&w).await;
+    // Eve can neither view nor edit alpha, and is added as a person.
+    ws::add_member(&w.s, &w.rafi, &id, add("person", "eve")).await.unwrap();
+    ws::add_member(&w.s, &w.rafi, &id, add("agent", "alpha")).await.unwrap();
+    let topic = ws::detail(&w.s, &w.rafi, &id).await.unwrap().workspace.topics[0].id.clone();
+    // Alpha's text is written by its turn; here a person's message stands in for the agent's.
+    ws::post(&w.s, &w.rafi, &id, &topic, ws::PostRequest { text: "@alpha status?".into(), files: vec![] }).await.unwrap();
+    assert_eq!(unread_of(&w, &w.eve).await, 1);
+}

@@ -146,10 +146,10 @@ description: "Task list for the Workspace channel and mid-turn messages"
 
 **Independent Test**: Quickstart §5. Both ways wake B the same. B's reply wakes A only if it mentions A, and A has read it either way.
 
-- [ ] T062 [US2] Add `ToolCategory::Workspaces`, category name `workspaces`, in `core/agents/tools/mod.rs`, reserved like other built-ins, with a description line
-- [ ] T063 [US2] Add `mention_agent` in `core/agents/tools/workspaces.rs` per `specs/053-workspace-channel/contracts/agent-tools.md`, with `available` true only in a `Workspace` session, placing mentions after a leading `/command`. It inserts `workspace_entry` directly with no `history_uid`, so it never touches history (research R6). Refusals are `status` results
-- [ ] T064 [US2] Register it on `default_toolset` in `core/agents/tools/mod.rs`, add it to `every_tool_is_in_its_category`, and confirm it is absent from `DREAM_TOOL_NAMES`
-- [ ] T065 [US2] Test in `core/agents/tools/workspaces.rs`: non-member, self, all unavailable, partly unavailable, and that a call during a running `execute_python` adds no history row
+- [X] T062 [US2] Add `ToolCategory::Workspaces`, category name `workspaces`, in `core/agents/tools/mod.rs`, reserved like other built-ins, with a description line
+- [X] T063 [US2] (when every named agent is down it still posts and reports them in `unavailable`, rather than posting nothing as the contract said) Add `mention_agent` in `core/agents/tools/workspaces.rs` per `specs/053-workspace-channel/contracts/agent-tools.md`, with `available` true only in a `Workspace` session, placing mentions after a leading `/command`. It inserts `workspace_entry` directly with no `history_uid`, so it never touches history (research R6). Refusals are `status` results
+- [X] T064 [US2] Register it on `default_toolset` in `core/agents/tools/mod.rs`, add it to `every_tool_is_in_its_category`, and confirm it is absent from `DREAM_TOOL_NAMES`
+- [X] T065 [US2] Test in `core/agents/tools/workspaces.rs`: non-member, self, all unavailable, partly unavailable, and that a call during a running `execute_python` adds no history row
 - [ ] T066 [US2] Make `groupHistory`'s run building in `webui/app/lib/workspaces.ts` keep a python call paired across a `mention_agent` message, with a test
 - [ ] T067 [US2] Extend `scripts/workspace-e2e.mjs` with quickstart §5 and run it
 
@@ -165,11 +165,11 @@ description: "Task list for the Workspace channel and mid-turn messages"
 
 **Depends on**: US2. Land together with it, and never before.
 
-- [ ] T068 [US5] Delete `core/agents/tools/consult/`, and `ConsultAgent`, `DelegateAgent` and `other_agents` in `core/agents/tools/mod.rs`, including the `every_tool_is_in_its_category` table and `entry::<DelegateAgent>()`
-- [ ] T069 [US5] Add both names to `RETIRED_TOOL_NAMES` in `core/agents/tools/mod.rs`, with the text in `specs/053-workspace-channel/contracts/agent-tools.md` and a test
-- [ ] T070 [US5] Update the `Agents` category description in `core/agents/tools/mod.rs` and `list_background_jobs`'s description in `core/agents/tools/background_jobs.rs`, and remove the labels in `core/utils/mod.rs`
-- [ ] T071 [US5] Keep `InterAgent`, `JobKind::Delegation` and `delegated_to` compiling for reads, and adjust `launch` in `core/agents/background/mod.rs` if it is now the only constructor path, with no `allow(dead_code)` where a read path exists
-- [ ] T072 [US5] Keep `delegate_agent` in `JOB_LAUNCHING_TOOLS` in `webui/app/lib/trail.ts` with a comment for saved history, and confirm `webui/app/screens/chat/MessageList.tsx` and `ChatStatusStrip.tsx` still render an old delegation
+- [X] T068 [US5] Delete `core/agents/tools/consult/`, and `ConsultAgent`, `DelegateAgent` and `other_agents` in `core/agents/tools/mod.rs`, including the `every_tool_is_in_its_category` table and `entry::<DelegateAgent>()`
+- [X] T069 [US5] Add both names to `RETIRED_TOOL_NAMES` in `core/agents/tools/mod.rs`, with the text in `specs/053-workspace-channel/contracts/agent-tools.md` and a test
+- [X] T070 [US5] Update the `Agents` category description in `core/agents/tools/mod.rs` and `list_background_jobs`'s description in `core/agents/tools/background_jobs.rs`, and remove the labels in `core/utils/mod.rs`
+- [X] T071 [US5] Keep `InterAgent`, `JobKind::Delegation` and `delegated_to` compiling for reads, and adjust `launch` in `core/agents/background/mod.rs` if it is now the only constructor path, with no `allow(dead_code)` where a read path exists
+- [X] T072 [US5] Keep `delegate_agent` in `JOB_LAUNCHING_TOOLS` in `webui/app/lib/trail.ts` with a comment for saved history, and confirm `webui/app/screens/chat/MessageList.tsx` and `ChatStatusStrip.tsx` still render an old delegation
 - [ ] T073 [US5] Add a checklist entry to issue #82 naming each kept item from `specs/053-workspace-channel/data-model.md`. This writes to GitHub, so confirm the text with the owner first
 - [ ] T074 [US5] Extend `scripts/workspace-e2e.mjs` with quickstart §9 and run it
 
@@ -185,9 +185,9 @@ description: "Task list for the Workspace channel and mid-turn messages"
 
 **Depends on**: US2 (category and tool file).
 
-- [ ] T075 [US6] Add `send_message_to_workspace`, `list_workspaces` and `read_workspace_messages` in `core/agents/tools/workspaces.rs` per the contract, with `available` false in `Dream` and `Subagent` sessions, a topic created on send, and `not_found` identical for non-members
-- [ ] T076 [US6] Set `origin` from the caller's session in `core/workspaces/mod.rs`: task slug, chat, Discord, Telegram or Workspace, with none when sent from the same topic
-- [ ] T077 [US6] Register the three tools in `core/agents/tools/mod.rs`, add them to `every_tool_is_in_its_category`, and test availability in each conversation kind
+- [X] T075 [US6] Add `send_message_to_workspace`, `list_workspaces` and `read_workspace_messages` in `core/agents/tools/workspaces.rs` per the contract, with `available` false in `Dream` and `Subagent` sessions, a topic created on send, and `not_found` identical for non-members
+- [X] T076 [US6] Set `origin` from the caller's session in `core/workspaces/mod.rs`: task slug, chat, Discord, Telegram or Workspace, with none when sent from the same topic
+- [X] T077 [US6] Register the three tools in `core/agents/tools/mod.rs`, add them to `every_tool_is_in_its_category`, and test availability in each conversation kind
 - [ ] T078 [US6] Run `catch_up` for idle Workspace sessions before a dream cycle in `core/scheduler/dream/mod.rs`, skipping a session with a turn running, so dreams see what was read
 - [ ] T079 [US6] Draw the origin badge in `webui/app/screens/workspaces/WorkspaceTimeline.tsx`
 - [ ] T080 [US6] Extend `scripts/workspace-e2e.mjs` with quickstart §8 and §11's dream step, and run it
@@ -202,11 +202,11 @@ description: "Task list for the Workspace channel and mid-turn messages"
 
 **Independent Test**: Quickstart §10. One notification per message, none for the author, none for notes, read when the topic is open, and gone on removal.
 
-- [ ] T081 [US3] Add `NotificationCategory::WorkspaceMessage` in `core/schema/notification.rs` with `as_str` and `parse`, wording in `core/notifications/text.rs`, and handle it wherever categories are matched in `core/service/inbox.rs`, `core/transport/events.rs` and `core/storage/sqlite/notification.rs`
-- [ ] T082 [US3] Create one notification per `person` and `agent` entry in `core/workspaces/mod.rs` with `event_key = workspace:{seq}`, including the startup sweep. Never for `note`
-- [ ] T083 [US3] Add the visibility clause `workspace_id IN (my Workspaces) AND author != me` to list, counts, per-id read and mark-all in `core/storage/sqlite/notification.rs`, with tests for author, member, non-member and removed member (research R20)
-- [ ] T084 [US3] Apply the same rule in `judge` in `core/service/inbox.rs`, and fill the title and excerpt for Workspace rows
-- [ ] T085 [US3] Add `POST /workspaces/{id}/topics/{tid}/read` in `http/api/v1/workspaces.rs` and `core/service/workspaces.rs`, return `unread` per Workspace and topic from `GET /workspaces`, and add its vector
+- [X] T081 [US3] Add `NotificationCategory::WorkspaceMessage` in `core/schema/notification.rs` with `as_str` and `parse`, wording in `core/notifications/text.rs`, and handle it wherever categories are matched in `core/service/inbox.rs`, `core/transport/events.rs` and `core/storage/sqlite/notification.rs`
+- [X] T082 [US3] (the startup sweep covers entries that have a pending mention, not every entry) Create one notification per `person` and `agent` entry in `core/workspaces/mod.rs` with `event_key = workspace:{seq}`, including the startup sweep. Never for `note`
+- [X] T083 [US3] Add the visibility clause `workspace_id IN (my Workspaces) AND author != me` to list, counts, per-id read and mark-all in `core/storage/sqlite/notification.rs`, with tests for author, member, non-member and removed member (research R20)
+- [X] T084 [US3] Apply the same rule in `judge` in `core/service/inbox.rs`, and fill the title and excerpt for Workspace rows
+- [X] T085 [US3] Add `POST /workspaces/{id}/topics/{tid}/read` in `http/api/v1/workspaces.rs` and `core/service/workspaces.rs`, return `unread` per Workspace and topic from `GET /workspaces`, and add its vector
 - [ ] T086 [US3] Delete a topic's or Workspace's notifications with it in `core/service/workspaces.rs`
 - [ ] T087 [US3] Link a row to its topic and auto-mark read while viewing in `webui/app/stores/notifications.ts` and `webui/app/lib/notifications.ts`, and show the row in `webui/app/screens/notifications/NotificationsPopup.tsx` with the author's sigil or avatar
 - [ ] T088 [US3] Update rail and sidebar counts from frames in `webui/app/stores/workspaces.ts`, and highlight a mention of the signed-in person in `webui/app/screens/workspaces/WorkspaceTimeline.tsx`
@@ -238,8 +238,8 @@ description: "Task list for the Workspace channel and mid-turn messages"
 
 ## Phase 10: Polish
 
-- [ ] T099 [P] Add `docs/src/configuration/workspaces.md` and its line in `docs/src/SUMMARY.md`: members, mentions, the command format, notifications, what sharing an agent means, the accepted risks, and the naming difference from the data folder
-- [ ] T100 [P] Update `docs/src/configuration/tools-embedding.md`, `docs/src/configuration/agents.md` and `docs/src/configuration/observability.md` for the removed and new tools and the Workspaces usage activity
+- [X] T099 [P] Add `docs/src/configuration/workspaces.md` and its line in `docs/src/SUMMARY.md`: members, mentions, the command format, notifications, what sharing an agent means, the accepted risks, and the naming difference from the data folder
+- [X] T100 [P] Update `docs/src/configuration/tools-embedding.md`, `docs/src/configuration/agents.md` and `docs/src/configuration/observability.md` for the removed and new tools and the Workspaces usage activity
 - [ ] T101 Add a Workspace section to `CLAUDE.md`, and update Tools and Background jobs for the removal
 - [ ] T102 Extend `scripts/workspace-e2e.mjs` with quickstart §11's usage step, and run the whole script
 - [ ] T103 Check quickstart §13 against `specs/053-workspace-channel/mockup.html` in both themes at desktop width and 375 px, and record the result

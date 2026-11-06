@@ -364,9 +364,10 @@ mod tests {
             item,
             audience: Some("u1".into()),
             source_session: Some(session.clone()),
+            author: None,
         });
         let got = tokio::time::timeout(Duration::from_secs(5), rx.recv()).await.unwrap().unwrap();
-        let InboxEvent::Created { item, audience, source_session } = got else { panic!("expected created") };
+        let InboxEvent::Created { item, audience, source_session, .. } = got else { panic!("expected created") };
         assert_eq!(item.id, 9);
         assert_eq!(item.excerpt.as_deref(), Some("hello"));
         assert!(item.source_session.is_none());

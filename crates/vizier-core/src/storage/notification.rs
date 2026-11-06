@@ -71,6 +71,16 @@ pub trait NotificationStorage {
 
     /// Startup orphan cleanup: drop rows whose agent is gone, closing a delete/insert race.
     async fn purge_orphaned_notifications(&self) -> Result<usize>;
+
+    /// How many Workspace messages `user_id` has not read, by Workspace and by topic, leaving out
+    /// what they wrote themselves. Each row is `(workspace_id, topic_id, unread)`.
+    async fn workspace_unread(&self, user_id: &str, workspace_ids: &[String]) -> Result<Vec<(String, String, u64)>>;
+
+    /// Marks every unread message of one topic read for `user_id`; returns how many.
+    async fn mark_topic_read(&self, user_id: &str, workspace_id: &str, topic_id: &str, at: Timestamp) -> Result<u64>;
+
+    /// Deletes a Workspace's notifications, or one topic's, with it (`topic_id` set).
+    async fn delete_workspace_notifications(&self, workspace_id: &str, topic_id: Option<&str>) -> Result<u64>;
 }
 
 #[async_trait::async_trait]
@@ -135,5 +145,17 @@ impl NotificationStorage for VizierStorage {
 
     async fn purge_orphaned_notifications(&self) -> Result<usize> {
         self.0.purge_orphaned_notifications().await
+    }
+
+    async fn workspace_unread(&self, user_id: &str, workspace_ids: &[String]) -> Result<Vec<(String, String, u64)>> {
+        self.0.workspace_unread(user_id, workspace_ids).await
+    }
+
+    async fn mark_topic_read(&self, user_id: &str, workspace_id: &str, topic_id: &str, at: Timestamp) -> Result<u64> {
+        self.0.mark_topic_read(user_id, workspace_id, topic_id, at).await
+    }
+
+    async fn delete_workspace_notifications(&self, workspace_id: &str, topic_id: Option<&str>) -> Result<u64> {
+        self.0.delete_workspace_notifications(workspace_id, topic_id).await
     }
 }

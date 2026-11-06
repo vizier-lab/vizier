@@ -157,6 +157,9 @@ pub enum InboxEvent {
         item: crate::schema::NotificationItem,
         audience: Option<String>,
         source_session: Option<VizierSession>,
+        /// Who wrote it (a Workspace message): never told about their own message.
+        #[serde(default)]
+        author: Option<String>,
     },
     /// One person's read state changed. `id: None` means mark-all.
     Read {

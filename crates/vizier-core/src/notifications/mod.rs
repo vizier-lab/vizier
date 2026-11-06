@@ -62,9 +62,9 @@ impl Notifications {
         let Some(transport) = self.transport.read().ok().and_then(|slot| slot.clone()) else {
             return;
         };
-        for InsertedNotification { item, audience } in inserted {
+        for InsertedNotification { item, audience, author } in inserted {
             let source_session = item.source_session.clone();
-            transport.publish_inbox_event(InboxEvent::Created { item, audience, source_session });
+            transport.publish_inbox_event(InboxEvent::Created { item, audience, source_session, author });
         }
     }
 
@@ -399,6 +399,8 @@ fn draft(
         source_session: None,
         source_title: None,
         excerpt: None,
+        workspace_id: None,
+        author: None,
     }
 }
 

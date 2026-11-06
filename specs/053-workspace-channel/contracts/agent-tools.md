@@ -17,9 +17,7 @@ Posts `@archivist @scribe have we seen this lock before?` to the current topic, 
 | `posted` | Posted | `seq`, `woken`, `unavailable` |
 | `not_a_member` | Any named agent isn't a member. Nothing posts | `members`: agents that can be mentioned |
 | `self_mention` | The caller named itself. Nothing posts | |
-| `unavailable` | Every named agent is down. Nothing posts | `agents` |
-
-If only some are down, it posts, and those are listed in `unavailable`.
+If any named agent is down it still posts, and those agents are listed in `unavailable` (the topic shows a note for each). Nothing is posted only for `not_a_member` and `self_mention`.
 
 ## `send_message_to_workspace`
 
