@@ -1529,7 +1529,7 @@ pub async fn handle_request(
                 && !turn.resumed
                 && let Some(seq) = request.metadata.get("workspace_entry").and_then(|v| v.as_i64())
             {
-                match crate::workspaces::catch_up::for_activation(&crate::workspaces::Hub::from(&*deps), &session, seq).await {
+                match crate::workspaces::catch_up::for_activation(&crate::workspaces::Hub::from(deps), &session, seq).await {
                     Some(Ok(done)) if done.skipped > 0 => {
                         set_metadata(&mut request.metadata, "workspace_skipped", done.skipped.into());
                     }

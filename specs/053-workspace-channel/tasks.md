@@ -150,7 +150,7 @@ description: "Task list for the Workspace channel and mid-turn messages"
 - [X] T063 [US2] (when every named agent is down it still posts and reports them in `unavailable`, rather than posting nothing as the contract said) Add `mention_agent` in `core/agents/tools/workspaces.rs` per `specs/053-workspace-channel/contracts/agent-tools.md`, with `available` true only in a `Workspace` session, placing mentions after a leading `/command`. It inserts `workspace_entry` directly with no `history_uid`, so it never touches history (research R6). Refusals are `status` results
 - [X] T064 [US2] Register it on `default_toolset` in `core/agents/tools/mod.rs`, add it to `every_tool_is_in_its_category`, and confirm it is absent from `DREAM_TOOL_NAMES`
 - [X] T065 [US2] Test in `core/agents/tools/workspaces.rs`: non-member, self, all unavailable, partly unavailable, and that a call during a running `execute_python` adds no history row
-- [ ] T066 [US2] Make `groupHistory`'s run building in `webui/app/lib/workspaces.ts` keep a python call paired across a `mention_agent` message, with a test
+- [X] T066 [US2] Make `groupHistory`'s run building in `webui/app/lib/workspaces.ts` keep a python call paired across a `mention_agent` message, with a test
 - [X] T067 [US2] Extend `scripts/workspace-e2e.mjs` with quickstart §5 and run it
 
 **Checkpoint**: Agents coordinate in a Workspace.
@@ -190,7 +190,7 @@ description: "Task list for the Workspace channel and mid-turn messages"
 - [X] T077 [US6] Register the three tools in `core/agents/tools/mod.rs`, add them to `every_tool_is_in_its_category`, and test availability in each conversation kind
 - [X] T078 [US6] Run `catch_up` for idle Workspace sessions before a dream cycle in `core/scheduler/dream/mod.rs`, skipping a session with a turn running, so dreams see what was read
 - [X] T079 [US6] Draw the origin badge in `webui/app/screens/workspaces/WorkspaceTimeline.tsx`
-- [ ] T080 [US6] Extend `scripts/workspace-e2e.mjs` with quickstart §8 and §11's dream step, and run it
+- [X] T080 [US6] Extend `scripts/workspace-e2e.mjs` with quickstart §8 and §11's dream step, and run it
 
 **Checkpoint**: Scheduled tasks can orchestrate a Workspace.
 

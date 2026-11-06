@@ -68,14 +68,12 @@ fn scan_line(line: &str, base: usize, handles: &[&str], found: &mut Vec<Mention>
                         && !continues(&rest[h.len()..])
                 })
                 .max_by_key(|h| h.len());
-            if let Some(handle) = best {
-                if !found.iter().any(|m| m.handle == *handle) {
-                    found.push(Mention {
-                        handle: (*handle).to_string(),
-                        start: base + i,
-                        end: base + i + 1 + handle.len(),
-                    });
-                }
+            if let Some(handle) = best.filter(|h| !found.iter().any(|m| m.handle == **h)) {
+                found.push(Mention {
+                    handle: (*handle).to_string(),
+                    start: base + i,
+                    end: base + i + 1 + handle.len(),
+                });
             }
         }
         previous = Some(c);

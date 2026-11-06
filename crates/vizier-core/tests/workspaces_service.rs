@@ -382,3 +382,24 @@ async fn deleting_an_agent_removes_it_from_every_workspace_but_keeps_the_convers
     let detail = ws::detail(&w.s, &w.rafi, &id).await.unwrap();
     assert!(detail.members.iter().all(|m| m.handle != "alpha"));
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_idle_agent_is_brought_up_to_date_before_a_dream_cycle() {
+    use vizier_core::{schema::CatchUp, workspaces::{self, Hub, catch_up}};
+    let w = world().await;
+    let id = ops(&w).await;
+    ws::add_member(&w.s, &w.rafi, &id, add("agent", "alpha")).await.unwrap();
+    let topic = ws::detail(&w.s, &w.rafi, &id).await.unwrap().workspace.topics[0].id.clone();
+    let say = |text: &str| ws::PostRequest { text: text.into(), files: vec![] };
+    ws::post(&w.s, &w.rafi, &id, &topic, say("the lock is back")).await.unwrap();
+    ws::post(&w.s, &w.rafi, &id, &topic, say("it was the deploy")).await.unwrap();
+
+    let hub = Hub::from(w.s.deps());
+    let session = workspaces::session_of("alpha", &id, &topic);
+    let first = catch_up::to_head(&hub, &session).await.unwrap().unwrap();
+    assert_eq!(first, CatchUp { copied: 2, skipped: 0 });
+    // Nothing is copied twice, and a session that is not a Workspace's is not touched.
+    assert_eq!(catch_up::to_head(&hub, &session).await.unwrap().unwrap(), CatchUp::default());
+    let direct = vizier_core::schema::VizierSession("alpha".into(), vizier_core::schema::VizierChannelId::HTTP("rafi".into(), "web".into()), Some("t".into()));
+    assert!(catch_up::to_head(&hub, &direct).await.is_none());
+}
