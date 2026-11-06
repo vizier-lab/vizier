@@ -115,6 +115,36 @@ impl DreamScheduler {
         }
     }
 
+    /// Brings the agent's idle Workspace sessions up to date, so the cycle sees what it read
+    /// but was never woken for. A session with a turn pending is left alone: that turn catches
+    /// up itself. Best effort; a failure only means the dream sees a little less.
+    async fn catch_up_workspaces(&self, agent_id: &str) {
+        use crate::storage::turn::TurnStorage;
+        use crate::storage::workspace::WorkspaceStorage;
+        let hub = crate::workspaces::Hub::from(&self.deps);
+        let storage = &self.deps.storage;
+        let busy = storage.sessions_with_pending_turns().await.unwrap_or_default();
+        let workspaces = match storage.workspaces_of_agent(agent_id).await {
+            Ok(ids) => ids,
+            Err(e) => {
+                tracing::warn!("Workspace catch-up skipped for '{}': {}", agent_id, e);
+                return;
+            }
+        };
+        for workspace_id in workspaces {
+            let topics = storage.list_topics(&workspace_id).await.unwrap_or_default();
+            for topic in topics {
+                let session = crate::workspaces::session_of(agent_id, &workspace_id, &topic.id);
+                if busy.iter().any(|b| b.to_slug() == session.to_slug()) {
+                    continue;
+                }
+                if let Some(Err(e)) = crate::workspaces::catch_up::to_head(&hub, &session).await {
+                    tracing::warn!("Workspace catch-up failed for {}: {}", session.to_slug(), e);
+                }
+            }
+        }
+    }
+
     /// Trigger a dream cycle for a specific agent.
     /// Returns immediately — the actual dream runs in a background task.
     pub async fn trigger_dream(&self, agent_id: &str) -> Result<()> {
@@ -137,6 +167,8 @@ impl DreamScheduler {
             .get_last_dream_time(agent_id)
             .await?
             .unwrap_or(now - Duration::hours(24));
+
+        self.catch_up_workspaces(agent_id).await;
 
         // Collect user-interaction sessions in window
         let sessions = self
