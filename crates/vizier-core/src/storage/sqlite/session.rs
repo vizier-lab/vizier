@@ -363,6 +363,16 @@ impl SessionStorage for SqlStorage {
             params![agent_id, origin_channel, topic],
         )?;
 
+        // Its notifications go with it (their read rows cascade), so the inbox never shows a
+        // row about a conversation that no longer exists. The session is stored as JSON, and
+        // serialization of it is deterministic.
+        let source = serde_json::to_string(&crate::schema::VizierSession(
+            agent_id.clone(),
+            channel.clone(),
+            Some(topic.clone()),
+        ))?;
+        conn.execute("DELETE FROM notification WHERE source_session = ?1", params![source])?;
+
         // The topic's client tool calls, and the state its pages saved, go with it.
         conn.execute(
             "DELETE FROM client_tool_call WHERE agent_id = ?1 AND channel = ?2 \

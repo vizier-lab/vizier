@@ -19,6 +19,8 @@ pub const DREAM_CMD: &str = "dream.cmd";
 pub const PROCESS_CMD: &str = "process.cmd";
 /// Subject for integration change fan-out.
 pub const INTEGRATION_CHANGED: &str = "integration.changed";
+/// Subject for inbox fan-out: notifications created or read, and live setup status.
+pub const INBOX_EVENTS: &str = "inbox.events";
 
 fn is_token_char(c: char) -> bool {
     c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '%' | '~')
@@ -152,6 +154,11 @@ impl Subject {
         Self(INTEGRATION_CHANGED.into())
     }
 
+    /// `inbox.events`
+    pub fn inbox_events() -> Self {
+        Self(INBOX_EVENTS.into())
+    }
+
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -279,6 +286,15 @@ mod tests {
             assert!(valid_token(&t), "{t}");
             assert_eq!(Subject::decode_token(&t).unwrap(), id);
         }
+    }
+
+    #[test]
+    fn the_inbox_subject_is_fixed_and_apart_from_sessions() {
+        let subject = Subject::inbox_events();
+        assert_eq!(subject.as_str(), "inbox.events");
+        assert_eq!(Subject::parse("inbox.events").unwrap(), subject);
+        assert!(p("inbox.events").matches(&subject));
+        assert!(!p("session.>").matches(&subject));
     }
 
     #[test]

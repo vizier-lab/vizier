@@ -93,6 +93,9 @@ pub struct InterruptedJob {
     pub id: String,
     pub agent_id: AgentId,
     pub kind: crate::schema::JobKind,
+    /// The conversation the job was launched from, so its notification can name it and stay out
+    /// of Discord and Telegram.
+    pub origin: crate::schema::VizierSession,
 }
 
 #[async_trait::async_trait]

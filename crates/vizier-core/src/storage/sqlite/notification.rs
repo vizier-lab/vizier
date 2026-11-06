@@ -1,18 +1,16 @@
-use crate::storage::sql::{self, Connection, ToSql, params, params_from_iter};
+use crate::storage::sql::{self, Connection, OptionalExtension, ToSql, params, params_from_iter};
 use anyhow::Result;
 use chrono::{DateTime, TimeZone, Utc};
 
 use crate::{
     schema::{
-        NotificationCategory, NotificationCounts, NotificationDraft, NotificationFilter,
-        NotificationItem, NotificationTone, ReplyBatch,
+        InsertedNotification, NotificationCategory, NotificationCounts, NotificationDraft,
+        NotificationFilter, NotificationItem, NotificationTone,
     },
     storage::{
         notification::NotificationStorage, notification::RETENTION_DAYS, sqlite::SqlStorage,
     },
 };
-
-const HOUR_MS: i64 = 3_600_000;
 
 fn millis(ms: i64) -> DateTime<Utc> {
     Utc.timestamp_millis_opt(ms).single().unwrap_or_default()
@@ -39,13 +37,16 @@ pub(super) fn delete_agent_notifications(conn: &Connection, agent_id: &str) -> R
 
 #[async_trait::async_trait]
 impl NotificationStorage for SqlStorage {
-    async fn insert_notifications(&self, drafts: &[NotificationDraft]) -> Result<usize> {
+    async fn insert_notifications(
+        &self,
+        drafts: &[NotificationDraft],
+    ) -> Result<Vec<InsertedNotification>> {
         if drafts.is_empty() {
-            return Ok(0);
+            return Ok(vec![]);
         }
         let conn = self.conn.lock()?;
         let tx = conn.unchecked_transaction()?;
-        let mut inserted = 0usize;
+        let mut inserted = Vec::new();
         for draft in drafts {
             // A programmer error, not user input: refuse the whole batch rather than storing a
             // row no client can render.
@@ -68,22 +69,55 @@ impl NotificationStorage for SqlStorage {
             if exists.is_none() {
                 continue;
             }
-            inserted += tx.execute(
-                "INSERT INTO notification
-                    (event_key, agent_id, audience_user_id, category, tone, summary, href, created_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
-                 ON CONFLICT DO NOTHING",
-                params![
-                    draft.event_key.as_str(),
-                    draft.agent_id.as_str(),
-                    draft.audience_user_id.as_deref(),
-                    draft.category.as_str(),
-                    draft.tone.as_str(),
-                    draft.summary.as_str(),
-                    draft.href.as_str(),
-                    draft.created_at.timestamp_millis(),
-                ],
-            )?;
+            let source_session = draft
+                .source_session
+                .as_ref()
+                .map(serde_json::to_string)
+                .transpose()?;
+            // `RETURNING` yields a row only when this call inserted one, so a duplicate
+            // `event_key` announces nothing.
+            let id: Option<i64> = tx
+                .query_row(
+                    "INSERT INTO notification
+                        (event_key, agent_id, audience_user_id, category, tone, summary, href,
+                         created_at, source_session, source_title, excerpt)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+                     ON CONFLICT DO NOTHING
+                     RETURNING id",
+                    params![
+                        draft.event_key.as_str(),
+                        draft.agent_id.as_str(),
+                        draft.audience_user_id.as_deref(),
+                        draft.category.as_str(),
+                        draft.tone.as_str(),
+                        draft.summary.as_str(),
+                        draft.href.as_str(),
+                        draft.created_at.timestamp_millis(),
+                        source_session.as_deref(),
+                        draft.source_title.as_deref(),
+                        draft.excerpt.as_deref(),
+                    ],
+                    |row| row.get(0),
+                )
+                .optional()?;
+            if let Some(id) = id {
+                inserted.push(InsertedNotification {
+                    item: NotificationItem {
+                        id,
+                        at: draft.created_at,
+                        agent_id: draft.agent_id.clone(),
+                        category: draft.category,
+                        tone: draft.tone,
+                        text: draft.summary.clone(),
+                        href: draft.href.clone(),
+                        read: false,
+                        title: draft.source_title.clone(),
+                        excerpt: draft.excerpt.clone(),
+                        source_session: draft.source_session.clone(),
+                    },
+                    audience: draft.audience_user_id.clone(),
+                });
+            }
         }
         tx.commit()?;
         Ok(inserted)
@@ -102,7 +136,8 @@ impl NotificationStorage for SqlStorage {
         }
         let mut sql = format!(
             "SELECT n.id, n.agent_id, n.category, n.tone, n.summary, n.href, n.created_at, \
-                    (r.notification_id IS NOT NULL) AS read \
+                    (r.notification_id IS NOT NULL) AS read, \
+                    n.source_session, n.source_title, n.excerpt \
              FROM notification n \
              LEFT JOIN notification_read r \
                ON r.notification_id = n.id AND r.user_id = ? \
@@ -141,6 +176,9 @@ impl NotificationStorage for SqlStorage {
                     row.get::<_, String>(5)?,
                     row.get::<_, i64>(6)?,
                     row.get::<_, i64>(7)?,
+                    row.get::<_, Option<String>>(8)?,
+                    row.get::<_, Option<String>>(9)?,
+                    row.get::<_, Option<String>>(10)?,
                 ))
             })?
             .collect::<sql::Result<Vec<_>>>()?;
@@ -148,7 +186,19 @@ impl NotificationStorage for SqlStorage {
         Ok(rows
             .into_iter()
             .filter_map(
-                |(id, agent_id, category, tone, summary, href, created_at, read)| {
+                |(
+                    id,
+                    agent_id,
+                    category,
+                    tone,
+                    summary,
+                    href,
+                    created_at,
+                    read,
+                    source_session,
+                    source_title,
+                    excerpt,
+                )| {
                     Some(NotificationItem {
                         id,
                         at: millis(created_at),
@@ -158,6 +208,11 @@ impl NotificationStorage for SqlStorage {
                         text: summary,
                         href,
                         read: read != 0,
+                        title: source_title,
+                        excerpt,
+                        // A row whose session no longer parses just loses its title.
+                        source_session: source_session
+                            .and_then(|json| serde_json::from_str(&json).ok()),
                     })
                 },
             )
@@ -198,6 +253,26 @@ impl NotificationStorage for SqlStorage {
             unread,
             read: all - unread,
         })
+    }
+
+    async fn latest_notification_id(&self, user_id: &str, agents: &[String]) -> Result<i64> {
+        if agents.is_empty() {
+            return Ok(0);
+        }
+        let sql = format!(
+            "SELECT COALESCE(MAX(n.id), 0) FROM notification n \
+             WHERE n.agent_id IN ({}) AND n.created_at >= ? \
+               AND (n.audience_user_id IS NULL OR n.audience_user_id = ?)",
+            marks(agents),
+        );
+        let mut params: Vec<Box<dyn ToSql>> = agents
+            .iter()
+            .map(|a| Box::new(a.clone()) as Box<dyn ToSql>)
+            .collect();
+        params.push(Box::new(cutoff()));
+        params.push(Box::new(user_id.to_string()));
+        let conn = self.conn.lock()?;
+        Ok(conn.query_row(&sql, params_from_iter(params.iter()), |row| row.get(0))?)
     }
 
     async fn set_notification_read(
@@ -273,34 +348,6 @@ impl NotificationStorage for SqlStorage {
         Ok(inserted as u64)
     }
 
-    async fn channel_reply_batches(&self, from_hour: i64, to_hour: i64) -> Result<Vec<ReplyBatch>> {
-        if from_hour > to_hour {
-            return Ok(vec![]);
-        }
-        let conn = self.conn.lock()?;
-        let mut stmt = conn.prepare(&format!(
-            r"SELECT agent_id, channel, timestamp / {HOUR_MS} AS hour, COUNT(*), MAX(timestamp) AS at
-              FROM session_history
-              WHERE content_type = 'Response'
-                AND (channel LIKE 'discord\_\_%' ESCAPE '\' OR channel LIKE 'telegram\_\_%' ESCAPE '\')
-                AND timestamp / {HOUR_MS} >= ?1 AND timestamp / {HOUR_MS} <= ?2
-              GROUP BY agent_id, channel, hour
-              ORDER BY hour, agent_id, channel"
-        ))?;
-        let rows = stmt
-            .query_map(params![from_hour, to_hour], |row| {
-                Ok(ReplyBatch {
-                    agent_id: row.get(0)?,
-                    channel: row.get(1)?,
-                    hour: row.get(2)?,
-                    replies: row.get::<_, i64>(3)?.max(0) as u64,
-                    at: millis(row.get(4)?),
-                })
-            })?
-            .collect::<sql::Result<Vec<_>>>()?;
-        Ok(rows)
-    }
-
     async fn purge_notifications_before(&self, at: DateTime<Utc>) -> Result<usize> {
         let conn = self.conn.lock()?;
         let deleted = conn.execute(
@@ -371,6 +418,9 @@ mod tests {
             summary: format!("Task “{key}” answered."),
             href: format!("/{agent_id}/tasks"),
             created_at: at,
+            source_session: None,
+            source_title: None,
+            excerpt: None,
         }
     }
 
@@ -411,15 +461,19 @@ mod tests {
         let (s, _d) = setup();
         agent(&s, "a");
         let at = Utc::now();
-        assert_eq!(
-            s.insert_notifications(&[draft("task_run:1", "a", at)])
-                .await
-                .unwrap(),
-            1
-        );
+        let first = s
+            .insert_notifications(&[draft("task_run:1", "a", at)])
+            .await
+            .unwrap();
+        assert_eq!(first.len(), 1);
+        assert_eq!(first[0].item.text, "Task “task_run:1” answered.");
+        assert!(!first[0].item.read);
         let mut second = draft("task_run:1", "a", at);
         second.summary = "something else".into();
-        assert_eq!(s.insert_notifications(&[second]).await.unwrap(), 0);
+        assert!(
+            s.insert_notifications(&[second]).await.unwrap().is_empty(),
+            "a duplicate event_key returns nothing to announce"
+        );
         let items = s
             .list_notifications("u", &["a".into()], NotificationFilter::All, None, 10)
             .await
@@ -429,14 +483,89 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn the_source_and_excerpt_columns_round_trip() {
+        use crate::schema::{VizierChannelId, VizierSession};
+        let (s, _d) = setup();
+        agent(&s, "a");
+        let session = VizierSession(
+            "a".into(),
+            VizierChannelId::HTTP("ana".into(), "vizier-webui".into()),
+            Some("topic-1".into()),
+        );
+        let mut with = draft("chat:1", "a", Utc::now());
+        with.source_session = Some(session.clone());
+        with.excerpt = Some("The middle plan is underpriced.".into());
+        let mut task = draft("task:1", "a", Utc::now());
+        task.source_title = Some("Weekly brief".into());
+        let plain = draft("plain:1", "a", Utc::now());
+        let inserted = s.insert_notifications(&[with, task, plain]).await.unwrap();
+        assert_eq!(inserted.len(), 3);
+        assert_eq!(inserted[0].item.source_session.as_ref(), Some(&session));
+
+        let items = s
+            .list_notifications("u", &["a".into()], NotificationFilter::All, None, 10)
+            .await
+            .unwrap();
+        let by = |text: &str| items.iter().find(|i| i.text.contains(text)).unwrap();
+        let chat = by("chat:1");
+        assert_eq!(chat.source_session.as_ref(), Some(&session));
+        assert_eq!(
+            chat.excerpt.as_deref(),
+            Some("The middle plan is underpriced.")
+        );
+        assert_eq!(by("task:1").title.as_deref(), Some("Weekly brief"));
+        let plain = by("plain:1");
+        assert!(plain.title.is_none() && plain.excerpt.is_none() && plain.source_session.is_none());
+    }
+
+    #[test]
+    fn the_schema_drops_old_channel_reply_rows_and_their_read_rows() {
+        let conn = Connection::open_in_memory().unwrap();
+        crate::storage::sqlite::init_notification_schema(&conn).unwrap();
+        conn.execute_batch(
+            "INSERT INTO notification (id, event_key, agent_id, category, tone, summary, href, created_at)
+                VALUES (1, 'reply:a:discord__1:9', 'a', 'channel_replies', 'default', 'Replied once.', '/a/chat', 1),
+                       (2, 'task_run:1', 'a', 'task_run', 'default', 'Task answered.', '/a/tasks', 1);
+             INSERT INTO notification_read (user_id, notification_id, read_at) VALUES ('u', 1, 1), ('u', 2, 1);",
+        )
+        .unwrap();
+        // The next start runs the schema again.
+        crate::storage::sqlite::init_notification_schema(&conn).unwrap();
+        let count = |sql: &str| conn.query_row(sql, [], |r| r.get::<_, i64>(0)).unwrap();
+        assert_eq!(count("SELECT COUNT(*) FROM notification"), 1);
+        assert_eq!(count("SELECT COUNT(*) FROM notification WHERE category = 'channel_replies'"), 0);
+    }
+
+    #[tokio::test]
+    async fn the_latest_id_is_the_highest_one_this_person_may_see() {
+        let (s, _d) = setup();
+        agent(&s, "a");
+        agent(&s, "b");
+        assert_eq!(s.latest_notification_id("u", &["a".into()]).await.unwrap(), 0);
+        let mut addressed = draft("chat", "a", Utc::now());
+        addressed.audience_user_id = Some("ana".into());
+        s.insert_notifications(&[draft("1", "a", Utc::now()), draft("2", "b", Utc::now()), addressed])
+            .await
+            .unwrap();
+        assert_eq!(s.latest_notification_id("ana", &["a".into(), "b".into()]).await.unwrap(), 3);
+        assert_eq!(
+            s.latest_notification_id("bob", &["a".into(), "b".into()]).await.unwrap(),
+            2,
+            "another person's row does not move the mark"
+        );
+        assert_eq!(s.latest_notification_id("ana", &["a".into()]).await.unwrap(), 3);
+        assert_eq!(s.latest_notification_id("ana", &[]).await.unwrap(), 0);
+    }
+
+    #[tokio::test]
     async fn a_draft_for_a_missing_agent_is_skipped() {
         let (s, _d) = setup();
         agent(&s, "a");
-        assert_eq!(
+        assert!(
             s.insert_notifications(&[draft("k", "gone", Utc::now())])
                 .await
-                .unwrap(),
-            0
+                .unwrap()
+                .is_empty()
         );
         assert_eq!(
             s.notification_counts("u", &["gone".into()])
@@ -805,47 +934,9 @@ mod tests {
         assert_eq!(s.purge_orphaned_notifications().await.unwrap(), 1);
     }
 
-    #[tokio::test]
-    async fn channel_replies_group_per_conversation_hour_and_skip_other_channels() {
-        let (s, _d) = setup();
-        let hour = HOUR_MS;
-        {
-            let conn = s.conn.lock().unwrap();
-            let insert = format!(
-                "INSERT INTO session_history (uid, agent_id, channel, topic, timestamp, content_type, data, seq) \
-                 VALUES (CAST(?1 AS TEXT), 'a', ?2, NULL, ?3, ?4, '{{}}', {})",
-                conn.dialect().next_sequence_value("session_history", "seq")
-            );
-            let mut n = 0;
-            let mut put = |channel: &str, ts: i64, kind: &str| {
-                n += 1;
-                conn.execute(&insert, params![n, channel, ts, kind])
-                    .unwrap();
-            };
-            put("discord__1", 10 * hour + 5, "Response");
-            put("discord__1", 10 * hour + 9, "Response");
-            put("discord__1", 11 * hour + 1, "Response");
-            put("discord__1", 10 * hour + 7, "Request");
-            put("http__ana__x", 10 * hour + 7, "Response");
-            put("telegram__5", 10 * hour + 2, "Response");
-        }
-        let batches = s.channel_reply_batches(10, 11).await.unwrap();
-        let summary: Vec<(String, i64, u64)> = batches
-            .into_iter()
-            .map(|b| (b.channel, b.hour, b.replies))
-            .collect();
-        assert_eq!(
-            summary,
-            vec![
-                ("discord__1".into(), 10, 2),
-                ("telegram__5".into(), 10, 1),
-                ("discord__1".into(), 11, 1)
-            ]
-        );
-        assert!(s.channel_reply_batches(12, 11).await.unwrap().is_empty());
-    }
-
     crate::postgres_tests!(
+        the_latest_id_is_the_highest_one_this_person_may_see,
+        the_source_and_excerpt_columns_round_trip,
         a_duplicate_event_key_inserts_once_and_never_updates,
         a_draft_for_a_missing_agent_is_skipped,
         list_and_counts_honour_visibility_filter_and_ties,
@@ -856,6 +947,5 @@ mod tests {
         deleting_an_agent_removes_its_notifications_and_read_rows_only,
         an_addressed_row_is_listed_counted_and_read_only_by_its_person,
         orphan_cleanup_drops_rows_for_agents_that_no_longer_exist,
-        channel_replies_group_per_conversation_hour_and_skip_other_channels,
     );
 }

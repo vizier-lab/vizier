@@ -216,3 +216,59 @@ impl Topics {
         self.len() == 0
     }
 }
+
+/// The inbox streams a window has open, by id (`specs/051-realtime-notifications`). The same
+/// frames as `GET /api/v1/inbox/stream`, without a socket: the app opens no port.
+#[derive(Default)]
+pub struct Inboxes {
+    next: AtomicU64,
+    open: Mutex<HashMap<u64, Vec<JoinHandle<()>>>>,
+}
+
+impl Inboxes {
+    /// Opens the stream; the `hello` and then every frame go to `sink`, in order. Refused with
+    /// `503` while the engine is starting, like a topic.
+    pub async fn open(
+        &self,
+        engine: &Engine,
+        sink: impl Fn(Value) + Send + 'static,
+    ) -> Result<u64, TopicRefused> {
+        let dispatcher = engine.dispatcher().await.ok_or(TopicRefused { status: 503 })?;
+        let (out_tx, out_rx) = flume::unbounded::<Value>();
+        let connection = dispatcher
+            .open_inbox(out_tx)
+            .await
+            .map_err(|e: ServiceError| TopicRefused { status: e.status() })?;
+        let tasks = vec![
+            tokio::spawn(connection.run()),
+            tokio::spawn(async move {
+                while let Ok(frame) = out_rx.recv_async().await {
+                    sink(frame);
+                }
+            }),
+        ];
+        let id = self.next.fetch_add(1, Ordering::Relaxed) + 1;
+        self.open.lock().unwrap().insert(id, tasks);
+        Ok(id)
+    }
+
+    pub fn close(&self, id: u64) {
+        if let Some(tasks) = self.open.lock().unwrap().remove(&id) {
+            tasks.iter().for_each(|t| t.abort());
+        }
+    }
+
+    /// Every stream, e.g. when the window is destroyed or the engine restarts.
+    pub fn close_all(&self) {
+        let ids: Vec<u64> = self.open.lock().unwrap().keys().copied().collect();
+        ids.into_iter().for_each(|id| self.close(id));
+    }
+
+    pub fn len(&self) -> usize {
+        self.open.lock().unwrap().len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+}

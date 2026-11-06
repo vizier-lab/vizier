@@ -46,6 +46,8 @@ Closing the window hides it and keeps your agents running; a tray icon brings it
 
 ## Notifications and links
 
+Notifications and setup progress arrive live over one in-process stream: nothing is polled, and no port is opened. Discord and Telegram activity does not create notifications.
+
 When the window is hidden or unfocused, notifications arrive as operating system notifications; selecting one opens the related screen. `vizier://` links open the app at that screen. Links to other websites open in your browser.
 
 ## Updates

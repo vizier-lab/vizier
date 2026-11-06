@@ -578,6 +578,14 @@ pub fn init_notification_schema(conn: &Connection) -> Result<()> {
     // Spec 029 grew a per-person audience after the table first shipped on a dev branch:
     // a WebUI chat reply belongs to one person. Everyone else keeps the default (NULL).
     add_column_if_missing(conn, "notification", "audience_user_id", "TEXT")?;
+    // Spec 051: where a row came from (the session as JSON, or a stored title for a source with
+    // no session) and a short plain-text excerpt. Old rows keep NULL and read as their summary.
+    add_column_if_missing(conn, "notification", "source_session", "TEXT")?;
+    add_column_if_missing(conn, "notification", "source_title", "TEXT")?;
+    add_column_if_missing(conn, "notification", "excerpt", "TEXT")?;
+    // Discord and Telegram no longer notify; the hourly aggregate rows an older build wrote are
+    // dropped (their read rows cascade). Tracked for removal on #82.
+    conn.execute("DELETE FROM notification WHERE category = 'channel_replies'", [])?;
     Ok(())
 }
 

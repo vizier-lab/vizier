@@ -434,7 +434,7 @@ impl BackgroundJobs {
                     self.notifications
                         .job_ended(
                             &job.id,
-                            &job.origin.0,
+                            &job.origin,
                             job.kind,
                             JobState::Reported,
                             None,
@@ -645,7 +645,7 @@ impl BackgroundJobs {
                     self.notifications
                         .job_ended(
                             &job.id,
-                            &job.origin.0,
+                            &job.origin,
                             job.kind,
                             JobState::Reported,
                             None,
@@ -685,7 +685,7 @@ impl BackgroundJobs {
         self.notifications
             .job_ended(
                 &job.id,
-                &job.origin.0,
+                &job.origin,
                 job.kind,
                 JobState::Undelivered,
                 Some(&reason),
@@ -822,7 +822,7 @@ impl BackgroundJobs {
             self.notifications
                 .job_ended(
                     &job.id,
-                    &job.origin.0,
+                    &job.origin,
                     job.kind,
                     JobState::Cancelled,
                     job.reason.as_deref(),

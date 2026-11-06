@@ -25,6 +25,16 @@ pub trait HistoryStorage {
         Ok(Default::default())
     }
 
+    /// One saved entry of a session by its uid, or `None` when it is gone or this backend cannot
+    /// look one up (the filesystem backend only exists to be migrated away from).
+    async fn get_session_history_entry(
+        &self,
+        _session: &VizierSession,
+        _uid: &str,
+    ) -> Result<Option<SessionHistory>> {
+        Ok(None)
+    }
+
     async fn save_session_history(
         &self,
         session: VizierSession,
@@ -112,6 +122,14 @@ pub async fn save_with_busy_retry(
 
 #[async_trait::async_trait]
 impl HistoryStorage for VizierStorage {
+    async fn get_session_history_entry(
+        &self,
+        session: &VizierSession,
+        uid: &str,
+    ) -> Result<Option<SessionHistory>> {
+        self.0.get_session_history_entry(session, uid).await
+    }
+
     async fn last_activity_by_agent(
         &self,
     ) -> Result<std::collections::HashMap<String, chrono::DateTime<chrono::Utc>>> {

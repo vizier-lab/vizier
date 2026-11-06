@@ -8,6 +8,24 @@ use axum::{
 use crate::{auth::{AuthMethod, AuthService, Principal}, state::{AuthMode, HTTPState}};
 use vizier_core::storage::user::{Role, UserStorage};
 
+/// When the bearer token that authenticated a request expires, as Unix seconds. Present only
+/// for a token (an API key or the desktop principal does not expire this way). A handler that
+/// keeps a connection open ends it at this moment, so a signed-out session cannot keep
+/// receiving.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TokenExpiry(pub u64);
+
+impl TokenExpiry {
+    /// A credential that does not expire this way (an API key, the desktop principal).
+    pub const NEVER: Self = Self(u64::MAX);
+
+    /// How long from `now_secs` until it expires; `None` when it never does.
+    pub fn remaining(self, now_secs: u64) -> Option<std::time::Duration> {
+        (self != Self::NEVER)
+            .then(|| std::time::Duration::from_secs(self.0.saturating_sub(now_secs)))
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum AuthError {
     MissingCredentials,
@@ -90,6 +108,7 @@ pub async fn require_auth(
             permissions,
             method: AuthMethod::Desktop,
         });
+        request.extensions_mut().insert(TokenExpiry::NEVER);
         return Ok(next.run(request).await);
     }
     if request
@@ -132,13 +151,17 @@ pub async fn require_auth(
     
     let auth_service = AuthService::new(http_config);
 
+    // When the credential expires, for a long-lived connection that must end with it.
+    let mut token_expiry = TokenExpiry::NEVER;
+
     let user = match auth_type.to_lowercase().as_str() {
         "bearer" => {
             // JWT token authentication
             let claims = auth_service
                 .validate_token(&credentials)
                 .map_err(|_| AuthError::InvalidToken)?;
-            
+            token_expiry = TokenExpiry(claims.exp as u64);
+
             let (role, permissions) = resolve_user_role(&state, &claims.sub).await?;
 
             // A person using the WebUI is "here"; a script with an API key is not. A failed write
@@ -189,6 +212,7 @@ pub async fn require_auth(
 
     // Add the authenticated user to request extensions
     request.extensions_mut().insert(user);
+    request.extensions_mut().insert(token_expiry);
 
     Ok(next.run(request).await)
 }

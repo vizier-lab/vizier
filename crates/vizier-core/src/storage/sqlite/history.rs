@@ -359,6 +359,25 @@ impl HistoryStorage for SqlStorage {
         Ok(uid)
     }
 
+    async fn get_session_history_entry(
+        &self,
+        session: &VizierSession,
+        uid: &str,
+    ) -> Result<Option<SessionHistory>> {
+        let conn = self.conn.lock()?;
+        let mut stmt = conn.prepare(
+            "SELECT data, seq FROM session_history WHERE agent_id = ?1 AND channel = ?2 AND uid = ?3",
+        )?;
+        let row = stmt
+            .query_map(
+                params![session.0.as_str(), session.1.to_slug(), uid],
+                history_row,
+            )?
+            .filter_map(|r| r.ok())
+            .find_map(parse_history_row);
+        Ok(row)
+    }
+
     async fn list_session_history(
         &self,
         session: VizierSession,

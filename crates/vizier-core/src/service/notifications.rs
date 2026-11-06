@@ -3,14 +3,17 @@
 //! first, so a revoked agent's rows disappear on the next read and another agent's row is
 //! never returned.
 
+use std::collections::HashMap;
+
 use chrono::Utc;
 
 use crate::{
     auth::Principal,
     notifications::cursor,
-    schema::{NotificationCounts, NotificationFilter, NotificationPage},
+    schema::{NotificationCounts, NotificationFilter, NotificationItem, NotificationPage, VizierSession},
     service::{ServiceError, Services, overview::visible_agents},
-    storage::notification::NotificationStorage,
+    storage::{notification::NotificationStorage, session::SessionStorage},
+    transport::InboxEvent,
 };
 
 const DEFAULT_LIMIT: usize = 20;
@@ -24,11 +27,44 @@ async fn visible(services: &Services, user: &Principal) -> Vec<String> {
         .unwrap_or_default()
 }
 
-/// Bring the channel-reply projection up to date before a read; a failure is logged and the
-/// inbox still answers with what it already has.
-async fn project(services: &Services) {
-    if let Err(e) = services.deps().notifications.project_replies(Utc::now()).await {
-        tracing::warn!("failed to project channel replies into notifications: {e}");
+/// The title a row shows, once per distinct conversation on the page: the conversation's
+/// current title (so a rename shows at once), "New conversation" before one is made, or the
+/// task's own title already on the row. A conversation that belongs to another person yields
+/// neither title nor excerpt, even to someone who can view the agent
+/// (`specs/051-realtime-notifications` FR-023).
+pub(crate) async fn fill_titles(services: &Services, user: &Principal, items: &mut [NotificationItem]) {
+    let mut seen: HashMap<VizierSession, Option<String>> = HashMap::new();
+    for item in items.iter_mut() {
+        let Some(session) = item.source_session.clone() else {
+            continue;
+        };
+        let owner = session.1.web_user().map(str::to_string);
+        if owner.as_deref().is_some_and(|name| name != user.username) {
+            item.title = None;
+            item.excerpt = None;
+            continue;
+        }
+        let found = match seen.get(&session) {
+            Some(found) => found.clone(),
+            None => {
+                let found = services
+                    .deps()
+                    .storage
+                    .get_session_detail_by_topic(session.0.clone(), session.1.clone(), session.2.clone())
+                    .await
+                    .ok()
+                    .flatten()
+                    .map(|detail| detail.title)
+                    .filter(|title| !title.trim().is_empty());
+                seen.insert(session, found.clone());
+                found
+            }
+        };
+        match (found, owner) {
+            (Some(title), _) => item.title = Some(title),
+            (None, Some(_)) => item.title = Some("New conversation".to_string()),
+            (None, None) => {}
+        }
     }
 }
 
@@ -57,7 +93,6 @@ pub async fn list(
     };
     let limit = limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT);
 
-    project(services).await;
     let agents = visible(services, user).await;
     let storage = &services.deps().storage;
     // One more than a page, to know whether there is another.
@@ -65,6 +100,7 @@ pub async fn list(
         .list_notifications(&user.user_id, &agents, filter, before, limit + 1)
         .await
         .map_err(internal)?;
+    fill_titles(services, user, &mut items).await;
     let next = (items.len() > limit).then(|| {
         items.truncate(limit);
         cursor::encode(items[limit - 1].at, items[limit - 1].id)
@@ -77,7 +113,6 @@ pub async fn list(
 }
 
 pub async fn count(services: &Services, user: &Principal) -> Result<NotificationCounts, ServiceError> {
-    project(services).await;
     let agents = visible(services, user).await;
     services
         .deps()
@@ -104,6 +139,12 @@ pub async fn set_read(
         Ok(false) => return Err(ServiceError::NotFound("notification not found".into())),
         Err(e) => return Err(internal(e)),
     }
+    // This person's other clients learn of it at once; nobody else is told.
+    services.deps().transport.publish_inbox_event(InboxEvent::Read {
+        user_id: user.user_id.clone(),
+        id: Some(id),
+        read,
+    });
     storage
         .notification_counts(&user.user_id, &agents)
         .await
@@ -111,13 +152,17 @@ pub async fn set_read(
 }
 
 pub async fn read_all(services: &Services, user: &Principal) -> Result<NotificationCounts, ServiceError> {
-    project(services).await;
     let agents = visible(services, user).await;
     let storage = &services.deps().storage;
     storage
         .mark_all_notifications_read(&user.user_id, Utc::now(), &agents)
         .await
         .map_err(internal)?;
+    services.deps().transport.publish_inbox_event(InboxEvent::Read {
+        user_id: user.user_id.clone(),
+        id: None,
+        read: true,
+    });
     storage
         .notification_counts(&user.user_id, &agents)
         .await

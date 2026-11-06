@@ -351,6 +351,7 @@ pub mod vizier_core::config::provider
 pub struct vizier_core::config::provider::ProviderId(_)
 impl vizier_core::config::provider::ProviderId
 pub const vizier_core::config::provider::ProviderId::AMAZON_BEDROCK: vizier_core::config::provider::ProviderId
+pub const vizier_core::config::provider::ProviderId::AMAZON_BEDROCK_SSO: vizier_core::config::provider::ProviderId
 pub const vizier_core::config::provider::ProviderId::ANTHROPIC: vizier_core::config::provider::ProviderId
 pub const vizier_core::config::provider::ProviderId::AZURE: vizier_core::config::provider::ProviderId
 pub const vizier_core::config::provider::ProviderId::CHATGPT: vizier_core::config::provider::ProviderId
@@ -415,6 +416,7 @@ impl core::marker::Unpin for vizier_core::config::provider::ProviderId
 impl core::marker::UnsafeUnpin for vizier_core::config::provider::ProviderId
 impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::config::provider::ProviderId
 impl core::panic::unwind_safe::UnwindSafe for vizier_core::config::provider::ProviderId
+pub const vizier_core::config::provider::AMAZON_BEDROCK_SSO_NAME: &str
 pub mod vizier_core::config::shell
 pub enum vizier_core::config::shell::DockerSourceConfig
 pub vizier_core::config::shell::DockerSourceConfig::Dockerfile
@@ -1460,6 +1462,7 @@ pub vizier_core::prelude::VizierRequest::content: vizier_core::prelude::VizierRe
 pub vizier_core::prelude::VizierRequest::expect_audio_reply: core::option::Option<bool>
 pub vizier_core::prelude::VizierRequest::mentions: alloc::vec::Vec<alloc::string::String>
 pub vizier_core::prelude::VizierRequest::metadata: serde_json::value::Value
+pub vizier_core::prelude::VizierRequest::model_override: core::option::Option<vizier_core::schema::ModelOverride>
 pub vizier_core::prelude::VizierRequest::platform_message_id: core::option::Option<vizier_core::schema::PlatformMessageId>
 pub vizier_core::prelude::VizierRequest::project_scope: core::option::Option<vizier_core::schema::project::ProjectScope>
 pub vizier_core::prelude::VizierRequest::scheduled_task: core::option::Option<alloc::string::String>
@@ -1501,6 +1504,7 @@ pub vizier_core::prelude::VizierResponse::history_uid: core::option::Option<allo
 pub vizier_core::prelude::VizierResponse::resumed: bool
 pub vizier_core::prelude::VizierResponse::timestamp: chrono::datetime::DateTime<chrono::offset::utc::Utc>
 impl vizier_core::prelude::VizierResponse
+pub fn vizier_core::prelude::VizierResponse::ends_turn(&self) -> bool
 pub async fn vizier_core::prelude::VizierResponse::to_tool_result(&self, alloc::string::String, &dyn vizier_core::schema::AttachmentResolver) -> anyhow::Result<Message>
 impl core::clone::Clone for vizier_core::prelude::VizierResponse
 pub fn vizier_core::prelude::VizierResponse::clone(&self) -> Self
@@ -1582,6 +1586,7 @@ pub async fn vizier_core::transport::VizierTransport::reply_channel(&self) -> an
 pub async fn vizier_core::transport::VizierTransport::send_agent_command(&self, vizier_core::prelude::AgentCommand) -> anyhow::Result<()>
 pub async fn vizier_core::transport::VizierTransport::send_agent_command_to(&self, &str, vizier_core::prelude::AgentCommand, core::time::Duration) -> anyhow::Result<()>
 pub async fn vizier_core::transport::VizierTransport::send_request(&self, vizier_core::prelude::VizierSession, vizier_core::prelude::VizierRequest, core::option::Option<vizier_core::transport::ResponseSender>) -> anyhow::Result<()>
+pub fn vizier_core::transport::VizierTransport::subscribe_inbox_events(&self) -> tokio::sync::broadcast::Receiver<vizier_core::transport::InboxEvent>
 pub fn vizier_core::transport::VizierTransport::subscribe_session_events(&self) -> tokio::sync::broadcast::Receiver<vizier_core::transport::SessionEvent>
 impl core::clone::Clone for vizier_core::transport::VizierTransport
 pub fn vizier_core::transport::VizierTransport::clone(&self) -> Self
@@ -3398,7 +3403,6 @@ pub enum vizier_core::schema::notification::NotificationCategory
 pub vizier_core::schema::notification::NotificationCategory::AgentSetupReady
 pub vizier_core::schema::notification::NotificationCategory::AgentStartFailure
 pub vizier_core::schema::notification::NotificationCategory::BackgroundJob
-pub vizier_core::schema::notification::NotificationCategory::ChannelReplies
 pub vizier_core::schema::notification::NotificationCategory::ChatReply
 pub vizier_core::schema::notification::NotificationCategory::DreamCycle
 pub vizier_core::schema::notification::NotificationCategory::Integration
@@ -3501,6 +3505,24 @@ impl core::marker::Unpin for vizier_core::schema::notification::NotificationTone
 impl core::marker::UnsafeUnpin for vizier_core::schema::notification::NotificationTone
 impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::schema::notification::NotificationTone
 impl core::panic::unwind_safe::UnwindSafe for vizier_core::schema::notification::NotificationTone
+pub struct vizier_core::schema::notification::InsertedNotification
+pub vizier_core::schema::notification::InsertedNotification::audience: core::option::Option<alloc::string::String>
+pub vizier_core::schema::notification::InsertedNotification::item: vizier_core::schema::notification::NotificationItem
+impl core::clone::Clone for vizier_core::schema::notification::InsertedNotification
+pub fn vizier_core::schema::notification::InsertedNotification::clone(&self) -> Self
+impl core::cmp::Eq for vizier_core::schema::notification::InsertedNotification
+impl core::cmp::PartialEq for vizier_core::schema::notification::InsertedNotification
+pub fn vizier_core::schema::notification::InsertedNotification::eq(&self, &Self) -> bool
+impl core::fmt::Debug for vizier_core::schema::notification::InsertedNotification
+pub fn vizier_core::schema::notification::InsertedNotification::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for vizier_core::schema::notification::InsertedNotification
+impl core::marker::Freeze for vizier_core::schema::notification::InsertedNotification
+impl core::marker::Send for vizier_core::schema::notification::InsertedNotification
+impl core::marker::Sync for vizier_core::schema::notification::InsertedNotification
+impl core::marker::Unpin for vizier_core::schema::notification::InsertedNotification
+impl core::marker::UnsafeUnpin for vizier_core::schema::notification::InsertedNotification
+impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::schema::notification::InsertedNotification
+impl core::panic::unwind_safe::UnwindSafe for vizier_core::schema::notification::InsertedNotification
 pub struct vizier_core::schema::notification::NotificationCounts
 pub vizier_core::schema::notification::NotificationCounts::all: u64
 pub vizier_core::schema::notification::NotificationCounts::read: u64
@@ -3533,7 +3555,10 @@ pub vizier_core::schema::notification::NotificationDraft::audience_user_id: core
 pub vizier_core::schema::notification::NotificationDraft::category: vizier_core::schema::notification::NotificationCategory
 pub vizier_core::schema::notification::NotificationDraft::created_at: chrono::datetime::DateTime<chrono::offset::utc::Utc>
 pub vizier_core::schema::notification::NotificationDraft::event_key: alloc::string::String
+pub vizier_core::schema::notification::NotificationDraft::excerpt: core::option::Option<alloc::string::String>
 pub vizier_core::schema::notification::NotificationDraft::href: alloc::string::String
+pub vizier_core::schema::notification::NotificationDraft::source_session: core::option::Option<vizier_core::prelude::VizierSession>
+pub vizier_core::schema::notification::NotificationDraft::source_title: core::option::Option<alloc::string::String>
 pub vizier_core::schema::notification::NotificationDraft::summary: alloc::string::String
 pub vizier_core::schema::notification::NotificationDraft::tone: vizier_core::schema::notification::NotificationTone
 impl core::clone::Clone for vizier_core::schema::notification::NotificationDraft
@@ -3555,10 +3580,13 @@ pub struct vizier_core::schema::notification::NotificationItem
 pub vizier_core::schema::notification::NotificationItem::agent_id: alloc::string::String
 pub vizier_core::schema::notification::NotificationItem::at: chrono::datetime::DateTime<chrono::offset::utc::Utc>
 pub vizier_core::schema::notification::NotificationItem::category: vizier_core::schema::notification::NotificationCategory
+pub vizier_core::schema::notification::NotificationItem::excerpt: core::option::Option<alloc::string::String>
 pub vizier_core::schema::notification::NotificationItem::href: alloc::string::String
 pub vizier_core::schema::notification::NotificationItem::id: i64
 pub vizier_core::schema::notification::NotificationItem::read: bool
+pub vizier_core::schema::notification::NotificationItem::source_session: core::option::Option<vizier_core::prelude::VizierSession>
 pub vizier_core::schema::notification::NotificationItem::text: alloc::string::String
+pub vizier_core::schema::notification::NotificationItem::title: core::option::Option<alloc::string::String>
 pub vizier_core::schema::notification::NotificationItem::tone: vizier_core::schema::notification::NotificationTone
 impl core::clone::Clone for vizier_core::schema::notification::NotificationItem
 pub fn vizier_core::schema::notification::NotificationItem::clone(&self) -> Self
@@ -3598,27 +3626,6 @@ impl core::marker::Unpin for vizier_core::schema::notification::NotificationPage
 impl core::marker::UnsafeUnpin for vizier_core::schema::notification::NotificationPage
 impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::schema::notification::NotificationPage
 impl core::panic::unwind_safe::UnwindSafe for vizier_core::schema::notification::NotificationPage
-pub struct vizier_core::schema::notification::ReplyBatch
-pub vizier_core::schema::notification::ReplyBatch::agent_id: alloc::string::String
-pub vizier_core::schema::notification::ReplyBatch::at: chrono::datetime::DateTime<chrono::offset::utc::Utc>
-pub vizier_core::schema::notification::ReplyBatch::channel: alloc::string::String
-pub vizier_core::schema::notification::ReplyBatch::hour: i64
-pub vizier_core::schema::notification::ReplyBatch::replies: u64
-impl core::clone::Clone for vizier_core::schema::notification::ReplyBatch
-pub fn vizier_core::schema::notification::ReplyBatch::clone(&self) -> Self
-impl core::cmp::Eq for vizier_core::schema::notification::ReplyBatch
-impl core::cmp::PartialEq for vizier_core::schema::notification::ReplyBatch
-pub fn vizier_core::schema::notification::ReplyBatch::eq(&self, &Self) -> bool
-impl core::fmt::Debug for vizier_core::schema::notification::ReplyBatch
-pub fn vizier_core::schema::notification::ReplyBatch::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::marker::StructuralPartialEq for vizier_core::schema::notification::ReplyBatch
-impl core::marker::Freeze for vizier_core::schema::notification::ReplyBatch
-impl core::marker::Send for vizier_core::schema::notification::ReplyBatch
-impl core::marker::Sync for vizier_core::schema::notification::ReplyBatch
-impl core::marker::Unpin for vizier_core::schema::notification::ReplyBatch
-impl core::marker::UnsafeUnpin for vizier_core::schema::notification::ReplyBatch
-impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::schema::notification::ReplyBatch
-impl core::panic::unwind_safe::UnwindSafe for vizier_core::schema::notification::ReplyBatch
 pub mod vizier_core::schema::project
 pub enum vizier_core::schema::project::ProjectMode
 pub vizier_core::schema::project::ProjectMode::Build
@@ -3987,6 +3994,62 @@ impl core::marker::Unpin for vizier_core::schema::provider::LegacyProviderEntry
 impl core::marker::UnsafeUnpin for vizier_core::schema::provider::LegacyProviderEntry
 impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::schema::provider::LegacyProviderEntry
 impl core::panic::unwind_safe::UnwindSafe for vizier_core::schema::provider::LegacyProviderEntry
+pub struct vizier_core::schema::provider::LimitsEdited
+pub vizier_core::schema::provider::LimitsEdited::context: bool
+pub vizier_core::schema::provider::LimitsEdited::output: bool
+impl core::clone::Clone for vizier_core::schema::provider::LimitsEdited
+pub fn vizier_core::schema::provider::LimitsEdited::clone(&self) -> Self
+impl core::cmp::Eq for vizier_core::schema::provider::LimitsEdited
+impl core::cmp::PartialEq for vizier_core::schema::provider::LimitsEdited
+pub fn vizier_core::schema::provider::LimitsEdited::eq(&self, &Self) -> bool
+impl core::default::Default for vizier_core::schema::provider::LimitsEdited
+pub fn vizier_core::schema::provider::LimitsEdited::default() -> Self
+impl core::fmt::Debug for vizier_core::schema::provider::LimitsEdited
+pub fn vizier_core::schema::provider::LimitsEdited::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for vizier_core::schema::provider::LimitsEdited
+impl core::marker::StructuralPartialEq for vizier_core::schema::provider::LimitsEdited
+impl serde_core::ser::Serialize for vizier_core::schema::provider::LimitsEdited
+pub fn vizier_core::schema::provider::LimitsEdited::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for vizier_core::schema::provider::LimitsEdited
+pub fn vizier_core::schema::provider::LimitsEdited::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+impl core::marker::Freeze for vizier_core::schema::provider::LimitsEdited
+impl core::marker::Send for vizier_core::schema::provider::LimitsEdited
+impl core::marker::Sync for vizier_core::schema::provider::LimitsEdited
+impl core::marker::Unpin for vizier_core::schema::provider::LimitsEdited
+impl core::marker::UnsafeUnpin for vizier_core::schema::provider::LimitsEdited
+impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::schema::provider::LimitsEdited
+impl core::panic::unwind_safe::UnwindSafe for vizier_core::schema::provider::LimitsEdited
+pub struct vizier_core::schema::provider::ProfileEntry
+pub vizier_core::schema::provider::ProfileEntry::arn: alloc::string::String
+pub vizier_core::schema::provider::ProfileEntry::context: core::option::Option<u64>
+pub vizier_core::schema::provider::ProfileEntry::edited: bool
+pub vizier_core::schema::provider::ProfileEntry::image_input: core::option::Option<bool>
+pub vizier_core::schema::provider::ProfileEntry::limits_edited: core::option::Option<vizier_core::schema::provider::LimitsEdited>
+pub vizier_core::schema::provider::ProfileEntry::model: core::option::Option<alloc::string::String>
+pub vizier_core::schema::provider::ProfileEntry::name: core::option::Option<alloc::string::String>
+pub vizier_core::schema::provider::ProfileEntry::output: core::option::Option<u64>
+pub vizier_core::schema::provider::ProfileEntry::price: core::option::Option<crate::catalogue::data::Cost>
+pub vizier_core::schema::provider::ProfileEntry::tool_call: core::option::Option<bool>
+impl core::clone::Clone for vizier_core::schema::provider::ProfileEntry
+pub fn vizier_core::schema::provider::ProfileEntry::clone(&self) -> Self
+impl core::cmp::PartialEq for vizier_core::schema::provider::ProfileEntry
+pub fn vizier_core::schema::provider::ProfileEntry::eq(&self, &Self) -> bool
+impl core::default::Default for vizier_core::schema::provider::ProfileEntry
+pub fn vizier_core::schema::provider::ProfileEntry::default() -> Self
+impl core::fmt::Debug for vizier_core::schema::provider::ProfileEntry
+pub fn vizier_core::schema::provider::ProfileEntry::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for vizier_core::schema::provider::ProfileEntry
+impl serde_core::ser::Serialize for vizier_core::schema::provider::ProfileEntry
+pub fn vizier_core::schema::provider::ProfileEntry::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for vizier_core::schema::provider::ProfileEntry
+pub fn vizier_core::schema::provider::ProfileEntry::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+impl core::marker::Freeze for vizier_core::schema::provider::ProfileEntry
+impl core::marker::Send for vizier_core::schema::provider::ProfileEntry
+impl core::marker::Sync for vizier_core::schema::provider::ProfileEntry
+impl core::marker::Unpin for vizier_core::schema::provider::ProfileEntry
+impl core::marker::UnsafeUnpin for vizier_core::schema::provider::ProfileEntry
+impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::schema::provider::ProfileEntry
+impl core::panic::unwind_safe::UnwindSafe for vizier_core::schema::provider::ProfileEntry
 pub struct vizier_core::schema::provider::ProviderCredentials
 pub vizier_core::schema::provider::ProviderCredentials::access_key_id: core::option::Option<alloc::string::String>
 pub vizier_core::schema::provider::ProviderCredentials::access_token: core::option::Option<alloc::string::String>
@@ -3994,15 +4057,20 @@ pub vizier_core::schema::provider::ProviderCredentials::account_id: core::option
 pub vizier_core::schema::provider::ProviderCredentials::api_key: core::option::Option<alloc::string::String>
 pub vizier_core::schema::provider::ProviderCredentials::base_url: core::option::Option<alloc::string::String>
 pub vizier_core::schema::provider::ProviderCredentials::endpoint: core::option::Option<alloc::string::String>
+pub vizier_core::schema::provider::ProviderCredentials::profiles: alloc::vec::Vec<vizier_core::schema::provider::ProfileEntry>
 pub vizier_core::schema::provider::ProviderCredentials::region: core::option::Option<alloc::string::String>
+pub vizier_core::schema::provider::ProviderCredentials::role_name: core::option::Option<alloc::string::String>
 pub vizier_core::schema::provider::ProviderCredentials::secret_access_key: core::option::Option<alloc::string::String>
 pub vizier_core::schema::provider::ProviderCredentials::session_token: core::option::Option<alloc::string::String>
+pub vizier_core::schema::provider::ProviderCredentials::sso_profile: core::option::Option<alloc::string::String>
+pub vizier_core::schema::provider::ProviderCredentials::sso_region: core::option::Option<alloc::string::String>
+pub vizier_core::schema::provider::ProviderCredentials::start_url: core::option::Option<alloc::string::String>
 impl vizier_core::schema::provider::ProviderCredentials
 pub fn vizier_core::schema::provider::ProviderCredentials::is_empty(&self) -> bool
 pub fn vizier_core::schema::provider::ProviderCredentials::merged_with(&self, &vizier_core::schema::provider::ProviderCredentials) -> vizier_core::schema::provider::ProviderCredentials
+pub fn vizier_core::schema::provider::ProviderCredentials::merged_with_profiles(&self, &vizier_core::schema::provider::ProviderCredentials, core::option::Option<alloc::vec::Vec<vizier_core::schema::provider::ProfileEntry>>) -> vizier_core::schema::provider::ProviderCredentials
 impl core::clone::Clone for vizier_core::schema::provider::ProviderCredentials
 pub fn vizier_core::schema::provider::ProviderCredentials::clone(&self) -> Self
-impl core::cmp::Eq for vizier_core::schema::provider::ProviderCredentials
 impl core::cmp::PartialEq for vizier_core::schema::provider::ProviderCredentials
 pub fn vizier_core::schema::provider::ProviderCredentials::eq(&self, &Self) -> bool
 impl core::default::Default for vizier_core::schema::provider::ProviderCredentials
@@ -4026,7 +4094,6 @@ pub vizier_core::schema::provider::ProviderEntry::credentials: vizier_core::sche
 pub vizier_core::schema::provider::ProviderEntry::id: vizier_core::config::provider::ProviderId
 impl core::clone::Clone for vizier_core::schema::provider::ProviderEntry
 pub fn vizier_core::schema::provider::ProviderEntry::clone(&self) -> Self
-impl core::cmp::Eq for vizier_core::schema::provider::ProviderEntry
 impl core::cmp::PartialEq for vizier_core::schema::provider::ProviderEntry
 pub fn vizier_core::schema::provider::ProviderEntry::eq(&self, &Self) -> bool
 impl core::fmt::Debug for vizier_core::schema::provider::ProviderEntry
@@ -4455,6 +4522,89 @@ impl core::marker::Unpin for vizier_core::schema::session_file::SessionFileRecor
 impl core::marker::UnsafeUnpin for vizier_core::schema::session_file::SessionFileRecord
 impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::schema::session_file::SessionFileRecord
 impl core::panic::unwind_safe::UnwindSafe for vizier_core::schema::session_file::SessionFileRecord
+pub mod vizier_core::schema::sso
+pub enum vizier_core::schema::sso::SsoSessionState
+pub vizier_core::schema::sso::SsoSessionState::Configured
+pub vizier_core::schema::sso::SsoSessionState::Expired
+pub vizier_core::schema::sso::SsoSessionState::SignedIn
+pub vizier_core::schema::sso::SsoSessionState::Unreadable
+impl core::clone::Clone for vizier_core::schema::sso::SsoSessionState
+pub fn vizier_core::schema::sso::SsoSessionState::clone(&self) -> Self
+impl core::cmp::Eq for vizier_core::schema::sso::SsoSessionState
+impl core::cmp::PartialEq for vizier_core::schema::sso::SsoSessionState
+pub fn vizier_core::schema::sso::SsoSessionState::eq(&self, &Self) -> bool
+impl core::fmt::Debug for vizier_core::schema::sso::SsoSessionState
+pub fn vizier_core::schema::sso::SsoSessionState::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for vizier_core::schema::sso::SsoSessionState
+impl core::marker::StructuralPartialEq for vizier_core::schema::sso::SsoSessionState
+impl serde_core::ser::Serialize for vizier_core::schema::sso::SsoSessionState
+pub fn vizier_core::schema::sso::SsoSessionState::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for vizier_core::schema::sso::SsoSessionState
+pub fn vizier_core::schema::sso::SsoSessionState::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+impl core::marker::Freeze for vizier_core::schema::sso::SsoSessionState
+impl core::marker::Send for vizier_core::schema::sso::SsoSessionState
+impl core::marker::Sync for vizier_core::schema::sso::SsoSessionState
+impl core::marker::Unpin for vizier_core::schema::sso::SsoSessionState
+impl core::marker::UnsafeUnpin for vizier_core::schema::sso::SsoSessionState
+impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::schema::sso::SsoSessionState
+impl core::panic::unwind_safe::UnwindSafe for vizier_core::schema::sso::SsoSessionState
+pub struct vizier_core::schema::sso::SsoSession
+pub vizier_core::schema::sso::SsoSession::account_id: alloc::string::String
+pub vizier_core::schema::sso::SsoSession::bedrock_region: alloc::string::String
+pub vizier_core::schema::sso::SsoSession::expires_at: core::option::Option<chrono::datetime::DateTime<chrono::offset::utc::Utc>>
+pub vizier_core::schema::sso::SsoSession::profile: alloc::string::String
+pub vizier_core::schema::sso::SsoSession::role_name: alloc::string::String
+pub vizier_core::schema::sso::SsoSession::sso_region: alloc::string::String
+pub vizier_core::schema::sso::SsoSession::start_url: alloc::string::String
+pub vizier_core::schema::sso::SsoSession::state: vizier_core::schema::sso::SsoSessionState
+impl core::clone::Clone for vizier_core::schema::sso::SsoSession
+pub fn vizier_core::schema::sso::SsoSession::clone(&self) -> Self
+impl core::cmp::Eq for vizier_core::schema::sso::SsoSession
+impl core::cmp::PartialEq for vizier_core::schema::sso::SsoSession
+pub fn vizier_core::schema::sso::SsoSession::eq(&self, &Self) -> bool
+impl core::fmt::Debug for vizier_core::schema::sso::SsoSession
+pub fn vizier_core::schema::sso::SsoSession::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for vizier_core::schema::sso::SsoSession
+impl serde_core::ser::Serialize for vizier_core::schema::sso::SsoSession
+pub fn vizier_core::schema::sso::SsoSession::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for vizier_core::schema::sso::SsoSession
+pub fn vizier_core::schema::sso::SsoSession::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+impl core::marker::Freeze for vizier_core::schema::sso::SsoSession
+impl core::marker::Send for vizier_core::schema::sso::SsoSession
+impl core::marker::Sync for vizier_core::schema::sso::SsoSession
+impl core::marker::Unpin for vizier_core::schema::sso::SsoSession
+impl core::marker::UnsafeUnpin for vizier_core::schema::sso::SsoSession
+impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::schema::sso::SsoSession
+impl core::panic::unwind_safe::UnwindSafe for vizier_core::schema::sso::SsoSession
+pub struct vizier_core::schema::sso::SsoSessionSecret
+pub vizier_core::schema::sso::SsoSessionSecret::access_token: alloc::string::String
+pub vizier_core::schema::sso::SsoSessionSecret::client_id: alloc::string::String
+pub vizier_core::schema::sso::SsoSessionSecret::client_secret: alloc::string::String
+pub vizier_core::schema::sso::SsoSessionSecret::client_secret_expires_at: core::option::Option<chrono::datetime::DateTime<chrono::offset::utc::Utc>>
+pub vizier_core::schema::sso::SsoSessionSecret::issued_at: chrono::datetime::DateTime<chrono::offset::utc::Utc>
+pub vizier_core::schema::sso::SsoSessionSecret::refresh_token: core::option::Option<alloc::string::String>
+pub vizier_core::schema::sso::SsoSessionSecret::revision: u64
+pub vizier_core::schema::sso::SsoSessionSecret::token_expires_at: chrono::datetime::DateTime<chrono::offset::utc::Utc>
+impl vizier_core::schema::sso::SsoSessionSecret
+pub fn vizier_core::schema::sso::SsoSessionSecret::revision(&self) -> u64
+pub fn vizier_core::schema::sso::SsoSessionSecret::to_json(&self) -> alloc::string::String
+impl core::clone::Clone for vizier_core::schema::sso::SsoSessionSecret
+pub fn vizier_core::schema::sso::SsoSessionSecret::clone(&self) -> Self
+impl core::cmp::Eq for vizier_core::schema::sso::SsoSessionSecret
+impl core::cmp::PartialEq for vizier_core::schema::sso::SsoSessionSecret
+pub fn vizier_core::schema::sso::SsoSessionSecret::eq(&self, &Self) -> bool
+impl core::fmt::Debug for vizier_core::schema::sso::SsoSessionSecret
+pub fn vizier_core::schema::sso::SsoSessionSecret::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for vizier_core::schema::sso::SsoSessionSecret
+impl<'de> serde_core::de::Deserialize<'de> for vizier_core::schema::sso::SsoSessionSecret
+pub fn vizier_core::schema::sso::SsoSessionSecret::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+impl core::marker::Freeze for vizier_core::schema::sso::SsoSessionSecret
+impl core::marker::Send for vizier_core::schema::sso::SsoSessionSecret
+impl core::marker::Sync for vizier_core::schema::sso::SsoSessionSecret
+impl core::marker::Unpin for vizier_core::schema::sso::SsoSessionSecret
+impl core::marker::UnsafeUnpin for vizier_core::schema::sso::SsoSessionSecret
+impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::schema::sso::SsoSessionSecret
+impl core::panic::unwind_safe::UnwindSafe for vizier_core::schema::sso::SsoSessionSecret
 pub mod vizier_core::schema::usage
 pub enum vizier_core::schema::usage::NoLinkReason
 pub vizier_core::schema::usage::NoLinkReason::Deleted
@@ -5741,7 +5891,6 @@ pub enum vizier_core::schema::NotificationCategory
 pub vizier_core::schema::NotificationCategory::AgentSetupReady
 pub vizier_core::schema::NotificationCategory::AgentStartFailure
 pub vizier_core::schema::NotificationCategory::BackgroundJob
-pub vizier_core::schema::NotificationCategory::ChannelReplies
 pub vizier_core::schema::NotificationCategory::ChatReply
 pub vizier_core::schema::NotificationCategory::DreamCycle
 pub vizier_core::schema::NotificationCategory::Integration
@@ -6200,6 +6349,31 @@ impl core::marker::Unpin for vizier_core::schema::SkillVersion
 impl core::marker::UnsafeUnpin for vizier_core::schema::SkillVersion
 impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::schema::SkillVersion
 impl core::panic::unwind_safe::UnwindSafe for vizier_core::schema::SkillVersion
+pub enum vizier_core::schema::SsoSessionState
+pub vizier_core::schema::SsoSessionState::Configured
+pub vizier_core::schema::SsoSessionState::Expired
+pub vizier_core::schema::SsoSessionState::SignedIn
+pub vizier_core::schema::SsoSessionState::Unreadable
+impl core::clone::Clone for vizier_core::schema::sso::SsoSessionState
+pub fn vizier_core::schema::sso::SsoSessionState::clone(&self) -> Self
+impl core::cmp::Eq for vizier_core::schema::sso::SsoSessionState
+impl core::cmp::PartialEq for vizier_core::schema::sso::SsoSessionState
+pub fn vizier_core::schema::sso::SsoSessionState::eq(&self, &Self) -> bool
+impl core::fmt::Debug for vizier_core::schema::sso::SsoSessionState
+pub fn vizier_core::schema::sso::SsoSessionState::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for vizier_core::schema::sso::SsoSessionState
+impl core::marker::StructuralPartialEq for vizier_core::schema::sso::SsoSessionState
+impl serde_core::ser::Serialize for vizier_core::schema::sso::SsoSessionState
+pub fn vizier_core::schema::sso::SsoSessionState::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for vizier_core::schema::sso::SsoSessionState
+pub fn vizier_core::schema::sso::SsoSessionState::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+impl core::marker::Freeze for vizier_core::schema::sso::SsoSessionState
+impl core::marker::Send for vizier_core::schema::sso::SsoSessionState
+impl core::marker::Sync for vizier_core::schema::sso::SsoSessionState
+impl core::marker::Unpin for vizier_core::schema::sso::SsoSessionState
+impl core::marker::UnsafeUnpin for vizier_core::schema::sso::SsoSessionState
+impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::schema::sso::SsoSessionState
+impl core::panic::unwind_safe::UnwindSafe for vizier_core::schema::sso::SsoSessionState
 pub enum vizier_core::schema::TaskRunState
 pub vizier_core::schema::TaskRunState::Answered
 pub vizier_core::schema::TaskRunState::Interrupted
@@ -6465,6 +6639,7 @@ pub vizier_core::schema::AgentHealthStatus::last_error: core::option::Option<all
 pub vizier_core::schema::AgentHealthStatus::live: bool
 pub vizier_core::schema::AgentHealthStatus::model: core::option::Option<vizier_core::schema::AgentModelInfo>
 pub vizier_core::schema::AgentHealthStatus::next_retry_at: core::option::Option<chrono::datetime::DateTime<chrono::offset::utc::Utc>>
+pub vizier_core::schema::AgentHealthStatus::session_failure: core::option::Option<alloc::string::String>
 pub vizier_core::schema::AgentHealthStatus::state: vizier_core::schema::AgentRunState
 pub vizier_core::schema::AgentHealthStatus::warnings: alloc::vec::Vec<alloc::string::String>
 impl core::clone::Clone for vizier_core::schema::AgentHealthStatus
@@ -7445,6 +7620,24 @@ impl core::marker::Unpin for vizier_core::schema::agent::IndexerConfig
 impl core::marker::UnsafeUnpin for vizier_core::schema::agent::IndexerConfig
 impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::schema::agent::IndexerConfig
 impl core::panic::unwind_safe::UnwindSafe for vizier_core::schema::agent::IndexerConfig
+pub struct vizier_core::schema::InsertedNotification
+pub vizier_core::schema::InsertedNotification::audience: core::option::Option<alloc::string::String>
+pub vizier_core::schema::InsertedNotification::item: vizier_core::schema::notification::NotificationItem
+impl core::clone::Clone for vizier_core::schema::notification::InsertedNotification
+pub fn vizier_core::schema::notification::InsertedNotification::clone(&self) -> Self
+impl core::cmp::Eq for vizier_core::schema::notification::InsertedNotification
+impl core::cmp::PartialEq for vizier_core::schema::notification::InsertedNotification
+pub fn vizier_core::schema::notification::InsertedNotification::eq(&self, &Self) -> bool
+impl core::fmt::Debug for vizier_core::schema::notification::InsertedNotification
+pub fn vizier_core::schema::notification::InsertedNotification::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for vizier_core::schema::notification::InsertedNotification
+impl core::marker::Freeze for vizier_core::schema::notification::InsertedNotification
+impl core::marker::Send for vizier_core::schema::notification::InsertedNotification
+impl core::marker::Sync for vizier_core::schema::notification::InsertedNotification
+impl core::marker::Unpin for vizier_core::schema::notification::InsertedNotification
+impl core::marker::UnsafeUnpin for vizier_core::schema::notification::InsertedNotification
+impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::schema::notification::InsertedNotification
+impl core::panic::unwind_safe::UnwindSafe for vizier_core::schema::notification::InsertedNotification
 pub struct vizier_core::schema::Integration
 pub vizier_core::schema::Integration::agents: alloc::vec::Vec<vizier_core::schema::AgentId>
 pub vizier_core::schema::Integration::created_at: chrono::datetime::DateTime<chrono::offset::utc::Utc>
@@ -7539,6 +7732,31 @@ impl core::marker::Unpin for vizier_core::schema::integration::IntegrationGrant
 impl core::marker::UnsafeUnpin for vizier_core::schema::integration::IntegrationGrant
 impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::schema::integration::IntegrationGrant
 impl core::panic::unwind_safe::UnwindSafe for vizier_core::schema::integration::IntegrationGrant
+pub struct vizier_core::schema::LimitsEdited
+pub vizier_core::schema::LimitsEdited::context: bool
+pub vizier_core::schema::LimitsEdited::output: bool
+impl core::clone::Clone for vizier_core::schema::provider::LimitsEdited
+pub fn vizier_core::schema::provider::LimitsEdited::clone(&self) -> Self
+impl core::cmp::Eq for vizier_core::schema::provider::LimitsEdited
+impl core::cmp::PartialEq for vizier_core::schema::provider::LimitsEdited
+pub fn vizier_core::schema::provider::LimitsEdited::eq(&self, &Self) -> bool
+impl core::default::Default for vizier_core::schema::provider::LimitsEdited
+pub fn vizier_core::schema::provider::LimitsEdited::default() -> Self
+impl core::fmt::Debug for vizier_core::schema::provider::LimitsEdited
+pub fn vizier_core::schema::provider::LimitsEdited::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for vizier_core::schema::provider::LimitsEdited
+impl core::marker::StructuralPartialEq for vizier_core::schema::provider::LimitsEdited
+impl serde_core::ser::Serialize for vizier_core::schema::provider::LimitsEdited
+pub fn vizier_core::schema::provider::LimitsEdited::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for vizier_core::schema::provider::LimitsEdited
+pub fn vizier_core::schema::provider::LimitsEdited::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+impl core::marker::Freeze for vizier_core::schema::provider::LimitsEdited
+impl core::marker::Send for vizier_core::schema::provider::LimitsEdited
+impl core::marker::Sync for vizier_core::schema::provider::LimitsEdited
+impl core::marker::Unpin for vizier_core::schema::provider::LimitsEdited
+impl core::marker::UnsafeUnpin for vizier_core::schema::provider::LimitsEdited
+impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::schema::provider::LimitsEdited
+impl core::panic::unwind_safe::UnwindSafe for vizier_core::schema::provider::LimitsEdited
 pub struct vizier_core::schema::Memory
 pub vizier_core::schema::Memory::agent_id: alloc::string::String
 pub vizier_core::schema::Memory::attachment_count: usize
@@ -7767,6 +7985,33 @@ impl core::marker::Unpin for vizier_core::schema::revision::MemoryRevisionSummar
 impl core::marker::UnsafeUnpin for vizier_core::schema::revision::MemoryRevisionSummary
 impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::schema::revision::MemoryRevisionSummary
 impl core::panic::unwind_safe::UnwindSafe for vizier_core::schema::revision::MemoryRevisionSummary
+pub struct vizier_core::schema::ModelOverride
+pub vizier_core::schema::ModelOverride::model: alloc::string::String
+pub vizier_core::schema::ModelOverride::provider: alloc::string::String
+impl core::clone::Clone for vizier_core::schema::ModelOverride
+pub fn vizier_core::schema::ModelOverride::clone(&self) -> Self
+impl core::cmp::Eq for vizier_core::schema::ModelOverride
+impl core::cmp::PartialEq for vizier_core::schema::ModelOverride
+pub fn vizier_core::schema::ModelOverride::eq(&self, &Self) -> bool
+impl core::fmt::Debug for vizier_core::schema::ModelOverride
+pub fn vizier_core::schema::ModelOverride::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for vizier_core::schema::ModelOverride
+impl schemars::JsonSchema for vizier_core::schema::ModelOverride
+pub fn vizier_core::schema::ModelOverride::inline_schema() -> bool
+pub fn vizier_core::schema::ModelOverride::json_schema(&mut schemars::generate::SchemaGenerator) -> schemars::schema::Schema
+pub fn vizier_core::schema::ModelOverride::schema_id() -> alloc::borrow::Cow<'static, str>
+pub fn vizier_core::schema::ModelOverride::schema_name() -> alloc::borrow::Cow<'static, str>
+impl serde_core::ser::Serialize for vizier_core::schema::ModelOverride
+pub fn vizier_core::schema::ModelOverride::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for vizier_core::schema::ModelOverride
+pub fn vizier_core::schema::ModelOverride::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+impl core::marker::Freeze for vizier_core::schema::ModelOverride
+impl core::marker::Send for vizier_core::schema::ModelOverride
+impl core::marker::Sync for vizier_core::schema::ModelOverride
+impl core::marker::Unpin for vizier_core::schema::ModelOverride
+impl core::marker::UnsafeUnpin for vizier_core::schema::ModelOverride
+impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::schema::ModelOverride
+impl core::panic::unwind_safe::UnwindSafe for vizier_core::schema::ModelOverride
 pub struct vizier_core::schema::NoopAttachmentResolver
 impl vizier_core::schema::AttachmentResolver for vizier_core::schema::NoopAttachmentResolver
 pub fn vizier_core::schema::NoopAttachmentResolver::artifact_bytes<'life0, 'life1, 'life2, 'async_trait>(&'life0 self, &'life1 str, &'life2 str) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = anyhow::Result<core::option::Option<alloc::vec::Vec<u8>>>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait, 'life1: 'async_trait, 'life2: 'async_trait
@@ -7810,7 +8055,10 @@ pub vizier_core::schema::NotificationDraft::audience_user_id: core::option::Opti
 pub vizier_core::schema::NotificationDraft::category: vizier_core::schema::notification::NotificationCategory
 pub vizier_core::schema::NotificationDraft::created_at: chrono::datetime::DateTime<chrono::offset::utc::Utc>
 pub vizier_core::schema::NotificationDraft::event_key: alloc::string::String
+pub vizier_core::schema::NotificationDraft::excerpt: core::option::Option<alloc::string::String>
 pub vizier_core::schema::NotificationDraft::href: alloc::string::String
+pub vizier_core::schema::NotificationDraft::source_session: core::option::Option<vizier_core::prelude::VizierSession>
+pub vizier_core::schema::NotificationDraft::source_title: core::option::Option<alloc::string::String>
 pub vizier_core::schema::NotificationDraft::summary: alloc::string::String
 pub vizier_core::schema::NotificationDraft::tone: vizier_core::schema::notification::NotificationTone
 impl core::clone::Clone for vizier_core::schema::notification::NotificationDraft
@@ -7832,10 +8080,13 @@ pub struct vizier_core::schema::NotificationItem
 pub vizier_core::schema::NotificationItem::agent_id: alloc::string::String
 pub vizier_core::schema::NotificationItem::at: chrono::datetime::DateTime<chrono::offset::utc::Utc>
 pub vizier_core::schema::NotificationItem::category: vizier_core::schema::notification::NotificationCategory
+pub vizier_core::schema::NotificationItem::excerpt: core::option::Option<alloc::string::String>
 pub vizier_core::schema::NotificationItem::href: alloc::string::String
 pub vizier_core::schema::NotificationItem::id: i64
 pub vizier_core::schema::NotificationItem::read: bool
+pub vizier_core::schema::NotificationItem::source_session: core::option::Option<vizier_core::prelude::VizierSession>
 pub vizier_core::schema::NotificationItem::text: alloc::string::String
+pub vizier_core::schema::NotificationItem::title: core::option::Option<alloc::string::String>
 pub vizier_core::schema::NotificationItem::tone: vizier_core::schema::notification::NotificationTone
 impl core::clone::Clone for vizier_core::schema::notification::NotificationItem
 pub fn vizier_core::schema::notification::NotificationItem::clone(&self) -> Self
@@ -7935,6 +8186,37 @@ impl core::marker::Unpin for vizier_core::schema::revision::PaginatedMemoryRevis
 impl core::marker::UnsafeUnpin for vizier_core::schema::revision::PaginatedMemoryRevisions
 impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::schema::revision::PaginatedMemoryRevisions
 impl core::panic::unwind_safe::UnwindSafe for vizier_core::schema::revision::PaginatedMemoryRevisions
+pub struct vizier_core::schema::ProfileEntry
+pub vizier_core::schema::ProfileEntry::arn: alloc::string::String
+pub vizier_core::schema::ProfileEntry::context: core::option::Option<u64>
+pub vizier_core::schema::ProfileEntry::edited: bool
+pub vizier_core::schema::ProfileEntry::image_input: core::option::Option<bool>
+pub vizier_core::schema::ProfileEntry::limits_edited: core::option::Option<vizier_core::schema::provider::LimitsEdited>
+pub vizier_core::schema::ProfileEntry::model: core::option::Option<alloc::string::String>
+pub vizier_core::schema::ProfileEntry::name: core::option::Option<alloc::string::String>
+pub vizier_core::schema::ProfileEntry::output: core::option::Option<u64>
+pub vizier_core::schema::ProfileEntry::price: core::option::Option<crate::catalogue::data::Cost>
+pub vizier_core::schema::ProfileEntry::tool_call: core::option::Option<bool>
+impl core::clone::Clone for vizier_core::schema::provider::ProfileEntry
+pub fn vizier_core::schema::provider::ProfileEntry::clone(&self) -> Self
+impl core::cmp::PartialEq for vizier_core::schema::provider::ProfileEntry
+pub fn vizier_core::schema::provider::ProfileEntry::eq(&self, &Self) -> bool
+impl core::default::Default for vizier_core::schema::provider::ProfileEntry
+pub fn vizier_core::schema::provider::ProfileEntry::default() -> Self
+impl core::fmt::Debug for vizier_core::schema::provider::ProfileEntry
+pub fn vizier_core::schema::provider::ProfileEntry::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for vizier_core::schema::provider::ProfileEntry
+impl serde_core::ser::Serialize for vizier_core::schema::provider::ProfileEntry
+pub fn vizier_core::schema::provider::ProfileEntry::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for vizier_core::schema::provider::ProfileEntry
+pub fn vizier_core::schema::provider::ProfileEntry::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+impl core::marker::Freeze for vizier_core::schema::provider::ProfileEntry
+impl core::marker::Send for vizier_core::schema::provider::ProfileEntry
+impl core::marker::Sync for vizier_core::schema::provider::ProfileEntry
+impl core::marker::Unpin for vizier_core::schema::provider::ProfileEntry
+impl core::marker::UnsafeUnpin for vizier_core::schema::provider::ProfileEntry
+impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::schema::provider::ProfileEntry
+impl core::panic::unwind_safe::UnwindSafe for vizier_core::schema::provider::ProfileEntry
 pub struct vizier_core::schema::Project
 pub vizier_core::schema::Project::agent_id: vizier_core::schema::AgentId
 pub vizier_core::schema::Project::created_at: i64
@@ -8028,15 +8310,20 @@ pub vizier_core::schema::ProviderCredentials::account_id: core::option::Option<a
 pub vizier_core::schema::ProviderCredentials::api_key: core::option::Option<alloc::string::String>
 pub vizier_core::schema::ProviderCredentials::base_url: core::option::Option<alloc::string::String>
 pub vizier_core::schema::ProviderCredentials::endpoint: core::option::Option<alloc::string::String>
+pub vizier_core::schema::ProviderCredentials::profiles: alloc::vec::Vec<vizier_core::schema::provider::ProfileEntry>
 pub vizier_core::schema::ProviderCredentials::region: core::option::Option<alloc::string::String>
+pub vizier_core::schema::ProviderCredentials::role_name: core::option::Option<alloc::string::String>
 pub vizier_core::schema::ProviderCredentials::secret_access_key: core::option::Option<alloc::string::String>
 pub vizier_core::schema::ProviderCredentials::session_token: core::option::Option<alloc::string::String>
+pub vizier_core::schema::ProviderCredentials::sso_profile: core::option::Option<alloc::string::String>
+pub vizier_core::schema::ProviderCredentials::sso_region: core::option::Option<alloc::string::String>
+pub vizier_core::schema::ProviderCredentials::start_url: core::option::Option<alloc::string::String>
 impl vizier_core::schema::provider::ProviderCredentials
 pub fn vizier_core::schema::provider::ProviderCredentials::is_empty(&self) -> bool
 pub fn vizier_core::schema::provider::ProviderCredentials::merged_with(&self, &vizier_core::schema::provider::ProviderCredentials) -> vizier_core::schema::provider::ProviderCredentials
+pub fn vizier_core::schema::provider::ProviderCredentials::merged_with_profiles(&self, &vizier_core::schema::provider::ProviderCredentials, core::option::Option<alloc::vec::Vec<vizier_core::schema::provider::ProfileEntry>>) -> vizier_core::schema::provider::ProviderCredentials
 impl core::clone::Clone for vizier_core::schema::provider::ProviderCredentials
 pub fn vizier_core::schema::provider::ProviderCredentials::clone(&self) -> Self
-impl core::cmp::Eq for vizier_core::schema::provider::ProviderCredentials
 impl core::cmp::PartialEq for vizier_core::schema::provider::ProviderCredentials
 pub fn vizier_core::schema::provider::ProviderCredentials::eq(&self, &Self) -> bool
 impl core::default::Default for vizier_core::schema::provider::ProviderCredentials
@@ -8060,7 +8347,6 @@ pub vizier_core::schema::ProviderEntry::credentials: vizier_core::schema::provid
 pub vizier_core::schema::ProviderEntry::id: vizier_core::config::provider::ProviderId
 impl core::clone::Clone for vizier_core::schema::provider::ProviderEntry
 pub fn vizier_core::schema::provider::ProviderEntry::clone(&self) -> Self
-impl core::cmp::Eq for vizier_core::schema::provider::ProviderEntry
 impl core::cmp::PartialEq for vizier_core::schema::provider::ProviderEntry
 pub fn vizier_core::schema::provider::ProviderEntry::eq(&self, &Self) -> bool
 impl core::fmt::Debug for vizier_core::schema::provider::ProviderEntry
@@ -8153,27 +8439,6 @@ impl core::marker::Unpin for vizier_core::schema::RecalledPassage
 impl core::marker::UnsafeUnpin for vizier_core::schema::RecalledPassage
 impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::schema::RecalledPassage
 impl core::panic::unwind_safe::UnwindSafe for vizier_core::schema::RecalledPassage
-pub struct vizier_core::schema::ReplyBatch
-pub vizier_core::schema::ReplyBatch::agent_id: alloc::string::String
-pub vizier_core::schema::ReplyBatch::at: chrono::datetime::DateTime<chrono::offset::utc::Utc>
-pub vizier_core::schema::ReplyBatch::channel: alloc::string::String
-pub vizier_core::schema::ReplyBatch::hour: i64
-pub vizier_core::schema::ReplyBatch::replies: u64
-impl core::clone::Clone for vizier_core::schema::notification::ReplyBatch
-pub fn vizier_core::schema::notification::ReplyBatch::clone(&self) -> Self
-impl core::cmp::Eq for vizier_core::schema::notification::ReplyBatch
-impl core::cmp::PartialEq for vizier_core::schema::notification::ReplyBatch
-pub fn vizier_core::schema::notification::ReplyBatch::eq(&self, &Self) -> bool
-impl core::fmt::Debug for vizier_core::schema::notification::ReplyBatch
-pub fn vizier_core::schema::notification::ReplyBatch::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::marker::StructuralPartialEq for vizier_core::schema::notification::ReplyBatch
-impl core::marker::Freeze for vizier_core::schema::notification::ReplyBatch
-impl core::marker::Send for vizier_core::schema::notification::ReplyBatch
-impl core::marker::Sync for vizier_core::schema::notification::ReplyBatch
-impl core::marker::Unpin for vizier_core::schema::notification::ReplyBatch
-impl core::marker::UnsafeUnpin for vizier_core::schema::notification::ReplyBatch
-impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::schema::notification::ReplyBatch
-impl core::panic::unwind_safe::UnwindSafe for vizier_core::schema::notification::ReplyBatch
 pub struct vizier_core::schema::ReportEntry
 pub vizier_core::schema::ReportEntry::ordinal: u32
 pub vizier_core::schema::ReportEntry::prompt: alloc::string::String
@@ -8449,6 +8714,63 @@ impl core::marker::Unpin for vizier_core::schema::SkillFrontMatter
 impl core::marker::UnsafeUnpin for vizier_core::schema::SkillFrontMatter
 impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::schema::SkillFrontMatter
 impl core::panic::unwind_safe::UnwindSafe for vizier_core::schema::SkillFrontMatter
+pub struct vizier_core::schema::SsoSession
+pub vizier_core::schema::SsoSession::account_id: alloc::string::String
+pub vizier_core::schema::SsoSession::bedrock_region: alloc::string::String
+pub vizier_core::schema::SsoSession::expires_at: core::option::Option<chrono::datetime::DateTime<chrono::offset::utc::Utc>>
+pub vizier_core::schema::SsoSession::profile: alloc::string::String
+pub vizier_core::schema::SsoSession::role_name: alloc::string::String
+pub vizier_core::schema::SsoSession::sso_region: alloc::string::String
+pub vizier_core::schema::SsoSession::start_url: alloc::string::String
+pub vizier_core::schema::SsoSession::state: vizier_core::schema::sso::SsoSessionState
+impl core::clone::Clone for vizier_core::schema::sso::SsoSession
+pub fn vizier_core::schema::sso::SsoSession::clone(&self) -> Self
+impl core::cmp::Eq for vizier_core::schema::sso::SsoSession
+impl core::cmp::PartialEq for vizier_core::schema::sso::SsoSession
+pub fn vizier_core::schema::sso::SsoSession::eq(&self, &Self) -> bool
+impl core::fmt::Debug for vizier_core::schema::sso::SsoSession
+pub fn vizier_core::schema::sso::SsoSession::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for vizier_core::schema::sso::SsoSession
+impl serde_core::ser::Serialize for vizier_core::schema::sso::SsoSession
+pub fn vizier_core::schema::sso::SsoSession::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for vizier_core::schema::sso::SsoSession
+pub fn vizier_core::schema::sso::SsoSession::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+impl core::marker::Freeze for vizier_core::schema::sso::SsoSession
+impl core::marker::Send for vizier_core::schema::sso::SsoSession
+impl core::marker::Sync for vizier_core::schema::sso::SsoSession
+impl core::marker::Unpin for vizier_core::schema::sso::SsoSession
+impl core::marker::UnsafeUnpin for vizier_core::schema::sso::SsoSession
+impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::schema::sso::SsoSession
+impl core::panic::unwind_safe::UnwindSafe for vizier_core::schema::sso::SsoSession
+pub struct vizier_core::schema::SsoSessionSecret
+pub vizier_core::schema::SsoSessionSecret::access_token: alloc::string::String
+pub vizier_core::schema::SsoSessionSecret::client_id: alloc::string::String
+pub vizier_core::schema::SsoSessionSecret::client_secret: alloc::string::String
+pub vizier_core::schema::SsoSessionSecret::client_secret_expires_at: core::option::Option<chrono::datetime::DateTime<chrono::offset::utc::Utc>>
+pub vizier_core::schema::SsoSessionSecret::issued_at: chrono::datetime::DateTime<chrono::offset::utc::Utc>
+pub vizier_core::schema::SsoSessionSecret::refresh_token: core::option::Option<alloc::string::String>
+pub vizier_core::schema::SsoSessionSecret::revision: u64
+pub vizier_core::schema::SsoSessionSecret::token_expires_at: chrono::datetime::DateTime<chrono::offset::utc::Utc>
+impl vizier_core::schema::sso::SsoSessionSecret
+pub fn vizier_core::schema::sso::SsoSessionSecret::revision(&self) -> u64
+pub fn vizier_core::schema::sso::SsoSessionSecret::to_json(&self) -> alloc::string::String
+impl core::clone::Clone for vizier_core::schema::sso::SsoSessionSecret
+pub fn vizier_core::schema::sso::SsoSessionSecret::clone(&self) -> Self
+impl core::cmp::Eq for vizier_core::schema::sso::SsoSessionSecret
+impl core::cmp::PartialEq for vizier_core::schema::sso::SsoSessionSecret
+pub fn vizier_core::schema::sso::SsoSessionSecret::eq(&self, &Self) -> bool
+impl core::fmt::Debug for vizier_core::schema::sso::SsoSessionSecret
+pub fn vizier_core::schema::sso::SsoSessionSecret::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for vizier_core::schema::sso::SsoSessionSecret
+impl<'de> serde_core::de::Deserialize<'de> for vizier_core::schema::sso::SsoSessionSecret
+pub fn vizier_core::schema::sso::SsoSessionSecret::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+impl core::marker::Freeze for vizier_core::schema::sso::SsoSessionSecret
+impl core::marker::Send for vizier_core::schema::sso::SsoSessionSecret
+impl core::marker::Sync for vizier_core::schema::sso::SsoSessionSecret
+impl core::marker::Unpin for vizier_core::schema::sso::SsoSessionSecret
+impl core::marker::UnsafeUnpin for vizier_core::schema::sso::SsoSessionSecret
+impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::schema::sso::SsoSessionSecret
+impl core::panic::unwind_safe::UnwindSafe for vizier_core::schema::sso::SsoSessionSecret
 pub struct vizier_core::schema::SttToolSettings
 pub vizier_core::schema::SttToolSettings::language: core::option::Option<alloc::string::String>
 pub vizier_core::schema::SttToolSettings::model: core::option::Option<alloc::string::String>
@@ -8640,6 +8962,7 @@ pub vizier_core::schema::VizierRequest::content: vizier_core::prelude::VizierReq
 pub vizier_core::schema::VizierRequest::expect_audio_reply: core::option::Option<bool>
 pub vizier_core::schema::VizierRequest::mentions: alloc::vec::Vec<alloc::string::String>
 pub vizier_core::schema::VizierRequest::metadata: serde_json::value::Value
+pub vizier_core::schema::VizierRequest::model_override: core::option::Option<vizier_core::schema::ModelOverride>
 pub vizier_core::schema::VizierRequest::platform_message_id: core::option::Option<vizier_core::schema::PlatformMessageId>
 pub vizier_core::schema::VizierRequest::project_scope: core::option::Option<vizier_core::schema::project::ProjectScope>
 pub vizier_core::schema::VizierRequest::scheduled_task: core::option::Option<alloc::string::String>
@@ -8681,6 +9004,7 @@ pub vizier_core::schema::VizierResponse::history_uid: core::option::Option<alloc
 pub vizier_core::schema::VizierResponse::resumed: bool
 pub vizier_core::schema::VizierResponse::timestamp: chrono::datetime::DateTime<chrono::offset::utc::Utc>
 impl vizier_core::prelude::VizierResponse
+pub fn vizier_core::prelude::VizierResponse::ends_turn(&self) -> bool
 pub async fn vizier_core::prelude::VizierResponse::to_tool_result(&self, alloc::string::String, &dyn vizier_core::schema::AttachmentResolver) -> anyhow::Result<Message>
 impl core::clone::Clone for vizier_core::prelude::VizierResponse
 pub fn vizier_core::prelude::VizierResponse::clone(&self) -> Self
@@ -9102,6 +9426,7 @@ pub struct vizier_core::service::agents::ChatRequest
 pub vizier_core::service::agents::ChatRequest::attachments: core::option::Option<alloc::vec::Vec<vizier_core::schema::VizierAttachment>>
 pub vizier_core::service::agents::ChatRequest::channel_id: alloc::string::String
 pub vizier_core::service::agents::ChatRequest::content: alloc::string::String
+pub vizier_core::service::agents::ChatRequest::model_override: core::option::Option<vizier_core::service::agents::ModelOverrideRequest>
 pub vizier_core::service::agents::ChatRequest::topic_id: alloc::string::String
 impl core::fmt::Debug for vizier_core::service::agents::ChatRequest
 pub fn vizier_core::service::agents::ChatRequest::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
@@ -9195,6 +9520,24 @@ impl core::marker::Unpin for vizier_core::service::agents::CreateAgentTools
 impl core::marker::UnsafeUnpin for vizier_core::service::agents::CreateAgentTools
 impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::service::agents::CreateAgentTools
 impl core::panic::unwind_safe::UnwindSafe for vizier_core::service::agents::CreateAgentTools
+pub struct vizier_core::service::agents::ModelOverrideRequest
+pub vizier_core::service::agents::ModelOverrideRequest::model: alloc::string::String
+pub vizier_core::service::agents::ModelOverrideRequest::provider: alloc::string::String
+impl core::clone::Clone for vizier_core::service::agents::ModelOverrideRequest
+pub fn vizier_core::service::agents::ModelOverrideRequest::clone(&self) -> Self
+impl core::fmt::Debug for vizier_core::service::agents::ModelOverrideRequest
+pub fn vizier_core::service::agents::ModelOverrideRequest::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl serde_core::ser::Serialize for vizier_core::service::agents::ModelOverrideRequest
+pub fn vizier_core::service::agents::ModelOverrideRequest::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for vizier_core::service::agents::ModelOverrideRequest
+pub fn vizier_core::service::agents::ModelOverrideRequest::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+impl core::marker::Freeze for vizier_core::service::agents::ModelOverrideRequest
+impl core::marker::Send for vizier_core::service::agents::ModelOverrideRequest
+impl core::marker::Sync for vizier_core::service::agents::ModelOverrideRequest
+impl core::marker::Unpin for vizier_core::service::agents::ModelOverrideRequest
+impl core::marker::UnsafeUnpin for vizier_core::service::agents::ModelOverrideRequest
+impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::service::agents::ModelOverrideRequest
+impl core::panic::unwind_safe::UnwindSafe for vizier_core::service::agents::ModelOverrideRequest
 pub struct vizier_core::service::agents::PingResponse
 pub vizier_core::service::agents::PingResponse::alive: bool
 impl core::clone::Clone for vizier_core::service::agents::PingResponse
@@ -9421,6 +9764,63 @@ pub async fn vizier_core::service::artifacts::detail(&vizier_core::service::Serv
 pub async fn vizier_core::service::artifacts::list(&vizier_core::service::Services, &vizier_core::auth::Principal, &str, vizier_core::service::artifacts::ArtifactQuery) -> core::result::Result<vizier_core::service::artifacts::ArtifactListView, vizier_core::service::error::ServiceError>
 pub mod vizier_core::service::catalogue
 pub use vizier_core::service::catalogue::RefreshStatus
+pub enum vizier_core::service::catalogue::EntryPricing
+pub vizier_core::service::catalogue::EntryPricing::Explicit(crate::Cost)
+pub vizier_core::service::catalogue::EntryPricing::FromCatalogue
+pub vizier_core::service::catalogue::EntryPricing::FromCatalogue::cost: crate::Cost
+pub vizier_core::service::catalogue::EntryPricing::FromCatalogue::model: alloc::string::String
+pub vizier_core::service::catalogue::EntryPricing::NoCatalogue
+pub vizier_core::service::catalogue::EntryPricing::NotResolved
+pub vizier_core::service::catalogue::EntryPricing::NotResolved::in_catalogue: bool
+pub vizier_core::service::catalogue::EntryPricing::NotResolved::model: alloc::string::String
+pub vizier_core::service::catalogue::EntryPricing::NotSet
+impl vizier_core::service::catalogue::EntryPricing
+pub fn vizier_core::service::catalogue::EntryPricing::cost(&self) -> core::option::Option<&Cost>
+pub fn vizier_core::service::catalogue::EntryPricing::flag(&self) -> core::option::Option<&'static str>
+pub fn vizier_core::service::catalogue::EntryPricing::model(&self) -> core::option::Option<&str>
+pub fn vizier_core::service::catalogue::EntryPricing::reason(&self) -> core::option::Option<alloc::string::String>
+pub fn vizier_core::service::catalogue::EntryPricing::state(&self) -> &'static str
+impl core::clone::Clone for vizier_core::service::catalogue::EntryPricing
+pub fn vizier_core::service::catalogue::EntryPricing::clone(&self) -> Self
+impl core::cmp::PartialEq for vizier_core::service::catalogue::EntryPricing
+pub fn vizier_core::service::catalogue::EntryPricing::eq(&self, &Self) -> bool
+impl core::fmt::Debug for vizier_core::service::catalogue::EntryPricing
+pub fn vizier_core::service::catalogue::EntryPricing::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for vizier_core::service::catalogue::EntryPricing
+impl core::marker::Freeze for vizier_core::service::catalogue::EntryPricing
+impl core::marker::Send for vizier_core::service::catalogue::EntryPricing
+impl core::marker::Sync for vizier_core::service::catalogue::EntryPricing
+impl core::marker::Unpin for vizier_core::service::catalogue::EntryPricing
+impl core::marker::UnsafeUnpin for vizier_core::service::catalogue::EntryPricing
+impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::service::catalogue::EntryPricing
+impl core::panic::unwind_safe::UnwindSafe for vizier_core::service::catalogue::EntryPricing
+pub enum vizier_core::service::catalogue::ModelCapability
+pub vizier_core::service::catalogue::ModelCapability::Chat
+pub vizier_core::service::catalogue::ModelCapability::Embedding
+pub vizier_core::service::catalogue::ModelCapability::Image
+impl vizier_core::service::catalogue::ModelCapability
+pub const vizier_core::service::catalogue::ModelCapability::UNKNOWN: &'static str
+pub fn vizier_core::service::catalogue::ModelCapability::as_str(&self) -> &'static str
+pub fn vizier_core::service::catalogue::ModelCapability::offers_entries(&self) -> bool
+pub fn vizier_core::service::catalogue::ModelCapability::parse(&str) -> core::option::Option<Self>
+impl core::clone::Clone for vizier_core::service::catalogue::ModelCapability
+pub fn vizier_core::service::catalogue::ModelCapability::clone(&self) -> Self
+impl core::cmp::Eq for vizier_core::service::catalogue::ModelCapability
+impl core::cmp::PartialEq for vizier_core::service::catalogue::ModelCapability
+pub fn vizier_core::service::catalogue::ModelCapability::eq(&self, &Self) -> bool
+impl core::default::Default for vizier_core::service::catalogue::ModelCapability
+pub fn vizier_core::service::catalogue::ModelCapability::default() -> Self
+impl core::fmt::Debug for vizier_core::service::catalogue::ModelCapability
+pub fn vizier_core::service::catalogue::ModelCapability::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for vizier_core::service::catalogue::ModelCapability
+impl core::marker::StructuralPartialEq for vizier_core::service::catalogue::ModelCapability
+impl core::marker::Freeze for vizier_core::service::catalogue::ModelCapability
+impl core::marker::Send for vizier_core::service::catalogue::ModelCapability
+impl core::marker::Sync for vizier_core::service::catalogue::ModelCapability
+impl core::marker::Unpin for vizier_core::service::catalogue::ModelCapability
+impl core::marker::UnsafeUnpin for vizier_core::service::catalogue::ModelCapability
+impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::service::catalogue::ModelCapability
+impl core::panic::unwind_safe::UnwindSafe for vizier_core::service::catalogue::ModelCapability
 pub struct vizier_core::service::catalogue::CatalogueStatus
 pub vizier_core::service::catalogue::CatalogueStatus::checked_at: core::option::Option<chrono::datetime::DateTime<chrono::offset::utc::Utc>>
 pub vizier_core::service::catalogue::CatalogueStatus::fetched_at: chrono::datetime::DateTime<chrono::offset::utc::Utc>
@@ -9457,6 +9857,31 @@ impl core::marker::Unpin for vizier_core::service::catalogue::Connection
 impl core::marker::UnsafeUnpin for vizier_core::service::catalogue::Connection
 impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::service::catalogue::Connection
 impl core::panic::unwind_safe::UnwindSafe for vizier_core::service::catalogue::Connection
+pub struct vizier_core::service::catalogue::EntryPricingView
+pub vizier_core::service::catalogue::EntryPricingView::cost: core::option::Option<crate::Cost>
+pub vizier_core::service::catalogue::EntryPricingView::flag: core::option::Option<&'static str>
+pub vizier_core::service::catalogue::EntryPricingView::model: core::option::Option<alloc::string::String>
+pub vizier_core::service::catalogue::EntryPricingView::reason: core::option::Option<alloc::string::String>
+pub vizier_core::service::catalogue::EntryPricingView::source: core::option::Option<&'static str>
+pub vizier_core::service::catalogue::EntryPricingView::state: &'static str
+impl vizier_core::service::catalogue::EntryPricingView
+pub fn vizier_core::service::catalogue::EntryPricingView::of(&vizier_core::service::catalogue::EntryPricing) -> Self
+impl core::clone::Clone for vizier_core::service::catalogue::EntryPricingView
+pub fn vizier_core::service::catalogue::EntryPricingView::clone(&self) -> Self
+impl core::cmp::PartialEq for vizier_core::service::catalogue::EntryPricingView
+pub fn vizier_core::service::catalogue::EntryPricingView::eq(&self, &Self) -> bool
+impl core::fmt::Debug for vizier_core::service::catalogue::EntryPricingView
+pub fn vizier_core::service::catalogue::EntryPricingView::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for vizier_core::service::catalogue::EntryPricingView
+impl serde_core::ser::Serialize for vizier_core::service::catalogue::EntryPricingView
+pub fn vizier_core::service::catalogue::EntryPricingView::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl core::marker::Freeze for vizier_core::service::catalogue::EntryPricingView
+impl core::marker::Send for vizier_core::service::catalogue::EntryPricingView
+impl core::marker::Sync for vizier_core::service::catalogue::EntryPricingView
+impl core::marker::Unpin for vizier_core::service::catalogue::EntryPricingView
+impl core::marker::UnsafeUnpin for vizier_core::service::catalogue::EntryPricingView
+impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::service::catalogue::EntryPricingView
+impl core::panic::unwind_safe::UnwindSafe for vizier_core::service::catalogue::EntryPricingView
 pub struct vizier_core::service::catalogue::MediaModels
 pub vizier_core::service::catalogue::MediaModels::capability: crate::catalogue::media::MediaCapability
 pub vizier_core::service::catalogue::MediaModels::checked_at: core::option::Option<chrono::datetime::DateTime<chrono::offset::utc::Utc>>
@@ -9510,6 +9935,7 @@ pub vizier_core::service::catalogue::ModelSummary::logo: core::option::Option<al
 pub vizier_core::service::catalogue::ModelSummary::logo_full_color: bool
 pub vizier_core::service::catalogue::ModelSummary::name: alloc::string::String
 pub vizier_core::service::catalogue::ModelSummary::origin: core::option::Option<alloc::string::String>
+pub vizier_core::service::catalogue::ModelSummary::pricing: core::option::Option<vizier_core::service::catalogue::EntryPricingView>
 pub vizier_core::service::catalogue::ModelSummary::release_date: core::option::Option<chrono::naive::date::NaiveDate>
 pub vizier_core::service::catalogue::ModelSummary::status: crate::ModelStatus
 impl core::clone::Clone for vizier_core::service::catalogue::ModelSummary
@@ -9525,6 +9951,24 @@ impl core::marker::Unpin for vizier_core::service::catalogue::ModelSummary
 impl core::marker::UnsafeUnpin for vizier_core::service::catalogue::ModelSummary
 impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::service::catalogue::ModelSummary
 impl core::panic::unwind_safe::UnwindSafe for vizier_core::service::catalogue::ModelSummary
+pub struct vizier_core::service::catalogue::PricingModel
+pub vizier_core::service::catalogue::PricingModel::id: alloc::string::String
+pub vizier_core::service::catalogue::PricingModel::name: alloc::string::String
+impl core::clone::Clone for vizier_core::service::catalogue::PricingModel
+pub fn vizier_core::service::catalogue::PricingModel::clone(&self) -> Self
+impl core::cmp::Eq for vizier_core::service::catalogue::PricingModel
+impl core::cmp::PartialEq for vizier_core::service::catalogue::PricingModel
+pub fn vizier_core::service::catalogue::PricingModel::eq(&self, &Self) -> bool
+impl core::fmt::Debug for vizier_core::service::catalogue::PricingModel
+pub fn vizier_core::service::catalogue::PricingModel::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for vizier_core::service::catalogue::PricingModel
+impl core::marker::Freeze for vizier_core::service::catalogue::PricingModel
+impl core::marker::Send for vizier_core::service::catalogue::PricingModel
+impl core::marker::Sync for vizier_core::service::catalogue::PricingModel
+impl core::marker::Unpin for vizier_core::service::catalogue::PricingModel
+impl core::marker::UnsafeUnpin for vizier_core::service::catalogue::PricingModel
+impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::service::catalogue::PricingModel
+impl core::panic::unwind_safe::UnwindSafe for vizier_core::service::catalogue::PricingModel
 pub struct vizier_core::service::catalogue::ProviderSummary
 pub vizier_core::service::catalogue::ProviderSummary::connection: vizier_core::service::catalogue::Connection
 pub vizier_core::service::catalogue::ProviderSummary::dialect: core::option::Option<crate::llm::DialectKind>
@@ -9554,22 +9998,27 @@ impl core::marker::Unpin for vizier_core::service::catalogue::ProviderSummary
 impl core::marker::UnsafeUnpin for vizier_core::service::catalogue::ProviderSummary
 impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::service::catalogue::ProviderSummary
 impl core::panic::unwind_safe::UnwindSafe for vizier_core::service::catalogue::ProviderSummary
+pub const vizier_core::service::catalogue::INFERENCE_PROFILE_ORIGIN: &str
 pub const vizier_core::service::catalogue::UNKNOWN_CAPABILITY: &str
 pub fn vizier_core::service::catalogue::catalogue_status(&crate::dependencies::VizierDependencies) -> vizier_core::service::catalogue::CatalogueStatus
 pub async fn vizier_core::service::catalogue::connections(&crate::dependencies::VizierDependencies, &[crate::ProviderListing]) -> std::collections::hash::map::HashMap<vizier_core::config::provider::ProviderId, vizier_core::service::catalogue::Connection>
 pub fn vizier_core::service::catalogue::custom_models(&crate::dependencies::VizierDependencies, &vizier_core::schema::provider::CustomProvider) -> alloc::vec::Vec<vizier_core::service::catalogue::ModelSummary>
+pub fn vizier_core::service::catalogue::entry_display_name(&vizier_core::schema::provider::ProfileEntry) -> alloc::string::String
+pub fn vizier_core::service::catalogue::entry_pricing(&crate::Catalogue, &vizier_core::schema::provider::ProfileEntry) -> vizier_core::service::catalogue::EntryPricing
 pub async fn vizier_core::service::catalogue::get_model(&crate::dependencies::VizierDependencies, &str, &str) -> core::result::Result<vizier_core::service::catalogue::ModelSummary, vizier_core::service::error::ServiceError>
-pub async fn vizier_core::service::catalogue::list_models(&crate::dependencies::VizierDependencies, &str, bool) -> core::result::Result<alloc::vec::Vec<vizier_core::service::catalogue::ModelSummary>, vizier_core::service::error::ServiceError>
+pub async fn vizier_core::service::catalogue::list_models(&crate::dependencies::VizierDependencies, &str, bool, core::option::Option<&str>) -> core::result::Result<alloc::vec::Vec<vizier_core::service::catalogue::ModelSummary>, vizier_core::service::error::ServiceError>
 pub async fn vizier_core::service::catalogue::list_providers(&crate::dependencies::VizierDependencies, core::option::Option<&str>, core::option::Option<&str>, core::option::Option<bool>) -> alloc::vec::Vec<vizier_core::service::catalogue::ProviderSummary>
 pub fn vizier_core::service::catalogue::logo_full_color(&str) -> bool
 pub fn vizier_core::service::catalogue::logo_url(&str) -> core::option::Option<alloc::string::String>
 pub fn vizier_core::service::catalogue::media_models(&crate::dependencies::VizierDependencies, core::option::Option<&str>) -> core::result::Result<vizier_core::service::catalogue::MediaModels, vizier_core::service::error::ServiceError>
-pub async fn vizier_core::service::catalogue::models_for(&crate::dependencies::VizierDependencies, &vizier_core::config::provider::ProviderId, bool) -> core::option::Option<alloc::vec::Vec<vizier_core::service::catalogue::ModelSummary>>
+pub async fn vizier_core::service::catalogue::models_for(&crate::dependencies::VizierDependencies, &vizier_core::config::provider::ProviderId, bool, vizier_core::service::catalogue::ModelCapability) -> core::option::Option<alloc::vec::Vec<vizier_core::service::catalogue::ModelSummary>>
 pub fn vizier_core::service::catalogue::parse_capability(&str) -> core::option::Option<crate::catalogue::media::MediaCapability>
+pub fn vizier_core::service::catalogue::pricing_models(&crate::Catalogue, core::option::Option<&str>) -> alloc::vec::Vec<vizier_core::service::catalogue::PricingModel>
 pub async fn vizier_core::service::catalogue::provider_summaries(&crate::dependencies::VizierDependencies) -> alloc::vec::Vec<vizier_core::service::catalogue::ProviderSummary>
 pub async fn vizier_core::service::catalogue::refresh(&crate::dependencies::VizierDependencies, &vizier_core::auth::Principal) -> core::result::Result<vizier_core::service::catalogue::CatalogueStatus, vizier_core::service::error::ServiceError>
 pub async fn vizier_core::service::catalogue::refresh_media(&crate::dependencies::VizierDependencies, &vizier_core::auth::Principal, &str) -> core::result::Result<vizier_core::service::catalogue::MediaModels, vizier_core::service::error::ServiceError>
 pub fn vizier_core::service::catalogue::status(&crate::dependencies::VizierDependencies) -> vizier_core::service::catalogue::CatalogueStatus
+pub async fn vizier_core::service::catalogue::validate_chat_model_override(&crate::dependencies::VizierDependencies, &vizier_core::schema::ModelOverride) -> core::result::Result<(vizier_core::config::provider::ProviderId, alloc::string::String), vizier_core::service::error::ServiceError>
 pub mod vizier_core::service::conversations
 pub enum vizier_core::service::conversations::ConversationKind
 pub vizier_core::service::conversations::ConversationKind::Discord
@@ -9945,6 +10394,65 @@ impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::service::files::Up
 impl core::panic::unwind_safe::UnwindSafe for vizier_core::service::files::UploadResponse
 pub async fn vizier_core::service::files::locate(&vizier_core::service::Services, &str) -> core::result::Result<crate::storage::blob::BlobRef, vizier_core::service::error::ServiceError>
 pub async fn vizier_core::service::files::upload(&vizier_core::service::Services, &vizier_core::auth::Principal, &str, alloc::string::String) -> core::result::Result<vizier_core::service::files::UploadResponse, vizier_core::service::error::ServiceError>
+pub mod vizier_core::service::inbox
+pub enum vizier_core::service::inbox::Delivery
+pub vizier_core::service::inbox::Delivery::Close
+pub vizier_core::service::inbox::Delivery::Frames(alloc::vec::Vec<vizier_core::service::inbox::InboxFrame>)
+impl core::clone::Clone for vizier_core::service::inbox::Delivery
+pub fn vizier_core::service::inbox::Delivery::clone(&self) -> Self
+impl core::cmp::PartialEq for vizier_core::service::inbox::Delivery
+pub fn vizier_core::service::inbox::Delivery::eq(&self, &Self) -> bool
+impl core::fmt::Debug for vizier_core::service::inbox::Delivery
+pub fn vizier_core::service::inbox::Delivery::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for vizier_core::service::inbox::Delivery
+impl core::marker::Freeze for vizier_core::service::inbox::Delivery
+impl core::marker::Send for vizier_core::service::inbox::Delivery
+impl core::marker::Sync for vizier_core::service::inbox::Delivery
+impl core::marker::Unpin for vizier_core::service::inbox::Delivery
+impl core::marker::UnsafeUnpin for vizier_core::service::inbox::Delivery
+impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::service::inbox::Delivery
+impl core::panic::unwind_safe::UnwindSafe for vizier_core::service::inbox::Delivery
+pub enum vizier_core::service::inbox::InboxFrame
+pub vizier_core::service::inbox::InboxFrame::Hello
+pub vizier_core::service::inbox::InboxFrame::Hello::counts: vizier_core::schema::notification::NotificationCounts
+pub vizier_core::service::inbox::InboxFrame::Hello::latest_id: i64
+pub vizier_core::service::inbox::InboxFrame::Hello::setups: alloc::vec::Vec<crate::setup::SetupState>
+pub vizier_core::service::inbox::InboxFrame::Notification
+pub vizier_core::service::inbox::InboxFrame::Notification::counts: vizier_core::schema::notification::NotificationCounts
+pub vizier_core::service::inbox::InboxFrame::Notification::item: vizier_core::schema::notification::NotificationItem
+pub vizier_core::service::inbox::InboxFrame::Read
+pub vizier_core::service::inbox::InboxFrame::Read::counts: vizier_core::schema::notification::NotificationCounts
+pub vizier_core::service::inbox::InboxFrame::Read::id: core::option::Option<i64>
+pub vizier_core::service::inbox::InboxFrame::Read::read: bool
+pub vizier_core::service::inbox::InboxFrame::Resync
+pub vizier_core::service::inbox::InboxFrame::Setup
+pub vizier_core::service::inbox::InboxFrame::Setup::state: crate::setup::SetupState
+pub vizier_core::service::inbox::InboxFrame::SetupCleared
+pub vizier_core::service::inbox::InboxFrame::SetupCleared::agent_id: alloc::string::String
+impl vizier_core::service::inbox::InboxFrame
+pub fn vizier_core::service::inbox::InboxFrame::needs_counts(&self) -> bool
+pub fn vizier_core::service::inbox::InboxFrame::set_counts(&mut self, vizier_core::schema::notification::NotificationCounts)
+impl core::clone::Clone for vizier_core::service::inbox::InboxFrame
+pub fn vizier_core::service::inbox::InboxFrame::clone(&self) -> Self
+impl core::cmp::PartialEq for vizier_core::service::inbox::InboxFrame
+pub fn vizier_core::service::inbox::InboxFrame::eq(&self, &Self) -> bool
+impl core::fmt::Debug for vizier_core::service::inbox::InboxFrame
+pub fn vizier_core::service::inbox::InboxFrame::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for vizier_core::service::inbox::InboxFrame
+impl serde_core::ser::Serialize for vizier_core::service::inbox::InboxFrame
+pub fn vizier_core::service::inbox::InboxFrame::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl core::marker::Freeze for vizier_core::service::inbox::InboxFrame
+impl core::marker::Send for vizier_core::service::inbox::InboxFrame
+impl core::marker::Sync for vizier_core::service::inbox::InboxFrame
+impl core::marker::Unpin for vizier_core::service::inbox::InboxFrame
+impl core::marker::UnsafeUnpin for vizier_core::service::inbox::InboxFrame
+impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::service::inbox::InboxFrame
+impl core::panic::unwind_safe::UnwindSafe for vizier_core::service::inbox::InboxFrame
+pub async fn vizier_core::service::inbox::counts(&vizier_core::service::Services, &vizier_core::auth::Principal) -> core::result::Result<vizier_core::schema::notification::NotificationCounts, vizier_core::service::error::ServiceError>
+pub async fn vizier_core::service::inbox::deliver(&vizier_core::service::Services, &str, vizier_core::auth::AuthMethod, &[vizier_core::transport::InboxEvent]) -> vizier_core::service::inbox::Delivery
+pub async fn vizier_core::service::inbox::hello(&vizier_core::service::Services, &vizier_core::auth::Principal) -> core::result::Result<vizier_core::service::inbox::InboxFrame, vizier_core::service::error::ServiceError>
+pub async fn vizier_core::service::inbox::hello_for(&vizier_core::service::Services, &str, vizier_core::auth::AuthMethod) -> core::result::Result<vizier_core::service::inbox::InboxFrame, vizier_core::service::error::ServiceError>
+pub fn vizier_core::service::inbox::judge(&vizier_core::auth::Principal, &[(alloc::string::String, vizier_core::schema::agent::AgentConfig)], &vizier_core::transport::InboxEvent) -> core::option::Option<vizier_core::service::inbox::InboxFrame>
 pub mod vizier_core::service::integrations
 pub use vizier_core::service::integrations::MANAGE_ALL
 pub use vizier_core::service::integrations::MANAGE_OWNED
@@ -11052,6 +11560,32 @@ pub async fn vizier_core::service::projects::skills(&vizier_core::service::Servi
 pub async fn vizier_core::service::projects::update(&vizier_core::service::Services, &vizier_core::auth::Principal, &str, &str, vizier_core::service::projects::UpdateProjectRequest) -> core::result::Result<vizier_core::service::projects::ProjectSummary, vizier_core::service::error::ServiceError>
 pub async fn vizier_core::service::projects::worktree_detail(&vizier_core::service::Services, &vizier_core::auth::Principal, &str, &str, &str) -> core::result::Result<vizier_core::service::projects::WorktreeDetail, vizier_core::service::error::ServiceError>
 pub mod vizier_core::service::providers
+pub struct vizier_core::service::providers::ProfileEntryResponse
+pub vizier_core::service::providers::ProfileEntryResponse::arn: alloc::string::String
+pub vizier_core::service::providers::ProfileEntryResponse::context: core::option::Option<u64>
+pub vizier_core::service::providers::ProfileEntryResponse::display_name: alloc::string::String
+pub vizier_core::service::providers::ProfileEntryResponse::edited: bool
+pub vizier_core::service::providers::ProfileEntryResponse::image_input: core::option::Option<bool>
+pub vizier_core::service::providers::ProfileEntryResponse::limits_edited: core::option::Option<vizier_core::schema::provider::LimitsEdited>
+pub vizier_core::service::providers::ProfileEntryResponse::model: core::option::Option<alloc::string::String>
+pub vizier_core::service::providers::ProfileEntryResponse::name: core::option::Option<alloc::string::String>
+pub vizier_core::service::providers::ProfileEntryResponse::output: core::option::Option<u64>
+pub vizier_core::service::providers::ProfileEntryResponse::price: core::option::Option<crate::Cost>
+pub vizier_core::service::providers::ProfileEntryResponse::pricing: vizier_core::service::catalogue::EntryPricingView
+pub vizier_core::service::providers::ProfileEntryResponse::tool_call: core::option::Option<bool>
+impl core::clone::Clone for vizier_core::service::providers::ProfileEntryResponse
+pub fn vizier_core::service::providers::ProfileEntryResponse::clone(&self) -> Self
+impl core::fmt::Debug for vizier_core::service::providers::ProfileEntryResponse
+pub fn vizier_core::service::providers::ProfileEntryResponse::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl serde_core::ser::Serialize for vizier_core::service::providers::ProfileEntryResponse
+pub fn vizier_core::service::providers::ProfileEntryResponse::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl core::marker::Freeze for vizier_core::service::providers::ProfileEntryResponse
+impl core::marker::Send for vizier_core::service::providers::ProfileEntryResponse
+impl core::marker::Sync for vizier_core::service::providers::ProfileEntryResponse
+impl core::marker::Unpin for vizier_core::service::providers::ProfileEntryResponse
+impl core::marker::UnsafeUnpin for vizier_core::service::providers::ProfileEntryResponse
+impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::service::providers::ProfileEntryResponse
+impl core::panic::unwind_safe::UnwindSafe for vizier_core::service::providers::ProfileEntryResponse
 pub struct vizier_core::service::providers::ProviderResponse
 pub vizier_core::service::providers::ProviderResponse::access_key_id: core::option::Option<alloc::string::String>
 pub vizier_core::service::providers::ProviderResponse::account_id: core::option::Option<alloc::string::String>
@@ -11062,16 +11596,25 @@ pub vizier_core::service::providers::ProviderResponse::has_access_token: bool
 pub vizier_core::service::providers::ProviderResponse::has_api_key: bool
 pub vizier_core::service::providers::ProviderResponse::has_secret_access_key: bool
 pub vizier_core::service::providers::ProviderResponse::has_session_token: bool
+pub vizier_core::service::providers::ProviderResponse::has_sso_session: bool
 pub vizier_core::service::providers::ProviderResponse::id: vizier_core::config::provider::ProviderId
-pub vizier_core::service::providers::ProviderResponse::kind: crate::data::ProviderKind
+pub vizier_core::service::providers::ProviderResponse::kind: crate::ProviderKind
 pub vizier_core::service::providers::ProviderResponse::logo: core::option::Option<alloc::string::String>
 pub vizier_core::service::providers::ProviderResponse::migrated_from: core::option::Option<alloc::string::String>
 pub vizier_core::service::providers::ProviderResponse::model_count: usize
 pub vizier_core::service::providers::ProviderResponse::name: alloc::string::String
 pub vizier_core::service::providers::ProviderResponse::origin: crate::ProviderOrigin
+pub vizier_core::service::providers::ProviderResponse::profiles: alloc::vec::Vec<vizier_core::service::providers::ProfileEntryResponse>
 pub vizier_core::service::providers::ProviderResponse::reachable: core::option::Option<bool>
 pub vizier_core::service::providers::ProviderResponse::region: core::option::Option<alloc::string::String>
+pub vizier_core::service::providers::ProviderResponse::role_name: core::option::Option<alloc::string::String>
+pub vizier_core::service::providers::ProviderResponse::session_expires_at: core::option::Option<chrono::datetime::DateTime<chrono::offset::utc::Utc>>
+pub vizier_core::service::providers::ProviderResponse::session_failure: core::option::Option<alloc::string::String>
 pub vizier_core::service::providers::ProviderResponse::source: core::option::Option<alloc::string::String>
+pub vizier_core::service::providers::ProviderResponse::sso_profile: core::option::Option<alloc::string::String>
+pub vizier_core::service::providers::ProviderResponse::sso_region: core::option::Option<alloc::string::String>
+pub vizier_core::service::providers::ProviderResponse::sso_state: core::option::Option<vizier_core::schema::sso::SsoSessionState>
+pub vizier_core::service::providers::ProviderResponse::start_url: core::option::Option<alloc::string::String>
 pub vizier_core::service::providers::ProviderResponse::used_by: vizier_core::service::usage::UsedBy
 pub vizier_core::service::providers::ProviderResponse::variant: vizier_core::config::provider::ProviderId
 impl core::clone::Clone for vizier_core::service::providers::ProviderResponse
@@ -11094,9 +11637,15 @@ pub vizier_core::service::providers::UpsertProviderRequest::account_id: core::op
 pub vizier_core::service::providers::UpsertProviderRequest::api_key: core::option::Option<alloc::string::String>
 pub vizier_core::service::providers::UpsertProviderRequest::base_url: core::option::Option<alloc::string::String>
 pub vizier_core::service::providers::UpsertProviderRequest::endpoint: core::option::Option<alloc::string::String>
+pub vizier_core::service::providers::UpsertProviderRequest::model: core::option::Option<alloc::string::String>
+pub vizier_core::service::providers::UpsertProviderRequest::profiles: core::option::Option<alloc::vec::Vec<vizier_core::schema::provider::ProfileEntry>>
 pub vizier_core::service::providers::UpsertProviderRequest::region: core::option::Option<alloc::string::String>
+pub vizier_core::service::providers::UpsertProviderRequest::role_name: core::option::Option<alloc::string::String>
 pub vizier_core::service::providers::UpsertProviderRequest::secret_access_key: core::option::Option<alloc::string::String>
 pub vizier_core::service::providers::UpsertProviderRequest::session_token: core::option::Option<alloc::string::String>
+pub vizier_core::service::providers::UpsertProviderRequest::sso_profile: core::option::Option<alloc::string::String>
+pub vizier_core::service::providers::UpsertProviderRequest::sso_region: core::option::Option<alloc::string::String>
+pub vizier_core::service::providers::UpsertProviderRequest::start_url: core::option::Option<alloc::string::String>
 impl vizier_core::service::providers::UpsertProviderRequest
 pub fn vizier_core::service::providers::UpsertProviderRequest::into_credentials(self) -> vizier_core::schema::provider::ProviderCredentials
 pub fn vizier_core::service::providers::UpsertProviderRequest::sent(&self) -> alloc::vec::Vec<CredentialField>
@@ -11115,12 +11664,180 @@ impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::service::providers
 impl core::panic::unwind_safe::UnwindSafe for vizier_core::service::providers::UpsertProviderRequest
 pub fn vizier_core::service::providers::apply(core::option::Option<alloc::string::String>, core::option::Option<alloc::string::String>) -> core::option::Option<alloc::string::String>
 pub fn vizier_core::service::providers::check_fields(&crate::dependencies::VizierDependencies, &vizier_core::config::provider::ProviderId, &[crate::builtin::CredentialField], &[vizier_core::schema::provider::CustomProvider]) -> core::result::Result<(), (u16, alloc::string::String)>
+pub fn vizier_core::service::providers::check_sso_connection(&vizier_core::config::provider::ProviderId, &mut vizier_core::schema::provider::ProviderCredentials, &[vizier_core::schema::provider::ProviderEntry]) -> core::result::Result<(), (u16, alloc::string::String)>
 pub async fn vizier_core::service::providers::connected(&crate::dependencies::VizierDependencies) -> alloc::vec::Vec<vizier_core::service::providers::ProviderResponse>
 pub async fn vizier_core::service::providers::delete(&crate::dependencies::VizierDependencies, &vizier_core::auth::Principal, &str, bool) -> core::result::Result<alloc::string::String, vizier_core::service::error::ServiceError>
 pub async fn vizier_core::service::providers::get(&crate::dependencies::VizierDependencies, &vizier_core::auth::Principal, &str) -> core::result::Result<vizier_core::service::providers::ProviderResponse, vizier_core::service::error::ServiceError>
 pub async fn vizier_core::service::providers::list(&crate::dependencies::VizierDependencies, &vizier_core::auth::Principal) -> core::result::Result<alloc::vec::Vec<vizier_core::service::providers::ProviderResponse>, vizier_core::service::error::ServiceError>
 pub async fn vizier_core::service::providers::test(&crate::dependencies::VizierDependencies, &vizier_core::auth::Principal, &str, &[u8]) -> core::result::Result<vizier_core::service::usage::TestResult, vizier_core::service::error::ServiceError>
 pub async fn vizier_core::service::providers::upsert(&crate::dependencies::VizierDependencies, &vizier_core::auth::Principal, &str, vizier_core::service::providers::UpsertProviderRequest) -> core::result::Result<core::option::Option<vizier_core::service::providers::ProviderResponse>, vizier_core::service::error::ServiceError>
+pub mod vizier_core::service::providers_sso
+pub enum vizier_core::service::providers_sso::SignInProgress
+pub vizier_core::service::providers_sso::SignInProgress::Pending
+pub vizier_core::service::providers_sso::SignInProgress::Pending::expires_at: chrono::datetime::DateTime<chrono::offset::utc::Utc>
+pub vizier_core::service::providers_sso::SignInProgress::SignedIn
+pub vizier_core::service::providers_sso::SignInProgress::SignedIn::account_id: core::option::Option<alloc::string::String>
+pub vizier_core::service::providers_sso::SignInProgress::SignedIn::expires_at: chrono::datetime::DateTime<chrono::offset::utc::Utc>
+pub vizier_core::service::providers_sso::SignInProgress::SignedIn::role_name: core::option::Option<alloc::string::String>
+impl core::clone::Clone for vizier_core::service::providers_sso::SignInProgress
+pub fn vizier_core::service::providers_sso::SignInProgress::clone(&self) -> Self
+impl core::fmt::Debug for vizier_core::service::providers_sso::SignInProgress
+pub fn vizier_core::service::providers_sso::SignInProgress::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl serde_core::ser::Serialize for vizier_core::service::providers_sso::SignInProgress
+pub fn vizier_core::service::providers_sso::SignInProgress::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl core::marker::Freeze for vizier_core::service::providers_sso::SignInProgress
+impl core::marker::Send for vizier_core::service::providers_sso::SignInProgress
+impl core::marker::Sync for vizier_core::service::providers_sso::SignInProgress
+impl core::marker::Unpin for vizier_core::service::providers_sso::SignInProgress
+impl core::marker::UnsafeUnpin for vizier_core::service::providers_sso::SignInProgress
+impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::service::providers_sso::SignInProgress
+impl core::panic::unwind_safe::UnwindSafe for vizier_core::service::providers_sso::SignInProgress
+pub enum vizier_core::service::providers_sso::SignInResponse
+pub vizier_core::service::providers_sso::SignInResponse::Progress(vizier_core::service::providers_sso::SignInProgress)
+pub vizier_core::service::providers_sso::SignInResponse::Started(vizier_core::service::providers_sso::SignInStarted)
+impl vizier_core::service::providers_sso::SignInResponse
+pub fn vizier_core::service::providers_sso::SignInResponse::status(&self) -> u16
+impl core::clone::Clone for vizier_core::service::providers_sso::SignInResponse
+pub fn vizier_core::service::providers_sso::SignInResponse::clone(&self) -> Self
+impl core::fmt::Debug for vizier_core::service::providers_sso::SignInResponse
+pub fn vizier_core::service::providers_sso::SignInResponse::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl serde_core::ser::Serialize for vizier_core::service::providers_sso::SignInResponse
+pub fn vizier_core::service::providers_sso::SignInResponse::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl core::marker::Freeze for vizier_core::service::providers_sso::SignInResponse
+impl core::marker::Send for vizier_core::service::providers_sso::SignInResponse
+impl core::marker::Sync for vizier_core::service::providers_sso::SignInResponse
+impl core::marker::Unpin for vizier_core::service::providers_sso::SignInResponse
+impl core::marker::UnsafeUnpin for vizier_core::service::providers_sso::SignInResponse
+impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::service::providers_sso::SignInResponse
+impl core::panic::unwind_safe::UnwindSafe for vizier_core::service::providers_sso::SignInResponse
+pub struct vizier_core::service::providers_sso::AccountList
+pub vizier_core::service::providers_sso::AccountList::accounts: alloc::vec::Vec<vizier_core::service::providers_sso::AccountView>
+pub vizier_core::service::providers_sso::AccountList::fallback: bool
+impl core::clone::Clone for vizier_core::service::providers_sso::AccountList
+pub fn vizier_core::service::providers_sso::AccountList::clone(&self) -> Self
+impl core::fmt::Debug for vizier_core::service::providers_sso::AccountList
+pub fn vizier_core::service::providers_sso::AccountList::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl serde_core::ser::Serialize for vizier_core::service::providers_sso::AccountList
+pub fn vizier_core::service::providers_sso::AccountList::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl core::marker::Freeze for vizier_core::service::providers_sso::AccountList
+impl core::marker::Send for vizier_core::service::providers_sso::AccountList
+impl core::marker::Sync for vizier_core::service::providers_sso::AccountList
+impl core::marker::Unpin for vizier_core::service::providers_sso::AccountList
+impl core::marker::UnsafeUnpin for vizier_core::service::providers_sso::AccountList
+impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::service::providers_sso::AccountList
+impl core::panic::unwind_safe::UnwindSafe for vizier_core::service::providers_sso::AccountList
+pub struct vizier_core::service::providers_sso::AccountView
+pub vizier_core::service::providers_sso::AccountView::account_id: alloc::string::String
+pub vizier_core::service::providers_sso::AccountView::account_name: alloc::string::String
+pub vizier_core::service::providers_sso::AccountView::email: core::option::Option<alloc::string::String>
+impl core::clone::Clone for vizier_core::service::providers_sso::AccountView
+pub fn vizier_core::service::providers_sso::AccountView::clone(&self) -> Self
+impl core::fmt::Debug for vizier_core::service::providers_sso::AccountView
+pub fn vizier_core::service::providers_sso::AccountView::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl serde_core::ser::Serialize for vizier_core::service::providers_sso::AccountView
+pub fn vizier_core::service::providers_sso::AccountView::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl core::marker::Freeze for vizier_core::service::providers_sso::AccountView
+impl core::marker::Send for vizier_core::service::providers_sso::AccountView
+impl core::marker::Sync for vizier_core::service::providers_sso::AccountView
+impl core::marker::Unpin for vizier_core::service::providers_sso::AccountView
+impl core::marker::UnsafeUnpin for vizier_core::service::providers_sso::AccountView
+impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::service::providers_sso::AccountView
+impl core::panic::unwind_safe::UnwindSafe for vizier_core::service::providers_sso::AccountView
+pub struct vizier_core::service::providers_sso::RoleList
+pub vizier_core::service::providers_sso::RoleList::fallback: bool
+pub vizier_core::service::providers_sso::RoleList::roles: alloc::vec::Vec<vizier_core::service::providers_sso::RoleView>
+impl core::clone::Clone for vizier_core::service::providers_sso::RoleList
+pub fn vizier_core::service::providers_sso::RoleList::clone(&self) -> Self
+impl core::fmt::Debug for vizier_core::service::providers_sso::RoleList
+pub fn vizier_core::service::providers_sso::RoleList::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl serde_core::ser::Serialize for vizier_core::service::providers_sso::RoleList
+pub fn vizier_core::service::providers_sso::RoleList::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl core::marker::Freeze for vizier_core::service::providers_sso::RoleList
+impl core::marker::Send for vizier_core::service::providers_sso::RoleList
+impl core::marker::Sync for vizier_core::service::providers_sso::RoleList
+impl core::marker::Unpin for vizier_core::service::providers_sso::RoleList
+impl core::marker::UnsafeUnpin for vizier_core::service::providers_sso::RoleList
+impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::service::providers_sso::RoleList
+impl core::panic::unwind_safe::UnwindSafe for vizier_core::service::providers_sso::RoleList
+pub struct vizier_core::service::providers_sso::RoleView
+pub vizier_core::service::providers_sso::RoleView::account_id: alloc::string::String
+pub vizier_core::service::providers_sso::RoleView::role_name: alloc::string::String
+impl core::clone::Clone for vizier_core::service::providers_sso::RoleView
+pub fn vizier_core::service::providers_sso::RoleView::clone(&self) -> Self
+impl core::fmt::Debug for vizier_core::service::providers_sso::RoleView
+pub fn vizier_core::service::providers_sso::RoleView::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl serde_core::ser::Serialize for vizier_core::service::providers_sso::RoleView
+pub fn vizier_core::service::providers_sso::RoleView::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl core::marker::Freeze for vizier_core::service::providers_sso::RoleView
+impl core::marker::Send for vizier_core::service::providers_sso::RoleView
+impl core::marker::Sync for vizier_core::service::providers_sso::RoleView
+impl core::marker::Unpin for vizier_core::service::providers_sso::RoleView
+impl core::marker::UnsafeUnpin for vizier_core::service::providers_sso::RoleView
+impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::service::providers_sso::RoleView
+impl core::panic::unwind_safe::UnwindSafe for vizier_core::service::providers_sso::RoleView
+pub struct vizier_core::service::providers_sso::SignInRequest
+pub vizier_core::service::providers_sso::SignInRequest::profile: core::option::Option<alloc::string::String>
+pub vizier_core::service::providers_sso::SignInRequest::sso_region: core::option::Option<alloc::string::String>
+pub vizier_core::service::providers_sso::SignInRequest::start_url: core::option::Option<alloc::string::String>
+impl core::default::Default for vizier_core::service::providers_sso::SignInRequest
+pub fn vizier_core::service::providers_sso::SignInRequest::default() -> Self
+impl core::fmt::Debug for vizier_core::service::providers_sso::SignInRequest
+pub fn vizier_core::service::providers_sso::SignInRequest::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<'de> serde_core::de::Deserialize<'de> for vizier_core::service::providers_sso::SignInRequest
+pub fn vizier_core::service::providers_sso::SignInRequest::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+impl core::marker::Freeze for vizier_core::service::providers_sso::SignInRequest
+impl core::marker::Send for vizier_core::service::providers_sso::SignInRequest
+impl core::marker::Sync for vizier_core::service::providers_sso::SignInRequest
+impl core::marker::Unpin for vizier_core::service::providers_sso::SignInRequest
+impl core::marker::UnsafeUnpin for vizier_core::service::providers_sso::SignInRequest
+impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::service::providers_sso::SignInRequest
+impl core::panic::unwind_safe::UnwindSafe for vizier_core::service::providers_sso::SignInRequest
+pub struct vizier_core::service::providers_sso::SignInStarted
+pub vizier_core::service::providers_sso::SignInStarted::expires_at: chrono::datetime::DateTime<chrono::offset::utc::Utc>
+pub vizier_core::service::providers_sso::SignInStarted::interval_seconds: u64
+pub vizier_core::service::providers_sso::SignInStarted::user_code: alloc::string::String
+pub vizier_core::service::providers_sso::SignInStarted::verification_uri: alloc::string::String
+pub vizier_core::service::providers_sso::SignInStarted::verification_uri_complete: core::option::Option<alloc::string::String>
+impl core::clone::Clone for vizier_core::service::providers_sso::SignInStarted
+pub fn vizier_core::service::providers_sso::SignInStarted::clone(&self) -> Self
+impl core::fmt::Debug for vizier_core::service::providers_sso::SignInStarted
+pub fn vizier_core::service::providers_sso::SignInStarted::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl serde_core::ser::Serialize for vizier_core::service::providers_sso::SignInStarted
+pub fn vizier_core::service::providers_sso::SignInStarted::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl core::marker::Freeze for vizier_core::service::providers_sso::SignInStarted
+impl core::marker::Send for vizier_core::service::providers_sso::SignInStarted
+impl core::marker::Sync for vizier_core::service::providers_sso::SignInStarted
+impl core::marker::Unpin for vizier_core::service::providers_sso::SignInStarted
+impl core::marker::UnsafeUnpin for vizier_core::service::providers_sso::SignInStarted
+impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::service::providers_sso::SignInStarted
+impl core::panic::unwind_safe::UnwindSafe for vizier_core::service::providers_sso::SignInStarted
+pub struct vizier_core::service::providers_sso::SignOutResponse
+pub vizier_core::service::providers_sso::SignOutResponse::state: alloc::string::String
+impl core::clone::Clone for vizier_core::service::providers_sso::SignOutResponse
+pub fn vizier_core::service::providers_sso::SignOutResponse::clone(&self) -> Self
+impl core::fmt::Debug for vizier_core::service::providers_sso::SignOutResponse
+pub fn vizier_core::service::providers_sso::SignOutResponse::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl serde_core::ser::Serialize for vizier_core::service::providers_sso::SignOutResponse
+pub fn vizier_core::service::providers_sso::SignOutResponse::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl core::marker::Freeze for vizier_core::service::providers_sso::SignOutResponse
+impl core::marker::Send for vizier_core::service::providers_sso::SignOutResponse
+impl core::marker::Sync for vizier_core::service::providers_sso::SignOutResponse
+impl core::marker::Unpin for vizier_core::service::providers_sso::SignOutResponse
+impl core::marker::UnsafeUnpin for vizier_core::service::providers_sso::SignOutResponse
+impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::service::providers_sso::SignOutResponse
+impl core::panic::unwind_safe::UnwindSafe for vizier_core::service::providers_sso::SignOutResponse
+pub async fn vizier_core::service::providers_sso::add_entry(&crate::dependencies::VizierDependencies, &vizier_core::auth::Principal, &str, vizier_core::schema::provider::ProfileEntry) -> core::result::Result<alloc::vec::Vec<vizier_core::service::providers::ProfileEntryResponse>, vizier_core::service::error::ServiceError>
+pub async fn vizier_core::service::providers_sso::complete_sign_in(&crate::dependencies::VizierDependencies, &vizier_core::auth::Principal, &str, vizier_core::service::providers_sso::SignInRequest) -> core::result::Result<vizier_core::service::providers_sso::SignInProgress, vizier_core::service::error::ServiceError>
+pub async fn vizier_core::service::providers_sso::discover_accounts(&crate::dependencies::VizierDependencies, &vizier_core::auth::Principal, &str, vizier_core::service::providers_sso::SignInRequest) -> core::result::Result<vizier_core::service::providers_sso::AccountList, vizier_core::service::error::ServiceError>
+pub async fn vizier_core::service::providers_sso::discover_roles(&crate::dependencies::VizierDependencies, &vizier_core::auth::Principal, &str, &str, vizier_core::service::providers_sso::SignInRequest) -> core::result::Result<vizier_core::service::providers_sso::RoleList, vizier_core::service::error::ServiceError>
+pub async fn vizier_core::service::providers_sso::entries(&crate::dependencies::VizierDependencies, &vizier_core::auth::Principal, &str) -> core::result::Result<alloc::vec::Vec<vizier_core::service::providers::ProfileEntryResponse>, vizier_core::service::error::ServiceError>
+pub fn vizier_core::service::providers_sso::fill_limits(&crate::catalogue::Catalogue, &[vizier_core::schema::provider::ProfileEntry], &mut [vizier_core::schema::provider::ProfileEntry])
+pub async fn vizier_core::service::providers_sso::remove_entry(&crate::dependencies::VizierDependencies, &vizier_core::auth::Principal, &str, &str, bool) -> core::result::Result<alloc::vec::Vec<vizier_core::service::providers::ProfileEntryResponse>, vizier_core::service::error::ServiceError>
+pub async fn vizier_core::service::providers_sso::sign_in(&crate::dependencies::VizierDependencies, &vizier_core::auth::Principal, &str, vizier_core::service::providers_sso::SignInRequest) -> core::result::Result<vizier_core::service::providers_sso::SignInResponse, vizier_core::service::error::ServiceError>
+pub async fn vizier_core::service::providers_sso::sign_out(&crate::dependencies::VizierDependencies, &vizier_core::auth::Principal, &str, vizier_core::service::providers_sso::SignInRequest) -> core::result::Result<vizier_core::service::providers_sso::SignOutResponse, vizier_core::service::error::ServiceError>
+pub async fn vizier_core::service::providers_sso::start_sign_in(&crate::dependencies::VizierDependencies, &vizier_core::auth::Principal, &str, vizier_core::service::providers_sso::SignInRequest) -> core::result::Result<vizier_core::service::providers_sso::SignInStarted, vizier_core::service::error::ServiceError>
+pub async fn vizier_core::service::providers_sso::update_entry(&crate::dependencies::VizierDependencies, &vizier_core::auth::Principal, &str, &str, vizier_core::schema::provider::ProfileEntry, bool) -> core::result::Result<alloc::vec::Vec<vizier_core::service::providers::ProfileEntryResponse>, vizier_core::service::error::ServiceError>
+pub fn vizier_core::service::providers_sso::validate_entries(&mut [vizier_core::schema::provider::ProfileEntry], core::option::Option<&str>) -> core::result::Result<(), vizier_core::service::error::ServiceError>
 pub mod vizier_core::service::roles
 pub fn vizier_core::service::roles::available_permissions(&vizier_core::auth::Principal) -> core::result::Result<alloc::vec::Vec<alloc::string::String>, vizier_core::service::error::ServiceError>
 pub async fn vizier_core::service::roles::create(&vizier_core::service::Services, &vizier_core::auth::Principal, &str, alloc::vec::Vec<alloc::string::String>) -> core::result::Result<crate::Role, vizier_core::service::error::ServiceError>
@@ -11229,6 +11946,7 @@ pub mod vizier_core::service::setup
 pub async fn vizier_core::service::setup::first_user(&vizier_core::service::Services, &str, &str) -> core::result::Result<(crate::User, crate::Role), vizier_core::service::error::ServiceError>
 pub async fn vizier_core::service::setup::needs_setup(&vizier_core::service::Services) -> core::result::Result<bool, vizier_core::service::error::ServiceError>
 pub mod vizier_core::service::setup_state
+pub fn vizier_core::service::setup_state::can_see_setup(&vizier_core::auth::Principal, &[(alloc::string::String, vizier_core::schema::agent::AgentConfig)], &str, core::option::Option<&str>) -> bool
 pub async fn vizier_core::service::setup_state::states(&vizier_core::service::Services, &vizier_core::auth::Principal) -> core::result::Result<crate::setup::SetupStates, vizier_core::service::error::ServiceError>
 pub mod vizier_core::service::skills
 pub enum vizier_core::service::skills::SkillError
@@ -11524,7 +12242,9 @@ impl core::marker::UnsafeUnpin for vizier_core::service::usage::InUse
 impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::service::usage::InUse
 impl core::panic::unwind_safe::UnwindSafe for vizier_core::service::usage::InUse
 pub struct vizier_core::service::usage::TestResult
+pub vizier_core::service::usage::TestResult::billing: core::option::Option<alloc::string::String>
 pub vizier_core::service::usage::TestResult::error: core::option::Option<alloc::string::String>
+pub vizier_core::service::usage::TestResult::model: core::option::Option<alloc::string::String>
 pub vizier_core::service::usage::TestResult::model_count: core::option::Option<usize>
 pub vizier_core::service::usage::TestResult::ok: bool
 pub vizier_core::service::usage::TestResult::status: core::option::Option<u16>
@@ -11568,7 +12288,7 @@ pub async fn vizier_core::service::usage::check(&crate::dependencies::VizierDepe
 pub async fn vizier_core::service::usage::check_in_use(&crate::dependencies::VizierDependencies, &vizier_core::config::provider::ProviderId, bool) -> core::result::Result<(), vizier_core::service::error::ServiceError>
 pub async fn vizier_core::service::usage::migrated_from(&crate::dependencies::VizierDependencies) -> alloc::collections::btree::map::BTreeMap<alloc::string::String, alloc::string::String>
 pub fn vizier_core::service::usage::reachable(&crate::dependencies::VizierDependencies, &vizier_core::config::provider::ProviderId) -> core::option::Option<bool>
-pub async fn vizier_core::service::usage::resolve_for_test(&crate::dependencies::VizierDependencies, &vizier_core::config::provider::ProviderId, core::option::Option<vizier_core::schema::provider::ProviderCredentials>, core::option::Option<&vizier_core::schema::provider::CustomProvider>) -> vizier_core::Result<crate::ResolvedModel>
+pub async fn vizier_core::service::usage::resolve_for_test(&crate::dependencies::VizierDependencies, &vizier_core::config::provider::ProviderId, core::option::Option<vizier_core::schema::provider::ProviderCredentials>, core::option::Option<&vizier_core::schema::provider::CustomProvider>, &str) -> vizier_core::Result<crate::ResolvedModel>
 pub async fn vizier_core::service::usage::restart_users(&crate::dependencies::VizierDependencies, &vizier_core::config::provider::ProviderId)
 pub async fn vizier_core::service::usage::used_by_all(&crate::dependencies::VizierDependencies) -> std::collections::hash::map::HashMap<vizier_core::config::provider::ProviderId, (vizier_core::service::usage::UsedBy, alloc::vec::Vec<vizier_core::service::usage::AffectedAgent>)>
 pub mod vizier_core::service::users
@@ -11815,6 +12535,38 @@ pub fn vizier_core::transport::wire::decode_request(&vizier_schema::envelope::En
 pub fn vizier_core::transport::wire::encode_request(&vizier_core::transport::VizierRequestEnvelope, core::option::Option<vizier_schema::subject::Subject>) -> core::result::Result<vizier_schema::envelope::Envelope, vizier_schema::error::BusError>
 pub fn vizier_core::transport::wire::open_agent_command(vizier_core::transport::wire::AgentCommandRequest) -> (vizier_core::prelude::AgentCommand, vizier_core::transport::wire::Answer)
 pub fn vizier_core::transport::wire::split_agent_command(vizier_core::prelude::AgentCommand) -> (vizier_core::transport::wire::AgentCommandRequest, vizier_core::transport::wire::Awaiting)
+pub enum vizier_core::transport::InboxEvent
+pub vizier_core::transport::InboxEvent::Created
+pub vizier_core::transport::InboxEvent::Created::audience: core::option::Option<alloc::string::String>
+pub vizier_core::transport::InboxEvent::Created::item: vizier_core::schema::notification::NotificationItem
+pub vizier_core::transport::InboxEvent::Created::source_session: core::option::Option<vizier_core::prelude::VizierSession>
+pub vizier_core::transport::InboxEvent::Read
+pub vizier_core::transport::InboxEvent::Read::id: core::option::Option<i64>
+pub vizier_core::transport::InboxEvent::Read::read: bool
+pub vizier_core::transport::InboxEvent::Read::user_id: alloc::string::String
+pub vizier_core::transport::InboxEvent::Setup
+pub vizier_core::transport::InboxEvent::Setup::owner_id: core::option::Option<alloc::string::String>
+pub vizier_core::transport::InboxEvent::Setup::state: crate::setup::SetupState
+pub vizier_core::transport::InboxEvent::SetupCleared
+pub vizier_core::transport::InboxEvent::SetupCleared::agent_id: alloc::string::String
+pub vizier_core::transport::InboxEvent::Stale
+pub vizier_core::transport::InboxEvent::Stale::agent_id: core::option::Option<alloc::string::String>
+pub vizier_core::transport::InboxEvent::Stale::user: core::option::Option<alloc::string::String>
+impl core::clone::Clone for vizier_core::transport::InboxEvent
+pub fn vizier_core::transport::InboxEvent::clone(&self) -> Self
+impl core::fmt::Debug for vizier_core::transport::InboxEvent
+pub fn vizier_core::transport::InboxEvent::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl serde_core::ser::Serialize for vizier_core::transport::InboxEvent
+pub fn vizier_core::transport::InboxEvent::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for vizier_core::transport::InboxEvent
+pub fn vizier_core::transport::InboxEvent::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+impl core::marker::Freeze for vizier_core::transport::InboxEvent
+impl core::marker::Send for vizier_core::transport::InboxEvent
+impl core::marker::Sync for vizier_core::transport::InboxEvent
+impl core::marker::Unpin for vizier_core::transport::InboxEvent
+impl core::marker::UnsafeUnpin for vizier_core::transport::InboxEvent
+impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::transport::InboxEvent
+impl core::panic::unwind_safe::UnwindSafe for vizier_core::transport::InboxEvent
 pub enum vizier_core::transport::SessionFrame
 pub vizier_core::transport::SessionFrame::ClientCallDeferred
 pub vizier_core::transport::SessionFrame::ClientCallDeferred::call_id: alloc::string::String
@@ -12068,6 +12820,7 @@ pub async fn vizier_core::transport::VizierTransport::reply_channel(&self) -> an
 pub async fn vizier_core::transport::VizierTransport::send_agent_command(&self, vizier_core::prelude::AgentCommand) -> anyhow::Result<()>
 pub async fn vizier_core::transport::VizierTransport::send_agent_command_to(&self, &str, vizier_core::prelude::AgentCommand, core::time::Duration) -> anyhow::Result<()>
 pub async fn vizier_core::transport::VizierTransport::send_request(&self, vizier_core::prelude::VizierSession, vizier_core::prelude::VizierRequest, core::option::Option<vizier_core::transport::ResponseSender>) -> anyhow::Result<()>
+pub fn vizier_core::transport::VizierTransport::subscribe_inbox_events(&self) -> tokio::sync::broadcast::Receiver<vizier_core::transport::InboxEvent>
 pub fn vizier_core::transport::VizierTransport::subscribe_session_events(&self) -> tokio::sync::broadcast::Receiver<vizier_core::transport::SessionEvent>
 impl core::clone::Clone for vizier_core::transport::VizierTransport
 pub fn vizier_core::transport::VizierTransport::clone(&self) -> Self

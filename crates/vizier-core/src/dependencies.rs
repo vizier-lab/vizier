@@ -256,6 +256,8 @@ impl VizierDependencies {
             file_manager.clone(),
         ));
         let notifications = crate::notifications::Notifications::new(storage.clone());
+        // New rows reach the inbox stream; the sweeps below run with it already installed.
+        notifications.install_transport(transport.clone());
         // The interrupted runs and jobs the sweeps above closed are news: record them now that
         // the service exists. Best-effort, like every notification write.
         Self::record_interrupted(&notifications, &storage, interrupted_runs, interrupted_jobs)
@@ -308,6 +310,7 @@ impl VizierDependencies {
         // The setup board publishes the setup views, so it needs the bus.
         let setup = crate::setup::SetupBoard::default();
         setup.install_publisher(crate::agents::views::Publisher::new(&transport));
+        setup.install_inbox(transport.clone());
 
         let deps = Self {
             config: Arc::new(config.clone()),
@@ -1320,7 +1323,7 @@ impl VizierDependencies {
             notifications
                 .job_ended(
                     &job.id,
-                    &job.agent_id,
+                    &job.origin,
                     job.kind,
                     crate::schema::JobState::Interrupted,
                     None,

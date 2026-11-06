@@ -31,7 +31,7 @@ pub use leases::{FencingToken, Lease, LeaseEvent, LeaseWatch, Leases};
 pub use messaging::{Delivery, Messaging, SUBSCRIPTION_DEPTH, Subscription, SubscriptionSender, reply};
 pub use state::{Revision, SharedState, StateEvent, StateWatch, Versioned};
 pub use subject::{
-    AGENTS_CMD, DREAM_CMD, FILES_CMD, INTEGRATION_CHANGED, MAX_SUBJECT_LEN, PROCESS_CMD, Subject,
-    SubjectPattern,
+    AGENTS_CMD, DREAM_CMD, FILES_CMD, INBOX_EVENTS, INTEGRATION_CHANGED, MAX_SUBJECT_LEN,
+    PROCESS_CMD, Subject, SubjectPattern,
 };
 pub use watch::{Watch, WatchSender};

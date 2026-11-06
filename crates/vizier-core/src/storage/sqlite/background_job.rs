@@ -338,15 +338,26 @@ impl BackgroundJobStorage for SqlStorage {
         let conn = self.conn.lock()?;
         let tx = conn.transaction()?;
         let now = Utc::now().timestamp_millis();
-        let open: Vec<(String, String, String)> = {
+        let open: Vec<(String, String, String, String, Option<String>)> = {
             let mut stmt = tx.prepare(&format!(
-                "SELECT id, origin_agent, kind FROM background_job WHERE {IN_FLIGHT}"
+                "SELECT id, origin_agent, kind, origin_channel, origin_topic \
+                 FROM background_job WHERE {IN_FLIGHT}"
             ))?;
-            stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
-                .collect::<sql::Result<_>>()?
+            stmt.query_map([], |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                ))
+            })?
+            .collect::<sql::Result<_>>()?
         };
         let mut swept = vec![];
-        for (id, origin_agent, kind) in open.iter().filter(|(id, _, _)| !keep.contains(id)) {
+        for (id, origin_agent, kind, channel, topic) in
+            open.iter().filter(|(id, ..)| !keep.contains(id))
+        {
             tx.execute(
                 "UPDATE background_piece SET state = 'interrupted', finished_at = ?1 \
                  WHERE job_id = ?2 AND state = 'running'",
@@ -356,11 +367,15 @@ impl BackgroundJobStorage for SqlStorage {
                 "UPDATE background_job SET state = 'interrupted', finished_at = ?1 WHERE id = ?2",
                 params![now, id],
             )?;
-            if let Some(kind) = crate::schema::JobKind::from_str(kind) {
+            if let (Some(kind), Ok(channel)) = (
+                crate::schema::JobKind::from_str(kind),
+                serde_json::from_str::<VizierChannelId>(channel),
+            ) {
                 swept.push(InterruptedJob {
                     id: id.clone(),
                     agent_id: origin_agent.clone(),
                     kind,
+                    origin: VizierSession(origin_agent.clone(), channel, topic.clone()),
                 });
             }
         }

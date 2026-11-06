@@ -5,6 +5,8 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+use super::VizierSession;
+
 /// What kind of event a notification records. Exposed for semantics and tests; never offered as
 /// a filter.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, schemars::JsonSchema)]
@@ -17,7 +19,6 @@ pub enum NotificationCategory {
     DreamCycle,
     BackgroundJob,
     Integration,
-    ChannelReplies,
     /// A WebUI conversation's reply. Addressed to the person whose conversation it is
     /// (`audience_user_id`), not to everyone who can see the agent.
     ChatReply,
@@ -32,7 +33,6 @@ impl NotificationCategory {
             Self::DreamCycle => "dream_cycle",
             Self::BackgroundJob => "background_job",
             Self::Integration => "integration",
-            Self::ChannelReplies => "channel_replies",
             Self::ChatReply => "chat_reply",
         }
     }
@@ -45,7 +45,6 @@ impl NotificationCategory {
             "dream_cycle" => Some(Self::DreamCycle),
             "background_job" => Some(Self::BackgroundJob),
             "integration" => Some(Self::Integration),
-            "channel_replies" => Some(Self::ChannelReplies),
             "chat_reply" => Some(Self::ChatReply),
             _ => None,
         }
@@ -128,6 +127,22 @@ pub struct NotificationDraft {
     pub summary: String,
     pub href: String,
     pub created_at: DateTime<Utc>,
+    /// The conversation the row is about, when it has one. Its current title is filled on read,
+    /// and the row goes away with the conversation.
+    pub source_session: Option<VizierSession>,
+    /// A stored title for a source with no session (a task, when its run ended).
+    pub source_title: Option<String>,
+    /// A short plain-text excerpt (`notifications::excerpt`). Never tool arguments, tool
+    /// results or reasoning.
+    pub excerpt: Option<String>,
+}
+
+/// A row the store has just inserted, as the live stream needs it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InsertedNotification {
+    pub item: NotificationItem,
+    /// The row's `audience_user_id`: `None` means everyone who can view the agent.
+    pub audience: Option<String>,
 }
 
 /// One row as the API returns it.
@@ -145,6 +160,16 @@ pub struct NotificationItem {
     pub href: String,
     /// This person's read state.
     pub read: bool,
+    /// The conversation's current title or the task's title. Absent when the source has none,
+    /// or when the viewer may not see it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    /// A short plain-text excerpt of what the source said.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub excerpt: Option<String>,
+    /// Used by the service to fill and gate `title`; never sent.
+    #[serde(skip)]
+    pub source_session: Option<VizierSession>,
 }
 
 /// Counts over the whole visible, retained set, independent of the selected page/filter.
@@ -167,19 +192,6 @@ pub struct NotificationPage {
     pub next: Option<String>,
 }
 
-/// One agent's replies in one Discord or Telegram conversation within one closed hour, from
-/// which the channel-reply projection makes one notification.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ReplyBatch {
-    pub agent_id: String,
-    pub channel: String,
-    /// Hours since the Unix epoch.
-    pub hour: i64,
-    pub replies: u64,
-    /// The last reply in the bucket; becomes the notification's `created_at`.
-    pub at: DateTime<Utc>,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -193,7 +205,6 @@ mod tests {
             NotificationCategory::DreamCycle,
             NotificationCategory::BackgroundJob,
             NotificationCategory::Integration,
-            NotificationCategory::ChannelReplies,
             NotificationCategory::ChatReply,
         ] {
             assert_eq!(

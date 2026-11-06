@@ -56,8 +56,8 @@ pub use integration::{
     IntegrationGrant, IntegrationStatus,
 };
 pub use notification::{
-    NotificationCategory, NotificationCounts, NotificationDraft, NotificationFilter,
-    NotificationItem, NotificationPage, NotificationTone, ReplyBatch,
+    InsertedNotification, NotificationCategory, NotificationCounts, NotificationDraft,
+    NotificationFilter, NotificationItem, NotificationPage, NotificationTone,
 };
 pub use project::{
     DEFAULT_COMMAND_TIMEOUT, INSTRUCTIONS_CAP_BYTES, MAX_COMMAND_TIMEOUT, NEW_SESSION_TITLE,
