@@ -170,7 +170,7 @@ description: "Task list for the Workspace channel and mid-turn messages"
 - [X] T070 [US5] Update the `Agents` category description in `core/agents/tools/mod.rs` and `list_background_jobs`'s description in `core/agents/tools/background_jobs.rs`, and remove the labels in `core/utils/mod.rs`
 - [X] T071 [US5] Keep `InterAgent`, `JobKind::Delegation` and `delegated_to` compiling for reads, and adjust `launch` in `core/agents/background/mod.rs` if it is now the only constructor path, with no `allow(dead_code)` where a read path exists
 - [X] T072 [US5] Keep `delegate_agent` in `JOB_LAUNCHING_TOOLS` in `webui/app/lib/trail.ts` with a comment for saved history, and confirm `webui/app/screens/chat/MessageList.tsx` and `ChatStatusStrip.tsx` still render an old delegation
-- [ ] T073 [US5] Add a checklist entry to issue #82 naming each kept item from `specs/053-workspace-channel/data-model.md`. This writes to GitHub, so confirm the text with the owner first
+- [X] T073 [US5] Add a checklist entry to issue #82 naming each kept item from `specs/053-workspace-channel/data-model.md`. This writes to GitHub, so confirm the text with the owner first
 - [X] T074 [US5] Extend `scripts/workspace-e2e.mjs` with quickstart §9 and run it
 
 **Checkpoint**: The breaking change is complete and fails helpfully.
