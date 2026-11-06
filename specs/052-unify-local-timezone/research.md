@@ -78,14 +78,14 @@ The Docker runtime image adds `tzdata`, and the docs show `TZ` for compose and K
 - `context_md_with` is the only place that writes the current time.
 - `system_prompt/boot.rs` carries a `## Time` section telling the agent to read the context block and use UTC for tools.
 - `reactions.rs` already renders local time, and its section is volatile anyway (FR-014).
-- `sent_at` on Discord and Telegram, and the `timestamp` a scheduled run puts in its metadata, are fixed once written and are replayed as stored, so they do not disturb the cache.
+- A message's stored time, and the `timestamp` a scheduled run puts in its metadata, are fixed once written, so they do not disturb the cache.
 
 **Decision**:
 
 - Delete the section from `context_md_with`. Tests that locate other sections relative to `## Time` change to the block header.
 - Rewrite boot's section: the agent does not know the current time, must ask the `time` tools, and all times on this instance are local. It stays static, so the system prompt stays byte-identical across turns.
 - The zone's name is **not** placed in the prompt, because it would change the cached prefix when a host is reconfigured, and `current_time` answers it.
-- New `sent_at` ([R14](#r14-server-stamped-sent_at-on-every-channel)) and scheduled-run metadata write local RFC 3339. Old rows are replayed as stored.
+- Messages show their time as in [R14](#r14-one-server-stamped-message-time). Scheduled-run metadata writes local RFC 3339.
 
 **Note on caching**: The context block rides the newest user message, which is not itself replayed with its block on later turns, so the block's value was already outside the longest cached prefix. The main measurable effect is the removal of per-minute variance in the block. Hence SC-003 tests byte equality directly, and SC-004 only requires no regression.
 
@@ -160,26 +160,27 @@ Usage rows hold instants, so past usage regroups correctly with no migration.
 
 Re-running it is a no-op even without the marker, because the same instant formats to the same text in the same zone. A task in `vizier storage migrate`'s output is valid in either form. Listed on #82 with the parser leniency it relies on.
 
-## R14. Server-stamped `sent_at` on every channel
+## R14. One server-stamped message time
 
 **Findings**:
 
 - The WebUI builds `timestamp: new Date().toISOString()` and `metadata: null` in the browser (`webui/app/stores/turns.ts`). `crates/vizier-http/src/topic.rs` parses that request and does not replace the timestamp, so the browser's clock reaches stored history and the history cutoff that uses `request.timestamp`.
-- Discord and Telegram already write `sent_at` on the server at three sites. Their other request sites use `metadata: {}`; these appear to be commands rather than messages, and **each needs checking when the code changes**.
-- History replay rebuilds a message with `VizierRequest::to_prompt`, whose frontmatter prints `metadata`. So a `sent_at` stored with the request reaches the agent and is replayed byte-identically.
+- Discord and Telegram write `metadata.sent_at` at three sites, right beside a `timestamp` from the same clock. Nothing in the repository reads it. It exists only because `generate_frontmatter` prints `metadata` and not `timestamp`.
+- History replay rebuilds a message with `VizierRequest::to_prompt`, so whatever `generate_frontmatter` prints is what the agent sees, on the first turn and on replay.
 
-**Decision**: One core helper, `VizierRequest::stamp_received(now)`, sets `timestamp` and `metadata.sent_at`, keeping other metadata keys. A `null` or non-object `metadata` becomes an object holding just `sent_at`.
+**Decision**: `VizierRequest.timestamp` is the one stored time.
 
-- **WebUI and API sockets**: called in the `VizierRequest` arm of `TopicConnection::handle_inbound`, next to the existing `background_depth = 0` reset. That is the one path shared by the WebSocket handler and the desktop app's IPC, so client events and question answers are covered too. The `timestamp` field stays required on input, so existing clients keep working, and its value is discarded.
-- **Discord and Telegram**: every request carrying a person's message goes through the same helper, so the format has one source. `sent_at` remains the receipt time.
+- **Stamping**: the `VizierRequest` arm of `TopicConnection::handle_inbound` sets `request.timestamp = time::now()`, next to the existing `background_depth = 0` reset. That path is shared by the WebSocket handler and the desktop app's IPC, so client events and question answers are covered too. The field stays required on input, so existing clients keep working, and its value is discarded. Every other request site already sets it on the server.
+- **Showing**: `generate_frontmatter` prints `sent_at` from `timestamp`, in local RFC 3339 to the second, on every branch. One place covers every request kind, so no site can be missed. The label stays `sent_at` because agents already see that name. Scheduled runs and background reports get it too; a scheduled run's metadata `timestamp` is dropped if it proves to be the same value.
+- **Removing**: Discord and Telegram stop writing `metadata.sent_at`. `generate_frontmatter` leaves that key out when rendering old rows, so the time never appears twice. This is a #82 entry.
 - **Resumed turns**: `resend_pending_turns` re-sends the stored request without passing through the socket, so it is never stamped again (FR-025).
 
-**Not stamped**: `/btw` side chats (never stored, and they read the host turn's history), and machine-made requests such as scheduled runs, background reports and inter-agent turns, which carry their own framing.
+**Cache cost**: replayed text changes once at the upgrade, because every old message gains a local `sent_at`. That is at most one cache miss per conversation, and it also ends the mix of UTC and local in history. A later change of host timezone costs one more. The formatted text does not vary between turns, because the offset at a given instant is fixed.
 
 **Alternatives rejected**:
 
 - *Trusting the client's time.* A wrong clock would corrupt history order and the cutoff.
-- *Adding `sent_at` only in `to_prompt`, computed from `timestamp`.* This would change how old stored messages replay, which disturbs cached history.
+- *Keeping a separate `metadata.sent_at`.* An earlier draft stamped both fields to keep old messages' replayed text unchanged. That protected against a one-time cache miss at the price of a duplicate field, a metadata merge helper, and a mix of UTC and local in history.
 - *The platform's own message time on Discord and Telegram.* It is more accurate for late delivery, but it is a separate change and would make the channels differ from the WebUI's rule.
 
 **Display**: `lib/messages.ts` renders a message's time in the instance's zone. The WebUI also creates a browser-timed optimistic message before the server answers. Whether the saved entry replaces that time needs checking when the screens change; if it doesn't, the bubble must take the server's time.

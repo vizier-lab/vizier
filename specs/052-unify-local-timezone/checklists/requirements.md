@@ -32,5 +32,5 @@
 ## Notes
 
 - The one clarification (FR-005, which timezone the WebUI shows when a browser and the server differ) was resolved on 2026-11-06: the instance's timezone. All items pass.
-- FR-023 to FR-025 and SC-009 (server-stamped `sent_at` on every channel) were added on 2026-11-06 and re-validated. All items still pass.
+- FR-023 to FR-025 and SC-009 (one server-stamped message time, shown to agents as `sent_at`) were added on 2026-11-06 and re-validated. All items still pass.
 - Product terms that are part of the request stay on purpose: cron expressions, the `time` tool category, `sent_at`, and offline test agent.

@@ -41,8 +41,8 @@ Returned by `time::parse_schedule`.
 | Cron expression | `task.data` → `schedule.CronTask` | Text | Unchanged; now means local | **Never rewritten** |
 | Dream schedule | Agent config `dream_schedule` | Text | Unchanged; now means local | **Never rewritten** |
 | Other JSON times (`last_executed_at`, `timestamp`, history data) | JSON blobs | `…Z` | Local offset on new writes | Left as is; read as local |
-| Message `sent_at` | Request metadata | UTC on Discord and Telegram; absent on the WebUI | Local RFC 3339, stamped by the server, on all three | Left as is, including absent; replayed verbatim for cache stability |
-| Request `timestamp` (WebUI and API) | Request | Client's clock | **Server's clock**; the client's value is discarded | Left as is |
+| Message time: `VizierRequest.timestamp` | Request | Client's clock on the WebUI and API; server's on channels | **Server's clock everywhere**, the client's value discarded. The only stored time for a message; shown to agents as `sent_at` | Left as is; shown in local time |
+| `metadata.sent_at` | Request metadata | UTC on Discord and Telegram; absent on the WebUI | **No longer written** | Left in old rows, not shown (#82) |
 | Scheduled-run `timestamp` | Request metadata | UTC | Local RFC 3339 | Left as is; replayed verbatim |
 | Memory frontmatter (`created_at`, `updated_at`) | Memory documents | `…Z` | Local offset on new writes | Left as is; read as local |
 | Epoch-millisecond columns | Many tables | Instant | Unchanged | No change |

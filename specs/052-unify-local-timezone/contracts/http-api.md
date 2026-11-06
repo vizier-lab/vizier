@@ -41,10 +41,9 @@ Applies to `/agents/{id}/channel/{channel}/topic/{topic}/chat` and the desktop a
 | Field | Behaviour |
 |---|---|
 | `timestamp` | Still required on input. **The value is discarded**; the server's receipt time replaces it |
-| `metadata.sent_at` | **Set by the server** to the same moment, in local RFC 3339. A client-sent value is overwritten |
-| Other `metadata` keys | Kept. A `null` or non-object `metadata` becomes an object holding only `sent_at` |
+| `metadata` | Unchanged and not used for time. A client-sent `sent_at` key is kept in the row but never shown to the agent |
 
-History responses return the stored request, so a client sees the server's time once the entry is saved.
+A client reads the server's time from the saved history entry.
 
 ## Deprecated: `tz` query parameter
 
