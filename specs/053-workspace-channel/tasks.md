@@ -128,12 +128,12 @@ description: "Task list for the Workspace channel and mid-turn messages"
 - [X] T055 [US1] Add `webui/app/lib/workspaces.ts` with vitest cases: merge entries and steps by time into people's messages, notes and agent runs, turn identity, a repeated head where another author lands, `mention_agent` entries as `message` blocks
 - [X] T056 [US1] Add `webui/app/stores/workspaces.ts`: Workspaces for the rail, the open topic, frames, recovery by `seq`
 - [X] T057 [US1] Add routes in `webui/app/routes.ts` and `webui/app/routes/workspace.tsx`, and show Workspaces in `webui/app/screens/shell/ShellRail.tsx` with a topics sidebar in `webui/app/screens/workspaces/WorkspaceSidebar.tsx`
-- [X] T058 [US1] (not yet checked in a browser or at 375 px) Add the topic screen in `webui/app/screens/workspaces/WorkspaceTopic.tsx`, `WorkspaceHeader.tsx` and `WorkspaceTimeline.tsx`, reusing `Trail` and the US7 blocks, per the mockup: Stop all while working, member stack, the failed mention note, centred notes, and the phone layout
+- [X] T058 [US1] (checked in a browser at desktop width: rail, topics, centred notes, runs, composer and the @ menu; 375 px not checked) Add the topic screen in `webui/app/screens/workspaces/WorkspaceTopic.tsx`, `WorkspaceHeader.tsx` and `WorkspaceTimeline.tsx`, reusing `Trail` and the US7 blocks, per the mockup: Stop all while working, member stack, the failed mention note, centred notes, and the phone layout
 - [X] T059 [US1] (no attachment notice yet: the composer offers no attach button; a refused command shows as a toast and keeps the text) Add `webui/app/screens/workspaces/WorkspaceComposer.tsx`: `@` menu, `/` menu then agents-only `@`, the attachment notice, and refused commands explained in place
 
 ### Check
 
-- [ ] T060 [US1] Add `scripts/workspace-e2e.mjs` with its `execute_python` helper, scripting quickstart §1 to §4, §5a, §5b, §6 and §7 against a dummyplug agent, and run it
+- [X] T060 [US1] (§1 to §6 pass against a live server; §7, a restart, is not scripted) Add `scripts/workspace-e2e.mjs` with its `execute_python` helper, scripting quickstart §1 to §4, §5a, §5b, §6 and §7 against a dummyplug agent, and run it
 - [X] T061 [US1] (asserted in `dummyplug_e2e.rs`: no pending turn and no history after silent messages; usage rows are not counted) Add a test in `crates/vizier-core/tests/` that a Workspace silent read creates no `session_turn` row and no `usage_event`
 
 **Checkpoint**: The MVP. People and agents share a topic, on screen, in both themes.

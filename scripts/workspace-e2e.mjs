@@ -1,0 +1,196 @@
+#!/usr/bin/env node
+// End-to-end check of the Workspace channel (specs/053-workspace-channel/quickstart.md §1 to §6)
+// against a running vizier with agents on the offline `dummyplug` provider.
+//
+//   dummyplug:  cd dummyplug && node src/server.mjs        (listens on :9998)
+//   vizier:     just run                                   (or any server on VIZIER_URL)
+//   this:       VIZIER_URL=http://localhost:9999 VIZIER_TOKEN=<jwt> node scripts/workspace-e2e.mjs
+//
+// A fresh server can be set up by the script itself: VIZIER_SETUP_USER / VIZIER_SETUP_PASSWORD
+// create the first user. It creates the agents `alpha` and `beta` when they are missing.
+//
+// The checks that need a second or third person (a member who cannot manage, a stranger who gets
+// 404) are pinned in crates/vizier-core/tests/workspaces_service.rs. Dependency-free: Node 22+.
+
+const BASE = (process.env.VIZIER_URL ?? 'http://localhost:9999').replace(/\/$/, '')
+const WS = BASE.replace(/^http/, 'ws')
+let TOKEN = process.env.VIZIER_TOKEN
+
+let current = 'setup'
+function check(name, ok, detail) {
+  if (!ok) {
+    console.error(`FAIL ${current} › ${name}${detail === undefined ? '' : `\n  ${typeof detail === 'string' ? detail : JSON.stringify(detail).slice(0, 2000)}`}`)
+    process.exit(1)
+  }
+  console.log(`  ok ${name}`)
+}
+const section = (name) => {
+  current = name
+  console.log(name)
+}
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+async function api(method, path, body) {
+  const res = await fetch(`${BASE}/api/v1${path}`, {
+    method,
+    headers: { 'content-type': 'application/json', ...(TOKEN ? { authorization: `Bearer ${TOKEN}` } : {}) },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  })
+  const json = await res.json().catch(() => ({}))
+  return { status: res.status, data: json.data, body: json }
+}
+
+/** `{ "tool": "execute_python", ... }` as dummyplug takes it: agents are in code mode, so every
+ * tool is reached through a script. `say` is the text written beside the call (a mid-turn message). */
+const py = (code, say) => JSON.stringify({ ...(say ? { say } : {}), tool: 'execute_python', arguments: { intent: 'e2e', code } })
+
+/** A socket on one topic that keeps every frame it sees. */
+function watch(workspaceId, topicId) {
+  const ws = new WebSocket(`${WS}/api/v1/workspaces/${workspaceId}/topics/${topicId}/stream?token=${TOKEN}`)
+  const frames = []
+  ws.addEventListener('message', (event) => {
+    try {
+      frames.push(JSON.parse(event.data))
+    } catch {}
+  })
+  const opened = new Promise((resolve, reject) => {
+    ws.addEventListener('open', resolve, { once: true })
+    ws.addEventListener('error', reject, { once: true })
+  })
+  const entries = () => frames.flatMap((f) => (f.workspace_entry ? [f.workspace_entry] : []))
+  return {
+    opened,
+    frames,
+    entries,
+    close: () => ws.close(),
+    /** Waits for an entry matching `predicate`, new since `after` (a count of entries seen). */
+    async entry(predicate, after = 0, ms = 20_000) {
+      const start = Date.now()
+      while (Date.now() - start < ms) {
+        const found = entries().slice(after).find(predicate)
+        if (found) return found
+        await sleep(100)
+      }
+      return null
+    },
+  }
+}
+
+// --- setup ----------------------------------------------------------------------------------------
+if (!TOKEN && process.env.VIZIER_SETUP_USER) {
+  const r = await api('POST', '/auth/setup', { username: process.env.VIZIER_SETUP_USER, password: process.env.VIZIER_SETUP_PASSWORD ?? 'e2e-password' })
+  TOKEN = r.data?.token
+}
+if (!TOKEN) {
+  console.error('VIZIER_TOKEN (or VIZIER_SETUP_USER on a fresh server) is required')
+  process.exit(2)
+}
+for (const id of ['alpha', 'beta']) {
+  const have = await api('GET', `/agents/${id}`)
+  if (have.status !== 200) {
+    const made = await api('POST', '/agents', { agent_id: id, name: id[0].toUpperCase() + id.slice(1), provider: 'dummyplug', model: 'dummyplug' })
+    check(`agent ${id} created`, made.status < 300, made.body)
+  }
+}
+await sleep(1500) // the agents start in the background
+
+const NAME = `e2e-${Date.now().toString(36)}`
+
+// --- §1 membership --------------------------------------------------------------------------------
+section('§1 membership')
+const made = await api('POST', '/workspaces', { name: NAME })
+check('a Workspace is created with a first topic', made.status === 201 && made.data.topics.length === 1 && made.data.topics[0].name === 'general', made.body)
+const wid = made.data.id
+const tid = made.data.topics[0].id
+const dup = await api('POST', '/workspaces', { name: NAME.toUpperCase() })
+check('the same name in capitals is refused', dup.status === 409 && dup.body.data?.error === 'name_in_use', dup.body)
+check('a bad name is refused', (await api('POST', '/workspaces', { name: 'Not Allowed!' })).status === 422)
+for (const id of ['alpha', 'beta']) {
+  const added = await api('POST', `/workspaces/${wid}/members`, { kind: 'agent', handle: id })
+  check(`${id} is added`, added.status === 201, added.body)
+}
+const twice = await api('POST', `/workspaces/${wid}/members`, { kind: 'agent', handle: 'alpha' })
+check('a member cannot be added twice', twice.status === 409, twice.body)
+check('a missing Workspace is a 404', (await api('GET', '/workspaces/missing')).status === 404)
+
+const live = watch(wid, tid)
+await live.opened
+await sleep(300)
+check('the socket starts with a hello', live.frames[0]?.hello !== undefined, live.frames)
+
+// --- §2 silent reading ----------------------------------------------------------------------------
+section('§2 silent reading costs nothing')
+for (const text of ['the billing lock is back', 'it was the deploy', 'rolling back now']) {
+  const r = await api('POST', `/workspaces/${wid}/topics/${tid}/entries`, { text })
+  check(`posted "${text}"`, r.status === 201 && r.data.entry, r.body)
+}
+await sleep(1500)
+check('three entries reached the socket', live.entries().filter((e) => e.kind === 'person').length === 3)
+check('no agent replied', live.entries().every((e) => e.kind !== 'agent'))
+const quiet = await api('GET', `/workspaces/${wid}/topics/${tid}/entries`)
+check('no agent took a step', quiet.data.steps.length === 0, quiet.data.steps)
+
+// --- §3 a mention wakes one agent ------------------------------------------------------------------
+section('§3 a mention wakes one agent')
+let seen = live.entries().length
+await api('POST', `/workspaces/${wid}/topics/${tid}/entries`, { text: '@alpha tools' })
+const alphaReply = await live.entry((e) => e.kind === 'agent' && e.author.id === 'alpha' && e.is_final, seen)
+check('alpha answers', !!alphaReply)
+check('it answered what was asked once the mention was taken out', alphaReply.body.includes('Available tools'), alphaReply.body)
+check('beta did not wake', !live.entries().some((e) => e.author.id === 'beta'))
+
+// --- §4 several at once, and what does not count --------------------------------------------------------
+section('§4 several at once')
+seen = live.entries().length
+await api('POST', `/workspaces/${wid}/topics/${tid}/entries`, { text: '@alpha @beta tools' })
+check('alpha answers', !!(await live.entry((e) => e.author.id === 'alpha' && e.is_final, seen)))
+check('beta answers', !!(await live.entry((e) => e.author.id === 'beta' && e.is_final, seen)))
+seen = live.entries().length
+await api('POST', `/workspaces/${wid}/topics/${tid}/entries`, { text: '@alpha @alpha tools' })
+await live.entry((e) => e.author.id === 'alpha' && e.is_final, seen)
+await sleep(1000)
+check('naming an agent twice wakes it once', live.entries().slice(seen).filter((e) => e.author.id === 'alpha' && e.is_final).length === 1)
+seen = live.entries().length
+await api('POST', `/workspaces/${wid}/topics/${tid}/entries`, { text: '`@alpha` is just code here\n> @beta quoted\nand @nobody is nobody' })
+await sleep(1500)
+check('code, a quote and a stranger wake no one', live.entries().slice(seen).every((e) => e.kind === 'person'))
+
+// --- §5 a mention in an agent's own words ---------------------------------------------------------------
+section('§5 an agent wakes another')
+// The person's own message carries the JSON, and the JSON contains `@beta`, so it names beta too.
+// What this checks is that alpha's mid-turn text is a message of its own whose mention reads woken.
+seen = live.entries().length
+await api('POST', `/workspaces/${wid}/topics/${tid}/entries`, { text: `@alpha ${py('1 + 1', 'asking @beta now')}` })
+const said = await live.entry((e) => e.author.id === 'alpha' && e.body.includes('asking @beta'), seen)
+check('alpha says it mid-turn', !!said)
+check('beta is woken by it', !!(await live.entry((e) => e.author.id === 'beta' && e.is_final, seen)))
+const after = await api('GET', `/workspaces/${wid}/topics/${tid}/entries`)
+const mention = after.data.entries.find((e) => e.seq === said.seq)?.mentions.find((m) => m.handle === 'beta')
+check('the mention reads woken', mention?.state === 'woken', mention)
+
+// --- §5b commands -------------------------------------------------------------------------------------
+section('§5b skills and commands')
+const btw = await api('POST', `/workspaces/${wid}/topics/${tid}/entries`, { text: '/btw @alpha hello' })
+check('/btw is refused and posts nothing', btw.status === 422 && btw.body.data?.error === 'not_in_workspace', btw.body)
+const clear = await api('POST', `/workspaces/${wid}/topics/${tid}/entries`, { text: '/clear-files' })
+check('/clear-files is refused', clear.status === 422, clear.body)
+seen = live.entries().length
+const skills = await api('POST', `/workspaces/${wid}/topics/${tid}/entries`, { text: '/skills @alpha' })
+check('/skills @alpha is accepted', skills.status === 201, skills.body)
+check('alpha lists its skills', !!(await live.entry((e) => e.author.id === 'alpha' && e.is_final, seen)))
+const menu = await api('GET', `/workspaces/${wid}/commands`)
+check('the / menu lists commands', menu.status === 200 && menu.data.commands.some((c) => c.name === 'abort'), menu.body)
+seen = live.entries().length
+const note = await api('POST', `/workspaces/${wid}/topics/${tid}/entries`, { text: '/checkpoint @alpha' })
+check('/checkpoint answers a note and no message', note.status === 201 && !note.data.entry && note.data.note?.kind === 'note', note.body)
+
+// --- §6 stop all ------------------------------------------------------------------------------------------
+section('§6 stop all')
+const stop = await api('POST', `/workspaces/${wid}/stop`)
+check('stop all answers counts', stop.status === 200 && typeof stop.data.stopped === 'number' && typeof stop.data.dropped === 'number', stop.body)
+seen = live.entries().length
+await api('POST', `/workspaces/${wid}/topics/${tid}/entries`, { text: '@alpha tools' })
+check('an agent answers again after a stop', !!(await live.entry((e) => e.author.id === 'alpha' && e.is_final, seen)))
+
+live.close()
+console.log('\nAll Workspace checks passed.')
