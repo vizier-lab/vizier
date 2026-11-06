@@ -5,12 +5,13 @@ import {
     notificationCounts,
     setNotificationRead,
     type NotificationCounts,
-    type NotificationFilter,
     type NotificationItem,
 } from '../api/endpoints/notifications'
 import { transport, type ConnectionState } from '../api/transport'
 import { absorb, onHello, onRead, parseFrame, type InboxFrame } from '../lib/inboxFrames'
-import { applyAllRead, applyRead, belongs, mergePage } from '../lib/notifications'
+import { applyAllRead, applyRead, belongs, mergePage, type ViewFilter } from '../lib/notifications'
+
+export type { ViewFilter }
 import { useAgents } from './agents'
 
 const PAGE = 20
@@ -20,7 +21,7 @@ const EMPTY: NotificationCounts = { all: 0, unread: 0, read: 0 }
 type NotificationStore = {
     /** Whether the dropdown is showing. */
     open: boolean
-    filter: NotificationFilter
+    filter: ViewFilter
     items: NotificationItem[]
     counts: NotificationCounts
     /** The cursor for the next page; null on the last one. */
@@ -39,9 +40,13 @@ type NotificationStore = {
     /** The in-app path on screen, so a reply to that conversation is read on arrival. */
     viewing: string | null
     setViewing: (path: string) => void
+    /** The bell the popup hangs from; null when none is mounted. */
+    anchor: HTMLElement | null
+    setAnchor: (el: HTMLElement | null) => void
     openPanel: () => void
     closePanel: () => void
-    setFilter: (filter: NotificationFilter) => void
+    togglePanel: () => void
+    setFilter: (filter: ViewFilter) => void
     /** The first page of the current filter, replacing what is loaded. */
     load: () => Promise<void>
     /** A silent first-page merge, for when the panel opens on a list already loaded. */
@@ -101,6 +106,9 @@ export const useNotifications = create<NotificationStore>()((set, get) => ({
         return items
     },
 
+    anchor: null,
+    setAnchor: (el) => set({ anchor: el }),
+
     openPanel: () => {
         set({ open: true })
         if (get().loaded) void get().refresh()
@@ -108,6 +116,8 @@ export const useNotifications = create<NotificationStore>()((set, get) => ({
     },
 
     closePanel: () => set({ open: false }),
+
+    togglePanel: () => (get().open ? get().closePanel() : get().openPanel()),
 
     setFilter: (filter) => {
         set({ filter, items: [], next: null, loaded: false, error: null })

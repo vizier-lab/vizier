@@ -2,7 +2,8 @@
 // contracts/inbox-stream.md). Pure: each function takes the slice of state it reads and returns
 // the patch to apply, so the rules are tested without a socket and the stores stay thin.
 import type { SetupState } from '../api/endpoints/agents'
-import type { NotificationCounts, NotificationFilter, NotificationItem } from '../api/endpoints/notifications'
+import type { NotificationCounts, NotificationItem } from '../api/endpoints/notifications'
+import type { ViewFilter } from './notifications'
 import { applyAllRead, applyRead, isViewing, mergePage } from './notifications'
 import { SAMPLES, setupProgress, type SetupSample } from './setupProgress'
 
@@ -42,7 +43,7 @@ export function parseFrame(data: unknown): InboxFrame | null {
 /** The part of the notifications store that frames read and change. */
 export type InboxNotes = {
     open: boolean
-    filter: NotificationFilter
+    filter: ViewFilter
     items: NotificationItem[]
     counts: NotificationCounts
     loaded: boolean

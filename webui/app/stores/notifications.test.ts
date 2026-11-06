@@ -191,7 +191,7 @@ describe('the notifications store', () => {
     })
 
     it('opens on Unread, and a sign-out returns it there', () => {
-        useNotifications.getState().setFilter('read')
+        useNotifications.getState().setFilter('all')
         useNotifications.getState().reset()
         expect(useNotifications.getState().filter).toBe('unread')
     })
@@ -204,5 +204,32 @@ describe('the notifications store', () => {
         await useNotifications.getState().refresh()
         expect(useNotifications.getState().items.map((i) => i.id)).toEqual([4, 3, 2])
         expect(useNotifications.getState().next).toBe('older')
+    })
+
+    it('the bell toggles the popup, and a second press closes it', () => {
+        list.mockResolvedValue(page([]))
+        useNotifications.setState({ loaded: true })
+        useNotifications.getState().togglePanel()
+        expect(useNotifications.getState().open).toBe(true)
+        useNotifications.getState().togglePanel()
+        expect(useNotifications.getState().open).toBe(false)
+    })
+
+    it('opens with no bell mounted, and keeps the bell it was given as its anchor', () => {
+        list.mockResolvedValue(page([]))
+        useNotifications.setState({ loaded: true })
+        expect(useNotifications.getState().anchor).toBeNull()
+        useNotifications.getState().openPanel()
+        expect(useNotifications.getState().open).toBe(true)
+        const bell = { isConnected: true } as unknown as HTMLElement
+        useNotifications.getState().setAnchor(bell)
+        expect(useNotifications.getState().anchor).toBe(bell)
+    })
+
+    it('a filter change asks the server for that filter only', async () => {
+        list.mockResolvedValue(page([item(1)]))
+        useNotifications.getState().setFilter('all')
+        await vi.waitFor(() => expect(list).toHaveBeenCalledWith('all', undefined, 20))
+        expect(list).not.toHaveBeenCalledWith('read', expect.anything(), expect.anything())
     })
 })
