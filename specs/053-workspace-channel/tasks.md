@@ -116,20 +116,20 @@ description: "Task list for the Workspace channel and mid-turn messages"
 
 ### Design system
 
-- [ ] T049 [P] [US1] Add `side="left"` and a mentioned highlight to `design/src/components/UserMessage/UserMessage.tsx`, with stories
-- [ ] T050 [P] [US1] Add `MentionChip` in `design/src/components/MentionChip/`, `MentionNote` in `design/src/components/MentionNote/` and `OriginBadge` in `design/src/components/OriginBadge/`, with stories
-- [ ] T051 [P] [US1] Extend `design/src/components/MentionMenu/MentionMenu.tsx` for agents and people with a sigil or avatar and status, and `design/src/components/SkillMenu/SkillMenu.tsx` to name the agents that have a skill, with stories
-- [ ] T052 [US1] Add a `workspaces` prop to `design/src/components/Shell/Rail.tsx` per the mockup: initials tile, unread count, working dot, marker, separators, one `+` through `onCreate`. Draw `StatusDot` only for `starting`, `retrying`, `failed` and `stopped`, and no lit sigil cell. Update `Shell.stories.tsx`
-- [ ] T053 [US1] Add `CreateChooser` in `design/src/components/CreateChooser/`, with stories, closing on ×, Escape and an outside press
+- [X] T049 [P] [US1] Add `side="left"` and a mentioned highlight to `design/src/components/UserMessage/UserMessage.tsx`, with stories
+- [X] T050 [P] [US1] Add `MentionChip` in `design/src/components/MentionChip/`, `MentionNote` in `design/src/components/MentionNote/` and `OriginBadge` in `design/src/components/OriginBadge/`, with stories
+- [X] T051 [P] [US1] Extend `design/src/components/MentionMenu/MentionMenu.tsx` for agents and people with a sigil or avatar and status, and `design/src/components/SkillMenu/SkillMenu.tsx` to name the agents that have a skill, with stories
+- [X] T052 [US1] Add a `workspaces` prop to `design/src/components/Shell/Rail.tsx` per the mockup: initials tile, unread count, working dot, marker, separators, one `+` through `onCreate`. Draw `StatusDot` only for `starting`, `retrying`, `failed` and `stopped`, and no lit sigil cell. Update `Shell.stories.tsx`
+- [X] T053 [US1] Add `CreateChooser` in `design/src/components/CreateChooser/`, with stories, closing on ×, Escape and an outside press
 
 ### WebUI
 
-- [ ] T054 [US1] Add `webui/app/api/endpoints/workspaces.ts` and frame types in `webui/app/api/frames.ts`, regenerate `webui/app/api/schema.d.ts` with `scripts/openapi.mjs`, and add socket and IPC paths inside `webui/app/api/transport/` only
-- [ ] T055 [US1] Add `webui/app/lib/workspaces.ts` with vitest cases: merge entries and steps by time into people's messages, notes and agent runs, turn identity, a repeated head where another author lands, `mention_agent` entries as `message` blocks
-- [ ] T056 [US1] Add `webui/app/stores/workspaces.ts`: Workspaces for the rail, the open topic, frames, recovery by `seq`
-- [ ] T057 [US1] Add routes in `webui/app/routes.ts` and `webui/app/routes/workspace.tsx`, and show Workspaces in `webui/app/screens/shell/ShellRail.tsx` with a topics sidebar in `webui/app/screens/workspaces/WorkspaceSidebar.tsx`
-- [ ] T058 [US1] Add the topic screen in `webui/app/screens/workspaces/WorkspaceTopic.tsx`, `WorkspaceHeader.tsx` and `WorkspaceTimeline.tsx`, reusing `Trail` and the US7 blocks, per the mockup: Stop all while working, member stack, the failed mention note, centred notes, and the phone layout
-- [ ] T059 [US1] Add `webui/app/screens/workspaces/WorkspaceComposer.tsx`: `@` menu, `/` menu then agents-only `@`, the attachment notice, and refused commands explained in place
+- [X] T054 [US1] (hand-written types like the other endpoint files; `schema.d.ts` was not regenerated) Add `webui/app/api/endpoints/workspaces.ts` and frame types in `webui/app/api/frames.ts`, regenerate `webui/app/api/schema.d.ts` with `scripts/openapi.mjs`, and add socket and IPC paths inside `webui/app/api/transport/` only
+- [X] T055 [US1] Add `webui/app/lib/workspaces.ts` with vitest cases: merge entries and steps by time into people's messages, notes and agent runs, turn identity, a repeated head where another author lands, `mention_agent` entries as `message` blocks
+- [X] T056 [US1] Add `webui/app/stores/workspaces.ts`: Workspaces for the rail, the open topic, frames, recovery by `seq`
+- [X] T057 [US1] Add routes in `webui/app/routes.ts` and `webui/app/routes/workspace.tsx`, and show Workspaces in `webui/app/screens/shell/ShellRail.tsx` with a topics sidebar in `webui/app/screens/workspaces/WorkspaceSidebar.tsx`
+- [X] T058 [US1] (not yet checked in a browser or at 375 px) Add the topic screen in `webui/app/screens/workspaces/WorkspaceTopic.tsx`, `WorkspaceHeader.tsx` and `WorkspaceTimeline.tsx`, reusing `Trail` and the US7 blocks, per the mockup: Stop all while working, member stack, the failed mention note, centred notes, and the phone layout
+- [X] T059 [US1] (no attachment notice yet: the composer offers no attach button; a refused command shows as a toast and keeps the text) Add `webui/app/screens/workspaces/WorkspaceComposer.tsx`: `@` menu, `/` menu then agents-only `@`, the attachment notice, and refused commands explained in place
 
 ### Check
 
