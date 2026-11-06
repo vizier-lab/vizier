@@ -1,4 +1,4 @@
-import { Composer } from '@vizier/design'
+import { Composer, IconButton } from '@vizier/design'
 import { useEffect, useMemo, useState } from 'react'
 import { ApiError } from '../../api/client'
 import { getCommands, type CommandsMenu, type WorkspaceMember } from '../../api/endpoints/workspaces'
@@ -58,7 +58,7 @@ export function WorkspaceComposer({ workspaceId, topicName, me, members, onPost 
     return (
         <Composer
             agentName={topicName}
-            placeholder={`Message #${topicName}: @ to mention, / for commands`}
+            placeholder={`Message # ${topicName}. Agents reply only when mentioned.`}
             value={value}
             onValueChange={setValue}
             onSend={() => void send()}
@@ -78,6 +78,17 @@ export function WorkspaceComposer({ workspaceId, topicName, me, members, onPost 
                     : null
             }
             mic={false}
+            afterTools={
+                <>
+                    <IconButton
+                        icon="at-sign"
+                        size="sm"
+                        aria-label="Mention someone"
+                        onClick={() => setValue((v) => (v && !/\s$/.test(v) ? `${v} @` : `${v}@`))}
+                    />
+                    <span className="type-mono-xs text-faint">Everyone here reads this</span>
+                </>
+            }
         />
     )
 }

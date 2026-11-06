@@ -1,5 +1,5 @@
-import { Dialog, NavItem, NavSection, TextField } from '@vizier/design'
-import { useState } from 'react'
+import { Badge, Dialog, IconButton, Menu, MenuItem, NavItem, NavSection, TextField, useDismiss } from '@vizier/design'
+import { useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { ApiError } from '../../api/client'
 import { createTopic, deleteTopic, deleteWorkspace, renameTopic, renameWorkspace, type WorkspaceSummary } from '../../api/endpoints/workspaces'
@@ -19,6 +19,9 @@ export function WorkspaceSidebar({ workspace, activeTopic, onMembers }: { worksp
     const [saving, setSaving] = useState(false)
     // Owners manage the Workspace: rename or delete it, or the topic on screen.
     const [managing, setManaging] = useState<null | 'rename-topic' | 'delete-topic' | 'rename-workspace' | 'delete-workspace'>(null)
+    const [menu, setMenu] = useState(false)
+    const menuBox = useRef<HTMLDivElement>(null)
+    useDismiss(menu, () => setMenu(false), menuBox)
     const isOwner = workspace.role === 'owner' || workspace.role === 'admin'
     const current = workspace.topics.find((t) => t.id === activeTopic)
     const key = normalize(name)
@@ -73,28 +76,47 @@ export function WorkspaceSidebar({ workspace, activeTopic, onMembers }: { worksp
 
     return (
         <nav aria-label={`${workspace.name} topics`} className="flex h-full w-256 shrink-0 flex-col gap-4 bg-shell pt-12 pr-12 pl-0">
-            <h2 className="flex h-52 items-center gap-8 px-14 type-title text-fg">
-                <span className="min-w-0 truncate">{workspace.name}</span>
-            </h2>
+            <div className="flex h-52 items-center gap-4 px-14">
+                <h2 className="min-w-0 flex-1 truncate type-title text-fg">{workspace.name}</h2>
+                <IconButton icon="users" size="sm" aria-label={`Members of ${workspace.name}`} onClick={onMembers} />
+                {isOwner && (
+                    <div ref={menuBox} className="relative">
+                        <IconButton icon="more" size="sm" aria-label="Manage this Workspace" aria-haspopup="menu" aria-expanded={menu} onClick={() => setMenu((m) => !m)} />
+                        {menu && (
+                            <div className="absolute top-full right-0 z-30 mt-4">
+                                <Menu aria-label="Manage this Workspace">
+                                    {current && (
+                                        <MenuItem icon="pencil" label="Rename topic" onClick={() => { setMenu(false); setName(current.name); setManaging('rename-topic') }} />
+                                    )}
+                                    {current && workspace.topics.length > 1 && (
+                                        <MenuItem icon="trash" tone="danger" label="Delete topic" onClick={() => { setMenu(false); setManaging('delete-topic') }} />
+                                    )}
+                                    <MenuItem icon="pencil" label="Rename Workspace" onClick={() => { setMenu(false); setName(workspace.name); setManaging('rename-workspace') }} />
+                                    <MenuItem icon="trash" tone="danger" label="Delete Workspace" onClick={() => { setMenu(false); setManaging('delete-workspace') }} />
+                                </Menu>
+                            </div>
+                        )}
+                    </div>
+                )}
+            </div>
             <NavSection label="Topics">
                 {workspace.topics.map((t) => (
-                    <NavItem key={t.id} icon="chat" label={`#${t.name}`} href={`/workspaces/${workspace.id}/${t.id}`} active={t.id === activeTopic} />
+                    <NavItem
+                        key={t.id}
+                        icon="chat"
+                        label={
+                            <span className="flex items-center gap-8">
+                                <span className="min-w-0 flex-1 truncate"># {t.name}</span>
+                                {t.unread > 0 && <Badge tone="rank" aria-label={`${t.unread} unread`}>{t.unread}</Badge>}
+                            </span>
+                        }
+                        href={`/workspaces/${workspace.id}/${t.id}`}
+                        active={t.id === activeTopic}
+                        live={workspace.working && t.id === activeTopic}
+                    />
                 ))}
                 <NavItem icon="plus" label="New topic" onSelect={() => setAdding(true)} />
             </NavSection>
-            <NavSection label="People and agents">
-                <NavItem icon="users" label="Members" onSelect={onMembers} />
-            </NavSection>
-            {isOwner && (
-                <NavSection label="Manage">
-                    {current && <NavItem icon="pencil" label="Rename topic" onSelect={() => { setName(current.name); setManaging('rename-topic') }} />}
-                    {current && workspace.topics.length > 1 && (
-                        <NavItem icon="trash" label="Delete topic" onSelect={() => setManaging('delete-topic')} />
-                    )}
-                    <NavItem icon="pencil" label="Rename Workspace" onSelect={() => { setName(workspace.name); setManaging('rename-workspace') }} />
-                    <NavItem icon="trash" label="Delete Workspace" onSelect={() => setManaging('delete-workspace')} />
-                </NavSection>
-            )}
             <Dialog
                 open={managing !== null}
                 title={

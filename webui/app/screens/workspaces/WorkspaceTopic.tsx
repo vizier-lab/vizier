@@ -1,4 +1,4 @@
-import { Button, EmptyState, LoadMore, Notice } from '@vizier/design'
+import { EmptyState, LoadMore, Notice } from '@vizier/design'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router'
 import { getWorkspace, markTopicRead, stopAll, type WorkspaceDetail } from '../../api/endpoints/workspaces'
@@ -8,6 +8,7 @@ import { useSession } from '../../stores/session'
 import { toast } from '../../stores/toasts'
 import { topicKey, useWorkspaces } from '../../stores/workspaces'
 import { MembersDialog } from './MembersDialog'
+import { WorkspaceHeader } from './WorkspaceHeader'
 import { WorkspaceComposer } from './WorkspaceComposer'
 import { WorkspaceTimeline } from './WorkspaceTimeline'
 
@@ -79,25 +80,15 @@ export function WorkspaceTopic({ workspaceId, topicId }: { workspaceId: string; 
 
     return (
         <div className="flex min-h-0 flex-1 flex-col">
-            <header className="flex shrink-0 items-center gap-12 px-24 py-12">
-                <div className="flex min-w-0 flex-col">
-                    <h1 className="truncate type-heading text-fg">#{topic?.name ?? '…'}</h1>
-                    <span className="truncate type-mono-xs text-faint">
-                        {detail?.name ?? ''} · {detail?.members.filter((m) => m.kind === 'person').length ?? 0} people ·{' '}
-                        {detail?.members.filter((m) => m.kind === 'agent').length ?? 0} agents
-                    </span>
-                </div>
-                <div className="ml-auto flex items-center gap-8">
-                    {working.length > 0 && (
-                        <Button icon="square" loading={stopping} onClick={() => void stop()}>
-                            Stop all
-                        </Button>
-                    )}
-                    <Button icon="users" onClick={() => setParams({ members: '1' })}>
-                        Members
-                    </Button>
-                </div>
-            </header>
+            <WorkspaceHeader
+                detail={detail}
+                workspaceId={workspaceId}
+                topicId={topicId}
+                working={working.length}
+                stopping={stopping}
+                onStop={() => void stop()}
+                onMembers={() => setParams({ members: '1' })}
+            />
 
             {view.connection === 'offline' && (
                 <div className="px-24">
