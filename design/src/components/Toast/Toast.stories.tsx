@@ -36,6 +36,19 @@ export const WithAction: Story = {
   },
 };
 
+/** A notification arriving: the same card as in the popup, with the conversation and an excerpt. */
+export const Notification: Story = {
+  args: {
+    tone: "info",
+    agentId: "oz",
+    agentName: "Oz",
+    title: "Planning the Q3 roadmap",
+    message: "Replied in your conversation.",
+    excerpt: "I grouped the open items by theme and put the two that block the launch first.",
+    onSelect: () => {},
+  },
+};
+
 /** Where the app stacks them: top-right, just under the page header. */
 export const TopRightRegion: Story = {
   parameters: { layout: "fullscreen" },
