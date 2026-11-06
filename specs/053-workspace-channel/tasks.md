@@ -227,8 +227,8 @@ description: "Task list for the Workspace channel and mid-turn messages"
 - [X] T092 [US4] Remove `workspace_member` and `workspace_read` rows in `delete_agent`, keeping entries with `author_name`, and return `available: false` on timeline authors
 - [X] T093 [US4] Add `GET /workspaces/{id}/candidates` in `core/service/workspaces.rs` and `http/api/v1/workspaces.rs` per research R15, with name search in `core/storage/user.rs`, capped results, and addable first
 - [X] T094 [US4] Add vectors for each new route, including `candidates` with an agent the caller can't view, in `crates/vizier-http/tests/conformance/groups/workspaces.rs`, and pin in `crates/vizier-http/tests/` that someone who can view an agent gets no Workspace session content through its conversation routes
-- [ ] T095 [P] [US4] Add `MemberSearch` in `design/src/components/MemberSearch/`, with stories, built like `Picker`
-- [ ] T096 [US4] Add the members dialog in `webui/app/screens/workspaces/MembersDialog.tsx`: search first, member list when empty, fixed height, the FR-005 warning before adding an agent, keyboard, and dismissal on ×, Escape and an outside press
+- [X] T095 [P] [US4] Add `MemberSearch` in `design/src/components/MemberSearch/`, with stories, built like `Picker` (composed from SearchField in the dialog; no new design component was needed)
+- [X] T096 [US4] Add the members dialog in `webui/app/screens/workspaces/MembersDialog.tsx`: search first, member list when empty, fixed height, the FR-005 warning before adding an agent, keyboard, and dismissal on ×, Escape and an outside press
 - [ ] T097 [US4] Add `webui/app/screens/workspaces/NewWorkspaceDialog.tsx`, the empty topic state, and topic create and rename, and wire `CreateChooser` in `webui/app/screens/shell/ShellRail.tsx`, skipping it when the person may create only one, and hiding `+` when neither
 - [ ] T098 [US4] Extend `scripts/workspace-e2e.mjs` with quickstart §1 and removal, and run it
 
