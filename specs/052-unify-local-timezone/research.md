@@ -148,7 +148,7 @@ Usage rows hold instants, so past usage regroups correctly with no migration.
 
 ## R12. Keeping it unified
 
-**Decision**: `scripts/052-utc-check.sh`, following `scripts/048-agent-state-read-check.sh`, refuses `Utc::now`, `DateTime<Utc>` or `with_timezone(&Utc)` outside an allow-list (`time.rs`, `llm/sigv4.rs`, `llm/error.rs`, the S3 date parser, and tests of external formats), naming the file and line. CI's `policy` job runs it. This is how FR-004 stays true after the sweep.
+**Decision (revised in review)**: no CI check. A script that refused `Utc::now`, `DateTime<Utc>` or `with_timezone(&Utc)` outside an allow-list was written and then dropped as more CI than the problem needs. The convention lives in `CLAUDE.md` instead: the only legitimate uses are `time.rs`, `llm/sigv4.rs`, `llm/error.rs` and the S3 date parser.
 
 ## R13. The migration
 

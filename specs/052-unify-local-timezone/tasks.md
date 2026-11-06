@@ -47,10 +47,10 @@ description: "Task list for Unified Local Time"
 - [X] T013 Sweep the remainder of `crates/vizier-core/src/` (`agents/`, `scheduler/`, `channels/`, `integrations/`, `notifications/`, `artifacts/`, `projects/`, `catalogue/`, `transport/`, `file_manager/`, `dependencies.rs`) and `crates/vizier-core/tests/` and `examples/`. Cron becomes local through this change (R3). Leave `llm/sigv4.rs`, `llm/error.rs` and the S3 date parser in `storage/blob/s3.rs` alone.
 - [X] T014 Sweep `crates/vizier-http/` and `crates/vizier/`. In `crates/vizier-http/src/api/v1/agents/task.rs`, make the `before` query value and the `run_id` path value parse through a helper that also accepts the decoded form, where a space stands before the offset (contracts/http-api.md).
 - [ ] T015 [P] Sweep `app/src-tauri/src/`, then run `just app-test`
-- [X] T016 Create `scripts/052-utc-check.sh`, following `scripts/048-agent-state-read-check.sh`, which refuses `Utc::now`, `DateTime<Utc>` and `with_timezone(&Utc)` outside the R12 allow-list and names file and line. Add it to the `policy` job in `.github/workflows/ci.yml`.
+- [X] T016 ~~Create `scripts/052-utc-check.sh` and run it in CI~~ Dropped in review: no CI check; the convention is in `CLAUDE.md`
 - [ ] T017 Run `cargo test --workspace`, then `TZ=Asia/Jakarta cargo test --workspace`, then the conformance suite with `TZ=UTC` against `target/038-baseline/conformance/`. Fix tests that assumed a UTC process zone. Confirm no baseline changed.
 
-**Checkpoint**: One type, one zone, UTC output unchanged, and the check script passing.
+**Checkpoint**: One type, one zone, UTC output unchanged, and the sweep compiling.
 
 ---
 
@@ -182,11 +182,11 @@ These land only once the tools above work, so an agent is never left with neithe
 **Purpose**: Final consistency across every surface
 
 - [ ] T071 [P] Run quickstart.md step 9 (chronological order across offsets), and fix any text comparison the T010 audit missed
-- [X] T072 [P] Update `CLAUDE.md`: add a Time section (one zone, `Timestamp`, `time::stored` for sort columns, the check script), add `time` to the category list, and correct `Utc` references in the Telemetry and Tools sections
+- [X] T072 [P] Update `CLAUDE.md`: add a Time section (one zone, `Timestamp`, `time::stored` for sort columns), add `time` to the category list, and correct `Utc` references in the Telemetry and Tools sections
 - [ ] T073 [P] Update `docs/src/` where it describes UTC or tool categories, including the scheduling and tools pages and `docs/src/configuration/observability.md`, and the API docs for the changed `timestamp` behaviour
 - [ ] T074 Run `cross build` for one `musl` target in `Cross.toml`, build the Docker image, and run quickstart.md step 1's Docker row
 - [ ] T075 Run the desktop app with `just app-dev` on Windows and confirm the zone, times and task form match the OS clock
-- [ ] T076 Run `cargo clippy --workspace`, the per-flag and per-role commands in `CLAUDE.md`, `scripts/052-utc-check.sh`, and quickstart.md step 12
+- [ ] T076 Run `cargo clippy --workspace`, the per-flag and per-role commands in `CLAUDE.md`, and quickstart.md step 12
 - [ ] T077 Run a last audit for SC-002 by comparing one event across each surface in quickstart.md step 11, and confirm no surface labels a time UTC
 
 ---

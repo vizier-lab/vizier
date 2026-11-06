@@ -449,10 +449,6 @@ jobs:
         run: |
           set -euo pipefail
           bash scripts/048-agent-state-read-check.sh
-      - name: One clock
-        # Vizier runs in one zone (spec 052). The check names the file and the line of a new
-        # `Utc::now`, `DateTime<Utc>` or `with_timezone(&Utc)` outside its allow-list.
-        run: bash scripts/052-utc-check.sh
       - name: The bus contract stays a leaf
         # `vizier-schema` is the contract every role and the engine share (#162): it may not
         # depend on a workspace crate, a broker, a web framework or a CLI crate, and the engine

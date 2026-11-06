@@ -106,7 +106,6 @@ webui/app/
 └── screens/schedule/, screens/shell/ # Zone gate in AppShell
 
 Dockerfile                           # tzdata in the runtime image
-scripts/052-utc-check.sh             # NEW: refuses a new Utc outside the allow-list
 .github/workflows/ci.yml             # policy job runs the script
 docs/src/configuration/time.md       # NEW + SUMMARY: setting the zone, cron behaviour, tools
 CLAUDE.md                            # Time section; remove UTC wording
@@ -131,7 +130,7 @@ Each step leaves the tree building and tests passing.
 | Risk | Mitigation |
 |---|---|
 | An upgrade shifts cron firing times | Decided by the request; R3 shows at most one catch-up; release notes and docs state it |
-| A value compared as text somewhere the audit misses | R2 audit; quickstart step 9; `052-utc-check.sh` stops new cases |
+| A value compared as text somewhere the audit misses | R2 audit; quickstart step 9 |
 | SQLite's `localtime` disagrees with chrono on an unusual host | Both read the same OS setting; the R4 self-check fails early when zone data is missing |
 | A client posts `before=` with an unencoded `+` | Server accepts the decoded form ([contract](contracts/http-api.md#changed-times-in-urls)) |
 | Showing `sent_at` changes every old message's replayed text | Happens once at the upgrade, at most one cache miss per conversation (R14) |

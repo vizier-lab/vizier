@@ -108,10 +108,6 @@ TZ=America/New_York cargo test -p vizier-core time
 ```
 
 ```bash
-scripts/052-utc-check.sh
-```
-
-```bash
 cd webui && npm run typecheck && npx vitest run
 ```
 
