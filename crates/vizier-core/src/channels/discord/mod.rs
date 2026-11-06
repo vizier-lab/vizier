@@ -268,8 +268,7 @@ fn builtin_commands() -> Vec<CommandEntry> {
         CommandEntry::new("abort", "abort current thinking"),
         CommandEntry::new("checkpoint", "save checkpoint with handover summary"),
         CommandEntry::new("lobotomy", "save checkpoint without handover (clean break)"),
-        CommandEntry::new("thinking", "toggle showing thinking output"),
-        CommandEntry::new("tool_calls", "toggle showing tool call details"),
+        CommandEntry::new("thinking", "toggle showing thinking and the activity trail"),
         CommandEntry::new("clear-files", "clear this conversation's session files")
             .option(CommandOption::text("confirm", "Type confirm to clear")),
         CommandEntry::new("btw", "ask me a side question; public, not remembered").option(
@@ -735,20 +734,12 @@ If I am halucinating, feel free to `/lobotomy` me
             "thinking" => {
                 let mut state = self.load_state(&channel).await;
                 state.show_thinking = !state.show_thinking;
+                // One switch: thinking and the tool-call trail travel together.
+                state.show_tool_calls = state.show_thinking;
                 self.save_state(&channel, &state).await;
 
                 let status = if state.show_thinking { "ON" } else { "OFF" };
                 self.respond(&interaction, format!("thinking output: **{}**", status))
-                    .await;
-            }
-
-            "tool_calls" => {
-                let mut state = self.load_state(&channel).await;
-                state.show_tool_calls = !state.show_tool_calls;
-                self.save_state(&channel, &state).await;
-
-                let status = if state.show_tool_calls { "ON" } else { "OFF" };
-                self.respond(&interaction, format!("tool call details: **{}**", status))
                     .await;
             }
 
@@ -881,8 +872,9 @@ If I am halucinating, feel free to `/lobotomy` me
         let ChannelState {
             active_topic,
             show_thinking,
-            show_tool_calls,
+            show_tool_calls: _,
         } = self.load_state(&channel).await;
+        let show_tool_calls = show_thinking;
         let session = VizierSession(self.agent_id.clone(), channel, active_topic);
         let user = match interaction.author() {
             Some(author) => format!(
@@ -1279,7 +1271,7 @@ If I am halucinating, feel free to `/lobotomy` me
             agent_id: self.agent_id.clone(),
             channel_id,
             show_thinking: state.show_thinking,
-            show_tool_calls: state.show_tool_calls,
+            show_tool_calls: state.show_thinking,
         }
         .render(frames)
         .await;

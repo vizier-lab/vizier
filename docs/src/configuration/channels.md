@@ -71,8 +71,7 @@ Set the agent's `discord_token` (WebUI agent settings, or `PUT /api/v1/agents/{i
 | `/abort` | Abort the agent's current in-flight response |
 | `/checkpoint` | Save a checkpoint with a generated handover summary and start fresh context |
 | `/lobotomy` | Save a checkpoint **without** a handover — clean break |
-| `/thinking` | Toggle streaming the model's thinking output into the channel |
-| `/tool_calls` | Toggle showing tool-call details |
+| `/thinking` | Toggle streaming the model's thinking output and the activity trail (tool calls) into the channel |
 | `/btw message:<text>` | Ask a side question: answered in the channel, visible to everyone, not remembered (see [Side chats](#side-chats-btw)) |
 
 **Discord tools** (enabled with `tools.discord = true`; require `discord_token`):
@@ -105,8 +104,7 @@ Set the agent's `telegram_token`. Same lifecycle as Discord.
 | `/abort` | Abort the current response |
 | `/checkpoint` | Checkpoint with handover summary |
 | `/lobotomy` | Checkpoint without handover |
-| `/thinking` | Toggle thinking output |
-| `/tool_calls` | Toggle tool-call details |
+| `/thinking` | Toggle thinking output and the activity trail (tool calls) |
 | `/btw <text>` | Ask a side question: not saved, and deleted after 2 minutes of inactivity (see [Side chats](#side-chats-btw)) |
 
 **Telegram tools** (enabled with `tools.telegram = true`; require `telegram_token`):

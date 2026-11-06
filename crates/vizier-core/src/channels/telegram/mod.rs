@@ -325,7 +325,7 @@ impl TelegramChannelReader {
                     (
                         state.active_topic,
                         state.show_thinking,
-                        state.show_tool_calls,
+                        state.show_thinking,
                     )
                 } else {
                     (None, false, false)
@@ -585,6 +585,8 @@ impl TelegramChannelReader {
                 }
             };
             state.show_thinking = !state.show_thinking;
+            // One switch: thinking and the tool-call trail travel together.
+            state.show_tool_calls = state.show_thinking;
             let _ = self
                 .deps
                 .storage
@@ -594,35 +596,6 @@ impl TelegramChannelReader {
             let _ = self
                 .bot
                 .send_message(chat_id, format!("thinking output: {}", status))
-                .await?;
-            return Ok(());
-        }
-
-        if is_command(&text, "tool_calls", &bot_username) {
-            let mut state = if let Ok(Some(value)) = self.deps.storage.get_state(key.clone()).await
-            {
-                serde_json::from_value::<ChannelState>(value).unwrap_or(ChannelState {
-                    active_topic: None,
-                    show_thinking: false,
-                    show_tool_calls: false,
-                })
-            } else {
-                ChannelState {
-                    active_topic: topic_id.clone(),
-                    show_thinking: false,
-                    show_tool_calls: false,
-                }
-            };
-            state.show_tool_calls = !state.show_tool_calls;
-            let _ = self
-                .deps
-                .storage
-                .save_state(key.clone(), serde_json::to_value(&state).unwrap())
-                .await;
-            let status = if state.show_tool_calls { "ON" } else { "OFF" };
-            let _ = self
-                .bot
-                .send_message(chat_id, format!("tool call details: {}", status))
                 .await?;
             return Ok(());
         }
@@ -1109,7 +1082,7 @@ impl TelegramChannelReader {
             agent_id: session.0.clone(),
             chat_id: ChatId(chat_id),
             show_thinking: state.as_ref().is_some_and(|s| s.show_thinking),
-            show_tool_calls: state.as_ref().is_some_and(|s| s.show_tool_calls),
+            show_tool_calls: state.as_ref().is_some_and(|s| s.show_thinking),
         }
         .render(frames)
         .await;
@@ -1433,8 +1406,7 @@ fn telegram_rules() -> PlatformRules {
             CommandEntry::new("abort", "abort current thinking"),
             CommandEntry::new("checkpoint", "save checkpoint with handover summary"),
             CommandEntry::new("lobotomy", "save checkpoint without handover (clean break)"),
-            CommandEntry::new("thinking", "toggle showing thinking output"),
-            CommandEntry::new("tool_calls", "toggle showing tool call details"),
+            CommandEntry::new("thinking", "toggle showing thinking and the activity trail"),
             CommandEntry::new("clear_files", "clear this conversation's session files"),
             CommandEntry::new(
                 "btw",
