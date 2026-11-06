@@ -7,6 +7,9 @@ export type ToastItem = {
     tone: ToastTone
     title: string
     message?: string
+    /** Draws the toast as a notification card: the agent's sigil, with `title` as the conversation. */
+    agent?: { id: string; name: string }
+    excerpt?: string
     /** Clicking the toast's content does this. */
     onSelect?: () => void
 }

@@ -15301,8 +15301,12 @@
           },
           "model_override": {
             "anyOf": [
-              { "$ref": "#/components/schemas/ModelOverrideRequest" },
-              { "type": "null" }
+              {
+                "$ref": "#/components/schemas/ModelOverrideRequest"
+              },
+              {
+                "type": "null"
+              }
             ]
           },
           "topic_id": {
@@ -15312,10 +15316,17 @@
       },
       "ModelOverrideRequest": {
         "type": "object",
-        "required": ["provider", "model"],
+        "required": [
+          "provider",
+          "model"
+        ],
         "properties": {
-          "provider": { "type": "string" },
-          "model": { "type": "string" }
+          "provider": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          }
         }
       },
       "ChatResponse": {
@@ -18938,7 +18949,6 @@
           "dream_cycle",
           "background_job",
           "integration",
-          "channel_replies",
           "chat_reply"
         ]
       },
@@ -19019,6 +19029,20 @@
           },
           "tone": {
             "$ref": "#/components/schemas/NotificationTone"
+          },
+          "excerpt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "A short plain-text excerpt of what the source said."
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The current conversation title or the task title. Absent when there is none or the viewer may not see it."
           }
         }
       },

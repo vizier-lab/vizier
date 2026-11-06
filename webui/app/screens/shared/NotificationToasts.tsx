@@ -61,8 +61,10 @@ export function NotificationToasts() {
                         : item.tone === 'success'
                           ? 'success'
                           : 'info',
-                title: nameOf(item.agent_id),
+                agent: { id: item.agent_id, name: nameOf(item.agent_id) },
+                title: item.title ?? nameOf(item.agent_id),
                 message: item.text,
+                excerpt: item.excerpt ?? undefined,
                 onSelect: () => {
                     if (!item.read) void markRead(item.id, true)
                     navigate(item.href)

@@ -9,7 +9,6 @@ export type NotificationCategory =
     | 'dream_cycle'
     | 'background_job'
     | 'integration'
-    | 'channel_replies'
     | 'chat_reply'
 
 export type NotificationTone = 'default' | 'failed' | 'success'
@@ -24,6 +23,10 @@ export type NotificationItem = {
     text: string
     href: string
     read: boolean
+    /** The conversation's current title, or the task's. Absent when there is none or it isn't yours to see. */
+    title?: string
+    /** A short plain-text excerpt of what the source said. Render it as text. */
+    excerpt?: string
 }
 
 export type NotificationCounts = { all: number; unread: number; read: number }

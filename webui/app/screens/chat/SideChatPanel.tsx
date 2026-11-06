@@ -94,7 +94,7 @@ export function SideChatPanel({
     return (
         <section
             aria-label="Side chat"
-            className="mb-8 flex max-h-[50vh] flex-col overflow-hidden rounded-xl border border-border-strong bg-surface/70 shadow-dialog backdrop-blur-md"
+            className="mb-8 flex max-h-[50vh] flex-col overflow-hidden rounded-xl border border-border-strong surface-float shadow-dialog"
         >
             <header className="flex shrink-0 items-center gap-12 border-b border-border px-16 py-8">
                 <span className="type-code font-medium text-live-text">/btw</span>

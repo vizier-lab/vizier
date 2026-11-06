@@ -7,7 +7,7 @@ import { useMobile } from '../lib/useMobile'
 import { useNav } from '../stores/nav'
 import { useAgents } from '../stores/agents'
 import { useNotifications } from '../stores/notifications'
-import { NotificationsAside, NotificationsPanel } from '../screens/notifications/NotificationsPanel'
+import { NotificationsPopup } from '../screens/notifications/NotificationsPopup'
 import { NotificationsBell } from '../screens/shared/NotificationsBell'
 import { NotificationToasts } from '../screens/shared/NotificationToasts'
 import { NewAgentDialog, withNewAgent } from '../screens/agents/NewAgentDialog'
@@ -26,7 +26,6 @@ export default function AppShell() {
     const { can } = useSession()
     const start = useAgents((s) => s.start)
     const mobile = useMobile()
-    const notificationsOpen = useNotifications((s) => s.open)
     const navOpen = useNav((s) => s.open)
     const setNavOpen = useNav((s) => s.setOpen)
     const resetNotifications = useNotifications((s) => s.reset)
@@ -34,8 +33,7 @@ export default function AppShell() {
     const [drawerAgent, setDrawerAgent] = useState<string>()
 
     useEffect(() => start(), [start])
-    // A fresh session starts from zero, then the badge is kept current by the
-    // store's own 15s poll.
+    // A fresh session starts from zero, then the badge is kept current by the inbox stream.
     useEffect(() => {
         resetNotifications()
         return useNotifications.getState().start()
@@ -137,7 +135,7 @@ export default function AppShell() {
                         ) : null}
                     </div>
                 </SlideOver>
-                <NotificationsPanel />
+                <NotificationsPopup />
                 <NotificationToasts />
                 <ToastRegion />
                 <NewAgentDialog />
@@ -151,10 +149,10 @@ export default function AppShell() {
                 rail={<ShellRail pathname={pathname} view={view} routeAgent={routeAgent} />}
                 sidebar={sidebar}
                 sidebarKey={sidebarKey}
-                aside={notificationsOpen ? <NotificationsAside /> : undefined}
             >
                 {page}
             </ShellFrame>
+            <NotificationsPopup />
             <NotificationToasts />
             <ToastRegion />
             <NewAgentDialog />

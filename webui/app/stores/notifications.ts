@@ -2,17 +2,18 @@ import { create } from 'zustand'
 import {
     listNotifications,
     markAllNotificationsRead,
+    notificationCounts,
     setNotificationRead,
     type NotificationCounts,
-    type NotificationFilter,
     type NotificationItem,
 } from '../api/endpoints/notifications'
-import { transport } from '../api/transport'
-import { applyAllRead, applyRead, isViewing, mergePage } from '../lib/notifications'
-import { pollDelay } from '../lib/desktop'
+import { transport, type ConnectionState } from '../api/transport'
+import { absorb, onHello, onRead, parseFrame, type InboxFrame } from '../lib/inboxFrames'
+import { applyAllRead, applyRead, belongs, mergePage, type ViewFilter } from '../lib/notifications'
 
-/** Within the spec's 30s freshness budget. */
-const POLL_MS = 15_000
+export type { ViewFilter }
+import { useAgents } from './agents'
+
 const PAGE = 20
 
 const EMPTY: NotificationCounts = { all: 0, unread: 0, read: 0 }
@@ -20,7 +21,7 @@ const EMPTY: NotificationCounts = { all: 0, unread: 0, read: 0 }
 type NotificationStore = {
     /** Whether the dropdown is showing. */
     open: boolean
-    filter: NotificationFilter
+    filter: ViewFilter
     items: NotificationItem[]
     counts: NotificationCounts
     /** The cursor for the next page; null on the last one. */
@@ -29,9 +30,9 @@ type NotificationStore = {
     loadingMore: boolean
     loaded: boolean
     error: string | null
-    /** The highest id the poll has seen, so a later one is new. */
+    /** The highest id seen, so a later one is new. */
     lastSeenId: number
-    /** Whether the first poll has established `lastSeenId` (its rows are not new). */
+    /** Whether the first snapshot has established `lastSeenId` (its rows are not new). */
     primed: boolean
     /** Rows that arrived since the toaster last drained them. */
     arrived: NotificationItem[]
@@ -39,19 +40,31 @@ type NotificationStore = {
     /** The in-app path on screen, so a reply to that conversation is read on arrival. */
     viewing: string | null
     setViewing: (path: string) => void
+    /** The bell the popup hangs from; null when none is mounted. */
+    anchor: HTMLElement | null
+    setAnchor: (el: HTMLElement | null) => void
     openPanel: () => void
     closePanel: () => void
-    setFilter: (filter: NotificationFilter) => void
+    togglePanel: () => void
+    setFilter: (filter: ViewFilter) => void
     /** The first page of the current filter, replacing what is loaded. */
     load: () => Promise<void>
-    /** A silent first-page merge, for a poll while the panel is open. */
+    /** A silent first-page merge, for when the panel opens on a list already loaded. */
     refresh: () => Promise<void>
     loadMore: () => Promise<void>
     markRead: (id: number, read: boolean) => Promise<void>
     markAll: () => Promise<void>
+    /** Apply one frame of the inbox stream. Also the seam the tests drive. */
+    receive: (frame: InboxFrame) => void
     /**
-     * Polls the newest page every 15s while the tab is visible: its counts feed the badge,
-     * and ids above the high-water mark are new (for a toast). Returns a stop function.
+     * Re-read the newest rows after a gap (a reconnect that missed some, or a `resync`): rows above
+     * the high-water mark are new, and the loaded first page is replaced so rows that went away
+     * (a deleted conversation) and read flips made elsewhere are right.
+     */
+    catchUp: () => Promise<void>
+    /**
+     * Opens the inbox stream: counts feed the badge, ids above the high-water mark are new (for a
+     * toast), and setup progress goes to the agents store. No timer. Returns a stop function.
      */
     start: () => () => void
     /** Sign-out or a fresh mount: the previous person's counts must not flash. */
@@ -93,6 +106,9 @@ export const useNotifications = create<NotificationStore>()((set, get) => ({
         return items
     },
 
+    anchor: null,
+    setAnchor: (el) => set({ anchor: el }),
+
     openPanel: () => {
         set({ open: true })
         if (get().loaded) void get().refresh()
@@ -100,6 +116,8 @@ export const useNotifications = create<NotificationStore>()((set, get) => ({
     },
 
     closePanel: () => set({ open: false }),
+
+    togglePanel: () => (get().open ? get().closePanel() : get().openPanel()),
 
     setFilter: (filter) => {
         set({ filter, items: [], next: null, loaded: false, error: null })
@@ -194,86 +212,87 @@ export const useNotifications = create<NotificationStore>()((set, get) => ({
         }
     },
 
-    start: () => {
-        let lastRun = 0
-        const tick = async () => {
-            if (typeof document !== 'undefined') {
-                // Hidden: the browser stops; the desktop app keeps checking, every minute, so a
-                // finished task still reaches the OS (research R11).
-                const delay = pollDelay(transport.authMode === 'desktop', document.visibilityState)
-                if (delay === null || Date.now() - lastRun < delay - 1000) return
+    receive: (frame) => {
+        const s = get()
+        switch (frame.type) {
+            case 'hello': {
+                const { patch, fetchPage } = onHello(s, frame)
+                set(patch)
+                useAgents.getState().replaceSetups(frame.setups)
+                if (fetchPage) void get().catchUp()
+                break
             }
-            lastRun = Date.now()
-            // One request answers both questions: the badge (its counts) and what is new
-            // (ids above the high-water mark). A failure keeps the last known badge.
-            let page
-            try {
-                page = await listNotifications('all', undefined, PAGE)
-            } catch {
-                return
+            case 'notification': {
+                const { patch, markRead } = absorb(s, [frame.item], frame.counts)
+                set(patch)
+                for (const id of markRead) void setNotificationRead(id, true).catch(() => {})
+                break
             }
-            const state = get()
-            let counts = page.counts
-            let lastSeenId = state.lastSeenId
-            let arrived = state.arrived
-            let readNow: number[] = []
-
-            if (!state.primed) {
-                lastSeenId = page.items.reduce((max, i) => Math.max(max, i.id), 0)
-            } else {
-                const fresh = page.items.filter((i) => i.id > state.lastSeenId)
-                if (fresh.length) {
-                    const viewed = fresh.filter((i) => isViewing(i, state.viewing))
-                    const toastable = fresh.filter((i) => !isViewing(i, state.viewing))
-                    lastSeenId = fresh.reduce((max, i) => Math.max(max, i.id), state.lastSeenId)
-                    if (viewed.length) {
-                        // The reply is already on screen: read it with no badge bump and no toast.
-                        counts = {
-                            ...counts,
-                            unread: Math.max(0, counts.unread - viewed.length),
-                            read: counts.read + viewed.length,
-                        }
-                        readNow = viewed.map((i) => i.id)
-                        for (const item of viewed) {
-                            void setNotificationRead(item.id, true).catch(() => {})
-                        }
-                    }
-                    // With the panel open the new row is already at its top.
-                    if (!state.open) arrived = [...state.arrived, ...toastable]
-                }
-            }
-            set({ counts, lastSeenId, primed: true, arrived })
-            if (readNow.length) {
-                const ids = new Set(readNow)
-                set((s) => ({
-                    items: s.items.map((i) => (ids.has(i.id) ? { ...i, read: true } : i)),
-                }))
-            }
-            // Keep an open panel current; `all` can reuse the page just fetched.
-            if (state.open && state.loaded) {
-                if (state.filter === 'all') {
-                    const ids = new Set(readNow)
-                    set((s) => {
-                        const merged = mergePage(s.items, page.items, 'all')
-                        return {
-                            items: ids.size
-                                ? merged.map((i) => (ids.has(i.id) ? { ...i, read: true } : i))
-                                : merged,
-                            next: s.next ?? page.next ?? null,
-                            error: null,
-                        }
-                    })
-                } else {
-                    await get().refresh()
-                }
-            }
+            case 'read':
+                set(onRead(s, frame.id, frame.read, frame.counts))
+                break
+            case 'setup':
+                useAgents.getState().applySetup(frame.state)
+                break
+            case 'setup_cleared':
+                useAgents.getState().clearSetup(frame.agent_id)
+                break
+            case 'resync':
+                void get().catchUp()
+                break
         }
-        void tick()
-        const id = setInterval(() => void tick(), POLL_MS)
-        return () => clearInterval(id)
     },
 
-    reset: () =>
+    catchUp: async () => {
+        let page
+        try {
+            page = await listNotifications('all', undefined, PAGE)
+        } catch {
+            return // keep what is held: a failed read is not an empty inbox
+        }
+        const { patch, markRead } = absorb(get(), page.items, page.counts)
+        set(patch)
+        for (const id of markRead) void setNotificationRead(id, true).catch(() => {})
+        if (!get().loaded) return
+        const filter = get().filter
+        try {
+            const first = filter === 'all' ? page : await listNotifications(filter, undefined, PAGE)
+            if (get().filter !== filter) return
+            const read = new Set(markRead)
+            set({
+                items: first.items
+                    .map((i) => (read.has(i.id) ? { ...i, read: true } : i))
+                    .filter((i) => belongs(filter, i)),
+                next: first.next ?? null,
+                error: null,
+            })
+        } catch {
+            /* keep the list as it was */
+        }
+    },
+
+    start: () => {
+        const handle = transport.openInbox({
+            onFrame: (data) => {
+                const frame = parseFrame(data)
+                if (frame) get().receive(frame)
+            },
+            onOpen: () => {},
+            onState: (state: ConnectionState) => {
+                // A refused upgrade is invisible to the browser, so a stream that keeps failing
+                // asks one ordinary question: a 401 there signs the person out (`settle`), and a
+                // live answer corrects the badge meanwhile.
+                if (state === 'offline') {
+                    void notificationCounts()
+                        .then((counts) => counts && set({ counts }))
+                        .catch(() => {})
+                }
+            },
+        })
+        return () => handle.close()
+    },
+
+    reset: () => {
         set({
             open: false,
             filter: 'unread',
@@ -288,5 +307,8 @@ export const useNotifications = create<NotificationStore>()((set, get) => ({
             primed: false,
             arrived: [],
             viewing: null,
-        }),
+        })
+        // The previous person's setup progress must not flash either.
+        useAgents.getState().resetSetups()
+    },
 }))

@@ -1,4 +1,5 @@
-// One WebSocket per open topic, with backoff and a connection state the UI can show.
+// One WebSocket per open connection, with backoff and a connection state the UI can show. It
+// serves a conversation (a topic) and the inbox stream alike: it knows only a URL and callbacks.
 
 import type { ConnectionState } from './common'
 

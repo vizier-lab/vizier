@@ -61,7 +61,7 @@ export function MonthView({ agentId, tasks, anchor, now, onOpenDay }: Props) {
                 onOpenMore={(key, el) => setOpen({ key, anchor: el })}
             />
             {open && openDay && (
-                <Floating anchor={anchorRef} className="w-320 rounded-xl border border-border-strong bg-surface shadow-popover">
+                <Floating anchor={anchorRef} className="w-320 rounded-xl border border-border-strong surface-float shadow-popover">
                     <div ref={popRef} role="dialog" aria-label={dayName.format(openDay.date)} className="flex flex-col">
                         <div className="flex items-center justify-between gap-12 border-b border-border px-16 py-12">
                             <div className="flex flex-col gap-2">

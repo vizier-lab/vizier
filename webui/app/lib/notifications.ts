@@ -3,6 +3,9 @@ import type {
     NotificationItem,
 } from '../api/endpoints/notifications'
 
+/** What the popup offers; the REST `read` filter stays for other clients. */
+export type ViewFilter = Exclude<NotificationFilter, 'read'>
+
 /** Does a row belong in the selected filter? */
 export function belongs(filter: NotificationFilter, item: NotificationItem): boolean {
     if (filter === 'unread') return !item.read

@@ -31,6 +31,7 @@ export const transport: Transport = {
     saveText: (t, f) => current.saveText(t, f),
     openFile: (p, f) => current.openFile(p, f),
     openTopic: (t, o) => current.openTopic(t, o),
+    openInbox: (o) => current.openInbox(o),
     notify: (n) => current.notify(n),
     pickFolder: () => current.pickFolder(),
 }

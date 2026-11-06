@@ -4557,7 +4557,7 @@ export interface components {
          *     a filter.
          * @enum {string}
          */
-        NotificationCategory: "agent_start_failure" | "agent_setup_ready" | "task_run" | "dream_cycle" | "background_job" | "integration" | "channel_replies" | "chat_reply";
+        NotificationCategory: "agent_start_failure" | "agent_setup_ready" | "task_run" | "dream_cycle" | "background_job" | "integration" | "chat_reply";
         /** @description Counts over the whole visible, retained set, independent of the selected page/filter. */
         NotificationCounts: {
             /** Format: int64 */
@@ -4578,6 +4578,8 @@ export interface components {
             /** Format: date-time */
             at: string;
             category: components["schemas"]["NotificationCategory"];
+            /** @description A short plain-text excerpt of what the source said. */
+            excerpt?: string | null;
             href: string;
             /**
              * Format: int64
@@ -4588,6 +4590,8 @@ export interface components {
             read: boolean;
             /** @description The stored summary; the WebUI renders it as text. */
             text: string;
+            /** @description The current conversation title or the task title. Absent when there is none or the viewer may not see it. */
+            title?: string | null;
             tone: components["schemas"]["NotificationTone"];
         };
         /** @description One page of the inbox plus the counts for its filters. */
