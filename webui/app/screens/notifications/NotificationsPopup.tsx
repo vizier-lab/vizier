@@ -28,8 +28,8 @@ const EMPTY_STATES = {
     },
 }
 
-const FILTERS: { value: ViewFilter; label: string; icon: 'eye-closed' | 'list' }[] = [
-    { value: 'unread', label: 'Unread', icon: 'eye-closed' },
+const FILTERS: { value: ViewFilter; label: string; icon: 'bell' | 'list' }[] = [
+    { value: 'unread', label: 'Unread', icon: 'bell' },
     { value: 'all', label: 'All', icon: 'list' },
 ]
 
@@ -134,7 +134,7 @@ function Popup({
                         <IconButton
                             variant="ghost"
                             size="sm"
-                            icon="check"
+                            icon="check-check"
                             aria-label="Mark all as read"
                             disabled={counts.unread === 0}
                             onClick={() => void markAll()}
