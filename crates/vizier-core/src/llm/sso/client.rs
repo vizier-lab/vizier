@@ -12,10 +12,11 @@
 //! so a sign-in can never hang (SC-002). A confirmed flow refuses to be confirmed twice
 //! ([`SsoError::AlreadyConfirmed`]): the second call cannot mint a second session from one code.
 
+use crate::time::Timestamp;
 use std::fmt;
 use std::time::Duration;
 
-use chrono::{DateTime, Duration as ChronoDuration, Utc};
+use chrono::{Duration as ChronoDuration, Local};
 use serde::Deserialize;
 
 use super::error::SsoError;
@@ -75,13 +76,13 @@ pub struct ClientRegistration {
     pub client_id: String,
     pub client_secret: String,
     /// `None` when the registration never expires (`clientSecretExpiresAt` absent or `0`).
-    pub expires_at: Option<DateTime<Utc>>,
+    pub expires_at: Option<Timestamp>,
 }
 
 impl ClientRegistration {
     /// Whether this registration may still start a sign-in at `now`: not expiring, or expiring
     /// later than the guard window (§2).
-    pub fn is_reusable(&self, now: DateTime<Utc>) -> bool {
+    pub fn is_reusable(&self, now: Timestamp) -> bool {
         match self.expires_at {
             None => true,
             Some(expires_at) => expires_at - REGISTRATION_GUARD > now,
@@ -109,7 +110,7 @@ pub struct DeviceAuthorization {
     pub verification_uri: String,
     pub verification_uri_complete: Option<String>,
     /// When the user code dies, on this process's clock.
-    pub expires_at: DateTime<Utc>,
+    pub expires_at: Timestamp,
     /// The endpoint's requested polling interval.
     pub interval: Duration,
 }
@@ -139,7 +140,7 @@ impl fmt::Debug for DeviceAuthorization {
 pub struct TokenSet {
     pub access_token: String,
     pub refresh_token: Option<String>,
-    pub expires_at: DateTime<Utc>,
+    pub expires_at: Timestamp,
 }
 
 impl fmt::Debug for TokenSet {
@@ -434,7 +435,7 @@ impl SsoClient {
             expires_at: wire
                 .client_secret_expires_at
                 .filter(|seconds| *seconds > 0)
-                .and_then(|seconds| DateTime::from_timestamp(seconds, 0)),
+                .and_then(|seconds| crate::time::from_secs_opt(seconds, 0)),
         };
         tracing::debug!(
             region = %self.region,
@@ -481,7 +482,7 @@ impl SsoClient {
             interval = ?wire.interval,
             "a device code was issued"
         );
-        let now = Utc::now();
+        let now = crate::time::now();
         Ok(DeviceAuthorization {
             device_code: wire.device_code,
             user_code: wire.user_code,
@@ -548,7 +549,7 @@ impl SsoClient {
             let tokens = TokenSet {
                 access_token: wire.access_token,
                 refresh_token: wire.refresh_token,
-                expires_at: Utc::now() + ChronoDuration::seconds(wire.expires_in as i64),
+                expires_at: crate::time::now() + ChronoDuration::seconds(wire.expires_in as i64),
             };
             tracing::debug!(
                 region = %self.region,
@@ -625,7 +626,7 @@ pub struct DeviceFlow {
     registration: ClientRegistration,
     authorization: DeviceAuthorization,
     interval: Duration,
-    deadline: DateTime<Utc>,
+    deadline: Timestamp,
     confirmed: bool,
 }
 
@@ -639,7 +640,7 @@ impl DeviceFlow {
         let authorization = client
             .start_device_authorization(&registration, start_url)
             .await?;
-        let now = Utc::now();
+        let now = crate::time::now();
         // Both bounds of §3: the code's own life minus the guard, and the ten-minute ceiling.
         let deadline = (authorization.expires_at - CODE_GUARD).min(now + FLOW_CEILING);
         Ok(Self {
@@ -668,7 +669,7 @@ impl DeviceFlow {
     }
 
     /// When the code dies — the expiry the pending panel shows.
-    pub fn expires_at(&self) -> DateTime<Utc> {
+    pub fn expires_at(&self) -> Timestamp {
         self.authorization.expires_at
     }
 
@@ -706,7 +707,7 @@ impl DeviceFlow {
         if self.confirmed {
             return Err(SsoError::AlreadyConfirmed);
         }
-        if Utc::now() >= self.deadline {
+        if crate::time::now() >= self.deadline {
             return Err(SsoError::CodeExpired);
         }
         let poll = self
@@ -929,7 +930,7 @@ mod tests {
 
     #[test]
     fn a_registration_is_reused_until_just_before_its_secret_expires() {
-        let now = Utc.with_ymd_and_hms(2026, 11, 2, 12, 0, 0).unwrap();
+        let now = Local.with_ymd_and_hms(2026, 11, 2, 12, 0, 0).unwrap();
         let mut registration = ClientRegistration {
             client_id: "client-id".into(),
             client_secret: "client-secret-value".into(),
@@ -957,7 +958,7 @@ mod tests {
                 user_code: "ABCD-EFGH".into(),
                 verification_uri: "https://example.test/device".into(),
                 verification_uri_complete: None,
-                expires_at: Utc::now(),
+                expires_at: crate::time::now(),
                 interval: Duration::from_secs(5),
             }
         );
@@ -966,7 +967,7 @@ mod tests {
         let tokens = TokenSet {
             access_token: "access-token-value".into(),
             refresh_token: Some("refresh-token-value".into()),
-            expires_at: Utc::now(),
+            expires_at: crate::time::now(),
         };
         let printed = format!("{tokens:?}");
         for poison in ["access-token-value", "refresh-token-value"] {

@@ -3,6 +3,7 @@ mod inbox;
 mod reply;
 pub mod wire;
 
+use crate::time::Timestamp;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -454,7 +455,7 @@ impl VizierTransport {
     pub async fn await_session_outcome(
         &self,
         session: &VizierSession,
-        since: chrono::DateTime<chrono::Utc>,
+        since: Timestamp,
     ) -> crate::agents::background::PieceOutcome {
         use crate::agents::background::{AGENT_RESTARTED, PieceOutcome, classify};
         use crate::schema::SessionHistoryContent;
@@ -764,7 +765,7 @@ mod bus_tests {
 
     fn chat(text: &str) -> VizierRequest {
         VizierRequest {
-            timestamp: chrono::Utc::now(),
+            timestamp: crate::time::now(),
             user: "tester".into(),
             content: VizierRequestContent::Chat(text.into()),
             metadata: serde_json::json!({}),

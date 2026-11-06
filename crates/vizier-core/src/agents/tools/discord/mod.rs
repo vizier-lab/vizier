@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use chrono::Utc;
+
 use serde::{Deserialize, Serialize};
 use twilight_http::Client;
 use twilight_http::request::channel::reaction::RequestReactionType;
@@ -115,7 +115,7 @@ impl VizierTool for SendDiscordMessage {
 
         let session = VizierSession(self.agent_id.clone(), channel, topic_id);
         let response = VizierResponse {
-            timestamp: Utc::now(),
+            timestamp: crate::time::now(),
             content: VizierResponseContent::Message { content, stats: None },
             attachments: vec![],
             ..Default::default()
@@ -296,7 +296,7 @@ impl VizierTool for GetDiscordGuildInfo {
             guild.name,
             guild.id,
             guild.owner_id,
-            chrono::DateTime::from_timestamp_millis(guild.id.timestamp())
+            crate::time::from_millis_opt(guild.id.timestamp())
                 .map(|ts| ts.to_rfc3339())
                 .unwrap_or_else(|| "unknown".to_string()),
             member_count,

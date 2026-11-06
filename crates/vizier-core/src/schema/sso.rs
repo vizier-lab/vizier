@@ -10,7 +10,7 @@
 //! log line, no span — can emit a token by accident. [`SsoSession`] is the projection that *is*
 //! serialised, and it carries no secret.
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Local};
 use serde::{Deserialize, Serialize};
 
 /// Where the connection stands, as the settings row renders it (data-model "the connection
@@ -46,7 +46,7 @@ pub struct SsoSession {
     pub role_name: String,
     /// When the access token expires; `None` while the connection is only configured.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub expires_at: Option<DateTime<Utc>>,
+    pub expires_at: Option<DateTime<Local>>,
     pub state: SsoSessionState,
 }
 
@@ -62,16 +62,16 @@ pub struct SsoSessionSecret {
     #[serde(default)]
     pub refresh_token: Option<String>,
     /// When `access_token` expires.
-    pub token_expires_at: DateTime<Utc>,
+    pub token_expires_at: DateTime<Local>,
     /// From the one-time client registration.
     pub client_id: String,
     /// From the one-time client registration.
     pub client_secret: String,
     /// When the registration's secret expires; past it, register again.
     #[serde(default)]
-    pub client_secret_expires_at: Option<DateTime<Utc>>,
+    pub client_secret_expires_at: Option<DateTime<Local>>,
     /// For diagnostics and for ordering the compare-and-swap write.
-    pub issued_at: DateTime<Utc>,
+    pub issued_at: DateTime<Local>,
     /// Incremented by the store on every successful write; the compare-and-swap key
     /// (research D5, FR-014).
     #[serde(default)]
@@ -129,11 +129,11 @@ mod tests {
         SsoSessionSecret {
             access_token: "access-token-value".into(),
             refresh_token: Some("refresh-token-value".into()),
-            token_expires_at: Utc::now(),
+            token_expires_at: crate::time::now(),
             client_id: "client-id".into(),
             client_secret: "client-secret-value".into(),
             client_secret_expires_at: None,
-            issued_at: Utc::now(),
+            issued_at: crate::time::now(),
             revision: 3,
         }
     }

@@ -1,5 +1,5 @@
 use anyhow::Result;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Local};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -41,7 +41,7 @@ pub struct VizierResponseStats {
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct VizierResponse {
-    pub timestamp: DateTime<Utc>,
+    pub timestamp: DateTime<Local>,
     pub content: VizierResponseContent,
     pub attachments: Vec<VizierAttachment>,
     /// The `session_history` uid this response was saved as. Set by whoever saved it,

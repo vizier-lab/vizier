@@ -1,10 +1,10 @@
 //! SQLite implementation of the artifact metadata store (`specs/035-add-artifacts`).
 
+use crate::time::Timestamp;
 use crate::storage::sql::{
     self, OptionalExtension, Row, ToSql, Transaction, params, params_from_iter,
 };
 use anyhow::{Result, anyhow};
-use chrono::{DateTime, Utc};
 
 use crate::{
     schema::{
@@ -14,12 +14,12 @@ use crate::{
     storage::{artifact::ArtifactStorage, sqlite::SqlStorage},
 };
 
-fn to_ms(at: DateTime<Utc>) -> i64 {
+fn to_ms(at: Timestamp) -> i64 {
     at.timestamp_millis()
 }
 
-fn from_ms(ms: i64) -> DateTime<Utc> {
-    DateTime::<Utc>::from_timestamp_millis(ms).unwrap_or_else(Utc::now)
+fn from_ms(ms: i64) -> Timestamp {
+    crate::time::from_millis_opt(ms).unwrap_or_else(crate::time::now)
 }
 
 fn actor_json(actor: &Requester) -> String {
@@ -251,7 +251,7 @@ impl ArtifactStorage for SqlStorage {
         mime_type: &str,
         kind: ArtifactKind,
         source_filename: &str,
-        updated_at: DateTime<Utc>,
+        updated_at: Timestamp,
         event: &ArtifactEvent,
     ) -> Result<Artifact> {
         {

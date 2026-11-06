@@ -1,5 +1,5 @@
+use crate::time::Timestamp;
 use anyhow::{Context, Result, anyhow};
-use chrono::{DateTime, Utc};
 
 use crate::storage::sql::{OptionalExtension, params};
 use crate::{
@@ -18,8 +18,8 @@ use crate::{
     },
 };
 
-fn millis_to_datetime(ms: i64) -> DateTime<Utc> {
-    DateTime::<Utc>::from_timestamp_millis(ms).unwrap_or_else(Utc::now)
+fn millis_to_datetime(ms: i64) -> Timestamp {
+    crate::time::from_millis_opt(ms).unwrap_or_else(crate::time::now)
 }
 
 fn summary(row: &CoreRevisionRow, latest_seq: i64) -> CoreRevisionSummary {

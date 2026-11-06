@@ -1,6 +1,6 @@
 use crate::storage::sql::{self, Connection, params};
 use anyhow::Result;
-use chrono::Utc;
+
 
 use crate::{
     schema::{VizierRequest, VizierSession},
@@ -84,7 +84,7 @@ impl TurnStorage for SqlStorage {
                 topic,
                 serde_json::to_string(session)?,
                 serde_json::to_string(request)?,
-                Utc::now().to_rfc3339()
+                crate::time::stored_now()
             ],
             |row| row.get(0),
         )?;
@@ -94,7 +94,7 @@ impl TurnStorage for SqlStorage {
     async fn start_turn(&self, id: i64) -> Result<()> {
         self.conn.lock()?.execute(
             "UPDATE session_turn SET state = 'running', started_at = ?2 WHERE id = ?1",
-            params![id, Utc::now().to_rfc3339()],
+            params![id, crate::time::stored_now()],
         )?;
         Ok(())
     }

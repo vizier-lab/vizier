@@ -1,10 +1,11 @@
 //! Usage reports (`specs/018-usage-accounting/`): price grouped usage rows with the catalogue,
 //! and resolve the names and links the usage page shows. Storage groups; this prices (R7).
 
+use crate::time::Timestamp;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use anyhow::Result;
-use chrono::{DateTime, Duration, NaiveDate, Utc};
+use chrono::{DateTime, Duration, NaiveDate, Local};
 
 use crate::{
     catalogue::{Catalogue, data::Cost},
@@ -149,7 +150,7 @@ struct Tally {
     failed_tokens: u64,
     failed_cost: Option<f64>,
     failed_turns: u64,
-    last_at: Option<DateTime<Utc>>,
+    last_at: Option<Timestamp>,
 }
 
 impl Tally {
@@ -371,7 +372,7 @@ pub async fn build_report(
         .await?
         .and_then(|v| v.as_str().map(str::to_string))
         .and_then(|s| DateTime::parse_from_rfc3339(&s).ok())
-        .map(|d| d.with_timezone(&Utc));
+        .map(|d| d.with_timezone(&Local));
 
     Ok(UsageReport {
         range: UsageRange {
@@ -1321,8 +1322,8 @@ mod tests {
                 .expect("the seed has a priced model")
         }
 
-        fn at(ms: i64) -> DateTime<Utc> {
-            DateTime::from_timestamp_millis(ms).unwrap()
+        fn at(ms: i64) -> Timestamp {
+            crate::time::from_millis_opt(ms).unwrap()
         }
 
         fn event(ms: i64, channel: &str, provider: &str, model: &str, input: u64) -> UsageEvent {
@@ -1349,10 +1350,12 @@ mod tests {
         }
 
         fn q() -> UsageQuery {
+            // Seven whole days on the instance's clock, starting at a local midnight.
+            let start = crate::time::start_of_local_day(chrono::NaiveDate::from_ymd_opt(1970, 1, 2).unwrap());
             UsageQuery {
                 agent_id: "a".into(),
-                start: at(0),
-                end: at(7 * DAY - 1),
+                start,
+                end: start + chrono::Duration::days(7) - chrono::Duration::milliseconds(1),
                 activity: None,
                 conversation: None,
             }

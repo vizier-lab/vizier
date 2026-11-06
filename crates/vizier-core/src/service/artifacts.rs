@@ -3,7 +3,7 @@
 //! Reads (list/detail/content/activity) need artifact **view**; delete needs **manage**. Both
 //! come from [`crate::artifacts::access`], on top of being able to see the agent.
 
-use chrono::{DateTime, NaiveDate, TimeZone, Utc};
+use chrono::{DateTime, NaiveDate, TimeZone, Local};
 use serde::Serialize;
 
 use super::{ServiceError, Services};
@@ -28,8 +28,8 @@ pub struct ArtifactItemView {
     pub mime_type: String,
     pub size: u64,
     pub version: u32,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: DateTime<Local>,
+    pub updated_at: DateTime<Local>,
     pub available: bool,
 }
 
@@ -83,7 +83,7 @@ pub struct ArtifactReferenceView {
     pub kind: String,
     pub label: String,
     pub href: Option<String>,
-    pub created_at: DateTime<Utc>,
+    pub created_at: DateTime<Local>,
 }
 
 fn reference_view(reference: &ArtifactReference) -> ArtifactReferenceView {
@@ -120,7 +120,7 @@ pub struct ArtifactEventView {
     pub source_channel: Option<String>,
     pub source_topic: Option<String>,
     pub source_filename: Option<String>,
-    pub created_at: DateTime<Utc>,
+    pub created_at: DateTime<Local>,
 }
 
 async fn event_view(s: &Services, event: &ArtifactEvent) -> ArtifactEventView {
@@ -203,14 +203,14 @@ async fn require_manage(s: &Services, who: &Principal, agent_id: &str) -> Result
     Ok(config)
 }
 
-fn parse_day(raw: &str, end: bool) -> Option<DateTime<Utc>> {
+fn parse_day(raw: &str, end: bool) -> Option<DateTime<Local>> {
     let date = NaiveDate::parse_from_str(raw, "%Y-%m-%d").ok()?;
     let time = if end {
         date.and_hms_milli_opt(23, 59, 59, 999)?
     } else {
         date.and_hms_opt(0, 0, 0)?
     };
-    Some(Utc.from_utc_datetime(&time))
+    Some(Local.from_utc_datetime(&time))
 }
 
 fn cursor_of(raw: Option<&str>) -> Result<Option<ArtifactCursor>, ServiceError> {

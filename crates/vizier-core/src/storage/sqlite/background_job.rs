@@ -1,8 +1,9 @@
+use crate::time::Timestamp;
 use std::collections::HashMap;
 
 use crate::storage::sql::{self, Connection, OptionalExtension, Row, ToSql, params};
 use anyhow::Result;
-use chrono::{DateTime, TimeZone, Utc};
+use chrono::{TimeZone, Local};
 
 use crate::{
     schema::{
@@ -19,8 +20,8 @@ use crate::{
 const JOB_COLUMNS: &str = "id, kind, origin_agent, origin_channel, origin_topic, depth, \
      timeout_secs, created_at, finished_at, state, cancelled_by, reason";
 
-fn millis_to_utc(ms: i64) -> Option<DateTime<Utc>> {
-    Utc.timestamp_millis_opt(ms).single()
+fn millis_to_utc(ms: i64) -> Option<Timestamp> {
+    Local.timestamp_millis_opt(ms).single()
 }
 
 fn channel_to_column(channel: &VizierChannelId) -> Result<String> {
@@ -182,7 +183,7 @@ impl BackgroundJobStorage for SqlStorage {
         ordinal: u32,
         state: PieceState,
         reason: Option<String>,
-        finished_at: DateTime<Utc>,
+        finished_at: Timestamp,
     ) -> Result<()> {
         let conn = self.conn.lock()?;
         conn.execute(
@@ -206,7 +207,7 @@ impl BackgroundJobStorage for SqlStorage {
         to: JobState,
         cancelled_by: Option<String>,
         reason: Option<String>,
-        at: DateTime<Utc>,
+        at: Timestamp,
     ) -> Result<bool> {
         let conn = self.conn.lock()?;
         let tx = conn.transaction()?;
@@ -337,7 +338,7 @@ impl BackgroundJobStorage for SqlStorage {
     ) -> Result<Vec<InterruptedJob>> {
         let conn = self.conn.lock()?;
         let tx = conn.transaction()?;
-        let now = Utc::now().timestamp_millis();
+        let now = crate::time::now().timestamp_millis();
         let open: Vec<(String, String, String, String, Option<String>)> = {
             let mut stmt = tx.prepare(&format!(
                 "SELECT id, origin_agent, kind, origin_channel, origin_topic \
@@ -386,7 +387,7 @@ impl BackgroundJobStorage for SqlStorage {
     async fn interrupt_open_background_jobs(&self) -> Result<usize> {
         let conn = self.conn.lock()?;
         let tx = conn.transaction()?;
-        let now = Utc::now().timestamp_millis();
+        let now = crate::time::now().timestamp_millis();
         tx.execute(
             "UPDATE background_piece SET state = 'interrupted', finished_at = ?1 \
              WHERE state = 'running'",
@@ -436,7 +437,7 @@ mod tests {
     }
 
     fn job(id: &str, pieces: u32) -> BackgroundJob {
-        let now = Utc::now();
+        let now = crate::time::now();
         BackgroundJob {
             id: id.into(),
             kind: JobKind::Batch,
@@ -512,7 +513,7 @@ mod tests {
             .await
             .unwrap();
 
-        let now = Utc::now();
+        let now = crate::time::now();
         let (reporting, cancelled) = tokio::join!(
             storage.transition_background_job(
                 "b-000002",
@@ -545,7 +546,7 @@ mod tests {
             .await
             .unwrap();
         storage
-            .close_background_piece("b-000003", 0, PieceState::Answered, None, Utc::now())
+            .close_background_piece("b-000003", 0, PieceState::Answered, None, crate::time::now())
             .await
             .unwrap();
 
@@ -556,7 +557,7 @@ mod tests {
                 JobState::Cancelled,
                 Some("person:dani".into()),
                 Some("no longer needed".into()),
-                Utc::now(),
+                crate::time::now(),
             )
             .await
             .unwrap();
@@ -582,7 +583,7 @@ mod tests {
 
         // A late close of a cancelled piece cannot overwrite it.
         storage
-            .close_background_piece("b-000003", 1, PieceState::Answered, None, Utc::now())
+            .close_background_piece("b-000003", 1, PieceState::Answered, None, crate::time::now())
             .await
             .unwrap();
         let loaded = storage
@@ -609,12 +610,12 @@ mod tests {
             .await
             .unwrap();
         storage
-            .close_background_piece("b-00000a", 0, PieceState::Answered, None, Utc::now())
+            .close_background_piece("b-00000a", 0, PieceState::Answered, None, crate::time::now())
             .await
             .unwrap();
         // b: every piece done, moved to reporting.
         storage
-            .close_background_piece("b-00000b", 0, PieceState::Answered, None, Utc::now())
+            .close_background_piece("b-00000b", 0, PieceState::Answered, None, crate::time::now())
             .await
             .unwrap();
         storage
@@ -624,13 +625,13 @@ mod tests {
                 JobState::Reporting,
                 None,
                 None,
-                Utc::now(),
+                crate::time::now(),
             )
             .await
             .unwrap();
         // c: already reported, must be untouched.
         storage
-            .close_background_piece("b-00000c", 0, PieceState::Answered, None, Utc::now())
+            .close_background_piece("b-00000c", 0, PieceState::Answered, None, crate::time::now())
             .await
             .unwrap();
         for (from, to) in [
@@ -638,7 +639,7 @@ mod tests {
             (JobState::Reporting, JobState::Reported),
         ] {
             storage
-                .transition_background_job("b-00000c", from, to, None, None, Utc::now())
+                .transition_background_job("b-00000c", from, to, None, None, crate::time::now())
                 .await
                 .unwrap();
         }
@@ -710,7 +711,7 @@ mod tests {
                                     JobState::Reporting,
                                     None,
                                     None,
-                                    Utc::now(),
+                                    crate::time::now(),
                                 )
                                 .await
                                 .unwrap()

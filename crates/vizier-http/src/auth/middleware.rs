@@ -167,7 +167,7 @@ pub async fn require_auth(
             // A person using the WebUI is "here"; a script with an API key is not. A failed write
             // is logged and never fails the request.
             if state.visit_throttle.check(&claims.sub) {
-                if let Err(e) = state.storage.record_visit(&claims.sub, chrono::Utc::now()).await {
+                if let Err(e) = state.storage.record_visit(&claims.sub, vizier_core::time::now()).await {
                     tracing::warn!("couldn't record a visit for {}: {e}", claims.sub);
                 }
             }

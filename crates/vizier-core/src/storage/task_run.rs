@@ -1,5 +1,6 @@
+use crate::time::Timestamp;
 use anyhow::Result;
-use chrono::{DateTime, Utc};
+
 
 use crate::{
     schema::{
@@ -25,7 +26,7 @@ pub trait TaskRunStorage {    /// Open a run. Called before the agent starts, so
         &self,
         agent_id: AgentId,
         task_slug: String,
-        ran_at: DateTime<Utc>,
+        ran_at: Timestamp,
         session_key: String,
     ) -> Result<i64>;
 
@@ -34,7 +35,7 @@ pub trait TaskRunStorage {    /// Open a run. Called before the agent starts, so
         &self,
         id: i64,
         state: TaskRunState,
-        finished_at: DateTime<Utc>,
+        finished_at: Timestamp,
     ) -> Result<()>;
 
     /// The overlap lock: at most one `Running` row per `(agent_id, task_slug)`.
@@ -46,7 +47,7 @@ pub trait TaskRunStorage {    /// Open a run. Called before the agent starts, so
         &self,
         agent_id: AgentId,
         task_slug: String,
-        before: Option<DateTime<Utc>>,
+        before: Option<Timestamp>,
         before_id: Option<i64>,
         limit: usize,
     ) -> Result<Vec<TaskRun>>;
@@ -55,7 +56,7 @@ pub trait TaskRunStorage {    /// Open a run. Called before the agent starts, so
         &self,
         agent_id: AgentId,
         task_slug: String,
-        ran_at: DateTime<Utc>,
+        ran_at: Timestamp,
     ) -> Result<Option<TaskRun>>;
 
     /// Startup sweep: every `Running` row becomes `Interrupted`. Nothing can
@@ -80,7 +81,7 @@ impl TaskRunStorage for VizierStorage {
         &self,
         agent_id: AgentId,
         task_slug: String,
-        ran_at: DateTime<Utc>,
+        ran_at: Timestamp,
         session_key: String,
     ) -> Result<i64> {
         self.0
@@ -92,7 +93,7 @@ impl TaskRunStorage for VizierStorage {
         &self,
         id: i64,
         state: TaskRunState,
-        finished_at: DateTime<Utc>,
+        finished_at: Timestamp,
     ) -> Result<()> {
         self.0.close_task_run(id, state, finished_at).await
     }
@@ -109,7 +110,7 @@ impl TaskRunStorage for VizierStorage {
         &self,
         agent_id: AgentId,
         task_slug: String,
-        before: Option<DateTime<Utc>>,
+        before: Option<Timestamp>,
         before_id: Option<i64>,
         limit: usize,
     ) -> Result<Vec<TaskRun>> {
@@ -122,7 +123,7 @@ impl TaskRunStorage for VizierStorage {
         &self,
         agent_id: AgentId,
         task_slug: String,
-        ran_at: DateTime<Utc>,
+        ran_at: Timestamp,
     ) -> Result<Option<TaskRun>> {
         self.0.get_task_run(agent_id, task_slug, ran_at).await
     }

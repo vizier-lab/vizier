@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use anyhow::Result;
-use chrono::Utc;
+
 
 use crate::{
     schema::{VizierSession, session_file::SessionFileRecord},
@@ -44,7 +44,7 @@ impl SessionFileStorage for FileSystemStorage {
             mime_type: mime_type.to_string(),
             size,
             file_id: file_id.to_string(),
-            added_at: Utc::now(),
+            added_at: crate::time::now(),
             sender: None,
             history_uid: None,
         };

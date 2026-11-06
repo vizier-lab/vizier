@@ -1,7 +1,7 @@
 //! The dream cycle: trigger, status, journal, nights and cycles. Every operation needs
 //! permission to edit the agent.
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Local};
 use serde::Serialize;
 
 use super::{ServiceError, Services};
@@ -22,7 +22,7 @@ pub struct DreamStatusResponse {
     pub status: String,
     pub total_sessions: Option<usize>,
     pub completed_sessions: Option<usize>,
-    pub last_dream: Option<DateTime<Utc>>,
+    pub last_dream: Option<DateTime<Local>>,
     pub next_dream: Option<String>,
     pub dream_provider: Option<String>,
     pub dream_model: Option<String>,
@@ -33,7 +33,7 @@ pub struct DreamStatusResponse {
 pub struct DreamCycles {
     pub cycles: Vec<DreamCycle>,
     /// Pass as `before` for the next page; `null` at the end.
-    pub next: Option<DateTime<Utc>>,
+    pub next: Option<DateTime<Local>>,
 }
 
 fn internal(e: impl std::fmt::Display) -> ServiceError {
@@ -86,7 +86,7 @@ pub async fn status(s: &Services, who: &Principal, agent_id: &str) -> Result<Dre
         use croner::Cron;
         use std::str::FromStr;
         if let Ok(cron) = Cron::from_str(cron_str) {
-            let from = last_dream.unwrap_or(Utc::now());
+            let from = last_dream.unwrap_or(crate::time::now());
             cron.find_next_occurrence(&from, true).ok().map(|dt| dt.to_rfc3339())
         } else {
             None
@@ -156,26 +156,8 @@ pub async fn entry(
     }
 }
 
-/// `+07:00`, `-05:30`, `Z` or `+0700` as minutes east of UTC; anything else is UTC.
-pub fn parse_offset(tz: Option<&str>) -> i32 {
-    let Some(tz) = tz.map(str::trim).filter(|t| !t.is_empty() && *t != "Z") else {
-        return 0;
-    };
-    let sign = if tz.starts_with('-') { -1 } else { 1 };
-    let digits: String = tz.chars().filter(|c| c.is_ascii_digit()).collect();
-    if digits.len() < 2 {
-        return 0;
-    }
-    let hours: i32 = digits[..2].parse().unwrap_or(0);
-    let minutes: i32 = digits.get(2..4).and_then(|m| m.parse().ok()).unwrap_or(0);
-    if hours > 14 || minutes > 59 {
-        return 0;
-    }
-    sign * (hours * 60 + minutes)
-}
-
 /// The cycle in progress, from the stored status.
-async fn running_cycle(s: &Services, agent_id: &str) -> Option<(String, DateTime<Utc>)> {
+async fn running_cycle(s: &Services, agent_id: &str) -> Option<(String, DateTime<Local>)> {
     match s.deps().storage.get_dream_status(agent_id).await.ok().flatten()? {
         DreamStatus::Extracting { cycle_id, started_at, .. } | DreamStatus::Consolidating { cycle_id, started_at } => {
             Some((cycle_id, started_at))
@@ -197,7 +179,7 @@ async fn price_cycles(s: &Services, agent_id: &str, cycles: &mut [DreamCycle]) {
     let query = UsageQuery {
         agent_id: agent_id.to_string(),
         start: from - chrono::Duration::hours(1),
-        end: Utc::now() + chrono::Duration::minutes(1),
+        end: crate::time::now() + chrono::Duration::minutes(1),
         activity: Some(UsageActivity::Dreams),
         conversation: None,
     };
@@ -223,12 +205,10 @@ pub async fn nights(
     who: &Principal,
     agent_id: &str,
     days: Option<u32>,
-    tz: Option<&str>,
 ) -> Result<DreamNights, ServiceError> {
     editable_agent(s, who, agent_id).await?;
     let days = days.unwrap_or(30).clamp(1, 90);
-    let offset = parse_offset(tz);
-    let now = Utc::now();
+    let now = crate::time::now();
     // A day of slack either side, so a night near the edge of the range is whole.
     let since = now - chrono::Duration::days(days as i64 + 1);
 
@@ -249,7 +229,7 @@ pub async fn nights(
         dream_journal::assemble_cycles(&stubs, &revisions, running.as_ref().map(|(id, at)| (id.as_str(), *at)));
 
     Ok(DreamNights {
-        nights: dream_journal::build_nights(&cycles, days, dream_journal::night_of(now, offset), offset),
+        nights: dream_journal::build_nights(&cycles, days, dream_journal::night_of(now)),
         unattributed,
     })
 }
@@ -259,12 +239,12 @@ pub async fn cycles(
     s: &Services,
     who: &Principal,
     agent_id: &str,
-    before: Option<DateTime<Utc>>,
+    before: Option<DateTime<Local>>,
     limit: Option<usize>,
 ) -> Result<DreamCycles, ServiceError> {
     editable_agent(s, who, agent_id).await?;
     let limit = limit.unwrap_or(20).clamp(1, 50);
-    let since = DateTime::<Utc>::UNIX_EPOCH;
+    let since = crate::time::epoch();
 
     let stubs = s
         .deps()
@@ -290,20 +270,4 @@ pub async fn cycles(
     price_cycles(s, agent_id, &mut cycles).await;
 
     Ok(DreamCycles { cycles, next })
-}
-
-#[cfg(test)]
-mod offset_tests {
-    use super::parse_offset;
-
-    #[test]
-    fn reads_the_offsets_a_browser_can_send() {
-        assert_eq!(parse_offset(Some("+07:00")), 420);
-        assert_eq!(parse_offset(Some("-05:30")), -330);
-        assert_eq!(parse_offset(Some("+0100")), 60);
-        assert_eq!(parse_offset(Some("Z")), 0);
-        assert_eq!(parse_offset(None), 0);
-        assert_eq!(parse_offset(Some("nonsense")), 0);
-        assert_eq!(parse_offset(Some("+99:00")), 0);
-    }
 }

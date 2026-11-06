@@ -26,7 +26,7 @@ impl VizierSessionHook for HandoverSenderHook {
         let _ = self
             .response_tx
             .send_async(VizierResponse {
-                timestamp: chrono::Utc::now(),
+                timestamp: crate::time::now(),
                 content: VizierResponseContent::Checkpoint {
                     handover,
                 },

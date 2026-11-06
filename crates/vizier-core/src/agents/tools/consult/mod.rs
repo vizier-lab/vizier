@@ -73,7 +73,7 @@ impl VizierTool for ConsultAgent {
             .send_request(
                 curr_session.clone(),
                 VizierRequest {
-                    timestamp: chrono::Utc::now(),
+                    timestamp: crate::time::now(),
                     user: self.agent_id.clone(),
                     content: VizierRequestContent::Chat(args.prompt.clone()),
                     metadata: json!({}),

@@ -80,7 +80,7 @@ fn admin(url: &str) -> &'static crate::storage::sql::SqlStore {
         let conn = store.lock().expect("admin connection");
         conn.execute_batch("CREATE EXTENSION IF NOT EXISTS vector SCHEMA public")
             .expect("create the vector extension");
-        let cutoff = chrono::Utc::now().timestamp_millis() - STALE_SCHEMA_MS;
+        let cutoff = crate::time::now().timestamp_millis() - STALE_SCHEMA_MS;
         let stale: Vec<String> = conn
             .prepare("SELECT nspname FROM pg_namespace WHERE nspname LIKE 't\\_%' ESCAPE '\\'")
             .and_then(|mut stmt| {
@@ -111,7 +111,7 @@ pub fn postgres_store() -> Option<crate::storage::sql::SqlStore> {
     let url = database_url()?;
     let schema = format!(
         "t_{}_{}",
-        chrono::Utc::now().timestamp_millis(),
+        crate::time::now().timestamp_millis(),
         uuid::Uuid::new_v4().simple()
     );
     admin(&url)

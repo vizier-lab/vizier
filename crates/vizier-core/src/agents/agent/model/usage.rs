@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use chrono::Utc;
+
 
 use crate::{
     schema::{AgentId, VizierSession, usage::UsageActivity},
@@ -138,7 +138,7 @@ impl Drop for TurnGuard {
         );
         handle.spawn(async move {
             if let Err(e) = storage
-                .record_failed_turn(&turn, &agent_id, Utc::now())
+                .record_failed_turn(&turn, &agent_id, crate::time::now())
                 .await
             {
                 tracing::warn!(agent_id = %agent_id, "failed to record a failed turn's usage: {e}");
@@ -205,7 +205,7 @@ mod tests {
         use crate::schema::VizierChannelId;
         let task = Some(VizierSession(
             "a".into(),
-            VizierChannelId::Task("t".into(), Utc::now()),
+            VizierChannelId::Task("t".into(), crate::time::now()),
             None,
         ));
         assert_eq!(

@@ -3,7 +3,7 @@ mod prompts;
 use std::str::FromStr;
 
 use anyhow::Result;
-use chrono::{DateTime, Duration, Utc};
+use chrono::Duration;
 use croner::Cron;
 
 use crate::{
@@ -71,7 +71,7 @@ impl DreamScheduler {
                 .storage
                 .get_last_dream_time(&agent_id)
                 .await?
-                .unwrap_or(Utc::now() - Duration::hours(24));
+                .unwrap_or(crate::time::now() - Duration::hours(24));
             let next = match cron.find_next_occurrence(&last, true) {
                 Ok(n) => n,
                 Err(e) => {
@@ -84,7 +84,7 @@ impl DreamScheduler {
                 }
             };
 
-            if next <= Utc::now()
+            if next <= crate::time::now()
                 && let Err(e) = self.trigger_dream(&agent_id).await
             {
                 tracing::error!("Failed to trigger dream for agent '{}': {}", agent_id, e);
@@ -130,7 +130,7 @@ impl DreamScheduler {
         }
 
         let cycle_id = uuid::Uuid::new_v4().to_string();
-        let now = Utc::now();
+        let now = crate::time::now();
         let last_dream = self
             .deps
             .storage
@@ -205,7 +205,7 @@ impl DreamScheduler {
                             Some(cycle_id.clone()),
                         ),
                         VizierRequest {
-                            timestamp: Utc::now(),
+                            timestamp: crate::time::now(),
                             user: agent_id.clone(),
                             content: VizierRequestContent::Unattended(
                                 EXTRACTION_PROMPT.to_string(),
@@ -282,7 +282,7 @@ impl DreamScheduler {
                 .set_dream_status(
                     &agent_id,
                     DreamStatus::Consolidating {
-                        started_at: Utc::now(),
+                        started_at: crate::time::now(),
                         cycle_id: cycle_id.clone(),
                     },
                 )
@@ -311,7 +311,7 @@ impl DreamScheduler {
                 .map(|entries| entries.len() as u64)
                 .unwrap_or(0);
             deps.notifications
-                .dream_ended(&agent_id, &cycle_id, entries, Utc::now())
+                .dream_ended(&agent_id, &cycle_id, entries, crate::time::now())
                 .await;
 
             // Set status → Idle
@@ -352,7 +352,7 @@ impl DreamScheduler {
             let (tx, rx) = deps.transport.reply_channel().await?;
             let _ = tx
                 .send_async(VizierResponse {
-                    timestamp: Utc::now(),
+                    timestamp: crate::time::now(),
                     content: VizierResponseContent::Empty,
                     attachments: vec![],
                     ..Default::default()
@@ -375,7 +375,7 @@ impl DreamScheduler {
         let prompt = CONSOLIDATION_PROMPT_TEMPLATE.replace("{extraction_content}", &aggregated);
 
         // Send consolidation request with response channel
-        let now = Utc::now();
+        let now = crate::time::now();
         let (resp_tx, resp_rx) = deps.transport.reply_channel().await?;
 
         deps.transport
@@ -458,7 +458,7 @@ impl DreamScheduler {
                 .send_request(
                     session.clone(),
                     VizierRequest {
-                        timestamp: Utc::now(),
+                        timestamp: crate::time::now(),
                         user: agent_id.to_string(),
                         content: VizierRequestContent::Command("checkpoint".to_string()),
                         ..Default::default()

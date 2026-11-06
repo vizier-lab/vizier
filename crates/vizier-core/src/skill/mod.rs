@@ -3,9 +3,10 @@ pub mod install;
 pub mod invocation;
 pub mod scopes;
 
+use crate::time::Timestamp;
 use std::path::{Path, PathBuf};
 
-use chrono::{DateTime, Utc};
+use chrono::Local;
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -19,7 +20,7 @@ pub struct SkillMeta {
     pub registry_url: Option<String>,
     pub slug: Option<String>,
     pub installed_version: u32,
-    pub installed_at: DateTime<Utc>,
+    pub installed_at: Timestamp,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]

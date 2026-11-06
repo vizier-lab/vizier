@@ -3,7 +3,7 @@ use axum::{
     extract::{Path, Query, State},
     routing::{get, post},
 };
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Local};
 use reqwest::StatusCode;
 use serde::Deserialize;
 
@@ -13,7 +13,7 @@ use vizier_core::{
     service::{ServiceError, Services, dream},
 };
 
-pub use vizier_core::service::dream::{DreamCycles, DreamStatusResponse, parse_offset};
+pub use vizier_core::service::dream::{DreamCycles, DreamStatusResponse};
 
 pub fn dream() -> Router<HTTPState> {
     Router::new()
@@ -142,7 +142,8 @@ pub async fn get_dream_entry(
 pub struct NightsQuery {
     /// 1–90; default 30.
     pub days: Option<u32>,
-    /// The person's UTC offset, e.g. `+07:00`; default UTC.
+    /// Ignored. Nights follow the instance's timezone. Kept so older clients keep working.
+    #[deprecated]
     pub tz: Option<String>,
 }
 
@@ -162,7 +163,7 @@ pub async fn dream_nights(
     State(state): State<HTTPState>,
     Extension(user): Extension<crate::auth::Principal>,
 ) -> models::response::Response<DreamNights> {
-    match dream::nights(&services(&state), &user, &agent_id, query.days, query.tz.as_deref()).await {
+    match dream::nights(&services(&state), &user, &agent_id, query.days).await {
         Ok(nights) => api_response(StatusCode::OK, nights),
         Err(e) => fail(e),
     }
@@ -171,7 +172,8 @@ pub async fn dream_nights(
 #[derive(Debug, Deserialize, utoipa::IntoParams)]
 pub struct CyclesQuery {
     /// The `next` of the previous page: an RFC 3339 start time; cycles older than it follow.
-    pub before: Option<DateTime<Utc>>,
+    #[serde(default, deserialize_with = "vizier_core::time::deserialize_query_time")]
+    pub before: Option<DateTime<Local>>,
     /// 1–50; default 20.
     pub limit: Option<usize>,
 }

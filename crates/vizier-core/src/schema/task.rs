@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Local};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -78,15 +78,15 @@ pub struct Task {
     pub instruction: String,
     pub is_active: bool,
     pub schedule: TaskSchedule,
-    pub last_executed_at: Option<DateTime<Utc>>,
-    pub timestamp: DateTime<Utc>,
+    pub last_executed_at: Option<DateTime<Local>>,
+    pub timestamp: DateTime<Local>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub enum TaskSchedule {
     CronTask(String),
-    OneTimeTask(DateTime<Utc>),
+    OneTimeTask(DateTime<Local>),
 }
 
 /// One firing of a task.
@@ -103,8 +103,8 @@ pub struct TaskRun {
     pub agent_id: AgentId,
     pub task_slug: String,
     /// The run's address, and the high half of the cursor.
-    pub ran_at: DateTime<Utc>,
-    pub finished_at: Option<DateTime<Utc>>,
+    pub ran_at: DateTime<Local>,
+    pub finished_at: Option<DateTime<Local>>,
     /// The conversation this run wrote into.
     pub session_key: String,
     pub state: TaskRunState,

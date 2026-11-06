@@ -312,7 +312,7 @@ mod tests {
         let session = session("s");
         let item = NotificationItem {
             id: 9,
-            at: chrono::Utc::now(),
+            at: crate::time::now(),
             agent_id: "a".into(),
             category: NotificationCategory::ChatReply,
             tone: NotificationTone::Default,

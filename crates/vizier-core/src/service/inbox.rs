@@ -225,7 +225,7 @@ mod tests {
                 name: "role".into(),
                 permissions: vec![],
                 is_system: system,
-                created_at: chrono::Utc::now(),
+                created_at: crate::time::now(),
             },
             permissions: permissions.iter().map(|p| p.to_string()).collect(),
             method: AuthMethod::Jwt,
@@ -244,7 +244,7 @@ mod tests {
         InboxEvent::Created {
             item: NotificationItem {
                 id: 1,
-                at: chrono::Utc::now(),
+                at: crate::time::now(),
                 agent_id: agent_id.into(),
                 category: NotificationCategory::TaskRun,
                 tone: NotificationTone::Default,

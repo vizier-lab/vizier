@@ -1,5 +1,5 @@
 use anyhow::Result;
-use chrono::Utc;
+
 
 use crate::storage::sql::{self, params};
 
@@ -22,7 +22,7 @@ impl ClientCallStorage for SqlStorage {
                 session.0,
                 session.1.to_slug(),
                 session.2,
-                Utc::now().to_rfc3339(),
+                crate::time::stored_now(),
             ],
         )?;
         Ok(())
@@ -39,7 +39,7 @@ impl ClientCallStorage for SqlStorage {
         let changed = conn.execute(
             "UPDATE client_tool_call SET status = ?1, detail = ?2, finished_at = ?3
              WHERE history_uid = ?4 AND status IN ('pending', 'deferred')",
-            params![outcome.status(), detail, Utc::now().to_rfc3339(), uid],
+            params![outcome.status(), detail, crate::time::stored_now(), uid],
         )?;
         Ok(changed > 0)
     }
@@ -49,7 +49,7 @@ impl ClientCallStorage for SqlStorage {
         let conn = self.conn.lock()?;
         conn.execute(
             "UPDATE client_tool_call SET state = ?1, state_updated_at = ?2 WHERE history_uid = ?3",
-            params![state, Utc::now().to_rfc3339(), uid],
+            params![state, crate::time::stored_now(), uid],
         )?;
         Ok(())
     }
@@ -59,7 +59,7 @@ impl ClientCallStorage for SqlStorage {
         Ok(conn.execute(
             "UPDATE client_tool_call SET status = 'interrupted', finished_at = ?1
              WHERE status = 'pending'",
-            params![Utc::now().to_rfc3339()],
+            params![crate::time::stored_now()],
         )?)
     }
 
@@ -78,7 +78,7 @@ impl ClientCallStorage for SqlStorage {
         claimant: &str,
         timeout: chrono::Duration,
     ) -> Result<bool> {
-        let now = Utc::now();
+        let now = crate::time::now();
         let conn = self.conn.lock()?;
         // One conditional update: exactly one gateway's statement changes the row, so
         // exactly one of them delivers the call. A claim older than the timeout has
@@ -89,9 +89,9 @@ impl ClientCallStorage for SqlStorage {
                AND (claimed_by IS NULL OR claimed_at < ?4)",
             params![
                 claimant,
-                now.to_rfc3339(),
+                crate::time::stored(now),
                 uid,
-                (now - timeout).to_rfc3339(),
+                crate::time::stored(now - timeout),
             ],
         )?;
         Ok(changed > 0)

@@ -1,6 +1,7 @@
+use crate::time::Timestamp;
 use std::sync::Arc;
 
-use chrono::{DateTime, Utc};
+
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -22,7 +23,7 @@ pub struct WriteDreamJournal {
     pub session_context: Option<String>,
     pub provider_used: Option<String>,
     pub model_used: Option<String>,
-    pub start_time: DateTime<Utc>,
+    pub start_time: Timestamp,
 }
 
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
@@ -69,7 +70,7 @@ impl VizierTool for WriteDreamJournal {
             }
         };
 
-        let now = Utc::now();
+        let now = crate::time::now();
         let duration_ms = (now - self.start_time).num_milliseconds().max(0) as u64;
 
         let entry = DreamJournalEntry {
@@ -116,7 +117,7 @@ pub struct ReadDreamJournalArgs {
 pub struct DreamJournalSummary {
     pub id: String,
     pub dream_cycle_id: String,
-    pub timestamp: DateTime<Utc>,
+    pub timestamp: Timestamp,
     pub stage: String,
     pub session_context: Option<String>,
     pub duration_ms: Option<u64>,

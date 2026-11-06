@@ -1,6 +1,6 @@
 use crate::storage::sql::{self, OptionalExtension, params};
 use anyhow::Result;
-use chrono::Utc;
+
 
 use crate::{
     schema::{ReactionEntry, SessionHistory},
@@ -27,7 +27,7 @@ impl ReactionStorage for SqlStorage {
                 reactor.id,
                 reactor.name,
                 emoji,
-                Utc::now().timestamp_millis()
+                crate::time::now().timestamp_millis()
             ],
         )?;
         Ok(())
@@ -204,7 +204,7 @@ mod tests {
             .save_session_history(
                 session(),
                 SessionHistoryContent::Response(VizierResponse {
-                    timestamp: Utc::now(),
+                    timestamp: crate::time::now(),
                     content: VizierResponseContent::Message {
                         content: "hello".to_string(),
                         stats: None,

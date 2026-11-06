@@ -30,7 +30,7 @@ impl VizierSessionHook for ToolCallsHook {
             let _ = self
                 .response_tx
                 .send_async(VizierResponse {
-                    timestamp: chrono::Utc::now(),
+                    timestamp: crate::time::now(),
                     content: VizierResponseContent::ToolChoice {
                         name: function_name.clone(),
                         args: args_json,

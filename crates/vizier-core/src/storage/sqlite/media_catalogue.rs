@@ -1,5 +1,6 @@
+use crate::time::Timestamp;
 use anyhow::Result;
-use chrono::{DateTime, Utc};
+
 
 use crate::storage::sql::{OptionalExtension, params};
 
@@ -8,12 +9,12 @@ use crate::storage::{
     sqlite::SqlStorage,
 };
 
-fn ms(t: DateTime<Utc>) -> i64 {
+fn ms(t: Timestamp) -> i64 {
     t.timestamp_millis()
 }
 
-fn at(ms: i64) -> DateTime<Utc> {
-    DateTime::from_timestamp_millis(ms).unwrap_or(DateTime::<Utc>::UNIX_EPOCH)
+fn at(ms: i64) -> Timestamp {
+    crate::time::from_millis_opt(ms).unwrap_or(crate::time::epoch())
 }
 
 #[async_trait::async_trait]
@@ -75,7 +76,7 @@ impl MediaCatalogueStorage for SqlStorage {
         &self,
         capability: &str,
         error: &str,
-        at: DateTime<Utc>,
+        at: Timestamp,
     ) -> Result<()> {
         let conn = self.conn.lock()?;
         conn.execute(
@@ -112,8 +113,8 @@ mod tests {
         MediaCatalogueSnapshotRow {
             capability: capability.into(),
             schema: 1,
-            fetched_at: DateTime::from_timestamp_millis(1_700_000_000_000).unwrap(),
-            checked_at: DateTime::from_timestamp_millis(1_700_000_060_000).unwrap(),
+            fetched_at: crate::time::from_millis_opt(1_700_000_000_000).unwrap(),
+            checked_at: crate::time::from_millis_opt(1_700_000_060_000).unwrap(),
             last_error: None,
             failed_at: None,
             data: data.to_vec(),
@@ -156,7 +157,7 @@ mod tests {
             .await
             .unwrap();
 
-        let at = DateTime::from_timestamp_millis(1_700_000_120_000).unwrap();
+        let at = crate::time::from_millis_opt(1_700_000_120_000).unwrap();
         storage
             .record_media_failure("image", "network down", at)
             .await

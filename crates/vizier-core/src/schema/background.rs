@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Local};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -164,8 +164,8 @@ pub struct BackgroundJob {
     /// The `background_depth` of the turn that launched the job.
     pub depth: u8,
     pub timeout_secs: u64,
-    pub created_at: DateTime<Utc>,
-    pub finished_at: Option<DateTime<Utc>>,
+    pub created_at: DateTime<Local>,
+    pub finished_at: Option<DateTime<Local>>,
     pub state: JobState,
     pub cancelled_by: Option<Canceller>,
     pub reason: Option<String>,
@@ -190,8 +190,8 @@ pub struct BackgroundPiece {
     pub prompt: String,
     /// `(executor_agent, Subagent | InterAgent([origin, target]), Some(fresh uuid))`.
     pub session: VizierSession,
-    pub started_at: DateTime<Utc>,
-    pub finished_at: Option<DateTime<Utc>>,
+    pub started_at: DateTime<Local>,
+    pub finished_at: Option<DateTime<Local>>,
     pub state: PieceState,
     pub reason: Option<String>,
 }
@@ -227,8 +227,8 @@ pub struct BackgroundJobSnapshot {
     pub kind: JobKind,
     pub delegated_to: Option<AgentId>,
     pub state: JobState,
-    pub created_at: DateTime<Utc>,
-    pub finished_at: Option<DateTime<Utc>>,
+    pub created_at: DateTime<Local>,
+    pub finished_at: Option<DateTime<Local>>,
     pub timeout_secs: u64,
     pub cancelled_by: Option<Canceller>,
     pub reason: Option<String>,
@@ -244,8 +244,8 @@ pub struct BackgroundPieceSnapshot {
     pub reason: Option<String>,
     pub agent_id: AgentId,
     pub topic: Option<TopicId>,
-    pub started_at: DateTime<Utc>,
-    pub finished_at: Option<DateTime<Utc>>,
+    pub started_at: DateTime<Local>,
+    pub finished_at: Option<DateTime<Local>>,
 }
 
 impl From<&BackgroundJob> for BackgroundJobSnapshot {

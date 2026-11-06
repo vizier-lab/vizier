@@ -291,7 +291,7 @@ pub fn run(args: RunArgs) -> Result<()> {
         let _ = fs::create_dir_all(&runtime_dir);
 
         let mut stdout_path = runtime_dir.clone();
-        let now = chrono::Utc::now().to_string();
+        let now = vizier_core::time::now().to_string();
 
         stdout_path.push(format!("{}.out", now));
         let stdout = fs::OpenOptions::new()

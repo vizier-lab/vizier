@@ -13,7 +13,7 @@
 use std::collections::HashMap;
 use std::sync::LazyLock;
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Local};
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 
@@ -62,7 +62,7 @@ pub struct SignInStarted {
     pub verification_uri: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub verification_uri_complete: Option<String>,
-    pub expires_at: DateTime<Utc>,
+    pub expires_at: DateTime<Local>,
     pub interval_seconds: u64,
 }
 
@@ -72,14 +72,14 @@ pub struct SignInStarted {
 #[serde(tag = "state", rename_all = "kebab-case")]
 pub enum SignInProgress {
     Pending {
-        expires_at: DateTime<Utc>,
+        expires_at: DateTime<Local>,
     },
     SignedIn {
         #[serde(skip_serializing_if = "Option::is_none")]
         account_id: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         role_name: Option<String>,
-        expires_at: DateTime<Utc>,
+        expires_at: DateTime<Local>,
     },
 }
 
@@ -409,7 +409,7 @@ async fn stored_registration(
     };
     if session
         .client_secret_expires_at
-        .is_some_and(|expires| expires <= Utc::now())
+        .is_some_and(|expires| expires <= crate::time::now())
     {
         return Ok(None);
     }
@@ -1079,7 +1079,7 @@ mod tests {
 
     #[test]
     fn no_sign_in_answer_carries_a_device_code_token_or_secret_half() {
-        let now = Utc::now();
+        let now = crate::time::now();
         let answers = [
             SignInResponse::Started(SignInStarted {
                 user_code: "ABCD-EFGH".into(),
@@ -1449,7 +1449,7 @@ mod tests {
                 name: "r".into(),
                 permissions: vec![],
                 is_system: true,
-                created_at: Utc::now(),
+                created_at: crate::time::now(),
             },
             permissions: vec![],
             method: crate::auth::AuthMethod::Jwt,

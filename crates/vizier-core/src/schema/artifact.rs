@@ -4,7 +4,7 @@
 //! trait, the `Artifacts` service, the HTTP views and the agent tools.
 
 use base64::Engine;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Local};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -129,8 +129,8 @@ pub struct Artifact {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_filename: Option<String>,
     pub created_by: Requester,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: DateTime<Local>,
+    pub updated_at: DateTime<Local>,
 }
 
 impl Artifact {
@@ -202,7 +202,7 @@ pub struct ArtifactEvent {
     pub source_topic: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_filename: Option<String>,
-    pub created_at: DateTime<Utc>,
+    pub created_at: DateTime<Local>,
 }
 
 /// A derived index row of where an artifact is used (`message` or `memory`).
@@ -228,7 +228,7 @@ pub struct ArtifactReference {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
     pub label: String,
-    pub created_at: DateTime<Utc>,
+    pub created_at: DateTime<Local>,
 }
 
 impl ArtifactReference {
@@ -281,8 +281,8 @@ pub struct ArtifactFilters {
     pub agent_id: String,
     pub q: Option<String>,
     pub kind: Option<ArtifactKind>,
-    pub from: Option<DateTime<Utc>>,
-    pub to: Option<DateTime<Utc>>,
+    pub from: Option<DateTime<Local>>,
+    pub to: Option<DateTime<Local>>,
     pub cursor: Option<ArtifactCursor>,
     pub limit: usize,
 }
@@ -294,7 +294,7 @@ pub struct ArtifactCursor {
 }
 
 impl ArtifactCursor {
-    pub fn new(at: DateTime<Utc>, id: &str) -> Self {
+    pub fn new(at: DateTime<Local>, id: &str) -> Self {
         Self {
             at_ms: at.timestamp_millis(),
             id: id.to_string(),
@@ -370,8 +370,8 @@ mod tests {
             origin_topic: None,
             source_filename: None,
             created_by: Requester::Agent("a".into()),
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: crate::time::now(),
+            updated_at: crate::time::now(),
         }
     }
 
@@ -455,7 +455,7 @@ mod tests {
     fn cursors_round_trip_and_reject_garbage() {
         let at = DateTime::parse_from_rfc3339("2026-10-29T10:00:00Z")
             .unwrap()
-            .with_timezone(&Utc);
+            .with_timezone(&Local);
         let cursor = ArtifactCursor::new(at, "abc");
         assert_eq!(ArtifactCursor::decode(&cursor.encode()), Some(cursor));
         assert_eq!(ArtifactCursor::decode("not-a-cursor"), None);

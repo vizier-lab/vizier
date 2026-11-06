@@ -17,7 +17,7 @@
 //! The regions are never interchangeable: every client is built from the connection's **SSO**
 //! region, and the Bedrock region appears only where a request goes to Bedrock (FR-010).
 
-use chrono::Utc;
+
 
 pub mod client;
 pub mod error;
@@ -49,7 +49,7 @@ pub async fn begin_sign_in(
     start_url: &str,
 ) -> Result<DeviceFlow, SsoError> {
     let registration = match registration {
-        Some(registration) if registration.is_reusable(Utc::now()) => {
+        Some(registration) if registration.is_reusable(crate::time::now()) => {
             tracing::debug!(
                 region = client.region(),
                 "reusing the stored client registration"

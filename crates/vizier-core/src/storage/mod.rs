@@ -1,3 +1,4 @@
+use crate::time::Timestamp;
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -229,7 +230,7 @@ impl UserStorage for VizierStorage {
     async fn record_visit(
         &self,
         user_id: &str,
-        now: chrono::DateTime<chrono::Utc>,
+        now: Timestamp,
     ) -> Result<crate::storage::user::Visit> {
         self.0.record_visit(user_id, now).await
     }
@@ -288,7 +289,7 @@ impl UserStorage for VizierStorage {
         name: &str,
         key_hash: &str,
         prefix: &str,
-        expires_at: Option<chrono::DateTime<chrono::Utc>>,
+        expires_at: Option<Timestamp>,
     ) -> Result<crate::storage::user::ApiKey> {
         self.0
             .create_api_key(user_id, name, key_hash, prefix, expires_at)
@@ -411,11 +412,11 @@ impl CatalogueCacheStorage for VizierStorage {
         self.0.put_snapshot(row).await
     }
 
-    async fn touch_checked(&self, at: chrono::DateTime<chrono::Utc>) -> Result<()> {
+    async fn touch_checked(&self, at: Timestamp) -> Result<()> {
         self.0.touch_checked(at).await
     }
 
-    async fn record_failure(&self, error: &str, at: chrono::DateTime<chrono::Utc>) -> Result<()> {
+    async fn record_failure(&self, error: &str, at: Timestamp) -> Result<()> {
         self.0.record_failure(error, at).await
     }
 
@@ -445,7 +446,7 @@ impl MediaCatalogueStorage for VizierStorage {
         &self,
         capability: &str,
         error: &str,
-        at: chrono::DateTime<chrono::Utc>,
+        at: Timestamp,
     ) -> Result<()> {
         self.0.record_media_failure(capability, error, at).await
     }

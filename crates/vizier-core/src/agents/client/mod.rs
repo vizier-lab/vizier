@@ -9,7 +9,7 @@
 
 use std::{sync::Arc, time::Duration};
 
-use chrono::Utc;
+
 use serde::{Deserialize, Serialize};
 use tracing::Instrument;
 
@@ -427,7 +427,7 @@ impl ClientTools {
             return (
                 Some(call_id),
                 Ok(VizierResponse {
-                    timestamp: Utc::now(),
+                    timestamp: crate::time::now(),
                     content: VizierResponseContent::ToolResponse { response },
                     ..Default::default()
                 }),
@@ -445,7 +445,7 @@ impl ClientTools {
 
         let result = match outcome {
             ClientCallOutcome::Ok { result } => Ok(VizierResponse {
-                timestamp: Utc::now(),
+                timestamp: crate::time::now(),
                 content: VizierResponseContent::ToolResponse { response: result },
                 ..Default::default()
             }),

@@ -3,8 +3,9 @@
 //! Metadata, references and events are in SQLite; the bytes are on disk. Every mutation takes
 //! the event it records so the row change and its event share one transaction.
 
+use crate::time::Timestamp;
 use anyhow::Result;
-use chrono::{DateTime, Utc};
+
 
 use crate::schema::{
     Artifact, ArtifactCursor, ArtifactEvent, ArtifactFilters, ArtifactKind, ArtifactPage,
@@ -34,7 +35,7 @@ pub trait ArtifactStorage {
         mime_type: &str,
         kind: ArtifactKind,
         source_filename: &str,
-        updated_at: DateTime<Utc>,
+        updated_at: Timestamp,
         event: &ArtifactEvent,
     ) -> Result<Artifact>;
 
@@ -111,7 +112,7 @@ impl ArtifactStorage for crate::storage::VizierStorage {
         mime_type: &str,
         kind: ArtifactKind,
         source_filename: &str,
-        updated_at: DateTime<Utc>,
+        updated_at: Timestamp,
         event: &ArtifactEvent,
     ) -> Result<Artifact> {
         self.0

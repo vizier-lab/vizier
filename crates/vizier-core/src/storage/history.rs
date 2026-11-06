@@ -1,5 +1,6 @@
+use crate::time::Timestamp;
 use anyhow::Result;
-use chrono::{DateTime, Utc};
+
 
 use crate::{
     schema::{SessionHistory, SessionHistoryContent, VizierSession},
@@ -21,7 +22,7 @@ pub trait HistoryStorage {
     /// The newest history entry of each agent that has any: when it was last active.
     async fn last_activity_by_agent(
         &self,
-    ) -> Result<std::collections::HashMap<String, chrono::DateTime<chrono::Utc>>> {
+    ) -> Result<std::collections::HashMap<String, Timestamp>> {
         Ok(Default::default())
     }
 
@@ -50,7 +51,7 @@ pub trait HistoryStorage {
     async fn list_session_history(
         &self,
         session: VizierSession,
-        before: Option<DateTime<Utc>>,
+        before: Option<Timestamp>,
         before_seq: Option<i64>,
         limit: Option<usize>,
     ) -> Result<Vec<SessionHistory>>;
@@ -58,21 +59,21 @@ pub trait HistoryStorage {
     async fn list_session_by_time_window(
         &self,
         session: VizierSession,
-        start_datetime: Option<DateTime<Utc>>,
-        end_datetime: Option<DateTime<Utc>>,
+        start_datetime: Option<Timestamp>,
+        end_datetime: Option<Timestamp>,
     ) -> Result<Vec<SessionHistory>>;
 
     async fn list_user_sessions_in_window(
         &self,
         agent_id: &str,
-        start: DateTime<Utc>,
-        end: DateTime<Utc>,
+        start: Timestamp,
+        end: Timestamp,
     ) -> Result<Vec<VizierSession>>;
 
     async fn list_session_history_until_checkpoint(
         &self,
         session: VizierSession,
-        before: Option<DateTime<Utc>>,
+        before: Option<Timestamp>,
     ) -> Result<(Vec<SessionHistory>, Option<String>)>;
 
     async fn save_checkpoint(
@@ -132,7 +133,7 @@ impl HistoryStorage for VizierStorage {
 
     async fn last_activity_by_agent(
         &self,
-    ) -> Result<std::collections::HashMap<String, chrono::DateTime<chrono::Utc>>> {
+    ) -> Result<std::collections::HashMap<String, Timestamp>> {
         self.0.last_activity_by_agent().await
     }
 
@@ -147,7 +148,7 @@ impl HistoryStorage for VizierStorage {
     async fn list_session_history(
         &self,
         session: VizierSession,
-        before: Option<DateTime<Utc>>,
+        before: Option<Timestamp>,
         before_seq: Option<i64>,
         limit: Option<usize>,
     ) -> Result<Vec<SessionHistory>> {
@@ -159,8 +160,8 @@ impl HistoryStorage for VizierStorage {
     async fn list_session_by_time_window(
         &self,
         session: VizierSession,
-        start_datetime: Option<DateTime<Utc>>,
-        end_datetime: Option<DateTime<Utc>>,
+        start_datetime: Option<Timestamp>,
+        end_datetime: Option<Timestamp>,
     ) -> Result<Vec<SessionHistory>> {
         self.0
             .list_session_by_time_window(session, start_datetime, end_datetime)
@@ -170,8 +171,8 @@ impl HistoryStorage for VizierStorage {
     async fn list_user_sessions_in_window(
         &self,
         agent_id: &str,
-        start: DateTime<Utc>,
-        end: DateTime<Utc>,
+        start: Timestamp,
+        end: Timestamp,
     ) -> Result<Vec<VizierSession>> {
         self.0
             .list_user_sessions_in_window(agent_id, start, end)
@@ -181,7 +182,7 @@ impl HistoryStorage for VizierStorage {
     async fn list_session_history_until_checkpoint(
         &self,
         session: VizierSession,
-        before: Option<DateTime<Utc>>,
+        before: Option<Timestamp>,
     ) -> Result<(Vec<SessionHistory>, Option<String>)> {
         self.0
             .list_session_history_until_checkpoint(session, before)

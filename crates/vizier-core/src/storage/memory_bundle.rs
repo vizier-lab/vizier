@@ -1,9 +1,10 @@
+use crate::time::Timestamp;
 use std::collections::{BTreeSet, HashSet};
 use std::io::{Read, Write};
 use std::sync::Arc;
 
 use anyhow::{Result, anyhow};
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Local};
 use regex::Regex;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use slugify::slugify;
@@ -114,8 +115,8 @@ struct NodeRow {
     title: String,
     tags: Vec<String>,
     attachment_count: usize,
-    created_at: DateTime<Utc>,
-    updated_at: DateTime<Utc>,
+    created_at: Timestamp,
+    updated_at: Timestamp,
     read_count: u64,
 }
 
@@ -542,8 +543,8 @@ impl BundleMemoryStore {
         title: &str,
         tags: &[String],
         attachment_count: usize,
-        created_at: DateTime<Utc>,
-        updated_at: DateTime<Utc>,
+        created_at: Timestamp,
+        updated_at: Timestamp,
         read_count: u64,
     ) -> Result<()> {
         let tags_json = serde_json::to_string(tags)?;
@@ -568,8 +569,8 @@ impl BundleMemoryStore {
                 title,
                 tags_json,
                 attachment_count as i64,
-                created_at.to_rfc3339(),
-                updated_at.to_rfc3339(),
+                crate::time::stored(created_at),
+                crate::time::stored(updated_at),
                 read_count as i64
             ],
         )?;
@@ -642,11 +643,11 @@ impl BundleMemoryStore {
                 tags: serde_json::from_str(&tags_json).unwrap_or_default(),
                 attachment_count: row.get::<_, i64>(3)? as usize,
                 created_at: DateTime::parse_from_rfc3339(&created_at)
-                    .map(|d| d.with_timezone(&Utc))
-                    .unwrap_or_else(|_| Utc::now()),
+                    .map(|d| d.with_timezone(&Local))
+                    .unwrap_or_else(|_| crate::time::now()),
                 updated_at: DateTime::parse_from_rfc3339(&updated_at)
-                    .map(|d| d.with_timezone(&Utc))
-                    .unwrap_or_else(|_| Utc::now()),
+                    .map(|d| d.with_timezone(&Local))
+                    .unwrap_or_else(|_| crate::time::now()),
                 read_count: row.get::<_, i64>(7)? as u64,
             })
         };
@@ -1122,7 +1123,7 @@ impl BundleMemoryStore {
         };
         existing += &format!(
             "- {} — {} `{}` \"{}\"\n",
-            Utc::now().to_rfc3339(),
+            crate::time::now().to_rfc3339(),
             action,
             path,
             title
@@ -1303,7 +1304,7 @@ impl BundleMemoryStore {
             None
         };
 
-        let now = Utc::now();
+        let now = crate::time::now();
         let (created_at, read_count, existing_attachments) = match &existing {
             Some(bytes) => match parse_markdown_bytes::<MemoryFrontMatter>(bytes) {
                 Ok((fm, _)) => (fm.created_at, fm.read_count, fm.attachments),
@@ -1462,7 +1463,7 @@ impl BundleMemoryStore {
                 "DELETE FROM artifact_reference WHERE kind = 'memory' AND agent_id = ?1 AND bundle = ?2 AND path = ?3",
                 params![agent_id, bundle, path],
             )?;
-            let now = Utc::now().timestamp_millis();
+            let now = crate::time::now().timestamp_millis();
             let target = format!("memory:{bundle}:{path}");
             for attachment in attachments {
                 if let MemoryAttachment::Artifact { artifact_id, .. } = attachment {
@@ -1566,7 +1567,7 @@ impl BundleMemoryStore {
         origin: &RevisionOrigin,
     ) -> Result<Memory> {
         let canonical_before = canonical_of_bytes(&existing);
-        fm.updated_at = Utc::now();
+        fm.updated_at = crate::time::now();
         fm.attachment_count = fm.attachments.len();
         let canonical_new = memory_canonical(&fm.title, &fm.tags, &fm.attachments, &body)?;
         let bytes = serialize_markdown(&fm, &body)?;
@@ -2398,7 +2399,7 @@ impl BundleMemoryStore {
             )?;
             let updated_at = updated
                 .and_then(|s| DateTime::parse_from_rfc3339(&s).ok())
-                .map(|d| d.with_timezone(&Utc));
+                .map(|d| d.with_timezone(&Local));
             let links: i64 = conn.query_row(
                 "SELECT COUNT(*) FROM memory_edge WHERE agent_id = ?1 AND source_bundle = ?2",
                 params![agent_id, bundle],
@@ -2658,8 +2659,8 @@ impl BundleMemoryStore {
             deleted: row.deleted,
             actor: row.actor.clone(),
             trigger: row.trigger.clone(),
-            created_at: DateTime::<Utc>::from_timestamp_millis(row.created_at)
-                .unwrap_or_else(Utc::now),
+            created_at: crate::time::from_millis_opt(row.created_at)
+                .unwrap_or_else(crate::time::now),
             is_current: row.seq == latest_seq,
             size_bytes: row.content.as_ref().map(|c| c.len()).unwrap_or(0),
         }
@@ -2847,8 +2848,8 @@ impl BundleMemoryStore {
         content: String,
         tags: Vec<String>,
         attachments: Vec<VizierAttachment>,
-        created_at: DateTime<Utc>,
-        updated_at: DateTime<Utc>,
+        created_at: Timestamp,
+        updated_at: Timestamp,
         read_count: u64,
         indexer: &VizierIndexer,
     ) -> Result<()> {
@@ -3717,8 +3718,8 @@ mod tests {
         let fm = MemoryFrontMatter {
             slug: "note".into(),
             title: "Old".into(),
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: crate::time::now(),
+            updated_at: crate::time::now(),
             agent_id: "a1".into(),
             bundle: "default".into(),
             tags: vec![],
@@ -4416,7 +4417,7 @@ mod tests {
         // hold unrelated documents there. FR-013 refuses *creating* another one; leaving an
         // existing one un-editable would be a data-access trap, so it stays writable.
         let (store, _dir, indexer) = setup();
-        let now = Utc::now();
+        let now = crate::time::now();
         store
             .write_migrated_memory(
                 "a1".into(),

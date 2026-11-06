@@ -1,8 +1,9 @@
+use crate::time::Timestamp;
 use std::collections::{BTreeSet, HashMap};
 
 use crate::storage::sql::{Connection, OptionalExtension, params};
 use anyhow::{Result, anyhow};
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Local};
 
 use crate::{
     encryption::{
@@ -21,10 +22,10 @@ use crate::{
 const COLUMNS: &str =
     "id, kind, family, name, settings, enabled, created_by, creator, created_at, updated_at";
 
-fn parse_time(s: &str) -> DateTime<Utc> {
+fn parse_time(s: &str) -> Timestamp {
     DateTime::parse_from_rfc3339(s)
-        .map(|t| t.with_timezone(&Utc))
-        .unwrap_or_else(|_| Utc::now())
+        .map(|t| t.with_timezone(&Local))
+        .unwrap_or_else(|_| crate::time::now())
 }
 
 /// `creator` as stored, or the 016 `created_by` user id it replaces.
@@ -214,7 +215,7 @@ fn link(conn: &Connection, integration: &Integration, agent_id: &str) -> Result<
     conn.execute(
         "INSERT INTO integration_attachment (integration_id, agent_id, created_at) \
          VALUES (?1, ?2, ?3)",
-        params![integration.id, agent_id, Utc::now().to_rfc3339()],
+        params![integration.id, agent_id, crate::time::stored_now()],
     )?;
     Ok(())
 }
@@ -230,7 +231,7 @@ fn record(
 ) -> Result<()> {
     let actor = serde_json::to_string(&event.actor)?;
     let fields = serde_json::to_string(&event.fields)?;
-    let at = Utc::now().to_rfc3339();
+    let at = crate::time::stored_now();
     for agent_id in agents {
         conn.execute(
             "INSERT INTO integration_event (id, agent_id, integration_id, integration_name, family, \
@@ -423,8 +424,8 @@ impl IntegrationStorage for SqlStorage {
                 serde_json::to_string(&protected_settings)?,
                 integration.enabled as i64,
                 creator,
-                integration.created_at.to_rfc3339(),
-                integration.updated_at.to_rfc3339(),
+                crate::time::stored(integration.created_at),
+                crate::time::stored(integration.updated_at),
             ],
         )?;
 
@@ -553,7 +554,7 @@ impl IntegrationStorage for SqlStorage {
             tx.execute(
                 "INSERT INTO integration_grant (agent_id, family, granted_by, granted_at) \
                  VALUES (?1, ?2, ?3, ?4) ON CONFLICT DO NOTHING",
-                params![agent_id, family.as_str(), granted_by, Utc::now().to_rfc3339()],
+                params![agent_id, family.as_str(), granted_by, crate::time::stored_now()],
             )?
         } else {
             tx.execute(
@@ -585,12 +586,12 @@ impl IntegrationStorage for SqlStorage {
         &self,
         agent_id: &str,
         integration_id: Option<&str>,
-        before: Option<(DateTime<Utc>, String)>,
+        before: Option<(Timestamp, String)>,
         limit: usize,
     ) -> Result<Vec<IntegrationEvent>> {
         let conn = self.conn.lock()?;
         let (before_at, before_id) = match &before {
-            Some((at, id)) => (Some(at.to_rfc3339()), Some(id.clone())),
+            Some((at, id)) => (Some(crate::time::stored(*at)), Some(id.clone())),
             None => (None, None),
         };
         let mut stmt = conn.prepare(
@@ -656,8 +657,8 @@ mod tests {
             enabled: true,
             creator: Some(Requester::Agent("a".into())),
             agents: vec![],
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: crate::time::now(),
+            updated_at: crate::time::now(),
         }
     }
 
@@ -701,7 +702,7 @@ mod tests {
             .lock().unwrap()
             .execute(
                 "INSERT INTO integration_attachment (integration_id, agent_id, created_at) VALUES (?1, ?2, ?3)",
-                params![id, agent_id, Utc::now().to_rfc3339()],
+                params![id, agent_id, crate::time::stored_now()],
             )
             .unwrap();
     }

@@ -2,7 +2,7 @@
 //! event, stored once and filtered by agent visibility at read. Read state is per person, and
 //! unread is the absence of a read row.
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Local};
 use serde::{Deserialize, Serialize};
 
 use super::VizierSession;
@@ -126,7 +126,7 @@ pub struct NotificationDraft {
     /// Plain text, built from stored facts. Never model output or a setting value.
     pub summary: String,
     pub href: String,
-    pub created_at: DateTime<Utc>,
+    pub created_at: DateTime<Local>,
     /// The conversation the row is about, when it has one. Its current title is filled on read,
     /// and the row goes away with the conversation.
     pub source_session: Option<VizierSession>,
@@ -151,7 +151,7 @@ pub struct InsertedNotification {
 pub struct NotificationItem {
     /// Stable public id; cursors and read marks use it.
     pub id: i64,
-    pub at: DateTime<Utc>,
+    pub at: DateTime<Local>,
     pub agent_id: String,
     pub category: NotificationCategory,
     pub tone: NotificationTone,

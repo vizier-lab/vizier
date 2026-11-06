@@ -254,7 +254,7 @@ pub fn agent_status(
 
 #[cfg(test)]
 mod tests {
-    use chrono::Utc;
+    
     use serde_json::json;
 
     use super::*;
@@ -295,8 +295,8 @@ mod tests {
             enabled: true,
             creator: None,
             agents: vec!["dp-a".into()],
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: crate::time::now(),
+            updated_at: crate::time::now(),
         }
     }
 

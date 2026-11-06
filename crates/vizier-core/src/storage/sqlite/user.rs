@@ -1,6 +1,7 @@
+use crate::time::Timestamp;
 use crate::storage::sql::params;
 use anyhow::Result;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Local};
 use uuid::Uuid;
 
 use crate::storage::{
@@ -8,9 +9,9 @@ use crate::storage::{
     user::{ApiKey, Role, User, UserProfile, UserStorage, Visit},
 };
 
-fn parse_time(text: Option<String>) -> Option<DateTime<Utc>> {
+fn parse_time(text: Option<String>) -> Option<Timestamp> {
     text.and_then(|t| DateTime::parse_from_rfc3339(&t).ok())
-        .map(|t| t.with_timezone(&Utc))
+        .map(|t| t.with_timezone(&Local))
 }
 
 fn read_visit(conn: &crate::storage::sql::Connection, user_id: &str) -> Result<Visit> {
@@ -77,7 +78,7 @@ impl UserStorage for SqlStorage {
             username: username.to_string(),
             password_hash: password_hash.to_string(),
             role_id: role_id.to_string(),
-            created_at: Utc::now(),
+            created_at: crate::time::now(),
         };
 
         let data = serde_json::to_string(&user)?;
@@ -173,14 +174,14 @@ impl UserStorage for SqlStorage {
         Ok(())
     }
 
-    async fn record_visit(&self, user_id: &str, now: DateTime<Utc>) -> Result<Visit> {
+    async fn record_visit(&self, user_id: &str, now: Timestamp) -> Result<Visit> {
         let conn = self.conn.lock()?;
         let visit = read_visit(&conn, user_id)?.seen_at(now);
         conn.execute(
             r#"UPDATE "user" SET last_seen_at = ?1, previous_visit_at = ?2 WHERE user_id = ?3"#,
             params![
-                visit.last_seen_at.map(|t| t.to_rfc3339()),
-                visit.previous_visit_at.map(|t| t.to_rfc3339()),
+                visit.last_seen_at.map(crate::time::stored),
+                visit.previous_visit_at.map(crate::time::stored),
                 user_id
             ],
         )?;
@@ -208,7 +209,7 @@ impl UserStorage for SqlStorage {
             name: name.to_string(),
             permissions,
             is_system,
-            created_at: Utc::now(),
+            created_at: crate::time::now(),
         };
 
         let data = serde_json::to_string(&role)?;
@@ -332,7 +333,7 @@ impl UserStorage for SqlStorage {
         name: &str,
         key_hash: &str,
         prefix: &str,
-        expires_at: Option<DateTime<Utc>>,
+        expires_at: Option<Timestamp>,
     ) -> Result<ApiKey> {
         let api_key = ApiKey {
             prefix: Some(prefix.to_string()),
@@ -341,7 +342,7 @@ impl UserStorage for SqlStorage {
             name: name.to_string(),
             key_hash: key_hash.to_string(),
             expires_at,
-            created_at: Utc::now(),
+            created_at: crate::time::now(),
             last_used_at: None,
         };
 
@@ -358,7 +359,7 @@ impl UserStorage for SqlStorage {
     async fn get_api_key_by_hash(&self, key_hash: &str) -> Result<Option<ApiKey>> {
         let conn = self.conn.lock()?;
         let mut stmt = conn.prepare("SELECT data FROM api_key WHERE key_hash = ?1")?;
-        let now = Utc::now();
+        let now = crate::time::now();
         let keys: Vec<ApiKey> = stmt
             .query_map(params![key_hash], |row| {
                 let data: String = row.get(0)?;
@@ -407,7 +408,7 @@ impl UserStorage for SqlStorage {
         };
 
         let mut api_key: ApiKey = serde_json::from_str(&data)?;
-        api_key.last_used_at = Some(Utc::now());
+        api_key.last_used_at = Some(crate::time::now());
 
         let new_data = serde_json::to_string(&api_key)?;
         conn.execute(
@@ -468,7 +469,7 @@ mod tests {
         assert_eq!(s.list_users().await.unwrap().len(), 1);
 
         assert_eq!(s.get_visit(&user.user_id).await.unwrap().last_seen_at, None);
-        let now = Utc::now();
+        let now = crate::time::now();
         let visit = s.record_visit(&user.user_id, now).await.unwrap();
         let stored = s.get_visit(&user.user_id).await.unwrap();
         assert_eq!(

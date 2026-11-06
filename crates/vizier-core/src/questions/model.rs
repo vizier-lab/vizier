@@ -6,7 +6,7 @@
 //! (`contracts/agent-tools.md`, `contracts/questions-wire.md`), so they are part of the public
 //! surface of the feature and renaming one is a breaking change.
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Local};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -323,9 +323,9 @@ pub struct QuestionSetRecord {
     /// Where the platform messages are, once posted.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub controls: Option<Controls>,
-    pub created_at: DateTime<Utc>,
+    pub created_at: DateTime<Local>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub closed_at: Option<DateTime<Utc>>,
+    pub closed_at: Option<DateTime<Local>>,
 }
 
 
@@ -385,9 +385,9 @@ pub struct SensitiveAskRecord {
     pub label: Option<String>,
     pub session: VizierSession,
     pub state: AskState,
-    pub requested_at: DateTime<Utc>,
+    pub requested_at: DateTime<Local>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub closed_at: Option<DateTime<Utc>>,
+    pub closed_at: Option<DateTime<Local>>,
 }
 
 /// How a submission of two races ended (data-model.md §1).

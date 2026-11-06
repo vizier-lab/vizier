@@ -31,6 +31,7 @@
 - [2.18 Asking the Person](./configuration/questions.md)
 - [2.19 Build Flavours](./configuration/build-flavours.md)
 - [2.20 Color Themes](./configuration/themes.md)
+- [2.21 Time](./configuration/time.md)
 
 # 3. API Integration
 

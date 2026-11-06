@@ -9,9 +9,10 @@
 //! Role credentials are the short-lived key, secret and session token (§4.3). They live in memory
 //! only, in the value that asked for them, and their `Debug` is redacted (FR-009d, research D8.3).
 
+use crate::time::Timestamp;
 use std::fmt;
 
-use chrono::{DateTime, Utc};
+
 use serde::Deserialize;
 
 use super::client::SsoClient;
@@ -74,7 +75,7 @@ pub struct RoleCredentials {
     pub access_key_id: String,
     pub secret_access_key: String,
     pub session_token: String,
-    pub expires_at: DateTime<Utc>,
+    pub expires_at: Timestamp,
 }
 
 impl fmt::Debug for RoleCredentials {
@@ -213,7 +214,7 @@ impl SsoPortal {
             self.client
                 .unavailable("the role credentials answered an unexpected shape")
         })?;
-        let expires_at = DateTime::<Utc>::from_timestamp_millis(wire.role_credentials.expiration)
+        let expires_at = crate::time::from_millis_opt(wire.role_credentials.expiration)
             .ok_or_else(|| {
                 self.client
                     .unavailable("the role credentials carried an unreadable expiry")
@@ -435,7 +436,7 @@ mod tests {
             access_key_id: "ASIAEXAMPLEKEYID".into(),
             secret_access_key: "secret-access-value".into(),
             session_token: "session-token-value".into(),
-            expires_at: Utc::now(),
+            expires_at: crate::time::now(),
         };
         let printed = format!("{credentials:?}");
         for poison in [

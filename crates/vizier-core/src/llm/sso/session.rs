@@ -8,8 +8,9 @@
 //! port: one value type for "what is now stored", the conflict rule of §5, the five-minute renewal
 //! threshold, and [`SsoSessions::renew`] — the one definition of what a renewal costs on the wire.
 
-use chrono::{DateTime, Utc};
 
+
+use crate::time::Timestamp;
 use super::client::{ClientRegistration, SsoClient, TokenPoll, TokenSet};
 use super::error::SsoError;
 use super::portal::{RoleCredentials, SsoPortal};
@@ -31,7 +32,7 @@ pub struct Persisted {
 
 impl Persisted {
     /// When the stored session's access token expires — what the connection row shows.
-    pub fn expires_at(&self) -> DateTime<Utc> {
+    pub fn expires_at(&self) -> Timestamp {
         self.session.token_expires_at
     }
 }
@@ -91,7 +92,7 @@ impl<'a, S: SsoSessionStorage + ?Sized> SsoSessions<'a, S> {
             client_id: registration.client_id.clone(),
             client_secret: registration.client_secret.clone(),
             client_secret_expires_at: registration.expires_at,
-            issued_at: Utc::now(),
+            issued_at: crate::time::now(),
             revision: 0,
         };
         let expected = match self.load(profile).await {
@@ -115,7 +116,7 @@ impl<'a, S: SsoSessionStorage + ?Sized> SsoSessions<'a, S> {
         profile: &str,
         mut session: SsoSessionSecret,
     ) -> Result<SsoSessionSecret, SsoError> {
-        if !has_expired(&session, Utc::now()) {
+        if !has_expired(&session, crate::time::now()) {
             return Ok(session);
         }
         let Some(refresh_token) = session.refresh_token.clone() else {
@@ -137,7 +138,7 @@ impl<'a, S: SsoSessionStorage + ?Sized> SsoSessions<'a, S> {
                     session.refresh_token = tokens.refresh_token;
                 }
                 session.token_expires_at = tokens.expires_at;
-                session.issued_at = Utc::now();
+                session.issued_at = crate::time::now();
                 let revision = session.revision;
                 let persisted = self.store_renewal(profile, session, revision).await?;
                 tracing::debug!(
@@ -247,12 +248,12 @@ impl<'a, S: SsoSessionStorage + ?Sized> SsoSessions<'a, S> {
 }
 
 /// When the stored session's access token expires; `None` when there is no session.
-pub fn expires_at(session: Option<&SsoSessionSecret>) -> Option<DateTime<Utc>> {
+pub fn expires_at(session: Option<&SsoSessionSecret>) -> Option<Timestamp> {
     session.map(|session| session.token_expires_at)
 }
 
 /// Whether the access token is past its expiry at `now`.
-pub fn has_expired(session: &SsoSessionSecret, now: DateTime<Utc>) -> bool {
+pub fn has_expired(session: &SsoSessionSecret, now: Timestamp) -> bool {
     session.token_expires_at <= now
 }
 
@@ -262,7 +263,7 @@ pub const RENEW_BEFORE: chrono::TimeDelta = chrono::TimeDelta::minutes(5);
 
 /// Whether cached role credentials must be renewed at `now` — the single definition of the
 /// five-minute threshold (FR-013, FR-009d).
-pub fn needs_renewal(credentials: &RoleCredentials, now: DateTime<Utc>) -> bool {
+pub fn needs_renewal(credentials: &RoleCredentials, now: Timestamp) -> bool {
     credentials.expires_at - RENEW_BEFORE <= now
 }
 
@@ -270,7 +271,7 @@ pub fn needs_renewal(credentials: &RoleCredentials, now: DateTime<Utc>) -> bool 
 ///
 /// [`SsoSessionState::Unreadable`] is not produced here: it is the answer to a failed
 /// [`SsoSessions::load`], which is a different call and a different message.
-pub fn state(session: Option<&SsoSessionSecret>, now: DateTime<Utc>) -> SsoSessionState {
+pub fn state(session: Option<&SsoSessionSecret>, now: Timestamp) -> SsoSessionState {
     match session {
         None => SsoSessionState::Configured,
         Some(session) if has_expired(session, now) => SsoSessionState::Expired,
@@ -301,7 +302,7 @@ mod tests {
         TokenSet {
             access_token: access_token.to_string(),
             refresh_token: Some("refresh-token-value".into()),
-            expires_at: Utc::now() + ChronoDuration::hours(1),
+            expires_at: crate::time::now() + ChronoDuration::hours(1),
         }
     }
 
@@ -309,7 +310,7 @@ mod tests {
         TokenSet {
             access_token: "access-token-value".to_string(),
             refresh_token: Some("refresh-token-value".into()),
-            expires_at: Utc::now() + ChronoDuration::seconds(seconds),
+            expires_at: crate::time::now() + ChronoDuration::seconds(seconds),
         }
     }
 
@@ -320,7 +321,7 @@ mod tests {
                 "accessKeyId": access_key_id,
                 "secretAccessKey": "secret-access-value",
                 "sessionToken": "session-token-value",
-                "expiration": (Utc::now() + ChronoDuration::seconds(expires_in_seconds))
+                "expiration": (crate::time::now() + ChronoDuration::seconds(expires_in_seconds))
                     .timestamp_millis(),
             }
         }))
@@ -428,7 +429,7 @@ mod tests {
     async fn expiry_and_state_follow_the_access_token() {
         let storage = MemSessions::default();
         let sessions = SsoSessions::new(&storage);
-        let now = Utc::now();
+        let now = crate::time::now();
 
         assert_eq!(state(None, now), SsoSessionState::Configured);
         assert_eq!(expires_at(None), None);
@@ -537,7 +538,7 @@ mod tests {
 
     #[test]
     fn a_renewal_starts_five_minutes_before_expiry() {
-        let now = Utc::now();
+        let now = crate::time::now();
         let mut credentials = RoleCredentials {
             access_key_id: "ASIAEXAMPLEKEYID".into(),
             secret_access_key: "secret-access-value".into(),

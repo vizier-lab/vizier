@@ -9,7 +9,7 @@
 
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
-use chrono::Utc;
+
 use futures::{FutureExt, future::BoxFuture};
 use parking_lot::Mutex;
 use tokio::sync::watch;
@@ -209,7 +209,7 @@ impl BackgroundJobs {
         check_depth(ctx)?;
 
         let origin = ctx.session.clone();
-        let now = Utc::now();
+        let now = crate::time::now();
         let mut job = BackgroundJob {
             id: new_job_id(),
             kind,
@@ -288,7 +288,7 @@ impl BackgroundJobs {
                     // A piece that could not be handed off is failed right away (FR-014);
                     // the rest of the job carries on.
                     let reason = err.to_string();
-                    let finished_at = Utc::now();
+                    let finished_at = crate::time::now();
                     if let Err(e) = self
                         .storage
                         .close_background_piece(
@@ -358,7 +358,7 @@ impl BackgroundJobs {
             .send_request(
                 session.clone(),
                 VizierRequest {
-                    timestamp: Utc::now(),
+                    timestamp: crate::time::now(),
                     user: origin.clone(),
                     content: VizierRequestContent::Prompt(prompt.to_string()),
                     metadata: serde_json::json!({}),
@@ -420,7 +420,7 @@ impl BackgroundJobs {
                             JobState::Reported,
                             None,
                             None,
-                            Utc::now(),
+                            crate::time::now(),
                         )
                         .await
                     {
@@ -438,7 +438,7 @@ impl BackgroundJobs {
                             job.kind,
                             JobState::Reported,
                             None,
-                            Utc::now(),
+                            crate::time::now(),
                         )
                         .await;
                 }
@@ -522,7 +522,7 @@ impl BackgroundJobs {
                 let reason = (state != PieceState::Answered).then(|| text.clone());
                 if let Err(e) = self
                     .storage
-                    .close_background_piece(&job_id, piece.ordinal, state, reason, Utc::now())
+                    .close_background_piece(&job_id, piece.ordinal, state, reason, crate::time::now())
                     .await
                 {
                     tracing::warn!(
@@ -555,7 +555,7 @@ impl BackgroundJobs {
                 JobState::Reporting,
                 None,
                 None,
-                Utc::now(),
+                crate::time::now(),
             )
             .await
         {
@@ -602,7 +602,7 @@ impl BackgroundJobs {
     /// the agent is not registered (being respawned).
     async fn deliver(&self, job: &BackgroundJob, report: BackgroundReport) {
         let request = VizierRequest {
-            timestamp: Utc::now(),
+            timestamp: crate::time::now(),
             user: job.origin.0.clone(),
             content: VizierRequestContent::BackgroundReport(report),
             metadata: serde_json::json!({}),
@@ -616,7 +616,7 @@ impl BackgroundJobs {
                 tokio::time::sleep(Duration::from_millis(DELIVERY_BACKOFF_MS[attempt - 1])).await;
             }
             let mut request = request.clone();
-            request.timestamp = Utc::now();
+            request.timestamp = crate::time::now();
             match self
                 .transport
                 .send_request(
@@ -635,7 +635,7 @@ impl BackgroundJobs {
                             JobState::Reported,
                             None,
                             None,
-                            Utc::now(),
+                            crate::time::now(),
                         )
                         .await
                     {
@@ -649,7 +649,7 @@ impl BackgroundJobs {
                             job.kind,
                             JobState::Reported,
                             None,
-                            Utc::now(),
+                            crate::time::now(),
                         )
                         .await;
                     return;
@@ -671,7 +671,7 @@ impl BackgroundJobs {
                 JobState::Undelivered,
                 None,
                 Some(reason.clone()),
-                Utc::now(),
+                crate::time::now(),
             )
             .await
         {
@@ -689,7 +689,7 @@ impl BackgroundJobs {
                 job.kind,
                 JobState::Undelivered,
                 Some(&reason),
-                Utc::now(),
+                crate::time::now(),
             )
             .await;
     }
@@ -701,7 +701,7 @@ impl BackgroundJobs {
             .send_request(
                 session.clone(),
                 VizierRequest {
-                    timestamp: Utc::now(),
+                    timestamp: crate::time::now(),
                     user: origin_agent.clone(),
                     content: VizierRequestContent::Command("abort".into()),
                     metadata: serde_json::json!({}),
@@ -744,7 +744,7 @@ impl BackgroundJobs {
                     JobState::Cancelled,
                     Some(by.to_column()),
                     reason.clone(),
-                    Utc::now(),
+                    crate::time::now(),
                 )
                 .await
                 .map_err(|err| VizierError(format!("failed to cancel background job: {err}")))?;
@@ -826,7 +826,7 @@ impl BackgroundJobs {
                     job.kind,
                     JobState::Cancelled,
                     job.reason.as_deref(),
-                    Utc::now(),
+                    crate::time::now(),
                 )
                 .await;
 
@@ -935,7 +935,7 @@ mod tests {
     async fn a_closed_channel_without_an_answer_reads_as_a_restart() {
         let (tx, rx) = crate::transport::standalone_reply_channel().await;
         tx.send(VizierResponse {
-            timestamp: Utc::now(),
+            timestamp: crate::time::now(),
             content: VizierResponseContent::ThinkingStart,
             attachments: vec![],
             ..Default::default()

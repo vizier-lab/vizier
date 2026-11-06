@@ -1,6 +1,7 @@
+use crate::time::Timestamp;
 use crate::storage::sql::{self, OptionalExtension, params};
 use anyhow::Result;
-use chrono::{DateTime, NaiveDate, Utc};
+use chrono::NaiveDate;
 use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 
@@ -249,7 +250,7 @@ pub(super) fn fill_question_sets(
 /// sort, so for every tie group it preserves the order SQLite handed it — which for a
 /// `DESC` query is backwards. The `ORDER BY` tie-break and this key have to change together
 /// (`specs/010-webui-reasoning-display/contracts/history-api.md` H6).
-fn history_order_key(entry: &SessionHistory) -> (DateTime<Utc>, Option<i64>) {
+fn history_order_key(entry: &SessionHistory) -> (Timestamp, Option<i64>) {
     (entry.timestamp, entry.seq)
 }
 
@@ -273,7 +274,7 @@ fn content_type_discriminant(content: &SessionHistoryContent) -> &'static str {
 impl HistoryStorage for SqlStorage {
     async fn last_activity_by_agent(
         &self,
-    ) -> anyhow::Result<std::collections::HashMap<String, DateTime<Utc>>> {
+    ) -> anyhow::Result<std::collections::HashMap<String, Timestamp>> {
         let conn = self.conn.lock()?;
         let mut stmt =
             conn.prepare("SELECT agent_id, MAX(timestamp) FROM session_history GROUP BY agent_id")?;
@@ -282,7 +283,7 @@ impl HistoryStorage for SqlStorage {
                 Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
             })?
             .filter_map(|r| r.ok())
-            .filter_map(|(id, ms)| DateTime::from_timestamp_millis(ms).map(|t| (id, t)))
+            .filter_map(|(id, ms)| crate::time::from_millis_opt(ms).map(|t| (id, t)))
             .collect();
         Ok(rows)
     }
@@ -297,7 +298,7 @@ impl HistoryStorage for SqlStorage {
             uid: uid.clone(),
             vizier_session: session.clone(),
             content,
-            timestamp: Utc::now(),
+            timestamp: crate::time::now(),
             reactions: vec![],
             seq: None,
         };
@@ -381,7 +382,7 @@ impl HistoryStorage for SqlStorage {
     async fn list_session_history(
         &self,
         session: VizierSession,
-        before: Option<DateTime<Utc>>,
+        before: Option<Timestamp>,
         before_seq: Option<i64>,
         limit: Option<usize>,
     ) -> Result<Vec<SessionHistory>> {
@@ -453,8 +454,8 @@ impl HistoryStorage for SqlStorage {
     async fn list_session_by_time_window(
         &self,
         session: VizierSession,
-        start_datetime: Option<DateTime<Utc>>,
-        end_datetime: Option<DateTime<Utc>>,
+        start_datetime: Option<Timestamp>,
+        end_datetime: Option<Timestamp>,
     ) -> Result<Vec<SessionHistory>> {
         let conn = self.conn.lock()?;
         let mut sql = "SELECT data, seq FROM session_history WHERE agent_id = ?1 AND channel = ?2"
@@ -500,8 +501,8 @@ impl HistoryStorage for SqlStorage {
     async fn list_user_sessions_in_window(
         &self,
         agent_id: &str,
-        start: DateTime<Utc>,
-        end: DateTime<Utc>,
+        start: Timestamp,
+        end: Timestamp,
     ) -> Result<Vec<VizierSession>> {
         let conn = self.conn.lock()?;
         let mut stmt = conn.prepare(
@@ -537,7 +538,7 @@ impl HistoryStorage for SqlStorage {
     async fn list_session_history_until_checkpoint(
         &self,
         session: VizierSession,
-        before: Option<DateTime<Utc>>,
+        before: Option<Timestamp>,
     ) -> Result<(Vec<SessionHistory>, Option<String>)> {
         let conn = self.conn.lock()?;
 
@@ -633,7 +634,7 @@ impl HistoryStorage for SqlStorage {
             uid: uid.clone(),
             vizier_session: session.clone(),
             content: SessionHistoryContent::Checkpoint(handover),
-            timestamp: Utc::now(),
+            timestamp: crate::time::now(),
             reactions: vec![],
             seq: None,
         };
@@ -707,7 +708,7 @@ mod tests {
     /// A `Request` carrying `text`, so an entry is identifiable in the order it comes back.
     fn request(text: &str) -> SessionHistoryContent {
         SessionHistoryContent::Request(VizierRequest {
-            timestamp: Utc::now(),
+            timestamp: crate::time::now(),
             user: "someone".to_string(),
             content: VizierRequestContent::Chat(text.to_string()),
             platform_message_id: None,
@@ -734,7 +735,7 @@ mod tests {
     }
 
     /// Flatten every entry into the one instant they would realistically share, which is
-    /// the condition `seq` exists to disambiguate. `Utc::now()` cannot be made to collide on
+    /// the condition `seq` exists to disambiguate. `crate::time::now()` cannot be made to collide on
     /// demand, so the collision is created rather than waited for.
     ///
     /// Both copies of the timestamp have to be flattened. SQLite orders by the `timestamp`

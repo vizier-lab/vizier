@@ -6,7 +6,7 @@ use axum::{
     },
     routing::{any, delete, get, post},
 };
-use chrono::Utc;
+
 use futures::{SinkExt, StreamExt};
 use reqwest::StatusCode;
 use serde::Deserialize;
@@ -79,7 +79,8 @@ pub struct RenameTopicRequest {
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct HistoryQuery {
-    pub before: Option<chrono::DateTime<Utc>>,
+    #[serde(default, deserialize_with = "vizier_core::time::deserialize_query_time")]
+    pub before: Option<chrono::DateTime<chrono::Local>>,
     /// The ordering position of the oldest entry of the previous page, completing the
     /// `before` cursor so a group of entries sharing a millisecond cannot be split across a
     /// page boundary. Ignored without `before`; omitting it keeps the pre-`seq` behaviour.

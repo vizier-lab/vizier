@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Local};
 use serde::{Deserialize, Serialize};
 
 
@@ -11,7 +11,7 @@ pub struct DreamJournalEntry {
     pub id: String,
     pub dream_cycle_id: String,
     pub agent_id: AgentId,
-    pub timestamp: DateTime<Utc>,
+    pub timestamp: DateTime<Local>,
     pub stage: DreamStage,
     pub source_sessions: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -54,7 +54,7 @@ pub struct DreamChange {
     pub path: Option<String>,
     /// The revision's `seq` (of the document, or of CORE).
     pub seq: i64,
-    pub at: DateTime<Utc>,
+    pub at: DateTime<Local>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -70,8 +70,8 @@ pub enum DreamCycleState {
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct DreamCycle {
     pub cycle_id: String,
-    pub started_at: DateTime<Utc>,
-    pub ended_at: Option<DateTime<Utc>>,
+    pub started_at: DateTime<Local>,
+    pub ended_at: Option<DateTime<Local>>,
     pub state: DreamCycleState,
     pub sessions_read: usize,
     /// The conversations it read, by session slug.
@@ -154,7 +154,7 @@ pub fn change_kind(is_core: bool, deleted: bool, previous_deleted: Option<bool>)
 }
 
 /// `[first − slack, last + slack]` over a cycle's journal timestamps, or `None` without any.
-pub fn journal_window(timestamps: &[DateTime<Utc>]) -> Option<(DateTime<Utc>, DateTime<Utc>)> {
+pub fn journal_window(timestamps: &[DateTime<Local>]) -> Option<(DateTime<Local>, DateTime<Local>)> {
     let first = timestamps.iter().min()?;
     let last = timestamps.iter().max()?;
     Some((*first - LEGACY_WINDOW_SLACK, *last + LEGACY_WINDOW_SLACK))
@@ -162,8 +162,8 @@ pub fn journal_window(timestamps: &[DateTime<Utc>]) -> Option<(DateTime<Utc>, Da
 
 /// The cycle whose window holds `at`; the one starting latest when windows overlap.
 pub fn attribute_by_window(
-    at: DateTime<Utc>,
-    windows: &[(String, DateTime<Utc>, DateTime<Utc>)],
+    at: DateTime<Local>,
+    windows: &[(String, DateTime<Local>, DateTime<Local>)],
 ) -> Option<&str> {
     windows
         .iter()
@@ -172,9 +172,9 @@ pub fn attribute_by_window(
         .map(|(id, _, _)| id.as_str())
 }
 
-/// The person's local date of an instant, for a UTC offset in minutes.
-pub fn night_of(at: DateTime<Utc>, offset_minutes: i32) -> NaiveDate {
-    (at + Duration::minutes(offset_minutes as i64)).date_naive()
+/// The instance's local date of an instant.
+pub fn night_of(at: DateTime<Local>) -> NaiveDate {
+    at.date_naive()
 }
 
 /// `running` while the cycle is the one in progress; `failed` when it has extraction work but
@@ -224,13 +224,13 @@ pub fn tally(mut all: Vec<DreamChange>) -> Tally {
 
 /// One entry per night of the `days` ending at `today`, oldest first. Several cycles on one
 /// night are summed, with the latest one as `cycle_id`.
-pub fn build_nights(cycles: &[DreamCycle], days: u32, today: NaiveDate, offset_minutes: i32) -> Vec<DreamNight> {
+pub fn build_nights(cycles: &[DreamCycle], days: u32, today: NaiveDate) -> Vec<DreamNight> {
     (0..days)
         .rev()
         .map(|back| {
             let date = today - Duration::days(back as i64);
             let mut of_night: Vec<&DreamCycle> =
-                cycles.iter().filter(|c| night_of(c.started_at, offset_minutes) == date).collect();
+                cycles.iter().filter(|c| night_of(c.started_at) == date).collect();
             of_night.sort_by_key(|c| c.started_at);
             let latest = of_night.last();
             DreamNight {
@@ -250,8 +250,8 @@ mod tests {
     use super::*;
     use chrono::TimeZone;
 
-    fn at(h: u32, m: u32) -> DateTime<Utc> {
-        Utc.with_ymd_and_hms(2026, 10, 20, h, m, 0).unwrap()
+    fn at(h: u32, m: u32) -> DateTime<Local> {
+        Local.with_ymd_and_hms(2026, 10, 20, h, m, 0).unwrap()
     }
 
     #[test]
@@ -333,9 +333,9 @@ mod tests {
 
     #[test]
     fn a_night_is_the_local_date_of_the_start() {
-        // 23:30 UTC is already the next day at +07:00, and still the same day at -05:00.
-        assert_eq!(night_of(at(23, 30), 7 * 60), NaiveDate::from_ymd_opt(2026, 10, 21).unwrap());
-        assert_eq!(night_of(at(23, 30), -5 * 60), NaiveDate::from_ymd_opt(2026, 10, 20).unwrap());
+        // 23:30 on the instance's clock is still that day, whatever the zone's offset from UTC is.
+        assert_eq!(night_of(at(23, 30)), NaiveDate::from_ymd_opt(2026, 10, 20).unwrap());
+        assert_eq!(night_of(at(0, 15)), NaiveDate::from_ymd_opt(2026, 10, 20).unwrap());
     }
 
     #[test]
@@ -387,7 +387,7 @@ mod tests {
         };
         let cycles = vec![cycle("a", 1, 2, false), cycle("b", 4, 1, true)];
         let today = NaiveDate::from_ymd_opt(2026, 10, 21).unwrap();
-        let nights = build_nights(&cycles, 3, today, 0);
+        let nights = build_nights(&cycles, 3, today);
         assert_eq!(nights.len(), 3);
         assert_eq!(nights[0].date, NaiveDate::from_ymd_opt(2026, 10, 19).unwrap());
         assert_eq!(nights[0].cycle_id, None);
@@ -405,7 +405,7 @@ pub struct DreamRevision {
     pub bundle: Option<String>,
     pub path: Option<String>,
     pub seq: i64,
-    pub at: DateTime<Utc>,
+    pub at: DateTime<Local>,
     pub cycle_id: Option<String>,
 }
 
@@ -414,7 +414,7 @@ pub struct DreamRevision {
 pub struct DreamEntryStub {
     pub cycle_id: String,
     pub stage: DreamStage,
-    pub timestamp: DateTime<Utc>,
+    pub timestamp: DateTime<Local>,
     pub source_sessions: Vec<String>,
     pub provider: Option<String>,
     pub model: Option<String>,
@@ -426,7 +426,7 @@ pub struct DreamEntryStub {
 pub fn assemble_cycles(
     stubs: &[DreamEntryStub],
     revisions: &[DreamRevision],
-    running: Option<(&str, DateTime<Utc>)>,
+    running: Option<(&str, DateTime<Local>)>,
 ) -> (Vec<DreamCycle>, u32) {
     use std::collections::BTreeMap;
 
@@ -434,7 +434,7 @@ pub fn assemble_cycles(
     for stub in stubs {
         ids.entry(stub.cycle_id.as_str()).or_default().push(stub);
     }
-    let windows: Vec<(String, DateTime<Utc>, DateTime<Utc>)> = ids
+    let windows: Vec<(String, DateTime<Local>, DateTime<Local>)> = ids
         .iter()
         .filter_map(|(id, entries)| {
             let times: Vec<_> = entries.iter().map(|e| e.timestamp).collect();
@@ -485,7 +485,7 @@ pub fn assemble_cycles(
                 .filter(|(r, _)| *r == id)
                 .map(|(_, at)| at)
                 .or(first)
-                .unwrap_or_else(Utc::now);
+                .unwrap_or_else(crate::time::now);
             let mut sources: Vec<String> = Vec::new();
             for e in &entries {
                 for s in &e.source_sessions {
@@ -532,11 +532,11 @@ mod assemble_tests {
     use super::*;
     use chrono::TimeZone;
 
-    fn at(h: u32, m: u32) -> DateTime<Utc> {
-        Utc.with_ymd_and_hms(2026, 10, 20, h, m, 0).unwrap()
+    fn at(h: u32, m: u32) -> DateTime<Local> {
+        Local.with_ymd_and_hms(2026, 10, 20, h, m, 0).unwrap()
     }
 
-    fn stub(cycle: &str, stage: DreamStage, t: DateTime<Utc>) -> DreamEntryStub {
+    fn stub(cycle: &str, stage: DreamStage, t: DateTime<Local>) -> DreamEntryStub {
         DreamEntryStub {
             cycle_id: cycle.into(),
             stage,
@@ -547,7 +547,7 @@ mod assemble_tests {
         }
     }
 
-    fn rev(kind: ChangeKind, t: DateTime<Utc>, cycle: Option<&str>) -> DreamRevision {
+    fn rev(kind: ChangeKind, t: DateTime<Local>, cycle: Option<&str>) -> DreamRevision {
         DreamRevision { kind, bundle: Some("b".into()), path: Some("p".into()), seq: 1, at: t, cycle_id: cycle.map(str::to_string) }
     }
 

@@ -6,7 +6,7 @@
 //! answer the same history, queue and attribution as a typed message (FR-015) — the caller sends
 //! the returned request exactly as it sends a chat one.
 
-use chrono::Utc;
+
 
 use crate::{
     questions::{
@@ -185,7 +185,7 @@ fn request_for(
         answer.text
     };
     VizierRequest {
-        timestamp: Utc::now(),
+        timestamp: crate::time::now(),
         user: answerer.to_string(),
         content: VizierRequestContent::QuestionAnswer(QuestionAnswer {
             set_id: answer.set_id,
@@ -312,7 +312,7 @@ mod tests {
             answers: None,
             answerer: None,
             controls: None,
-            created_at: Utc::now(),
+            created_at: crate::time::now(),
             closed_at: None,
         };
         f.storage.create_question_set(&record).await.unwrap();

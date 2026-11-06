@@ -1,7 +1,8 @@
+use crate::time::Timestamp;
 use std::{collections::HashMap, str::FromStr, sync::Arc, time::Duration};
 
 use anyhow::Result;
-use chrono::{DateTime, TimeZone, Utc};
+use chrono::{TimeZone, Local};
 use croner::Cron;
 
 use crate::{
@@ -71,7 +72,7 @@ impl VizierScheduler {
                     PieceOutcome::Answered(_) => TaskRunState::Answered,
                     PieceOutcome::Failed(_) => TaskRunState::NoResponse,
                 };
-                if let Err(e) = deps.storage.close_task_run(run.id, state, Utc::now()).await {
+                if let Err(e) = deps.storage.close_task_run(run.id, state, crate::time::now()).await {
                     tracing::error!("Failed to record the end of a run of task '{}': {}", run.task_slug, e);
                 } else {
                     // A resumed run that has now ended is news, as any other run's end is.
@@ -83,7 +84,7 @@ impl VizierScheduler {
                         .flatten()
                         .map_or_else(|| run.task_slug.clone(), |task| task.title);
                     deps.notifications
-                        .task_run_ended(&run.agent_id, &run.task_slug, &title, run.id, state, Utc::now())
+                        .task_run_ended(&run.agent_id, &run.task_slug, &title, run.id, state, crate::time::now())
                         .await;
                 }
             });
@@ -94,10 +95,10 @@ impl VizierScheduler {
         if self.gate.may_run() {
             self.recover().await;
         }
-        let mut schedules: HashMap<(DateTime<Utc>, String), Task> = HashMap::new();
+        let mut schedules: HashMap<(Timestamp, String), Task> = HashMap::new();
         let mut interval = tokio::time::interval(Duration::from_mins(1));
         // Startup already purged, so the first daily purge is a day from now.
-        let mut last_purge = Utc::now();
+        let mut last_purge = crate::time::now();
 
         loop {
             tokio::select! {
@@ -117,9 +118,9 @@ impl VizierScheduler {
                         tracing::error!("Dream scheduler error: {}", e);
                     }
                     // Notification retention (spec 029): once a day from this tick.
-                    if Utc::now() - last_purge >= chrono::Duration::days(1) {
-                        last_purge = Utc::now();
-                        let cutoff = Utc::now()
+                    if crate::time::now() - last_purge >= chrono::Duration::days(1) {
+                        last_purge = crate::time::now();
+                        let cutoff = crate::time::now()
                             - chrono::Duration::days(crate::storage::notification::RETENTION_DAYS);
                         match self.deps.notifications.purge_before(cutoff).await {
                             Ok(0) => {}
@@ -193,9 +194,9 @@ impl VizierScheduler {
 
     async fn tick_tasks(
         &self,
-        schedules: &mut HashMap<(DateTime<Utc>, String), Task>,
+        schedules: &mut HashMap<(Timestamp, String), Task>,
     ) -> Result<()> {
-        let now = Utc::now();
+        let now = crate::time::now();
 
         let tasks = match self.deps.storage.get_task_list(None, Some(true)).await {
             Ok(t) => t,
@@ -271,7 +272,7 @@ impl VizierScheduler {
     /// A recording failure is logged and swallowed — it must never abort the run, which is
     /// the work the person actually asked for. The cost is a run missing from the history,
     /// not a task that did not happen.
-    async fn fire(&self, task: Task, now: DateTime<Utc>) {
+    async fn fire(&self, task: Task, now: Timestamp) {
         let task_slug = task.slug.clone();
         let agent_id = task.agent_id.clone();
         let title = task.title.clone();
@@ -298,7 +299,7 @@ impl VizierScheduler {
 
         // The run's address is a whole-second time, so it round-trips through the session
         // slug and back to a `run_id` a caller can name.
-        let ran_at = match Utc.timestamp_opt(now.timestamp(), 0).single() {
+        let ran_at = match Local.timestamp_opt(now.timestamp(), 0).single() {
             Some(ran_at) => ran_at,
             None => now,
         };
@@ -351,9 +352,8 @@ impl VizierScheduler {
                     content: crate::schema::VizierRequestContent::Unattended(
                         normalize_task_instruction(task.instruction),
                     ),
-                    metadata: serde_json::json!({
-                        "timestamp": now,
-                    }),
+                    // The run's time is the request's own `timestamp`, which the agent sees as `sent_at`.
+                    metadata: serde_json::json!({}),
                     // What turns the frontmatter's `sender` from a person's name into
                     // `scheduler`, and carries the slug and `requested_by` with it.
                     scheduled_task: Some(task_slug.clone()),
@@ -400,7 +400,7 @@ impl VizierScheduler {
 
             if let Err(e) = deps
                 .storage
-                .close_task_run(run_id, state, Utc::now())
+                .close_task_run(run_id, state, crate::time::now())
                 .await
             {
                 tracing::error!(
@@ -410,7 +410,7 @@ impl VizierScheduler {
                 );
             } else {
                 deps.notifications
-                    .task_run_ended(&agent_id, &task_slug, &title, run_id, state, Utc::now())
+                    .task_run_ended(&agent_id, &task_slug, &title, run_id, state, crate::time::now())
                     .await;
             }
         });
@@ -430,7 +430,7 @@ impl VizierScheduler {
         if let Err(e) = self
             .deps
             .storage
-            .close_task_run(run_id, state, Utc::now())
+            .close_task_run(run_id, state, crate::time::now())
             .await
         {
             tracing::error!(
@@ -441,7 +441,7 @@ impl VizierScheduler {
         } else {
             self.deps
                 .notifications
-                .task_run_ended(agent_id, task_slug, title, run_id, state, Utc::now())
+                .task_run_ended(agent_id, task_slug, title, run_id, state, crate::time::now())
                 .await;
         }
     }
@@ -501,7 +501,7 @@ mod tests {
         let scheduler = VizierScheduler::new(deps.clone(), Arc::new(crate::runtime::AlwaysYes))
             .await
             .unwrap();
-        let now = Utc::now();
+        let now = crate::time::now();
         let task = Task {
             slug: "deleted".into(),
             requester: crate::schema::Requester::Agent("agent".into()),
@@ -525,6 +525,90 @@ mod tests {
         assert!(
             runs.is_empty(),
             "a deleted task was fired from stale scheduler state"
+        );
+    }
+
+    /// Spec 052: a cron expression means the clock of the zone it is evaluated in. The scheduler
+    /// hands `croner` a `Timestamp`, so the zone is the instance's; these pin the behaviour over
+    /// real zones through a function that is generic over the zone, because a test cannot change
+    /// the process's own.
+    fn occurrences<T: chrono::TimeZone>(expression: &str, from: chrono::DateTime<T>, n: usize) -> Vec<String>
+    where
+        T::Offset: std::fmt::Display,
+    {
+        let cron = Cron::from_str(expression).unwrap();
+        let mut at = from;
+        let mut out = Vec::new();
+        for _ in 0..n {
+            at = cron.find_next_occurrence(&at, false).unwrap();
+            out.push(at.to_rfc3339());
+        }
+        out
+    }
+
+    fn at_in<T: chrono::TimeZone>(tz: &T, text: &str) -> chrono::DateTime<T> {
+        crate::time::parse_moment_in(text, tz).unwrap()
+    }
+
+    #[test]
+    fn a_daily_nine_is_nine_on_the_local_clock() {
+        use chrono_tz::Asia::Jakarta;
+        assert_eq!(
+            occurrences("0 9 * * *", at_in(&Jakarta, "2026-11-06T10:00"), 2),
+            ["2026-11-07T09:00:00+07:00", "2026-11-08T09:00:00+07:00"]
+        );
+    }
+
+    #[test]
+    fn a_job_in_the_spring_gap_fires_once_at_the_first_valid_time() {
+        use chrono_tz::America::New_York;
+        // 02:30 does not exist on 2030-03-10: the clocks jump from 02:00 to 03:00.
+        let runs = occurrences("30 2 * * *", at_in(&New_York, "2030-03-09T12:00"), 3);
+        assert_eq!(runs[0], "2030-03-10T03:00:00-04:00", "{runs:?}");
+        assert!(runs[1].starts_with("2030-03-11T02:30"), "once in the gap, then back to 02:30: {runs:?}");
+        assert!(runs[2].starts_with("2030-03-12T02:30"), "{runs:?}");
+    }
+
+    #[test]
+    fn a_job_in_the_autumn_overlap_fires_once() {
+        use chrono_tz::America::New_York;
+        // 01:30 happens twice on 2030-11-03.
+        let runs = occurrences("30 1 * * *", at_in(&New_York, "2030-11-02T12:00"), 3);
+        assert_eq!(runs.iter().filter(|r| r.starts_with("2030-11-03")).count(), 1, "{runs:?}");
+        assert!(runs[1].starts_with("2030-11-04T01:30"), "{runs:?}");
+    }
+
+    #[test]
+    fn the_same_expression_is_a_different_moment_in_a_different_zone() {
+        use chrono_tz::{America::New_York, Asia::Jakarta};
+        let jakarta = Cron::from_str("0 9 * * *").unwrap().find_next_occurrence(&at_in(&Jakarta, "2026-11-06T10:00"), false).unwrap();
+        let new_york = Cron::from_str("0 9 * * *").unwrap().find_next_occurrence(&at_in(&New_York, "2026-11-06T10:00"), false).unwrap();
+        assert_eq!(jakarta.with_timezone(&chrono::Utc).to_rfc3339(), "2026-11-07T02:00:00+00:00");
+        assert_eq!(new_york.with_timezone(&chrono::Utc).to_rfc3339(), "2026-11-07T14:00:00+00:00");
+    }
+
+    /// FR-019: after an upgrade the next occurrence is found from the last run. A task whose last
+    /// run was yesterday and whose local time today has passed comes due at once, exactly one
+    /// catch-up; once it has run, `last_executed_at` moves to now and it follows the local schedule.
+    #[test]
+    fn an_upgrade_costs_at_most_one_catch_up() {
+        use chrono_tz::Asia::Jakarta;
+        let cron = Cron::from_str("0 9 * * *").unwrap();
+        let last = at_in(&Jakarta, "2026-11-05T09:00");
+        let now = at_in(&Jakarta, "2026-11-06T14:00");
+        let due = cron.find_next_occurrence(&last, false).unwrap();
+        assert!(due <= now, "today's 09:00 has passed, so it is due: {due}");
+        let after = cron.find_next_occurrence(&now, false).unwrap();
+        assert_eq!(after.to_rfc3339(), "2026-11-07T09:00:00+07:00", "then tomorrow, not again today");
+    }
+
+    /// On a UTC instance nothing moves: the same expression gives the same moments as before.
+    #[test]
+    fn on_a_utc_instance_nothing_moves() {
+        let utc = chrono::Utc;
+        assert_eq!(
+            occurrences("0 9 * * *", at_in(&utc, "2026-11-06T10:00"), 1),
+            ["2026-11-07T09:00:00+00:00"]
         );
     }
 

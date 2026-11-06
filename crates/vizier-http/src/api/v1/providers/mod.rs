@@ -462,7 +462,7 @@ mod dummyplug_provider_tests {
                 name: "system".into(),
                 permissions: vec![],
                 is_system: true,
-                created_at: chrono::Utc::now(),
+                created_at: vizier_core::time::now(),
             },
             permissions: vec![],
             method: crate::auth::AuthMethod::Jwt,

@@ -71,7 +71,7 @@ pub async fn record_step(
             // A request keeps the time it was made, not the time it was saved.
             let timestamp = match &content {
                 SessionHistoryContent::Request(request) => request.timestamp,
-                _ => chrono::Utc::now(),
+                _ => crate::time::now(),
             };
             transport.publish_session_event(SessionEvent {
                 session: session.clone(),

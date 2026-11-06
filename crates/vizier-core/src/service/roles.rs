@@ -139,7 +139,7 @@ mod model_override_tests {
             name: "admin".into(),
             permissions: vec![MANAGE.into()],
             is_system: false,
-            created_at: chrono::Utc::now(),
+            created_at: crate::time::now(),
         };
         Principal {
             user_id: "admin".into(),

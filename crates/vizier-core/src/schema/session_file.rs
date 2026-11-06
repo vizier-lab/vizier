@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Local};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -15,7 +15,7 @@ pub struct SessionFileRecord {
     pub mime_type: String,
     pub size: u64,
     pub file_id: String,
-    pub added_at: DateTime<Utc>,
+    pub added_at: DateTime<Local>,
     /// Who the file came from: a person's username, or the agent id.
     #[serde(default)]
     pub sender: Option<String>,

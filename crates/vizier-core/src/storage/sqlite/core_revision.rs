@@ -6,7 +6,7 @@
 //! only the value types in `schema::revision`.
 
 use anyhow::{Result, anyhow};
-use chrono::Utc;
+
 
 use crate::storage::sql::{Connection, OptionalExtension, Row, params};
 
@@ -105,7 +105,7 @@ fn insert(
             actor_name,
             trigger,
             restored_from,
-            Utc::now().timestamp_millis(),
+            crate::time::now().timestamp_millis(),
             origin.dream_cycle,
         ],
     )?;

@@ -5,9 +5,10 @@
 //! ledger is the one persisted trace: chat ids, message ids and a deadline, kept in the
 //! existing `state` table under one key per agent. It holds no text, user or exchange id.
 
+use crate::time::Timestamp;
 use std::sync::Arc;
 
-use chrono::{DateTime, Duration, Utc};
+use chrono::Duration;
 use serde::{Deserialize, Serialize};
 
 use crate::storage::VizierStorage;
@@ -24,7 +25,7 @@ const GIVE_UP: Duration = Duration::hours(48);
 pub struct Item {
     pub chat_id: i64,
     pub message_ids: Vec<i32>,
-    pub delete_after: DateTime<Utc>,
+    pub delete_after: Timestamp,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -35,7 +36,7 @@ pub struct Ledger {
 
 impl Ledger {
     /// Adds `message_ids` to the chat's item. Activity only ever moves the deadline forward.
-    pub fn merge(&mut self, chat_id: i64, message_ids: &[i32], delete_after: DateTime<Utc>) {
+    pub fn merge(&mut self, chat_id: i64, message_ids: &[i32], delete_after: Timestamp) {
         match self.items.iter_mut().find(|item| item.chat_id == chat_id) {
             Some(item) => {
                 for id in message_ids {
@@ -62,7 +63,7 @@ impl Ledger {
     }
 
     /// Items whose deadline has passed.
-    pub fn due(&self, now: DateTime<Utc>) -> Vec<Item> {
+    pub fn due(&self, now: Timestamp) -> Vec<Item> {
         self.items
             .iter()
             .filter(|item| item.delete_after <= now)
@@ -78,7 +79,7 @@ impl Ledger {
     }
 
     /// The chat's deadline, if it has an item.
-    pub fn deadline(&self, chat_id: i64) -> Option<DateTime<Utc>> {
+    pub fn deadline(&self, chat_id: i64) -> Option<Timestamp> {
         self.items
             .iter()
             .find(|item| item.chat_id == chat_id)
@@ -86,7 +87,7 @@ impl Ledger {
     }
 
     /// Drops items too old for Telegram to delete.
-    pub fn prune(&mut self, now: DateTime<Utc>) {
+    pub fn prune(&mut self, now: Timestamp) {
         self.items.retain(|item| now - item.delete_after < GIVE_UP);
     }
 }
@@ -141,7 +142,7 @@ impl LedgerStore {
 
     /// Records messages to delete 2 minutes after now.
     pub async fn merge(&self, chat_id: i64, message_ids: &[i32]) {
-        let delete_after = Utc::now() + KEEP;
+        let delete_after = crate::time::now() + KEEP;
         self.update(|ledger| ledger.merge(chat_id, message_ids, delete_after))
             .await
     }
@@ -156,24 +157,24 @@ impl LedgerStore {
     }
 
     /// The chat's deadline, or 2 minutes from now when it has none or it has passed.
-    pub async fn deadline_or_soon(&self, chat_id: i64) -> DateTime<Utc> {
+    pub async fn deadline_or_soon(&self, chat_id: i64) -> Timestamp {
         let _guard = self.lock.lock().await;
-        let soon = Utc::now() + KEEP;
+        let soon = crate::time::now() + KEEP;
         match self.load().await.deadline(chat_id) {
-            Some(deadline) if deadline > Utc::now() => deadline,
+            Some(deadline) if deadline > crate::time::now() => deadline,
             _ => soon,
         }
     }
 
     /// Records messages with an explicit deadline (never moving an existing one back).
-    pub async fn merge_until(&self, chat_id: i64, message_ids: &[i32], delete_after: DateTime<Utc>) {
+    pub async fn merge_until(&self, chat_id: i64, message_ids: &[i32], delete_after: Timestamp) {
         self.update(|ledger| ledger.merge(chat_id, message_ids, delete_after))
             .await
     }
 
     /// Drops what is too old and returns what is due now.
     pub async fn take_due(&self) -> Vec<Item> {
-        let now = Utc::now();
+        let now = crate::time::now();
         self.update(|ledger| {
             ledger.prune(now);
             ledger.due(now)
@@ -188,8 +189,8 @@ mod tests {
     use crate::config::VizierConfig;
     use crate::dependencies::VizierDependencies;
 
-    fn at(minutes: i64) -> DateTime<Utc> {
-        DateTime::<Utc>::from_timestamp(1_800_000_000, 0).unwrap() + Duration::minutes(minutes)
+    fn at(minutes: i64) -> Timestamp {
+        crate::time::from_secs_opt(1_800_000_000, 0).unwrap() + Duration::minutes(minutes)
     }
 
     #[test]
@@ -277,8 +278,8 @@ mod tests {
         .await
         .unwrap();
         let store = LedgerStore::new(deps.storage.clone(), "agent");
-        store.merge_until(5, &[1], Utc::now() - Duration::seconds(1)).await;
-        store.merge_until(6, &[2], Utc::now() + Duration::minutes(5)).await;
+        store.merge_until(5, &[1], crate::time::now() - Duration::seconds(1)).await;
+        store.merge_until(6, &[2], crate::time::now() + Duration::minutes(5)).await;
         let due = store.take_due().await;
         assert_eq!(due.len(), 1);
         assert_eq!(due[0].chat_id, 5);

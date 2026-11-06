@@ -27,6 +27,43 @@ use crate::{
     state::HTTPState,
 };
 
+/// What the server decides about a person's message, whatever the client sent.
+///
+/// A message starts a fresh background chain, so the depth is never the client's to set. Its time is
+/// the server's clock on receipt, on every channel: a client's own value would misorder history and
+/// move the cutoff it is compared with (`specs/052-unify-local-timezone`). The field stays required
+/// on input so existing clients keep working.
+fn stamp_on_receipt(request: &mut vizier_core::schema::VizierRequest) {
+    request.background_depth = 0;
+    request.timestamp = vizier_core::time::now();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::stamp_on_receipt;
+    use vizier_core::schema::{VizierRequest, VizierRequestContent};
+
+    #[test]
+    fn a_clients_own_time_and_depth_are_discarded() {
+        let sent: VizierRequest = serde_json::from_value(serde_json::json!({
+            "timestamp": "2001-01-01T00:00:00Z",
+            "user": "alice",
+            "content": { "chat": "hello" },
+            "metadata": {}
+        }))
+        .unwrap();
+        assert!(matches!(sent.content, VizierRequestContent::Chat(_)));
+        let mut request = sent;
+        request.background_depth = 3;
+
+        let before = vizier_core::time::now();
+        stamp_on_receipt(&mut request);
+
+        assert!(request.timestamp >= before, "stamped with the server's time, not 2001");
+        assert_eq!(request.background_depth, 0);
+    }
+}
+
 pub struct TopicConnection {
     session: VizierSession,
     /// The caller and the service layer, kept so every inbound turn re-checks the project
@@ -252,7 +289,7 @@ impl TopicConnection {
                             let mut request = request.clone();
                             // A person's message starts a fresh chain; the depth is never
                             // the client's to set.
-                            request.background_depth = 0;
+                            stamp_on_receipt(&mut request);
                             let Some(channel_id) = self.session.1.web_channel_id() else {
                                 if request.model_override.is_some() {
                                     send_frame(client_error(

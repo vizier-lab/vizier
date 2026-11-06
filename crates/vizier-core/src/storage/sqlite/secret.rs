@@ -2,9 +2,10 @@
 //! delete is one transaction with its event row, `created_at` survives a replace, and the
 //! only read that returns a value is `get_agent_secret`.
 
+use crate::time::Timestamp;
 use crate::storage::sql::{Connection, OptionalExtension, params};
 use anyhow::Result;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Local};
 use uuid::Uuid;
 
 use crate::{
@@ -30,8 +31,8 @@ fn parse_action(text: &str) -> Result<SecretAction> {
     ))?)
 }
 
-fn parse_time(text: &str) -> Result<DateTime<Utc>> {
-    Ok(DateTime::parse_from_rfc3339(text)?.with_timezone(&Utc))
+fn parse_time(text: &str) -> Result<Timestamp> {
+    Ok(DateTime::parse_from_rfc3339(text)?.with_timezone(&Local))
 }
 
 fn event_row(
@@ -50,7 +51,7 @@ fn event_row(
             name,
             action_text(action),
             serde_json::to_string(actor)?,
-            Utc::now().to_rfc3339(),
+            crate::time::stored_now(),
         ],
     )?;
     Ok(())
@@ -80,7 +81,7 @@ impl SecretStorage for SqlStorage {
     ) -> Result<SecretWrite> {
         let conn = self.conn.lock()?;
         let tx = conn.unchecked_transaction()?;
-        let now = Utc::now().to_rfc3339();
+        let now = crate::time::stored_now();
 
         // A replace keeps when the name was first created; only a set on an absent name starts
         // it. Read and write share the transaction, so the outcome cannot disagree with the row.

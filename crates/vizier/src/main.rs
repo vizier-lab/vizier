@@ -39,7 +39,12 @@ fn main() -> Result<()> {
     };
     tracing_subscriber::registry()
         .with(filter)
-        .with(fmt::layer().compact().with_writer(writer))
+        .with(
+            fmt::layer()
+                .compact()
+                .with_timer(fmt::time::ChronoLocal::rfc_3339())
+                .with_writer(writer),
+        )
         .with(otel_layer)
         .init();
     if let Some(e) = telemetry_error {

@@ -629,7 +629,21 @@ impl Dialect for PgDialect {
     }
 
     fn day_of_millis(&self, column: &str) -> String {
-        format!("to_char(to_timestamp(({column}) / 1000.0) AT TIME ZONE 'UTC', 'YYYY-MM-DD')")
+        // The day in the instance's zone. The name comes from `time::zone()`, which only holds an
+        // IANA name that chrono-tz knows, but is checked again here since it ends up in SQL. With
+        // no name, the current offset stands in for it.
+        let zone = crate::time::zone();
+        let shift = match zone
+            .name
+            .filter(|n| n.chars().all(|c| c.is_ascii_alphanumeric() || "_/+-".contains(c)))
+        {
+            Some(name) => format!("AT TIME ZONE '{name}'"),
+            None => {
+                let seconds = chrono::Offset::fix(crate::time::now().offset()).local_minus_utc();
+                format!("AT TIME ZONE 'UTC' + INTERVAL '{seconds} seconds'")
+            }
+        };
+        format!("to_char(to_timestamp(({column}) / 1000.0) {shift}, 'YYYY-MM-DD')")
     }
 
     fn key_lock_sql(&self) -> Option<&'static str> {

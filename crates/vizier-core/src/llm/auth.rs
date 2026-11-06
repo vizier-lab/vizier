@@ -2,6 +2,7 @@
 //! quirks that are not wire format live here, as `CredentialSource` impls, never as provider
 //! checks inside a dialect (research R5).
 
+use crate::time::Timestamp;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -369,7 +370,7 @@ impl SsoRoleCredential {
     async fn role_credentials(&self) -> Result<RoleCredentials, LlmError> {
         let mut cache = self.cache.lock().await;
         if let Some(cached) = cache.as_ref()
-            && !needs_renewal(cached, chrono::Utc::now())
+            && !needs_renewal(cached, crate::time::now())
         {
             return Ok(cached.clone());
         }
@@ -859,7 +860,7 @@ mod tests {
         );
     }
 
-    fn sso_session(expires_at: chrono::DateTime<chrono::Utc>) -> crate::schema::SsoSessionSecret {
+    fn sso_session(expires_at: Timestamp) -> crate::schema::SsoSessionSecret {
         crate::schema::SsoSessionSecret {
             access_token: "access-token-value".into(),
             refresh_token: Some("refresh-token-value".into()),
@@ -867,7 +868,7 @@ mod tests {
             client_id: "client-id".into(),
             client_secret: "client-secret-value".into(),
             client_secret_expires_at: None,
-            issued_at: chrono::Utc::now(),
+            issued_at: crate::time::now(),
             revision: 0,
         }
     }
@@ -892,7 +893,7 @@ mod tests {
         storage
             .put_sso_session(
                 "acme-bedrock",
-                &sso_session(chrono::Utc::now() + chrono::TimeDelta::hours(1)),
+                &sso_session(crate::time::now() + chrono::TimeDelta::hours(1)),
                 None,
             )
             .await
@@ -994,7 +995,7 @@ mod tests {
                     "accessKeyId": key,
                     "secretAccessKey": "secret-access-value",
                     "sessionToken": "session-token-value",
-                    "expiration": (chrono::Utc::now() + chrono::TimeDelta::seconds(life_seconds))
+                    "expiration": (crate::time::now() + chrono::TimeDelta::seconds(life_seconds))
                         .timestamp_millis(),
                 }
             }))
@@ -1013,7 +1014,7 @@ mod tests {
         storage
             .put_sso_session(
                 "acme-bedrock",
-                &sso_session(chrono::Utc::now() + chrono::TimeDelta::hours(1)),
+                &sso_session(crate::time::now() + chrono::TimeDelta::hours(1)),
                 None,
             )
             .await
@@ -1075,7 +1076,7 @@ mod tests {
         storage
             .put_sso_session(
                 "acme-bedrock",
-                &sso_session(chrono::Utc::now() + chrono::TimeDelta::hours(1)),
+                &sso_session(crate::time::now() + chrono::TimeDelta::hours(1)),
                 None,
             )
             .await
@@ -1102,7 +1103,7 @@ mod tests {
                 "accessKeyId": key,
                 "secretAccessKey": "secret-access-value",
                 "sessionToken": "session-token-value",
-                "expiration": (chrono::Utc::now() + chrono::TimeDelta::seconds(life_seconds))
+                "expiration": (crate::time::now() + chrono::TimeDelta::seconds(life_seconds))
                     .timestamp_millis(),
             }
         }))
@@ -1282,7 +1283,7 @@ mod tests {
                     "accessKeyId": key,
                     "secretAccessKey": "secret-access-value",
                     "sessionToken": "session-token-value",
-                    "expiration": (chrono::Utc::now() + chrono::TimeDelta::hours(1))
+                    "expiration": (crate::time::now() + chrono::TimeDelta::hours(1))
                         .timestamp_millis(),
                 }
             }))
@@ -1376,7 +1377,7 @@ mod tests {
                         "accessKeyId": "ASIAEXAMPLEKEYID",
                         "secretAccessKey": "secret-access-value",
                         "sessionToken": "session-token-value",
-                        "expiration": (chrono::Utc::now() + chrono::TimeDelta::hours(1))
+                        "expiration": (crate::time::now() + chrono::TimeDelta::hours(1))
                             .timestamp_millis(),
                     }
                 }))],

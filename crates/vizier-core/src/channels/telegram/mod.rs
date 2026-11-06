@@ -1,7 +1,7 @@
 use std::sync::atomic::{AtomicI64, Ordering};
 
 use anyhow::Result;
-use chrono::Utc;
+
 use serde::{Deserialize, Serialize};
 use teloxide::Bot;
 pub mod questions;
@@ -426,7 +426,6 @@ impl TelegramChannelReader {
             .unwrap_or_else(|| "Unknown".into());
 
         let metadata = serde_json::json!({
-            "sent_at": Utc::now().to_string(),
             "is_reply_message": replied_to.is_some(),
             "replied_message_id": replied_to,
             "message_id": message_id,
@@ -741,7 +740,7 @@ impl TelegramChannelReader {
                         client_tools: vec![],
                         client_categories: vec![],
                         client: None,
-                        timestamp: Utc::now(),
+                        timestamp: crate::time::now(),
                         user: user.clone(),
                         content: VizierRequestContent::Command("abort".to_string()),
                         platform_message_id: None,
@@ -769,7 +768,7 @@ impl TelegramChannelReader {
                         client_tools: vec![],
                         client_categories: vec![],
                         client: None,
-                        timestamp: Utc::now(),
+                        timestamp: crate::time::now(),
                         user: user.clone(),
                         content: VizierRequestContent::Command("checkpoint".to_string()),
                         platform_message_id: None,
@@ -837,7 +836,7 @@ impl TelegramChannelReader {
                         client_tools: vec![],
                         client_categories: vec![],
                         client: None,
-                        timestamp: Utc::now(),
+                        timestamp: crate::time::now(),
                         user: user.clone(),
                         content: VizierRequestContent::Command("lobotomy".to_string()),
                         platform_message_id: None,
@@ -924,7 +923,7 @@ impl TelegramChannelReader {
             client_tools: vec![],
             client_categories: vec![],
             client: None,
-            timestamp: chrono::Utc::now(),
+            timestamp: crate::time::now(),
             user,
             content: request_content,
             platform_message_id: Some(PlatformMessageId::Telegram(msg.id.0.into())),

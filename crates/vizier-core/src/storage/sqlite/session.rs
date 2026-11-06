@@ -146,7 +146,7 @@ impl SessionStorage for SqlStorage {
                     {
                         continue;
                     }
-                    let Some(last_activity) = DateTime::from_timestamp_millis(*last) else {
+                    let Some(last_activity) = crate::time::from_millis_opt(*last) else {
                         continue;
                     };
                     rows.push(ConversationRow {
@@ -171,7 +171,7 @@ impl SessionStorage for SqlStorage {
                 if !matched {
                     continue;
                 }
-                let Some(last_activity) = DateTime::from_timestamp_millis(latest.1) else {
+                let Some(last_activity) = crate::time::from_millis_opt(latest.1) else {
                     continue;
                 };
                 let ordinal = topics.iter().position(|t| t.2 == latest.2).unwrap_or(0) as u64 + 1;

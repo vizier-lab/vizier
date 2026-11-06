@@ -1,6 +1,7 @@
+use crate::time::Timestamp;
 use crate::storage::sql::{OptionalExtension, Row, params};
 use anyhow::Result;
-use chrono::{DateTime, Utc};
+use chrono::DateTime;
 
 use crate::{
     questions::model::{Answer, Claim, Controls, QuestionSet, QuestionSetRecord, QuestionState},
@@ -49,8 +50,8 @@ fn row_to_record(row: &Row) -> crate::storage::sql::Result<QuestionSetRecord> {
         answers: answers.and_then(|text| serde_json::from_str(&text).ok()),
         answerer: row.get(8)?,
         controls: controls.and_then(|text| serde_json::from_str::<Controls>(&text).ok()),
-        created_at: DateTime::from_timestamp_millis(created_at).unwrap_or_else(Utc::now),
-        closed_at: closed_at.and_then(DateTime::from_timestamp_millis),
+        created_at: crate::time::from_millis_opt(created_at).unwrap_or_else(crate::time::now),
+        closed_at: closed_at.and_then(crate::time::from_millis_opt),
     })
 }
 
@@ -58,7 +59,7 @@ fn row_to_record(row: &Row) -> crate::storage::sql::Result<QuestionSetRecord> {
 /// topic, which is what a session without one stores.
 const IN_SESSION: &str = "agent_id = ?2 AND channel = ?3 AND topic IS NOT DISTINCT FROM ?4";
 
-fn millis(t: DateTime<Utc>) -> i64 {
+fn millis(t: Timestamp) -> i64 {
     t.timestamp_millis()
 }
 
@@ -148,7 +149,7 @@ impl QuestionStorage for SqlStorage {
                 session.1.to_slug(),
                 session.2,
                 answerer,
-                millis(Utc::now()),
+                millis(crate::time::now()),
                 set_id,
             ],
         )?;
@@ -177,7 +178,7 @@ impl QuestionStorage for SqlStorage {
                 session.0,
                 session.1.to_slug(),
                 session.2,
-                millis(Utc::now()),
+                millis(crate::time::now()),
                 set_id,
             ],
         )?;
@@ -193,7 +194,7 @@ impl QuestionStorage for SqlStorage {
         let changed = conn.execute(
             "UPDATE question_set SET state = 'withdrawn', closed_at = ?1
               WHERE set_id = ?2 AND state = 'pending'",
-            params![millis(Utc::now()), set_id],
+            params![millis(crate::time::now()), set_id],
         )?;
         Ok(changed > 0)
     }
@@ -290,8 +291,8 @@ fn ask_row(row: &Row) -> crate::storage::sql::Result<crate::questions::model::Se
         label: row.get(5)?,
         session: VizierSession(agent_id, channel, topic),
         state: AskState::from_stored(&state),
-        requested_at: DateTime::from_timestamp_millis(requested_at).unwrap_or_else(Utc::now),
-        closed_at: closed_at.and_then(DateTime::from_timestamp_millis),
+        requested_at: crate::time::from_millis_opt(requested_at).unwrap_or_else(crate::time::now),
+        closed_at: closed_at.and_then(crate::time::from_millis_opt),
     })
 }
 
@@ -334,7 +335,7 @@ impl crate::storage::question::SensitiveAskStorage for SqlStorage {
         let changed = conn.execute(
             "UPDATE sensitive_ask SET state = ?1, closed_at = ?2
               WHERE ask_id = ?3 AND state = 'open'",
-            params![state.as_str(), millis(Utc::now()), ask_id],
+            params![state.as_str(), millis(crate::time::now()), ask_id],
         )?;
         Ok(changed > 0)
     }
@@ -467,7 +468,7 @@ mod tests {
             answers: None,
             answerer: None,
             controls: None,
-            created_at: Utc::now(),
+            created_at: crate::time::now(),
             closed_at: None,
         }
     }
@@ -741,7 +742,7 @@ mod tests {
             label: None,
             session: s.clone(),
             state: crate::questions::model::AskState::Open,
-            requested_at: Utc::now(),
+            requested_at: crate::time::now(),
             closed_at: None,
         };
         rt.block_on(async {
@@ -812,7 +813,7 @@ mod tests {
                 answers: None,
                 answerer: None,
             },
-            timestamp: Utc::now(),
+            timestamp: crate::time::now(),
             reactions: vec![],
             seq: None,
         };

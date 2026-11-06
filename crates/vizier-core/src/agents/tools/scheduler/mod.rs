@@ -1,6 +1,7 @@
+use crate::time::Timestamp;
 use std::{str::FromStr, sync::Arc};
 
-use chrono::Utc;
+use chrono::Local;
 use croner::Cron;
 use serde::{Deserialize, Serialize};
 use slugify::slugify;
@@ -63,7 +64,7 @@ pub struct ScheduleOneTimeTaskArgs {
     requested_by: Option<String>,
 
     #[schemars(
-        description = "Scheduled utc datetime of the task, in RFC3339 format (e.g., 2024-12-25T10:30:00Z)"
+        description = "When to run the task, in the instance's local time: a date and time with no offset, such as 2026-11-07T09:00. A time with an offset (2026-11-07T09:00:00+07:00 or ...Z) is that exact moment. Use the time tools to find today's date and to work out weekdays; do not guess them."
     )]
     schedule: String,
 
@@ -85,19 +86,14 @@ impl VizierTool for ScheduleOneTimeTask {
     }
 
     fn description(&self) -> String {
-        "Schedule a new one-time task at a specific date and time".into()
+        "Schedule a new one-time task at a specific date and time, in the instance's local time. The result repeats the weekday, date, time and zone it scheduled, so check them against what the person asked for".into()
     }
 
     async fn call(&self, args: Self::Input, _ctx: &ToolContext) -> Result<Self::Output, VizierError> {
-        let utc_datetime = chrono::DateTime::parse_from_rfc3339(&args.schedule)
-            .map(|dt| dt.with_timezone(&Utc))
-            .map_err(|_| {
-                VizierError(
-                    "Invalid datetime format. Use RFC3339 (e.g., 2024-12-25T10:30:00Z)".to_string(),
-                )
-            })?;
+        let utc_datetime = crate::time::parse_schedule(&args.schedule)
+            .map_err(|e| VizierError(format!("Invalid datetime: {e}")))?;
 
-        let now = Utc::now();
+        let now = crate::time::now();
         if utc_datetime < now {
             return Err(VizierError(
                 "One-time task datetime must be in the future".to_string(),
@@ -118,12 +114,17 @@ impl VizierTool for ScheduleOneTimeTask {
                 is_active: true,
                 schedule: TaskSchedule::OneTimeTask(utc_datetime),
                 last_executed_at: None,
-                timestamp: chrono::Utc::now(),
+                timestamp: crate::time::now(),
             })
             .await
             .map_err(|err| VizierError(err.to_string()))?;
 
-        Ok(format!("Task '{}' scheduled for {}", title, args.schedule))
+        Ok(format!(
+            "Task '{}' scheduled for {} {}",
+            title,
+            utc_datetime.format("%A %Y-%m-%d %H:%M"),
+            crate::time::describe_zone(utc_datetime)
+        ))
     }
 }
 
@@ -153,7 +154,7 @@ pub struct ScheduleCronTaskArgs {
     requested_by: Option<String>,
 
     #[schemars(
-        description = "Recurring pattern for the task, following the the standard cron expression"
+        description = "Recurring pattern for the task, as a standard cron expression. It is evaluated in the instance's local time, so 0 9 * * * is 09:00 local, every day"
     )]
     cron: String,
 
@@ -204,8 +205,8 @@ impl VizierTool for ScheduleCronTask {
                 instruction: args.instruction,
                 is_active: true,
                 schedule: TaskSchedule::CronTask(args.cron),
-                last_executed_at: Some(chrono::Utc::now()),
-                timestamp: chrono::Utc::now(),
+                last_executed_at: Some(crate::time::now()),
+                timestamp: crate::time::now(),
             })
             .await
             .map_err(|err| VizierError(err.to_string()))?;
@@ -364,8 +365,8 @@ pub struct ListTaskRunsArgs {
 #[derive(Debug, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct TaskRunSummary {
     /// The run's address, which `get_task_run_detail` takes.
-    run_id: chrono::DateTime<Utc>,
-    ran_at: chrono::DateTime<Utc>,
+    run_id: Timestamp,
+    ran_at: Timestamp,
     state: TaskRunState,
 }
 
@@ -447,8 +448,8 @@ pub struct GetTaskRunDetailArgs {
 
 #[derive(Debug, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct TaskRunDetail {
-    run_id: chrono::DateTime<Utc>,
-    ran_at: chrono::DateTime<Utc>,
+    run_id: Timestamp,
+    ran_at: Timestamp,
     state: TaskRunState,
     /// `null` when the run's state is not `answered`.
     response: Option<String>,
@@ -518,12 +519,12 @@ impl VizierTool for GetTaskRunDetail {
 }
 
 /// A run's address as the listing gives it back.
-fn parse_run_id(value: Option<&str>) -> Result<Option<chrono::DateTime<Utc>>, VizierError> {
+fn parse_run_id(value: Option<&str>) -> Result<Option<Timestamp>, VizierError> {
     match value {
         None => Ok(None),
         Some(raw) if raw.trim().is_empty() => Ok(None),
         Some(raw) => chrono::DateTime::parse_from_rfc3339(raw)
-            .map(|dt| Some(dt.with_timezone(&Utc)))
+            .map(|dt| Some(dt.with_timezone(&Local)))
             .map_err(|_| {
                 VizierError(format!(
                     "'{raw}' is not an RFC3339 timestamp; use a run_id from list_task_runs"

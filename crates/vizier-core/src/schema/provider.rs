@@ -342,7 +342,7 @@ pub struct CustomProvider {
     #[serde(default)]
     pub models: Vec<CustomModel>,
     #[serde(default)]
-    pub models_fetched_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub models_fetched_at: Option<chrono::DateTime<chrono::Local>>,
 }
 
 #[cfg(test)]

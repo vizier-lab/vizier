@@ -336,7 +336,7 @@ pub async fn open(
     let folder = validate_folder(s, &request.folder)?;
     let name = folder_name(&folder)?;
 
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = crate::time::now().timestamp_millis();
     let project = Project {
         id: nanoid::nanoid!(PROJECT_ID_LEN),
         agent_id: agent_id.to_string(),
@@ -460,7 +460,7 @@ pub async fn remove(
     }
     s.deps()
         .storage
-        .remove_project(&project.id, chrono::Utc::now().timestamp_millis())
+        .remove_project(&project.id, crate::time::now().timestamp_millis())
         .await
         .map_err(internal)?;
     Ok(ProjectRemoved { removed: true })
@@ -1082,7 +1082,7 @@ pub async fn create_worktree(
         branch: branch.clone(),
         base_ref: base.to_string(),
         path: canonical,
-        created_at: chrono::Utc::now().timestamp_millis(),
+        created_at: crate::time::now().timestamp_millis(),
     };
     let detail = VizierSessionDetail {
         agent_id: agent_id.to_string(),
@@ -1277,7 +1277,7 @@ pub async fn delete_worktree(
 
 #[cfg(test)]
 mod tests {
-    use chrono::Utc;
+    
 
     use super::*;
     use crate::{
@@ -1609,7 +1609,7 @@ mod tests {
         assert!(detail.instructions_present);
         let text = serde_json::to_string(&detail).unwrap();
         assert!(!text.contains("Be terse."));
-        assert!(Utc::now().timestamp_millis() >= detail.project.created_at);
+        assert!(crate::time::now().timestamp_millis() >= detail.project.created_at);
     }
 
     fn git_repo() -> Option<tempfile::TempDir> {

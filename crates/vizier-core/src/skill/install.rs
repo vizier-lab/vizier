@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use chrono::Utc;
+
 
 use crate::skill::{SkillManager, SkillMeta, SkillSource};
 
@@ -139,7 +139,7 @@ fn install_from_registry(
         registry_url: Some(registry_url.to_string()),
         slug: Some(slug.to_string()),
         installed_version: frontmatter.version.leading_number(),
-        installed_at: Utc::now(),
+        installed_at: crate::time::now(),
     };
     manager.save_meta(slug, &meta)?;
 
@@ -199,7 +199,7 @@ fn install_from_git(
             registry_url: Some(repo_url.to_string()),
             slug: Some(slug.to_string()),
             installed_version: version,
-            installed_at: Utc::now(),
+            installed_at: crate::time::now(),
         };
         manager.save_meta(slug, &meta)?;
 
@@ -235,7 +235,7 @@ fn install_from_git(
                         registry_url: Some(repo_url.to_string()),
                         slug: Some(slug.to_string()),
                         installed_version: version,
-                        installed_at: Utc::now(),
+                        installed_at: crate::time::now(),
                     };
                     manager.save_meta(slug, &meta)?;
 
@@ -282,7 +282,7 @@ fn install_from_local(
             registry_url: None,
             slug: Some(slug.to_string()),
             installed_version: frontmatter.version.leading_number(),
-            installed_at: Utc::now(),
+            installed_at: crate::time::now(),
         };
         manager.save_meta(slug, &meta)?;
 
@@ -311,7 +311,7 @@ fn install_from_local(
                     registry_url: None,
                     slug: Some(slug.to_string()),
                     installed_version: frontmatter.version.leading_number(),
-                    installed_at: Utc::now(),
+                    installed_at: crate::time::now(),
                 };
                 manager.save_meta(slug, &meta)?;
 

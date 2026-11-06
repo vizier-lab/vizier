@@ -5,7 +5,7 @@ use tracing::Instrument;
 
 use crate::llm::types::ToolDefinition;
 use anyhow::Result;
-use chrono::{DateTime, Utc};
+
 use schemars::{JsonSchema, schema_for};
 use serde::{Deserialize, Serialize};
 
@@ -25,6 +25,7 @@ use crate::{
             ScheduleOneTimeTask,
         },
         scratchpad::{AppendTmp, ReadTmp, WriteTmp},
+        time::{ConvertTime, CurrentTime, ShiftTime, TimeBetween},
         secrets::{GetSecret, SetSecret},
         session_files::{
             GetSessionFilePath, ListSessionFiles, LoadPathAsSessionFile, ReadDocumentFile,
@@ -79,6 +80,7 @@ mod subagents;
 #[cfg(feature = "channel-telegram")]
 pub mod telegram;
 mod think;
+mod time;
 pub mod tts;
 mod vector_memory;
 mod webui;
@@ -112,10 +114,13 @@ pub enum ToolCategory {
     /// structured questions. Offered only in a turn somebody can answer, so its category line
     /// is absent from an unattended prompt (FR-007).
     Questions,
+    /// The time tools (`specs/052-unify-local-timezone`): the prompt carries no clock, so an agent
+    /// asks these for the time, converts between zones and does date arithmetic.
+    Time,
 }
 
 impl ToolCategory {
-    pub const ALL: [ToolCategory; 17] = [
+    pub const ALL: [ToolCategory; 18] = [
         Self::Memory,
         Self::Scheduling,
         Self::Agents,
@@ -133,6 +138,7 @@ impl ToolCategory {
         Self::Integrations,
         Self::Secrets,
         Self::Questions,
+        Self::Time,
     ];
 
     pub fn name(self) -> &'static str {
@@ -154,6 +160,7 @@ impl ToolCategory {
             Self::Integrations => "integrations",
             Self::Secrets => "secrets",
             Self::Questions => "questions",
+            Self::Time => "time",
         }
     }
 
@@ -187,6 +194,9 @@ impl ToolCategory {
             }
             Self::Questions => {
                 "Ask the person one or more structured questions; the answer arrives as their next message"
+            }
+            Self::Time => {
+                "The current time, timezone conversion and date arithmetic; the prompt does not carry a clock"
             }
         }
     }
@@ -723,7 +733,7 @@ fn tool_output_to_response(output: &str) -> Result<VizierResponse> {
     }
 
     Ok(VizierResponse {
-        timestamp: Utc::now(),
+        timestamp: crate::time::now(),
         content: crate::schema::VizierResponseContent::ToolResponse { response: res },
         attachments: vec![],
         ..Default::default()
@@ -1126,6 +1136,11 @@ impl VizierTools {
         "list_skills",
         "get_skill_details",
         "use_skill",
+        // Time (4): read-only, and a dream's schedule and night boundaries are in local time.
+        "current_time",
+        "convert_time",
+        "shift_time",
+        "time_between",
         // Scratchpad (3): each dream stage is its own session, so its own scratchpad.
         "write_tmp",
         "append_tmp",
@@ -1182,7 +1197,7 @@ impl VizierTools {
                 let output = tool.tool_call(params, ctx).await?;
                 let res = serde_json::from_str(&output)?;
                 return Ok(VizierResponse {
-                    timestamp: Utc::now(),
+                    timestamp: crate::time::now(),
                     content: crate::schema::VizierResponseContent::ToolResponse { response: res },
                     attachments: vec![],
                     ..Default::default()
@@ -1333,6 +1348,10 @@ impl BaseTools {
                 storage: deps.storage.clone(),
                 file_manager: deps.file_manager.clone(),
             })
+            .tool(CurrentTime)
+            .tool(ConvertTime)
+            .tool(ShiftTime)
+            .tool(TimeBetween)
             .tool(WriteTmp {
                 storage: deps.storage.clone(),
             })
@@ -1658,6 +1677,10 @@ mod tests {
             entry::<UpdateArtifact>(),
             entry::<ListArtifacts>(),
             entry::<LoadArtifactAsSessionFile>(),
+            entry::<CurrentTime>(),
+            entry::<ConvertTime>(),
+            entry::<ShiftTime>(),
+            entry::<TimeBetween>(),
             entry::<WriteTmp>(),
             entry::<AppendTmp>(),
             entry::<ReadTmp>(),
@@ -1771,6 +1794,10 @@ mod tests {
             ("update_artifact", Files),
             ("list_artifacts", Files),
             ("load_artifact_as_session_file", Files),
+            ("current_time", Time),
+            ("convert_time", Time),
+            ("shift_time", Time),
+            ("time_between", Time),
             ("write_tmp", Scratchpad),
             ("append_tmp", Scratchpad),
             ("read_tmp", Scratchpad),
@@ -1966,8 +1993,8 @@ mod tests {
             .iter()
             .map(|category| category.name())
             .collect();
-        assert_eq!(names.last(), Some(&"questions"));
-        assert_eq!(names.len(), 17);
+        assert_eq!(names.last(), Some(&"time"));
+        assert_eq!(names.len(), 18);
         // `coding` sits before `integrations`, but no agent-wide tool uses it (its tools are
         // per-turn project contributions).
         assert_eq!(names[13], "coding");
@@ -1977,6 +2004,7 @@ mod tests {
         );
         assert_eq!(ToolCategory::Secrets.name(), "secrets");
         assert_eq!(ToolCategory::Questions.name(), "questions");
+        assert_eq!(ToolCategory::Time.name(), "time");
     }
 
     /// An `execute_tool` span records a scrubbed result and scrubbed arguments once the turn
@@ -1988,7 +2016,7 @@ mod tests {
         redactor.arm(TOKEN);
 
         let response = VizierResponse {
-            timestamp: Utc::now(),
+            timestamp: crate::time::now(),
             content: crate::schema::VizierResponseContent::ToolResponse {
                 response: serde_json::json!({ "status": "found", "value": TOKEN }),
             },
@@ -2026,7 +2054,7 @@ mod tests {
         redactor.arm(TOKEN);
         let arguments = format!(r#"{{"header":"Bearer {TOKEN}"}}"#);
         let ok: Result<VizierResponse> = Ok(VizierResponse {
-            timestamp: Utc::now(),
+            timestamp: crate::time::now(),
             content: crate::schema::VizierResponseContent::ToolResponse {
                 response: serde_json::json!({ "value": TOKEN }),
             },
@@ -2167,6 +2195,7 @@ mod tests {
         assert_eq!(mcp_category_name("memory", &[]), "memory_mcp");
         assert_eq!(mcp_category_name("discord", &[]), "discord_mcp");
         assert_eq!(mcp_category_name("secrets", &[]), "secrets_mcp");
+        assert_eq!(mcp_category_name("time", &[]), "time_mcp", "time is a built-in category (spec 052)");
         assert_eq!(mcp_category_name("github", &[]), "github");
     }
 
@@ -2373,7 +2402,7 @@ mod tests {
         );
         let task = VizierSession(
             "a".into(),
-            crate::schema::VizierChannelId::Task("sched".into(), chrono::Utc::now()),
+            crate::schema::VizierChannelId::Task("sched".into(), crate::time::now()),
             None,
         );
         assert!(is_interactive_turn(&VizierRequestContent::Chat("hi".into()), &web));

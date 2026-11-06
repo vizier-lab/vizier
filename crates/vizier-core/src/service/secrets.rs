@@ -4,7 +4,7 @@
 
 use std::collections::HashMap;
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Local};
 use serde::{Deserialize, Serialize};
 
 use super::{
@@ -34,8 +34,8 @@ pub struct SecretItem {
     pub name: String,
     /// `utils::mask_secret` of the stored value. There is no field for the value itself.
     pub masked: String,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: DateTime<Local>,
+    pub updated_at: DateTime<Local>,
     pub updated_by: Requester,
     /// The username or the agent's name; the id when it cannot be resolved.
     pub updated_by_name: String,
@@ -71,7 +71,7 @@ pub struct SecretEventItem {
     pub action: SecretAction,
     pub actor: Requester,
     pub actor_name: String,
-    pub at: DateTime<Utc>,
+    pub at: DateTime<Local>,
 }
 
 /// The agent, or the refusal: `404` when it does not exist, `403` when the person is not one of

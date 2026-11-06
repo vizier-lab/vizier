@@ -131,7 +131,7 @@ fn agent_config(id: &str) -> AgentConfig {
 async fn chat(transport: &VizierTransport, session: &VizierSession, text: &str) -> String {
     let (tx, rx) = transport.reply_channel().await.expect("open a reply stream");
     let request = VizierRequest {
-        timestamp: chrono::Utc::now(),
+        timestamp: vizier_core::time::now(),
         user: "e2e".into(),
         content: VizierRequestContent::Chat(text.into()),
         metadata: serde_json::json!({}),

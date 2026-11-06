@@ -252,7 +252,7 @@ fn _item_in_schema(_: NotificationItem) {}
 mod tests {
     use std::sync::Arc;
 
-    use chrono::Utc;
+    
 
     use super::*;
     use crate::{
@@ -307,7 +307,7 @@ mod tests {
                 name: "role".into(),
                 permissions: vec![],
                 is_system: system,
-                created_at: Utc::now(),
+                created_at: vizier_core::time::now(),
             },
             permissions: vec![],
             method: AuthMethod::Jwt,
@@ -331,7 +331,7 @@ mod tests {
                 tone: NotificationTone::Default,
                 summary: format!("Notification {key}"),
                 href: "/x".into(),
-                created_at: Utc::now(),
+                created_at: vizier_core::time::now(),
                 source_session: None,
                 source_title: None,
                 excerpt: None,

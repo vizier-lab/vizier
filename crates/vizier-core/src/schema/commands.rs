@@ -24,7 +24,7 @@ pub struct AgentHealthStatus {
     #[serde(default)]
     pub failures: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub next_retry_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub next_retry_at: Option<chrono::DateTime<chrono::Local>>,
     /// The agent's Discord and Telegram readers, while it is running (#50).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub channels: Vec<ChannelHealth>,
@@ -65,7 +65,7 @@ pub struct ChannelHealth {
     #[serde(default)]
     pub failures: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub next_retry_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub next_retry_at: Option<chrono::DateTime<chrono::Local>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]

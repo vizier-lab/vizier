@@ -2,8 +2,9 @@
 //! contracts/notification-storage.md`): two tables, the exactly-once insert behind `event_key`,
 //! per-person read state, keyset paging and the retention window.
 
+use crate::time::Timestamp;
 use anyhow::Result;
-use chrono::{DateTime, Utc};
+
 
 use crate::{
     schema::{
@@ -32,7 +33,7 @@ pub trait NotificationStorage {
         user_id: &str,
         agents: &[String],
         filter: NotificationFilter,
-        before: Option<(DateTime<Utc>, i64)>,
+        before: Option<(Timestamp, i64)>,
         limit: usize,
     ) -> Result<Vec<NotificationItem>>;
 
@@ -54,7 +55,7 @@ pub trait NotificationStorage {
         user_id: &str,
         notification_id: i64,
         read: bool,
-        at: DateTime<Utc>,
+        at: Timestamp,
         agents: &[String],
     ) -> Result<bool>;
 
@@ -62,11 +63,11 @@ pub trait NotificationStorage {
     async fn mark_all_notifications_read(
         &self,
         user_id: &str,
-        at: DateTime<Utc>,
+        at: Timestamp,
         agents: &[String],
     ) -> Result<u64>;
 
-    async fn purge_notifications_before(&self, at: DateTime<Utc>) -> Result<usize>;
+    async fn purge_notifications_before(&self, at: Timestamp) -> Result<usize>;
 
     /// Startup orphan cleanup: drop rows whose agent is gone, closing a delete/insert race.
     async fn purge_orphaned_notifications(&self) -> Result<usize>;
@@ -86,7 +87,7 @@ impl NotificationStorage for VizierStorage {
         user_id: &str,
         agents: &[String],
         filter: NotificationFilter,
-        before: Option<(DateTime<Utc>, i64)>,
+        before: Option<(Timestamp, i64)>,
         limit: usize,
     ) -> Result<Vec<NotificationItem>> {
         self.0
@@ -111,7 +112,7 @@ impl NotificationStorage for VizierStorage {
         user_id: &str,
         notification_id: i64,
         read: bool,
-        at: DateTime<Utc>,
+        at: Timestamp,
         agents: &[String],
     ) -> Result<bool> {
         self.0
@@ -122,13 +123,13 @@ impl NotificationStorage for VizierStorage {
     async fn mark_all_notifications_read(
         &self,
         user_id: &str,
-        at: DateTime<Utc>,
+        at: Timestamp,
         agents: &[String],
     ) -> Result<u64> {
         self.0.mark_all_notifications_read(user_id, at, agents).await
     }
 
-    async fn purge_notifications_before(&self, at: DateTime<Utc>) -> Result<usize> {
+    async fn purge_notifications_before(&self, at: Timestamp) -> Result<usize> {
         self.0.purge_notifications_before(at).await
     }
 

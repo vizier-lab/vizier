@@ -126,7 +126,7 @@ impl Dialect for SqliteDialect {
     }
 
     fn day_of_millis(&self, column: &str) -> String {
-        format!("date({column} / 1000, 'unixepoch')")
+        format!("date({column} / 1000, 'unixepoch', 'localtime')")
     }
 
     fn key_lock_sql(&self) -> Option<&'static str> {

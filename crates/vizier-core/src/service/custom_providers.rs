@@ -4,7 +4,7 @@
 
 use std::collections::BTreeMap;
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Local};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -32,7 +32,7 @@ pub struct CustomProviderResponse {
     /// Header names only; values are never returned.
     pub headers: Vec<String>,
     pub models: Vec<CustomModel>,
-    pub models_fetched_at: Option<DateTime<Utc>>,
+    pub models_fetched_at: Option<DateTime<Local>>,
     pub used_by: UsedBy,
     pub reachable: Option<bool>,
 }
@@ -324,7 +324,7 @@ pub async fn fetch_models(
         .await
         .map_err(|e| ServiceError::Invalid { status: 502, message: e, code: None })?;
     provider.models = merge_fetched(&provider.models, &listed);
-    provider.models_fetched_at = Some(Utc::now());
+    provider.models_fetched_at = Some(crate::time::now());
     deps.storage.upsert_custom_provider(&provider).await.map_err(internal)?;
     Ok(respond(deps, &provider).await)
 }

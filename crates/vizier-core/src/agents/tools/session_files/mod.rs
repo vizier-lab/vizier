@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-use chrono::Utc;
+
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -202,7 +202,7 @@ impl VizierTool for ReadDocumentFile {
         let text = extract_text(&file.mime_type, content)?;
 
         Ok(VizierResponse {
-            timestamp: Utc::now(),
+            timestamp: crate::time::now(),
             content: VizierResponseContent::ToolResponse {
                 response: serde_json::Value::String(text),
             },

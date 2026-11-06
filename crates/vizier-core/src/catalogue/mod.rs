@@ -31,7 +31,7 @@ pub struct RefreshStatus {
     pub ttl: String,
     pub in_progress: bool,
     pub last_error: Option<String>,
-    pub failed_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub failed_at: Option<chrono::DateTime<chrono::Local>>,
 }
 
 /// The ids vizier supported before the catalogue, listed first among the unconnected

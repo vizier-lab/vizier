@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Local};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -15,7 +15,7 @@ pub struct SessionHistory {
     pub vizier_session: VizierSession,
     pub content: SessionHistoryContent,
     #[serde(default)]
-    pub timestamp: DateTime<Utc>,
+    pub timestamp: DateTime<Local>,
     #[serde(default)]
     pub reactions: Vec<ReactionEntry>,
     /// Explicit ordering position within the agent's history, breaking the ties that
@@ -303,7 +303,7 @@ pub fn messages_to_history_entries(messages: &[Message]) -> Vec<SessionHistoryCo
                     } else {
                         // Final response
                         entries.push(SessionHistoryContent::Response(VizierResponse {
-                            timestamp: chrono::Utc::now(),
+                            timestamp: crate::time::now(),
                             content: VizierResponseContent::Message {
                                 content: text,
                                 stats: None,
@@ -750,7 +750,7 @@ mod tests {
                 None,
             ),
             content,
-            timestamp: chrono::Utc::now(),
+            timestamp: crate::time::now(),
             reactions: vec![],
             seq: None,
         }
@@ -870,7 +870,7 @@ mod tests {
                 content: "two hits".to_string(),
             }),
             entry(SessionHistoryContent::Response(VizierResponse {
-                timestamp: chrono::Utc::now(),
+                timestamp: crate::time::now(),
                 content: VizierResponseContent::Message {
                     content: "Two releases.".to_string(),
                     stats: None,
@@ -914,7 +914,7 @@ mod tests {
 
     fn error_entry() -> SessionHistory {
         entry(SessionHistoryContent::Response(VizierResponse {
-            timestamp: chrono::Utc::now(),
+            timestamp: crate::time::now(),
             content: VizierResponseContent::Error {
                 kind: crate::schema::ErrorKind::ToolTimeout,
                 message: "Tool 'memory_search' timed out".to_string(),
@@ -1019,7 +1019,7 @@ mod tests {
     #[test]
     fn a_tool_result_with_no_call_is_dropped() {
         let request = entry(SessionHistoryContent::Response(VizierResponse {
-            timestamp: chrono::Utc::now(),
+            timestamp: crate::time::now(),
             content: VizierResponseContent::Message {
                 content: "hello".to_string(),
                 stats: None,

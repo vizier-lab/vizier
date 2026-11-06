@@ -2,7 +2,7 @@
 //! history (spec 038, US2). Operations go through the agent's memory-op channel on the
 //! transport, as the HTTP handlers did.
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Local};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -109,8 +109,8 @@ pub struct MemorySummary {
     pub bundle: String,
     pub path: String,
     pub title: String,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: DateTime<Local>,
+    pub updated_at: DateTime<Local>,
     pub tags: Vec<String>,
     pub relations: Vec<String>,
     pub attachment_count: usize,
@@ -124,8 +124,8 @@ pub struct MemoryDetail {
     pub path: String,
     pub title: String,
     pub content: String,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: DateTime<Local>,
+    pub updated_at: DateTime<Local>,
     pub tags: Vec<String>,
     pub relations: Vec<String>,
     pub attachments: Vec<crate::schema::MemoryAttachmentView>,

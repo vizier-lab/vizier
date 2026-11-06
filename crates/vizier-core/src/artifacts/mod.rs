@@ -9,7 +9,7 @@ mod paths;
 
 use std::sync::Arc;
 
-use chrono::Utc;
+
 use uuid::Uuid;
 
 use crate::error::VizierError;
@@ -156,7 +156,7 @@ impl Artifacts {
             source_channel: origin.channel.clone(),
             source_topic: origin.topic.clone(),
             source_filename: origin.source_filename.clone(),
-            created_at: Utc::now(),
+            created_at: crate::time::now(),
         }
     }
 
@@ -233,7 +233,7 @@ impl Artifacts {
             .await
             .map_err(|e| VizierError(e.to_string()))?;
 
-        let now = Utc::now();
+        let now = crate::time::now();
         let origin = origin_of(&source.session, Some(source_filename));
         let artifact = Artifact {
             id: artifact_id.clone(),
@@ -295,7 +295,7 @@ impl Artifacts {
             .write_version(agent_id, &artifact.id, next_version, &bytes)
             .await
             .map_err(|e| VizierError(e.to_string()))?;
-        let now = Utc::now();
+        let now = crate::time::now();
         let kind = ArtifactKind::from_mime(&mime, name);
         let origin = origin_of(&source.session, Some(source_filename.clone()));
         let event = ArtifactEvent {
@@ -394,7 +394,7 @@ impl Artifacts {
             source_channel: artifact.origin_channel.clone(),
             source_topic: artifact.origin_topic.clone(),
             source_filename: artifact.source_filename.clone(),
-            created_at: Utc::now(),
+            created_at: crate::time::now(),
         };
         // The row goes first, so a concurrent memory attach cannot validate it again.
         self.storage
@@ -596,8 +596,8 @@ mod tests {
             origin_topic: None,
             source_filename: None,
             created_by: Requester::Agent("a".into()),
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: crate::time::now(),
+            updated_at: crate::time::now(),
         };
         storage
             .create_artifact(
@@ -632,7 +632,7 @@ mod tests {
                     source_channel: None,
                     source_topic: None,
                     source_filename: None,
-                    created_at: Utc::now(),
+                    created_at: crate::time::now(),
                 },
             )
             .await

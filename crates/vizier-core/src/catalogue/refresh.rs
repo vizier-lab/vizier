@@ -6,11 +6,11 @@
 //! never contacts models.dev. A check is one background task (stale-while-revalidate); callers
 //! are always served from memory at once.
 
+use crate::time::Timestamp;
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use chrono::{DateTime, Utc};
 use parking_lot::Mutex;
 use serde_json::{Map, Value};
 
@@ -31,7 +31,7 @@ const FAILURE_BACKOFF: chrono::Duration = chrono::Duration::hours(1);
 pub struct RefreshState {
     in_progress: AtomicBool,
     /// The last failed check, for the 1h backoff and the status line.
-    failure: Mutex<Option<(String, DateTime<Utc>)>>,
+    failure: Mutex<Option<(String, Timestamp)>>,
     logos_in_flight: Mutex<HashSet<String>>,
     fallback_logo: Mutex<Option<Vec<u8>>>,
 }
@@ -60,7 +60,7 @@ pub fn maybe_refresh(deps: &VizierDependencies) {
     let data = deps.catalogue.snapshot();
     let checked = data.checked_at.unwrap_or(data.fetched_at);
     let ttl = chrono::Duration::from_std(*deps.config.catalogue.ttl).unwrap_or(chrono::Duration::hours(24));
-    let now = Utc::now();
+    let now = crate::time::now();
     if now - checked < ttl {
         return;
     }
@@ -208,7 +208,7 @@ fn validate(new: &CatalogueData, current: &CatalogueData, in_use: &HashSet<Strin
 }
 
 async fn fail(deps: &VizierDependencies, error: String) -> Result<(), String> {
-    let now = Utc::now();
+    let now = crate::time::now();
     tracing::warn!("catalogue refresh failed, keeping the current catalogue: {error}");
     *deps.catalogue.refresh_state().failure.lock() = Some((error.clone(), now));
     let _ = deps.storage.record_failure(&error, now).await;
@@ -233,7 +233,7 @@ async fn check(deps: &VizierDependencies) -> Result<(), String> {
         Err(e) => return fail(deps, crate::llm::http::map_reqwest_error(e).to_string()).await,
     };
     // Milliseconds, as SQLite stores them, so memory and the cache always agree.
-    let now = DateTime::from_timestamp_millis(Utc::now().timestamp_millis()).unwrap_or_else(Utc::now);
+    let now = crate::time::now();
     let status = response.status().as_u16();
 
     if status == 304 {
