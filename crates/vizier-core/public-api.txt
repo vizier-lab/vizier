@@ -1647,6 +1647,7 @@ pub async fn vizier_core::transport::VizierTransport::send_agent_command_to(&sel
 pub async fn vizier_core::transport::VizierTransport::send_request(&self, vizier_core::prelude::VizierSession, vizier_core::prelude::VizierRequest, core::option::Option<vizier_core::transport::ResponseSender>) -> anyhow::Result<()>
 pub fn vizier_core::transport::VizierTransport::subscribe_inbox_events(&self) -> tokio::sync::broadcast::Receiver<vizier_core::transport::InboxEvent>
 pub fn vizier_core::transport::VizierTransport::subscribe_session_events(&self) -> tokio::sync::broadcast::Receiver<vizier_core::transport::SessionEvent>
+pub fn vizier_core::transport::VizierTransport::subscribe_workspace_events(&self) -> tokio::sync::broadcast::Receiver<vizier_core::transport::WorkspaceEvent>
 impl core::clone::Clone for vizier_core::transport::VizierTransport
 pub fn vizier_core::transport::VizierTransport::clone(&self) -> Self
 impl core::fmt::Debug for vizier_core::transport::VizierTransport
@@ -3532,6 +3533,7 @@ pub vizier_core::schema::notification::NotificationCategory::ChatReply
 pub vizier_core::schema::notification::NotificationCategory::DreamCycle
 pub vizier_core::schema::notification::NotificationCategory::Integration
 pub vizier_core::schema::notification::NotificationCategory::TaskRun
+pub vizier_core::schema::notification::NotificationCategory::WorkspaceMessage
 impl vizier_core::schema::notification::NotificationCategory
 pub fn vizier_core::schema::notification::NotificationCategory::as_str(&self) -> &'static str
 pub fn vizier_core::schema::notification::NotificationCategory::parse(&str) -> core::option::Option<Self>
@@ -3635,6 +3637,7 @@ impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::schema::notificati
 impl core::panic::unwind_safe::UnwindSafe for vizier_core::schema::notification::NotificationTone
 pub struct vizier_core::schema::notification::InsertedNotification
 pub vizier_core::schema::notification::InsertedNotification::audience: core::option::Option<alloc::string::String>
+pub vizier_core::schema::notification::InsertedNotification::author: core::option::Option<alloc::string::String>
 pub vizier_core::schema::notification::InsertedNotification::item: vizier_core::schema::notification::NotificationItem
 impl core::clone::Clone for vizier_core::schema::notification::InsertedNotification
 pub fn vizier_core::schema::notification::InsertedNotification::clone(&self) -> Self
@@ -3682,6 +3685,7 @@ impl core::panic::unwind_safe::UnwindSafe for vizier_core::schema::notification:
 pub struct vizier_core::schema::notification::NotificationDraft
 pub vizier_core::schema::notification::NotificationDraft::agent_id: alloc::string::String
 pub vizier_core::schema::notification::NotificationDraft::audience_user_id: core::option::Option<alloc::string::String>
+pub vizier_core::schema::notification::NotificationDraft::author: core::option::Option<alloc::string::String>
 pub vizier_core::schema::notification::NotificationDraft::category: vizier_core::schema::notification::NotificationCategory
 pub vizier_core::schema::notification::NotificationDraft::created_at: chrono::datetime::DateTime<chrono::offset::local::Local>
 pub vizier_core::schema::notification::NotificationDraft::event_key: alloc::string::String
@@ -3691,6 +3695,7 @@ pub vizier_core::schema::notification::NotificationDraft::source_session: core::
 pub vizier_core::schema::notification::NotificationDraft::source_title: core::option::Option<alloc::string::String>
 pub vizier_core::schema::notification::NotificationDraft::summary: alloc::string::String
 pub vizier_core::schema::notification::NotificationDraft::tone: vizier_core::schema::notification::NotificationTone
+pub vizier_core::schema::notification::NotificationDraft::workspace_id: core::option::Option<alloc::string::String>
 impl core::clone::Clone for vizier_core::schema::notification::NotificationDraft
 pub fn vizier_core::schema::notification::NotificationDraft::clone(&self) -> Self
 impl core::cmp::Eq for vizier_core::schema::notification::NotificationDraft
@@ -3759,6 +3764,8 @@ impl core::marker::Unpin for vizier_core::schema::notification::NotificationPage
 impl core::marker::UnsafeUnpin for vizier_core::schema::notification::NotificationPage
 impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::schema::notification::NotificationPage
 impl core::panic::unwind_safe::UnwindSafe for vizier_core::schema::notification::NotificationPage
+pub const vizier_core::schema::notification::WORKSPACE_SCOPE_PREFIX: &str
+pub fn vizier_core::schema::notification::workspace_scope(&str) -> alloc::string::String
 pub mod vizier_core::schema::project
 pub enum vizier_core::schema::project::ProjectMode
 pub vizier_core::schema::project::ProjectMode::Build
@@ -5206,6 +5213,36 @@ impl core::marker::UnsafeUnpin for vizier_core::schema::usage::UsageSummary
 impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::schema::usage::UsageSummary
 impl core::panic::unwind_safe::UnwindSafe for vizier_core::schema::usage::UsageSummary
 pub mod vizier_core::schema::workspace
+pub enum vizier_core::schema::workspace::EntryKind
+pub vizier_core::schema::workspace::EntryKind::Agent
+pub vizier_core::schema::workspace::EntryKind::Note
+pub vizier_core::schema::workspace::EntryKind::Person
+impl vizier_core::schema::workspace::EntryKind
+pub fn vizier_core::schema::workspace::EntryKind::as_str(&self) -> &'static str
+pub fn vizier_core::schema::workspace::EntryKind::parse(&str) -> core::option::Option<Self>
+impl core::clone::Clone for vizier_core::schema::workspace::EntryKind
+pub fn vizier_core::schema::workspace::EntryKind::clone(&self) -> Self
+impl core::cmp::Eq for vizier_core::schema::workspace::EntryKind
+impl core::cmp::PartialEq for vizier_core::schema::workspace::EntryKind
+pub fn vizier_core::schema::workspace::EntryKind::eq(&self, &Self) -> bool
+impl core::fmt::Debug for vizier_core::schema::workspace::EntryKind
+pub fn vizier_core::schema::workspace::EntryKind::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for vizier_core::schema::workspace::EntryKind
+pub fn vizier_core::schema::workspace::EntryKind::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for vizier_core::schema::workspace::EntryKind
+impl core::marker::StructuralPartialEq for vizier_core::schema::workspace::EntryKind
+impl serde_core::ser::Serialize for vizier_core::schema::workspace::EntryKind
+pub fn vizier_core::schema::workspace::EntryKind::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for vizier_core::schema::workspace::EntryKind
+pub fn vizier_core::schema::workspace::EntryKind::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+impl core::marker::Forget for vizier_core::schema::workspace::EntryKind
+impl core::marker::Freeze for vizier_core::schema::workspace::EntryKind
+impl core::marker::Send for vizier_core::schema::workspace::EntryKind
+impl core::marker::Sync for vizier_core::schema::workspace::EntryKind
+impl core::marker::Unpin for vizier_core::schema::workspace::EntryKind
+impl core::marker::UnsafeUnpin for vizier_core::schema::workspace::EntryKind
+impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::schema::workspace::EntryKind
+impl core::panic::unwind_safe::UnwindSafe for vizier_core::schema::workspace::EntryKind
 pub enum vizier_core::schema::workspace::MemberKind
 pub vizier_core::schema::workspace::MemberKind::Agent
 pub vizier_core::schema::workspace::MemberKind::Person
@@ -5235,6 +5272,38 @@ impl core::marker::Unpin for vizier_core::schema::workspace::MemberKind
 impl core::marker::UnsafeUnpin for vizier_core::schema::workspace::MemberKind
 impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::schema::workspace::MemberKind
 impl core::panic::unwind_safe::UnwindSafe for vizier_core::schema::workspace::MemberKind
+pub enum vizier_core::schema::workspace::MentionState
+pub vizier_core::schema::workspace::MentionState::Dropped
+pub vizier_core::schema::workspace::MentionState::Pending
+pub vizier_core::schema::workspace::MentionState::Resolved
+pub vizier_core::schema::workspace::MentionState::Unavailable
+pub vizier_core::schema::workspace::MentionState::Woken
+impl vizier_core::schema::workspace::MentionState
+pub fn vizier_core::schema::workspace::MentionState::as_str(&self) -> &'static str
+pub fn vizier_core::schema::workspace::MentionState::parse(&str) -> core::option::Option<Self>
+impl core::clone::Clone for vizier_core::schema::workspace::MentionState
+pub fn vizier_core::schema::workspace::MentionState::clone(&self) -> Self
+impl core::cmp::Eq for vizier_core::schema::workspace::MentionState
+impl core::cmp::PartialEq for vizier_core::schema::workspace::MentionState
+pub fn vizier_core::schema::workspace::MentionState::eq(&self, &Self) -> bool
+impl core::fmt::Debug for vizier_core::schema::workspace::MentionState
+pub fn vizier_core::schema::workspace::MentionState::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for vizier_core::schema::workspace::MentionState
+pub fn vizier_core::schema::workspace::MentionState::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for vizier_core::schema::workspace::MentionState
+impl core::marker::StructuralPartialEq for vizier_core::schema::workspace::MentionState
+impl serde_core::ser::Serialize for vizier_core::schema::workspace::MentionState
+pub fn vizier_core::schema::workspace::MentionState::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for vizier_core::schema::workspace::MentionState
+pub fn vizier_core::schema::workspace::MentionState::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+impl core::marker::Forget for vizier_core::schema::workspace::MentionState
+impl core::marker::Freeze for vizier_core::schema::workspace::MentionState
+impl core::marker::Send for vizier_core::schema::workspace::MentionState
+impl core::marker::Sync for vizier_core::schema::workspace::MentionState
+impl core::marker::Unpin for vizier_core::schema::workspace::MentionState
+impl core::marker::UnsafeUnpin for vizier_core::schema::workspace::MentionState
+impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::schema::workspace::MentionState
+impl core::panic::unwind_safe::UnwindSafe for vizier_core::schema::workspace::MentionState
 pub enum vizier_core::schema::workspace::WorkspaceRole
 pub vizier_core::schema::workspace::WorkspaceRole::Member
 pub vizier_core::schema::workspace::WorkspaceRole::Owner
@@ -5264,6 +5333,108 @@ impl core::marker::Unpin for vizier_core::schema::workspace::WorkspaceRole
 impl core::marker::UnsafeUnpin for vizier_core::schema::workspace::WorkspaceRole
 impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::schema::workspace::WorkspaceRole
 impl core::panic::unwind_safe::UnwindSafe for vizier_core::schema::workspace::WorkspaceRole
+pub struct vizier_core::schema::workspace::CatchUp
+pub vizier_core::schema::workspace::CatchUp::copied: usize
+pub vizier_core::schema::workspace::CatchUp::skipped: usize
+impl core::clone::Clone for vizier_core::schema::workspace::CatchUp
+pub fn vizier_core::schema::workspace::CatchUp::clone(&self) -> Self
+impl core::cmp::Eq for vizier_core::schema::workspace::CatchUp
+impl core::cmp::PartialEq for vizier_core::schema::workspace::CatchUp
+pub fn vizier_core::schema::workspace::CatchUp::eq(&self, &Self) -> bool
+impl core::default::Default for vizier_core::schema::workspace::CatchUp
+pub fn vizier_core::schema::workspace::CatchUp::default() -> Self
+impl core::fmt::Debug for vizier_core::schema::workspace::CatchUp
+pub fn vizier_core::schema::workspace::CatchUp::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for vizier_core::schema::workspace::CatchUp
+impl core::marker::StructuralPartialEq for vizier_core::schema::workspace::CatchUp
+impl core::marker::Forget for vizier_core::schema::workspace::CatchUp
+impl core::marker::Freeze for vizier_core::schema::workspace::CatchUp
+impl core::marker::Send for vizier_core::schema::workspace::CatchUp
+impl core::marker::Sync for vizier_core::schema::workspace::CatchUp
+impl core::marker::Unpin for vizier_core::schema::workspace::CatchUp
+impl core::marker::UnsafeUnpin for vizier_core::schema::workspace::CatchUp
+impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::schema::workspace::CatchUp
+impl core::panic::unwind_safe::UnwindSafe for vizier_core::schema::workspace::CatchUp
+pub struct vizier_core::schema::workspace::EntryFile
+pub vizier_core::schema::workspace::EntryFile::file_id: alloc::string::String
+pub vizier_core::schema::workspace::EntryFile::mime_type: alloc::string::String
+pub vizier_core::schema::workspace::EntryFile::name: alloc::string::String
+pub vizier_core::schema::workspace::EntryFile::size: u64
+impl core::clone::Clone for vizier_core::schema::workspace::EntryFile
+pub fn vizier_core::schema::workspace::EntryFile::clone(&self) -> Self
+impl core::cmp::Eq for vizier_core::schema::workspace::EntryFile
+impl core::cmp::PartialEq for vizier_core::schema::workspace::EntryFile
+pub fn vizier_core::schema::workspace::EntryFile::eq(&self, &Self) -> bool
+impl core::fmt::Debug for vizier_core::schema::workspace::EntryFile
+pub fn vizier_core::schema::workspace::EntryFile::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for vizier_core::schema::workspace::EntryFile
+impl serde_core::ser::Serialize for vizier_core::schema::workspace::EntryFile
+pub fn vizier_core::schema::workspace::EntryFile::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for vizier_core::schema::workspace::EntryFile
+pub fn vizier_core::schema::workspace::EntryFile::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+impl core::marker::Forget for vizier_core::schema::workspace::EntryFile
+impl core::marker::Freeze for vizier_core::schema::workspace::EntryFile
+impl core::marker::Send for vizier_core::schema::workspace::EntryFile
+impl core::marker::Sync for vizier_core::schema::workspace::EntryFile
+impl core::marker::Unpin for vizier_core::schema::workspace::EntryFile
+impl core::marker::UnsafeUnpin for vizier_core::schema::workspace::EntryFile
+impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::schema::workspace::EntryFile
+impl core::panic::unwind_safe::UnwindSafe for vizier_core::schema::workspace::EntryFile
+pub struct vizier_core::schema::workspace::EntryMention
+pub vizier_core::schema::workspace::EntryMention::entry_seq: i64
+pub vizier_core::schema::workspace::EntryMention::state: vizier_core::schema::workspace::MentionState
+pub vizier_core::schema::workspace::EntryMention::target: alloc::string::String
+pub vizier_core::schema::workspace::EntryMention::target_kind: vizier_core::schema::workspace::MemberKind
+impl core::clone::Clone for vizier_core::schema::workspace::EntryMention
+pub fn vizier_core::schema::workspace::EntryMention::clone(&self) -> Self
+impl core::cmp::Eq for vizier_core::schema::workspace::EntryMention
+impl core::cmp::PartialEq for vizier_core::schema::workspace::EntryMention
+pub fn vizier_core::schema::workspace::EntryMention::eq(&self, &Self) -> bool
+impl core::fmt::Debug for vizier_core::schema::workspace::EntryMention
+pub fn vizier_core::schema::workspace::EntryMention::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for vizier_core::schema::workspace::EntryMention
+impl serde_core::ser::Serialize for vizier_core::schema::workspace::EntryMention
+pub fn vizier_core::schema::workspace::EntryMention::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for vizier_core::schema::workspace::EntryMention
+pub fn vizier_core::schema::workspace::EntryMention::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+impl core::marker::Forget for vizier_core::schema::workspace::EntryMention
+impl core::marker::Freeze for vizier_core::schema::workspace::EntryMention
+impl core::marker::Send for vizier_core::schema::workspace::EntryMention
+impl core::marker::Sync for vizier_core::schema::workspace::EntryMention
+impl core::marker::Unpin for vizier_core::schema::workspace::EntryMention
+impl core::marker::UnsafeUnpin for vizier_core::schema::workspace::EntryMention
+impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::schema::workspace::EntryMention
+impl core::panic::unwind_safe::UnwindSafe for vizier_core::schema::workspace::EntryMention
+pub struct vizier_core::schema::workspace::NewEntry
+pub vizier_core::schema::workspace::NewEntry::activated_by_seq: core::option::Option<i64>
+pub vizier_core::schema::workspace::NewEntry::at: i64
+pub vizier_core::schema::workspace::NewEntry::author: alloc::string::String
+pub vizier_core::schema::workspace::NewEntry::author_kind: vizier_core::schema::workspace::MemberKind
+pub vizier_core::schema::workspace::NewEntry::author_name: alloc::string::String
+pub vizier_core::schema::workspace::NewEntry::body: alloc::string::String
+pub vizier_core::schema::workspace::NewEntry::files: alloc::vec::Vec<vizier_core::schema::workspace::EntryFile>
+pub vizier_core::schema::workspace::NewEntry::history_uid: core::option::Option<alloc::string::String>
+pub vizier_core::schema::workspace::NewEntry::is_final: bool
+pub vizier_core::schema::workspace::NewEntry::kind: vizier_core::schema::workspace::EntryKind
+pub vizier_core::schema::workspace::NewEntry::origin: core::option::Option<serde_json::value::Value>
+pub vizier_core::schema::workspace::NewEntry::source_session: core::option::Option<alloc::string::String>
+pub vizier_core::schema::workspace::NewEntry::topic_id: alloc::string::String
+pub vizier_core::schema::workspace::NewEntry::workspace_id: alloc::string::String
+impl core::clone::Clone for vizier_core::schema::workspace::NewEntry
+pub fn vizier_core::schema::workspace::NewEntry::clone(&self) -> Self
+impl core::cmp::PartialEq for vizier_core::schema::workspace::NewEntry
+pub fn vizier_core::schema::workspace::NewEntry::eq(&self, &Self) -> bool
+impl core::fmt::Debug for vizier_core::schema::workspace::NewEntry
+pub fn vizier_core::schema::workspace::NewEntry::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for vizier_core::schema::workspace::NewEntry
+impl core::marker::Forget for vizier_core::schema::workspace::NewEntry
+impl core::marker::Freeze for vizier_core::schema::workspace::NewEntry
+impl core::marker::Send for vizier_core::schema::workspace::NewEntry
+impl core::marker::Sync for vizier_core::schema::workspace::NewEntry
+impl core::marker::Unpin for vizier_core::schema::workspace::NewEntry
+impl core::marker::UnsafeUnpin for vizier_core::schema::workspace::NewEntry
+impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::schema::workspace::NewEntry
+impl core::panic::unwind_safe::UnwindSafe for vizier_core::schema::workspace::NewEntry
 pub struct vizier_core::schema::workspace::Workspace
 pub vizier_core::schema::workspace::Workspace::created_at: i64
 pub vizier_core::schema::workspace::Workspace::created_by: alloc::string::String
@@ -5287,6 +5458,41 @@ impl core::marker::Unpin for vizier_core::schema::workspace::Workspace
 impl core::marker::UnsafeUnpin for vizier_core::schema::workspace::Workspace
 impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::schema::workspace::Workspace
 impl core::panic::unwind_safe::UnwindSafe for vizier_core::schema::workspace::Workspace
+pub struct vizier_core::schema::workspace::WorkspaceEntry
+pub vizier_core::schema::workspace::WorkspaceEntry::activated_by_seq: core::option::Option<i64>
+pub vizier_core::schema::workspace::WorkspaceEntry::at: i64
+pub vizier_core::schema::workspace::WorkspaceEntry::author: alloc::string::String
+pub vizier_core::schema::workspace::WorkspaceEntry::author_kind: vizier_core::schema::workspace::MemberKind
+pub vizier_core::schema::workspace::WorkspaceEntry::author_name: alloc::string::String
+pub vizier_core::schema::workspace::WorkspaceEntry::body: alloc::string::String
+pub vizier_core::schema::workspace::WorkspaceEntry::files: alloc::vec::Vec<vizier_core::schema::workspace::EntryFile>
+pub vizier_core::schema::workspace::WorkspaceEntry::history_uid: core::option::Option<alloc::string::String>
+pub vizier_core::schema::workspace::WorkspaceEntry::is_final: bool
+pub vizier_core::schema::workspace::WorkspaceEntry::kind: vizier_core::schema::workspace::EntryKind
+pub vizier_core::schema::workspace::WorkspaceEntry::origin: core::option::Option<serde_json::value::Value>
+pub vizier_core::schema::workspace::WorkspaceEntry::seq: i64
+pub vizier_core::schema::workspace::WorkspaceEntry::source_session: core::option::Option<alloc::string::String>
+pub vizier_core::schema::workspace::WorkspaceEntry::topic_id: alloc::string::String
+pub vizier_core::schema::workspace::WorkspaceEntry::workspace_id: alloc::string::String
+impl core::clone::Clone for vizier_core::schema::workspace::WorkspaceEntry
+pub fn vizier_core::schema::workspace::WorkspaceEntry::clone(&self) -> Self
+impl core::cmp::PartialEq for vizier_core::schema::workspace::WorkspaceEntry
+pub fn vizier_core::schema::workspace::WorkspaceEntry::eq(&self, &Self) -> bool
+impl core::fmt::Debug for vizier_core::schema::workspace::WorkspaceEntry
+pub fn vizier_core::schema::workspace::WorkspaceEntry::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for vizier_core::schema::workspace::WorkspaceEntry
+impl serde_core::ser::Serialize for vizier_core::schema::workspace::WorkspaceEntry
+pub fn vizier_core::schema::workspace::WorkspaceEntry::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for vizier_core::schema::workspace::WorkspaceEntry
+pub fn vizier_core::schema::workspace::WorkspaceEntry::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+impl core::marker::Forget for vizier_core::schema::workspace::WorkspaceEntry
+impl core::marker::Freeze for vizier_core::schema::workspace::WorkspaceEntry
+impl core::marker::Send for vizier_core::schema::workspace::WorkspaceEntry
+impl core::marker::Sync for vizier_core::schema::workspace::WorkspaceEntry
+impl core::marker::Unpin for vizier_core::schema::workspace::WorkspaceEntry
+impl core::marker::UnsafeUnpin for vizier_core::schema::workspace::WorkspaceEntry
+impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::schema::workspace::WorkspaceEntry
+impl core::panic::unwind_safe::UnwindSafe for vizier_core::schema::workspace::WorkspaceEntry
 pub struct vizier_core::schema::workspace::WorkspaceMember
 pub vizier_core::schema::workspace::WorkspaceMember::added_at: i64
 pub vizier_core::schema::workspace::WorkspaceMember::added_by: alloc::string::String
@@ -5773,6 +5979,36 @@ impl core::marker::Unpin for vizier_core::schema::agent::EmbeddingProvider
 impl core::marker::UnsafeUnpin for vizier_core::schema::agent::EmbeddingProvider
 impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::schema::agent::EmbeddingProvider
 impl core::panic::unwind_safe::UnwindSafe for vizier_core::schema::agent::EmbeddingProvider
+pub enum vizier_core::schema::EntryKind
+pub vizier_core::schema::EntryKind::Agent
+pub vizier_core::schema::EntryKind::Note
+pub vizier_core::schema::EntryKind::Person
+impl vizier_core::schema::workspace::EntryKind
+pub fn vizier_core::schema::workspace::EntryKind::as_str(&self) -> &'static str
+pub fn vizier_core::schema::workspace::EntryKind::parse(&str) -> core::option::Option<Self>
+impl core::clone::Clone for vizier_core::schema::workspace::EntryKind
+pub fn vizier_core::schema::workspace::EntryKind::clone(&self) -> Self
+impl core::cmp::Eq for vizier_core::schema::workspace::EntryKind
+impl core::cmp::PartialEq for vizier_core::schema::workspace::EntryKind
+pub fn vizier_core::schema::workspace::EntryKind::eq(&self, &Self) -> bool
+impl core::fmt::Debug for vizier_core::schema::workspace::EntryKind
+pub fn vizier_core::schema::workspace::EntryKind::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for vizier_core::schema::workspace::EntryKind
+pub fn vizier_core::schema::workspace::EntryKind::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for vizier_core::schema::workspace::EntryKind
+impl core::marker::StructuralPartialEq for vizier_core::schema::workspace::EntryKind
+impl serde_core::ser::Serialize for vizier_core::schema::workspace::EntryKind
+pub fn vizier_core::schema::workspace::EntryKind::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for vizier_core::schema::workspace::EntryKind
+pub fn vizier_core::schema::workspace::EntryKind::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+impl core::marker::Forget for vizier_core::schema::workspace::EntryKind
+impl core::marker::Freeze for vizier_core::schema::workspace::EntryKind
+impl core::marker::Send for vizier_core::schema::workspace::EntryKind
+impl core::marker::Sync for vizier_core::schema::workspace::EntryKind
+impl core::marker::Unpin for vizier_core::schema::workspace::EntryKind
+impl core::marker::UnsafeUnpin for vizier_core::schema::workspace::EntryKind
+impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::schema::workspace::EntryKind
+impl core::panic::unwind_safe::UnwindSafe for vizier_core::schema::workspace::EntryKind
 pub enum vizier_core::schema::ErrorKind
 pub vizier_core::schema::ErrorKind::AgentUnavailable
 pub vizier_core::schema::ErrorKind::Completion
@@ -6257,6 +6493,38 @@ impl core::marker::Unpin for vizier_core::schema::MemoryOpResponse
 impl core::marker::UnsafeUnpin for vizier_core::schema::MemoryOpResponse
 impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::schema::MemoryOpResponse
 impl core::panic::unwind_safe::UnwindSafe for vizier_core::schema::MemoryOpResponse
+pub enum vizier_core::schema::MentionState
+pub vizier_core::schema::MentionState::Dropped
+pub vizier_core::schema::MentionState::Pending
+pub vizier_core::schema::MentionState::Resolved
+pub vizier_core::schema::MentionState::Unavailable
+pub vizier_core::schema::MentionState::Woken
+impl vizier_core::schema::workspace::MentionState
+pub fn vizier_core::schema::workspace::MentionState::as_str(&self) -> &'static str
+pub fn vizier_core::schema::workspace::MentionState::parse(&str) -> core::option::Option<Self>
+impl core::clone::Clone for vizier_core::schema::workspace::MentionState
+pub fn vizier_core::schema::workspace::MentionState::clone(&self) -> Self
+impl core::cmp::Eq for vizier_core::schema::workspace::MentionState
+impl core::cmp::PartialEq for vizier_core::schema::workspace::MentionState
+pub fn vizier_core::schema::workspace::MentionState::eq(&self, &Self) -> bool
+impl core::fmt::Debug for vizier_core::schema::workspace::MentionState
+pub fn vizier_core::schema::workspace::MentionState::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for vizier_core::schema::workspace::MentionState
+pub fn vizier_core::schema::workspace::MentionState::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for vizier_core::schema::workspace::MentionState
+impl core::marker::StructuralPartialEq for vizier_core::schema::workspace::MentionState
+impl serde_core::ser::Serialize for vizier_core::schema::workspace::MentionState
+pub fn vizier_core::schema::workspace::MentionState::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for vizier_core::schema::workspace::MentionState
+pub fn vizier_core::schema::workspace::MentionState::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+impl core::marker::Forget for vizier_core::schema::workspace::MentionState
+impl core::marker::Freeze for vizier_core::schema::workspace::MentionState
+impl core::marker::Send for vizier_core::schema::workspace::MentionState
+impl core::marker::Sync for vizier_core::schema::workspace::MentionState
+impl core::marker::Unpin for vizier_core::schema::workspace::MentionState
+impl core::marker::UnsafeUnpin for vizier_core::schema::workspace::MentionState
+impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::schema::workspace::MentionState
+impl core::panic::unwind_safe::UnwindSafe for vizier_core::schema::workspace::MentionState
 pub enum vizier_core::schema::NotificationCategory
 pub vizier_core::schema::NotificationCategory::AgentSetupReady
 pub vizier_core::schema::NotificationCategory::AgentStartFailure
@@ -6265,6 +6533,7 @@ pub vizier_core::schema::NotificationCategory::ChatReply
 pub vizier_core::schema::NotificationCategory::DreamCycle
 pub vizier_core::schema::NotificationCategory::Integration
 pub vizier_core::schema::NotificationCategory::TaskRun
+pub vizier_core::schema::NotificationCategory::WorkspaceMessage
 impl vizier_core::schema::notification::NotificationCategory
 pub fn vizier_core::schema::notification::NotificationCategory::as_str(&self) -> &'static str
 pub fn vizier_core::schema::notification::NotificationCategory::parse(&str) -> core::option::Option<Self>
@@ -7629,6 +7898,28 @@ impl core::marker::Unpin for vizier_core::schema::BundleSummary
 impl core::marker::UnsafeUnpin for vizier_core::schema::BundleSummary
 impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::schema::BundleSummary
 impl core::panic::unwind_safe::UnwindSafe for vizier_core::schema::BundleSummary
+pub struct vizier_core::schema::CatchUp
+pub vizier_core::schema::CatchUp::copied: usize
+pub vizier_core::schema::CatchUp::skipped: usize
+impl core::clone::Clone for vizier_core::schema::workspace::CatchUp
+pub fn vizier_core::schema::workspace::CatchUp::clone(&self) -> Self
+impl core::cmp::Eq for vizier_core::schema::workspace::CatchUp
+impl core::cmp::PartialEq for vizier_core::schema::workspace::CatchUp
+pub fn vizier_core::schema::workspace::CatchUp::eq(&self, &Self) -> bool
+impl core::default::Default for vizier_core::schema::workspace::CatchUp
+pub fn vizier_core::schema::workspace::CatchUp::default() -> Self
+impl core::fmt::Debug for vizier_core::schema::workspace::CatchUp
+pub fn vizier_core::schema::workspace::CatchUp::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for vizier_core::schema::workspace::CatchUp
+impl core::marker::StructuralPartialEq for vizier_core::schema::workspace::CatchUp
+impl core::marker::Forget for vizier_core::schema::workspace::CatchUp
+impl core::marker::Freeze for vizier_core::schema::workspace::CatchUp
+impl core::marker::Send for vizier_core::schema::workspace::CatchUp
+impl core::marker::Sync for vizier_core::schema::workspace::CatchUp
+impl core::marker::Unpin for vizier_core::schema::workspace::CatchUp
+impl core::marker::UnsafeUnpin for vizier_core::schema::workspace::CatchUp
+impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::schema::workspace::CatchUp
+impl core::panic::unwind_safe::UnwindSafe for vizier_core::schema::workspace::CatchUp
 pub struct vizier_core::schema::ChannelHealth
 pub vizier_core::schema::ChannelHealth::failures: u32
 pub vizier_core::schema::ChannelHealth::last_error: core::option::Option<alloc::string::String>
@@ -7946,6 +8237,56 @@ impl core::marker::Unpin for vizier_core::schema::agent::EmbeddingConfig
 impl core::marker::UnsafeUnpin for vizier_core::schema::agent::EmbeddingConfig
 impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::schema::agent::EmbeddingConfig
 impl core::panic::unwind_safe::UnwindSafe for vizier_core::schema::agent::EmbeddingConfig
+pub struct vizier_core::schema::EntryFile
+pub vizier_core::schema::EntryFile::file_id: alloc::string::String
+pub vizier_core::schema::EntryFile::mime_type: alloc::string::String
+pub vizier_core::schema::EntryFile::name: alloc::string::String
+pub vizier_core::schema::EntryFile::size: u64
+impl core::clone::Clone for vizier_core::schema::workspace::EntryFile
+pub fn vizier_core::schema::workspace::EntryFile::clone(&self) -> Self
+impl core::cmp::Eq for vizier_core::schema::workspace::EntryFile
+impl core::cmp::PartialEq for vizier_core::schema::workspace::EntryFile
+pub fn vizier_core::schema::workspace::EntryFile::eq(&self, &Self) -> bool
+impl core::fmt::Debug for vizier_core::schema::workspace::EntryFile
+pub fn vizier_core::schema::workspace::EntryFile::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for vizier_core::schema::workspace::EntryFile
+impl serde_core::ser::Serialize for vizier_core::schema::workspace::EntryFile
+pub fn vizier_core::schema::workspace::EntryFile::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for vizier_core::schema::workspace::EntryFile
+pub fn vizier_core::schema::workspace::EntryFile::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+impl core::marker::Forget for vizier_core::schema::workspace::EntryFile
+impl core::marker::Freeze for vizier_core::schema::workspace::EntryFile
+impl core::marker::Send for vizier_core::schema::workspace::EntryFile
+impl core::marker::Sync for vizier_core::schema::workspace::EntryFile
+impl core::marker::Unpin for vizier_core::schema::workspace::EntryFile
+impl core::marker::UnsafeUnpin for vizier_core::schema::workspace::EntryFile
+impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::schema::workspace::EntryFile
+impl core::panic::unwind_safe::UnwindSafe for vizier_core::schema::workspace::EntryFile
+pub struct vizier_core::schema::EntryMention
+pub vizier_core::schema::EntryMention::entry_seq: i64
+pub vizier_core::schema::EntryMention::state: vizier_core::schema::workspace::MentionState
+pub vizier_core::schema::EntryMention::target: alloc::string::String
+pub vizier_core::schema::EntryMention::target_kind: vizier_core::schema::workspace::MemberKind
+impl core::clone::Clone for vizier_core::schema::workspace::EntryMention
+pub fn vizier_core::schema::workspace::EntryMention::clone(&self) -> Self
+impl core::cmp::Eq for vizier_core::schema::workspace::EntryMention
+impl core::cmp::PartialEq for vizier_core::schema::workspace::EntryMention
+pub fn vizier_core::schema::workspace::EntryMention::eq(&self, &Self) -> bool
+impl core::fmt::Debug for vizier_core::schema::workspace::EntryMention
+pub fn vizier_core::schema::workspace::EntryMention::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for vizier_core::schema::workspace::EntryMention
+impl serde_core::ser::Serialize for vizier_core::schema::workspace::EntryMention
+pub fn vizier_core::schema::workspace::EntryMention::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for vizier_core::schema::workspace::EntryMention
+pub fn vizier_core::schema::workspace::EntryMention::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+impl core::marker::Forget for vizier_core::schema::workspace::EntryMention
+impl core::marker::Freeze for vizier_core::schema::workspace::EntryMention
+impl core::marker::Send for vizier_core::schema::workspace::EntryMention
+impl core::marker::Sync for vizier_core::schema::workspace::EntryMention
+impl core::marker::Unpin for vizier_core::schema::workspace::EntryMention
+impl core::marker::UnsafeUnpin for vizier_core::schema::workspace::EntryMention
+impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::schema::workspace::EntryMention
+impl core::panic::unwind_safe::UnwindSafe for vizier_core::schema::workspace::EntryMention
 pub struct vizier_core::schema::EventDraft
 pub vizier_core::schema::EventDraft::action: vizier_core::schema::integration::EventAction
 pub vizier_core::schema::EventDraft::actor: vizier_core::schema::Requester
@@ -8082,6 +8423,7 @@ impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::schema::agent::Ind
 impl core::panic::unwind_safe::UnwindSafe for vizier_core::schema::agent::IndexerConfig
 pub struct vizier_core::schema::InsertedNotification
 pub vizier_core::schema::InsertedNotification::audience: core::option::Option<alloc::string::String>
+pub vizier_core::schema::InsertedNotification::author: core::option::Option<alloc::string::String>
 pub vizier_core::schema::InsertedNotification::item: vizier_core::schema::notification::NotificationItem
 impl core::clone::Clone for vizier_core::schema::notification::InsertedNotification
 pub fn vizier_core::schema::notification::InsertedNotification::clone(&self) -> Self
@@ -8488,6 +8830,36 @@ impl core::marker::Unpin for vizier_core::schema::ModelOverride
 impl core::marker::UnsafeUnpin for vizier_core::schema::ModelOverride
 impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::schema::ModelOverride
 impl core::panic::unwind_safe::UnwindSafe for vizier_core::schema::ModelOverride
+pub struct vizier_core::schema::NewEntry
+pub vizier_core::schema::NewEntry::activated_by_seq: core::option::Option<i64>
+pub vizier_core::schema::NewEntry::at: i64
+pub vizier_core::schema::NewEntry::author: alloc::string::String
+pub vizier_core::schema::NewEntry::author_kind: vizier_core::schema::workspace::MemberKind
+pub vizier_core::schema::NewEntry::author_name: alloc::string::String
+pub vizier_core::schema::NewEntry::body: alloc::string::String
+pub vizier_core::schema::NewEntry::files: alloc::vec::Vec<vizier_core::schema::workspace::EntryFile>
+pub vizier_core::schema::NewEntry::history_uid: core::option::Option<alloc::string::String>
+pub vizier_core::schema::NewEntry::is_final: bool
+pub vizier_core::schema::NewEntry::kind: vizier_core::schema::workspace::EntryKind
+pub vizier_core::schema::NewEntry::origin: core::option::Option<serde_json::value::Value>
+pub vizier_core::schema::NewEntry::source_session: core::option::Option<alloc::string::String>
+pub vizier_core::schema::NewEntry::topic_id: alloc::string::String
+pub vizier_core::schema::NewEntry::workspace_id: alloc::string::String
+impl core::clone::Clone for vizier_core::schema::workspace::NewEntry
+pub fn vizier_core::schema::workspace::NewEntry::clone(&self) -> Self
+impl core::cmp::PartialEq for vizier_core::schema::workspace::NewEntry
+pub fn vizier_core::schema::workspace::NewEntry::eq(&self, &Self) -> bool
+impl core::fmt::Debug for vizier_core::schema::workspace::NewEntry
+pub fn vizier_core::schema::workspace::NewEntry::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for vizier_core::schema::workspace::NewEntry
+impl core::marker::Forget for vizier_core::schema::workspace::NewEntry
+impl core::marker::Freeze for vizier_core::schema::workspace::NewEntry
+impl core::marker::Send for vizier_core::schema::workspace::NewEntry
+impl core::marker::Sync for vizier_core::schema::workspace::NewEntry
+impl core::marker::Unpin for vizier_core::schema::workspace::NewEntry
+impl core::marker::UnsafeUnpin for vizier_core::schema::workspace::NewEntry
+impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::schema::workspace::NewEntry
+impl core::panic::unwind_safe::UnwindSafe for vizier_core::schema::workspace::NewEntry
 pub struct vizier_core::schema::NoopAttachmentResolver
 impl vizier_core::schema::AttachmentResolver for vizier_core::schema::NoopAttachmentResolver
 pub fn vizier_core::schema::NoopAttachmentResolver::artifact_bytes<'life0, 'life1, 'life2, 'async_trait>(&'life0 self, &'life1 str, &'life2 str) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = anyhow::Result<core::option::Option<alloc::vec::Vec<u8>>>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait, 'life1: 'async_trait, 'life2: 'async_trait
@@ -8530,6 +8902,7 @@ impl core::panic::unwind_safe::UnwindSafe for vizier_core::schema::notification:
 pub struct vizier_core::schema::NotificationDraft
 pub vizier_core::schema::NotificationDraft::agent_id: alloc::string::String
 pub vizier_core::schema::NotificationDraft::audience_user_id: core::option::Option<alloc::string::String>
+pub vizier_core::schema::NotificationDraft::author: core::option::Option<alloc::string::String>
 pub vizier_core::schema::NotificationDraft::category: vizier_core::schema::notification::NotificationCategory
 pub vizier_core::schema::NotificationDraft::created_at: chrono::datetime::DateTime<chrono::offset::local::Local>
 pub vizier_core::schema::NotificationDraft::event_key: alloc::string::String
@@ -8539,6 +8912,7 @@ pub vizier_core::schema::NotificationDraft::source_session: core::option::Option
 pub vizier_core::schema::NotificationDraft::source_title: core::option::Option<alloc::string::String>
 pub vizier_core::schema::NotificationDraft::summary: alloc::string::String
 pub vizier_core::schema::NotificationDraft::tone: vizier_core::schema::notification::NotificationTone
+pub vizier_core::schema::NotificationDraft::workspace_id: core::option::Option<alloc::string::String>
 impl core::clone::Clone for vizier_core::schema::notification::NotificationDraft
 pub fn vizier_core::schema::notification::NotificationDraft::clone(&self) -> Self
 impl core::cmp::Eq for vizier_core::schema::notification::NotificationDraft
@@ -9663,6 +10037,41 @@ impl core::marker::Unpin for vizier_core::schema::workspace::Workspace
 impl core::marker::UnsafeUnpin for vizier_core::schema::workspace::Workspace
 impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::schema::workspace::Workspace
 impl core::panic::unwind_safe::UnwindSafe for vizier_core::schema::workspace::Workspace
+pub struct vizier_core::schema::WorkspaceEntry
+pub vizier_core::schema::WorkspaceEntry::activated_by_seq: core::option::Option<i64>
+pub vizier_core::schema::WorkspaceEntry::at: i64
+pub vizier_core::schema::WorkspaceEntry::author: alloc::string::String
+pub vizier_core::schema::WorkspaceEntry::author_kind: vizier_core::schema::workspace::MemberKind
+pub vizier_core::schema::WorkspaceEntry::author_name: alloc::string::String
+pub vizier_core::schema::WorkspaceEntry::body: alloc::string::String
+pub vizier_core::schema::WorkspaceEntry::files: alloc::vec::Vec<vizier_core::schema::workspace::EntryFile>
+pub vizier_core::schema::WorkspaceEntry::history_uid: core::option::Option<alloc::string::String>
+pub vizier_core::schema::WorkspaceEntry::is_final: bool
+pub vizier_core::schema::WorkspaceEntry::kind: vizier_core::schema::workspace::EntryKind
+pub vizier_core::schema::WorkspaceEntry::origin: core::option::Option<serde_json::value::Value>
+pub vizier_core::schema::WorkspaceEntry::seq: i64
+pub vizier_core::schema::WorkspaceEntry::source_session: core::option::Option<alloc::string::String>
+pub vizier_core::schema::WorkspaceEntry::topic_id: alloc::string::String
+pub vizier_core::schema::WorkspaceEntry::workspace_id: alloc::string::String
+impl core::clone::Clone for vizier_core::schema::workspace::WorkspaceEntry
+pub fn vizier_core::schema::workspace::WorkspaceEntry::clone(&self) -> Self
+impl core::cmp::PartialEq for vizier_core::schema::workspace::WorkspaceEntry
+pub fn vizier_core::schema::workspace::WorkspaceEntry::eq(&self, &Self) -> bool
+impl core::fmt::Debug for vizier_core::schema::workspace::WorkspaceEntry
+pub fn vizier_core::schema::workspace::WorkspaceEntry::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for vizier_core::schema::workspace::WorkspaceEntry
+impl serde_core::ser::Serialize for vizier_core::schema::workspace::WorkspaceEntry
+pub fn vizier_core::schema::workspace::WorkspaceEntry::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for vizier_core::schema::workspace::WorkspaceEntry
+pub fn vizier_core::schema::workspace::WorkspaceEntry::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+impl core::marker::Forget for vizier_core::schema::workspace::WorkspaceEntry
+impl core::marker::Freeze for vizier_core::schema::workspace::WorkspaceEntry
+impl core::marker::Send for vizier_core::schema::workspace::WorkspaceEntry
+impl core::marker::Sync for vizier_core::schema::workspace::WorkspaceEntry
+impl core::marker::Unpin for vizier_core::schema::workspace::WorkspaceEntry
+impl core::marker::UnsafeUnpin for vizier_core::schema::workspace::WorkspaceEntry
+impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::schema::workspace::WorkspaceEntry
+impl core::panic::unwind_safe::UnwindSafe for vizier_core::schema::workspace::WorkspaceEntry
 pub struct vizier_core::schema::WorkspaceMember
 pub vizier_core::schema::WorkspaceMember::added_at: i64
 pub vizier_core::schema::WorkspaceMember::added_by: alloc::string::String
@@ -9782,6 +10191,7 @@ pub const vizier_core::schema::NEW_SESSION_TITLE: &str
 pub const vizier_core::schema::OUTPUT_CAP_BYTES: usize
 pub const vizier_core::schema::PROJECT_ID_LEN: usize
 pub const vizier_core::schema::SOUL_PATH: &str
+pub const vizier_core::schema::WORKSPACE_SCOPE_PREFIX: &str
 pub trait vizier_core::schema::AttachmentResolver: core::marker::Send + core::marker::Sync
 pub fn vizier_core::schema::AttachmentResolver::artifact_bytes<'life0, 'life1, 'life2, 'async_trait>(&'life0 self, &'life1 str, &'life2 str) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = anyhow::Result<core::option::Option<alloc::vec::Vec<u8>>>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait, 'life1: 'async_trait, 'life2: 'async_trait
 pub fn vizier_core::schema::AttachmentResolver::upload_bytes<'life0, 'life1, 'async_trait>(&'life0 self, &'life1 str) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = anyhow::Result<alloc::vec::Vec<u8>>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait, 'life1: 'async_trait
@@ -9801,6 +10211,7 @@ pub fn vizier_core::schema::open_tool_calls(&[vizier_core::schema::SessionHistor
 pub fn vizier_core::schema::seal_tool_calls(&mut alloc::vec::Vec<crate::llm::types::Message>, alloc::vec::Vec<crate::llm::types::Message>, &str)
 pub fn vizier_core::schema::split_at_request<'a>(&'a [vizier_core::schema::SessionHistory], &str) -> core::option::Option<(&'a [vizier_core::schema::SessionHistory], &'a vizier_core::schema::SessionHistory, &'a [vizier_core::schema::SessionHistory])>
 pub fn vizier_core::schema::validate_artifact_name(&str) -> vizier_core::Result<alloc::string::String>
+pub fn vizier_core::schema::workspace_scope(&str) -> alloc::string::String
 pub type vizier_core::schema::AgentId = alloc::string::String
 pub type vizier_core::schema::ArtifactId = alloc::string::String
 pub type vizier_core::schema::BackgroundJobId = alloc::string::String
@@ -11093,6 +11504,7 @@ pub async fn vizier_core::service::inbox::deliver(&vizier_core::service::Service
 pub async fn vizier_core::service::inbox::hello(&vizier_core::service::Services, &vizier_core::auth::Principal) -> core::result::Result<vizier_core::service::inbox::InboxFrame, vizier_core::service::error::ServiceError>
 pub async fn vizier_core::service::inbox::hello_for(&vizier_core::service::Services, &str, vizier_core::auth::AuthMethod) -> core::result::Result<vizier_core::service::inbox::InboxFrame, vizier_core::service::error::ServiceError>
 pub fn vizier_core::service::inbox::judge(&vizier_core::auth::Principal, &[(alloc::string::String, vizier_core::schema::agent::AgentConfig)], &vizier_core::transport::InboxEvent) -> core::option::Option<vizier_core::service::inbox::InboxFrame>
+pub fn vizier_core::service::inbox::judge_with(&vizier_core::auth::Principal, &[(alloc::string::String, vizier_core::schema::agent::AgentConfig)], &[alloc::string::String], &vizier_core::transport::InboxEvent) -> core::option::Option<vizier_core::service::inbox::InboxFrame>
 pub mod vizier_core::service::integrations
 pub use vizier_core::service::integrations::MANAGE_ALL
 pub use vizier_core::service::integrations::MANAGE_OWNED
@@ -13043,6 +13455,17 @@ pub async fn vizier_core::service::users::list(&vizier_core::service::Services, 
 pub async fn vizier_core::service::users::update(&vizier_core::service::Services, &vizier_core::auth::Principal, &str, core::option::Option<&str>, core::option::Option<&str>, core::option::Option<&str>) -> core::result::Result<(), vizier_core::service::error::ServiceError>
 pub async fn vizier_core::service::users::verify_credentials(&vizier_core::service::Services, &str, &str) -> core::result::Result<(crate::User, crate::Role), vizier_core::service::error::ServiceError>
 pub mod vizier_core::service::workspaces
+pub enum vizier_core::service::workspaces::Delivery
+pub vizier_core::service::workspaces::Delivery::Close(&'static str)
+pub vizier_core::service::workspaces::Delivery::Frames(alloc::vec::Vec<serde_json::value::Value>)
+impl core::marker::Forget for vizier_core::service::workspaces::Delivery
+impl core::marker::Freeze for vizier_core::service::workspaces::Delivery
+impl core::marker::Send for vizier_core::service::workspaces::Delivery
+impl core::marker::Sync for vizier_core::service::workspaces::Delivery
+impl core::marker::Unpin for vizier_core::service::workspaces::Delivery
+impl core::marker::UnsafeUnpin for vizier_core::service::workspaces::Delivery
+impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::service::workspaces::Delivery
+impl core::panic::unwind_safe::UnwindSafe for vizier_core::service::workspaces::Delivery
 pub struct vizier_core::service::workspaces::AddMemberRequest
 pub vizier_core::service::workspaces::AddMemberRequest::handle: alloc::string::String
 pub vizier_core::service::workspaces::AddMemberRequest::kind: alloc::string::String
@@ -13063,6 +13486,113 @@ impl core::marker::Unpin for vizier_core::service::workspaces::AddMemberRequest
 impl core::marker::UnsafeUnpin for vizier_core::service::workspaces::AddMemberRequest
 impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::service::workspaces::AddMemberRequest
 impl core::panic::unwind_safe::UnwindSafe for vizier_core::service::workspaces::AddMemberRequest
+pub struct vizier_core::service::workspaces::AgentCandidate
+pub vizier_core::service::workspaces::AgentCandidate::addable: bool
+pub vizier_core::service::workspaces::AgentCandidate::id: alloc::string::String
+pub vizier_core::service::workspaces::AgentCandidate::member: bool
+pub vizier_core::service::workspaces::AgentCandidate::name: alloc::string::String
+pub vizier_core::service::workspaces::AgentCandidate::reason: core::option::Option<alloc::string::String>
+impl core::clone::Clone for vizier_core::service::workspaces::AgentCandidate
+pub fn vizier_core::service::workspaces::AgentCandidate::clone(&self) -> Self
+impl core::fmt::Debug for vizier_core::service::workspaces::AgentCandidate
+pub fn vizier_core::service::workspaces::AgentCandidate::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl serde_core::ser::Serialize for vizier_core::service::workspaces::AgentCandidate
+pub fn vizier_core::service::workspaces::AgentCandidate::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl core::marker::Forget for vizier_core::service::workspaces::AgentCandidate
+impl core::marker::Freeze for vizier_core::service::workspaces::AgentCandidate
+impl core::marker::Send for vizier_core::service::workspaces::AgentCandidate
+impl core::marker::Sync for vizier_core::service::workspaces::AgentCandidate
+impl core::marker::Unpin for vizier_core::service::workspaces::AgentCandidate
+impl core::marker::UnsafeUnpin for vizier_core::service::workspaces::AgentCandidate
+impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::service::workspaces::AgentCandidate
+impl core::panic::unwind_safe::UnwindSafe for vizier_core::service::workspaces::AgentCandidate
+pub struct vizier_core::service::workspaces::AuthorView
+pub vizier_core::service::workspaces::AuthorView::available: bool
+pub vizier_core::service::workspaces::AuthorView::id: alloc::string::String
+pub vizier_core::service::workspaces::AuthorView::kind: alloc::string::String
+pub vizier_core::service::workspaces::AuthorView::name: alloc::string::String
+impl core::clone::Clone for vizier_core::service::workspaces::AuthorView
+pub fn vizier_core::service::workspaces::AuthorView::clone(&self) -> Self
+impl core::fmt::Debug for vizier_core::service::workspaces::AuthorView
+pub fn vizier_core::service::workspaces::AuthorView::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl serde_core::ser::Serialize for vizier_core::service::workspaces::AuthorView
+pub fn vizier_core::service::workspaces::AuthorView::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl core::marker::Forget for vizier_core::service::workspaces::AuthorView
+impl core::marker::Freeze for vizier_core::service::workspaces::AuthorView
+impl core::marker::Send for vizier_core::service::workspaces::AuthorView
+impl core::marker::Sync for vizier_core::service::workspaces::AuthorView
+impl core::marker::Unpin for vizier_core::service::workspaces::AuthorView
+impl core::marker::UnsafeUnpin for vizier_core::service::workspaces::AuthorView
+impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::service::workspaces::AuthorView
+impl core::panic::unwind_safe::UnwindSafe for vizier_core::service::workspaces::AuthorView
+pub struct vizier_core::service::workspaces::CandidateGroup<T>
+pub vizier_core::service::workspaces::CandidateGroup::items: alloc::vec::Vec<T>
+pub vizier_core::service::workspaces::CandidateGroup::more: usize
+impl<T: core::clone::Clone> core::clone::Clone for vizier_core::service::workspaces::CandidateGroup<T>
+pub fn vizier_core::service::workspaces::CandidateGroup<T>::clone(&self) -> Self
+impl<T: core::fmt::Debug> core::fmt::Debug for vizier_core::service::workspaces::CandidateGroup<T>
+pub fn vizier_core::service::workspaces::CandidateGroup<T>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<T> serde_core::ser::Serialize for vizier_core::service::workspaces::CandidateGroup<T> where T: serde_core::ser::Serialize
+pub fn vizier_core::service::workspaces::CandidateGroup<T>::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<T> core::marker::Forget for vizier_core::service::workspaces::CandidateGroup<T>
+impl<T> core::marker::Freeze for vizier_core::service::workspaces::CandidateGroup<T> where alloc::vec::Vec<T>: core::marker::Freeze
+impl<T> core::marker::Send for vizier_core::service::workspaces::CandidateGroup<T> where alloc::vec::Vec<T>: core::marker::Send
+impl<T> core::marker::Sync for vizier_core::service::workspaces::CandidateGroup<T> where alloc::vec::Vec<T>: core::marker::Sync
+impl<T> core::marker::Unpin for vizier_core::service::workspaces::CandidateGroup<T> where alloc::vec::Vec<T>: core::marker::Unpin
+impl<T> core::marker::UnsafeUnpin for vizier_core::service::workspaces::CandidateGroup<T> where alloc::vec::Vec<T>: core::marker::UnsafeUnpin
+impl<T> core::panic::unwind_safe::RefUnwindSafe for vizier_core::service::workspaces::CandidateGroup<T> where alloc::vec::Vec<T>: core::panic::unwind_safe::RefUnwindSafe
+impl<T> core::panic::unwind_safe::UnwindSafe for vizier_core::service::workspaces::CandidateGroup<T> where alloc::vec::Vec<T>: core::panic::unwind_safe::UnwindSafe
+pub struct vizier_core::service::workspaces::Candidates
+pub vizier_core::service::workspaces::Candidates::agents: vizier_core::service::workspaces::CandidateGroup<vizier_core::service::workspaces::AgentCandidate>
+pub vizier_core::service::workspaces::Candidates::people: vizier_core::service::workspaces::CandidateGroup<vizier_core::service::workspaces::PersonCandidate>
+impl core::clone::Clone for vizier_core::service::workspaces::Candidates
+pub fn vizier_core::service::workspaces::Candidates::clone(&self) -> Self
+impl core::fmt::Debug for vizier_core::service::workspaces::Candidates
+pub fn vizier_core::service::workspaces::Candidates::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl serde_core::ser::Serialize for vizier_core::service::workspaces::Candidates
+pub fn vizier_core::service::workspaces::Candidates::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl core::marker::Forget for vizier_core::service::workspaces::Candidates
+impl core::marker::Freeze for vizier_core::service::workspaces::Candidates
+impl core::marker::Send for vizier_core::service::workspaces::Candidates
+impl core::marker::Sync for vizier_core::service::workspaces::Candidates
+impl core::marker::Unpin for vizier_core::service::workspaces::Candidates
+impl core::marker::UnsafeUnpin for vizier_core::service::workspaces::Candidates
+impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::service::workspaces::Candidates
+impl core::panic::unwind_safe::UnwindSafe for vizier_core::service::workspaces::Candidates
+pub struct vizier_core::service::workspaces::CommandView
+pub vizier_core::service::workspaces::CommandView::description: alloc::string::String
+pub vizier_core::service::workspaces::CommandView::name: alloc::string::String
+impl core::clone::Clone for vizier_core::service::workspaces::CommandView
+pub fn vizier_core::service::workspaces::CommandView::clone(&self) -> Self
+impl core::fmt::Debug for vizier_core::service::workspaces::CommandView
+pub fn vizier_core::service::workspaces::CommandView::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl serde_core::ser::Serialize for vizier_core::service::workspaces::CommandView
+pub fn vizier_core::service::workspaces::CommandView::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl core::marker::Forget for vizier_core::service::workspaces::CommandView
+impl core::marker::Freeze for vizier_core::service::workspaces::CommandView
+impl core::marker::Send for vizier_core::service::workspaces::CommandView
+impl core::marker::Sync for vizier_core::service::workspaces::CommandView
+impl core::marker::Unpin for vizier_core::service::workspaces::CommandView
+impl core::marker::UnsafeUnpin for vizier_core::service::workspaces::CommandView
+impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::service::workspaces::CommandView
+impl core::panic::unwind_safe::UnwindSafe for vizier_core::service::workspaces::CommandView
+pub struct vizier_core::service::workspaces::CommandsView
+pub vizier_core::service::workspaces::CommandsView::commands: alloc::vec::Vec<vizier_core::service::workspaces::CommandView>
+pub vizier_core::service::workspaces::CommandsView::skills: alloc::vec::Vec<vizier_core::service::workspaces::SkillView>
+impl core::clone::Clone for vizier_core::service::workspaces::CommandsView
+pub fn vizier_core::service::workspaces::CommandsView::clone(&self) -> Self
+impl core::fmt::Debug for vizier_core::service::workspaces::CommandsView
+pub fn vizier_core::service::workspaces::CommandsView::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl serde_core::ser::Serialize for vizier_core::service::workspaces::CommandsView
+pub fn vizier_core::service::workspaces::CommandsView::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl core::marker::Forget for vizier_core::service::workspaces::CommandsView
+impl core::marker::Freeze for vizier_core::service::workspaces::CommandsView
+impl core::marker::Send for vizier_core::service::workspaces::CommandsView
+impl core::marker::Sync for vizier_core::service::workspaces::CommandsView
+impl core::marker::Unpin for vizier_core::service::workspaces::CommandsView
+impl core::marker::UnsafeUnpin for vizier_core::service::workspaces::CommandsView
+impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::service::workspaces::CommandsView
+impl core::panic::unwind_safe::UnwindSafe for vizier_core::service::workspaces::CommandsView
 pub struct vizier_core::service::workspaces::CreateTopicRequest
 pub vizier_core::service::workspaces::CreateTopicRequest::name: alloc::string::String
 impl core::clone::Clone for vizier_core::service::workspaces::CreateTopicRequest
@@ -13100,6 +13630,32 @@ impl core::marker::Unpin for vizier_core::service::workspaces::CreateWorkspaceRe
 impl core::marker::UnsafeUnpin for vizier_core::service::workspaces::CreateWorkspaceRequest
 impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::service::workspaces::CreateWorkspaceRequest
 impl core::panic::unwind_safe::UnwindSafe for vizier_core::service::workspaces::CreateWorkspaceRequest
+pub struct vizier_core::service::workspaces::EntryView
+pub vizier_core::service::workspaces::EntryView::activated_by_seq: core::option::Option<i64>
+pub vizier_core::service::workspaces::EntryView::at: i64
+pub vizier_core::service::workspaces::EntryView::author: vizier_core::service::workspaces::AuthorView
+pub vizier_core::service::workspaces::EntryView::body: alloc::string::String
+pub vizier_core::service::workspaces::EntryView::files: alloc::vec::Vec<vizier_core::schema::workspace::EntryFile>
+pub vizier_core::service::workspaces::EntryView::history_uid: core::option::Option<alloc::string::String>
+pub vizier_core::service::workspaces::EntryView::is_final: bool
+pub vizier_core::service::workspaces::EntryView::kind: alloc::string::String
+pub vizier_core::service::workspaces::EntryView::mentions: alloc::vec::Vec<vizier_core::service::workspaces::MentionView>
+pub vizier_core::service::workspaces::EntryView::origin: core::option::Option<serde_json::value::Value>
+pub vizier_core::service::workspaces::EntryView::seq: i64
+impl core::clone::Clone for vizier_core::service::workspaces::EntryView
+pub fn vizier_core::service::workspaces::EntryView::clone(&self) -> Self
+impl core::fmt::Debug for vizier_core::service::workspaces::EntryView
+pub fn vizier_core::service::workspaces::EntryView::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl serde_core::ser::Serialize for vizier_core::service::workspaces::EntryView
+pub fn vizier_core::service::workspaces::EntryView::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl core::marker::Forget for vizier_core::service::workspaces::EntryView
+impl core::marker::Freeze for vizier_core::service::workspaces::EntryView
+impl core::marker::Send for vizier_core::service::workspaces::EntryView
+impl core::marker::Sync for vizier_core::service::workspaces::EntryView
+impl core::marker::Unpin for vizier_core::service::workspaces::EntryView
+impl core::marker::UnsafeUnpin for vizier_core::service::workspaces::EntryView
+impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::service::workspaces::EntryView
+impl core::panic::unwind_safe::UnwindSafe for vizier_core::service::workspaces::EntryView
 pub struct vizier_core::service::workspaces::MemberView
 pub vizier_core::service::workspaces::MemberView::available: bool
 pub vizier_core::service::workspaces::MemberView::handle: alloc::string::String
@@ -13120,6 +13676,184 @@ impl core::marker::Unpin for vizier_core::service::workspaces::MemberView
 impl core::marker::UnsafeUnpin for vizier_core::service::workspaces::MemberView
 impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::service::workspaces::MemberView
 impl core::panic::unwind_safe::UnwindSafe for vizier_core::service::workspaces::MemberView
+pub struct vizier_core::service::workspaces::MentionView
+pub vizier_core::service::workspaces::MentionView::handle: alloc::string::String
+pub vizier_core::service::workspaces::MentionView::kind: alloc::string::String
+pub vizier_core::service::workspaces::MentionView::state: alloc::string::String
+impl core::clone::Clone for vizier_core::service::workspaces::MentionView
+pub fn vizier_core::service::workspaces::MentionView::clone(&self) -> Self
+impl core::fmt::Debug for vizier_core::service::workspaces::MentionView
+pub fn vizier_core::service::workspaces::MentionView::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl serde_core::ser::Serialize for vizier_core::service::workspaces::MentionView
+pub fn vizier_core::service::workspaces::MentionView::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl core::marker::Forget for vizier_core::service::workspaces::MentionView
+impl core::marker::Freeze for vizier_core::service::workspaces::MentionView
+impl core::marker::Send for vizier_core::service::workspaces::MentionView
+impl core::marker::Sync for vizier_core::service::workspaces::MentionView
+impl core::marker::Unpin for vizier_core::service::workspaces::MentionView
+impl core::marker::UnsafeUnpin for vizier_core::service::workspaces::MentionView
+impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::service::workspaces::MentionView
+impl core::panic::unwind_safe::UnwindSafe for vizier_core::service::workspaces::MentionView
+pub struct vizier_core::service::workspaces::PersonCandidate
+pub vizier_core::service::workspaces::PersonCandidate::member: bool
+pub vizier_core::service::workspaces::PersonCandidate::name: alloc::string::String
+pub vizier_core::service::workspaces::PersonCandidate::username: alloc::string::String
+impl core::clone::Clone for vizier_core::service::workspaces::PersonCandidate
+pub fn vizier_core::service::workspaces::PersonCandidate::clone(&self) -> Self
+impl core::fmt::Debug for vizier_core::service::workspaces::PersonCandidate
+pub fn vizier_core::service::workspaces::PersonCandidate::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl serde_core::ser::Serialize for vizier_core::service::workspaces::PersonCandidate
+pub fn vizier_core::service::workspaces::PersonCandidate::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl core::marker::Forget for vizier_core::service::workspaces::PersonCandidate
+impl core::marker::Freeze for vizier_core::service::workspaces::PersonCandidate
+impl core::marker::Send for vizier_core::service::workspaces::PersonCandidate
+impl core::marker::Sync for vizier_core::service::workspaces::PersonCandidate
+impl core::marker::Unpin for vizier_core::service::workspaces::PersonCandidate
+impl core::marker::UnsafeUnpin for vizier_core::service::workspaces::PersonCandidate
+impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::service::workspaces::PersonCandidate
+impl core::panic::unwind_safe::UnwindSafe for vizier_core::service::workspaces::PersonCandidate
+pub struct vizier_core::service::workspaces::PostRequest
+pub vizier_core::service::workspaces::PostRequest::files: alloc::vec::Vec<alloc::string::String>
+pub vizier_core::service::workspaces::PostRequest::text: alloc::string::String
+impl core::clone::Clone for vizier_core::service::workspaces::PostRequest
+pub fn vizier_core::service::workspaces::PostRequest::clone(&self) -> Self
+impl core::fmt::Debug for vizier_core::service::workspaces::PostRequest
+pub fn vizier_core::service::workspaces::PostRequest::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl serde_core::ser::Serialize for vizier_core::service::workspaces::PostRequest
+pub fn vizier_core::service::workspaces::PostRequest::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for vizier_core::service::workspaces::PostRequest
+pub fn vizier_core::service::workspaces::PostRequest::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+impl core::marker::Forget for vizier_core::service::workspaces::PostRequest
+impl core::marker::Freeze for vizier_core::service::workspaces::PostRequest
+impl core::marker::Send for vizier_core::service::workspaces::PostRequest
+impl core::marker::Sync for vizier_core::service::workspaces::PostRequest
+impl core::marker::Unpin for vizier_core::service::workspaces::PostRequest
+impl core::marker::UnsafeUnpin for vizier_core::service::workspaces::PostRequest
+impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::service::workspaces::PostRequest
+impl core::panic::unwind_safe::UnwindSafe for vizier_core::service::workspaces::PostRequest
+pub struct vizier_core::service::workspaces::PostResponse
+pub vizier_core::service::workspaces::PostResponse::entry: core::option::Option<vizier_core::service::workspaces::EntryView>
+pub vizier_core::service::workspaces::PostResponse::note: core::option::Option<vizier_core::service::workspaces::EntryView>
+impl core::clone::Clone for vizier_core::service::workspaces::PostResponse
+pub fn vizier_core::service::workspaces::PostResponse::clone(&self) -> Self
+impl core::fmt::Debug for vizier_core::service::workspaces::PostResponse
+pub fn vizier_core::service::workspaces::PostResponse::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl serde_core::ser::Serialize for vizier_core::service::workspaces::PostResponse
+pub fn vizier_core::service::workspaces::PostResponse::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl core::marker::Forget for vizier_core::service::workspaces::PostResponse
+impl core::marker::Freeze for vizier_core::service::workspaces::PostResponse
+impl core::marker::Send for vizier_core::service::workspaces::PostResponse
+impl core::marker::Sync for vizier_core::service::workspaces::PostResponse
+impl core::marker::Unpin for vizier_core::service::workspaces::PostResponse
+impl core::marker::UnsafeUnpin for vizier_core::service::workspaces::PostResponse
+impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::service::workspaces::PostResponse
+impl core::panic::unwind_safe::UnwindSafe for vizier_core::service::workspaces::PostResponse
+pub struct vizier_core::service::workspaces::RenameRequest
+pub vizier_core::service::workspaces::RenameRequest::name: alloc::string::String
+impl core::clone::Clone for vizier_core::service::workspaces::RenameRequest
+pub fn vizier_core::service::workspaces::RenameRequest::clone(&self) -> Self
+impl core::fmt::Debug for vizier_core::service::workspaces::RenameRequest
+pub fn vizier_core::service::workspaces::RenameRequest::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl serde_core::ser::Serialize for vizier_core::service::workspaces::RenameRequest
+pub fn vizier_core::service::workspaces::RenameRequest::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for vizier_core::service::workspaces::RenameRequest
+pub fn vizier_core::service::workspaces::RenameRequest::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+impl core::marker::Forget for vizier_core::service::workspaces::RenameRequest
+impl core::marker::Freeze for vizier_core::service::workspaces::RenameRequest
+impl core::marker::Send for vizier_core::service::workspaces::RenameRequest
+impl core::marker::Sync for vizier_core::service::workspaces::RenameRequest
+impl core::marker::Unpin for vizier_core::service::workspaces::RenameRequest
+impl core::marker::UnsafeUnpin for vizier_core::service::workspaces::RenameRequest
+impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::service::workspaces::RenameRequest
+impl core::panic::unwind_safe::UnwindSafe for vizier_core::service::workspaces::RenameRequest
+pub struct vizier_core::service::workspaces::SetRoleRequest
+pub vizier_core::service::workspaces::SetRoleRequest::role: alloc::string::String
+impl core::clone::Clone for vizier_core::service::workspaces::SetRoleRequest
+pub fn vizier_core::service::workspaces::SetRoleRequest::clone(&self) -> Self
+impl core::fmt::Debug for vizier_core::service::workspaces::SetRoleRequest
+pub fn vizier_core::service::workspaces::SetRoleRequest::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl serde_core::ser::Serialize for vizier_core::service::workspaces::SetRoleRequest
+pub fn vizier_core::service::workspaces::SetRoleRequest::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for vizier_core::service::workspaces::SetRoleRequest
+pub fn vizier_core::service::workspaces::SetRoleRequest::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+impl core::marker::Forget for vizier_core::service::workspaces::SetRoleRequest
+impl core::marker::Freeze for vizier_core::service::workspaces::SetRoleRequest
+impl core::marker::Send for vizier_core::service::workspaces::SetRoleRequest
+impl core::marker::Sync for vizier_core::service::workspaces::SetRoleRequest
+impl core::marker::Unpin for vizier_core::service::workspaces::SetRoleRequest
+impl core::marker::UnsafeUnpin for vizier_core::service::workspaces::SetRoleRequest
+impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::service::workspaces::SetRoleRequest
+impl core::panic::unwind_safe::UnwindSafe for vizier_core::service::workspaces::SetRoleRequest
+pub struct vizier_core::service::workspaces::SkillView
+pub vizier_core::service::workspaces::SkillView::agents: alloc::vec::Vec<alloc::string::String>
+pub vizier_core::service::workspaces::SkillView::description: alloc::string::String
+pub vizier_core::service::workspaces::SkillView::name: alloc::string::String
+impl core::clone::Clone for vizier_core::service::workspaces::SkillView
+pub fn vizier_core::service::workspaces::SkillView::clone(&self) -> Self
+impl core::fmt::Debug for vizier_core::service::workspaces::SkillView
+pub fn vizier_core::service::workspaces::SkillView::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl serde_core::ser::Serialize for vizier_core::service::workspaces::SkillView
+pub fn vizier_core::service::workspaces::SkillView::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl core::marker::Forget for vizier_core::service::workspaces::SkillView
+impl core::marker::Freeze for vizier_core::service::workspaces::SkillView
+impl core::marker::Send for vizier_core::service::workspaces::SkillView
+impl core::marker::Sync for vizier_core::service::workspaces::SkillView
+impl core::marker::Unpin for vizier_core::service::workspaces::SkillView
+impl core::marker::UnsafeUnpin for vizier_core::service::workspaces::SkillView
+impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::service::workspaces::SkillView
+impl core::panic::unwind_safe::UnwindSafe for vizier_core::service::workspaces::SkillView
+pub struct vizier_core::service::workspaces::StepView
+pub vizier_core::service::workspaces::StepView::agent_id: alloc::string::String
+pub vizier_core::service::workspaces::StepView::entry: serde_json::value::Value
+impl core::clone::Clone for vizier_core::service::workspaces::StepView
+pub fn vizier_core::service::workspaces::StepView::clone(&self) -> Self
+impl core::fmt::Debug for vizier_core::service::workspaces::StepView
+pub fn vizier_core::service::workspaces::StepView::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl serde_core::ser::Serialize for vizier_core::service::workspaces::StepView
+pub fn vizier_core::service::workspaces::StepView::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl core::marker::Forget for vizier_core::service::workspaces::StepView
+impl core::marker::Freeze for vizier_core::service::workspaces::StepView
+impl core::marker::Send for vizier_core::service::workspaces::StepView
+impl core::marker::Sync for vizier_core::service::workspaces::StepView
+impl core::marker::Unpin for vizier_core::service::workspaces::StepView
+impl core::marker::UnsafeUnpin for vizier_core::service::workspaces::StepView
+impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::service::workspaces::StepView
+impl core::panic::unwind_safe::UnwindSafe for vizier_core::service::workspaces::StepView
+pub struct vizier_core::service::workspaces::StopResponse
+pub vizier_core::service::workspaces::StopResponse::dropped: usize
+pub vizier_core::service::workspaces::StopResponse::stopped: usize
+impl core::clone::Clone for vizier_core::service::workspaces::StopResponse
+pub fn vizier_core::service::workspaces::StopResponse::clone(&self) -> Self
+impl core::fmt::Debug for vizier_core::service::workspaces::StopResponse
+pub fn vizier_core::service::workspaces::StopResponse::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl serde_core::ser::Serialize for vizier_core::service::workspaces::StopResponse
+pub fn vizier_core::service::workspaces::StopResponse::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl core::marker::Forget for vizier_core::service::workspaces::StopResponse
+impl core::marker::Freeze for vizier_core::service::workspaces::StopResponse
+impl core::marker::Send for vizier_core::service::workspaces::StopResponse
+impl core::marker::Sync for vizier_core::service::workspaces::StopResponse
+impl core::marker::Unpin for vizier_core::service::workspaces::StopResponse
+impl core::marker::UnsafeUnpin for vizier_core::service::workspaces::StopResponse
+impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::service::workspaces::StopResponse
+impl core::panic::unwind_safe::UnwindSafe for vizier_core::service::workspaces::StopResponse
+pub struct vizier_core::service::workspaces::Timeline
+pub vizier_core::service::workspaces::Timeline::entries: alloc::vec::Vec<vizier_core::service::workspaces::EntryView>
+pub vizier_core::service::workspaces::Timeline::next_before: core::option::Option<i64>
+pub vizier_core::service::workspaces::Timeline::steps: alloc::vec::Vec<vizier_core::service::workspaces::StepView>
+impl core::clone::Clone for vizier_core::service::workspaces::Timeline
+pub fn vizier_core::service::workspaces::Timeline::clone(&self) -> Self
+impl core::fmt::Debug for vizier_core::service::workspaces::Timeline
+pub fn vizier_core::service::workspaces::Timeline::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl serde_core::ser::Serialize for vizier_core::service::workspaces::Timeline
+pub fn vizier_core::service::workspaces::Timeline::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl core::marker::Forget for vizier_core::service::workspaces::Timeline
+impl core::marker::Freeze for vizier_core::service::workspaces::Timeline
+impl core::marker::Send for vizier_core::service::workspaces::Timeline
+impl core::marker::Sync for vizier_core::service::workspaces::Timeline
+impl core::marker::Unpin for vizier_core::service::workspaces::Timeline
+impl core::marker::UnsafeUnpin for vizier_core::service::workspaces::Timeline
+impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::service::workspaces::Timeline
+impl core::panic::unwind_safe::UnwindSafe for vizier_core::service::workspaces::Timeline
 pub struct vizier_core::service::workspaces::TopicSummary
 pub vizier_core::service::workspaces::TopicSummary::id: alloc::string::String
 pub vizier_core::service::workspaces::TopicSummary::name: alloc::string::String
@@ -13176,15 +13910,37 @@ impl core::marker::Unpin for vizier_core::service::workspaces::WorkspaceSummary
 impl core::marker::UnsafeUnpin for vizier_core::service::workspaces::WorkspaceSummary
 impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::service::workspaces::WorkspaceSummary
 impl core::panic::unwind_safe::UnwindSafe for vizier_core::service::workspaces::WorkspaceSummary
+pub const vizier_core::service::workspaces::DEFAULT_CANDIDATES: usize
+pub const vizier_core::service::workspaces::DEFAULT_PAGE: usize
 pub const vizier_core::service::workspaces::DEFAULT_TOPIC: &str
+pub const vizier_core::service::workspaces::MAX_CANDIDATES: usize
+pub const vizier_core::service::workspaces::MAX_PAGE: usize
 pub async fn vizier_core::service::workspaces::add_member(&vizier_core::service::Services, &vizier_core::auth::Principal, &str, vizier_core::service::workspaces::AddMemberRequest) -> core::result::Result<vizier_core::service::workspaces::MemberView, vizier_core::service::error::ServiceError>
+pub async fn vizier_core::service::workspaces::busy_agents(&vizier_core::service::Services, &str, &str) -> alloc::vec::Vec<alloc::string::String>
+pub async fn vizier_core::service::workspaces::candidates(&vizier_core::service::Services, &vizier_core::auth::Principal, &str, &str, core::option::Option<usize>) -> core::result::Result<vizier_core::service::workspaces::Candidates, vizier_core::service::error::ServiceError>
+pub async fn vizier_core::service::workspaces::commands_menu(&vizier_core::service::Services, &vizier_core::auth::Principal, &str) -> core::result::Result<vizier_core::service::workspaces::CommandsView, vizier_core::service::error::ServiceError>
 pub async fn vizier_core::service::workspaces::create(&vizier_core::service::Services, &vizier_core::auth::Principal, vizier_core::service::workspaces::CreateWorkspaceRequest) -> core::result::Result<vizier_core::service::workspaces::WorkspaceDetail, vizier_core::service::error::ServiceError>
 pub async fn vizier_core::service::workspaces::create_topic(&vizier_core::service::Services, &vizier_core::auth::Principal, &str, vizier_core::service::workspaces::CreateTopicRequest) -> core::result::Result<vizier_core::service::workspaces::TopicSummary, vizier_core::service::error::ServiceError>
+pub async fn vizier_core::service::workspaces::delete(&vizier_core::service::Services, &vizier_core::auth::Principal, &str) -> core::result::Result<(), vizier_core::service::error::ServiceError>
+pub async fn vizier_core::service::workspaces::delete_topic(&vizier_core::service::Services, &vizier_core::auth::Principal, &str, &str) -> core::result::Result<(), vizier_core::service::error::ServiceError>
+pub async fn vizier_core::service::workspaces::deliver_session(&vizier_core::service::Services, &str, vizier_core::auth::AuthMethod, &str, &str, &vizier_core::transport::SessionEvent) -> vizier_core::service::workspaces::Delivery
+pub async fn vizier_core::service::workspaces::deliver_workspace(&vizier_core::service::Services, &str, vizier_core::auth::AuthMethod, &str, &str, &vizier_core::transport::WorkspaceEvent) -> vizier_core::service::workspaces::Delivery
 pub async fn vizier_core::service::workspaces::detail(&vizier_core::service::Services, &vizier_core::auth::Principal, &str) -> core::result::Result<vizier_core::service::workspaces::WorkspaceDetail, vizier_core::service::error::ServiceError>
+pub async fn vizier_core::service::workspaces::hello(&vizier_core::service::Services, &vizier_core::auth::Principal, &str, &str) -> core::result::Result<serde_json::value::Value, vizier_core::service::error::ServiceError>
 pub async fn vizier_core::service::workspaces::list(&vizier_core::service::Services, &vizier_core::auth::Principal) -> core::result::Result<alloc::vec::Vec<vizier_core::service::workspaces::WorkspaceSummary>, vizier_core::service::error::ServiceError>
+pub async fn vizier_core::service::workspaces::mark_topic_read(&vizier_core::service::Services, &vizier_core::auth::Principal, &str, &str) -> core::result::Result<u64, vizier_core::service::error::ServiceError>
+pub async fn vizier_core::service::workspaces::post(&vizier_core::service::Services, &vizier_core::auth::Principal, &str, &str, vizier_core::service::workspaces::PostRequest) -> core::result::Result<vizier_core::service::workspaces::PostResponse, vizier_core::service::error::ServiceError>
 pub async fn vizier_core::service::workspaces::remove_member(&vizier_core::service::Services, &vizier_core::auth::Principal, &str, &str, &str) -> core::result::Result<(), vizier_core::service::error::ServiceError>
+pub async fn vizier_core::service::workspaces::rename(&vizier_core::service::Services, &vizier_core::auth::Principal, &str, vizier_core::service::workspaces::RenameRequest) -> core::result::Result<vizier_core::service::workspaces::WorkspaceSummary, vizier_core::service::error::ServiceError>
+pub async fn vizier_core::service::workspaces::rename_topic(&vizier_core::service::Services, &vizier_core::auth::Principal, &str, &str, vizier_core::service::workspaces::RenameRequest) -> core::result::Result<vizier_core::service::workspaces::TopicSummary, vizier_core::service::error::ServiceError>
 pub async fn vizier_core::service::workspaces::resolve(&vizier_core::service::Services, &vizier_core::auth::Principal, &str) -> core::result::Result<(vizier_core::schema::workspace::Workspace, vizier_core::workspaces::access::Standing), vizier_core::service::error::ServiceError>
 pub async fn vizier_core::service::workspaces::resolve_manager(&vizier_core::service::Services, &vizier_core::auth::Principal, &str) -> core::result::Result<(vizier_core::schema::workspace::Workspace, vizier_core::workspaces::access::Standing), vizier_core::service::error::ServiceError>
+pub async fn vizier_core::service::workspaces::set_role(&vizier_core::service::Services, &vizier_core::auth::Principal, &str, &str, vizier_core::service::workspaces::SetRoleRequest) -> core::result::Result<vizier_core::service::workspaces::MemberView, vizier_core::service::error::ServiceError>
+pub async fn vizier_core::service::workspaces::stop_agent(&vizier_core::service::Services, &vizier_core::auth::Principal, &str, &str, &str) -> core::result::Result<vizier_core::service::workspaces::StopResponse, vizier_core::service::error::ServiceError>
+pub async fn vizier_core::service::workspaces::stop_all(&vizier_core::service::Services, &vizier_core::auth::Principal, &str) -> core::result::Result<vizier_core::service::workspaces::StopResponse, vizier_core::service::error::ServiceError>
+pub async fn vizier_core::service::workspaces::timeline(&vizier_core::service::Services, &vizier_core::auth::Principal, &str, &str, core::option::Option<i64>, core::option::Option<usize>) -> core::result::Result<vizier_core::service::workspaces::Timeline, vizier_core::service::error::ServiceError>
+pub async fn vizier_core::service::workspaces::view_one(&vizier_core::service::Services, &vizier_core::schema::workspace::WorkspaceEntry) -> core::result::Result<vizier_core::service::workspaces::EntryView, vizier_core::service::error::ServiceError>
+pub async fn vizier_core::service::workspaces::views(&vizier_core::service::Services, &[vizier_core::schema::workspace::WorkspaceEntry]) -> core::result::Result<alloc::vec::Vec<vizier_core::service::workspaces::EntryView>, vizier_core::service::error::ServiceError>
 pub enum vizier_core::service::ServiceError
 pub vizier_core::service::ServiceError::Conflict
 pub vizier_core::service::ServiceError::Conflict::code: core::option::Option<alloc::string::String>
@@ -13514,6 +14270,7 @@ pub fn vizier_core::transport::wire::split_agent_command(vizier_core::prelude::A
 pub enum vizier_core::transport::InboxEvent
 pub vizier_core::transport::InboxEvent::Created
 pub vizier_core::transport::InboxEvent::Created::audience: core::option::Option<alloc::string::String>
+pub vizier_core::transport::InboxEvent::Created::author: core::option::Option<alloc::string::String>
 pub vizier_core::transport::InboxEvent::Created::item: vizier_core::schema::notification::NotificationItem
 pub vizier_core::transport::InboxEvent::Created::source_session: core::option::Option<vizier_core::prelude::VizierSession>
 pub vizier_core::transport::InboxEvent::Read
@@ -13590,6 +14347,38 @@ impl core::marker::Unpin for vizier_core::transport::SessionFrame
 impl core::marker::UnsafeUnpin for vizier_core::transport::SessionFrame
 impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::transport::SessionFrame
 impl core::panic::unwind_safe::UnwindSafe for vizier_core::transport::SessionFrame
+pub enum vizier_core::transport::WorkspaceEvent
+pub vizier_core::transport::WorkspaceEvent::Deleted
+pub vizier_core::transport::WorkspaceEvent::Deleted::workspace_id: alloc::string::String
+pub vizier_core::transport::WorkspaceEvent::Entry
+pub vizier_core::transport::WorkspaceEvent::Entry::entry: vizier_core::schema::workspace::WorkspaceEntry
+pub vizier_core::transport::WorkspaceEvent::Entry::mentions: alloc::vec::Vec<vizier_core::schema::workspace::EntryMention>
+pub vizier_core::transport::WorkspaceEvent::MemberChanged
+pub vizier_core::transport::WorkspaceEvent::MemberChanged::removed: core::option::Option<(vizier_core::schema::workspace::MemberKind, alloc::string::String)>
+pub vizier_core::transport::WorkspaceEvent::MemberChanged::workspace_id: alloc::string::String
+pub vizier_core::transport::WorkspaceEvent::Mentions
+pub vizier_core::transport::WorkspaceEvent::Mentions::mentions: alloc::vec::Vec<vizier_core::schema::workspace::EntryMention>
+pub vizier_core::transport::WorkspaceEvent::Mentions::seq: i64
+pub vizier_core::transport::WorkspaceEvent::Mentions::topic_id: alloc::string::String
+pub vizier_core::transport::WorkspaceEvent::Mentions::workspace_id: alloc::string::String
+impl vizier_core::transport::WorkspaceEvent
+pub fn vizier_core::transport::WorkspaceEvent::workspace_id(&self) -> &str
+impl core::clone::Clone for vizier_core::transport::WorkspaceEvent
+pub fn vizier_core::transport::WorkspaceEvent::clone(&self) -> Self
+impl core::fmt::Debug for vizier_core::transport::WorkspaceEvent
+pub fn vizier_core::transport::WorkspaceEvent::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl serde_core::ser::Serialize for vizier_core::transport::WorkspaceEvent
+pub fn vizier_core::transport::WorkspaceEvent::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for vizier_core::transport::WorkspaceEvent
+pub fn vizier_core::transport::WorkspaceEvent::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+impl core::marker::Forget for vizier_core::transport::WorkspaceEvent
+impl core::marker::Freeze for vizier_core::transport::WorkspaceEvent
+impl core::marker::Send for vizier_core::transport::WorkspaceEvent
+impl core::marker::Sync for vizier_core::transport::WorkspaceEvent
+impl core::marker::Unpin for vizier_core::transport::WorkspaceEvent
+impl core::marker::UnsafeUnpin for vizier_core::transport::WorkspaceEvent
+impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::transport::WorkspaceEvent
+impl core::panic::unwind_safe::UnwindSafe for vizier_core::transport::WorkspaceEvent
 pub struct vizier_core::transport::AgentCommands
 impl vizier_core::transport::AgentCommands
 pub async fn vizier_core::transport::AgentCommands::recv(&mut self) -> core::option::Option<vizier_core::prelude::AgentCommand>
@@ -13814,6 +14603,7 @@ pub async fn vizier_core::transport::VizierTransport::send_agent_command_to(&sel
 pub async fn vizier_core::transport::VizierTransport::send_request(&self, vizier_core::prelude::VizierSession, vizier_core::prelude::VizierRequest, core::option::Option<vizier_core::transport::ResponseSender>) -> anyhow::Result<()>
 pub fn vizier_core::transport::VizierTransport::subscribe_inbox_events(&self) -> tokio::sync::broadcast::Receiver<vizier_core::transport::InboxEvent>
 pub fn vizier_core::transport::VizierTransport::subscribe_session_events(&self) -> tokio::sync::broadcast::Receiver<vizier_core::transport::SessionEvent>
+pub fn vizier_core::transport::VizierTransport::subscribe_workspace_events(&self) -> tokio::sync::broadcast::Receiver<vizier_core::transport::WorkspaceEvent>
 impl core::clone::Clone for vizier_core::transport::VizierTransport
 pub fn vizier_core::transport::VizierTransport::clone(&self) -> Self
 impl core::fmt::Debug for vizier_core::transport::VizierTransport
@@ -13859,6 +14649,10 @@ pub const vizier_core::workspaces::access::MANAGE_ALL: &str
 pub fn vizier_core::workspaces::access::can_create(vizier_core::access::Caller<'_>) -> bool
 pub fn vizier_core::workspaces::access::can_manage_all(vizier_core::access::Caller<'_>) -> bool
 pub fn vizier_core::workspaces::access::standing(vizier_core::access::Caller<'_>, &str, core::option::Option<&vizier_core::schema::workspace::WorkspaceMember>) -> core::option::Option<vizier_core::workspaces::access::Standing>
+pub mod vizier_core::workspaces::catch_up
+pub const vizier_core::workspaces::catch_up::CAP: usize
+pub async fn vizier_core::workspaces::catch_up::for_activation(&vizier_core::workspaces::Hub, &vizier_core::prelude::VizierSession, i64) -> core::option::Option<anyhow::Result<vizier_core::schema::workspace::CatchUp>>
+pub async fn vizier_core::workspaces::catch_up::to_head(&vizier_core::workspaces::Hub, &vizier_core::prelude::VizierSession) -> core::option::Option<anyhow::Result<vizier_core::schema::workspace::CatchUp>>
 pub mod vizier_core::workspaces::commands
 pub enum vizier_core::workspaces::commands::Parsed
 pub vizier_core::workspaces::commands::Parsed::Abort
@@ -13893,7 +14687,37 @@ impl core::marker::UnsafeUnpin for vizier_core::workspaces::commands::Parsed
 impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::workspaces::commands::Parsed
 impl core::panic::unwind_safe::UnwindSafe for vizier_core::workspaces::commands::Parsed
 pub const vizier_core::workspaces::commands::NOT_IN_WORKSPACE: &str
+pub fn vizier_core::workspaces::commands::command_text(&vizier_core::workspaces::commands::Parsed) -> core::option::Option<alloc::string::String>
 pub fn vizier_core::workspaces::commands::parse(&str, &[&str]) -> vizier_core::workspaces::commands::Parsed
+pub fn vizier_core::workspaces::commands::request_for(&str, &str, &[&str]) -> (alloc::string::String, bool)
+pub fn vizier_core::workspaces::commands::targets(&vizier_core::workspaces::commands::Parsed) -> &[alloc::string::String]
+pub mod vizier_core::workspaces::context
+pub struct vizier_core::workspaces::context::Facts
+pub vizier_core::workspaces::context::Facts::agents: alloc::vec::Vec<alloc::string::String>
+pub vizier_core::workspaces::context::Facts::me: alloc::string::String
+pub vizier_core::workspaces::context::Facts::mentioned_by: alloc::string::String
+pub vizier_core::workspaces::context::Facts::people: alloc::vec::Vec<alloc::string::String>
+pub vizier_core::workspaces::context::Facts::skipped: u64
+pub vizier_core::workspaces::context::Facts::topic: alloc::string::String
+pub vizier_core::workspaces::context::Facts::workspace: alloc::string::String
+impl core::clone::Clone for vizier_core::workspaces::context::Facts
+pub fn vizier_core::workspaces::context::Facts::clone(&self) -> Self
+impl core::cmp::Eq for vizier_core::workspaces::context::Facts
+impl core::cmp::PartialEq for vizier_core::workspaces::context::Facts
+pub fn vizier_core::workspaces::context::Facts::eq(&self, &Self) -> bool
+impl core::fmt::Debug for vizier_core::workspaces::context::Facts
+pub fn vizier_core::workspaces::context::Facts::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for vizier_core::workspaces::context::Facts
+impl core::marker::Forget for vizier_core::workspaces::context::Facts
+impl core::marker::Freeze for vizier_core::workspaces::context::Facts
+impl core::marker::Send for vizier_core::workspaces::context::Facts
+impl core::marker::Sync for vizier_core::workspaces::context::Facts
+impl core::marker::Unpin for vizier_core::workspaces::context::Facts
+impl core::marker::UnsafeUnpin for vizier_core::workspaces::context::Facts
+impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::workspaces::context::Facts
+impl core::panic::unwind_safe::UnwindSafe for vizier_core::workspaces::context::Facts
+pub fn vizier_core::workspaces::context::render(&vizier_core::workspaces::context::Facts) -> alloc::string::String
+pub async fn vizier_core::workspaces::context::section(&crate::VizierStorage, &vizier_core::prelude::VizierSession, &serde_json::value::Value, &str) -> core::option::Option<alloc::string::String>
 pub mod vizier_core::workspaces::mentions
 pub struct vizier_core::workspaces::mentions::Mention
 pub vizier_core::workspaces::mentions::Mention::end: usize
@@ -13944,6 +14768,78 @@ pub const vizier_core::workspaces::names::MAX_NAME_CHARS: usize
 pub fn vizier_core::workspaces::names::key(&str) -> alloc::string::String
 pub fn vizier_core::workspaces::names::normalize(&str) -> alloc::string::String
 pub fn vizier_core::workspaces::names::validate(&str) -> core::result::Result<(), vizier_core::workspaces::names::NameError>
+pub enum vizier_core::workspaces::PostError
+pub vizier_core::workspaces::PostError::Empty
+pub vizier_core::workspaces::PostError::Internal(alloc::string::String)
+pub vizier_core::workspaces::PostError::Refused(&'static str)
+pub vizier_core::workspaces::PostError::TooLong
+impl core::clone::Clone for vizier_core::workspaces::PostError
+pub fn vizier_core::workspaces::PostError::clone(&self) -> Self
+impl core::cmp::Eq for vizier_core::workspaces::PostError
+impl core::cmp::PartialEq for vizier_core::workspaces::PostError
+pub fn vizier_core::workspaces::PostError::eq(&self, &Self) -> bool
+impl core::convert::From<anyhow::Error> for vizier_core::workspaces::PostError
+pub fn vizier_core::workspaces::PostError::from(anyhow::Error) -> Self
+impl core::fmt::Debug for vizier_core::workspaces::PostError
+pub fn vizier_core::workspaces::PostError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for vizier_core::workspaces::PostError
+impl core::marker::Forget for vizier_core::workspaces::PostError
+impl core::marker::Freeze for vizier_core::workspaces::PostError
+impl core::marker::Send for vizier_core::workspaces::PostError
+impl core::marker::Sync for vizier_core::workspaces::PostError
+impl core::marker::Unpin for vizier_core::workspaces::PostError
+impl core::marker::UnsafeUnpin for vizier_core::workspaces::PostError
+impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::workspaces::PostError
+impl core::panic::unwind_safe::UnwindSafe for vizier_core::workspaces::PostError
+pub struct vizier_core::workspaces::Hub
+pub vizier_core::workspaces::Hub::storage: crate::VizierStorage
+pub vizier_core::workspaces::Hub::transport: vizier_core::transport::VizierTransport
+impl vizier_core::workspaces::Hub
+pub fn vizier_core::workspaces::Hub::new(VizierStorage, vizier_core::transport::VizierTransport) -> Self
+impl core::clone::Clone for vizier_core::workspaces::Hub
+pub fn vizier_core::workspaces::Hub::clone(&self) -> Self
+impl core::marker::Forget for vizier_core::workspaces::Hub
+impl core::marker::Freeze for vizier_core::workspaces::Hub
+impl core::marker::Send for vizier_core::workspaces::Hub
+impl core::marker::Sync for vizier_core::workspaces::Hub
+impl core::marker::Unpin for vizier_core::workspaces::Hub
+impl core::marker::UnsafeUnpin for vizier_core::workspaces::Hub
+impl !core::panic::unwind_safe::RefUnwindSafe for vizier_core::workspaces::Hub
+impl !core::panic::unwind_safe::UnwindSafe for vizier_core::workspaces::Hub
+pub struct vizier_core::workspaces::Stopped
+pub vizier_core::workspaces::Stopped::dropped: usize
+pub vizier_core::workspaces::Stopped::stopped: usize
+impl core::clone::Clone for vizier_core::workspaces::Stopped
+pub fn vizier_core::workspaces::Stopped::clone(&self) -> Self
+impl core::cmp::Eq for vizier_core::workspaces::Stopped
+impl core::cmp::PartialEq for vizier_core::workspaces::Stopped
+pub fn vizier_core::workspaces::Stopped::eq(&self, &Self) -> bool
+impl core::default::Default for vizier_core::workspaces::Stopped
+pub fn vizier_core::workspaces::Stopped::default() -> Self
+impl core::fmt::Debug for vizier_core::workspaces::Stopped
+pub fn vizier_core::workspaces::Stopped::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for vizier_core::workspaces::Stopped
+impl core::marker::StructuralPartialEq for vizier_core::workspaces::Stopped
+impl core::marker::Forget for vizier_core::workspaces::Stopped
+impl core::marker::Freeze for vizier_core::workspaces::Stopped
+impl core::marker::Send for vizier_core::workspaces::Stopped
+impl core::marker::Sync for vizier_core::workspaces::Stopped
+impl core::marker::Unpin for vizier_core::workspaces::Stopped
+impl core::marker::UnsafeUnpin for vizier_core::workspaces::Stopped
+impl core::panic::unwind_safe::RefUnwindSafe for vizier_core::workspaces::Stopped
+impl core::panic::unwind_safe::UnwindSafe for vizier_core::workspaces::Stopped
+pub const vizier_core::workspaces::MAX_MESSAGE_CHARS: usize
 pub const vizier_core::workspaces::PREFIX: &str
+pub async fn vizier_core::workspaces::after_save(&vizier_core::workspaces::Hub, &str)
+pub async fn vizier_core::workspaces::announce_and_dispatch(&vizier_core::workspaces::Hub, &vizier_core::schema::workspace::WorkspaceEntry)
+pub async fn vizier_core::workspaces::dispatch_mentions(&vizier_core::workspaces::Hub, &vizier_core::schema::workspace::WorkspaceEntry)
+pub async fn vizier_core::workspaces::notify(&vizier_core::workspaces::Hub, &vizier_core::schema::workspace::WorkspaceEntry)
+pub async fn vizier_core::workspaces::redispatch_pending(&vizier_core::workspaces::Hub)
+pub async fn vizier_core::workspaces::send_command(&vizier_core::workspaces::Hub, &str, &str, &str, &str)
+pub fn vizier_core::workspaces::session_of(&str, &str, &str) -> vizier_core::prelude::VizierSession
+pub async fn vizier_core::workspaces::stop_agent(&vizier_core::workspaces::Hub, &str, &str, &str) -> anyhow::Result<vizier_core::workspaces::Stopped>
+pub async fn vizier_core::workspaces::stop_all(&vizier_core::workspaces::Hub, &str) -> anyhow::Result<vizier_core::workspaces::Stopped>
+pub async fn vizier_core::workspaces::write_entry(&vizier_core::workspaces::Hub, vizier_core::schema::workspace::NewEntry) -> core::result::Result<vizier_core::schema::workspace::WorkspaceEntry, vizier_core::workspaces::PostError>
+pub async fn vizier_core::workspaces::write_note(&vizier_core::workspaces::Hub, &str, &str, alloc::string::String) -> core::result::Result<vizier_core::schema::workspace::WorkspaceEntry, vizier_core::workspaces::PostError>
 pub macro vizier_core::sql_params!
 pub type vizier_core::Result<T> = core::result::Result<T, vizier_core::error::VizierError>

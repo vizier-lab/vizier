@@ -9,7 +9,7 @@ use axum::{
         ws::{Message, WebSocket},
     },
     response::Response,
-    routing::{delete, get, post},
+    routing::{delete, get, patch, post},
 };
 use futures::{SinkExt, StreamExt};
 use reqwest::StatusCode;
@@ -29,7 +29,8 @@ use crate::{
 };
 
 pub use vizier_core::service::workspaces::{
-    AddMemberRequest, AuthorView, CommandView, CommandsView, CreateTopicRequest,
+    AddMemberRequest, AgentCandidate, AuthorView, CandidateGroup, Candidates, CommandView,
+    CommandsView, CreateTopicRequest, PersonCandidate, RenameRequest, SetRoleRequest,
     CreateWorkspaceRequest, EntryView, MemberView, MentionView, PostRequest, PostResponse,
     SkillView, StepView, StopResponse, Timeline, TopicSummary, WorkspaceDetail, WorkspaceSummary,
 };
@@ -37,10 +38,12 @@ pub use vizier_core::service::workspaces::{
 pub fn workspaces() -> Router<HTTPState> {
     Router::new()
         .route("/", get(list).post(create))
-        .route("/{id}", get(detail))
+        .route("/{id}", get(detail).patch(rename).delete(delete_workspace))
+        .route("/{id}/candidates", get(candidates))
         .route("/{id}/topics", post(create_topic))
+        .route("/{id}/topics/{tid}", patch(rename_topic).delete(delete_topic))
         .route("/{id}/members", post(add_member))
-        .route("/{id}/members/{kind}/{handle}", delete(remove_member))
+        .route("/{id}/members/{kind}/{handle}", delete(remove_member).patch(set_role))
         .route("/{id}/commands", get(commands))
         .route("/{id}/stop", post(stop_all))
         .route("/{id}/topics/{tid}/entries", get(timeline).post(post_entry))
@@ -181,6 +184,142 @@ pub async fn remove_member(
         service::remove_member(&svc(&state), &user, &id, &kind, &handle).await,
         StatusCode::OK,
     )
+}
+
+#[utoipa::path(
+    patch,
+    path = "/workspaces/{id}",
+    params(("id" = String, Path, description = "Workspace ID")),
+    request_body = RenameRequest,
+    responses(
+        (status = 200, description = "Renamed", body = APIResponse<WorkspaceSummary>),
+        (status = 403, description = "Not an owner"),
+        (status = 404, description = "No such Workspace, or the caller has no standing in it"),
+        (status = 409, description = "`name_in_use`"),
+        (status = 422, description = "`invalid_name`")
+    )
+)]
+pub async fn rename(
+    State(state): State<HTTPState>,
+    Extension(user): Extension<Principal>,
+    Path(id): Path<String>,
+    Json(body): Json<RenameRequest>,
+) -> Response {
+    respond(service::rename(&svc(&state), &user, &id, body).await, StatusCode::OK)
+}
+
+#[utoipa::path(
+    delete,
+    path = "/workspaces/{id}",
+    params(("id" = String, Path, description = "Workspace ID")),
+    responses(
+        (status = 200, description = "Deleted, with turns stopped first"),
+        (status = 403, description = "Not an owner"),
+        (status = 404, description = "No such Workspace, or the caller has no standing in it")
+    )
+)]
+pub async fn delete_workspace(
+    State(state): State<HTTPState>,
+    Extension(user): Extension<Principal>,
+    Path(id): Path<String>,
+) -> Response {
+    respond(service::delete(&svc(&state), &user, &id).await, StatusCode::OK)
+}
+
+#[utoipa::path(
+    patch,
+    path = "/workspaces/{id}/topics/{tid}",
+    params(("id" = String, Path, description = "Workspace ID"), ("tid" = String, Path, description = "Topic ID")),
+    request_body = RenameRequest,
+    responses(
+        (status = 200, description = "Renamed", body = APIResponse<TopicSummary>),
+        (status = 403, description = "Not an owner"),
+        (status = 404, description = "No such Workspace or topic"),
+        (status = 409, description = "`name_in_use`"),
+        (status = 422, description = "`invalid_name`")
+    )
+)]
+pub async fn rename_topic(
+    State(state): State<HTTPState>,
+    Extension(user): Extension<Principal>,
+    Path((id, tid)): Path<(String, String)>,
+    Json(body): Json<RenameRequest>,
+) -> Response {
+    respond(service::rename_topic(&svc(&state), &user, &id, &tid, body).await, StatusCode::OK)
+}
+
+#[utoipa::path(
+    delete,
+    path = "/workspaces/{id}/topics/{tid}",
+    params(("id" = String, Path, description = "Workspace ID"), ("tid" = String, Path, description = "Topic ID")),
+    responses(
+        (status = 200, description = "Deleted"),
+        (status = 403, description = "Not an owner"),
+        (status = 404, description = "No such Workspace or topic"),
+        (status = 409, description = "`last_topic`")
+    )
+)]
+pub async fn delete_topic(
+    State(state): State<HTTPState>,
+    Extension(user): Extension<Principal>,
+    Path((id, tid)): Path<(String, String)>,
+) -> Response {
+    respond(service::delete_topic(&svc(&state), &user, &id, &tid).await, StatusCode::OK)
+}
+
+#[utoipa::path(
+    patch,
+    path = "/workspaces/{id}/members/{kind}/{handle}",
+    params(
+        ("id" = String, Path, description = "Workspace ID"),
+        ("kind" = String, Path, description = "`person`"),
+        ("handle" = String, Path, description = "Username")
+    ),
+    request_body = SetRoleRequest,
+    responses(
+        (status = 200, description = "Role changed", body = APIResponse<MemberView>),
+        (status = 403, description = "Not an owner"),
+        (status = 404, description = "No such Workspace or member"),
+        (status = 409, description = "`last_owner`")
+    )
+)]
+pub async fn set_role(
+    State(state): State<HTTPState>,
+    Extension(user): Extension<Principal>,
+    Path((id, kind, handle)): Path<(String, String, String)>,
+    Json(body): Json<SetRoleRequest>,
+) -> Response {
+    if kind != "person" {
+        return refusal(ServiceError::invalid("only a person has a role"));
+    }
+    respond(service::set_role(&svc(&state), &user, &id, &handle, body).await, StatusCode::OK)
+}
+
+#[derive(Debug, Deserialize, utoipa::IntoParams)]
+pub struct CandidatesQuery {
+    /// Matches name, username or agent id, case-insensitively.
+    pub q: String,
+    /// Per group; default 5, at most 20.
+    pub limit: Option<usize>,
+}
+
+#[utoipa::path(
+    get,
+    path = "/workspaces/{id}/candidates",
+    params(("id" = String, Path, description = "Workspace ID"), CandidatesQuery),
+    responses(
+        (status = 200, description = "Agents and people to add, addable first", body = APIResponse<Candidates>),
+        (status = 403, description = "Not an owner"),
+        (status = 404, description = "No such Workspace, or the caller has no standing in it")
+    )
+)]
+pub async fn candidates(
+    State(state): State<HTTPState>,
+    Extension(user): Extension<Principal>,
+    Path(id): Path<String>,
+    Query(query): Query<CandidatesQuery>,
+) -> Response {
+    respond(service::candidates(&svc(&state), &user, &id, &query.q, query.limit).await, StatusCode::OK)
 }
 
 #[derive(Debug, Deserialize, utoipa::IntoParams)]

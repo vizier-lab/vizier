@@ -16,7 +16,7 @@ use crate::{
     },
     storage::{
         agent::AgentStorage, notification::NotificationStorage, user::UserStorage,
-        workspace::WorkspaceStorage,
+        turn::TurnStorage, workspace::WorkspaceStorage,
     },
     transport::WorkspaceEvent,
     workspaces::{
@@ -483,6 +483,15 @@ pub async fn remove_member(
         .remove_member(&workspace.id, member.kind, &member.handle)
         .await
         .map_err(internal)?;
+    if member.kind == MemberKind::Agent {
+        // Its running and queued turns end now (SC-006); its record of each topic stays with it.
+        let hub = Hub::from(s.deps());
+        for topic in storage.list_topics(&workspace.id).await.map_err(internal)? {
+            let session = workspaces::session_of(&member.handle, &workspace.id, &topic.id);
+            let _ = storage.cancel_session_turns(&session).await;
+            workspaces::abort(&hub, &session).await;
+        }
+    }
     s.deps().transport.publish_workspace_event(WorkspaceEvent::MemberChanged {
         workspace_id: workspace.id,
         removed: Some((member.kind, member.handle)),
@@ -490,6 +499,258 @@ pub async fn remove_member(
     Ok(())
 }
 
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+pub struct RenameRequest {
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+pub struct SetRoleRequest {
+    pub role: String,
+}
+
+fn name_conflict(e: anyhow::Error, what: &str) -> ServiceError {
+    if crate::storage::sql::is_constraint_violation(&e) {
+        conflict("name_in_use", format!("A {what} with that name already exists"))
+    } else {
+        internal(e)
+    }
+}
+
+pub async fn rename(
+    s: &Services,
+    who: &Principal,
+    workspace_id: &str,
+    request: RenameRequest,
+) -> Result<WorkspaceSummary, ServiceError> {
+    let (workspace, standing) = resolve_manager(s, who, workspace_id).await?;
+    let name = names::normalize(&request.name);
+    names::validate(&name).map_err(|e| name_error("Workspace", e))?;
+    s.deps()
+        .storage
+        .rename_workspace(&workspace.id, &name, crate::time::now().timestamp_millis())
+        .await
+        .map_err(|e| name_conflict(e, "Workspace"))?;
+    let renamed = Workspace { name, ..workspace };
+    summary(s, who, &renamed, standing).await
+}
+
+/// Deletes a Workspace with its topics, messages and each member agent's record of it.
+/// Turns are stopped first, so none writes into a conversation being removed.
+pub async fn delete(s: &Services, who: &Principal, workspace_id: &str) -> Result<(), ServiceError> {
+    let (workspace, _) = resolve_manager(s, who, workspace_id).await?;
+    let storage = &s.deps().storage;
+    let hub = Hub::from(s.deps());
+    workspaces::stop_all(&hub, &workspace.id).await.map_err(internal)?;
+    let topics = storage.list_topics(&workspace.id).await.map_err(internal)?;
+    let agents: Vec<String> = storage
+        .list_members(&workspace.id)
+        .await
+        .map_err(internal)?
+        .into_iter()
+        .filter(|m| m.kind == MemberKind::Agent)
+        .map(|m| m.handle)
+        .collect();
+    for agent in &agents {
+        for topic in &topics {
+            forget_session(s, &workspaces::session_of(agent, &workspace.id, &topic.id)).await;
+        }
+    }
+    let _ = storage.delete_workspace_notifications(&workspace.id, None).await;
+    storage.delete_workspace(&workspace.id).await.map_err(internal)?;
+    s.deps().transport.publish_workspace_event(WorkspaceEvent::Deleted { workspace_id: workspace.id });
+    Ok(())
+}
+
+/// Removes one agent's conversation for a topic: files, history and session row.
+async fn forget_session(s: &Services, session: &crate::schema::VizierSession) {
+    use crate::storage::{session::SessionStorage, session_file::SessionFileStorage};
+    let storage = &s.deps().storage;
+    let _ = storage.cancel_session_turns(session).await;
+    let _ = storage.delete_session_files(session).await;
+    let _ = storage
+        .delete_session(session.0.clone(), session.1.clone(), session.2.clone().unwrap_or_default())
+        .await;
+}
+
+pub async fn set_role(
+    s: &Services,
+    who: &Principal,
+    workspace_id: &str,
+    handle: &str,
+    request: SetRoleRequest,
+) -> Result<MemberView, ServiceError> {
+    let (workspace, standing) = resolve_manager(s, who, workspace_id).await?;
+    let storage = &s.deps().storage;
+    let role = WorkspaceRole::parse(&request.role)
+        .ok_or_else(|| ServiceError::invalid("role must be owner or member"))?;
+    let member = storage
+        .get_member(&workspace.id, handle)
+        .await
+        .map_err(internal)?
+        .filter(|m| m.kind == MemberKind::Person)
+        .ok_or_else(|| ServiceError::NotFound("no such person in this Workspace".into()))?;
+    if member.role == WorkspaceRole::Owner && role != WorkspaceRole::Owner && !standing.can_orphan() {
+        let owners = storage
+            .list_members(&workspace.id)
+            .await
+            .map_err(internal)?
+            .iter()
+            .filter(|m| m.kind == MemberKind::Person && m.role == WorkspaceRole::Owner)
+            .count();
+        if owners <= 1 {
+            return Err(conflict("last_owner", "A Workspace needs at least one owner"));
+        }
+    }
+    storage.set_member_role(&workspace.id, handle, role).await.map_err(internal)?;
+    s.deps()
+        .transport
+        .publish_workspace_event(WorkspaceEvent::MemberChanged { workspace_id: workspace.id.clone(), removed: None });
+    member_view(s, &WorkspaceMember { role, ..member }).await
+}
+
+pub async fn rename_topic(
+    s: &Services,
+    who: &Principal,
+    workspace_id: &str,
+    topic_id: &str,
+    request: RenameRequest,
+) -> Result<TopicSummary, ServiceError> {
+    let (workspace, _) = resolve_manager(s, who, workspace_id).await?;
+    let topic = topic_of(s, &workspace, topic_id).await?;
+    let name = names::normalize(&request.name);
+    names::validate(&name).map_err(|e| name_error("topic", e))?;
+    s.deps()
+        .storage
+        .rename_topic(&workspace.id, &topic.id, &name)
+        .await
+        .map_err(|e| name_conflict(e, "topic"))?;
+    Ok(TopicSummary { id: topic.id, name, unread: 0 })
+}
+
+pub async fn delete_topic(
+    s: &Services,
+    who: &Principal,
+    workspace_id: &str,
+    topic_id: &str,
+) -> Result<(), ServiceError> {
+    let (workspace, _) = resolve_manager(s, who, workspace_id).await?;
+    let topic = topic_of(s, &workspace, topic_id).await?;
+    let storage = &s.deps().storage;
+    let topics = storage.list_topics(&workspace.id).await.map_err(internal)?;
+    if topics.len() <= 1 {
+        return Err(conflict("last_topic", "A Workspace needs at least one topic"));
+    }
+    let hub = Hub::from(s.deps());
+    for member in storage.list_members(&workspace.id).await.map_err(internal)? {
+        if member.kind == MemberKind::Agent {
+            let session = workspaces::session_of(&member.handle, &workspace.id, &topic.id);
+            workspaces::abort(&hub, &session).await;
+            forget_session(s, &session).await;
+        }
+    }
+    let _ = storage.delete_workspace_notifications(&workspace.id, Some(&topic.id)).await;
+    storage.delete_topic(&workspace.id, &topic.id).await.map_err(internal)?;
+    Ok(())
+}
+
+// --- searching for who to add -------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+pub struct AgentCandidate {
+    pub id: String,
+    pub name: String,
+    pub member: bool,
+    pub addable: bool,
+    /// `cannot_edit` for an agent the caller may see but not add.
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+pub struct PersonCandidate {
+    pub username: String,
+    pub name: String,
+    pub member: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+pub struct CandidateGroup<T> {
+    pub items: Vec<T>,
+    /// How many more matched than were returned.
+    pub more: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+pub struct Candidates {
+    pub agents: CandidateGroup<AgentCandidate>,
+    pub people: CandidateGroup<PersonCandidate>,
+}
+
+pub const DEFAULT_CANDIDATES: usize = 5;
+pub const MAX_CANDIDATES: usize = 20;
+
+/// 0 when the text starts the haystack, 1 when it is inside, none when absent.
+fn match_rank(haystacks: &[&str], q: &str) -> Option<u8> {
+    haystacks
+        .iter()
+        .filter_map(|h| {
+            let h = h.to_lowercase();
+            if h.starts_with(q) { Some(0) } else if h.contains(q) { Some(1) } else { None }
+        })
+        .min()
+}
+
+fn take<T>(mut ranked: Vec<(u8, T)>, limit: usize) -> CandidateGroup<T> {
+    ranked.sort_by_key(|(rank, _)| *rank);
+    let more = ranked.len().saturating_sub(limit);
+    CandidateGroup { items: ranked.into_iter().take(limit).map(|(_, v)| v).collect(), more }
+}
+
+pub async fn candidates(
+    s: &Services,
+    who: &Principal,
+    workspace_id: &str,
+    q: &str,
+    limit: Option<usize>,
+) -> Result<Candidates, ServiceError> {
+    let (workspace, _) = resolve_manager(s, who, workspace_id).await?;
+    let q = q.trim().to_lowercase();
+    if q.is_empty() {
+        return Err(ServiceError::invalid("q is required"));
+    }
+    let limit = limit.unwrap_or(DEFAULT_CANDIDATES).clamp(1, MAX_CANDIDATES);
+    let storage = &s.deps().storage;
+    let members = storage.list_members(&workspace.id).await.map_err(internal)?;
+    let is_member = |handle: &str| members.iter().any(|m| m.handle == handle);
+
+    // Order: addable, then not addable, then members; starts-with before contains within each.
+    let mut agents = Vec::new();
+    for (id, config) in storage.list_agents().await.map_err(internal)? {
+        if !crate::access::can_view_agent(who, &config) {
+            continue;
+        }
+        let Some(rank) = match_rank(&[&id, &config.name], &q) else { continue };
+        let member = is_member(&id);
+        let addable = !member && can_edit_agent(who, &config);
+        let reason = (!member && !addable).then(|| "cannot_edit".to_string());
+        let tier = if addable { 0 } else if !member { 1 } else { 2 };
+        agents.push((tier * 2 + rank, AgentCandidate { id, name: config.name, member, addable, reason }));
+    }
+    let mut people = Vec::new();
+    for user in storage.list_users().await.map_err(internal)? {
+        let Some(rank) = match_rank(&[&user.username], &q) else { continue };
+        let member = is_member(&user.username);
+        people.push((u8::from(member) * 2 + rank, PersonCandidate { name: user.username.clone(), username: user.username, member }));
+    }
+    Ok(Candidates { agents: take(agents, limit), people: take(people, limit) })
+}
 
 // --- the conversation --------------------------------------------------------------------------
 

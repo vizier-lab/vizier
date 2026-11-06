@@ -377,7 +377,7 @@ async fn busy_sessions(hub: &Hub, workspace_id: &str) -> Vec<VizierSession> {
 
 /// Aborts the turn running in a session: the request that aborts a turn today, which is also what
 /// `AgentsClient::abort` sends.
-async fn abort(hub: &Hub, session: &VizierSession) {
+pub(crate) async fn abort(hub: &Hub, session: &VizierSession) {
     let request = VizierRequest {
         timestamp: crate::time::now(),
         user: "system".into(),

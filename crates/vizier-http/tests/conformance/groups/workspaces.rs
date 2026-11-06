@@ -21,6 +21,12 @@ pub fn vectors() -> Vec<Vector> {
             Some(json!({ "kind": "agent", "handle": "agent-a" })),
         ),
         v("DELETE", "/workspaces/missing/members/agent/agent-a", None),
+        v("PATCH", "/workspaces/missing", Some(json!({ "name": "renamed" }))),
+        v("DELETE", "/workspaces/missing", None),
+        v("GET", "/workspaces/missing/candidates?q=al", None),
+        v("PATCH", "/workspaces/missing/topics/t1", Some(json!({ "name": "renamed" }))),
+        v("DELETE", "/workspaces/missing/topics/t1", None),
+        v("PATCH", "/workspaces/missing/members/person/someone", Some(json!({ "role": "owner" }))),
         // The conversation routes answer the same for a Workspace that is missing and one the
         // caller has no standing in.
         v("GET", "/workspaces/missing/commands", None),

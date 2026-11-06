@@ -207,7 +207,7 @@ description: "Task list for the Workspace channel and mid-turn messages"
 - [X] T083 [US3] Add the visibility clause `workspace_id IN (my Workspaces) AND author != me` to list, counts, per-id read and mark-all in `core/storage/sqlite/notification.rs`, with tests for author, member, non-member and removed member (research R20)
 - [X] T084 [US3] Apply the same rule in `judge` in `core/service/inbox.rs`, and fill the title and excerpt for Workspace rows
 - [X] T085 [US3] Add `POST /workspaces/{id}/topics/{tid}/read` in `http/api/v1/workspaces.rs` and `core/service/workspaces.rs`, return `unread` per Workspace and topic from `GET /workspaces`, and add its vector
-- [ ] T086 [US3] Delete a topic's or Workspace's notifications with it in `core/service/workspaces.rs`
+- [X] T086 [US3] Delete a topic's or Workspace's notifications with it in `core/service/workspaces.rs`
 - [ ] T087 [US3] Link a row to its topic and auto-mark read while viewing in `webui/app/stores/notifications.ts` and `webui/app/lib/notifications.ts`, and show the row in `webui/app/screens/notifications/NotificationsPopup.tsx` with the author's sigil or avatar
 - [ ] T088 [US3] Update rail and sidebar counts from frames in `webui/app/stores/workspaces.ts`, and highlight a mention of the signed-in person in `webui/app/screens/workspaces/WorkspaceTimeline.tsx`
 - [X] T089 [US3] Extend `scripts/workspace-e2e.mjs` with quickstart §10 and run it
@@ -222,11 +222,11 @@ description: "Task list for the Workspace channel and mid-turn messages"
 
 **Independent Test**: Quickstart §1. Non-members get `404` everywhere, removal takes effect at once, and adding starts from search.
 
-- [ ] T090 [US4] Add rename, delete, role change and remove to `core/service/workspaces.rs` and `http/api/v1/workspaces.rs`: `409 name_in_use`, `409 last_owner`, `409 last_topic`, topic rename and delete, stopping turns first, and deleting all agents' sessions by channel slug per `specs/053-workspace-channel/data-model.md`
-- [ ] T091 [US4] Close a removed person's sockets and abort a removed agent's turns in `core/workspaces/mod.rs` and `http/workspace_topic.rs` (SC-006)
-- [ ] T092 [US4] Remove `workspace_member` and `workspace_read` rows in `delete_agent`, keeping entries with `author_name`, and return `available: false` on timeline authors
-- [ ] T093 [US4] Add `GET /workspaces/{id}/candidates` in `core/service/workspaces.rs` and `http/api/v1/workspaces.rs` per research R15, with name search in `core/storage/user.rs`, capped results, and addable first
-- [ ] T094 [US4] Add vectors for each new route, including `candidates` with an agent the caller can't view, in `crates/vizier-http/tests/conformance/groups/workspaces.rs`, and pin in `crates/vizier-http/tests/` that someone who can view an agent gets no Workspace session content through its conversation routes
+- [X] T090 [US4] Add rename, delete, role change and remove to `core/service/workspaces.rs` and `http/api/v1/workspaces.rs`: `409 name_in_use`, `409 last_owner`, `409 last_topic`, topic rename and delete, stopping turns first, and deleting all agents' sessions by channel slug per `specs/053-workspace-channel/data-model.md`
+- [X] T091 [US4] Close a removed person's sockets and abort a removed agent's turns in `core/workspaces/mod.rs` and `http/workspace_topic.rs` (SC-006)
+- [X] T092 [US4] Remove `workspace_member` and `workspace_read` rows in `delete_agent`, keeping entries with `author_name`, and return `available: false` on timeline authors
+- [X] T093 [US4] Add `GET /workspaces/{id}/candidates` in `core/service/workspaces.rs` and `http/api/v1/workspaces.rs` per research R15, with name search in `core/storage/user.rs`, capped results, and addable first
+- [X] T094 [US4] Add vectors for each new route, including `candidates` with an agent the caller can't view, in `crates/vizier-http/tests/conformance/groups/workspaces.rs`, and pin in `crates/vizier-http/tests/` that someone who can view an agent gets no Workspace session content through its conversation routes
 - [ ] T095 [P] [US4] Add `MemberSearch` in `design/src/components/MemberSearch/`, with stories, built like `Picker`
 - [ ] T096 [US4] Add the members dialog in `webui/app/screens/workspaces/MembersDialog.tsx`: search first, member list when empty, fixed height, the FR-005 warning before adding an agent, keyboard, and dismissal on ×, Escape and an outside press
 - [ ] T097 [US4] Add `webui/app/screens/workspaces/NewWorkspaceDialog.tsx`, the empty topic state, and topic create and rename, and wire `CreateChooser` in `webui/app/screens/shell/ShellRail.tsx`, skipping it when the person may create only one, and hiding `+` when neither

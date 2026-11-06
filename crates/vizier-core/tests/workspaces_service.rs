@@ -305,3 +305,80 @@ async fn a_member_is_notified_about_an_agent_they_cannot_view() {
     ws::post(&w.s, &w.rafi, &id, &topic, ws::PostRequest { text: "@alpha status?".into(), files: vec![] }).await.unwrap();
     assert_eq!(unread_of(&w, &w.eve).await, 1);
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_workspace_and_its_topics_can_be_renamed_and_deleted_but_never_emptied() {
+    use vizier_core::service::workspaces::RenameRequest;
+    let w = world().await;
+    let id = ops(&w).await;
+    ws::add_member(&w.s, &w.rafi, &id, add("agent", "alpha")).await.unwrap();
+
+    // A member who is not an owner can neither rename nor delete.
+    ws::add_member(&w.s, &w.rafi, &id, add("person", "maya")).await.unwrap();
+    let denied = ws::rename(&w.s, &w.maya, &id, RenameRequest { name: "x".into() }).await.unwrap_err();
+    assert_eq!(denied.status(), 403);
+    assert_eq!(ws::delete(&w.s, &w.maya, &id).await.unwrap_err().status(), 403);
+
+    let renamed = ws::rename(&w.s, &w.rafi, &id, RenameRequest { name: "Ops-2".into() }).await.unwrap();
+    assert_eq!(renamed.name, "ops-2");
+
+    // The only topic stays; a second one can go.
+    let general = renamed.topics[0].id.clone();
+    let last = ws::delete_topic(&w.s, &w.rafi, &id, &general).await.unwrap_err();
+    assert_eq!((last.status(), code(&last)), (409, Some("last_topic")));
+    let extra = ws::create_topic(&w.s, &w.rafi, &id, CreateTopicRequest { name: "daily".into() }).await.unwrap();
+    let clash = ws::rename_topic(&w.s, &w.rafi, &id, &extra.id, RenameRequest { name: "GENERAL".into() })
+        .await
+        .unwrap_err();
+    assert_eq!((clash.status(), code(&clash)), (409, Some("name_in_use")));
+    ws::delete_topic(&w.s, &w.rafi, &id, &extra.id).await.unwrap();
+
+    ws::delete(&w.s, &w.rafi, &id).await.unwrap();
+    assert_eq!(ws::detail(&w.s, &w.rafi, &id).await.unwrap_err().status(), 404);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_last_owner_keeps_the_role_and_a_promoted_member_can_share_it() {
+    use vizier_core::service::workspaces::SetRoleRequest;
+    let w = world().await;
+    let id = ops(&w).await;
+    ws::add_member(&w.s, &w.rafi, &id, add("person", "maya")).await.unwrap();
+    let stuck = ws::set_role(&w.s, &w.rafi, &id, "rafi", SetRoleRequest { role: "member".into() })
+        .await
+        .unwrap_err();
+    assert_eq!((stuck.status(), code(&stuck)), (409, Some("last_owner")));
+    let promoted = ws::set_role(&w.s, &w.rafi, &id, "maya", SetRoleRequest { role: "owner".into() })
+        .await
+        .unwrap();
+    assert_eq!(promoted.role, "owner");
+    ws::set_role(&w.s, &w.rafi, &id, "rafi", SetRoleRequest { role: "member".into() }).await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn candidates_lead_with_who_can_be_added_and_hide_what_the_caller_cannot_see() {
+    let w = world().await;
+    let id = ops(&w).await;
+    // rafi may see and edit alpha, and cannot see beta at all.
+    let found = ws::candidates(&w.s, &w.rafi, &id, "A", None).await.unwrap();
+    let ids: Vec<_> = found.agents.items.iter().map(|a| a.id.as_str()).collect();
+    assert_eq!(ids, ["alpha"]);
+    assert!(found.agents.items[0].addable);
+    assert!(found.people.items.iter().any(|p| p.username == "rafi" && p.member));
+    // Once added, the same agent reads as a member and no longer addable.
+    ws::add_member(&w.s, &w.rafi, &id, add("agent", "alpha")).await.unwrap();
+    let again = ws::candidates(&w.s, &w.rafi, &id, "alp", None).await.unwrap();
+    assert!(again.agents.items[0].member && !again.agents.items[0].addable);
+    // Only an owner searches.
+    assert_eq!(ws::candidates(&w.s, &w.eve, &id, "a", None).await.unwrap_err().status(), 404);
+    assert!(ws::candidates(&w.s, &w.rafi, &id, "  ", None).await.is_err());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn deleting_an_agent_removes_it_from_every_workspace_but_keeps_the_conversation() {
+    let w = world().await;
+    let id = ops(&w).await;
+    ws::add_member(&w.s, &w.rafi, &id, add("agent", "alpha")).await.unwrap();
+    w.s.deps().storage.delete_agent("alpha").await.unwrap();
+    let detail = ws::detail(&w.s, &w.rafi, &id).await.unwrap();
+    assert!(detail.members.iter().all(|m| m.handle != "alpha"));
+}
