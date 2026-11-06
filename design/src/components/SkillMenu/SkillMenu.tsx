@@ -21,7 +21,7 @@ export type SkillMenuProps = {
  */
 export function SkillMenu({ items, query, active, onPick, id, className, ...rest }: SkillMenuProps) {
   return (
-    <div className={cx("flex flex-col rounded-lg border border-border-strong bg-surface p-6 shadow-popover", className)} {...rest}>
+    <div className={cx("flex flex-col rounded-lg border border-border-strong surface-float p-6 shadow-popover", className)} {...rest}>
       <span className="px-8 pt-4 pb-4 type-label uppercase text-faint">Commands and skills</span>
       {items.length === 0 ? (
         <p id={id} role="status" className="px-8 py-8 type-small text-muted">

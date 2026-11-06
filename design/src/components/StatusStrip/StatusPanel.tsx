@@ -43,7 +43,7 @@ export function StatusPanel({
       aria-label={typeof title === "string" ? title : undefined}
       style={width === undefined ? undefined : { width }}
       className={cx(
-        "flex max-h-436 flex-col overflow-hidden rounded-xl border border-border-strong bg-surface shadow-popover",
+        "flex max-h-436 flex-col overflow-hidden rounded-xl border border-border-strong surface-float shadow-popover",
         width === undefined && "w-full",
         className,
       )}

@@ -336,7 +336,7 @@ export function MemoryGraph({ nodes, edges, selectedId, onSelect, onOpen, captio
         <div
           role="group"
           aria-label="Graph settings"
-          className="absolute top-52 right-12 z-10 flex w-264 max-w-[calc(100%-24px)] flex-col gap-14 rounded-lg border border-border-strong bg-surface p-14 shadow-lg"
+          className="absolute top-52 right-12 z-10 flex w-264 max-w-[calc(100%-24px)] flex-col gap-14 rounded-lg border border-border-strong surface-float p-14 shadow-popover"
         >
           <div className="-mt-4 -mr-6 flex items-center justify-between gap-8">
             <span className="type-body-strong text-fg">Graph settings</span>

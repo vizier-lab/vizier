@@ -94,7 +94,7 @@ export function EmojiPicker({ onSelect, recent = DEFAULT_RECENT, open: openProp,
         <div
           role="dialog"
           aria-label="Add reaction"
-          className={cx("absolute top-full left-0 z-30 mt-6 flex w-304 flex-col overflow-hidden rounded-xl border border-border-strong bg-surface shadow-popover", className)}
+          className={cx("absolute top-full left-0 z-30 mt-6 flex w-304 flex-col overflow-hidden rounded-xl border border-border-strong surface-float shadow-popover", className)}
         >
           <label className="flex items-center gap-8 border-b border-border px-12 py-10">
             <Icon name="search" size={14} tone="faint" />

@@ -232,3 +232,11 @@
     display: none;
   }
 }
+
+/* The one look of every popup, dropdown and dialog: the surface colour at 80%
+   over a blurred backdrop. Pair it with a border and `shadow-popover`/`shadow-dialog`. */
+@utility surface-float {
+  background-color: color-mix(in srgb, var(--vz-surface) 80%, transparent);
+  -webkit-backdrop-filter: blur(16px) saturate(1.4);
+  backdrop-filter: blur(16px) saturate(1.4);
+}

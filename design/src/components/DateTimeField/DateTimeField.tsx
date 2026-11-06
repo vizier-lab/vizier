@@ -106,7 +106,7 @@ export function DateTimeField({ label, helper, value, onChange, min, invalid, di
           <Icon name="calendar" size={15} tone="faint" />
         </button>
         {open && (
-          <div role="dialog" aria-label="Choose date and time" onKeyDown={onKey} className="absolute top-full left-0 z-30 mt-6 flex w-296 flex-col gap-10 rounded-xl border border-border-strong bg-surface p-12 shadow-popover">
+          <div role="dialog" aria-label="Choose date and time" onKeyDown={onKey} className="absolute top-full left-0 z-30 mt-6 flex w-296 flex-col gap-10 rounded-xl border border-border-strong surface-float p-12 shadow-popover">
             <div className="flex items-center justify-between">
               <button type="button" aria-label="Previous month" onClick={() => setCursor(addMonths(cursor, -1))} className="flex size-28 items-center justify-center rounded-sm text-muted hover:bg-raised hover:text-fg">
                 <Icon name="chevron-left" size={14} />

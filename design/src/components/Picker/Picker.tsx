@@ -189,8 +189,8 @@ export function Picker<T>({
       // The inline panel is page furniture: it does not arrive, so it does not animate.
       {...(trigger ? popoverMotion : {})}
       className={cx(
-        "flex flex-col overflow-hidden rounded-xl border border-border-strong bg-surface",
-        trigger && "shadow-popover",
+        "flex flex-col overflow-hidden rounded-xl border border-border-strong",
+        trigger ? "surface-float shadow-popover" : "bg-surface",
         className,
       )}
       style={{ width }}

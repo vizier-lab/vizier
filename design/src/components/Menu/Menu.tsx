@@ -36,7 +36,7 @@ export function Menu({ search, className, children, onKeyDown, "aria-label": lab
     <div
       ref={ref}
       onKeyDown={move}
-      className={cx("flex w-252 flex-col rounded-lg border border-border-strong bg-surface p-6 shadow-popover", className)}
+      className={cx("flex w-252 flex-col rounded-lg border border-border-strong surface-float p-6 shadow-popover", className)}
       {...rest}
     >
       {search && (

@@ -20,7 +20,7 @@ export type AgentStartingCardProps = {
 /** An agent starting up (X58): what it's doing, and how far along. */
 export function AgentStartingCard({ name, step, percent, detail, eta, downloads, onDismiss, className, ...rest }: AgentStartingCardProps) {
   return (
-    <div role="status" className={cx("flex w-full max-w-324 flex-col gap-8 rounded-lg border border-border-strong bg-surface px-16 py-14 shadow-popover", className)} {...rest}>
+    <div role="status" className={cx("flex w-full max-w-324 flex-col gap-8 rounded-lg border border-border-strong surface-float px-16 py-14 shadow-popover", className)} {...rest}>
       <div className="flex items-center gap-8">
         <span aria-hidden className="flex gap-4">
           {["bg-muted", "bg-muted", "bg-live"].map((c, i) => (

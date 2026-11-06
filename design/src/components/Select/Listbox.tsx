@@ -67,7 +67,7 @@ export function ListboxPopup<V extends string>({
         aria-label={label}
         onKeyDown={onKeyDown}
         className={cx(
-          "flex max-h-[inherit] min-w-full flex-col overflow-y-auto [&>*]:shrink-0 rounded-lg border border-border-strong bg-surface p-6 shadow-popover",
+          "flex max-h-[inherit] min-w-full flex-col overflow-y-auto [&>*]:shrink-0 rounded-lg border border-border-strong surface-float p-6 shadow-popover",
           className,
         )}
         style={{ maxHeight: "inherit" }}
