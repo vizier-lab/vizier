@@ -6,7 +6,7 @@ use arc_swap::ArcSwap;
 use tokio::sync::Mutex;
 
 use anyhow::Result;
-use chrono::{DateTime, Utc};
+use chrono::Local;
 use rand::{RngExt, SeedableRng, rngs::StdRng};
 use tokio::time::{Instant, timeout};
 use tracing::Instrument;
@@ -655,7 +655,7 @@ impl VizierAgent {
                 crate::agents::steps::MAX_RESUMES_WITHOUT_PROGRESS
             );
             let response = VizierResponse {
-                timestamp: chrono::Utc::now(),
+                timestamp: crate::time::now(),
                 content: VizierResponseContent::Error {
                     kind: ErrorKind::classify(&message),
                     message,
@@ -690,7 +690,7 @@ impl VizierAgent {
                 Err(error) => {
                     let message = format!("The selected model is unavailable: {error}");
                     let response = VizierResponse {
-                        timestamp: Utc::now(),
+                        timestamp: crate::time::now(),
                         content: VizierResponseContent::Error {
                             kind: ErrorKind::ProviderUnavailable,
                             message,
@@ -749,7 +749,7 @@ impl VizierAgent {
             }
         }
 
-        let mut rng = StdRng::seed_from_u64(Utc::now().timestamp() as u64);
+        let mut rng = StdRng::seed_from_u64(crate::time::now().timestamp() as u64);
         let initiative_factor = rng.random_range(0_f32..=1_f32);
 
         // The one snapshot this turn uses, system prompt and every tool call alike (G2).
@@ -934,7 +934,7 @@ impl VizierAgent {
         if let VizierRequestContent::SilentRead(_) = req.content {
             if initiative_factor > self.config.silent_read_initiative_chance {
                 return Ok(VizierResponse {
-                    timestamp: chrono::Utc::now(),
+                    timestamp: crate::time::now(),
                     content: VizierResponseContent::Empty,
                     attachments: vec![],
                     ..Default::default()
@@ -1044,7 +1044,7 @@ impl VizierAgent {
                 self.save_history_or_log(
                     &session,
                     SessionHistoryContent::Response(VizierResponse {
-                        timestamp: chrono::Utc::now(),
+                        timestamp: crate::time::now(),
                         content: VizierResponseContent::Error {
                             kind,
                             message: err_str,
@@ -1084,7 +1084,7 @@ impl VizierAgent {
 
         // Save response with full stats and attachments
         let mut response = VizierResponse {
-            timestamp: chrono::Utc::now(),
+            timestamp: crate::time::now(),
             content: VizierResponseContent::Message {
                 content: output,
                 stats: Some(stats),
@@ -1397,7 +1397,7 @@ impl VizierAgent {
                         tool_timeout_response(&function_name, *self.config.tools.timeout)
                     }
                     Ok(Err(err)) => VizierResponse {
-                        timestamp: Utc::now(),
+                        timestamp: crate::time::now(),
                         content: VizierResponseContent::ToolResponse {
                             response: serde_json::Value::String(err.to_string()),
                         },
@@ -1923,7 +1923,7 @@ impl VizierAgent {
             .await?;
 
         let mut response = VizierResponse {
-            timestamp: chrono::Utc::now(),
+            timestamp: crate::time::now(),
             content: VizierResponseContent::Message {
                 content: output,
                 stats: Some(stats),
@@ -2082,7 +2082,7 @@ impl VizierAgent {
                             tool_timeout_response(&function_name, *self.config.tools.timeout)
                         }
                         Ok(Err(err)) => VizierResponse {
-                            timestamp: Utc::now(),
+                            timestamp: crate::time::now(),
                             content: VizierResponseContent::ToolResponse {
                                 response: serde_json::Value::String(err.to_string()),
                             },
@@ -2342,7 +2342,7 @@ fn answer_without_tool_calls(choices: Vec<AssistantPart>) -> Vec<AssistantPart> 
 
 fn tool_timeout_response(function_name: &str, limit: std::time::Duration) -> VizierResponse {
     VizierResponse {
-        timestamp: Utc::now(),
+        timestamp: crate::time::now(),
         content: VizierResponseContent::ToolResponse {
             response: serde_json::Value::String(format!(
                 "error: tool '{function_name}' timed out after {limit:?} and was abandoned; \

@@ -1,8 +1,9 @@
+use crate::time::Timestamp;
 use crate::storage::sql::{
     self, Connection, OptionalExtension, Row, ToSql, params, params_from_iter,
 };
 use anyhow::Result;
-use chrono::{DateTime, NaiveDate, TimeZone, Utc};
+use chrono::{NaiveDate, TimeZone, Local};
 
 use crate::{
     agents::agent::model::usage::TurnId,
@@ -32,8 +33,8 @@ const EVENT_COLUMNS: &str = "e.agent_id, e.at, e.activity, e.channel, e.topic, e
      e.round, e.provider, e.model, e.served_model, e.input_tokens, e.cached_input_tokens, \
      e.cache_creation_input_tokens, e.output_tokens, e.duration_ms, e.legacy";
 
-fn millis_to_utc(ms: i64) -> DateTime<Utc> {
-    Utc.timestamp_millis_opt(ms).single().unwrap_or_default()
+fn millis_to_utc(ms: i64) -> Timestamp {
+    Local.timestamp_millis_opt(ms).single().unwrap_or_default()
 }
 
 fn insert(conn: &Connection, e: &UsageEvent) -> sql::Result<usize> {
@@ -124,7 +125,7 @@ pub fn delete_agent(conn: &Connection, agent_id: &str) -> sql::Result<()> {
 }
 
 /// `?1` is `since` (ms); the agent ids follow as `?2…`.
-fn agents_clause(agents: &[String], since: DateTime<Utc>) -> (String, Vec<Box<dyn ToSql>>) {
+fn agents_clause(agents: &[String], since: Timestamp) -> (String, Vec<Box<dyn ToSql>>) {
     let marks = (0..agents.len())
         .map(|i| format!("?{}", i + 2))
         .collect::<Vec<_>>()
@@ -141,7 +142,7 @@ impl UsageStorage for SqlStorage {
     async fn hourly_turns(
         &self,
         agents: &[String],
-        since: DateTime<Utc>,
+        since: Timestamp,
     ) -> Result<Vec<HourlyTurns>> {
         if agents.is_empty() {
             return Ok(vec![]);
@@ -170,7 +171,7 @@ impl UsageStorage for SqlStorage {
     async fn turns_by_activity(
         &self,
         agents: &[String],
-        since: DateTime<Utc>,
+        since: Timestamp,
     ) -> Result<Vec<(UsageActivity, u64)>> {
         if agents.is_empty() {
             return Ok(vec![]);
@@ -201,7 +202,7 @@ impl UsageStorage for SqlStorage {
     async fn usage_groups_since(
         &self,
         agents: &[String],
-        since: DateTime<Utc>,
+        since: Timestamp,
     ) -> Result<Vec<UsageGroup>> {
         if agents.is_empty() {
             return Ok(vec![]);
@@ -254,7 +255,7 @@ impl UsageStorage for SqlStorage {
         &self,
         turn: &TurnId,
         agent_id: &str,
-        at: DateTime<Utc>,
+        at: Timestamp,
     ) -> Result<()> {
         let conn = self.conn.lock()?;
         conn.execute(
@@ -458,8 +459,8 @@ mod tests {
         (storage, dir)
     }
 
-    fn at(ms: i64) -> DateTime<Utc> {
-        Utc.timestamp_millis_opt(ms).single().unwrap()
+    fn at(ms: i64) -> Timestamp {
+        Local.timestamp_millis_opt(ms).single().unwrap()
     }
 
     const DAY: i64 = 86_400_000;
@@ -502,6 +503,32 @@ mod tests {
             activity: None,
             conversation: None,
         }
+    }
+
+    /// A day is the instance's local day: 06:00 and 08:00 on one local date share it, in whatever
+    /// zone the host runs (the SQL `localtime` modifier and chrono both read the OS setting).
+    #[tokio::test]
+    async fn a_day_is_the_local_day() {
+        let (s, _d) = setup();
+        let date = chrono::NaiveDate::from_ymd_opt(2026, 11, 7).unwrap();
+        let midnight = crate::time::start_of_local_day(date).timestamp_millis();
+        let h = 3_600_000;
+        for hour in [6, 8] {
+            s.record_usage(event("a", midnight + hour * h, UsageActivity::Chat, "m", None))
+                .await
+                .unwrap();
+        }
+        let q = UsageQuery {
+            agent_id: "a".into(),
+            start: at(midnight - DAY),
+            end: at(midnight + 2 * DAY),
+            activity: None,
+            conversation: None,
+        };
+        let by_day = s.usage_groups(&q, UsageGrouping::Day).await.unwrap();
+        assert_eq!(by_day.len(), 1, "{by_day:?}");
+        assert_eq!(by_day[0].day, Some(date));
+        assert_eq!(by_day[0].calls, 2);
     }
 
     #[tokio::test]

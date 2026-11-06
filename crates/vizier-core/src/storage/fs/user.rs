@@ -1,5 +1,6 @@
+use crate::time::Timestamp;
 use anyhow::Result;
-use chrono::{DateTime, Utc};
+
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -80,7 +81,7 @@ impl UserStorage for FileSystemStorage {
             username: username.to_string(),
             password_hash: password_hash.to_string(),
             role_id: role_id.to_string(),
-            created_at: Utc::now(),
+            created_at: crate::time::now(),
         };
 
         store.users.push(user.clone());
@@ -168,7 +169,7 @@ impl UserStorage for FileSystemStorage {
     }
 
     // The filesystem backend is only a read source for the migration; visits live in sqlite.
-    async fn record_visit(&self, _user_id: &str, _now: DateTime<Utc>) -> Result<crate::storage::user::Visit> {
+    async fn record_visit(&self, _user_id: &str, _now: Timestamp) -> Result<crate::storage::user::Visit> {
         Ok(Default::default())
     }
 
@@ -205,7 +206,7 @@ impl UserStorage for FileSystemStorage {
             name: name.to_string(),
             permissions,
             is_system,
-            created_at: Utc::now(),
+            created_at: crate::time::now(),
         };
 
         store.roles.push(role.clone());
@@ -334,7 +335,7 @@ impl UserStorage for FileSystemStorage {
         name: &str,
         key_hash: &str,
         prefix: &str,
-        expires_at: Option<DateTime<Utc>>,
+        expires_at: Option<Timestamp>,
     ) -> Result<ApiKey> {
         let path = build_path(&self.workspace, &[API_KEYS_PATH]);
         let _ = std::fs::create_dir_all(path.parent().unwrap())?;
@@ -353,7 +354,7 @@ impl UserStorage for FileSystemStorage {
             name: name.to_string(),
             key_hash: key_hash.to_string(),
             expires_at,
-            created_at: Utc::now(),
+            created_at: crate::time::now(),
             last_used_at: None,
         };
 
@@ -377,7 +378,7 @@ impl UserStorage for FileSystemStorage {
         Ok(store
             .keys
             .into_iter()
-            .find(|k| k.key_hash == key_hash && k.expires_at.map_or(true, |exp| exp > Utc::now())))
+            .find(|k| k.key_hash == key_hash && k.expires_at.map_or(true, |exp| exp > crate::time::now())))
     }
 
     async fn list_api_keys(&self, user_id: &str) -> Result<Vec<ApiKey>> {
@@ -425,7 +426,7 @@ impl UserStorage for FileSystemStorage {
         let mut store: ApiKeyStore = serde_json::from_str(&raw)?;
 
         if let Some(key) = store.keys.iter_mut().find(|k| k.id == key_id) {
-            key.last_used_at = Some(Utc::now());
+            key.last_used_at = Some(crate::time::now());
         } else {
             return Err(anyhow::anyhow!("API key not found"));
         }

@@ -1,5 +1,6 @@
+use crate::time::Timestamp;
 use anyhow::Result;
-use chrono::{DateTime, Utc};
+
 
 /// One capability's last successful OpenRouter media listing plus its last failure
 /// (contract `media-catalogue-storage.md` § Trait).
@@ -9,10 +10,10 @@ pub struct MediaCatalogueSnapshotRow {
     pub capability: String,
     /// Payload version; a mismatch ignores the row.
     pub schema: i64,
-    pub fetched_at: DateTime<Utc>,
-    pub checked_at: DateTime<Utc>,
+    pub fetched_at: Timestamp,
+    pub checked_at: Timestamp,
     pub last_error: Option<String>,
-    pub failed_at: Option<DateTime<Utc>>,
+    pub failed_at: Option<Timestamp>,
     /// gzip of `serde_json::to_vec(&Vec<MediaModel>)`.
     pub data: Vec<u8>,
 }
@@ -34,6 +35,6 @@ pub trait MediaCatalogueStorage {
         &self,
         capability: &str,
         error: &str,
-        at: DateTime<Utc>,
+        at: Timestamp,
     ) -> Result<()>;
 }

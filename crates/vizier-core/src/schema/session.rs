@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Local};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -62,7 +62,9 @@ pub enum VizierChannelId {
     /// A project chat (`specs/041-project-coding-workspace` R1): the person's username, then
     /// the project id. The web wire form (`project__<id>`) is unchanged from 040.
     Project(String, String),
-    Task(String, DateTime<Utc>),
+    /// The time stays UTC when serialized: the channel's JSON is a text key in several tables, so
+    /// its form must not depend on the instance's zone.
+    Task(String, #[serde(serialize_with = "crate::time::serialize_utc")] DateTime<Local>),
     InterAgent(Vec<String>),
     System,
     Subagent,
@@ -182,13 +184,13 @@ pub enum DreamStage {
 pub enum DreamStatus {
     Idle,
     Extracting {
-        started_at: DateTime<Utc>,
+        started_at: DateTime<Local>,
         cycle_id: String,
         total_sessions: usize,
         completed_sessions: usize,
     },
     Consolidating {
-        started_at: DateTime<Utc>,
+        started_at: DateTime<Local>,
         cycle_id: String,
     },
 }
@@ -198,8 +200,8 @@ mod tests {
 
     use super::*;
 
-    fn at(seconds: i64) -> DateTime<Utc> {
-        Utc.timestamp_opt(seconds, 0).single().unwrap()
+    fn at(seconds: i64) -> DateTime<Local> {
+        Local.timestamp_opt(seconds, 0).single().unwrap()
     }
 
     fn task_session(slug: &str, seconds: i64) -> VizierSession {

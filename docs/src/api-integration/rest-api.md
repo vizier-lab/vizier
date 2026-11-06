@@ -249,11 +249,11 @@ Memory attachments are artifacts too: `POST /agents/{id}/memory/attachments/{bun
 
 ## Home: overview and activity
 
-Limited to the agents the signed-in person can see. `tz` is the person's UTC offset (`+07:00`); encode the `+` as `%2B`.
+Limited to the agents the signed-in person can see. Days follow the [instance's timezone](../configuration/time.md). The old `tz` offset parameter is still accepted and ignored.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/overview?tz=` | `{ agents: { total, live, failed }, cost_today_usd, accounting_since }`. Cost is priced from the catalogue; models without a price add nothing |
+| `GET` | `/overview` | `{ agents: { total, live, failed }, cost_today_usd, accounting_since }`. Cost is priced from the catalogue; models without a price add nothing |
 | `GET` | `/overview/activity?rank=most_active\|mine\|live\|failed` | The last 24 hours: `hours` (24 hour starts, oldest first), `rows` (at most 6) of `{ agent_id, label, turns[24], live }`, an `all` row when there are 7 or more agents, `agent_total`, and `today_by_kind` when there is exactly one agent |
 The Home page no longer carries a "Since you were away" feed: the notification inbox replaces it (see below).
 

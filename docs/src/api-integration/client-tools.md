@@ -339,3 +339,5 @@ This is version 1. `client_tools_resolved.protocol` carries it. Within version 1
 - Optional `client_context` on a request: what the client says it can render, shown to that turn and never stored with it (version 1).
 - Optional `ends_turn` on tool declarations and in `client_tools_resolved` (version 1).
 - Question frames: `question_set`, `sensitive_ask`, `sensitive_ask_closed`, the `question_answer` request and `sensitive_input_answer`, with the `QuestionSet` and `SensitiveAsk` history entries (version 1).
+
+> The server sets a message's time when it arrives, so the `timestamp` a client sends on the chat socket is replaced. It still has to be present. See [Time](../configuration/time.md).

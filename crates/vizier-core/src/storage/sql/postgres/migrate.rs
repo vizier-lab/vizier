@@ -95,7 +95,7 @@ pub fn migrate(conn: &Connection<'_>) -> anyhow::Result<()> {
             params![
                 migration.version,
                 migration.name,
-                chrono::Utc::now().timestamp_millis()
+                crate::time::now().timestamp_millis()
             ],
         )?;
         tracing::info!(

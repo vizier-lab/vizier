@@ -118,7 +118,7 @@ impl VizierAgent {
         };
 
         Ok(VizierResponse {
-            timestamp: chrono::Utc::now(),
+            timestamp: crate::time::now(),
             content: VizierResponseContent::Message {
                 content,
                 stats: Some(stats),

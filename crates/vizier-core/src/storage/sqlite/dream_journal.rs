@@ -1,3 +1,4 @@
+use crate::time::Timestamp;
 use crate::storage::sql::params;
 use anyhow::Result;
 
@@ -143,7 +144,7 @@ impl DreamJournalStorage for SqlStorage {
     async fn list_dream_entry_stubs(
         &self,
         agent_id: AgentId,
-        since: chrono::DateTime<chrono::Utc>,
+        since: Timestamp,
     ) -> Result<Vec<DreamEntryStub>> {
         let conn = self.conn.lock()?;
         let json = conn.dialect();
@@ -172,7 +173,7 @@ impl DreamJournalStorage for SqlStorage {
                 Some(DreamEntryStub {
                     cycle_id,
                     stage: serde_json::from_value(serde_json::Value::String(stage)).ok()?,
-                    timestamp: chrono::DateTime::from_timestamp_millis(ts)?,
+                    timestamp: crate::time::from_millis_opt(ts)?,
                     source_sessions: sources
                         .and_then(|s| serde_json::from_str(&s).ok())
                         .unwrap_or_default(),
@@ -187,7 +188,7 @@ impl DreamJournalStorage for SqlStorage {
     async fn list_dream_revisions(
         &self,
         agent_id: AgentId,
-        since: chrono::DateTime<chrono::Utc>,
+        since: Timestamp,
     ) -> Result<Vec<DreamRevision>> {
         let conn = self.conn.lock()?;
         let since = since.timestamp_millis();
@@ -217,7 +218,7 @@ impl DreamJournalStorage for SqlStorage {
         for (bundle, path, seq, deleted, at, cycle_id, previous_deleted) in
             rows.filter_map(|r| r.ok())
         {
-            let Some(at) = chrono::DateTime::from_timestamp_millis(at) else {
+            let Some(at) = crate::time::from_millis_opt(at) else {
                 continue;
             };
             // Classification follows the **bundle the change lives in**, not the table it was

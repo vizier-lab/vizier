@@ -4,7 +4,7 @@ use std::sync::Arc;
 use anyhow::{Result, anyhow};
 use base64::Engine;
 use bytes::Bytes;
-use chrono::Utc;
+use chrono::Local;
 use parking_lot::RwLock;
 
 use crate::{
@@ -101,7 +101,7 @@ impl FileManager {
             mime_type,
             size,
             url,
-            created_at: Utc::now(),
+            created_at: crate::time::now(),
         })
     }
 

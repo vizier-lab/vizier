@@ -163,7 +163,7 @@ pub async fn ask(
     let _ = deps.side_chat_limits.check(person);
 
     let request = VizierRequest {
-        timestamp: chrono::Utc::now(),
+        timestamp: crate::time::now(),
         user,
         content: VizierRequestContent::Btw(side_chat),
         attachments: vec![],

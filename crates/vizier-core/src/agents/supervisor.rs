@@ -7,11 +7,12 @@
 //! (an error, or a panic in the request loop) records why and tries again with backoff,
 //! answering requests with an error while it waits.
 
+use crate::time::Timestamp;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use anyhow::Result;
-use chrono::Utc;
+
 use tokio::sync::watch;
 use tokio::time::Instant;
 
@@ -209,7 +210,7 @@ pub struct AgentStatus {
     pub state: AgentRunState,
     pub last_error: Option<String>,
     pub failures: u32,
-    pub next_retry_at: Option<chrono::DateTime<Utc>>,
+    pub next_retry_at: Option<Timestamp>,
     pub model: Option<crate::schema::AgentModelInfo>,
     pub warnings: Vec<String>,
 }
@@ -340,7 +341,7 @@ impl Supervisor {
                                 &self.agent_id,
                                 &built.build_id,
                                 &self.config.name,
-                                Utc::now(),
+                                crate::time::now(),
                             )
                             .await;
                     }
@@ -374,7 +375,7 @@ impl Supervisor {
                     failures,
                     next_retry_at: chrono::Duration::from_std(wait)
                         .ok()
-                        .map(|w| Utc::now() + w),
+                        .map(|w| crate::time::now() + w),
                     ..Default::default()
                 }
             });
@@ -394,7 +395,7 @@ impl Supervisor {
                         &episode,
                         &error,
                         Some(wait.as_secs() as i64),
-                        Utc::now(),
+                        crate::time::now(),
                     )
                     .await;
                 failure_episode = Some(episode);
@@ -627,7 +628,7 @@ async fn reject(envelope: VizierRequestEnvelope, error: &str) {
     if let Some(tx) = envelope.response_tx {
         let _ = tx
             .send_async(VizierResponse {
-                timestamp: Utc::now(),
+                timestamp: crate::time::now(),
                 content: VizierResponseContent::Error {
                     kind: ErrorKind::AgentUnavailable,
                     message: format!(

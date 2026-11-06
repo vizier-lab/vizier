@@ -1,3 +1,4 @@
+use crate::time::Timestamp;
 use anyhow::Result;
 
 use crate::{
@@ -111,7 +112,7 @@ pub trait IntegrationStorage {
         &self,
         agent_id: &str,
         integration_id: Option<&str>,
-        before: Option<(chrono::DateTime<chrono::Utc>, String)>,
+        before: Option<(Timestamp, String)>,
         limit: usize,
     ) -> Result<Vec<IntegrationEvent>>;
 }
@@ -169,7 +170,7 @@ impl IntegrationStorage for VizierStorage {
         &self,
         agent_id: &str,
         integration_id: Option<&str>,
-        before: Option<(chrono::DateTime<chrono::Utc>, String)>,
+        before: Option<(Timestamp, String)>,
         limit: usize,
     ) -> Result<Vec<IntegrationEvent>> {
         self.0.list_events(agent_id, integration_id, before, limit).await

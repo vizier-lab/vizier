@@ -95,7 +95,7 @@ impl Caller<'_> {
 
 #[cfg(test)]
 mod tests {
-    use chrono::Utc;
+    
 
     use super::*;
     use crate::schema::Requester;
@@ -124,7 +124,7 @@ mod tests {
                 name: "r".into(),
                 permissions: perms.iter().map(|p| p.to_string()).collect(),
                 is_system: system,
-                created_at: Utc::now(),
+                created_at: crate::time::now(),
             },
             permissions: perms.iter().map(|p| p.to_string()).collect(),
             method: crate::auth::AuthMethod::Jwt,
@@ -201,7 +201,7 @@ mod tests {
         let actor = Requester::Agent("dp-a".into());
         let json = serde_json::to_string(&actor).unwrap();
         assert_eq!(serde_json::from_str::<Requester>(&json).unwrap(), actor);
-        let when = Utc::now();
+        let when = crate::time::now();
         assert!(when.to_rfc3339().contains('T'));
     }
 }

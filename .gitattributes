@@ -1,0 +1,3 @@
+# PDFs are checked in with LF and must never be converted: Git detects PDFs with no NUL bytes
+# as text, and `core.autocrlf` on Windows then breaks their trailer (invalid file trailer).
+*.pdf binary

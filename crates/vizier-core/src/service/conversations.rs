@@ -2,7 +2,7 @@
 //! with an agent, across the WebUI, Discord and Telegram, newest first, in key-set pages.
 
 use base64::Engine;
-use chrono::{DateTime, TimeZone, Utc};
+use chrono::{DateTime, TimeZone, Local};
 use serde::{Deserialize, Serialize};
 
 use super::{ServiceError, Services};
@@ -56,7 +56,7 @@ pub struct ConversationItem {
     /// Under the title: "topic 3 of 5", or the server a Discord channel is in.
     pub place: String,
     pub topics: u64,
-    pub last_activity: DateTime<Utc>,
+    pub last_activity: DateTime<Local>,
     /// The WebUI topic to open, or a Discord or Telegram conversation's newest; empty without topics.
     pub latest_topic: String,
 }
@@ -87,11 +87,11 @@ fn encode_cursor(row: &ConversationRow) -> String {
     base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(json.to_string())
 }
 
-fn decode_cursor(cursor: &str) -> Option<(DateTime<Utc>, String)> {
+fn decode_cursor(cursor: &str) -> Option<(DateTime<Local>, String)> {
     let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(cursor).ok()?;
     let value: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
     Some((
-        Utc.timestamp_millis_opt(value.get("at")?.as_i64()?).single()?,
+        Local.timestamp_millis_opt(value.get("at")?.as_i64()?).single()?,
         value.get("channel")?.as_str()?.to_string(),
     ))
 }
@@ -100,7 +100,7 @@ fn decode_cursor(cursor: &str) -> Option<(DateTime<Utc>, String)> {
 /// whether there are more.
 fn page_of(
     rows: &[ConversationRow],
-    cursor: Option<&(DateTime<Utc>, String)>,
+    cursor: Option<&(DateTime<Local>, String)>,
     limit: usize,
 ) -> (Vec<ConversationRow>, bool) {
     let mut after: Vec<&ConversationRow> = rows
@@ -228,7 +228,7 @@ mod tests {
         ConversationRow {
             channel: channel.into(),
             topics: 1,
-            last_activity: Utc.timestamp_millis_opt(ms).single().unwrap(),
+            last_activity: Local.timestamp_millis_opt(ms).single().unwrap(),
             latest_topic: String::new(),
             latest_ordinal: 1,
             title: None,

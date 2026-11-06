@@ -92,7 +92,6 @@ Set the server to `TZ=Asia/Jakarta` and the browser to `America/New_York` (DevTo
 - `vizier agent ps` retry time and the log line.
 - The task form: entering 09:00 stores `09:00+07:00`.
 - Home's "today", and its greeting.
-- The timezone indicator, visible on the drawn surfaces.
 
 ## 12. Automated checks
 

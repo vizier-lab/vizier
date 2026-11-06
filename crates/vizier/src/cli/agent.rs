@@ -102,7 +102,7 @@ fn ps(config_path: Option<std::path::PathBuf>) -> Result<()> {
                     if let Some(error) = &status.last_error {
                         let retry = status
                             .next_retry_at
-                            .map(|at| format!(", retrying at {}", at.format("%H:%M:%S UTC")))
+                            .map(|at| format!(", retrying at {}", at.format("%H:%M:%S %:z")))
                             .unwrap_or_default();
                         println!(
                             "  {:<20} {}{} (failure {}{}){}",

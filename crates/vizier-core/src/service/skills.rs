@@ -1,7 +1,7 @@
 //! Skills, global and per agent (spec 038 US2). The skill files live under the workspace; an
 //! agent's own skills need the person to be able to view the agent.
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Local};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -30,7 +30,7 @@ pub struct SkillResponse {
     pub base_hash: String,
     /// When SKILL.md was last written. Only set by the list routes.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub updated: Option<DateTime<Utc>>,
+    pub updated: Option<DateTime<Local>>,
 }
 
 impl From<Skill> for SkillResponse {
@@ -64,7 +64,7 @@ pub fn listed(manager: &SkillManager, skill: Skill) -> SkillResponse {
     let updated = std::fs::metadata(manager.skill_dir(&skill.name).join("SKILL.md"))
         .and_then(|m| m.modified())
         .ok()
-        .map(DateTime::<Utc>::from);
+        .map(DateTime::<Local>::from);
     SkillResponse { updated, ..SkillResponse::from(skill) }
 }
 

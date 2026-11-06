@@ -16,7 +16,7 @@ use std::{
 };
 
 use anyhow::Result;
-use chrono::Utc;
+
 use crate::llm::types::ToolDefinition;
 use tokio::{process::Command, sync::Mutex, time::Instant};
 
@@ -267,7 +267,7 @@ impl McpServer {
         }
 
         Ok(VizierResponse {
-            timestamp: Utc::now(),
+            timestamp: crate::time::now(),
             content: VizierResponseContent::ToolResponse {
                 response: serde_json::Value::Array(contents),
             },

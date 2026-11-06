@@ -14,7 +14,7 @@
 
 use crate::storage::sql::{self, Connection, OptionalExtension, Row, params};
 use anyhow::{Result, anyhow};
-use chrono::Utc;
+
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -179,7 +179,7 @@ fn insert(
             actor_name,
             trigger,
             restored_from,
-            Utc::now().timestamp_millis(),
+            crate::time::now().timestamp_millis(),
             origin.dream_cycle,
         ],
     )?;

@@ -62,7 +62,7 @@ impl Drop for Dummyplug {
 }
 
 fn request(text: &str) -> Value {
-    json!({ "timestamp": chrono::Utc::now(), "user": "olive", "content": { "chat": text }, "metadata": {} })
+    json!({ "timestamp": vizier_core::time::now(), "user": "olive", "content": { "chat": text }, "metadata": {} })
 }
 
 /// The frame kinds of a turn, in order: the top-level key of each frame, or its `type`.

@@ -6,13 +6,14 @@
 mod local;
 mod s3;
 
+use crate::time::Timestamp;
 use std::fmt;
 use std::pin::Pin;
 use std::sync::Arc;
 
 use anyhow::{Result, anyhow};
 use bytes::Bytes;
-use chrono::{DateTime, Utc};
+
 use futures::Stream;
 
 pub use local::LocalBlobStore;
@@ -173,7 +174,7 @@ pub struct BlobMeta {
     pub key: BlobKey,
     pub size: u64,
     pub etag: Option<String>,
-    pub modified: Option<DateTime<Utc>>,
+    pub modified: Option<Timestamp>,
 }
 
 /// The one byte store (contracts/blob-store.md).

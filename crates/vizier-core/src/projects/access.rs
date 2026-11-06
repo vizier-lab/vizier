@@ -43,7 +43,7 @@ pub fn can_create(caller: Caller<'_>, agent: &AgentConfig, method: AuthMethod) -
 
 #[cfg(test)]
 mod tests {
-    use chrono::Utc;
+    
 
     use super::*;
     use crate::auth::{Principal, Role};
@@ -80,7 +80,7 @@ mod tests {
                 name: "r".into(),
                 permissions: perms.iter().map(|p| p.to_string()).collect(),
                 is_system: system,
-                created_at: Utc::now(),
+                created_at: crate::time::now(),
             },
             permissions: perms.iter().map(|p| p.to_string()).collect(),
             method: AuthMethod::Jwt,

@@ -1,7 +1,7 @@
 //! Integrations (specs/016-integrations-section, specs/017-agent-self-integrations): channel
 //! connections, addon configurations and MCP servers. Each belongs to exactly one agent.
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Local};
 use serde::{Deserialize, Serialize};
 
 use crate::schema::{AgentId, Requester};
@@ -53,8 +53,8 @@ pub struct Integration {
     /// created since 017; more than one, or none, only for rows left over from 016.
     #[serde(default)]
     pub agents: Vec<AgentId>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: DateTime<Local>,
+    pub updated_at: DateTime<Local>,
 }
 
 impl Integration {
@@ -90,7 +90,7 @@ pub enum IntegrationStatus {
     Reconnecting {
         last_error: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        next_retry_at: Option<DateTime<Utc>>,
+        next_retry_at: Option<DateTime<Local>>,
     },
     /// A fatal channel error, or an addon's auth error.
     Failed { last_error: String },
@@ -118,7 +118,7 @@ pub struct IntegrationGrant {
     pub agent_id: AgentId,
     pub family: IntegrationFamily,
     pub granted_by: String,
-    pub granted_at: DateTime<Utc>,
+    pub granted_at: DateTime<Local>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -180,7 +180,7 @@ pub struct IntegrationEvent {
     pub fields: Vec<String>,
     /// The session an agent acted from.
     pub session: Option<String>,
-    pub at: DateTime<Utc>,
+    pub at: DateTime<Local>,
 }
 
 /// What a write records about itself; storage fills in the rest of the [`IntegrationEvent`].

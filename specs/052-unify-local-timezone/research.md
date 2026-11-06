@@ -30,6 +30,8 @@ Findings come from reading this repository at `a539e886` and the `croner` 4.0.1 
 
 **Alternatives rejected**: converting every text column to epoch milliseconds, which is a schema migration on two backends with no user benefit.
 
+**Audit result** (T010): a serialized `VizierChannelId` is a text key in `question_set.channel_json`, `sensitive_ask.channel_json`, `background_job.origin_channel`, `notification.source_session` (a whole `VizierSession`) and the session-delete lookups that rebuild those strings. Only `VizierChannelId::Task` carries a time, so `Task`'s time now serializes in UTC whatever the instance's zone (`time::serialize_utc`), pinned by `a_task_channel_key_keeps_its_utc_form`. Old rows keep matching, a host changing zone keeps matching, and nothing needed converting to `to_slug`. The slug already uses milliseconds.
+
 **Audit before the sweep**: a stored session or channel JSON string compared as text in SQL would differ once a `Task` channel's time serializes with an offset. `VizierChannelId::to_slug` uses milliseconds and is safe; each use of a serialized session as a key must be checked.
 
 ## R3. Cron and dreams need only the type change

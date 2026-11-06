@@ -229,7 +229,7 @@ pub async fn remove(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::Utc;
+    
     use vizier_core::schema::Requester;
 
     /// The DTOs have no value field at all: a mask is the most a response can carry.
@@ -238,8 +238,8 @@ mod tests {
         let item = SecretItem {
             name: "TOKEN".into(),
             masked: "••••c123".into(),
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: vizier_core::time::now(),
+            updated_at: vizier_core::time::now(),
             updated_by: Requester::Agent("dp-a".into()),
             updated_by_name: "dv-a".into(),
         };
@@ -251,8 +251,8 @@ mod tests {
     /// Paging is opt-in and searches names and whoever last changed them.
     #[test]
     fn the_listing_searches_names_and_sorts_by_name_or_update() {
-        let now = Utc::now();
-        let item = |name: &str, by: &str, at: chrono::DateTime<Utc>| SecretItem {
+        let now = vizier_core::time::now();
+        let item = |name: &str, by: &str, at: chrono::DateTime<chrono::Local>| SecretItem {
             name: name.into(),
             masked: "••••c123".into(),
             created_at: now,

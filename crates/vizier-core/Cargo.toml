@@ -48,6 +48,8 @@ bollard = { workspace = true, optional = true }
 bzip2.workspace = true
 calamine = { workspace = true, optional = true }
 chrono.workspace = true
+chrono-tz.workspace = true
+iana-time-zone.workspace = true
 config.workspace = true
 croner.workspace = true
 docx-rs = { workspace = true, optional = true }

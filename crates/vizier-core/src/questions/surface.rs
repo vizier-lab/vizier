@@ -119,7 +119,7 @@ mod tests {
     use super::*;
     use crate::questions::model::QuestionState;
     use crate::schema::{TopicId, VizierChannelId, VizierSession};
-    use chrono::Utc;
+    
 
     struct FakeSurface {
         platform: ChannelPlatform,
@@ -176,7 +176,7 @@ mod tests {
             answers: None,
             answerer: None,
             controls: None,
-            created_at: Utc::now(),
+            created_at: crate::time::now(),
             closed_at: None,
         }
     }

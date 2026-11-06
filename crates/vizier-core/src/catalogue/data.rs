@@ -3,7 +3,7 @@
 
 use std::collections::BTreeMap;
 
-use chrono::{DateTime, NaiveDate, Utc};
+use chrono::{DateTime, NaiveDate, Local};
 use serde::{Deserialize, Serialize};
 
 use crate::config::provider::ProviderId;
@@ -32,8 +32,8 @@ pub enum ProviderKind {
 #[derive(Debug, Clone)]
 pub struct CatalogueData {
     pub source: CatalogueSource,
-    pub fetched_at: DateTime<Utc>,
-    pub checked_at: Option<DateTime<Utc>>,
+    pub fetched_at: DateTime<Local>,
+    pub checked_at: Option<DateTime<Local>>,
     pub etag: Option<String>,
     pub providers: BTreeMap<ProviderId, CatalogueProvider>,
 }
@@ -42,7 +42,7 @@ impl CatalogueData {
     pub fn empty() -> Self {
         Self {
             source: CatalogueSource::Bundled,
-            fetched_at: DateTime::<Utc>::UNIX_EPOCH,
+            fetched_at: crate::time::epoch(),
             checked_at: None,
             etag: None,
             providers: BTreeMap::new(),

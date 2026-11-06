@@ -1,5 +1,5 @@
 use anyhow::Result;
-use chrono::Utc;
+
 
 use crate::storage::sql::params;
 
@@ -29,7 +29,7 @@ impl SessionFileStorage for SqlStorage {
             mime_type: mime_type.to_string(),
             size,
             file_id: file_id.to_string(),
-            added_at: Utc::now(),
+            added_at: crate::time::now(),
             sender: Some(session.0.clone()),
             history_uid: None,
         };

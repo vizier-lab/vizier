@@ -4,7 +4,7 @@ use axum::{
     routing::{delete, get, post, put},
     Json,
 };
-use chrono::Utc;
+
 use crate::models::page::{self, ListQuery, Listing, SortKey, SortOrder};
 use reqwest::StatusCode;
 use serde::Deserialize;
@@ -226,7 +226,8 @@ pub async fn delete_task(
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct RunsQuery {
     /// `ran_at` of the oldest run on the previous page.
-    before: Option<chrono::DateTime<Utc>>,
+    #[serde(default, deserialize_with = "vizier_core::time::deserialize_query_time")]
+    before: Option<chrono::DateTime<chrono::Local>>,
     /// That run's `id`, completing the cursor so runs sharing a millisecond cannot
     /// straddle a page boundary. Ignored without `before`.
     before_id: Option<i64>,
@@ -287,7 +288,7 @@ pub async fn list_runs(
     )
 )]
 pub async fn get_run_history(
-    Path((agent_id, slug, run_id)): Path<(String, String, chrono::DateTime<Utc>)>,
+    Path((agent_id, slug, run_id)): Path<(String, String, chrono::DateTime<chrono::Local>)>,
     Query(params): Query<crate::api::v1::agents::channel::HistoryQuery>,
     State(state): State<HTTPState>,
     Extension(user): Extension<crate::auth::Principal>,
@@ -326,13 +327,13 @@ mod listing_tests {
             is_active: active,
             schedule,
             last_executed_at: None,
-            timestamp: Utc::now(),
+            timestamp: vizier_core::time::now(),
         }
     }
 
     #[test]
     fn next_run_follows_the_schedule_and_activity() {
-        let now = Utc::now();
+        let now = vizier_core::time::now();
         let ahead = now + chrono::Duration::hours(3);
         assert_eq!(next_run_of(&task("a", TaskSchedule::OneTimeTask(ahead), true), now), Some(ahead));
         assert_eq!(next_run_of(&task("a", TaskSchedule::OneTimeTask(now - chrono::Duration::hours(1)), true), now), None);
@@ -343,7 +344,7 @@ mod listing_tests {
 
     #[test]
     fn lists_by_next_run_with_the_unscheduled_last() {
-        let now = Utc::now();
+        let now = vizier_core::time::now();
         let items: Vec<TaskResponse> = vec![
             task("later", TaskSchedule::OneTimeTask(now + chrono::Duration::hours(9)), true),
             task("off", TaskSchedule::OneTimeTask(now + chrono::Duration::hours(1)), false),

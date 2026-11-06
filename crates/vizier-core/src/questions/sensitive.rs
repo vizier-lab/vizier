@@ -9,7 +9,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use chrono::Utc;
+
 
 use crate::{
     questions::{
@@ -52,7 +52,7 @@ pub async fn ask(
         label: label.map(str::to_string),
         session: session.clone(),
         state: AskState::Open,
-        requested_at: Utc::now(),
+        requested_at: crate::time::now(),
         closed_at: None,
     };
 

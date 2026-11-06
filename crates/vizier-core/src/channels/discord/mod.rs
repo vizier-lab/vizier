@@ -1,7 +1,7 @@
 use std::sync::{Arc, OnceLock};
 
 use anyhow::{Result, anyhow};
-use chrono::Utc;
+
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use twilight_gateway::{
@@ -629,7 +629,7 @@ If I am halucinating, feel free to `/lobotomy` me
                             client_tools: vec![],
                             client_categories: vec![],
                             client: None,
-                            timestamp: Utc::now(),
+                            timestamp: crate::time::now(),
                             user: agent_id.clone(),
                             content: VizierRequestContent::Command("abort".to_string()),
                             platform_message_id: None,
@@ -893,11 +893,10 @@ If I am halucinating, feel free to `/lobotomy` me
             None => "unknown".to_string(),
         };
         let request = VizierRequest {
-            timestamp: Utc::now(),
+            timestamp: crate::time::now(),
             user,
             content: VizierRequestContent::Chat(text.clone()),
             metadata: json!({
-                "sent_at": Utc::now().to_string(),
                 "is_reply_message": false,
                 "discord_channel_id": channel_id.to_string(),
                 "is_dm": interaction.guild_id.is_none(),
@@ -1108,7 +1107,7 @@ If I am halucinating, feel free to `/lobotomy` me
                     client_tools: vec![],
                     client_categories: vec![],
                     client: None,
-                    timestamp: Utc::now(),
+                    timestamp: crate::time::now(),
                     user: agent_id,
                     content: VizierRequestContent::Command(command.to_string()),
                     platform_message_id: None,
@@ -1375,7 +1374,7 @@ If I am halucinating, feel free to `/lobotomy` me
                 return;
             };
             let request = VizierRequest {
-                timestamp: Utc::now(),
+                timestamp: crate::time::now(),
                 user: self.agent_id.clone(),
                 content: VizierRequestContent::Command("abort".to_string()),
                 ..Default::default()
@@ -1424,7 +1423,6 @@ If I am halucinating, feel free to `/lobotomy` me
             .map(|message| message.id.to_string());
 
         let metadata = json!({
-            "sent_at": Utc::now().to_string(),
             "is_reply_message": replied_to.is_some(),
             "replied_message_id": replied_to,
             "message_id": msg.id.to_string(),
@@ -1462,7 +1460,7 @@ If I am halucinating, feel free to `/lobotomy` me
             .unwrap_or(&msg.author.name);
 
         let request = VizierRequest {
-            timestamp: chrono::Utc::now(),
+            timestamp: crate::time::now(),
             user: format!("@{} (DiscordId: {})", author_name, msg.author.id),
             content: request_content,
             platform_message_id: Some(PlatformMessageId::Discord(msg.id.get())),

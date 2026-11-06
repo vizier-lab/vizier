@@ -1,5 +1,6 @@
+use crate::time::Timestamp;
 use anyhow::Result;
-use chrono::{DateTime, Utc};
+
 
 use crate::storage::sql::{OptionalExtension, params};
 
@@ -8,12 +9,12 @@ use crate::storage::{
     sqlite::SqlStorage,
 };
 
-fn ms(t: DateTime<Utc>) -> i64 {
+fn ms(t: Timestamp) -> i64 {
     t.timestamp_millis()
 }
 
-fn at(ms: i64) -> DateTime<Utc> {
-    DateTime::from_timestamp_millis(ms).unwrap_or(DateTime::<Utc>::UNIX_EPOCH)
+fn at(ms: i64) -> Timestamp {
+    crate::time::from_millis_opt(ms).unwrap_or(crate::time::epoch())
 }
 
 #[async_trait::async_trait]
@@ -67,7 +68,7 @@ impl CatalogueCacheStorage for SqlStorage {
         Ok(())
     }
 
-    async fn touch_checked(&self, when: DateTime<Utc>) -> Result<()> {
+    async fn touch_checked(&self, when: Timestamp) -> Result<()> {
         let conn = self.conn.lock()?;
         conn.execute(
             "UPDATE catalogue_snapshot SET checked_at = ?1, last_error = NULL, failed_at = NULL WHERE id = 1",
@@ -76,7 +77,7 @@ impl CatalogueCacheStorage for SqlStorage {
         Ok(())
     }
 
-    async fn record_failure(&self, error: &str, when: DateTime<Utc>) -> Result<()> {
+    async fn record_failure(&self, error: &str, when: Timestamp) -> Result<()> {
         let conn = self.conn.lock()?;
         conn.execute(
             "UPDATE catalogue_snapshot SET last_error = ?1, failed_at = ?2 WHERE id = 1",
@@ -101,7 +102,7 @@ impl CatalogueCacheStorage for SqlStorage {
         conn.execute(
             "INSERT INTO catalogue_logo (id, svg, fetched_at) VALUES (?1, ?2, ?3) \
              ON CONFLICT (id) DO UPDATE SET svg = excluded.svg, fetched_at = excluded.fetched_at",
-            params![id, svg, ms(Utc::now())],
+            params![id, svg, ms(crate::time::now())],
         )?;
         Ok(())
     }

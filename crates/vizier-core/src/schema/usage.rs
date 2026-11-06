@@ -3,7 +3,7 @@
 
 use std::collections::BTreeMap;
 
-use chrono::{DateTime, NaiveDate, Utc};
+use chrono::{DateTime, NaiveDate, Local};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -81,7 +81,7 @@ impl std::str::FromStr for UsageActivity {
 #[derive(Debug, Clone, PartialEq)]
 pub struct UsageEvent {
     pub agent_id: String,
-    pub at: DateTime<Utc>,
+    pub at: DateTime<Local>,
     pub activity: UsageActivity,
     /// `VizierChannelId::to_slug()`; `None` for a call with no session.
     pub channel: Option<String>,
@@ -102,8 +102,8 @@ pub struct UsageEvent {
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct UsageRange {
-    pub start: DateTime<Utc>,
-    pub end: DateTime<Utc>,
+    pub start: DateTime<Local>,
+    pub end: DateTime<Local>,
 }
 
 #[derive(Debug, Clone, Default, Serialize)]
@@ -196,7 +196,7 @@ pub struct ConversationRow {
     pub tokens: u64,
     pub cost_usd: Option<f64>,
     pub failed_share: Option<f64>,
-    pub last_at: DateTime<Utc>,
+    pub last_at: DateTime<Local>,
     pub exists: bool,
 }
 
@@ -213,7 +213,7 @@ pub struct UsageReport {
     pub range: UsageRange,
     /// When complete accounting started (R6); ranges before it lack dreams, compaction and
     /// failed rounds.
-    pub accounting_since: Option<DateTime<Utc>>,
+    pub accounting_since: Option<DateTime<Local>>,
     pub activity: Option<UsageActivity>,
     pub summary: UsageSummary,
     pub previous: Option<PeriodTotals>,
@@ -228,7 +228,7 @@ pub struct UsageReport {
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct CallRow {
-    pub at: DateTime<Utc>,
+    pub at: DateTime<Local>,
     pub activity: UsageActivity,
     pub round: Option<u32>,
     pub provider: String,

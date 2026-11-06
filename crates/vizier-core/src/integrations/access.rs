@@ -70,7 +70,7 @@ pub fn agent_may(agent_id: &str, integration: &Integration, granted: &[Integrati
 
 #[cfg(test)]
 mod tests {
-    use chrono::Utc;
+    
 
     use super::*;
 
@@ -99,8 +99,8 @@ mod tests {
             enabled: true,
             creator: Some(crate::schema::Requester::User("bob".into())),
             agents: agents.iter().map(|a| a.to_string()).collect(),
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: crate::time::now(),
+            updated_at: crate::time::now(),
         }
     }
 

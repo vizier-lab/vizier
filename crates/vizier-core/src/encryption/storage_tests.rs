@@ -38,7 +38,7 @@ use crate::{
         sqlite::SqlStorage,
     },
 };
-use chrono::Utc;
+
 
 pub(crate) struct Harness {
     pub storage: SqlStorage,
@@ -213,8 +213,8 @@ pub(crate) fn integration(
         enabled: true,
         creator: Some(Requester::User("admin".into())),
         agents: vec![],
-        created_at: Utc::now(),
-        updated_at: Utc::now(),
+        created_at: crate::time::now(),
+        updated_at: crate::time::now(),
     }
 }
 

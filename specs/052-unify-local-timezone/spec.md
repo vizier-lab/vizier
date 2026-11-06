@@ -12,7 +12,7 @@
 
 ### Session 2026-11-06
 
-- Q: When a person's browser is in a different timezone from the server, which timezone does the WebUI show? → A: The instance's timezone. There is one clock for everyone, matching what agents say, and the WebUI makes that timezone discoverable. Client-supplied offsets are ignored.
+- Q: When a person's browser is in a different timezone from the server, which timezone does the WebUI show? → A: The instance's timezone. There is one clock for everyone, matching what agents say. Client-supplied offsets are ignored.
 - Q: Who sets a message's time? → A: The server, on every channel. A message has one time, stamped by Vizier when it receives the message. A time supplied by a WebUI client is not trusted.
 - Q: Do we need a separate `sent_at` in message metadata? → A: No. The message's own timestamp is the only stored time, and agents see it as `sent_at` when the message is shown to them.
 
@@ -130,7 +130,7 @@ The current time no longer arrives with every message. When an agent needs it, i
 - **FR-002**: The instance MUST report its timezone (name and current offset) to its clients and in its startup log.
 - **FR-003**: Times the system writes or presents MUST be local with their offset, so each one remains an unambiguous moment. This covers agent-facing text and tool results, REST and WebSocket responses, notifications, message times, CLI output and logs.
 - **FR-004**: The system MUST NOT label a time as UTC, or present two clocks, on any surface, except where the value itself came from a stored record or caller that names UTC and is shown verbatim in history.
-- **FR-005**: The WebUI and the desktop app MUST show and accept times in the instance's timezone, whatever timezone the person's browser is in, including date pickers and relative day labels ("today", "yesterday"). The WebUI MUST make the instance's timezone discoverable, so a person elsewhere can tell that a time is not their own.
+- **FR-005**: The WebUI and the desktop app MUST show and accept times in the instance's timezone, whatever timezone the person's browser is in, including date pickers and relative day labels ("today", "yesterday"). The WebUI shows no timezone indicator (decided in review): the instance's zone is readable from `GET /utils/timezone` and the docs, not drawn on screen.
 - **FR-006**: Ordering, paging, filtering, retention and deduplication of time-stamped records MUST follow real chronological order regardless of the offset a record was written with.
 - **FR-007**: Records written before the upgrade MUST remain readable and be presented in local time without being rewritten, except as FR-018 requires.
 
@@ -203,5 +203,5 @@ The current time no longer arrives with every message. When an agent needs it, i
 - A Discord or Telegram message's time stays Vizier's receipt time rather than the platform's own message time, like the WebUI. Using the platform's time is a separate change.
 - Scheduled runs and dreams may spend a tool call to learn the time, and that cost is accepted in exchange for a stable prompt.
 - A multi-node deployment is one logical instance and its nodes are expected to share a timezone. Fleet roles are still skeletons, so enforcing this is left to the sub-issues that wire them.
-- The timezone indicator that FR-005 requires, and any change to the date picker's look, is drawn in FigCraft before code, per the project's design-first rule. A time merely displayed in a different zone needs no design pass.
+- No timezone indicator is added to the WebUI. A time merely displayed in a different zone needs no design pass.
 - End-to-end verification uses the offline dummyplug provider, which the constitution requires for agent-observable changes.

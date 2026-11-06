@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use chrono::Utc;
+
 use serde_json::Value;
 
 use crate::{
@@ -221,7 +221,7 @@ async fn persist_new(
     }
     kind.validate(&name, &new.settings).map_err(ServiceError::Invalid)?;
 
-    let now = Utc::now();
+    let now = crate::time::now();
     let mut integration = Integration {
         id: uuid::Uuid::new_v4().to_string(),
         kind: kind.id().to_string(),
@@ -239,7 +239,7 @@ async fn persist_new(
         .save_integration(&integration, Some(agent_id), &[draft])
         .await
         .map_err(ServiceError::from_storage)?;
-    let at = Utc::now();
+    let at = crate::time::now();
     deps.notifications
         .integration_event(
             &integration.id,
@@ -349,7 +349,7 @@ pub async fn update(
         integration.enabled = enabled;
     }
     kind.validate(&integration.name, &integration.settings).map_err(ServiceError::Invalid)?;
-    integration.updated_at = Utc::now();
+    integration.updated_at = crate::time::now();
 
     let mut fields = changed_keys(&before.settings, &integration.settings);
     if before.name != integration.name {
@@ -374,7 +374,7 @@ pub async fn update(
         .save_integration(&integration, None, &events)
         .await
         .map_err(ServiceError::from_storage)?;
-    let at = Utc::now();
+    let at = crate::time::now();
     for (ordinal, event) in events.iter().enumerate() {
         deps.notifications
             .integration_event(
@@ -424,7 +424,7 @@ pub async fn delete(
                 .map_err(ServiceError::from_storage)?,
         ),
     };
-    let at = Utc::now();
+    let at = crate::time::now();
     deps.notifications
         .integration_event(
             &integration.id,
@@ -470,7 +470,7 @@ pub async fn set_grants(
                     *family,
                     *on,
                     &Requester::User(caller.user_id.to_string()),
-                    Utc::now(),
+                    crate::time::now(),
                 )
                 .await;
             deps.transport.publish_integration_change(IntegrationChanged {

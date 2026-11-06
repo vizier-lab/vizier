@@ -5,7 +5,7 @@
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
-use chrono::{DateTime, NaiveDate, Utc};
+use chrono::{DateTime, NaiveDate, Local};
 use serde::Serialize;
 
 use crate::{
@@ -31,8 +31,8 @@ pub use crate::catalogue::RefreshStatus;
 pub struct CatalogueStatus {
     /// `bundled` (the build-time seed) or `cached` (a refreshed copy).
     pub source: String,
-    pub fetched_at: DateTime<Utc>,
-    pub checked_at: Option<DateTime<Utc>>,
+    pub fetched_at: DateTime<Local>,
+    pub checked_at: Option<DateTime<Local>>,
     pub refresh: RefreshStatus,
     pub provider_count: usize,
     pub model_count: usize,
@@ -61,8 +61,8 @@ pub struct MediaModels {
     pub capability: crate::catalogue::media::MediaCapability,
     /// `bundled` (the embedded seed) or `cached` (a refreshed copy).
     pub source: String,
-    pub fetched_at: DateTime<Utc>,
-    pub checked_at: Option<DateTime<Utc>>,
+    pub fetched_at: DateTime<Local>,
+    pub checked_at: Option<DateTime<Local>>,
     /// The documented default voice; `Some` for speech, `None` otherwise.
     pub default_voice: Option<String>,
     pub refresh: RefreshStatus,

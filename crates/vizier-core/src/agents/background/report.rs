@@ -211,7 +211,7 @@ mod tests {
             ),
             depth: 0,
             timeout_secs: 600,
-            created_at: chrono::Utc::now(),
+            created_at: crate::time::now(),
             finished_at: None,
             state: crate::schema::JobState::Cancelled,
             cancelled_by: None,

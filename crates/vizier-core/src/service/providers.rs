@@ -1,7 +1,7 @@
 //! Provider credentials (contract `http-api.md` § Providers): any selectable provider can be
 //! connected with a saved key, and keys found in the environment are shown alongside.
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Local};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -70,7 +70,7 @@ pub struct ProviderResponse {
     /// The role chosen from the portal.
     pub role_name: Option<String>,
     /// When the stored session's access token expires.
-    pub session_expires_at: Option<DateTime<Utc>>,
+    pub session_expires_at: Option<DateTime<Local>>,
     /// What the connection last failed with, when that failure was about the session itself —
     /// a session revoked in AWS while its token still looked valid, for instance (FR-016,
     /// FR-018). Cleared by the next successful sign-in, which needs no Vizier restart.
@@ -140,7 +140,7 @@ impl ProfileEntryResponse {
 struct SsoView {
     state: SsoSessionState,
     has_session: bool,
-    expires_at: Option<DateTime<Utc>>,
+    expires_at: Option<DateTime<Local>>,
 }
 
 /// The session half of an SSO connection, or the reason it cannot be shown (FR-009f).
@@ -155,7 +155,7 @@ async fn sso_view(deps: &VizierDependencies, credentials: &ProviderCredentials) 
     };
     match SsoSessions::new(&*deps.storage).load(profile).await {
         Ok(session) => SsoView {
-            state: session_state(session.as_ref(), Utc::now()),
+            state: session_state(session.as_ref(), crate::time::now()),
             has_session: session.is_some(),
             expires_at: expires_at(session.as_ref()),
         },
@@ -1055,7 +1055,7 @@ mod tests {
                 name: "r".into(),
                 permissions: vec![],
                 is_system: true,
-                created_at: chrono::Utc::now(),
+                created_at: crate::time::now(),
             },
             permissions: vec![],
             method: crate::auth::AuthMethod::Jwt,
@@ -1081,11 +1081,11 @@ mod tests {
         crate::schema::SsoSessionSecret {
             access_token: "access-token-value".into(),
             refresh_token: Some("refresh-token-value".into()),
-            token_expires_at: chrono::Utc::now() + chrono::TimeDelta::hours(1),
+            token_expires_at: crate::time::now() + chrono::TimeDelta::hours(1),
             client_id: "client-id".into(),
             client_secret: "client-secret-value".into(),
             client_secret_expires_at: None,
-            issued_at: chrono::Utc::now(),
+            issued_at: crate::time::now(),
             revision: 0,
         }
     }

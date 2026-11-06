@@ -1,5 +1,6 @@
+use crate::time::Timestamp;
 use anyhow::Result;
-use chrono::{DateTime, TimeZone, Utc};
+use chrono::{TimeZone, Local};
 
 use crate::storage::sql::{self, Row, ToSql, params, params_from_iter};
 
@@ -14,8 +15,8 @@ use crate::{
 /// Every ordered read selects these columns in this order.
 const RUN_COLUMNS: &str = "id, agent_id, task_slug, ran_at, finished_at, session_key, state";
 
-fn millis_to_utc(ms: i64) -> Option<DateTime<Utc>> {
-    Utc.timestamp_millis_opt(ms).single()
+fn millis_to_utc(ms: i64) -> Option<Timestamp> {
+    Local.timestamp_millis_opt(ms).single()
 }
 
 fn run_from_row(row: &Row) -> sql::Result<Option<TaskRun>> {
@@ -51,7 +52,7 @@ impl TaskRunStorage for SqlStorage {
         &self,
         agent_id: AgentId,
         task_slug: String,
-        ran_at: DateTime<Utc>,
+        ran_at: Timestamp,
         session_key: String,
     ) -> Result<i64> {
         let conn = self.conn.lock()?;
@@ -75,7 +76,7 @@ impl TaskRunStorage for SqlStorage {
         &self,
         id: i64,
         state: TaskRunState,
-        finished_at: DateTime<Utc>,
+        finished_at: Timestamp,
     ) -> Result<()> {
         let conn = self.conn.lock()?;
         // `state = 'running'` in the predicate is what makes a terminal state terminal:
@@ -120,7 +121,7 @@ impl TaskRunStorage for SqlStorage {
         &self,
         agent_id: AgentId,
         task_slug: String,
-        before: Option<DateTime<Utc>>,
+        before: Option<Timestamp>,
         before_id: Option<i64>,
         limit: usize,
     ) -> Result<Vec<TaskRun>> {
@@ -166,7 +167,7 @@ impl TaskRunStorage for SqlStorage {
         &self,
         agent_id: AgentId,
         task_slug: String,
-        ran_at: DateTime<Utc>,
+        ran_at: Timestamp,
     ) -> Result<Option<TaskRun>> {
         let conn = self.conn.lock()?;
         let sql = format!(
@@ -215,7 +216,7 @@ impl TaskRunStorage for SqlStorage {
                 "UPDATE task_run SET state = ?1, finished_at = ?2 WHERE id = ?3",
                 params![
                     TaskRunState::Interrupted.as_str(),
-                    Utc::now().timestamp_millis(),
+                    crate::time::now().timestamp_millis(),
                     id
                 ],
             )?;
@@ -234,7 +235,7 @@ impl TaskRunStorage for SqlStorage {
             "UPDATE task_run SET state = ?1, finished_at = ?2 WHERE state = ?3",
             params![
                 TaskRunState::Interrupted.as_str(),
-                Utc::now().timestamp_millis(),
+                crate::time::now().timestamp_millis(),
                 TaskRunState::Running.as_str(),
             ],
         )?;
@@ -276,12 +277,12 @@ mod tests {
         (storage, dir)
     }
 
-    fn at(ms: i64) -> DateTime<Utc> {
-        Utc.timestamp_millis_opt(ms).single().unwrap()
+    fn at(ms: i64) -> Timestamp {
+        Local.timestamp_millis_opt(ms).single().unwrap()
     }
 
     /// Open a run and close it `Answered`, so a test can build a history cheaply.
-    async fn answered_run(storage: &SqlStorage, slug: &str, ran_at: DateTime<Utc>) -> i64 {
+    async fn answered_run(storage: &SqlStorage, slug: &str, ran_at: Timestamp) -> i64 {
         let id = storage
             .open_task_run(
                 "agent-1".into(),
@@ -310,7 +311,7 @@ mod tests {
         }
 
         let mut seen: Vec<i64> = Vec::new();
-        let mut cursor: Option<(DateTime<Utc>, i64)> = None;
+        let mut cursor: Option<(Timestamp, i64)> = None;
         loop {
             let page = storage
                 .list_task_runs(
@@ -348,7 +349,7 @@ mod tests {
 
         // The route derives `has_more` by requesting `limit + 1` and trimming.
         let limit = 2usize;
-        let mut cursor: Option<(DateTime<Utc>, i64)> = None;
+        let mut cursor: Option<(Timestamp, i64)> = None;
         let mut has_more_flags: Vec<bool> = Vec::new();
         loop {
             let mut page = storage

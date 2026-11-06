@@ -48,7 +48,7 @@ fn who() -> Principal {
             name: "tester".into(),
             permissions: vec!["all_agents:view".into()],
             is_system: true,
-            created_at: chrono::Utc::now(),
+            created_at: vizier_core::time::now(),
         },
         permissions: vec!["all_agents:view".into()],
         method: AuthMethod::Jwt,

@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use chrono::Utc;
+
 use serde::{Deserialize, Serialize};
 use teloxide::Bot;
 use teloxide::prelude::*;
@@ -91,7 +91,7 @@ impl VizierTool for SendTelegramMessage {
 
         let session = VizierSession(self.agent_id.clone(), channel, topic_id);
         let response = VizierResponse {
-            timestamp: Utc::now(),
+            timestamp: crate::time::now(),
             content: VizierResponseContent::Message { content, stats: None },
             attachments: vec![],
             ..Default::default()

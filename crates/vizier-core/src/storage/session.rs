@@ -1,3 +1,4 @@
+use crate::time::Timestamp;
 use anyhow::Result;
 
 use crate::{
@@ -13,7 +14,7 @@ pub struct ConversationRow {
     /// The channel slug: `discord__123`, `telegram__-9`, `http__ana__vizier-webui`.
     pub channel: String,
     pub topics: u64,
-    pub last_activity: chrono::DateTime<chrono::Utc>,
+    pub last_activity: Timestamp,
     /// The topic with the newest message ("" for a channel without topics).
     pub latest_topic: String,
     /// Where the latest topic falls among the topics, oldest first, from 1.

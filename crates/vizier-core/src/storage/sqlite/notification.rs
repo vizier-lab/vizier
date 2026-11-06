@@ -1,6 +1,7 @@
+use crate::time::Timestamp;
 use crate::storage::sql::{self, Connection, OptionalExtension, ToSql, params, params_from_iter};
 use anyhow::Result;
-use chrono::{DateTime, TimeZone, Utc};
+use chrono::{TimeZone, Local};
 
 use crate::{
     schema::{
@@ -12,13 +13,13 @@ use crate::{
     },
 };
 
-fn millis(ms: i64) -> DateTime<Utc> {
-    Utc.timestamp_millis_opt(ms).single().unwrap_or_default()
+fn millis(ms: i64) -> Timestamp {
+    Local.timestamp_millis_opt(ms).single().unwrap_or_default()
 }
 
 /// The oldest instant still retained.
 fn cutoff() -> i64 {
-    (Utc::now() - chrono::Duration::days(RETENTION_DAYS)).timestamp_millis()
+    (crate::time::now() - chrono::Duration::days(RETENTION_DAYS)).timestamp_millis()
 }
 
 /// `IN (?, ?, …)` for `agents`, which is never empty at a call site (the caller returns early).
@@ -128,7 +129,7 @@ impl NotificationStorage for SqlStorage {
         user_id: &str,
         agents: &[String],
         filter: NotificationFilter,
-        before: Option<(DateTime<Utc>, i64)>,
+        before: Option<(Timestamp, i64)>,
         limit: usize,
     ) -> Result<Vec<NotificationItem>> {
         if agents.is_empty() {
@@ -280,7 +281,7 @@ impl NotificationStorage for SqlStorage {
         user_id: &str,
         notification_id: i64,
         read: bool,
-        at: DateTime<Utc>,
+        at: Timestamp,
         agents: &[String],
     ) -> Result<bool> {
         if agents.is_empty() {
@@ -322,7 +323,7 @@ impl NotificationStorage for SqlStorage {
     async fn mark_all_notifications_read(
         &self,
         user_id: &str,
-        at: DateTime<Utc>,
+        at: Timestamp,
         agents: &[String],
     ) -> Result<u64> {
         if agents.is_empty() {
@@ -348,7 +349,7 @@ impl NotificationStorage for SqlStorage {
         Ok(inserted as u64)
     }
 
-    async fn purge_notifications_before(&self, at: DateTime<Utc>) -> Result<usize> {
+    async fn purge_notifications_before(&self, at: Timestamp) -> Result<usize> {
         let conn = self.conn.lock()?;
         let deleted = conn.execute(
             "DELETE FROM notification WHERE created_at < ?1",
@@ -408,7 +409,7 @@ mod tests {
             .unwrap();
     }
 
-    fn draft(key: &str, agent_id: &str, at: DateTime<Utc>) -> NotificationDraft {
+    fn draft(key: &str, agent_id: &str, at: Timestamp) -> NotificationDraft {
         NotificationDraft {
             event_key: key.into(),
             agent_id: agent_id.into(),
@@ -460,7 +461,7 @@ mod tests {
     async fn a_duplicate_event_key_inserts_once_and_never_updates() {
         let (s, _d) = setup();
         agent(&s, "a");
-        let at = Utc::now();
+        let at = crate::time::now();
         let first = s
             .insert_notifications(&[draft("task_run:1", "a", at)])
             .await
@@ -492,12 +493,12 @@ mod tests {
             VizierChannelId::HTTP("ana".into(), "vizier-webui".into()),
             Some("topic-1".into()),
         );
-        let mut with = draft("chat:1", "a", Utc::now());
+        let mut with = draft("chat:1", "a", crate::time::now());
         with.source_session = Some(session.clone());
         with.excerpt = Some("The middle plan is underpriced.".into());
-        let mut task = draft("task:1", "a", Utc::now());
+        let mut task = draft("task:1", "a", crate::time::now());
         task.source_title = Some("Weekly brief".into());
-        let plain = draft("plain:1", "a", Utc::now());
+        let plain = draft("plain:1", "a", crate::time::now());
         let inserted = s.insert_notifications(&[with, task, plain]).await.unwrap();
         assert_eq!(inserted.len(), 3);
         assert_eq!(inserted[0].item.source_session.as_ref(), Some(&session));
@@ -542,9 +543,9 @@ mod tests {
         agent(&s, "a");
         agent(&s, "b");
         assert_eq!(s.latest_notification_id("u", &["a".into()]).await.unwrap(), 0);
-        let mut addressed = draft("chat", "a", Utc::now());
+        let mut addressed = draft("chat", "a", crate::time::now());
         addressed.audience_user_id = Some("ana".into());
-        s.insert_notifications(&[draft("1", "a", Utc::now()), draft("2", "b", Utc::now()), addressed])
+        s.insert_notifications(&[draft("1", "a", crate::time::now()), draft("2", "b", crate::time::now()), addressed])
             .await
             .unwrap();
         assert_eq!(s.latest_notification_id("ana", &["a".into(), "b".into()]).await.unwrap(), 3);
@@ -562,7 +563,7 @@ mod tests {
         let (s, _d) = setup();
         agent(&s, "a");
         assert!(
-            s.insert_notifications(&[draft("k", "gone", Utc::now())])
+            s.insert_notifications(&[draft("k", "gone", crate::time::now())])
                 .await
                 .unwrap()
                 .is_empty()
@@ -581,7 +582,7 @@ mod tests {
         let (s, _d) = setup();
         agent(&s, "a");
         agent(&s, "b");
-        let at = Utc::now();
+        let at = crate::time::now();
         s.insert_notifications(&[
             draft("1", "a", at),
             draft("2", "a", at),
@@ -617,7 +618,7 @@ mod tests {
             NotificationCounts::default()
         );
 
-        s.set_notification_read("u", 2, true, Utc::now(), &["a".into()])
+        s.set_notification_read("u", 2, true, crate::time::now(), &["a".into()])
             .await
             .unwrap();
         let unread = s
@@ -641,7 +642,7 @@ mod tests {
     async fn pages_use_the_cursor_without_gaps_or_repeats() {
         let (s, _d) = setup();
         agent(&s, "a");
-        let at = Utc::now();
+        let at = crate::time::now();
         s.insert_notifications(&[
             draft("1", "a", at),
             draft("2", "a", at),
@@ -672,7 +673,7 @@ mod tests {
     async fn read_state_is_per_person_and_idempotent() {
         let (s, _d) = setup();
         agent(&s, "a");
-        s.insert_notifications(&[draft("1", "a", Utc::now())])
+        s.insert_notifications(&[draft("1", "a", crate::time::now())])
             .await
             .unwrap();
         let item = s
@@ -682,22 +683,22 @@ mod tests {
         let id = item[0].id;
 
         assert!(
-            s.set_notification_read("u", id, true, Utc::now(), &["a".into()])
+            s.set_notification_read("u", id, true, crate::time::now(), &["a".into()])
                 .await
                 .unwrap()
         );
         assert!(
-            s.set_notification_read("u", id, true, Utc::now(), &["a".into()])
+            s.set_notification_read("u", id, true, crate::time::now(), &["a".into()])
                 .await
                 .unwrap()
         );
         assert!(
-            !s.set_notification_read("u", 9999, true, Utc::now(), &["a".into()])
+            !s.set_notification_read("u", 9999, true, crate::time::now(), &["a".into()])
                 .await
                 .unwrap()
         );
         assert!(
-            !s.set_notification_read("u", id, true, Utc::now(), &["b".into()])
+            !s.set_notification_read("u", id, true, crate::time::now(), &["b".into()])
                 .await
                 .unwrap()
         );
@@ -708,7 +709,7 @@ mod tests {
         assert_eq!((theirs.all, theirs.unread, theirs.read), (1, 1, 0));
 
         assert!(
-            s.set_notification_read("u", id, false, Utc::now(), &["a".into()])
+            s.set_notification_read("u", id, false, crate::time::now(), &["a".into()])
                 .await
                 .unwrap()
         );
@@ -725,7 +726,7 @@ mod tests {
     async fn mark_all_covers_unread_rows_beyond_the_page() {
         let (s, _d) = setup();
         agent(&s, "a");
-        let at = Utc::now();
+        let at = crate::time::now();
         s.insert_notifications(&[
             draft("1", "a", at),
             draft("2", "a", at),
@@ -734,7 +735,7 @@ mod tests {
         .await
         .unwrap();
         let marked = s
-            .mark_all_notifications_read("u", Utc::now(), &["a".into()])
+            .mark_all_notifications_read("u", crate::time::now(), &["a".into()])
             .await
             .unwrap();
         assert_eq!(marked, 3);
@@ -748,13 +749,13 @@ mod tests {
         );
         // Idempotent: nothing new is inserted.
         assert_eq!(
-            s.mark_all_notifications_read("u", Utc::now(), &["a".into()])
+            s.mark_all_notifications_read("u", crate::time::now(), &["a".into()])
                 .await
                 .unwrap(),
             0
         );
         // A row created after the snapshot stays unread.
-        s.insert_notifications(&[draft("4", "a", Utc::now())])
+        s.insert_notifications(&[draft("4", "a", crate::time::now())])
             .await
             .unwrap();
         assert_eq!(
@@ -770,8 +771,8 @@ mod tests {
     async fn rows_outside_the_retention_window_are_neither_listed_nor_counted_and_are_purged() {
         let (s, _d) = setup();
         agent(&s, "a");
-        let old = Utc::now() - chrono::Duration::days(RETENTION_DAYS + 1);
-        let recent = Utc::now() - chrono::Duration::days(RETENTION_DAYS - 1);
+        let old = crate::time::now() - chrono::Duration::days(RETENTION_DAYS + 1);
+        let recent = crate::time::now() - chrono::Duration::days(RETENTION_DAYS - 1);
         s.insert_notifications(&[draft("old", "a", old), draft("new", "a", recent)])
             .await
             .unwrap();
@@ -786,7 +787,7 @@ mod tests {
         );
 
         let purged = s
-            .purge_notifications_before(Utc::now() - chrono::Duration::days(RETENTION_DAYS))
+            .purge_notifications_before(crate::time::now() - chrono::Duration::days(RETENTION_DAYS))
             .await
             .unwrap();
         assert_eq!(purged, 1);
@@ -806,7 +807,7 @@ mod tests {
         let (s, _d) = setup();
         agent(&s, "a");
         agent(&s, "b");
-        s.insert_notifications(&[draft("1", "a", Utc::now()), draft("2", "b", Utc::now())])
+        s.insert_notifications(&[draft("1", "a", crate::time::now()), draft("2", "b", crate::time::now())])
             .await
             .unwrap();
         let items = s
@@ -820,7 +821,7 @@ mod tests {
             .await
             .unwrap();
         let a_id = items.iter().find(|i| i.agent_id == "a").unwrap().id;
-        s.set_notification_read("u", a_id, true, Utc::now(), &["a".into()])
+        s.set_notification_read("u", a_id, true, crate::time::now(), &["a".into()])
             .await
             .unwrap();
 
@@ -854,7 +855,7 @@ mod tests {
     async fn an_addressed_row_is_listed_counted_and_read_only_by_its_person() {
         let (s, _d) = setup();
         agent(&s, "a");
-        let at = Utc::now();
+        let at = crate::time::now();
         let mut addressed = draft("chat:1", "a", at);
         addressed.audience_user_id = Some("ana".into());
         addressed.category = NotificationCategory::ChatReply;
@@ -893,19 +894,19 @@ mod tests {
 
         // Another person cannot even tell the addressed row exists.
         assert!(
-            !s.set_notification_read("bob", chat.id, true, Utc::now(), &["a".into()])
+            !s.set_notification_read("bob", chat.id, true, crate::time::now(), &["a".into()])
                 .await
                 .unwrap()
         );
         assert!(
-            s.set_notification_read("ana", chat.id, true, Utc::now(), &["a".into()])
+            s.set_notification_read("ana", chat.id, true, crate::time::now(), &["a".into()])
                 .await
                 .unwrap()
         );
 
         // Mark-all covers each person's own visible set only: bob reads the shared row,
         // ana read only her conversation, so the shared row is still unread for her.
-        s.mark_all_notifications_read("bob", Utc::now(), &["a".into()])
+        s.mark_all_notifications_read("bob", crate::time::now(), &["a".into()])
             .await
             .unwrap();
         let counts = s.notification_counts("ana", &["a".into()]).await.unwrap();
@@ -923,7 +924,7 @@ mod tests {
     async fn orphan_cleanup_drops_rows_for_agents_that_no_longer_exist() {
         let (s, _d) = setup();
         agent(&s, "a");
-        s.insert_notifications(&[draft("1", "a", Utc::now())])
+        s.insert_notifications(&[draft("1", "a", crate::time::now())])
             .await
             .unwrap();
         s.conn

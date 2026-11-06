@@ -1,9 +1,10 @@
 //! The catalogue seed embedded at build time: `build.rs` gzips the committed
 //! `assets/catalogue/api.json`, and `meta.json` plus the logos are embedded as they are.
 
+use crate::time::Timestamp;
 use std::io::Read;
 
-use chrono::{DateTime, Utc};
+
 use rust_embed::RustEmbed;
 use serde::Deserialize;
 
@@ -22,7 +23,7 @@ struct SeedLogos;
 pub struct SeedMeta {
     pub schema: u32,
     pub source_url: String,
-    pub fetched_at: DateTime<Utc>,
+    pub fetched_at: Timestamp,
     pub etag: Option<String>,
     #[serde(default)]
     pub no_logo: Vec<String>,
@@ -34,7 +35,7 @@ pub fn seed_meta() -> SeedMeta {
         .unwrap_or_else(|| SeedMeta {
             schema: 1,
             source_url: "https://models.dev/api.json".into(),
-            fetched_at: DateTime::<Utc>::UNIX_EPOCH,
+            fetched_at: crate::time::epoch(),
             etag: None,
             no_logo: vec![],
         })
@@ -95,7 +96,7 @@ fn parse_media_seed(json: &str) -> super::media::MediaSeed {
         #[serde(default)]
         schema: i64,
         #[serde(default)]
-        fetched_at: Option<DateTime<Utc>>,
+        fetched_at: Option<Timestamp>,
         #[serde(default)]
         speech: Vec<MediaModel>,
         #[serde(default)]
@@ -141,7 +142,7 @@ mod tests {
         assert!(data.providers.len() >= 200, "{} providers", data.providers.len());
         assert!(data.model_count() >= 5000);
         assert_eq!(data.source, CatalogueSource::Bundled);
-        assert!(data.fetched_at > DateTime::<Utc>::UNIX_EPOCH);
+        assert!(data.fetched_at > crate::time::epoch());
     }
 
     #[test]
@@ -159,7 +160,7 @@ mod tests {
     #[test]
     fn the_media_seed_lists_the_documented_defaults() {
         let seed = load_media_seed();
-        assert!(seed.fetched_at > DateTime::<Utc>::UNIX_EPOCH);
+        assert!(seed.fetched_at > crate::time::epoch());
 
         let find = |models: &[super::super::media::MediaModel], id: &str| {
             models.iter().find(|m| m.id == id).cloned()
@@ -179,7 +180,7 @@ mod tests {
     fn a_broken_media_seed_yields_empty_lists() {
         for json in ["{", "[]", r#"{"schema": 2, "fetched_at": "2026-10-24T00:00:00Z"}"#] {
             let seed = parse_media_seed(json);
-            assert_eq!(seed.fetched_at, DateTime::<Utc>::UNIX_EPOCH, "{json}");
+            assert_eq!(seed.fetched_at, crate::time::epoch(), "{json}");
             assert!(seed.speech.is_empty() && seed.transcription.is_empty() && seed.image.is_empty());
         }
     }

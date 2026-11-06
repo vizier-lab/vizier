@@ -78,6 +78,7 @@ pub mod error;
 pub mod runtime;
 pub mod schema;
 pub mod server_role;
+pub mod time;
 pub mod service;
 pub mod transport;
 

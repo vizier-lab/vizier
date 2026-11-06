@@ -8,7 +8,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Local};
 use parking_lot::{Mutex, RwLock};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -139,16 +139,16 @@ pub struct MediaList {
     pub models: Vec<MediaModel>,
     pub source: CatalogueSource,
     /// When the current bytes were successfully fetched (the seed's timestamp or a refresh).
-    pub fetched_at: DateTime<Utc>,
+    pub fetched_at: DateTime<Local>,
     /// The last successful check; `None` for the seed until a refresh.
-    pub checked_at: Option<DateTime<Utc>>,
+    pub checked_at: Option<DateTime<Local>>,
 }
 
 /// The embedded seed: one timestamp for all three lists, because `just catalogue-update` writes
 /// them together (data-model §4).
 #[derive(Debug, Clone, Default)]
 pub struct MediaSeed {
-    pub fetched_at: DateTime<Utc>,
+    pub fetched_at: DateTime<Local>,
     pub speech: Vec<MediaModel>,
     pub transcription: Vec<MediaModel>,
     pub image: Vec<MediaModel>,
@@ -313,7 +313,7 @@ fn enum_values(row: &Map<String, Value>, key: &str) -> Vec<String> {
 struct CapabilityRefresh {
     in_progress: AtomicBool,
     /// The last failed check, for the 1 h backoff and the status line; restored at startup.
-    failure: Mutex<Option<(String, DateTime<Utc>)>>,
+    failure: Mutex<Option<(String, DateTime<Local>)>>,
 }
 
 #[derive(Default)]
@@ -386,7 +386,7 @@ impl MediaCatalogue {
                 capability,
                 models: vec![],
                 source: CatalogueSource::Bundled,
-                fetched_at: DateTime::<Utc>::UNIX_EPOCH,
+                fetched_at: crate::time::epoch(),
                 checked_at: None,
             })
     }
@@ -454,7 +454,7 @@ impl MediaCatalogue {
         let checked = list.checked_at.unwrap_or(list.fetched_at);
         let ttl = chrono::Duration::from_std(*deps.config.catalogue.ttl)
             .unwrap_or(chrono::Duration::hours(24));
-        let now = Utc::now();
+        let now = crate::time::now();
         if now - checked < ttl {
             return;
         }
@@ -578,7 +578,7 @@ async fn check(deps: &VizierDependencies, capability: MediaCapability) -> Result
         Ok(models) => models,
         Err(e) => return fail(deps, capability, e).await,
     };
-    let now = DateTime::from_timestamp_millis(Utc::now().timestamp_millis()).unwrap_or_else(Utc::now);
+    let now = crate::time::now();
     let data = cache::gzip(&serde_json::to_vec(&models).unwrap_or_default());
     let row = MediaCatalogueSnapshotRow {
         capability: capability.as_str().to_string(),
@@ -617,7 +617,7 @@ async fn fail(
     capability: MediaCapability,
     error: String,
 ) -> Result<(), String> {
-    let now = DateTime::from_timestamp_millis(Utc::now().timestamp_millis()).unwrap_or_else(Utc::now);
+    let now = crate::time::now();
     tracing::warn!(
         capability = capability.as_str(),
         "media model list refresh failed, keeping the current list: {error}"
@@ -746,7 +746,7 @@ mod tests {
     #[test]
     fn a_fresh_catalogue_serves_the_seed_for_every_capability() {
         let seed = MediaSeed {
-            fetched_at: DateTime::from_timestamp_millis(1_700_000_000_000).unwrap(),
+            fetched_at: crate::time::from_millis_opt(1_700_000_000_000).unwrap(),
             speech: vec![MediaModel { id: "s".into(), name: "S".into(), ..Default::default() }],
             transcription: vec![],
             image: vec![MediaModel { id: "i".into(), name: "I".into(), ..Default::default() }],

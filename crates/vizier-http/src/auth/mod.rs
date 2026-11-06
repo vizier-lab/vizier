@@ -1,6 +1,6 @@
 use anyhow::Result;
 use base64::Engine;
-use chrono::{Duration, Utc};
+use chrono::Duration;
 use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, decode, encode};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -45,7 +45,7 @@ impl AuthService {
 
     /// Generate a JWT token
     pub fn generate_token(&self, user_id: &str, username: &str, permissions: Vec<String>) -> Result<String> {
-        let now = Utc::now();
+        let now = vizier_core::time::now();
         let exp = now + Duration::hours(self.jwt_expiry_hours);
 
         let claims = Claims {

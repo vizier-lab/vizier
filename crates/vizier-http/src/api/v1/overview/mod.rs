@@ -12,7 +12,6 @@ use reqwest::StatusCode;
 use serde::Deserialize;
 
 use crate::{
-    api::v1::agents::dream::parse_offset,
     auth::Principal,
     models::{
         self,
@@ -33,7 +32,8 @@ pub fn overview() -> Router<HTTPState> {
 
 #[derive(Debug, Deserialize, utoipa::IntoParams)]
 pub struct TzQuery {
-    /// The person's UTC offset, e.g. `+07:00`; default UTC.
+    /// Ignored. Days follow the instance's timezone. Kept so older clients keep working.
+    #[deprecated]
     pub tz: Option<String>,
 }
 
@@ -46,10 +46,9 @@ pub struct TzQuery {
 pub async fn overview_counts(
     State(state): State<HTTPState>,
     Extension(user): Extension<Principal>,
-    Query(query): Query<TzQuery>,
+    Query(_ignored): Query<TzQuery>,
 ) -> models::response::Response<Overview> {
-    let offset = parse_offset(query.tz.as_deref());
-    match overview::counts(&super::auth::services(&state), &user, offset).await {
+    match overview::counts(&super::auth::services(&state), &user).await {
         Ok(counts) => api_response(StatusCode::OK, counts),
         Err(e) => super::auth::err(e),
     }
@@ -72,10 +71,9 @@ pub async fn activity(
     State(state): State<HTTPState>,
     Extension(user): Extension<Principal>,
     Query(query): Query<ActivityQuery>,
-    Query(tz): Query<TzQuery>,
+    Query(_ignored): Query<TzQuery>,
 ) -> models::response::Response<Activity> {
-    let offset = parse_offset(tz.tz.as_deref());
-    match overview::activity(&super::auth::services(&state), &user, query.rank.unwrap_or_default(), offset).await {
+    match overview::activity(&super::auth::services(&state), &user, query.rank.unwrap_or_default()).await {
         Ok(activity) => api_response(StatusCode::OK, activity),
         Err(e) => super::auth::err(e),
     }

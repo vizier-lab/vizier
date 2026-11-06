@@ -5,7 +5,7 @@
 
 use std::collections::HashMap;
 
-use chrono::Utc;
+
 
 use crate::{
     auth::Principal,
@@ -132,7 +132,7 @@ pub async fn set_read(
     let agents = visible(services, user).await;
     let storage = &services.deps().storage;
     match storage
-        .set_notification_read(&user.user_id, id, read, Utc::now(), &agents)
+        .set_notification_read(&user.user_id, id, read, crate::time::now(), &agents)
         .await
     {
         Ok(true) => {}
@@ -155,7 +155,7 @@ pub async fn read_all(services: &Services, user: &Principal) -> Result<Notificat
     let agents = visible(services, user).await;
     let storage = &services.deps().storage;
     storage
-        .mark_all_notifications_read(&user.user_id, Utc::now(), &agents)
+        .mark_all_notifications_read(&user.user_id, crate::time::now(), &agents)
         .await
         .map_err(internal)?;
     services.deps().transport.publish_inbox_event(InboxEvent::Read {

@@ -10,7 +10,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
 
-use chrono::Utc;
+
 use tokio::time::Instant;
 
 use crate::agents::supervisor::{HEALTHY_RUN, restart_delay};
@@ -73,7 +73,7 @@ pub async fn supervise(
             h.state = ChannelState::Reconnecting;
             h.last_error = Some(format!("{error:#}"));
             h.failures = failures;
-            h.next_retry_at = chrono::Duration::from_std(wait).ok().map(|w| Utc::now() + w);
+            h.next_retry_at = chrono::Duration::from_std(wait).ok().map(|w| crate::time::now() + w);
         });
         tokio::time::sleep(wait).await;
         if stopping.load(Ordering::SeqCst) {

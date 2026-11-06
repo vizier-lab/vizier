@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use chrono::Utc;
+
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use tracing::Instrument;
@@ -140,7 +140,7 @@ impl VizierTool for ExecutePython {
         });
 
         Ok(VizierResponse {
-            timestamp: Utc::now(),
+            timestamp: crate::time::now(),
             content: VizierResponseContent::ToolResponse {
                 response: serde_json::to_value(report)
                     .map_err(|err| VizierError(err.to_string()))?,
@@ -328,7 +328,7 @@ mod tests {
             uid: uuid::Uuid::new_v4().to_string(),
             vizier_session: session(),
             content,
-            timestamp: Utc::now(),
+            timestamp: crate::time::now(),
             reactions: vec![],
             seq: None,
         };

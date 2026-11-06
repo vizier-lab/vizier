@@ -1,6 +1,6 @@
 use crate::storage::sql::{self, Connection, OptionalExtension, params};
 use anyhow::Result;
-use chrono::Utc;
+
 
 use crate::{
     schema::VizierSession,
@@ -83,7 +83,7 @@ fn save(
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
              ON CONFLICT(agent_id, channel, topic, name) DO UPDATE SET {update}, updated_at = excluded.updated_at"
         ),
-        params![agent_id, channel, topic, name, content, added as i64, Utc::now().to_rfc3339()],
+        params![agent_id, channel, topic, name, content, added as i64, crate::time::stored_now()],
     )?;
     tx.commit()?;
 

@@ -41,7 +41,7 @@ Vizier runs one clock: the host's timezone. A single `Timestamp = DateTime<Local
 | V. Unified errors and observability | Pass | `crate::Result`, `tracing`; startup failure reports through `VizierRuntime::start` |
 | Dependency review | Pass | Version already in tree. `app/Cargo.lock` stays aligned (CI `policy`) |
 | Migrations tracked on #82 | Required in tasks | The rewrite, its marker, the ignored `tz`, the query-space leniency, and hiding old `metadata.sent_at` |
-| Design first | Required in tasks | The timezone indicator is drawn in FigCraft before code. Other WebUI changes display existing elements, so no design pass |
+| Design first | Pass | No new visual element: the WebUI shows existing elements in the instance's zone, so no design pass |
 | Matching submodule branches | Required in tasks | `just checkout 052-unify-local-timezone` was not run by the branch hook. Commit order: design → webui → vizier |
 | Dummyplug e2e | Pass | [quickstart.md](quickstart.md) scripts it; live-provider steps are marked |
 | Runtime verification | Required in tasks | Startup, migration and `Dockerfile` changes must be run, including `cross build` for the targets |
@@ -103,7 +103,7 @@ webui/app/
 ├── lib/timezone.ts                  # NEW: zone store, zoned, wallClockString
 ├── lib/{format,conversations,schedule,dreams,overview,messages}.ts
 ├── routes/{home,task-edit}.tsx
-└── screens/schedule/, screens/shell/ # Zone gate in AppShell, indicator
+└── screens/schedule/, screens/shell/ # Zone gate in AppShell
 
 Dockerfile                           # tzdata in the runtime image
 scripts/052-utc-check.sh             # NEW: refuses a new Utc outside the allow-list
@@ -123,7 +123,7 @@ Each step leaves the tree building and tests passing.
 3. **Day boundaries**: `day_of_millis`, overview and dream days, `tz` ignored.
 4. **Scheduling input and tools**, then the migration.
 5. **Prompt**: server stamping, `sent_at` in the frontmatter and the `time` tools, then remove `## Time` and rewrite boot. These land together, so an agent is never left with neither.
-6. **WebUI**: the endpoint and `lib/timezone.ts`, then the screens. FigCraft → design → webui for the indicator.
+6. **WebUI**: the endpoint and `lib/timezone.ts`, then the screens. No indicator, so no design pass.
 7. **Edges**: logs, CLI, `tzdata`, the check script in CI, docs, CLAUDE.md, #82 entries, release notes.
 
 ## Risks

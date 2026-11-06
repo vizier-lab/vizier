@@ -78,7 +78,7 @@ mod tests {
                 name: "role".into(),
                 permissions: vec![],
                 is_system: system,
-                created_at: chrono::Utc::now(),
+                created_at: crate::time::now(),
             },
             permissions: permissions.iter().map(|p| p.to_string()).collect(),
             method: AuthMethod::Jwt,

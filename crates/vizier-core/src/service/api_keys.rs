@@ -1,7 +1,7 @@
 //! A person's API keys. All of it needs `settings:api_keys`.
 
 use base64::Engine;
-use chrono::{Duration, Utc};
+use chrono::Duration;
 use sha2::{Digest, Sha256};
 
 use crate::{
@@ -38,7 +38,7 @@ pub async fn create(
 ) -> Result<(ApiKey, String), ServiceError> {
     access::require(principal, NEEDS)?;
     let (raw, key_hash) = generate();
-    let expires_at = expires_in_days.map(|days| Utc::now() + Duration::days(days));
+    let expires_at = expires_in_days.map(|days| crate::time::now() + Duration::days(days));
     let key = services
         .deps()
         .storage

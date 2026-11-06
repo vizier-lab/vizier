@@ -1,6 +1,7 @@
+use crate::time::Timestamp;
 use crate::storage::sql::params;
 use anyhow::Result;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Local};
 
 use crate::{
     schema::DreamStatus,
@@ -43,20 +44,20 @@ impl StateStorage for SqlStorage {
 
 #[async_trait::async_trait]
 impl DreamStorage for SqlStorage {
-    async fn get_last_dream_time(&self, agent_id: &str) -> Result<Option<DateTime<Utc>>> {
+    async fn get_last_dream_time(&self, agent_id: &str) -> Result<Option<Timestamp>> {
         let key = format!("dream_last_time:{}", agent_id);
         match self.get_state(key).await? {
             Some(val) => {
                 let s: String = serde_json::from_value(val)?;
-                Ok(Some(DateTime::parse_from_rfc3339(&s)?.with_timezone(&Utc)))
+                Ok(Some(DateTime::parse_from_rfc3339(&s)?.with_timezone(&Local)))
             }
             None => Ok(None),
         }
     }
 
-    async fn set_last_dream_time(&self, agent_id: &str, time: DateTime<Utc>) -> Result<()> {
+    async fn set_last_dream_time(&self, agent_id: &str, time: Timestamp) -> Result<()> {
         let key = format!("dream_last_time:{}", agent_id);
-        self.save_state(key, serde_json::json!(time.to_rfc3339()))
+        self.save_state(key, serde_json::json!(crate::time::stored(time)))
             .await
     }
 

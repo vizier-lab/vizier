@@ -313,7 +313,7 @@ mod tests {
             answers: None,
             answerer: None,
             controls: None,
-            created_at: chrono::Utc::now(),
+            created_at: crate::time::now(),
             closed_at: None,
         }
     }

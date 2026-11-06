@@ -300,7 +300,7 @@ impl AgentsClient for LocalAgentsClient {
         // agent's request subject. No new message kind is needed for it to cross a process
         // boundary (research R4).
         let request = VizierRequest {
-            timestamp: chrono::Utc::now(),
+            timestamp: crate::time::now(),
             user: "system".into(),
             content: VizierRequestContent::Command("abort".into()),
             metadata: serde_json::json!({}),
@@ -673,7 +673,7 @@ mod tests {
 
     fn chat(text: &str) -> VizierRequest {
         VizierRequest {
-            timestamp: chrono::Utc::now(),
+            timestamp: crate::time::now(),
             user: "tester".into(),
             content: VizierRequestContent::Chat(text.into()),
             metadata: serde_json::json!({}),

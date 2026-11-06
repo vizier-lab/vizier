@@ -37,7 +37,7 @@ work, and nothing you write here reaches a person until they open the task later
 
 #[cfg(test)]
 mod tests {
-    use chrono::{TimeZone, Utc};
+    use chrono::{TimeZone, Local};
 
     use super::*;
     use crate::schema::{DreamStage, VizierChannelId, VizierSession};
@@ -49,7 +49,7 @@ mod tests {
     fn task_channel() -> VizierChannelId {
         VizierChannelId::Task(
             "daily-report".to_string(),
-            Utc.timestamp_opt(1_700_000_000, 0).single().unwrap(),
+            Local.timestamp_opt(1_700_000_000, 0).single().unwrap(),
         )
     }
 

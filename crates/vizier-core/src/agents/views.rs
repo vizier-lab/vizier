@@ -54,7 +54,7 @@ pub fn setup_key(agent_id: &str) -> String {
 
 /// The clock the views are read against.
 pub fn now_ms() -> i64 {
-    chrono::Utc::now().timestamp_millis()
+    crate::time::now().timestamp_millis()
 }
 
 /// The payload of a published view, if the bytes are a view that has not expired.

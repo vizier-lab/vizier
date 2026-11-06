@@ -155,7 +155,7 @@ pub async fn migrate(dest: &VizierConfig, options: &MigrateOptions) -> Result<Mi
 }
 
 fn now_ms() -> i64 {
-    chrono::Utc::now().timestamp_millis()
+    crate::time::now().timestamp_millis()
 }
 
 fn phase_rank(phase: &str) -> u8 {

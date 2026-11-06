@@ -659,11 +659,11 @@ mod tests {
         SsoSessionSecret {
             access_token: "access-token-value".into(),
             refresh_token: Some("refresh-token-value".into()),
-            token_expires_at: chrono::Utc::now() + chrono::TimeDelta::hours(1),
+            token_expires_at: crate::time::now() + chrono::TimeDelta::hours(1),
             client_id: "client-id".into(),
             client_secret: "client-secret-value".into(),
             client_secret_expires_at: None,
-            issued_at: chrono::Utc::now(),
+            issued_at: crate::time::now(),
             revision: 0,
         }
     }
@@ -676,7 +676,7 @@ mod tests {
                 "accessKeyId": "ASIAEXAMPLEKEYID",
                 "secretAccessKey": "secret-access-value",
                 "sessionToken": "session-token-value",
-                "expiration": (chrono::Utc::now() + chrono::TimeDelta::hours(1)).timestamp_millis(),
+                "expiration": (crate::time::now() + chrono::TimeDelta::hours(1)).timestamp_millis(),
             }
         }))
     }

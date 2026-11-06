@@ -1,11 +1,12 @@
 //! The default [`BlobStore`]: files under the workspace, `<root>/<key>`, so an existing
 //! workspace's uploads, artifacts and memory documents are read in place.
 
+use crate::time::Timestamp;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Result, anyhow};
 use bytes::Bytes;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Local};
 use futures::StreamExt;
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 
@@ -42,8 +43,8 @@ fn not_found(e: &std::io::Error) -> bool {
     e.kind() == std::io::ErrorKind::NotFound
 }
 
-fn modified(meta: &std::fs::Metadata) -> Option<DateTime<Utc>> {
-    meta.modified().ok().map(DateTime::<Utc>::from)
+fn modified(meta: &std::fs::Metadata) -> Option<Timestamp> {
+    meta.modified().ok().map(DateTime::<Local>::from)
 }
 
 fn is_temp_name(name: &str) -> bool {

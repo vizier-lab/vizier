@@ -119,7 +119,7 @@ impl SsoSessionStorage for SqlStorage {
 mod tests {
     use std::sync::Arc;
 
-    use chrono::{Duration, Utc};
+    use chrono::Duration;
 
     use super::*;
     use crate::{
@@ -150,7 +150,7 @@ mod tests {
     }
 
     fn secret(access_token: &str) -> SsoSessionSecret {
-        let now = Utc::now();
+        let now = crate::time::now();
         SsoSessionSecret {
             access_token: access_token.into(),
             refresh_token: Some("refresh-token".into()),

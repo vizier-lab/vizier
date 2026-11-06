@@ -184,7 +184,7 @@ pub async fn skills_cwd(
 
 #[cfg(test)]
 mod tests {
-    use chrono::Utc;
+    
 
     use super::*;
     use crate::{
@@ -201,7 +201,7 @@ mod tests {
             folder: std::fs::canonicalize(folder).unwrap(),
             owner_id: owner.into(),
             shell_enabled: true,
-            created_at: Utc::now().timestamp_millis(),
+            created_at: crate::time::now().timestamp_millis(),
             removed_at: None,
         }
     }
@@ -301,7 +301,7 @@ mod tests {
         );
         let task = VizierSession(
             agent.clone(),
-            VizierChannelId::Task("tick".into(), Utc::now()),
+            VizierChannelId::Task("tick".into(), crate::time::now()),
             None,
         );
         let subagent = VizierSession(agent.clone(), VizierChannelId::Subagent, None);
@@ -408,7 +408,7 @@ mod tests {
     async fn a_removed_project_resolves_to_none_for_turns() {
         let (deps, _dir, _folder, _uid) = setup().await;
         deps.storage
-            .remove_project("p3xY9aQ2mZ", Utc::now().timestamp_millis())
+            .remove_project("p3xY9aQ2mZ", crate::time::now().timestamp_millis())
             .await
             .unwrap();
         assert!(

@@ -68,7 +68,7 @@ async fn main() -> vizier_core::Result<()> {
         .send_request(
             session,
             VizierRequest {
-                timestamp: chrono::Utc::now(),
+                timestamp: vizier_core::time::now(),
                 user: "headless".into(),
                 content: VizierRequestContent::Chat("tools".into()),
                 metadata: serde_json::json!({}),

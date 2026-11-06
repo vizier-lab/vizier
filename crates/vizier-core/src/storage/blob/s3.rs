@@ -4,11 +4,12 @@
 //! Errors carry the operation, the object key and S3's error code/message — never the secret
 //! key, the session token, the `Authorization` header or the signature.
 
+use crate::time::Timestamp;
 use std::fmt;
 
 use anyhow::{Context, Result, anyhow};
 use bytes::{Bytes, BytesMut};
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Local};
 use futures::StreamExt;
 use reqwest::{Method, StatusCode};
 
@@ -196,10 +197,10 @@ fn header_str<'a>(response: &'a reqwest::Response, name: &str) -> Option<&'a str
     response.headers().get(name).and_then(|v| v.to_str().ok())
 }
 
-fn parse_http_date(value: &str) -> Option<DateTime<Utc>> {
+fn parse_http_date(value: &str) -> Option<Timestamp> {
     DateTime::parse_from_rfc2822(value)
         .ok()
-        .map(|d| d.with_timezone(&Utc))
+        .map(|d| d.with_timezone(&Local))
 }
 
 impl S3BlobStore {
@@ -338,7 +339,7 @@ impl S3BlobStore {
                 session_token: self.credentials.session_token.as_deref(),
                 region: &self.region,
                 service: "s3",
-                now: Utc::now(),
+                now: chrono::Utc::now(),
             },
             &SignOptions {
                 extra_headers: &signed,
@@ -381,7 +382,7 @@ impl S3BlobStore {
             key: key.clone(),
             size,
             etag: header_str(&response, "etag").map(str::to_string),
-            modified: Some(Utc::now()),
+            modified: Some(crate::time::now()),
         })
     }
 
@@ -550,7 +551,7 @@ impl S3BlobStore {
                 key: key.clone(),
                 size,
                 etag,
-                modified: Some(Utc::now()),
+                modified: Some(crate::time::now()),
             }),
             Err(e) => {
                 self.abort_multipart(key, &upload_id).await;
@@ -604,7 +605,7 @@ impl S3BlobStore {
                 etag: xml_tag(block, "ETag"),
                 modified: xml_tag(block, "LastModified")
                     .and_then(|s| DateTime::parse_from_rfc3339(&s).ok())
-                    .map(|d| d.with_timezone(&Utc)),
+                    .map(|d| d.with_timezone(&Local)),
             });
         }
         let truncated = xml_tag(&body, "IsTruncated").is_some_and(|t| t == "true");

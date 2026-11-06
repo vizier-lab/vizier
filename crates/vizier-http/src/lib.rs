@@ -277,6 +277,7 @@ where
         api::v1::catalogue::media_models,
         api::v1::catalogue::refresh_media,
         api::v1::utils::setup_state,
+        api::v1::utils::timezone,
         api::v1::notifications::list,
         api::v1::notifications::count,
         api::v1::notifications::set_read,

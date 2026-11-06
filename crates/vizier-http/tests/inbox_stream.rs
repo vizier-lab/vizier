@@ -83,7 +83,7 @@ impl Fixture {
         self.runtime
             .deps()
             .notifications
-            .task_run_ended(agent_id, "brief", "Brief", run, TaskRunState::Answered, chrono::Utc::now())
+            .task_run_ended(agent_id, "brief", "Brief", run, TaskRunState::Answered, vizier_core::time::now())
             .await;
     }
 

@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use base64::Engine;
-use chrono::Utc;
+
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -131,7 +131,7 @@ impl VizierTool for ReadImageFile {
                 .map_err(|e| VizierError(e.to_string()))?
                 .text();
             return Ok(VizierResponse {
-                timestamp: Utc::now(),
+                timestamp: crate::time::now(),
                 content: VizierResponseContent::ToolResponse {
                     response: serde_json::Value::String(text),
                 },
@@ -149,7 +149,7 @@ impl VizierTool for ReadImageFile {
                 content: crate::schema::VizierAttachmentContent::Base64(b64),
             });
         Ok(VizierResponse {
-            timestamp: Utc::now(),
+            timestamp: crate::time::now(),
             content: VizierResponseContent::ToolResponse {
                 response: serde_json::Value::String(loaded),
             },

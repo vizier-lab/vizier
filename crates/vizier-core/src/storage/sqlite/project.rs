@@ -333,7 +333,7 @@ impl ProjectStorage for SqlStorage {
                 channel,
                 topic,
                 mode.as_str(),
-                chrono::Utc::now().timestamp_millis()
+                crate::time::now().timestamp_millis()
             ],
         )?;
         Ok(())

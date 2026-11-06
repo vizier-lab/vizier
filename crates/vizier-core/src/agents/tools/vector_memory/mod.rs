@@ -1,9 +1,10 @@
 pub mod attachments;
 
+use crate::time::Timestamp;
 use std::sync::Arc;
 
 use anyhow::Result;
-use chrono::Utc;
+
 use serde::{Deserialize, Serialize};
 use slugify::slugify;
 
@@ -149,7 +150,7 @@ fn default_offset() -> Option<usize> {
 pub struct BundleSummaryOutput {
     pub name: String,
     pub concept_count: usize,
-    pub updated_at: Option<chrono::DateTime<Utc>>,
+    pub updated_at: Option<Timestamp>,
 }
 
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
@@ -157,7 +158,7 @@ pub struct MemorySummary {
     pub bundle: String,
     pub path: String,
     pub title: String,
-    pub updated_at: chrono::DateTime<Utc>,
+    pub updated_at: Timestamp,
     pub tags: Vec<String>,
     pub relations: Vec<String>,
     pub attachment_count: usize,
@@ -527,8 +528,8 @@ pub struct MemoryDetailOutput {
     pub path: String,
     pub title: String,
     pub content: String,
-    pub created_at: chrono::DateTime<Utc>,
-    pub updated_at: chrono::DateTime<Utc>,
+    pub created_at: Timestamp,
+    pub updated_at: Timestamp,
     pub agent_id: String,
     pub tags: Vec<String>,
     pub relations: Vec<String>,

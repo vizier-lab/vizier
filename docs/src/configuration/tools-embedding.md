@@ -10,6 +10,7 @@ Every agent gets these regardless of configuration:
 |------|-------------|
 | `think` | Scratchpad for reasoning |
 | `schedule_one_time_task`, `schedule_cron_task`, `list_task`, `get_task_detail`, `delete_task` | Scheduler — tasks run as the agent in a dedicated `Task` session |
+| `current_time`, `convert_time`, `shift_time`, `time_between` | Time — the current time, zone conversion and date arithmetic. The prompt carries no clock, so an agent asks these. See [Time](./time.md) |
 | `consult_agent` | Ask another agent and wait for its reply |
 | `delegate_agent` | Hand a task to another agent |
 | `parallel_subagents` | Run several sub-prompts in parallel and wait for their results in the current turn |

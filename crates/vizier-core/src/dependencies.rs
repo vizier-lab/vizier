@@ -1,3 +1,4 @@
+use crate::time::Timestamp;
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -102,7 +103,7 @@ pub struct VizierDependencies {
 #[derive(Debug, Clone, serde::Deserialize)]
 struct LegacyMemoryFrontMatter {
     title: String,
-    timestamp: chrono::DateTime<chrono::Utc>,
+    timestamp: Timestamp,
     agent_id: String,
     #[serde(default)]
     tags: Vec<String>,
@@ -120,7 +121,7 @@ struct LegacyMemoryRow {
     title: String,
     #[serde(default)]
     content: String,
-    timestamp: chrono::DateTime<chrono::Utc>,
+    timestamp: Timestamp,
     agent_id: String,
     #[serde(default)]
     tags: Vec<String>,
@@ -203,6 +204,7 @@ impl VizierDependencies {
         Self::migrate_users(&storage).await?;
         Self::migrate_agent_cores(&storage).await?;
         Self::migrate_task_requester(&sql).await?;
+        Self::migrate_one_time_tasks_to_local(&storage).await?;
         // 040 stored project chats as `HTTP(user, "project__<id>")`; move every stored slug
         // and serialised channel to the `Project` variant before agents start
         // (`specs/041-project-coding-workspace` FR-015).
@@ -267,7 +269,7 @@ impl VizierDependencies {
         }
         match notifications
             .purge_before(
-                chrono::Utc::now()
+                crate::time::now()
                     - chrono::Duration::days(crate::storage::notification::RETENTION_DAYS),
             )
             .await
@@ -526,7 +528,7 @@ impl VizierDependencies {
         storage
             .save_state(
                 Self::USAGE_ACCOUNTING_SINCE.to_string(),
-                serde_json::Value::String(chrono::Utc::now().to_rfc3339()),
+                serde_json::Value::String(crate::time::now().to_rfc3339()),
             )
             .await?;
         if carried > 0 {
@@ -1182,6 +1184,41 @@ impl VizierDependencies {
     /// distinguishes a task the agent set up on its own initiative, so every pre-existing
     /// task becomes person-attributed. Guessing an agent from the string would be worse than
     /// being approximate.
+    /// Set once every one-time task has been rewritten in local time.
+    pub const ONE_TIME_TASK_LOCAL: &'static str = "migration.one_time_task_local_v1";
+
+    /// Spec 052: one-time tasks were stored with a `Z` (UTC) time; rewrite each to the local form
+    /// of the same instant, so a task keeps its moment and now reads in the instance's zone.
+    ///
+    /// Only `OneTimeTask` rows are saved. A cron task's text is never rewritten (it now means local
+    /// time, which is the change the upgrade notes describe), and a row that doesn't parse is
+    /// skipped by the task list, so it can't hold the others back. Saving a task whose time is
+    /// already local writes the same text, so a run interrupted before the marker is repeated
+    /// safely, on SQLite and PostgreSQL alike. Tracked for removal in #82.
+    async fn migrate_one_time_tasks_to_local(storage: &VizierStorage) -> Result<()> {
+        use crate::{
+            schema::TaskSchedule,
+            storage::{state::StateStorage, task::TaskStorage},
+        };
+
+        let key = Self::ONE_TIME_TASK_LOCAL.to_string();
+        if storage.get_state(key.clone()).await?.is_some() {
+            return Ok(());
+        }
+        let mut rewritten = 0;
+        for task in storage.get_task_list(None, None).await? {
+            if matches!(task.schedule, TaskSchedule::OneTimeTask(_)) {
+                storage.save_task(task).await?;
+                rewritten += 1;
+            }
+        }
+        storage.save_state(key, serde_json::json!(true)).await?;
+        if rewritten > 0 {
+            tracing::info!("rewrote {rewritten} one-time task(s) in local time");
+        }
+        Ok(())
+    }
+
     async fn migrate_task_requester(sql: &SqlStore) -> Result<()> {
         if sql.backend() != Backend::Sqlite {
             return Ok(());
@@ -1299,7 +1336,7 @@ impl VizierDependencies {
         runs: Vec<crate::storage::task_run::InterruptedRun>,
         jobs: Vec<crate::storage::background_job::InterruptedJob>,
     ) {
-        let now = chrono::Utc::now();
+        let now = crate::time::now();
         for run in runs {
             let title = match storage
                 .get_task(run.agent_id.clone(), run.task_slug.clone())
@@ -1507,7 +1544,7 @@ mod usage_migration_tests {
 
     fn reply(input: u64, output: u64, model: Option<&str>) -> SessionHistoryContent {
         SessionHistoryContent::Response(VizierResponse {
-            timestamp: chrono::Utc::now(),
+            timestamp: crate::time::now(),
             content: VizierResponseContent::Message {
                 content: "hi".into(),
                 stats: Some(VizierResponseStats {
@@ -1530,7 +1567,7 @@ mod usage_migration_tests {
         let discord = VizierSession("a".into(), VizierChannelId::DiscordChanel(1), None);
         let task = VizierSession(
             "a".into(),
-            VizierChannelId::Task("brief".into(), chrono::Utc::now()),
+            VizierChannelId::Task("brief".into(), crate::time::now()),
             None,
         );
         storage
@@ -1560,8 +1597,8 @@ mod usage_migration_tests {
 
         let q = UsageQuery {
             agent_id: "a".into(),
-            start: chrono::DateTime::<chrono::Utc>::MIN_UTC,
-            end: chrono::Utc::now() + chrono::Duration::days(1),
+            start: crate::time::epoch(),
+            end: crate::time::now() + chrono::Duration::days(1),
             activity: None,
             conversation: None,
         };
@@ -1825,5 +1862,82 @@ mod encryption_startup_tests {
                 .unwrap()
                 .is_empty()
         );
+    }
+}
+
+#[cfg(test)]
+mod one_time_task_tests {
+    use super::*;
+    use crate::storage::{document::BlobDocumentStore, sqlite::SqlStorage};
+
+    fn setup() -> (VizierStorage, SqlStore, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch("CREATE TABLE state (key TEXT PRIMARY KEY, value TEXT NOT NULL);")
+            .unwrap();
+        let conn = SqlStore::sqlite(conn);
+        let storage = VizierStorage::new(SqlStorage::new(
+            conn.clone(),
+            Arc::new(BlobDocumentStore::local(dir.path().to_path_buf())),
+        ));
+        (storage, conn, dir)
+    }
+
+    fn task_row(slug: &str, schedule: serde_json::Value, last: &str) -> String {
+        serde_json::json!({
+            "slug": slug,
+            "requester": { "user": "alice" },
+            "agent_id": "a",
+            "title": slug,
+            "instruction": "do it",
+            "is_active": true,
+            "schedule": schedule,
+            "last_executed_at": last,
+            "timestamp": "2026-11-01T00:00:00Z",
+        })
+        .to_string()
+    }
+
+    fn task_data(sql: &SqlStore, slug: &str) -> String {
+        let conn = sql.lock().unwrap();
+        conn.query_row("SELECT data FROM task WHERE slug = ?1", [slug], |r| r.get(0))
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn one_time_tasks_keep_their_moment_and_cron_rows_are_untouched() {
+        use crate::storage::state::StateStorage;
+
+        let (storage, sql, _dir) = setup();
+        let once = task_row("once", serde_json::json!({ "OneTimeTask": "2099-01-01T02:00:00Z" }), "2026-11-01T00:00:00Z");
+        let cron = task_row("cron", serde_json::json!({ "CronTask": "0 9 * * *" }), "2026-11-01T00:00:00Z");
+        {
+            let conn = sql.lock().unwrap();
+            conn.execute_batch(
+                "CREATE TABLE task (id TEXT PRIMARY KEY, agent_id TEXT NOT NULL, slug TEXT NOT NULL,                  is_active INTEGER NOT NULL DEFAULT 1, data TEXT NOT NULL);",
+            )
+            .unwrap();
+            for (id, slug, data) in [("a/once", "once", &once), ("a/cron", "cron", &cron), ("a/broken", "broken", &"{not json".to_string())] {
+                conn.execute("INSERT INTO task (id, agent_id, slug, data) VALUES (?1, 'a', ?2, ?3)", [id, slug, data.as_str()]).unwrap();
+            }
+        }
+
+        VizierDependencies::migrate_one_time_tasks_to_local(&storage).await.unwrap();
+
+        // The same instant, now in the instance's local form.
+        let after: serde_json::Value = serde_json::from_str(&task_data(&sql, "once")).unwrap();
+        let moment: crate::time::Timestamp = serde_json::from_value(after["schedule"]["OneTimeTask"].clone()).unwrap();
+        let expected: crate::time::Timestamp = "2099-01-01T02:00:00Z".parse().unwrap();
+        assert_eq!(moment, expected);
+        assert_eq!(after["schedule"]["OneTimeTask"], serde_json::to_value(expected).unwrap());
+        // A cron row is never rewritten, and a row that does not parse does not stop the rest.
+        assert_eq!(task_data(&sql, "cron"), cron);
+        assert_eq!(task_data(&sql, "broken"), "{not json");
+        assert!(storage.get_state(VizierDependencies::ONE_TIME_TASK_LOCAL.into()).await.unwrap().is_some());
+
+        // A second run changes nothing.
+        let first = task_data(&sql, "once");
+        VizierDependencies::migrate_one_time_tasks_to_local(&storage).await.unwrap();
+        assert_eq!(task_data(&sql, "once"), first);
     }
 }

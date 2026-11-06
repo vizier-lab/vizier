@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Local};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -16,9 +16,9 @@ pub struct Memory {
     #[markdown(content)]
     pub content: String,
     /// Set once, on first write.
-    pub created_at: DateTime<Utc>,
+    pub created_at: DateTime<Local>,
     /// Set on every write.
-    pub updated_at: DateTime<Utc>,
+    pub updated_at: DateTime<Local>,
     pub agent_id: String,
     /// Name of the bundle this concept belongs to.
     #[serde(default = "default_bundle")]
@@ -181,7 +181,7 @@ pub struct PaginatedMemory {
 pub struct BundleSummary {
     pub name: String,
     pub concept_count: usize,
-    pub updated_at: Option<DateTime<Utc>>,
+    pub updated_at: Option<DateTime<Local>>,
     /// Links from this bundle's documents (to anywhere), for the "Most linked" sort.
     #[serde(default)]
     pub link_count: usize,

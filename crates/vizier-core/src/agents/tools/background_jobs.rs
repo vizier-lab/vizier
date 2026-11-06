@@ -1,4 +1,4 @@
-use chrono::Utc;
+
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -49,7 +49,7 @@ impl ListBackgroundJobs {
 }
 
 fn elapsed(job: &BackgroundJob) -> String {
-    let secs = (Utc::now() - job.created_at).num_seconds().max(0);
+    let secs = (crate::time::now() - job.created_at).num_seconds().max(0);
     format!("{}m {:02}s", secs / 60, secs % 60)
 }
 

@@ -4,8 +4,9 @@
 //! `get_agent_secret` is the only method that returns a value. Everything a list or set call
 //! may see is a [`SecretRecord`], which carries the masked form and has no value field at all.
 
+use crate::time::Timestamp;
 use anyhow::Result;
-use chrono::{DateTime, Utc};
+
 
 use crate::{schema::AgentSecretEvent, schema::Requester, storage::VizierStorage};
 
@@ -22,8 +23,8 @@ pub struct SecretRecord {
     pub name: String,
     /// `utils::mask_secret` of the stored value.
     pub masked: String,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: Timestamp,
+    pub updated_at: Timestamp,
     pub updated_by: Requester,
 }
 

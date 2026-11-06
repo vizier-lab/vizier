@@ -2,7 +2,7 @@
 //! detail and deletion (spec 038, US2). Moved from `vizier-http`'s `agents/channel.rs`; the
 //! live connection (`TopicConnection`) stays in `vizier-http`.
 
-use chrono::Utc;
+
 use serde::Serialize;
 
 use super::{Services, error::ServiceError};
@@ -179,7 +179,7 @@ pub async fn history(
     agent_id: &str,
     channel_id: &str,
     topic_id: TopicId,
-    before: Option<chrono::DateTime<Utc>>,
+    before: Option<chrono::DateTime<chrono::Local>>,
     before_seq: Option<i64>,
     limit: Option<usize>,
 ) -> Result<Vec<SessionHistory>, ServiceError> {
@@ -432,7 +432,7 @@ pub async fn delete(
 
 #[cfg(test)]
 mod tests {
-    use chrono::Utc;
+    
 
     use super::*;
     use crate::{
@@ -506,7 +506,7 @@ mod tests {
         services
             .deps()
             .storage
-            .remove_project("p3xY9aQ2mZ", Utc::now().timestamp_millis())
+            .remove_project("p3xY9aQ2mZ", crate::time::now().timestamp_millis())
             .await
             .unwrap();
         assert_eq!(

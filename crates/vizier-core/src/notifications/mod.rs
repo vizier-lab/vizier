@@ -10,10 +10,11 @@ pub mod cursor;
 pub mod excerpt;
 pub mod text;
 
+use crate::time::Timestamp;
 use std::sync::{Arc, RwLock};
 
 use anyhow::Result;
-use chrono::{DateTime, Utc};
+
 
 use crate::{
     schema::{
@@ -115,7 +116,7 @@ impl Notifications {
         title: &str,
         run_id: i64,
         state: TaskRunState,
-        at: DateTime<Utc>,
+        at: Timestamp,
     ) {
         let Some((summary, tone)) = text::task_run(title, state) else {
             return;
@@ -152,7 +153,7 @@ impl Notifications {
         agent_id: &str,
         cycle_id: &str,
         entries: u64,
-        at: DateTime<Utc>,
+        at: Timestamp,
     ) {
         if entries == 0 {
             return;
@@ -180,7 +181,7 @@ impl Notifications {
         kind: JobKind,
         state: JobState,
         reason: Option<&str>,
-        at: DateTime<Utc>,
+        at: Timestamp,
     ) {
         if origin.1.platform().is_some() {
             return;
@@ -213,7 +214,7 @@ impl Notifications {
         action: EventAction,
         ordinal: usize,
         agent_ids: &[String],
-        at: DateTime<Utc>,
+        at: Timestamp,
     ) {
         let who = self.actor_name(actor).await;
         let summary = text::integration_changed(&who, action, name);
@@ -246,7 +247,7 @@ impl Notifications {
         family: IntegrationFamily,
         on: bool,
         actor: &Requester,
-        at: DateTime<Utc>,
+        at: Timestamp,
     ) {
         let who = self.actor_name(actor).await;
         self.record(draft(
@@ -274,7 +275,7 @@ impl Notifications {
         &self,
         session: &VizierSession,
         history_uid: &str,
-        at: DateTime<Utc>,
+        at: Timestamp,
     ) {
         let Some(username) = session.1.web_user() else {
             return;
@@ -318,7 +319,7 @@ impl Notifications {
         self.record(draft).await;
     }
 
-    pub async fn agent_ready(&self, agent_id: &str, build_id: &str, name: &str, at: DateTime<Utc>) {
+    pub async fn agent_ready(&self, agent_id: &str, build_id: &str, name: &str, at: Timestamp) {
         self.record(draft(
             format!("setup_ready:{agent_id}:{build_id}"),
             agent_id,
@@ -337,7 +338,7 @@ impl Notifications {
         episode_id: &str,
         error: &str,
         retry_secs: Option<i64>,
-        at: DateTime<Utc>,
+        at: Timestamp,
     ) {
         self.record(draft(
             format!("start_failed:{agent_id}:{episode_id}"),
@@ -362,7 +363,7 @@ impl Notifications {
     // -----------------------------------------------------------------------------------------
 
     /// Retention: delete rows older than `at`. Called at startup and once a day.
-    pub async fn purge_before(&self, at: DateTime<Utc>) -> Result<usize> {
+    pub async fn purge_before(&self, at: Timestamp) -> Result<usize> {
         self.storage.purge_notifications_before(at).await
     }
 
@@ -380,7 +381,7 @@ fn draft(
     tone: NotificationTone,
     summary: String,
     href: String,
-    at: DateTime<Utc>,
+    at: Timestamp,
 ) -> NotificationDraft {
     NotificationDraft {
         event_key,
@@ -475,7 +476,7 @@ mod tests {
     async fn a_missing_agent_records_nothing() {
         let (n, conn, _d) = setup();
         agent(&conn, "a");
-        n.task_run_ended("gone", "t", "T", 1, TaskRunState::Answered, Utc::now())
+        n.task_run_ended("gone", "t", "T", 1, TaskRunState::Answered, crate::time::now())
             .await;
         assert_eq!(
             n.storage
@@ -491,7 +492,7 @@ mod tests {
     async fn a_duplicate_event_key_is_one_row() {
         let (n, conn, _d) = setup();
         agent(&conn, "a");
-        let at = Utc::now();
+        let at = crate::time::now();
         n.task_run_ended("a", "brief", "Brief", 7, TaskRunState::Answered, at)
             .await;
         n.task_run_ended("a", "brief", "Brief", 7, TaskRunState::Answered, at)
@@ -513,7 +514,7 @@ mod tests {
         let transport = VizierTransport::new();
         n.install_transport(transport.clone());
         let mut rx = transport.subscribe_inbox_events();
-        let at = Utc::now();
+        let at = crate::time::now();
         n.task_run_ended("a", "brief", "Brief", 7, TaskRunState::Answered, at).await;
         n.task_run_ended("a", "brief", "Brief", 7, TaskRunState::Answered, at).await;
 
@@ -536,7 +537,7 @@ mod tests {
         let (n, conn, _d) = setup();
         agent(&conn, "a");
         // No transport installed: the table is still the source of truth.
-        n.task_run_ended("a", "brief", "Brief", 1, TaskRunState::Answered, Utc::now()).await;
+        n.task_run_ended("a", "brief", "Brief", 1, TaskRunState::Answered, crate::time::now()).await;
         assert_eq!(n.storage.notification_counts("u", &["a".into()]).await.unwrap().all, 1);
     }
 
@@ -546,7 +547,7 @@ mod tests {
         agent(&conn, "a");
         for channel in [VizierChannelId::DiscordChanel(1), VizierChannelId::TelegramChannel(2)] {
             let origin = VizierSession("a".into(), channel, None);
-            n.job_ended("j-ext", &origin, JobKind::Batch, JobState::Reported, None, Utc::now())
+            n.job_ended("j-ext", &origin, JobKind::Batch, JobState::Reported, None, crate::time::now())
                 .await;
         }
         assert_eq!(n.storage.notification_counts("u", &["a".into()]).await.unwrap().all, 0);
@@ -561,7 +562,7 @@ mod tests {
             VizierChannelId::HTTP("ana".into(), "vizier-webui".into()),
             Some("topic-1".into()),
         );
-        n.job_ended("j-web", &origin, JobKind::Delegation, JobState::Reported, None, Utc::now())
+        n.job_ended("j-web", &origin, JobKind::Delegation, JobState::Reported, None, crate::time::now())
             .await;
         let items = n
             .storage
@@ -579,7 +580,7 @@ mod tests {
             username: username.into(),
             password_hash: String::new(),
             role_id: "r".into(),
-            created_at: Utc::now(),
+            created_at: crate::time::now(),
         };
         conn.lock()
             .unwrap()
@@ -600,7 +601,7 @@ mod tests {
             VizierChannelId::Project("ana".into(), "p3xY9aQ2mZ".into()),
             Some("topic-1".into()),
         );
-        n.chat_replied(&session, "h-project", Utc::now()).await;
+        n.chat_replied(&session, "h-project", crate::time::now()).await;
         let mine = n
             .storage
             .list_notifications("u-ana", &["a".into()], NotificationFilter::All, None, 10)
@@ -620,7 +621,7 @@ mod tests {
             VizierChannelId::HTTP("ana".into(), "vizier-webui".into()),
             Some("topic-1".into()),
         );
-        n.chat_replied(&session, "h-1", Utc::now()).await;
+        n.chat_replied(&session, "h-1", crate::time::now()).await;
 
         let mine = n
             .storage
@@ -643,7 +644,7 @@ mod tests {
 
         // Discord and Telegram create no conversation notification at all.
         let discord = VizierSession("a".into(), VizierChannelId::DiscordChanel(1), None);
-        n.chat_replied(&discord, "h-2", Utc::now()).await;
+        n.chat_replied(&discord, "h-2", crate::time::now()).await;
         assert_eq!(
             n.storage
                 .list_notifications("u-ana", &["a".into()], NotificationFilter::All, None, 10)
@@ -678,7 +679,7 @@ mod tests {
             .save_session_history(session.clone(), SessionHistoryContent::Response(saved))
             .await
             .unwrap();
-        n.chat_replied(&session, &uid, Utc::now()).await;
+        n.chat_replied(&session, &uid, crate::time::now()).await;
         let rows = n
             .storage
             .list_notifications("u-ana", &["a".into()], NotificationFilter::All, None, 10)
@@ -694,7 +695,7 @@ mod tests {
     async fn a_task_row_keeps_the_title_it_had_when_the_run_ended() {
         let (n, conn, _d) = setup();
         agent(&conn, "a");
-        n.task_run_ended("a", "brief", "Weekly brief", 3, TaskRunState::Answered, Utc::now()).await;
+        n.task_run_ended("a", "brief", "Weekly brief", 3, TaskRunState::Answered, crate::time::now()).await;
         let rows = n
             .storage
             .list_notifications("u", &["a".into()], NotificationFilter::All, None, 10)
@@ -714,7 +715,7 @@ mod tests {
         let kept = VizierSession("a".into(), VizierChannelId::HTTP("ana".into(), "x".into()), Some("keep".into()));
         let gone = VizierSession("a".into(), VizierChannelId::HTTP("ana".into(), "x".into()), Some("gone".into()));
         for (key, session) in [("k", &kept), ("g", &gone)] {
-            let mut d = draft(key.into(), "a", NotificationCategory::ChatReply, NotificationTone::Default, "r".into(), "/a/chat".into(), Utc::now());
+            let mut d = draft(key.into(), "a", NotificationCategory::ChatReply, NotificationTone::Default, "r".into(), "/a/chat".into(), crate::time::now());
             d.source_session = Some(session.clone());
             n.record(d).await;
         }
@@ -736,10 +737,10 @@ mod tests {
     async fn purge_removes_rows_older_than_the_cutoff() {
         let (n, conn, _d) = setup();
         agent(&conn, "a");
-        n.task_run_ended("a", "t", "T", 1, TaskRunState::Answered, Utc::now())
+        n.task_run_ended("a", "t", "T", 1, TaskRunState::Answered, crate::time::now())
             .await;
         assert_eq!(
-            n.purge_before(Utc::now() + chrono::Duration::days(1))
+            n.purge_before(crate::time::now() + chrono::Duration::days(1))
                 .await
                 .unwrap(),
             1

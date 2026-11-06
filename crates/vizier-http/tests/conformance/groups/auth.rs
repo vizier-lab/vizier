@@ -32,5 +32,6 @@ pub fn vectors() -> Vec<Vector> {
         v("GET", "/overview", None),
         v("GET", "/overview/activity", None),
         v("GET", "/utils/setup-state", None),
+        v("GET", "/utils/timezone", None),
     ]
 }

@@ -5,7 +5,7 @@
 
 use std::str::FromStr;
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Local};
 use croner::Cron;
 use serde::{Deserialize, Serialize};
 
@@ -46,14 +46,22 @@ pub struct CreateTaskRequest {
 #[serde(tag = "type")]
 pub enum ScheduleRequest {
     Cron { expression: String },
-    OneTime { datetime: DateTime<Utc> },
+    /// RFC 3339 with an offset is that exact moment; a date and time with no offset
+    /// (`2026-11-07T09:00`) is the instance's local time.
+    OneTime {
+        #[cfg_attr(feature = "utoipa", schema(value_type = String, format = DateTime))]
+        datetime: String,
+    },
 }
 
 impl From<ScheduleRequest> for TaskSchedule {
     fn from(req: ScheduleRequest) -> Self {
         match req {
             ScheduleRequest::Cron { expression } => TaskSchedule::CronTask(expression),
-            ScheduleRequest::OneTime { datetime } => TaskSchedule::OneTimeTask(datetime),
+            // `validate_schedule` has already accepted this text, so it always resolves.
+            ScheduleRequest::OneTime { datetime } => TaskSchedule::OneTimeTask(
+                crate::time::parse_schedule(&datetime).unwrap_or_else(|_| crate::time::now()),
+            ),
         }
     }
 }
@@ -67,10 +75,10 @@ impl From<ScheduleRequest> for TaskSchedule {
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct TaskRunResponse {
     /// The run's address — its `ran_at` — which the detail routes take.
-    pub run_id: DateTime<Utc>,
+    pub run_id: DateTime<Local>,
     pub id: i64,
-    pub ran_at: DateTime<Utc>,
-    pub finished_at: Option<DateTime<Utc>>,
+    pub ran_at: DateTime<Local>,
+    pub finished_at: Option<DateTime<Local>>,
     pub state: TaskRunState,
     /// Absent on the listing routes; `null` for a run that answered nothing.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -122,18 +130,18 @@ pub struct TaskResponse {
     pub instruction: String,
     pub is_active: bool,
     pub schedule: TaskSchedule,
-    pub last_executed_at: Option<DateTime<Utc>>,
-    pub timestamp: DateTime<Utc>,
+    pub last_executed_at: Option<DateTime<Local>>,
+    pub timestamp: DateTime<Local>,
     /// `null` for a task that has never run — distinct from a run that answered nothing,
     /// which is a `last_run` whose `response` is `null`.
     pub last_run: Option<TaskRunResponse>,
     /// When it runs next: a cron task's next occurrence, a one-time task's moment while it is
     /// still ahead; `null` when inactive or finished.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub next_run: Option<DateTime<Utc>>,
+    pub next_run: Option<DateTime<Local>>,
 }
 
-pub fn next_run_of(task: &Task, now: DateTime<Utc>) -> Option<DateTime<Utc>> {
+pub fn next_run_of(task: &Task, now: DateTime<Local>) -> Option<DateTime<Local>> {
     if !task.is_active {
         return None;
     }
@@ -147,7 +155,7 @@ pub fn next_run_of(task: &Task, now: DateTime<Utc>) -> Option<DateTime<Utc>> {
 
 impl From<Task> for TaskResponse {
     fn from(task: Task) -> Self {
-        let next_run = next_run_of(&task, Utc::now());
+        let next_run = next_run_of(&task, crate::time::now());
         Self {
             slug: task.slug,
             requester: task.requester,
@@ -175,8 +183,9 @@ fn validate_schedule(schedule: &ScheduleRequest) -> Result<(), String> {
             }
         }
         ScheduleRequest::OneTime { datetime } => {
-            let now = Utc::now();
-            if *datetime < now {
+            let at = crate::time::parse_schedule(datetime)
+                .map_err(|e| format!("Invalid schedule: {e}"))?;
+            if at < crate::time::now() {
                 return Err("One-time task datetime must be in the future".to_string());
             }
             Ok(())
@@ -298,7 +307,7 @@ fn build_task(who: &Principal, agent_id: &str, body: CreateTaskRequest) -> Task 
         is_active: body.is_active.unwrap_or(true),
         schedule: body.schedule.into(),
         last_executed_at: None,
-        timestamp: Utc::now(),
+        timestamp: crate::time::now(),
     }
 }
 
@@ -377,7 +386,7 @@ pub async fn list_runs(
     who: &Principal,
     agent_id: &str,
     slug: &str,
-    before: Option<DateTime<Utc>>,
+    before: Option<DateTime<Local>>,
     before_id: Option<i64>,
     limit: Option<usize>,
 ) -> Result<TaskRunsResponse, ServiceError> {
@@ -416,8 +425,8 @@ pub async fn run_history(
     who: &Principal,
     agent_id: &str,
     slug: &str,
-    run_id: DateTime<Utc>,
-    before: Option<DateTime<Utc>>,
+    run_id: DateTime<Local>,
+    before: Option<DateTime<Local>>,
     before_seq: Option<i64>,
     limit: Option<usize>,
 ) -> Result<Vec<SessionHistory>, ServiceError> {
@@ -433,7 +442,7 @@ pub async fn run_history(
     {
         Ok(Some(_)) => {}
         Ok(None) => {
-            return Err(ServiceError::NotFound(format!("no run of {slug} at {run_id}")));
+            return Err(ServiceError::NotFound(format!("no run of {slug} at {}", crate::time::display(run_id))));
         }
         Err(e) => return Err(internal(e)),
     }

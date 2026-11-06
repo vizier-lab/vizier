@@ -1,3 +1,4 @@
+use crate::time::Timestamp;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::time::Duration;
@@ -5,7 +6,7 @@ use tokio::sync::{Mutex, RwLock};
 
 use crate::llm::types::Message;
 use anyhow::Result;
-use chrono::Utc;
+use chrono::Local;
 use tokio::sync::watch;
 use tokio::task::{AbortHandle, Id as TaskId, JoinHandle, JoinSet};
 
@@ -103,7 +104,7 @@ async fn abort_session_notify(
         {
             let _ = tx
                 .send_async(VizierResponse {
-                    timestamp: chrono::Utc::now(),
+                    timestamp: crate::time::now(),
                     content: crate::schema::VizierResponseContent::Abort,
                     attachments: vec![],
                     ..Default::default()
@@ -222,7 +223,7 @@ pub async fn agent_process(
                         if let Some(ref tx) = response_tx {
                             let _ = tx
                                 .send_async(VizierResponse {
-                                    timestamp: chrono::Utc::now(),
+                                    timestamp: crate::time::now(),
                                     content: VizierResponseContent::Message {
                                         content: "Dream cycle started.".to_string(),
                                         stats: None,
@@ -427,7 +428,7 @@ async fn notify_turn_stopped(
     if let Some(tx) = response_tx {
         let _ = tx
             .send_async(VizierResponse {
-                timestamp: chrono::Utc::now(),
+                timestamp: crate::time::now(),
                 content: VizierResponseContent::Error {
                     kind: ErrorKind::AgentUnavailable,
                     message: "The agent was updated or stopped while working on this, so the \
@@ -497,7 +498,7 @@ async fn hand_on_queued(
                 if let Some(tx) = response_tx {
                     let _ = tx
                         .send_async(VizierResponse {
-                            timestamp: chrono::Utc::now(),
+                            timestamp: crate::time::now(),
                             content: VizierResponseContent::Error {
                                 kind: ErrorKind::AgentUnavailable,
                                 message: "The agent was removed before it got to this.".to_string(),
@@ -843,7 +844,7 @@ fn recover_failed_turn(
             let message = "The turn failed with an internal error and was stopped.".to_string();
             let _ = tx
                 .send_async(VizierResponse {
-                    timestamp: chrono::Utc::now(),
+                    timestamp: crate::time::now(),
                     content: VizierResponseContent::Error {
                         kind: ErrorKind::classify(&message),
                         message,
@@ -913,7 +914,7 @@ fn start_session_job(
             if let Some(ref tx) = thinking_response_tx {
                 let _ = tx
                     .send_async(VizierResponse {
-                        timestamp: chrono::Utc::now(),
+                        timestamp: crate::time::now(),
                         content: crate::schema::VizierResponseContent::ThinkingStart,
                         attachments: vec![],
                         ..Default::default()
@@ -988,7 +989,7 @@ fn start_session_job(
                 let err_str = err.to_string();
                 let _ = tx
                     .send_async(VizierResponse {
-                        timestamp: chrono::Utc::now(),
+                        timestamp: crate::time::now(),
                         content: VizierResponseContent::Error {
                             kind: ErrorKind::classify(&err_str),
                             message: err_str,
@@ -1020,7 +1021,7 @@ async fn send_text(response_tx: &Option<crate::transport::ResponseSender>, conte
     if let Some(tx) = response_tx {
         let _ = tx
             .send_async(VizierResponse {
-                timestamp: chrono::Utc::now(),
+                timestamp: crate::time::now(),
                 content: VizierResponseContent::Message {
                     content,
                     stats: None,
@@ -1039,7 +1040,7 @@ async fn send_checkpoint(
     if let Some(tx) = response_tx {
         let _ = tx
             .send_async(VizierResponse {
-                timestamp: chrono::Utc::now(),
+                timestamp: crate::time::now(),
                 content: VizierResponseContent::Checkpoint { handover },
                 attachments: vec![],
                 ..Default::default()
@@ -1164,7 +1165,7 @@ async fn run_btw(
 /// A side-chat failure sent on the response channel: never saved, only classified.
 fn btw_error_response(message: String) -> VizierResponse {
     VizierResponse {
-        timestamp: chrono::Utc::now(),
+        timestamp: crate::time::now(),
         content: VizierResponseContent::Error {
             kind: ErrorKind::classify(&message),
             message,
@@ -1342,7 +1343,7 @@ async fn record_context_followup(
     storage: &VizierStorage,
     session: &VizierSession,
     agent_id: &str,
-    since: chrono::DateTime<Utc>,
+    since: Timestamp,
     injected: usize,
 ) {
     let Ok(history) = storage
@@ -1540,7 +1541,7 @@ pub async fn handle_request(
             )
             .await;
             let injected_context = (!memory.is_empty()).then_some(memory.len());
-            let turn_start = Utc::now();
+            let turn_start = crate::time::now();
             let skills = agent.recommend_skills(&prompt).await.unwrap_or_default();
             // A WebUI reply is news for the person whose conversation it is. A woken
             // background report already has its own job notification, so it is left out.
@@ -1611,7 +1612,7 @@ pub async fn handle_request(
             )
             .await;
             let injected_context = (!memory.is_empty()).then_some(memory.len());
-            let turn_start = Utc::now();
+            let turn_start = crate::time::now();
             let skills = agent.recommend_skills(&prompt).await.unwrap_or_default();
             let res = agent
                 .chat(
@@ -1639,7 +1640,7 @@ pub async fn handle_request(
         | VizierRequestContent::Unattended(_) => {
             let res = match &session.1 {
                 VizierChannelId::Dream(dream_session, stage) => {
-                    let dream_start = Utc::now();
+                    let dream_start = crate::time::now();
                     match stage {
                         DreamStage::Extraction => {
                             let end = request.timestamp;
@@ -1800,7 +1801,7 @@ async fn answer_directly(
     )
     .await;
     let mut response = VizierResponse {
-        timestamp: Utc::now(),
+        timestamp: crate::time::now(),
         content: VizierResponseContent::Message {
             content,
             stats: None,
@@ -1890,7 +1891,7 @@ async fn save_dream_entry(
     source_sessions: Vec<String>,
     session_context: Option<String>,
     agent_config: &AgentConfig,
-    start_time: chrono::DateTime<Utc>,
+    start_time: Timestamp,
     stage: DreamStage,
     response: &VizierResponse,
 ) {
@@ -1903,7 +1904,7 @@ async fn save_dream_entry(
         return;
     }
 
-    let now = Utc::now();
+    let now = crate::time::now();
     let duration_ms = (now - start_time).num_milliseconds().max(0) as u64;
 
     let entry = DreamJournalEntry {
@@ -2530,7 +2531,7 @@ mod btw_tests {
                 &[agent_id.to_string()],
                 chrono::DateTime::parse_from_rfc3339("2000-01-01T00:00:00Z")
                     .unwrap()
-                    .with_timezone(&Utc),
+                    .with_timezone(&Local),
             )
             .await
             .unwrap()

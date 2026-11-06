@@ -2,7 +2,7 @@
 //! side chat (spec 038, US2). Moved from `vizier-http`'s `agents/mod.rs`; messages and statuses
 //! are the handlers' own.
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Local};
 use serde::{Deserialize, Serialize};
 
 use super::{Services, error::ServiceError};
@@ -30,7 +30,7 @@ pub struct AgentListItem {
     #[serde(flatten)]
     pub summary: AgentSummary,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub last_active: Option<chrono::DateTime<chrono::Utc>>,
+    pub last_active: Option<chrono::DateTime<chrono::Local>>,
     #[serde(skip)]
     #[cfg_attr(feature = "utoipa", schema(ignore))]
     pub mine: bool,
@@ -682,12 +682,12 @@ fn usage_query(
     end_date: Option<&str>,
     activity: Option<&str>,
 ) -> Result<crate::storage::usage::UsageQuery, ServiceError> {
-    let parse = |s: &str| DateTime::parse_from_rfc3339(s).map(|dt| dt.with_timezone(&Utc));
+    let parse = |s: &str| DateTime::parse_from_rfc3339(s).map(|dt| dt.with_timezone(&Local));
     let bad_range = |message: &str| with_code(400, message, "invalid_range");
 
     let end = match end_date {
         Some(s) => parse(s).map_err(|_| bad_range("end_date is not RFC 3339"))?,
-        None => Utc::now(),
+        None => crate::time::now(),
     };
     let start = match start_date {
         Some(s) => parse(s).map_err(|_| bad_range("start_date is not RFC 3339"))?,
@@ -956,7 +956,7 @@ pub async fn chat(
         client_tools: vec![],
         client_categories: vec![],
         client: None,
-        timestamp: Utc::now(),
+        timestamp: crate::time::now(),
         user: who.username.clone(),
         content: VizierRequestContent::Chat(body.content),
         model_override: body.model_override.map(|choice| ModelOverride {
