@@ -400,5 +400,5 @@ The website is the submodule `vizier-lab/landing`, an Astro 7 + Starlight site s
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
 shell commands, and other important information for the current feature, read
-`specs/052-unify-local-timezone/plan.md`.
+`specs/053-workspace-channel/plan.md`.
 <!-- SPECKIT END -->
