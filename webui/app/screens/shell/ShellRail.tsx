@@ -1,4 +1,4 @@
-import { Rail, UserMenu, type RailAgentPage } from '@vizier/design'
+import { CreateChooser, Rail, UserMenu, type RailAgentPage, type RailWorkspace } from '@vizier/design'
 import { nanoid } from 'nanoid'
 import { useState } from 'react'
 import { useLocation, useNavigate } from 'react-router'
@@ -14,9 +14,18 @@ import { read, write } from '../../lib/remember'
 import { useMobile } from '../../lib/useMobile'
 import { useNav } from '../../stores/nav'
 import { newAgentOpen, withNewAgent } from '../agents/NewAgentDialog'
+import { NewWorkspaceDialog } from '../workspaces/NewWorkspaceDialog'
+import { useWorkspaces } from '../../stores/workspaces'
 import { PAGE_PATH, pageOf, type ShellView } from './pages'
 
 const ORDER_KEY = 'vizier.rail.order'
+
+/** Two letters for a Workspace tile: the starts of its first two words, else its first two letters. */
+export function initialsOf(name: string): string {
+    const words = name.split(/[^A-Za-z0-9]+/).filter(Boolean)
+    const letters = words.length > 1 ? words[0][0] + words[1][0] : (words[0] ?? name).slice(0, 2)
+    return letters.toUpperCase()
+}
 
 /** The agents in the order this browser last arranged them; ones it hasn't seen yet follow, in their own order. */
 function arranged<T extends { agentId: string }>(agents: T[], order: string[]): T[] {
@@ -38,6 +47,21 @@ export function ShellRail({ pathname, view, routeAgent }: { pathname: string; vi
     const sidebarCollapsed = useNav((s) => s.sidebarCollapsed)
     const toggleSidebar = useNav((s) => s.toggleSidebar)
     const [order, setOrder] = useState<string[]>(() => read(ORDER_KEY, []))
+    const workspaceList = useWorkspaces((s) => s.list)
+    const resetWorkspaces = useWorkspaces((s) => s.reset)
+    const [chooser, setChooser] = useState(false)
+    const [newWorkspace, setNewWorkspace] = useState(false)
+    const mayWorkspace = can('workspaces:create')
+    const mayAgent = can('all_agents:create')
+    const workspaces: RailWorkspace[] = workspaceList.map((w) => ({
+        id: w.id,
+        name: w.name,
+        initials: initialsOf(w.name),
+        href: `/workspaces/${w.id}${w.topics[0] ? `/${w.topics[0].id}` : ''}`,
+        unread: w.unread || undefined,
+        working: w.working,
+    }))
+    const activeWorkspaceId = view === 'workspace' ? pathname.split('/')[2] : undefined
     // A tile for each agent the server has, then one busy tile for each still being created.
     const tiles = arranged(
         agents.map((a) => ({
@@ -67,6 +91,7 @@ export function ShellRail({ pathname, view, routeAgent }: { pathname: string; vi
         }))
 
     return (
+        <>
         <Rail
             homeHref="/"
             homeActive={pathname === '/'}
@@ -74,9 +99,20 @@ export function ShellRail({ pathname, view, routeAgent }: { pathname: string; vi
                 setOrder(ids)
                 write(ORDER_KEY, ids)
             }}
+            workspaces={workspaces}
+            activeWorkspaceId={activeWorkspaceId}
             agents={[...tiles, ...pending]}
             activeAgentId={view === 'agent' ? routeAgent : undefined}
-            addHref={can('all_agents:create') ? withNewAgent(`${pathname}${search}`) : undefined}
+            // One "+": a chooser when the person may make either, straight to the form when only one,
+            // and none when neither.
+            {...(mayWorkspace
+                ? {
+                      onCreate: () => (mayAgent ? setChooser(true) : setNewWorkspace(true)),
+                      createLabel: mayAgent ? 'Create new' : 'New workspace',
+                  }
+                : mayAgent
+                  ? { addHref: withNewAgent(`${pathname}${search}`) }
+                  : {})}
             addActive={newAgentOpen(new URLSearchParams(search))}
             settingsHref="/settings/profile"
             settingsActive={view === 'settings'}
@@ -107,11 +143,26 @@ export function ShellRail({ pathname, view, routeAgent }: { pathname: string; vi
                     onSignOut={() => {
                         signOut()
                         resetNotifications()
+                        resetWorkspaces()
                         navigate('/login')
                     }}
                 />
                 </div>
             }
         />
+        <CreateChooser
+            open={chooser}
+            onClose={() => setChooser(false)}
+            onWorkspace={() => {
+                setChooser(false)
+                setNewWorkspace(true)
+            }}
+            onAgent={() => {
+                setChooser(false)
+                navigate(withNewAgent(`${pathname}${search}`))
+            }}
+        />
+        <NewWorkspaceDialog open={newWorkspace} onClose={() => setNewWorkspace(false)} />
+        </>
     )
 }
