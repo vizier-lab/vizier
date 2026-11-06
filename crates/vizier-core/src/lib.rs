@@ -100,6 +100,7 @@ pub mod llm;
 pub(crate) mod notifications;
 #[doc(hidden)]
 pub mod projects;
+pub mod workspaces;
 pub(crate) mod provider_keys;
 pub(crate) mod provider_migration;
 #[doc(hidden)]

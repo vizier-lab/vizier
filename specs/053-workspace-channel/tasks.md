@@ -45,7 +45,7 @@ description: "Task list for the Workspace channel and mid-turn messages"
 - [ ] T010 Implement `init_workspace_schema` and `impl WorkspaceStorage` in `core/storage/sqlite/workspace.rs` (tables `workspace`, `workspace_topic`, `workspace_member`, `workspace_entry`, `workspace_mention`, `workspace_read`, with cascade and `(workspace_id, handle)` unique), and register it in the list in `core/storage/sqlite/mod.rs`
 - [ ] T011 Add `session_history(channel, topic, timestamp)` index, and nullable `workspace_id` and `author` on `notification`, in `core/storage/sqlite/mod.rs` and `core/storage/sqlite/notification.rs`
 - [ ] T012 Add `core/storage/sql/postgres/migrations/0004_workspaces.sql` with the same schema, and its entry in `core/storage/sql/postgres/migrate.rs`
-- [ ] T013 [P] Add the name rule with tests in `core/workspaces/names.rs`: 1 to 64 characters, `^[a-z0-9][a-z0-9-]*$`, for Workspaces and topics
+- [X] T013 [P] Add the name rule with tests in `core/workspaces/names.rs`: 1 to 64 characters, `^[a-z0-9][a-z0-9-]*$`, for Workspaces and topics
 - [ ] T014 Add `workspaces:create` and `all_workspaces:manage` to `AVAILABLE_PERMISSIONS` in `core/storage/user.rs`, with labels in `webui/app/lib/permissions.ts`, and decide which seeded roles get them
 - [ ] T015 Add `core/workspaces/access.rs` on the pattern of `core/projects/access.rs`, the only place deciding member, owner and `all_workspaces:manage`, with tests for all three fixture kinds
 - [ ] T016 Add `core/service/workspaces.rs` and register it in `core/service/mod.rs`: create, get, list, topics create, members add and remove (`can_edit_agent` for agents, `409 handle_in_use`, `409 last_owner`), mapping failures onto `ServiceError`. A non-member gets `not_found` everywhere
@@ -71,7 +71,7 @@ description: "Task list for the Workspace channel and mid-turn messages"
 - [X] T023 [US7] Draw blocks in `block` and the live branch of `webui/app/screens/chat/MessageList.tsx`: one trail per block, live and expanded only for the last while running, a message at `type-prose` with no stats, reactions or copy
 - [X] T024 [US7] Give each trail its own time and counts in `webui/app/screens/chat/Trail.tsx`, and keep total time on the final message's stats in `webui/app/lib/messages.ts`
 - [X] T025 [US7] Update tests that assume one trail per turn in `webui/app/screens/chat/MessageList.test.tsx`, and run `cd webui && npm test && npm run typecheck`
-- [ ] T026 [US7] Run quickstart §12 against a dummyplug agent and record the result in `specs/053-workspace-channel/quickstart.md`
+- [ ] T026 [US7] (backend half passes; the browser steps are not yet run) Run quickstart §12 against a dummyplug agent and record the result in `specs/053-workspace-channel/quickstart.md`
 
 **Checkpoint**: Mid-turn messages work everywhere. Can ship alone.
 
@@ -85,12 +85,12 @@ description: "Task list for the Workspace channel and mid-turn messages"
 
 ### Tests
 
-- [ ] T027 [P] [US1] Unit tests in `core/workspaces/mentions.rs`: code spans, fenced blocks, quoted lines, longest handle, punctuation, repeats, non-members
-- [ ] T028 [P] [US1] Unit tests in `core/workspaces/commands.rs`: every row of the table in research R19, including `@a /foo`, `/foo please @a` and `/skill name @a input`
+- [X] T027 [P] [US1] Unit tests in `core/workspaces/mentions.rs`: code spans, fenced blocks, quoted lines, longest handle, punctuation, repeats, non-members
+- [X] T028 [P] [US1] Unit tests in `core/workspaces/commands.rs`: every row of the table in research R19, including `@a /foo`, `/foo please @a` and `/skill name @a input`
 
 ### Engine
 
-- [ ] T029 [US1] Implement `mentions::parse` in `core/workspaces/mentions.rs` and `commands::parse` in `core/workspaces/commands.rs`, both pure
+- [X] T029 [US1] Implement `mentions::parse` in `core/workspaces/mentions.rs` and `commands::parse` in `core/workspaces/commands.rs`, both pure
 - [ ] T030 [US1] Insert a `workspace_entry` inside `save_session_history` in `core/storage/sqlite/history.rs`, only for `AssistantMessage` and a `Response` with a message on a `Workspace` channel, in the existing transaction, resolving mentions against current members into `workspace_mention` (research R3, R4). Check that PostgreSQL shares this path
 - [ ] T031 [US1] Implement `workspaces::post` in `core/workspaces/mod.rs`: one transaction for entry and mentions, then publish and dispatch. Validate the 32,000 character limit
 - [ ] T032 [US1] Implement dispatch in `core/workspaces/mod.rs`: a `Chat` request through `deps.agents.request` with leading mentions removed, `metadata.workspace_entry`, `activated_by_seq`, and `workspace_plain` unless it is the command form, republishing frames as `core/agents/background/mod.rs` does. Move mentions to `woken` or `unavailable`

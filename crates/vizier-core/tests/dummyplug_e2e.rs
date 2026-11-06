@@ -308,6 +308,84 @@ async fn dummyplug_agent_answers_through_the_runtime() {
         .unwrap();
 }
 
+/// Spec 053 US7: text a model writes beside a tool call is saved as a mid-turn message, ahead of
+/// the call, so a chat can draw trail, message, trail, reply (quickstart §12, backend half).
+#[tokio::test(flavor = "multi_thread")]
+async fn text_beside_a_tool_call_is_saved_as_a_mid_turn_message() {
+    let Some(dummyplug) = Dummyplug::start() else {
+        return;
+    };
+    dummyplug.ready().await;
+
+    let dir = tempfile::tempdir().unwrap();
+    let runtime = VizierRuntime::start(RuntimeOptions {
+        config: VizierConfig::with_workspace(dir.path().to_path_buf()),
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+    runtime
+        .deps()
+        .storage
+        .upsert_provider(&ProviderEntry {
+            id: ProviderId::DUMMYPLUG,
+            credentials: ProviderCredentials {
+                base_url: Some(dummyplug.base_url()),
+                ..Default::default()
+            },
+        })
+        .await
+        .unwrap();
+    let (resp, created) = tokio::sync::oneshot::channel();
+    runtime
+        .transport()
+        .send_agent_command(AgentCommand::Create {
+            agent_id: "plug".into(),
+            config: agent_config("plug"),
+            resp,
+        })
+        .await
+        .unwrap();
+    assert!(matches!(
+        tokio::time::timeout(TURN_TIMEOUT, created).await.unwrap().unwrap(),
+        AgentCommandResult::Ok(_)
+    ));
+
+    let session = VizierSession(
+        "plug".into(),
+        VizierChannelId::HTTP("e2e".into(), "harness".into()),
+        Some("say".into()),
+    );
+    let request = serde_json::json!({
+        "say": "checking first",
+        "tool": "execute_python",
+        "arguments": { "intent": "add", "code": "6 * 7" }
+    });
+    let reply = chat(runtime.transport(), &session, &request.to_string()).await;
+    assert!(reply.contains("42"), "{reply}");
+
+    let history = runtime
+        .deps()
+        .storage
+        .list_session_history(session, None, None, None)
+        .await
+        .unwrap();
+    let kinds: Vec<&str> = history
+        .iter()
+        .map(|h| match &h.content {
+            SessionHistoryContent::Request(_) => "request",
+            SessionHistoryContent::AssistantMessage(text) if text == "checking first" => "say",
+            SessionHistoryContent::ToolCall { .. } => "call",
+            SessionHistoryContent::ToolResult { .. } => "result",
+            SessionHistoryContent::Response(_) => "response",
+            _ => "other",
+        })
+        .collect();
+    assert_eq!(kinds, ["request", "say", "call", "result", "response"], "{history:#?}");
+
+    runtime.shutdown().await.unwrap();
+}
+
 /// Spec 040: the workspace shell is offered in a project session, runs a command in the project
 /// folder, and is absent from an ordinary conversation.
 #[tokio::test(flavor = "multi_thread")]

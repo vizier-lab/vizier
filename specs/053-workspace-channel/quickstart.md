@@ -119,6 +119,8 @@ Open the Mid-turn messages tab of [mockup.html](mockup.html) beside the app.
 3. Open a conversation saved before this feature that has mid-turn text. **Expect** it renders this way too.
 4. Confirm the same text is not posted to a Discord channel. *(Needs a Discord token. Skip without one and rely on the unchanged reader path.)*
 
+**Result so far** (2026-11-06): the backend half passes in `crates/vizier-core/tests/dummyplug_e2e.rs` (`text_beside_a_tool_call_is_saved_as_a_mid_turn_message`): history holds request, message, call, result, response in that order. The WebUI half is covered by vitest (`trail.test.ts`, `MessageList.test.tsx`). Steps 1 to 3 in a real browser are **not yet run**.
+
 ## 13. Screens (browser)
 
 Check against [mockup.html](mockup.html), in both themes, at desktop width and at 375 px:
