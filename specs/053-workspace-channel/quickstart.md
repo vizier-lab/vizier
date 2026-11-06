@@ -2,6 +2,8 @@
 
 End-to-end checks against a running binary with `dummyplug` agents (no keys, no network). `scripts/workspace-e2e.mjs` scripts the steps marked *script*. These require research R16's additive `say` key on dummyplug.
 
+**Tool calls in this file are shorthand.** Every agent runs in code mode, so a model can only call `think`, `execute_python`, `list_tool_functions` and `describe_tool_function`. `{"tool":"mention_agent","arguments":A}` below means `{"tool":"execute_python","arguments":{"intent":"...","code":"mention_agent(...A...)"}}`, and `scripts/workspace-e2e.mjs` has one helper that builds it. With `say`, the key sits beside `tool` on that same outer object.
+
 ## Setup
 
 ```bash
