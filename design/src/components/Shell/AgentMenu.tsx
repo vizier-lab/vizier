@@ -27,6 +27,39 @@ export type AgentMenuProps = {
   className?: string;
 };
 
+/** The menu's groups of pages, shared by the agent card's menu and the rail's. */
+export function AgentMenuGroups({ active, hiddenPages, disabledPages, onSelect }: {
+  active?: MenuPage;
+  hiddenPages?: readonly string[];
+  disabledPages?: readonly string[];
+  onSelect: (page: MenuPage) => void;
+}) {
+  const groups = MENU_GROUPS.map((g) => ({ ...g, pages: g.pages.filter((p) => !hiddenPages?.includes(p.page)) })).filter((g) => g.pages.length);
+  return (
+    <>
+      {groups.map((g, i) => (
+        <div key={g.label} role="group" aria-label={g.label} className="flex flex-col">
+          <div aria-hidden className={cx("px-8 pb-2 type-label uppercase text-faint", i === 0 ? "pt-6" : "pt-10")}>
+            {g.label}
+          </div>
+          {g.pages.map((p) => (
+            <MenuItem
+              key={p.page}
+              icon={p.icon}
+              label={p.label}
+              selected={false}
+              disabled={disabledPages?.includes(p.page)}
+              aria-current={active === p.page ? "page" : undefined}
+              className={active === p.page ? "bg-raised text-fg" : undefined}
+              onClick={() => onSelect(p.page)}
+            />
+          ))}
+        </div>
+      ))}
+    </>
+  );
+}
+
 /**
  * The agent's other pages (Core, its connections, usage and settings), opened from the agent card.
  * It scales and fades in from the card's corner and leaves faster than it came.
@@ -67,10 +100,6 @@ export function AgentMenu({
     };
   });
 
-  const hidden = new Set(hiddenPages);
-  const disabled = new Set(disabledPages);
-  const groups = MENU_GROUPS.map((g) => ({ ...g, pages: g.pages.filter((p) => !hidden.has(p.page)) })).filter((g) => g.pages.length);
-
   return (
     <div ref={root} className={cx("w-full", className)}>
       {cloneElement(trigger, { "aria-expanded": open, "aria-haspopup": "menu", onClick: () => setOpen(!open) })}
@@ -84,28 +113,15 @@ export function AgentMenu({
               exit={{ opacity: 0, scale: 0.98, transition: { duration: motionDurations.fast, ease: motionEases.standard } }}
             >
               <Menu aria-label="Agent pages" className="w-full">
-                {groups.map((g, i) => (
-                  <div key={g.label} role="group" aria-label={g.label} className="flex flex-col">
-                    <div aria-hidden className={cx("px-8 pb-2 type-label uppercase text-faint", i === 0 ? "pt-6" : "pt-10")}>
-                      {g.label}
-                    </div>
-                    {g.pages.map((p) => (
-                      <MenuItem
-                        key={p.page}
-                        icon={p.icon}
-                        label={p.label}
-                        selected={false}
-                        disabled={disabled.has(p.page)}
-                        aria-current={active === p.page ? "page" : undefined}
-                        className={active === p.page ? "bg-raised text-fg" : undefined}
-                        onClick={() => {
-                          setOpen(false);
-                          onSelect(p.page);
-                        }}
-                      />
-                    ))}
-                  </div>
-                ))}
+                <AgentMenuGroups
+                  active={active}
+                  hiddenPages={hiddenPages}
+                  disabledPages={disabledPages}
+                  onSelect={(page) => {
+                    setOpen(false);
+                    onSelect(page);
+                  }}
+                />
                 {onSwitchAgent && (
                   <>
                     <MenuDivider />

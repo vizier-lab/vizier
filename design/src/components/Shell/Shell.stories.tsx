@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { useState } from "react";
 import { UserMenu } from "../UserMenu/UserMenu";
 import { SettingsNav } from "../SettingsNav/SettingsNav";
 import { AgentMenu } from "./AgentMenu";
@@ -90,7 +91,8 @@ function ProjectsAboveSessions() {
   );
 }
 
-function Demo({ view, projects = false }: { view: "home" | "agent" | "settings"; projects?: boolean }) {
+function Demo({ view, projects = false, startCollapsed = false }: { view: "home" | "agent" | "settings"; projects?: boolean; startCollapsed?: boolean }) {
+  const [collapsed, setCollapsed] = useState(startCollapsed);
   const rail = (
     <Rail
       homeHref="#home"
@@ -101,6 +103,8 @@ function Demo({ view, projects = false }: { view: "home" | "agent" | "settings";
       settingsHref="#settings"
       settingsActive={view === "settings"}
       onToggleTheme={() => {}}
+      agentMenu={{ activePage: "memory", onNew: () => {}, onSelect: () => {} }}
+      sidebarToggle={view === "agent" ? { collapsed, onToggle: () => setCollapsed((c) => !c), shortcut: "Ctrl B" } : undefined}
       user={<UserMenu name="admin" onSignOut={() => {}} collapsed />}
     />
   );
@@ -125,7 +129,7 @@ function Demo({ view, projects = false }: { view: "home" | "agent" | "settings";
       <SettingsNav active="profile" hrefFor={(p) => `#${p}`} />
     ) : undefined;
   return (
-    <ShellFrame rail={rail} sidebar={sidebar} sidebarKey={view}>
+    <ShellFrame rail={rail} sidebar={sidebar} sidebarKey={view} collapsed={view === "agent" && collapsed}>
       <div className="grid flex-1 place-items-center text-faint type-mono-xs">page</div>
     </ShellFrame>
   );
@@ -133,6 +137,7 @@ function Demo({ view, projects = false }: { view: "home" | "agent" | "settings";
 
 export const Home: Story = { args: { rail: null, children: null }, render: () => <Demo view="home" /> };
 export const AgentPage: Story = { args: { rail: null, children: null }, render: () => <Demo view="agent" /> };
+export const AgentPageCollapsed: Story = { args: { rail: null, children: null }, render: () => <Demo view="agent" startCollapsed /> };
 export const Settings: Story = { args: { rail: null, children: null }, render: () => <Demo view="settings" /> };
 export const ProjectsAboveSessionsStory: Story = {
   args: { rail: null, children: null },
