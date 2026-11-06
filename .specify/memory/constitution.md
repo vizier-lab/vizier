@@ -1,17 +1,22 @@
 <!--
 Sync Impact Report
 ==================
-Version change: 2.0.0 → 2.1.0
+Version change: 2.1.0 → 2.2.0
 Modified principles: none
 Added sections: none
 Removed sections: none
 Modified sections:
+  - Development Workflow & Quality Gates — one rule: design before UI code,
+    in whatever medium is available (FigCraft preferred, never required;
+    a dummy .html or ASCII mockup is acceptable). Agents MUST NOT stall or
+    keep retrying when the FigCraft MCP is unreachable.
   - Development Workflow & Quality Gates — three Fleet rules (issue #160):
     optional capabilities live behind a feature flag that never changes
     the API shape; a role or component depends on trait seams only and is
     testable alone; a change is verified by the jobs of the flags and
     crates it touches, with the full matrix on develop, master and release.
 Templates requiring updates:
+  - CLAUDE.md ✅ "Design first" section reworded to match
   - .specify/templates/plan-template.md ✅ no change needed (Constitution
     Check reads the gates from this file)
   - .specify/templates/spec-template.md ✅ no change needed
@@ -206,6 +211,18 @@ instead of each module reinventing its own convention.
   is sparse and live models are nondeterministic, paid, and need keys;
   dummyplug makes the real pipeline reproducible offline (Principle III).
 
+- **Design before UI code, in whatever medium is available**: a new screen,
+  layout or composition change, component, or visual variant MUST be shown as
+  a mockup and reviewed before any UI code is written. FigCraft
+  (`Vizier.figcraft`, via the `figcraft` MCP) is the preferred medium when it
+  is reachable, but it is NOT required: when the MCP or app is unavailable, an
+  agent MUST NOT block on it or retry it, and MUST fall back at once to a
+  simple dummy `.html` file or an ASCII mockup. Any of the three satisfies
+  this rule; skipping the mockup does not. Pure copy edits, backend work, and
+  a bug fix restoring an already-designed look need no mockup (say so in the
+  summary). *Rationale*: the point is a reviewed visual decision before code,
+  not a particular tool; an unreachable tool must not stop the work.
+
 - **Optional capabilities live behind a feature flag**: an optional channel,
   addon, provider or gateway MUST sit behind a Cargo feature named
   `channel-*`, `addon-*`, `provider-*`, `gateway-*`, `bus-nats` or `role-*`
@@ -251,4 +268,4 @@ service or non-embedded runtime dependency). Deviations MUST be justified
 in the PR description (equivalent to the plan template's Complexity
 Tracking table) or the change MUST be revised before merge.
 
-**Version**: 2.1.0 | **Ratified**: 2026-08-13 | **Last Amended**: 2026-11-02
+**Version**: 2.2.0 | **Ratified**: 2026-08-13 | **Last Amended**: 2026-11-06
