@@ -78,7 +78,7 @@ Seed integration events and client calls with times either side of the upgrade, 
 
 - Send a WebUI socket message with `"timestamp":"2001-01-01T00:00:00Z"` and `"metadata":{"sent_at":"2001-01-01T00:00:00Z","keep":"me"}`. Expected: the stored request has the server's time in both places, with `+07:00`, and `keep` is still there.
 - Send the same with `"metadata":null`. Expected: the stored `metadata` holds only `sent_at`.
-- Send `echo` through the dummyplug path that shows the raw message, or read the next turn's replay. Expected: the frontmatter shows `sent_at`, byte-identical on later turns.
+- Read the message back with `GET` history, twice with a turn in between. Expected: the same `sent_at` both times. A unit test on `history_entries_to_messages` pins that the replayed frontmatter shows it, because dummyplug strips frontmatter from what it reads.
 - Restart mid-turn so the turn resumes. Expected: its `sent_at` is the original one.
 - Send a Discord or Telegram message and check its stored `sent_at`. Expected: local RFC 3339. *(Needs real channel credentials.)*
 - Read a history entry stored before the upgrade with a UTC `sent_at`, and one from the WebUI with none. Expected: both replayed verbatim.

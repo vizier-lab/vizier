@@ -182,4 +182,4 @@ Re-running it is a no-op even without the marker, because the same instant forma
 - *Adding `sent_at` only in `to_prompt`, computed from `timestamp`.* This would change how old stored messages replay, which disturbs cached history.
 - *The platform's own message time on Discord and Telegram.* It is more accurate for late delivery, but it is a separate change and would make the channels differ from the WebUI's rule.
 
-**Display**: The WebUI's optimistic bubble keeps its browser time until the saved history entry replaces it, which is existing behaviour; `lib/messages.ts` then renders the server's time in the instance's zone.
+**Display**: `lib/messages.ts` renders a message's time in the instance's zone. The WebUI also creates a browser-timed optimistic message before the server answers. Whether the saved entry replaces that time needs checking when the screens change; if it doesn't, the bubble must take the server's time.
