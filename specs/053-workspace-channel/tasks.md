@@ -229,8 +229,8 @@ description: "Task list for the Workspace channel and mid-turn messages"
 - [X] T094 [US4] Add vectors for each new route, including `candidates` with an agent the caller can't view, in `crates/vizier-http/tests/conformance/groups/workspaces.rs`, and pin in `crates/vizier-http/tests/` that someone who can view an agent gets no Workspace session content through its conversation routes
 - [X] T095 [P] [US4] Add `MemberSearch` in `design/src/components/MemberSearch/`, with stories, built like `Picker` (composed from SearchField in the dialog; no new design component was needed)
 - [X] T096 [US4] Add the members dialog in `webui/app/screens/workspaces/MembersDialog.tsx`: search first, member list when empty, fixed height, the FR-005 warning before adding an agent, keyboard, and dismissal on ×, Escape and an outside press
-- [ ] T097 [US4] Add `webui/app/screens/workspaces/NewWorkspaceDialog.tsx`, the empty topic state, and topic create and rename, and wire `CreateChooser` in `webui/app/screens/shell/ShellRail.tsx`, skipping it when the person may create only one, and hiding `+` when neither
-- [ ] T098 [US4] Extend `scripts/workspace-e2e.mjs` with quickstart §1 and removal, and run it
+- [X] T097 [US4] Add `webui/app/screens/workspaces/NewWorkspaceDialog.tsx`, the empty topic state, and topic create and rename, and wire `CreateChooser` in `webui/app/screens/shell/ShellRail.tsx`, skipping it when the person may create only one, and hiding `+` when neither
+- [X] T098 [US4] Extend `scripts/workspace-e2e.mjs` with quickstart §1 and removal, and run it
 
 **Checkpoint**: The full feature works.
 
@@ -240,7 +240,7 @@ description: "Task list for the Workspace channel and mid-turn messages"
 
 - [X] T099 [P] Add `docs/src/configuration/workspaces.md` and its line in `docs/src/SUMMARY.md`: members, mentions, the command format, notifications, what sharing an agent means, the accepted risks, and the naming difference from the data folder
 - [X] T100 [P] Update `docs/src/configuration/tools-embedding.md`, `docs/src/configuration/agents.md` and `docs/src/configuration/observability.md` for the removed and new tools and the Workspaces usage activity
-- [ ] T101 Add a Workspace section to `CLAUDE.md`, and update Tools and Background jobs for the removal
+- [X] T101 Add a Workspace section to `CLAUDE.md`, and update Tools and Background jobs for the removal
 - [ ] T102 Extend `scripts/workspace-e2e.mjs` with quickstart §11's usage step, and run the whole script
 - [ ] T103 Check quickstart §13 against `specs/053-workspace-channel/mockup.html` in both themes at desktop width and 375 px, and record the result
 - [ ] T104 Run quickstart §13.7 with a real model, *live provider*, and record how agents use mentions and how noisy filler and notifications are

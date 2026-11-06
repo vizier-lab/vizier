@@ -248,5 +248,42 @@ check('opening the topic reads them', read.status === 200 && read.data.marked > 
 const unreadAfter = (await api('GET', '/workspaces')).data.find((w) => w.id === wid)
 check('its topic has none left unread', unreadAfter.topics.find((t) => t.id === tid).unread === 0, unreadAfter)
 
+// --- §11 managing a Workspace ------------------------------------------------------------------------
+section('§11 managing a Workspace')
+const found = await api('GET', `/workspaces/${wid}/candidates?q=bet`)
+check('search finds beta, already a member', found.status === 200 && found.data.agents.items.some((a) => a.id === 'beta' && a.member), found.body)
+check('search needs some text', (await api('GET', `/workspaces/${wid}/candidates?q=`)).status >= 400)
+const scratchTopic = await api('POST', `/workspaces/${wid}/topics`, { name: 'scratch' })
+check('a topic is added', scratchTopic.status === 201, scratchTopic.body)
+const clash = await api('PATCH', `/workspaces/${wid}/topics/${scratchTopic.data.id}`, { name: 'GENERAL' })
+check('renaming onto an existing name is refused', clash.status === 409, clash.body)
+const renamedTopic = await api('PATCH', `/workspaces/${wid}/topics/${scratchTopic.data.id}`, { name: 'scratch-2' })
+check('a topic is renamed', renamedTopic.status === 200 && renamedTopic.data.name === 'scratch-2', renamedTopic.body)
+check('a topic is deleted', (await api('DELETE', `/workspaces/${wid}/topics/${scratchTopic.data.id}`)).status === 200)
+const detailNow = (await api('GET', `/workspaces/${wid}`)).data
+const onlyTopic = detailNow.topics.length === 1 ? detailNow.topics[0].id : null
+if (onlyTopic) check('the last topic stays', (await api('DELETE', `/workspaces/${wid}/topics/${onlyTopic}`)).status === 409)
+const owner = detailNow.members.find((m) => m.kind === 'person' && m.role === 'owner')
+const last = await api('PATCH', `/workspaces/${wid}/members/person/${owner.handle}`, { role: 'member' })
+check('the last owner cannot step down', last.status === 409, last.body)
+
+// Removing an agent ends its turn at once (SC-006).
+seen = live.entries().length
+await api('POST', `/workspaces/${wid}/topics/${tid}/entries`, { text: `@alpha ${py('import time\ntime.sleep(20)')}` })
+await sleep(800)
+const gone = await api('DELETE', `/workspaces/${wid}/members/agent/alpha`)
+check('an agent is removed', gone.status === 200, gone.body)
+await sleep(1500)
+const members = (await api('GET', `/workspaces/${wid}`)).data.members
+check('it is no longer a member', !members.some((m) => m.handle === 'alpha'))
+await api('POST', `/workspaces/${wid}/topics/${tid}/entries`, { text: '@alpha are you there' })
+await sleep(1500)
+check('and it does not wake', !live.entries().slice(seen).some((e) => e.kind === 'agent' && e.author.id === 'alpha' && e.body.includes('are you there')))
+
+const renamed = await api('PATCH', `/workspaces/${wid}`, { name: `${NAME}-b` })
+check('the Workspace is renamed', renamed.status === 200 && renamed.data.name === `${NAME}-b`, renamed.body)
+check('it is deleted', (await api('DELETE', `/workspaces/${wid}`)).status === 200)
+check('and is gone', (await api('GET', `/workspaces/${wid}`)).status === 404)
+
 live.close()
 console.log('\nAll Workspace checks passed.')
