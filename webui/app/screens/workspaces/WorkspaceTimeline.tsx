@@ -1,11 +1,17 @@
-import { AgentHeader, AgentReply, MentionNote, OriginBadge, UserMessage } from '@vizier/design'
+import { AgentHeader, AgentReply, MentionNote, OriginBadge, StoppedNote, UserMessage } from '@vizier/design'
 import { useMemo } from 'react'
+import type { VizierAttachment } from '../../api/frames'
+import { API_BASE } from '../../api/transport'
 import type { WorkspaceEntry } from '../../api/endpoints/workspaces'
-import { blockDurationMs } from '../../lib/trail'
+import { Enter, stagger } from '../../lib/motion'
+import { usePrices } from '../../lib/prices'
+import { blockDurationMs, outcomeDurationMs } from '../../lib/trail'
 import { mentionsAsCode } from '../../lib/mentions'
-import { replyStats, replyText, statsLine, time } from '../../lib/messages'
+import { isAudioReply, replyAttachments, replyError, replyStats, replyText, statsLine, time } from '../../lib/messages'
 import { buildTimeline, entriesByUid, type Segment, type TimelineItem } from '../../lib/workspaces'
-import { Markdown } from '../shared/Markdown'
+import { Markdown, MentionHandles } from '../shared/Markdown'
+import { Reactions } from '../chat/Reactions'
+import { ReplyMedia } from '../chat/ReplyMedia'
 import { Trail } from '../chat/Trail'
 
 type Props = {
@@ -17,6 +23,7 @@ type Props = {
     names: Record<string, string>
     /** Agents with a turn running. */
     working: Record<string, true>
+    onReact: (uid: string, emoji: string, action: 'added' | 'removed') => void
 }
 
 /** Why an agent was not woken, in a sentence. */
@@ -51,22 +58,33 @@ function Run({
     byUid,
     names,
     running,
+    onReact,
 }: {
+    onReact: Props['onReact']
     segment: Segment
     byUid: Map<string, WorkspaceEntry>
     names: Props['names']
     running: boolean
 }) {
     const name = names[segment.agentId] ?? segment.agentId
+    const prices = usePrices()
     const outcome = segment.outcome
     const content = outcome?.content.Response?.content
     const text = content ? replyText(content) : null
+    const attachments = replyAttachments(content, outcome?.content.Response?.attachments)
+    const spoken = isAudioReply(content)
     const stats = content ? replyStats(content) : undefined
+    if (stats?.provider && stats.model) prices.load(stats.provider, stats.model)
+    const price = stats?.provider && stats.model ? prices.prices[`${stats.provider}/${stats.model}`] : undefined
     const live = running && segment.last && !outcome
     const final = outcome ? byUid.get(outcome.uid) : undefined
+    const failed = !!(content && replyError(content))
+    // As in a direct chat: one stretch of work shows the turn's time, several show their own.
+    const inParts = segment.blocks.length > 1
+    const lastTrail = segment.blocks.map((b) => b.kind).lastIndexOf('trail')
     return (
         <div className="flex flex-col gap-10">
-            <AgentHeader agentId={segment.agentId} name={name} time={time(outcome?.timestamp)} />
+            <AgentHeader agentId={segment.agentId} name={name} time={time(outcome?.timestamp)} live={live} />
             {segment.blocks.map((block, i) => {
                 if (block.kind === 'message') {
                     const entry = byUid.get(block.id)
@@ -86,35 +104,46 @@ function Run({
                         trail={block.events}
                         live={open}
                         turnRunning={live}
-                        durationMs={blockDurationMs(block)}
-                        failed={segment.last && !!outcome && !text}
-                        aborted={segment.last && segment.aborted}
+                        durationMs={inParts ? blockDurationMs(block) : (outcomeDurationMs(outcome) ?? blockDurationMs(block))}
+                        failed={i === lastTrail && failed}
+                        aborted={i === lastTrail && segment.aborted}
                         agentName={name}
                     />
                 )
             })}
             {live && segment.blocks[segment.blocks.length - 1]?.kind !== 'trail' && <Trail trail={[]} live agentName={name} />}
-            {outcome && text != null && (
+            {outcome && (text != null || attachments.length > 0) && (
                 <AgentReply
-                    stats={stats ? statsLine(stats) : undefined}
-                    onCopy={() => void navigator.clipboard?.writeText(text)}
+                    stats={stats ? statsLine(stats, price, inParts ? outcomeDurationMs(outcome) : undefined) : undefined}
+                    onCopy={text != null ? () => void navigator.clipboard?.writeText(text) : undefined}
+                    reactions={<Reactions reactions={outcome.reactions ?? []} disabled={!final?.history_uid} onToggle={(emoji, action) => onReact(outcome.uid, emoji, action)} />}
                 >
-                    <Markdown>{mentionsAsCode(text, final?.mentions.map((m) => m.handle))}</Markdown>
+                    <div className="flex flex-col gap-16">
+                        {/* A spoken reply's transcript sits behind "Show transcript" in its player. */}
+                        {text != null && text !== '' && !spoken && <Markdown>{mentionsAsCode(text, final?.mentions.map((m) => m.handle))}</Markdown>}
+                        <ReplyMedia attachments={attachments} transcript={text} />
+                    </div>
                 </AgentReply>
             )}
+            {outcome?.content.Response?.resumed && <StoppedNote>Picked up where it left off after vizier restarted.</StoppedNote>}
             {outcome && <Failed entry={final} names={names} />}
         </div>
     )
 }
 
-function Item({ item, me, byUid, names, working }: { item: TimelineItem; me: string; byUid: Map<string, WorkspaceEntry>; names: Props['names']; working: Props['working'] }) {
+/** A message's files, in the shape a direct chat's attachments are drawn from. */
+const entryAttachments = (entry: WorkspaceEntry): VizierAttachment[] =>
+    entry.files.map((f) => ({ filename: f.name, content: { local: `${API_BASE}/files/${f.file_id}` } }))
+
+function Item({ item, me, byUid, names, working, onReact }: { item: TimelineItem; me: string; byUid: Map<string, WorkspaceEntry>; names: Props['names']; working: Props['working']; onReact: Props['onReact'] }) {
     if (item.kind === 'note') return <Note>{item.entry.body}</Note>
     if (item.kind === 'run') {
-        return <Run segment={item.segment} byUid={byUid} names={names} running={!!working[item.segment.agentId]} />
+        return <Run segment={item.segment} byUid={byUid} names={names} running={!!working[item.segment.agentId]} onReact={onReact} />
     }
     const entry = item.entry
     const mine = entry.author.id === me
     const handles = entry.mentions.map((m) => m.handle)
+    const files = entryAttachments(entry)
     return (
         <UserMessage
             side={mine ? 'right' : 'left'}
@@ -122,23 +151,30 @@ function Item({ item, me, byUid, names, working }: { item: TimelineItem; me: str
             seed={entry.author.id}
             time={time(new Date(entry.at).toISOString())}
             mentioned={!mine && handles.includes(me)}
+            attachments={files.length ? <ReplyMedia attachments={files} /> : undefined}
         >
             {entry.origin && <OriginBadge kind={entry.origin.kind} label={entry.origin.label} />}
-            <Markdown size="document">{mentionsAsCode(entry.body, handles)}</Markdown>
+            {entry.body !== '' && <Markdown size="document">{mentionsAsCode(entry.body, handles)}</Markdown>}
             <Failed entry={entry} names={names} />
         </UserMessage>
     )
 }
 
 /** A topic's conversation: people's messages, notes, and each agent's turn as trail, message, trail, reply. */
-export function WorkspaceTimeline({ entries, steps, me, names, working }: Props) {
+export function WorkspaceTimeline({ entries, steps, me, names, working, onReact }: Props) {
+    const mentionable = useMemo(() => ({ handles: new Set(Object.keys(names)), me }), [names, me])
     const items = useMemo(() => buildTimeline(entries, steps), [entries, steps])
     const byUid = useMemo(() => entriesByUid(entries), [entries])
     return (
-        <div className="flex flex-col gap-20">
-            {items.map((item) => (
-                <Item key={item.key} item={item} me={me} byUid={byUid} names={names} working={working} />
-            ))}
-        </div>
+        <MentionHandles.Provider value={mentionable}>
+            <div className="flex flex-col gap-20">
+                {/* Arrivals wait a beat on one another, as in a direct chat. */}
+                {items.map((item, i) => (
+                    <Enter key={item.key} delay={stagger(i)}>
+                        <Item item={item} me={me} byUid={byUid} names={names} working={working} onReact={onReact} />
+                    </Enter>
+                ))}
+            </div>
+        </MentionHandles.Provider>
     )
 }

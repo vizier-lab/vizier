@@ -18,6 +18,12 @@ export async function uploadFile(file: File): Promise<VizierAttachment> {
     return { filename: file.name, content: { local: res.url } }
 }
 
+/** Uploads a file and answers its id, which a Workspace message refers to it by. */
+export async function uploadFileId(file: File): Promise<string> {
+    const res = await api.post<{ file_id: string }>('/files/upload', { file: await fileToBase64(file), filename: file.name })
+    return res.file_id
+}
+
 /** "12 KB", "3.4 MB" */
 export function fileSize(bytes: number): string {
     if (bytes < 1024) return `${bytes} B`

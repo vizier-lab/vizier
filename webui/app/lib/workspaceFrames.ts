@@ -72,6 +72,13 @@ export function applyFrame(state: TopicView, raw: unknown): TopicView {
         const { seq, mentions } = f.workspace_mentions as { seq: number; mentions: WorkspaceEntry['mentions'] }
         return { ...state, entries: state.entries.map((e) => (e.seq === seq ? { ...e, mentions } : e)) }
     }
+    if (f.reactions) {
+        const { message_uid, reactions } = f.reactions as { message_uid: string; reactions: WorkspaceStep['entry']['reactions'] }
+        return {
+            ...state,
+            steps: state.steps.map((s) => (s.entry.uid === message_uid ? { ...s, entry: { ...s.entry, reactions } } : s)),
+        }
+    }
     if (f.agent_state) {
         const { agent, phase } = f.agent_state as { agent: string; phase: 'thinking' | 'idle' }
         const working = { ...state.working }

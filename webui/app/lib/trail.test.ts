@@ -195,6 +195,21 @@ test('old saved history with mid-turn text reads the same way, with no migration
   assert.deepEqual(shape(groupHistory(saved)[0].blocks), ['"From before the change."', 'tool'])
 })
 
+test('a bare newline a model sends beside each call is not a message, so the work stays one trail', () => {
+  const turn = groupHistory([
+    request('go'),
+    entry({ AssistantMessage: '\n\n' }),
+    entry({ ToolCall: { call_id: 'a', name: 'fetch', arguments: {} } }),
+    entry({ ToolResult: { call_id: 'a', content: 'ok' } }),
+    entry({ AssistantMessage: '\n\n' }),
+    entry({ ToolCall: { call_id: 'b', name: 'fetch', arguments: {} } }),
+    entry({ ToolResult: { call_id: 'b', content: 'ok' } }),
+    response('done'),
+  ])[0]
+  assert.equal(turn.blocks.length, 1)
+  assert.equal(turn.blocks[0].kind === 'trail' && turn.blocks[0].events.length, 2)
+})
+
 const endedBy = (text: string, by: string | null) =>
   entry({
     Response: {

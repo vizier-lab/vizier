@@ -89,7 +89,7 @@ export function WorkspaceHeader({ detail, workspaceId, topicId, working, stoppin
                             {working} working
                         </span>
                     )}
-                    <Button icon="square" loading={stopping} onClick={onStop} aria-label="Stop every agent working in this Workspace">
+                    <Button icon="square" size="sm" loading={stopping} onClick={onStop} aria-label="Stop every agent working in this Workspace">
                         {mobile ? undefined : 'Stop all'}
                     </Button>
                 </>

@@ -249,7 +249,8 @@ export function groupHistory(entries: ChatMessage[]): Turn[] {
 
     // A mid-turn message ends the stretch of work before it; the next event opens a new one.
     if (typeof content.AssistantMessage === 'string') {
-      if (!content.AssistantMessage) continue
+      // A bare "\n\n" from a model that says nothing beside a call is not a message.
+      if (!content.AssistantMessage.trim()) continue
       if (!open) open = newTurn(entry.uid)
       open.blocks.push({ kind: 'message', id: entry.uid, text: content.AssistantMessage, at: entry.timestamp })
       continue

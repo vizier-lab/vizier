@@ -23,7 +23,7 @@ type WorkspaceStore = {
     open: (workspaceId: string, topicId: string) => () => void
     loadOlder: (workspaceId: string, topicId: string) => Promise<void>
     /** Posts a message or runs a command. The result lists what was written. */
-    post: (workspaceId: string, topicId: string, text: string) => Promise<PostResult>
+    post: (workspaceId: string, topicId: string, text: string, files?: string[]) => Promise<PostResult>
     retry: (workspaceId: string, topicId: string) => void
     reset: () => void
 }
@@ -97,9 +97,9 @@ export const useWorkspaces = create<WorkspaceStore>()((set, get) => {
             }
         },
 
-        post: async (workspaceId, topicId, text) => {
+        post: async (workspaceId, topicId, text, files = []) => {
             const key = topicKey(workspaceId, topicId)
-            const result = await postEntry(workspaceId, topicId, text)
+            const result = await postEntry(workspaceId, topicId, text, files)
             // The socket delivers it to everyone, this tab included; folding it in here as well is
             // what keeps it on screen when the socket is down.
             for (const entry of [result.entry, result.note]) {

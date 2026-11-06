@@ -103,7 +103,6 @@ export function WorkspaceSidebar({ workspace, activeTopic, onMembers }: { worksp
                 {workspace.topics.map((t) => (
                     <NavItem
                         key={t.id}
-                        icon="chat"
                         label={
                             <span className="flex items-center gap-8">
                                 <span className="min-w-0 flex-1 truncate"># {t.name}</span>

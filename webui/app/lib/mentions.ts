@@ -39,6 +39,6 @@ export function mentionsAsCode(text: string, mentions: readonly string[] | undef
     const escaped = [...new Set(mentions)]
         .sort((a, b) => b.length - a.length)
         .map((path) => path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
-    const pattern = new RegExp(`(^|\\s)@(${escaped.join('|')})(?=$|[\\s.,;:!?)])`, 'g')
+    const pattern = new RegExp(`(^|[\\s(])@(${escaped.join('|')})(?=$|[\\s.,;:!?)])`, 'g')
     return text.replace(pattern, (_all, lead: string, path: string) => `${lead}\`@${path}\``)
 }

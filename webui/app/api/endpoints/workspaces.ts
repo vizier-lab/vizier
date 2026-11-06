@@ -102,6 +102,8 @@ export const getTimeline = (id: string, topic: string, before?: number | null, l
     api.get<Timeline>(`${topicBase(id, topic)}/entries${queryString({ before: before ?? undefined, limit })}`)
 export const postEntry = (id: string, topic: string, text: string, files: string[] = []) =>
     api.post<PostResult>(`${topicBase(id, topic)}/entries`, { text, files })
+export const reactTo = (id: string, topic: string, messageUid: string, emoji: string, action: 'added' | 'removed') =>
+    api.post<void>(`${topicBase(id, topic)}/reactions`, { message_uid: messageUid, emoji, action })
 export const markTopicRead = (id: string, topic: string) => api.post<{ marked: number }>(`${topicBase(id, topic)}/read`)
 export const getCommands = (id: string) => api.get<CommandsMenu>(`${base(id)}/commands`)
 export const stopAll = (id: string) => api.post<{ stopped: number; dropped: number }>(`${base(id)}/stop`)
@@ -114,6 +116,7 @@ export type WorkspaceFrame =
     | { workspace_entry: WorkspaceEntry }
     | { history_entry: { agent_id: string; entry: ChatMessage } }
     | { workspace_mentions: { seq: number; mentions: EntryMention[] } }
+    | { reactions: { message_uid: string; reactions: NonNullable<ChatMessage['reactions']> } }
     | { agent_state: { agent: string; phase: 'thinking' | 'idle' } }
     | { member_changed: Record<string, never> }
     | { closed: { reason: 'removed' | 'deleted' | 'token_expired' } }
