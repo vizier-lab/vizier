@@ -13,6 +13,7 @@ import { applyAllRead, applyRead, belongs, mergePage, type ViewFilter } from '..
 
 export type { ViewFilter }
 import { useAgents } from './agents'
+import { useWorkspaces } from './workspaces'
 
 const PAGE = 20
 
@@ -275,7 +276,12 @@ export const useNotifications = create<NotificationStore>()((set, get) => ({
         const handle = transport.openInbox({
             onFrame: (data) => {
                 const frame = parseFrame(data)
-                if (frame) get().receive(frame)
+                if (!frame) return
+                get().receive(frame)
+                // A Workspace message changes the rail's unread counts and its working dot.
+                if ((frame.type === 'notification' && frame.item.category === 'workspace_message') || frame.type === 'resync') {
+                    void useWorkspaces.getState().load()
+                }
             },
             onOpen: () => {},
             onState: (state: ConnectionState) => {

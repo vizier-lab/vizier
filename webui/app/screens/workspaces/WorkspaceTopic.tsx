@@ -1,7 +1,7 @@
 import { Button, EmptyState, LoadMore, Notice } from '@vizier/design'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router'
-import { getWorkspace, stopAll, type WorkspaceDetail } from '../../api/endpoints/workspaces'
+import { getWorkspace, markTopicRead, stopAll, type WorkspaceDetail } from '../../api/endpoints/workspaces'
 import { ApiError } from '../../api/client'
 import { emptyTopicView } from '../../lib/workspaceFrames'
 import { useSession } from '../../stores/session'
@@ -21,6 +21,12 @@ export function WorkspaceTopic({ workspaceId, topicId }: { workspaceId: string; 
     const [detail, setDetail] = useState<WorkspaceDetail | null>(null)
     const [stopping, setStopping] = useState(false)
 
+    // Opening a topic reads it: its notifications, and the unread count on the rail.
+    useEffect(() => {
+        void markTopicRead(workspaceId, topicId)
+            .then((r) => (r.marked > 0 ? load() : undefined))
+            .catch(() => {})
+    }, [workspaceId, topicId, load])
     // The socket lives as long as the topic is on screen.
     useEffect(() => open(workspaceId, topicId), [open, workspaceId, topicId])
     // Members (and so names and the @ menu) are read again whenever they change.

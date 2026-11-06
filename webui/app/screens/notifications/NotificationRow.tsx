@@ -20,13 +20,17 @@ export function NotificationRow({ item, onNavigate }: Props) {
     const navigate = useNavigate()
     const agents = useAgents((s) => s.agents)
     const markRead = useNotifications((s) => s.markRead)
-    const name = agents.find((a) => a.agent_id === item.agent_id)?.name ?? item.agent_id
+    // A Workspace row is about the Workspace, not an agent: its title (`ops #general`) names it.
+    const inWorkspace = item.category === 'workspace_message'
+    const name = inWorkspace
+        ? (item.title ?? 'Workspace')
+        : (agents.find((a) => a.agent_id === item.agent_id)?.name ?? item.agent_id)
 
     return (
         <Item
             agentId={item.agent_id}
             agentName={name}
-            title={item.title}
+            title={inWorkspace ? undefined : item.title}
             text={item.text}
             excerpt={item.excerpt}
             time={feedTime(item.at)}
