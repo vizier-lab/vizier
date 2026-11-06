@@ -1,1 +1,1 @@
-export { MentionMenu, type MentionMenuProps, type MentionMenuItem } from "./MentionMenu";
+export { MentionMenu, type MentionMenuProps, type MentionMenuItem, type MentionMenuMember } from "./MentionMenu";

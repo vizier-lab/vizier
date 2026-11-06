@@ -28,9 +28,26 @@ export type RailAgent = {
   disabledPages?: readonly RailAgentPage[];
 };
 
+export type RailWorkspace = {
+  id: string;
+  /** The tooltip and the accessible name. */
+  name: string;
+  /** One or two letters on the tile. */
+  initials: string;
+  href: string;
+  /** Messages from others not yet read; a count on the tile's corner. */
+  unread?: number;
+  /** An agent is working in it: a dot on the tile's corner. */
+  working?: boolean;
+};
+
 export type RailProps = {
   homeHref: string;
   homeActive?: boolean;
+  /** One tile per Workspace the person is in, between Home and the agents, each with its own separator. */
+  workspaces?: RailWorkspace[];
+  /** The Workspace whose topics are open; its tile carries the marker. */
+  activeWorkspaceId?: string;
   /** One tile per agent, in the order given. */
   agents: RailAgent[];
   /** The agent whose pages are open; its tile carries the marker. */
@@ -40,6 +57,13 @@ export type RailProps = {
   /** The dashed "+" after the agents; omit it for people who may not create one. */
   addHref?: string;
   addActive?: boolean;
+  /**
+   * The same "+" as a button: the host decides what it opens (a chooser between a Workspace and an
+   * agent, or straight to the one the person may create). Used in place of `addHref` when set.
+   */
+  onCreate?: () => void;
+  /** The label of that "+": "New agent", "New workspace", or "Create". */
+  createLabel?: string;
   settingsHref: string;
   settingsActive?: boolean;
   /** The light and dark switch; omit it when the current look has only one of them. */
@@ -178,11 +202,15 @@ function RailButton({ icon, label, tip, active, href, onSelect, expanded, contro
 export function Rail({
   homeHref,
   homeActive,
+  workspaces,
+  activeWorkspaceId,
   agents,
   activeAgentId,
   onReorder,
   addHref,
   addActive,
+  onCreate,
+  createLabel = "Create",
   settingsHref,
   settingsActive,
   onToggleTheme,
@@ -205,6 +233,35 @@ export function Rail({
   const [menuFor, setMenuFor] = useState<string>();
   const menuAnchor = useRef<HTMLElement | null>(null);
   const menuAgent = menuFor ? byId.get(menuFor) : undefined;
+  const workspaceTile = (w: RailWorkspace) => (
+    <RailLink
+      key={w.id}
+      label={w.unread ? `${w.name}, ${w.unread} unread` : w.name}
+      href={w.href}
+      active={w.id === activeWorkspaceId}
+      marker={marker}
+      className="rounded-md"
+    >
+      <span
+        aria-hidden
+        className={cx(
+          "grid size-42 place-items-center rounded-md type-body-strong tracking-tight transition-colors duration-[var(--vz-duration-base)]",
+          w.id === activeWorkspaceId ? "bg-ink text-ground" : "bg-raised text-soft hover:bg-pressed hover:text-fg",
+        )}
+      >
+        {w.initials}
+      </span>
+      {w.unread ? (
+        <span
+          aria-hidden
+          className="absolute -top-4 -right-4 grid h-16 min-w-16 place-items-center rounded-pill bg-rank-text px-4 type-mono-xs-medium text-shell shadow-[0_0_0_2px_var(--vz-shell)]"
+        >
+          {w.unread > 99 ? "99+" : w.unread}
+        </span>
+      ) : null}
+      {w.working && <span aria-hidden className="absolute -right-2 -bottom-2 size-10 rounded-pill bg-live shadow-[0_0_0_2px_var(--vz-shell)]" />}
+    </RailLink>
+  );
   const tile = (a: RailAgent) =>
     a.pending ? (
       // Not a link yet: there is nowhere to go until the agent exists. The scrim keeps its sigil
@@ -240,9 +297,10 @@ export function Rail({
             : undefined
         }
       >
-        <Sigil size="rail" agentId={a.agentId} image={a.imageSrc} live={a.state === "live" || a.state === "running"} />
-        {/* The pattern's own signal dot is too small to read at this size, so the state sits in the corner. */}
-        <StatusDot state={a.state} />
+        {/* An agent is always online, so a healthy one shows nothing: no lit cell and no dot. A dot
+            is a warning, drawn only while it is starting, retrying, failed or stopped. */}
+        <Sigil size="rail" agentId={a.agentId} image={a.imageSrc} />
+        {a.state !== "live" && a.state !== "running" && <StatusDot state={a.state} />}
       </RailLink>
     );
   return (
@@ -250,8 +308,20 @@ export function Rail({
       <RailLink label="Home" href={homeHref} active={homeActive} marker={marker} className={cx("rounded-lg", homeActive ? "bg-surface" : "hover:bg-surface")}>
         <Mark size={26} title="" />
       </RailLink>
-      <span aria-hidden className="h-px w-22 bg-border" />
+      <span aria-hidden className="h-px w-22 bg-border-hover" />
       <div className="flex min-h-0 w-full flex-1 flex-col items-center gap-10 overflow-y-auto overflow-x-clip [scrollbar-width:none]">
+        {workspaces && workspaces.length > 0 && (
+          <>
+            <ul className="m-0 flex list-none flex-col items-center gap-10 p-0" aria-label="Workspaces">
+              {workspaces.map((w) => (
+                <li key={w.id} className="relative">
+                  {workspaceTile(w)}
+                </li>
+              ))}
+            </ul>
+            <span aria-hidden className="h-px w-22 shrink-0 bg-border-hover" />
+          </>
+        )}
         {onReorder ? (
           <Reorder.Group axis="y" values={order} onReorder={setOrder} className="m-0 flex list-none flex-col items-center gap-10 p-0">
             {order.map((id) => {
@@ -291,7 +361,18 @@ export function Rail({
             ))}
           </ul>
         )}
-        {addHref !== undefined && (
+        {onCreate ? (
+          <RailTip label={createLabel}>
+            <button
+              type="button"
+              aria-label={createLabel}
+              onClick={onCreate}
+              className={cx(TILE, "border border-dashed border-border-strong text-muted hover:border-border-hover hover:text-fg")}
+            >
+              <Icon name="plus" size={16} />
+            </button>
+          </RailTip>
+        ) : addHref !== undefined ? (
           <RailLink
             label="New agent"
             href={addHref}
@@ -303,7 +384,7 @@ export function Rail({
           >
             <Icon name="plus" size={16} />
           </RailLink>
-        )}
+        ) : null}
       </div>
       <div className="flex flex-col items-center">
         {/* First in a group anchored to the foot, so Theme and Settings don't move when it comes and goes. */}

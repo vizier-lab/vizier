@@ -63,3 +63,16 @@ export const LongNames: Story = { args: { items: LONG, query: "", active: 0 } };
 
 /** More rows than fit: the list caps and scrolls, the heading and the key hints stay put. */
 export const ManyItems: Story = { args: { items: MANY, query: "", active: 3 } };
+
+/** In a Workspace each skill names the agents that have it. */
+export const WithAgents: Story = {
+  args: {
+    items: [
+      { name: "greet", description: "Say hello properly", agents: ["alpha"] },
+      { name: "status-note", description: "Write a status note", agents: ["alpha", "beta"] },
+      { name: "skills", description: "List an agent's skills" },
+    ],
+    query: "",
+  },
+};
+
