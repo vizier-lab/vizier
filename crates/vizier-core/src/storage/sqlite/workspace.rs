@@ -1,11 +1,16 @@
 //! The Workspace tables (`specs/053-workspace-channel/data-model.md`). New tables, so no
 //! migration; PostgreSQL has the same shape in `0004_workspaces.sql`.
 
-use crate::storage::sql::params;
+use crate::storage::sql::{OptionalExtension, params};
 use anyhow::Result;
 
 use crate::{
-    schema::{MemberKind, Workspace, WorkspaceMember, WorkspaceRole, WorkspaceTopic},
+    schema::{
+        CatchUp, EntryKind, EntryMention, MemberKind, MentionState, NewEntry, SessionHistory,
+        SessionHistoryContent, VizierChannelId, VizierRequest, VizierRequestContent,
+        VizierResponseContent, VizierSession, Workspace, WorkspaceEntry, WorkspaceMember,
+        WorkspaceRole, WorkspaceTopic,
+    },
     storage::{sqlite::SqlStorage, workspace::WorkspaceStorage},
 };
 
@@ -160,6 +165,206 @@ fn insert_topic(conn: &crate::storage::sql::Connection, t: &WorkspaceTopic) -> R
             t.created_at
         ],
     )?;
+    Ok(())
+}
+
+const ENTRY_COLUMNS: &str = "seq, workspace_id, topic_id, kind, author_kind, author, author_name, \
+                             body, files, history_uid, source_session, origin, is_final, \
+                             activated_by_seq, at";
+
+fn row_to_entry(row: &crate::storage::sql::Row) -> crate::storage::sql::Result<WorkspaceEntry> {
+    let kind: String = row.get(3)?;
+    let author_kind: String = row.get(4)?;
+    let files: Option<String> = row.get(8)?;
+    let origin: Option<String> = row.get(11)?;
+    Ok(WorkspaceEntry {
+        seq: row.get(0)?,
+        workspace_id: row.get(1)?,
+        topic_id: row.get(2)?,
+        kind: EntryKind::parse(&kind).unwrap_or(EntryKind::Note),
+        author_kind: MemberKind::parse(&author_kind).unwrap_or(MemberKind::Person),
+        author: row.get(5)?,
+        author_name: row.get(6)?,
+        body: row.get(7)?,
+        files: files.and_then(|f| serde_json::from_str(&f).ok()).unwrap_or_default(),
+        history_uid: row.get(9)?,
+        source_session: row.get(10)?,
+        origin: origin.and_then(|o| serde_json::from_str(&o).ok()),
+        is_final: row.get::<_, i64>(12)? != 0,
+        activated_by_seq: row.get(13)?,
+        at: row.get(14)?,
+    })
+}
+
+/// The one insert of an entry and its mentions, shared by the storage method and by the history
+/// save, which writes an agent's shown messages in its own transaction (research R3).
+pub(super) fn insert_entry_row(
+    conn: &crate::storage::sql::Connection,
+    entry: &NewEntry,
+    mentions: &[(MemberKind, String, MentionState)],
+) -> Result<i64> {
+    let files = (!entry.files.is_empty())
+        .then(|| serde_json::to_string(&entry.files))
+        .transpose()?;
+    let origin = entry.origin.as_ref().map(|o| o.to_string());
+    let seq: i64 = conn.query_row(
+        "INSERT INTO workspace_entry \
+         (workspace_id, topic_id, kind, author_kind, author, author_name, body, files, \
+          history_uid, source_session, origin, is_final, activated_by_seq, at) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14) RETURNING seq",
+        params![
+            entry.workspace_id,
+            entry.topic_id,
+            entry.kind.as_str(),
+            entry.author_kind.as_str(),
+            entry.author,
+            entry.author_name,
+            entry.body,
+            files,
+            entry.history_uid,
+            entry.source_session,
+            origin,
+            entry.is_final as i64,
+            entry.activated_by_seq,
+            entry.at
+        ],
+        |row| row.get::<_, i64>(0),
+    )?;
+    for (kind, target, state) in mentions {
+        conn.execute(
+            "INSERT INTO workspace_mention (entry_seq, target_kind, target, state, updated_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5) ON CONFLICT DO NOTHING",
+            params![seq, kind.as_str(), target, state.as_str(), entry.at],
+        )?;
+    }
+    Ok(seq)
+}
+
+/// Writes the shown part of a saved history row into the shared timeline, inside the history
+/// save's own transaction. Only an agent's text in a `Workspace` session counts: an
+/// `AssistantMessage`, or a final reply with a message. Everything else (tool calls, results,
+/// thoughts, requests) stays in the agent's own record.
+pub(super) fn index_history_entry(
+    conn: &crate::storage::sql::Connection,
+    session: &VizierSession,
+    uid: &str,
+    content: &SessionHistoryContent,
+    at: i64,
+) -> Result<()> {
+    let VizierChannelId::Workspace(workspace_id) = &session.1 else {
+        return Ok(());
+    };
+    let Some(topic_id) = session.2.as_deref() else {
+        return Ok(());
+    };
+    let (body, is_final) = match content {
+        SessionHistoryContent::AssistantMessage(text) => (text.clone(), false),
+        SessionHistoryContent::Response(response) => match &response.content {
+            VizierResponseContent::Message { content, .. } => (content.clone(), true),
+            VizierResponseContent::AudioReply(_, Some(transcript), _) => (transcript.clone(), true),
+            _ => return Ok(()),
+        },
+        _ => return Ok(()),
+    };
+    if body.trim().is_empty() {
+        return Ok(());
+    }
+
+    // A topic deleted while a turn was running has nowhere to show the text.
+    let topic_exists = conn
+        .query_row(
+            "SELECT 1 FROM workspace_topic WHERE id = ?1 AND workspace_id = ?2",
+            params![topic_id, workspace_id],
+            |row| row.get::<_, i64>(0),
+        )
+        .optional()?
+        .is_some();
+    if !topic_exists {
+        return Ok(());
+    }
+
+    let agent_id = session.0.as_str();
+    let author_name = conn
+        .query_row(
+            "SELECT data FROM agent_config WHERE agent_id = ?1",
+            params![agent_id],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?
+        .and_then(|data| serde_json::from_str::<serde_json::Value>(&data).ok())
+        .and_then(|config| config.get("name").and_then(|n| n.as_str()).map(str::to_string))
+        .unwrap_or_else(|| agent_id.to_string());
+
+    // The entry that started this turn: the newest request that is not a copied read.
+    let mut activated_by_seq = None;
+    {
+        let mut stmt = conn.prepare(
+            "SELECT data FROM session_history \
+             WHERE agent_id = ?1 AND channel = ?2 AND topic = ?3 AND content_type = 'Request' \
+             ORDER BY seq DESC LIMIT 8",
+        )?;
+        let rows = stmt.query_map(params![agent_id, session.1.to_slug(), topic_id], |row| {
+            row.get::<_, String>(0)
+        })?;
+        for data in rows {
+            let Ok(entry) = serde_json::from_str::<SessionHistory>(&data?) else { continue };
+            let SessionHistoryContent::Request(request) = entry.content else { continue };
+            if matches!(request.content, VizierRequestContent::SilentRead(_)) {
+                continue;
+            }
+            activated_by_seq = request.metadata.get("workspace_entry").and_then(|v| v.as_i64());
+            break;
+        }
+    }
+
+    // Members, to resolve `@handle`. An agent does not wake itself by naming itself.
+    let mut handles: Vec<(String, MemberKind)> = Vec::new();
+    {
+        let mut stmt =
+            conn.prepare("SELECT handle, kind FROM workspace_member WHERE workspace_id = ?1")?;
+        let rows = stmt.query_map(params![workspace_id], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?;
+        for row in rows {
+            let (handle, kind) = row?;
+            if let Some(kind) = MemberKind::parse(&kind)
+                && !(kind == MemberKind::Agent && handle == agent_id)
+            {
+                handles.push((handle, kind));
+            }
+        }
+    }
+    let names: Vec<&str> = handles.iter().map(|(h, _)| h.as_str()).collect();
+    let mentions: Vec<(MemberKind, String, MentionState)> =
+        crate::workspaces::mentions::parse(&body, &names)
+            .into_iter()
+            .filter_map(|m| {
+                let kind = handles.iter().find(|(h, _)| *h == m.handle)?.1;
+                let state = match kind {
+                    MemberKind::Agent => MentionState::Pending,
+                    MemberKind::Person => MentionState::Resolved,
+                };
+                Some((kind, m.handle, state))
+            })
+            .collect();
+
+    let entry = NewEntry {
+        workspace_id: workspace_id.clone(),
+        topic_id: topic_id.to_string(),
+        kind: EntryKind::Agent,
+        author_kind: MemberKind::Agent,
+        author: agent_id.to_string(),
+        author_name,
+        body,
+        files: vec![],
+        history_uid: Some(uid.to_string()),
+        source_session: Some(session.to_slug()),
+        origin: None,
+        is_final,
+        activated_by_seq,
+        at,
+    };
+    insert_entry_row(conn, &entry, &mentions)?;
     Ok(())
 }
 
@@ -369,6 +574,285 @@ impl WorkspaceStorage for SqlStorage {
         tx.commit()?;
         Ok(())
     }
+
+    async fn insert_entry(
+        &self,
+        entry: &NewEntry,
+        mentions: &[(MemberKind, String, MentionState)],
+    ) -> Result<WorkspaceEntry> {
+        let conn = self.conn.lock()?;
+        let tx = conn.unchecked_transaction()?;
+        let seq = insert_entry_row(&tx, entry, mentions)?;
+        tx.commit()?;
+        Ok(WorkspaceEntry {
+            seq,
+            workspace_id: entry.workspace_id.clone(),
+            topic_id: entry.topic_id.clone(),
+            kind: entry.kind,
+            author_kind: entry.author_kind,
+            author: entry.author.clone(),
+            author_name: entry.author_name.clone(),
+            body: entry.body.clone(),
+            files: entry.files.clone(),
+            history_uid: entry.history_uid.clone(),
+            source_session: entry.source_session.clone(),
+            origin: entry.origin.clone(),
+            is_final: entry.is_final,
+            activated_by_seq: entry.activated_by_seq,
+            at: entry.at,
+        })
+    }
+
+    async fn get_entry(&self, seq: i64) -> Result<Option<WorkspaceEntry>> {
+        let conn = self.conn.lock()?;
+        let mut stmt = conn
+            .prepare(&format!("SELECT {ENTRY_COLUMNS} FROM workspace_entry WHERE seq = ?1"))?;
+        let mut rows = stmt.query_map(params![seq], row_to_entry)?;
+        Ok(rows.next().transpose()?)
+    }
+
+    async fn entry_by_history_uid(&self, uid: &str) -> Result<Option<WorkspaceEntry>> {
+        let conn = self.conn.lock()?;
+        let mut stmt = conn.prepare(&format!(
+            "SELECT {ENTRY_COLUMNS} FROM workspace_entry WHERE history_uid = ?1"
+        ))?;
+        let mut rows = stmt.query_map(params![uid], row_to_entry)?;
+        Ok(rows.next().transpose()?)
+    }
+
+    async fn list_entries(
+        &self,
+        topic_id: &str,
+        before: Option<i64>,
+        limit: usize,
+    ) -> Result<Vec<WorkspaceEntry>> {
+        let conn = self.conn.lock()?;
+        let limit = limit as i64;
+        let mut entries = match before {
+            Some(before) => {
+                let mut stmt = conn.prepare(&format!(
+                    "SELECT {ENTRY_COLUMNS} FROM workspace_entry \
+                     WHERE topic_id = ?1 AND seq < ?2 ORDER BY seq DESC LIMIT ?3"
+                ))?;
+                let rows = stmt.query_map(params![topic_id, before, limit], row_to_entry)?;
+                rows.collect::<crate::storage::sql::Result<Vec<_>>>()?
+            }
+            None => {
+                let mut stmt = conn.prepare(&format!(
+                    "SELECT {ENTRY_COLUMNS} FROM workspace_entry \
+                     WHERE topic_id = ?1 ORDER BY seq DESC LIMIT ?2"
+                ))?;
+                let rows = stmt.query_map(params![topic_id, limit], row_to_entry)?;
+                rows.collect::<crate::storage::sql::Result<Vec<_>>>()?
+            }
+        };
+        entries.reverse();
+        Ok(entries)
+    }
+
+    async fn head_seq(&self, workspace_id: &str) -> Result<i64> {
+        let conn = self.conn.lock()?;
+        Ok(conn.query_row(
+            "SELECT COALESCE(MAX(seq), 0) FROM workspace_entry WHERE workspace_id = ?1",
+            params![workspace_id],
+            |row| row.get::<_, i64>(0),
+        )?)
+    }
+
+    async fn mentions_of(&self, seqs: &[i64]) -> Result<Vec<EntryMention>> {
+        if seqs.is_empty() {
+            return Ok(vec![]);
+        }
+        let conn = self.conn.lock()?;
+        let mut all = Vec::new();
+        for chunk in seqs.chunks(500) {
+            let placeholders = vec!["?"; chunk.len()].join(", ");
+            let mut stmt = conn.prepare(&format!(
+                "SELECT entry_seq, target_kind, target, state FROM workspace_mention \
+                 WHERE entry_seq IN ({placeholders}) ORDER BY entry_seq, target"
+            ))?;
+            let rows = stmt.query_map(
+                crate::storage::sql::params_from_iter(chunk.iter()),
+                row_to_mention,
+            )?;
+            for row in rows {
+                all.push(row?);
+            }
+        }
+        Ok(all)
+    }
+
+    async fn pending_mentions(&self) -> Result<Vec<EntryMention>> {
+        let conn = self.conn.lock()?;
+        let mut stmt = conn.prepare(
+            "SELECT entry_seq, target_kind, target, state FROM workspace_mention \
+             WHERE state = 'pending' AND target_kind = 'agent' ORDER BY entry_seq, target",
+        )?;
+        let rows = stmt.query_map([], row_to_mention)?;
+        Ok(rows.collect::<crate::storage::sql::Result<Vec<_>>>()?)
+    }
+
+    async fn set_mention_state(
+        &self,
+        entry_seq: i64,
+        target: &str,
+        state: MentionState,
+        now: i64,
+    ) -> Result<()> {
+        self.conn.lock()?.execute(
+            "UPDATE workspace_mention SET state = ?1, updated_at = ?2 \
+             WHERE entry_seq = ?3 AND target = ?4",
+            params![state.as_str(), now, entry_seq, target],
+        )?;
+        Ok(())
+    }
+
+    async fn stop_all(&self, workspace_id: &str, now: i64) -> Result<(usize, i64)> {
+        let conn = self.conn.lock()?;
+        let tx = conn.unchecked_transaction()?;
+        let head: i64 = tx.query_row(
+            "SELECT COALESCE(MAX(seq), 0) FROM workspace_entry WHERE workspace_id = ?1",
+            params![workspace_id],
+            |row| row.get::<_, i64>(0),
+        )?;
+        let dropped = tx.execute(
+            "UPDATE workspace_mention SET state = 'dropped', updated_at = ?1 \
+             WHERE state = 'pending' \
+               AND entry_seq IN (SELECT seq FROM workspace_entry WHERE workspace_id = ?2)",
+            params![now, workspace_id],
+        )?;
+        tx.execute(
+            "UPDATE workspace SET stopped_at_seq = ?1 WHERE id = ?2",
+            params![head, workspace_id],
+        )?;
+        tx.commit()?;
+        Ok((dropped, head))
+    }
+
+    async fn begin_reading_agent(&self, workspace_id: &str, agent_id: &str) -> Result<()> {
+        self.conn.lock()?.execute(
+            "INSERT INTO workspace_read (topic_id, agent_id, read_seq) \
+             SELECT t.id, ?2, \
+                    (SELECT COALESCE(MAX(seq), 0) FROM workspace_entry WHERE workspace_id = ?1) \
+             FROM workspace_topic t WHERE t.workspace_id = ?1 \
+             ON CONFLICT DO NOTHING",
+            params![workspace_id, agent_id],
+        )?;
+        Ok(())
+    }
+
+    async fn begin_reading_topic(&self, workspace_id: &str, topic_id: &str) -> Result<()> {
+        self.conn.lock()?.execute(
+            "INSERT INTO workspace_read (topic_id, agent_id, read_seq) \
+             SELECT ?2, m.handle, \
+                    (SELECT COALESCE(MAX(seq), 0) FROM workspace_entry WHERE workspace_id = ?1) \
+             FROM workspace_member m WHERE m.workspace_id = ?1 AND m.kind = 'agent' \
+             ON CONFLICT DO NOTHING",
+            params![workspace_id, topic_id],
+        )?;
+        Ok(())
+    }
+
+    async fn read_position(&self, topic_id: &str, agent_id: &str) -> Result<Option<i64>> {
+        let conn = self.conn.lock()?;
+        let mut stmt = conn.prepare(
+            "SELECT read_seq FROM workspace_read WHERE topic_id = ?1 AND agent_id = ?2",
+        )?;
+        let mut rows = stmt.query_map(params![topic_id, agent_id], |row| row.get::<_, i64>(0))?;
+        Ok(rows.next().transpose()?)
+    }
+
+    async fn catch_up(
+        &self,
+        session: &VizierSession,
+        topic_id: &str,
+        copy_before: i64,
+        position: i64,
+        cap: usize,
+    ) -> Result<CatchUp> {
+        let agent_id = session.0.as_str();
+        let slug = session.to_slug();
+        let conn = self.conn.lock()?;
+        let tx = conn.unchecked_transaction()?;
+
+        let Some(read) = tx
+            .query_row(
+                "SELECT read_seq FROM workspace_read WHERE topic_id = ?1 AND agent_id = ?2",
+                params![topic_id, agent_id],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()?
+        else {
+            return Ok(CatchUp::default());
+        };
+
+        const RANGE: &str = "topic_id = ?1 AND seq > ?2 AND seq < ?3 \
+                             AND kind IN ('person', 'agent') \
+                             AND (source_session IS NULL OR source_session <> ?4)";
+        let unread: i64 = tx.query_row(
+            &format!("SELECT COUNT(*) FROM workspace_entry WHERE {RANGE}"),
+            params![topic_id, read, copy_before, slug],
+            |row| row.get::<_, i64>(0),
+        )?;
+        let mut rows = {
+            let mut stmt = tx.prepare(&format!(
+                "SELECT {ENTRY_COLUMNS} FROM workspace_entry WHERE {RANGE} \
+                 ORDER BY seq DESC LIMIT ?5"
+            ))?;
+            let found = stmt.query_map(
+                params![topic_id, read, copy_before, slug, cap as i64],
+                row_to_entry,
+            )?;
+            found.collect::<crate::storage::sql::Result<Vec<_>>>()?
+        };
+        rows.reverse();
+
+        for entry in &rows {
+            let at = crate::time::from_millis(entry.at);
+            let request = VizierRequest {
+                timestamp: at,
+                user: entry.author.clone(),
+                content: VizierRequestContent::SilentRead(entry.body.clone()),
+                metadata: serde_json::json!({
+                    "workspace_entry": entry.seq,
+                    "workspace_author_kind": entry.author_kind.as_str(),
+                    "workspace_read": true,
+                }),
+                ..Default::default()
+            };
+            let history = SessionHistory {
+                uid: uuid::Uuid::new_v4().to_string(),
+                vizier_session: session.clone(),
+                content: SessionHistoryContent::Request(request),
+                timestamp: at,
+                reactions: vec![],
+                seq: None,
+            };
+            super::history::insert_history_entry(&tx, session, &history)?;
+        }
+        if position > read {
+            tx.execute(
+                "UPDATE workspace_read SET read_seq = ?1 WHERE topic_id = ?2 AND agent_id = ?3",
+                params![position, topic_id, agent_id],
+            )?;
+        }
+        tx.commit()?;
+        Ok(CatchUp {
+            copied: rows.len(),
+            skipped: (unread as usize).saturating_sub(rows.len()),
+        })
+    }
+}
+
+fn row_to_mention(row: &crate::storage::sql::Row) -> crate::storage::sql::Result<EntryMention> {
+    let kind: String = row.get(1)?;
+    let state: String = row.get(3)?;
+    Ok(EntryMention {
+        entry_seq: row.get(0)?,
+        target_kind: MemberKind::parse(&kind).unwrap_or(MemberKind::Agent),
+        target: row.get(2)?,
+        state: MentionState::parse(&state).unwrap_or(MentionState::Pending),
+    })
 }
 
 #[cfg(test)]
@@ -376,13 +860,25 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
+    use crate::schema::{VizierResponse, VizierResponseContent};
+    use crate::storage::history::HistoryStorage;
 
     fn storage() -> SqlStorage {
         let store = crate::tests_support::test_store(|| {
             let conn = rusqlite::Connection::open_in_memory().unwrap();
             conn.execute_batch("PRAGMA foreign_keys=ON;").unwrap();
             crate::storage::sqlite::init_history_schema(&conn).unwrap();
+            crate::storage::sqlite::init_reaction_schema(&conn).unwrap();
             init_workspace_schema(&conn).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE agent_config (agent_id TEXT PRIMARY KEY, data TEXT NOT NULL); \
+                 CREATE TABLE artifact_reference (artifact_id TEXT, agent_id TEXT, kind TEXT, \
+                 target TEXT, session_slug TEXT, history_uid TEXT, channel TEXT, topic TEXT, \
+                 bundle TEXT, path TEXT, label TEXT, created_at INTEGER, \
+                 UNIQUE (artifact_id, kind, target)); \
+                 INSERT INTO agent_config VALUES ('alpha', '{\"name\": \"Alpha\"}');",
+            )
+            .unwrap();
             crate::storage::sql::SqlStore::sqlite(conn)
         });
         let dir = tempfile::tempdir().unwrap();
@@ -544,5 +1040,246 @@ mod tests {
 
         let handles: Vec<_> = s.list_members("w1").await.unwrap().into_iter().map(|m| m.handle).collect();
         assert_eq!(handles, ["rafi", "beta"]);
+    }
+
+    // --- the shared timeline ---------------------------------------------------------------
+
+    fn session(agent: &str) -> VizierSession {
+        VizierSession(agent.into(), VizierChannelId::Workspace("w1".into()), Some("w1-general".into()))
+    }
+
+    /// `ops` with rafi, and agents alpha and beta.
+    async fn room(s: &SqlStorage) {
+        let (w, t, o) = parts("w1", "ops");
+        s.create_workspace(&w, &t, &o).await.unwrap();
+        s.add_member(&member("w1", MemberKind::Agent, "alpha")).await.unwrap();
+        s.add_member(&member("w1", MemberKind::Agent, "beta")).await.unwrap();
+    }
+
+    fn person_entry(body: &str, at: i64) -> NewEntry {
+        NewEntry {
+            workspace_id: "w1".into(),
+            topic_id: "w1-general".into(),
+            kind: EntryKind::Person,
+            author_kind: MemberKind::Person,
+            author: "rafi".into(),
+            author_name: "rafi".into(),
+            body: body.into(),
+            files: vec![],
+            history_uid: None,
+            source_session: None,
+            origin: None,
+            is_final: false,
+            activated_by_seq: None,
+            at,
+        }
+    }
+
+    fn reply(text: &str) -> SessionHistoryContent {
+        SessionHistoryContent::Response(VizierResponse {
+            timestamp: crate::time::now(),
+            content: VizierResponseContent::Message { content: text.into(), stats: None },
+            attachments: vec![],
+            ..Default::default()
+        })
+    }
+
+    #[tokio::test]
+    async fn an_agents_shown_text_joins_the_timeline_and_nothing_else_does() {
+        let s = storage();
+        room(&s).await;
+        let alpha = session("alpha");
+        let request = VizierRequest {
+            timestamp: crate::time::now(),
+            user: "rafi".into(),
+            content: VizierRequestContent::Chat("@alpha look".into()),
+            metadata: serde_json::json!({ "workspace_entry": 7 }),
+            ..Default::default()
+        };
+        s.save_session_history(alpha.clone(), SessionHistoryContent::Request(request)).await.unwrap();
+        // A copied read is a request too, and must not be taken for the activation.
+        let read = VizierRequest {
+            timestamp: crate::time::now(),
+            user: "beta".into(),
+            content: VizierRequestContent::SilentRead("noise".into()),
+            metadata: serde_json::json!({ "workspace_entry": 99 }),
+            ..Default::default()
+        };
+        s.save_session_history(alpha.clone(), SessionHistoryContent::Request(read)).await.unwrap();
+
+        s.save_session_history(
+            alpha.clone(),
+            SessionHistoryContent::ToolCall { call_id: "c".into(), name: "think".into(), arguments: serde_json::json!({}) },
+        )
+        .await
+        .unwrap();
+        let said = s
+            .save_session_history(alpha.clone(), SessionHistoryContent::AssistantMessage("checking, @beta and @rafi and @alpha".into()))
+            .await
+            .unwrap();
+        let done = s.save_session_history(alpha.clone(), reply("done")).await.unwrap();
+
+        let entries = s.list_entries("w1-general", None, 50).await.unwrap();
+        assert_eq!(entries.len(), 2, "{entries:#?}");
+        let (mid, last) = (&entries[0], &entries[1]);
+        assert_eq!((mid.kind, mid.author.as_str(), mid.author_name.as_str()), (EntryKind::Agent, "alpha", "Alpha"));
+        assert_eq!((mid.history_uid.as_deref(), mid.is_final, mid.activated_by_seq), (Some(said.as_str()), false, Some(7)));
+        assert_eq!(mid.source_session.as_deref(), Some(alpha.to_slug().as_str()));
+        assert_eq!((last.history_uid.as_deref(), last.is_final, last.body.as_str()), (Some(done.as_str()), true, "done"));
+        assert_eq!(s.entry_by_history_uid(&said).await.unwrap().unwrap().seq, mid.seq);
+
+        // Beta wakes later; rafi is only highlighted; alpha naming itself wakes nobody.
+        let mentions = s.mentions_of(&[mid.seq, last.seq]).await.unwrap();
+        let shape: Vec<_> = mentions.iter().map(|m| (m.target.as_str(), m.state)).collect();
+        assert_eq!(shape, [("beta", MentionState::Pending), ("rafi", MentionState::Resolved)]);
+        assert_eq!(s.pending_mentions().await.unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_session_outside_a_workspace_or_without_a_topic_writes_no_entry() {
+        let s = storage();
+        room(&s).await;
+        let elsewhere = VizierSession("alpha".into(), VizierChannelId::HTTP("rafi".into(), "x".into()), Some("t".into()));
+        s.save_session_history(elsewhere, reply("hello")).await.unwrap();
+        let gone = VizierSession("alpha".into(), VizierChannelId::Workspace("w1".into()), Some("deleted-topic".into()));
+        s.save_session_history(gone, reply("hello")).await.unwrap();
+        assert!(s.list_entries("w1-general", None, 50).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn catch_up_copies_what_was_missed_once_and_moves_the_position() {
+        let s = storage();
+        room(&s).await;
+        s.begin_reading_agent("w1", "beta").await.unwrap();
+        for (i, text) in ["one", "two", "three"].iter().enumerate() {
+            s.insert_entry(&person_entry(text, 100 + i as i64), &[]).await.unwrap();
+        }
+        let activating = s.insert_entry(&person_entry("@beta now", 200), &[]).await.unwrap();
+
+        let beta = session("beta");
+        let result = s.catch_up(&beta, "w1-general", activating.seq, activating.seq, 500).await.unwrap();
+        assert_eq!(result, CatchUp { copied: 3, skipped: 0 });
+        assert_eq!(s.read_position("w1-general", "beta").await.unwrap(), Some(activating.seq));
+
+        let history = s.list_session_history(beta.clone(), None, None, None).await.unwrap();
+        let texts: Vec<_> = history
+            .iter()
+            .filter_map(|h| match &h.content {
+                SessionHistoryContent::Request(r) => match &r.content {
+                    VizierRequestContent::SilentRead(t) => Some((r.user.clone(), t.clone())),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .collect();
+        assert_eq!(texts, [("rafi".into(), "one".into()), ("rafi".into(), "two".into()), ("rafi".into(), "three".into())]);
+
+        // The same call again copies nothing: the position moved with the copy.
+        let again = s.catch_up(&beta, "w1-general", activating.seq, activating.seq, 500).await.unwrap();
+        assert_eq!(again, CatchUp::default());
+        assert_eq!(s.list_session_history(beta, None, None, None).await.unwrap().len(), 3);
+    }
+
+    #[tokio::test]
+    async fn catch_up_leaves_out_an_agents_own_text_notes_and_the_activating_entry() {
+        let s = storage();
+        room(&s).await;
+        s.begin_reading_agent("w1", "beta").await.unwrap();
+        let beta = session("beta");
+        let mut own = person_entry("my own words", 100);
+        (own.kind, own.author_kind, own.author, own.source_session) =
+            (EntryKind::Agent, MemberKind::Agent, "beta".into(), Some(beta.to_slug()));
+        s.insert_entry(&own, &[]).await.unwrap();
+        let mut note = person_entry("Rafi stopped Alpha", 101);
+        note.kind = EntryKind::Note;
+        s.insert_entry(&note, &[]).await.unwrap();
+        let mut by_alpha = person_entry("from alpha", 102);
+        (by_alpha.kind, by_alpha.author_kind, by_alpha.author) = (EntryKind::Agent, MemberKind::Agent, "alpha".into());
+        by_alpha.source_session = Some(session("alpha").to_slug());
+        s.insert_entry(&by_alpha, &[]).await.unwrap();
+        let activating = s.insert_entry(&person_entry("@beta", 103), &[]).await.unwrap();
+
+        let result = s.catch_up(&beta, "w1-general", activating.seq, activating.seq, 500).await.unwrap();
+        assert_eq!(result.copied, 1);
+        let history = s.list_session_history(beta, None, None, None).await.unwrap();
+        assert_eq!(history.len(), 1);
+        // Tool calls and thoughts of the other agent never entered: only its shown text did.
+        assert!(matches!(&history[0].content, SessionHistoryContent::Request(r) if r.user == "alpha"));
+    }
+
+    #[tokio::test]
+    async fn catch_up_copies_the_newest_few_and_counts_the_rest() {
+        let s = storage();
+        room(&s).await;
+        s.begin_reading_agent("w1", "beta").await.unwrap();
+        for i in 0..7 {
+            s.insert_entry(&person_entry(&format!("m{i}"), 100 + i), &[]).await.unwrap();
+        }
+        let head = s.head_seq("w1").await.unwrap();
+        let result = s.catch_up(&session("beta"), "w1-general", head + 1, head, 3).await.unwrap();
+        assert_eq!(result, CatchUp { copied: 3, skipped: 4 });
+        let bodies: Vec<_> = s
+            .list_session_history(session("beta"), None, None, None)
+            .await
+            .unwrap()
+            .into_iter()
+            .filter_map(|h| match h.content {
+                SessionHistoryContent::Request(r) => match r.content {
+                    VizierRequestContent::SilentRead(t) => Some(t),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .collect();
+        assert_eq!(bodies, ["m4", "m5", "m6"]);
+    }
+
+    #[tokio::test]
+    async fn an_agent_that_never_started_reading_copies_nothing_and_a_new_one_starts_at_the_head() {
+        let s = storage();
+        room(&s).await;
+        s.insert_entry(&person_entry("before", 100), &[]).await.unwrap();
+        let head = s.head_seq("w1").await.unwrap();
+        // No position row: nothing to catch up from.
+        assert_eq!(s.catch_up(&session("beta"), "w1-general", head + 1, head, 500).await.unwrap(), CatchUp::default());
+
+        s.begin_reading_agent("w1", "beta").await.unwrap();
+        assert_eq!(s.read_position("w1-general", "beta").await.unwrap(), Some(head));
+        // Joining again does not rewind it.
+        s.insert_entry(&person_entry("after", 101), &[]).await.unwrap();
+        s.begin_reading_agent("w1", "beta").await.unwrap();
+        assert_eq!(s.read_position("w1-general", "beta").await.unwrap(), Some(head));
+    }
+
+    #[tokio::test]
+    async fn stop_all_drops_pending_mentions_and_records_the_head() {
+        let s = storage();
+        room(&s).await;
+        let e = s
+            .insert_entry(&person_entry("@alpha @beta", 100), &[
+                (MemberKind::Agent, "alpha".into(), MentionState::Pending),
+                (MemberKind::Agent, "beta".into(), MentionState::Woken),
+            ])
+            .await
+            .unwrap();
+        let (dropped, head) = s.stop_all("w1", 500).await.unwrap();
+        assert_eq!((dropped, head), (1, e.seq));
+        assert_eq!(s.get_workspace("w1").await.unwrap().unwrap().stopped_at_seq, e.seq);
+        let states: Vec<_> = s.mentions_of(&[e.seq]).await.unwrap().into_iter().map(|m| m.state).collect();
+        assert_eq!(states, [MentionState::Dropped, MentionState::Woken]);
+        assert!(s.pending_mentions().await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn entries_page_back_from_the_newest() {
+        let s = storage();
+        room(&s).await;
+        for i in 0..5 {
+            s.insert_entry(&person_entry(&format!("m{i}"), 100 + i), &[]).await.unwrap();
+        }
+        let newest = s.list_entries("w1-general", None, 2).await.unwrap();
+        assert_eq!(newest.iter().map(|e| e.body.as_str()).collect::<Vec<_>>(), ["m3", "m4"]);
+        let older = s.list_entries("w1-general", Some(newest[0].seq), 2).await.unwrap();
+        assert_eq!(older.iter().map(|e| e.body.as_str()).collect::<Vec<_>>(), ["m1", "m2"]);
     }
 }

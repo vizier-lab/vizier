@@ -5,7 +5,10 @@
 use anyhow::Result;
 
 use crate::{
-    schema::{MemberKind, Workspace, WorkspaceMember, WorkspaceRole, WorkspaceTopic},
+    schema::{
+        CatchUp, EntryMention, MemberKind, MentionState, NewEntry, VizierSession, Workspace,
+        WorkspaceEntry, WorkspaceMember, WorkspaceRole, WorkspaceTopic,
+    },
     storage::VizierStorage,
 };
 
@@ -72,6 +75,70 @@ pub trait WorkspaceStorage {
 
     /// Removes an agent from every Workspace, when the agent itself is deleted.
     async fn remove_agent_everywhere(&self, agent_id: &str) -> Result<()>;
+
+    // --- the shared timeline ---------------------------------------------------------------
+
+    /// Saves an entry and its mentions in one transaction. `mentions` carry their first state:
+    /// `Pending` for an agent, `Resolved` for a person.
+    async fn insert_entry(
+        &self,
+        entry: &NewEntry,
+        mentions: &[(MemberKind, String, MentionState)],
+    ) -> Result<WorkspaceEntry>;
+
+    async fn get_entry(&self, seq: i64) -> Result<Option<WorkspaceEntry>>;
+
+    /// The entry written from this `session_history` row.
+    async fn entry_by_history_uid(&self, uid: &str) -> Result<Option<WorkspaceEntry>>;
+
+    /// A page of a topic, oldest first. `before` is exclusive; none means the newest page.
+    async fn list_entries(
+        &self,
+        topic_id: &str,
+        before: Option<i64>,
+        limit: usize,
+    ) -> Result<Vec<WorkspaceEntry>>;
+
+    /// The newest `seq` in a Workspace, or 0.
+    async fn head_seq(&self, workspace_id: &str) -> Result<i64>;
+
+    async fn mentions_of(&self, seqs: &[i64]) -> Result<Vec<EntryMention>>;
+
+    /// Mentions of agents still waiting to be delivered, oldest first.
+    async fn pending_mentions(&self) -> Result<Vec<EntryMention>>;
+
+    async fn set_mention_state(&self, entry_seq: i64, target: &str, state: MentionState, now: i64)
+        -> Result<()>;
+
+    /// Stop all: marks the Workspace's pending mentions dropped and records the head, so a turn
+    /// that finishes a moment later cannot restart the chain (research R7). Returns how many
+    /// mentions were dropped and the head.
+    async fn stop_all(&self, workspace_id: &str, now: i64) -> Result<(usize, i64)>;
+
+    // --- an agent's record -----------------------------------------------------------------
+
+    /// Starts an agent reading every topic of a Workspace from now, with no backfill.
+    async fn begin_reading_agent(&self, workspace_id: &str, agent_id: &str) -> Result<()>;
+
+    /// Starts every member agent reading a new topic from now.
+    async fn begin_reading_topic(&self, workspace_id: &str, topic_id: &str) -> Result<()>;
+
+    async fn read_position(&self, topic_id: &str, agent_id: &str) -> Result<Option<i64>>;
+
+    /// Copies the entries the agent has not read into its session as `SilentRead` requests, in
+    /// the same transaction that moves its read position (research R2).
+    ///
+    /// Copies person and agent entries with `read < seq < copy_before` that the agent did not
+    /// write itself, at most `cap` of the newest, then moves the position to `position`. An
+    /// agent with no position row copies nothing.
+    async fn catch_up(
+        &self,
+        session: &VizierSession,
+        topic_id: &str,
+        copy_before: i64,
+        position: i64,
+        cap: usize,
+    ) -> Result<CatchUp>;
 }
 
 #[async_trait::async_trait]
@@ -159,5 +226,79 @@ impl WorkspaceStorage for VizierStorage {
 
     async fn remove_agent_everywhere(&self, agent_id: &str) -> Result<()> {
         self.0.remove_agent_everywhere(agent_id).await
+    }
+
+    async fn insert_entry(
+        &self,
+        entry: &NewEntry,
+        mentions: &[(MemberKind, String, MentionState)],
+    ) -> Result<WorkspaceEntry> {
+        self.0.insert_entry(entry, mentions).await
+    }
+
+    async fn get_entry(&self, seq: i64) -> Result<Option<WorkspaceEntry>> {
+        self.0.get_entry(seq).await
+    }
+
+    async fn entry_by_history_uid(&self, uid: &str) -> Result<Option<WorkspaceEntry>> {
+        self.0.entry_by_history_uid(uid).await
+    }
+
+    async fn list_entries(
+        &self,
+        topic_id: &str,
+        before: Option<i64>,
+        limit: usize,
+    ) -> Result<Vec<WorkspaceEntry>> {
+        self.0.list_entries(topic_id, before, limit).await
+    }
+
+    async fn head_seq(&self, workspace_id: &str) -> Result<i64> {
+        self.0.head_seq(workspace_id).await
+    }
+
+    async fn mentions_of(&self, seqs: &[i64]) -> Result<Vec<EntryMention>> {
+        self.0.mentions_of(seqs).await
+    }
+
+    async fn pending_mentions(&self) -> Result<Vec<EntryMention>> {
+        self.0.pending_mentions().await
+    }
+
+    async fn set_mention_state(
+        &self,
+        entry_seq: i64,
+        target: &str,
+        state: MentionState,
+        now: i64,
+    ) -> Result<()> {
+        self.0.set_mention_state(entry_seq, target, state, now).await
+    }
+
+    async fn stop_all(&self, workspace_id: &str, now: i64) -> Result<(usize, i64)> {
+        self.0.stop_all(workspace_id, now).await
+    }
+
+    async fn begin_reading_agent(&self, workspace_id: &str, agent_id: &str) -> Result<()> {
+        self.0.begin_reading_agent(workspace_id, agent_id).await
+    }
+
+    async fn begin_reading_topic(&self, workspace_id: &str, topic_id: &str) -> Result<()> {
+        self.0.begin_reading_topic(workspace_id, topic_id).await
+    }
+
+    async fn read_position(&self, topic_id: &str, agent_id: &str) -> Result<Option<i64>> {
+        self.0.read_position(topic_id, agent_id).await
+    }
+
+    async fn catch_up(
+        &self,
+        session: &VizierSession,
+        topic_id: &str,
+        copy_before: i64,
+        position: i64,
+        cap: usize,
+    ) -> Result<CatchUp> {
+        self.0.catch_up(session, topic_id, copy_before, position, cap).await
     }
 }

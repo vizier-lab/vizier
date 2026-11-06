@@ -38,6 +38,29 @@ fn history_row(row: &sql::Row) -> sql::Result<(String, Option<i64>)> {
     Ok((row.get(0)?, row.get(1)?))
 }
 
+/// Inserts a history row built elsewhere, on the caller's connection or transaction, with the
+/// next `seq`. `catch_up` copies a Workspace's messages into an agent's record this way, so the
+/// copy and the read position it moves commit together.
+pub(super) fn insert_history_entry(
+    conn: &sql::Connection,
+    session: &VizierSession,
+    entry: &SessionHistory,
+) -> Result<()> {
+    conn.execute(
+        &insert_history_sql(conn.dialect()),
+        params![
+            entry.uid,
+            session.0,
+            session.1.to_slug(),
+            session.2,
+            entry.timestamp.timestamp_millis(),
+            content_type_discriminant(&entry.content),
+            serde_json::to_string(entry)?
+        ],
+    )?;
+    Ok(())
+}
+
 pub(super) fn parse_history_row((data, seq): (String, Option<i64>)) -> Option<SessionHistory> {
     let mut entry = serde_json::from_str::<SessionHistory>(&data).ok()?;
     entry.seq = seq;
@@ -356,6 +379,15 @@ impl HistoryStorage for SqlStorage {
                 ],
             )?;
         }
+        // An agent's shown messages in a Workspace also go into the shared timeline, in this same
+        // transaction, so the two cannot drift (spec 053 R3).
+        super::workspace::index_history_entry(
+            &tx,
+            &session,
+            &uid,
+            &entry.content,
+            entry.timestamp.timestamp_millis(),
+        )?;
         tx.commit()?;
         Ok(uid)
     }

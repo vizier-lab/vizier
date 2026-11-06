@@ -65,7 +65,10 @@ pub use project::{
     OUTPUT_CAP_BYTES, PROJECT_ID_LEN, Project, ProjectMode, ProjectScope, ProjectSessionRow,
     Worktree, WorktreeRef,
 };
-pub use workspace::{MemberKind, Workspace, WorkspaceMember, WorkspaceRole, WorkspaceTopic};
+pub use workspace::{
+    CatchUp, EntryFile, EntryKind, EntryMention, MemberKind, MentionState, NewEntry, Workspace,
+    WorkspaceEntry, WorkspaceMember, WorkspaceRole, WorkspaceTopic,
+};
 pub use provider::{
     CustomModel, CustomProtocol, CustomProvider, LimitsEdited, ProfileEntry, ProviderCredentials,
     ProviderEntry,
