@@ -164,7 +164,10 @@ pub async fn agent_process(
                 // A side chat must leave no trace (FR-006): it never creates or titles the
                 // session's detail row, and never touches the conversation itself. The
                 // on-the-record decision lives in one testable predicate (research R2).
-                if records_session_activity(&request.content) {
+                // A Workspace topic is titled by its name, so it never spends a model call on one.
+                if records_session_activity(&request.content)
+                    && !matches!(session.1, VizierChannelId::Workspace(_))
+                {
                     detail_tasks.spawn(refresh_session_detail(
                         agent.clone(),
                         deps.storage.clone(),
@@ -1467,7 +1470,11 @@ pub async fn handle_request(
             };
 
             let mut invoked = None;
-            if let VizierRequestContent::Chat(text) = &request.content {
+            // A plain Workspace mention is text, not a command: `@a /foo` wakes `a` with `/foo`
+            // as words, and no skill runs (spec 053 R19).
+            if reads_skill_commands(&request.metadata)
+                && let VizierRequestContent::Chat(text) = &request.content
+            {
                 match invocation::parse(text) {
                     Parsed::Plain => {}
                     Parsed::List => {
@@ -1512,6 +1519,24 @@ pub async fn handle_request(
                             .await;
                         }
                     },
+                }
+            }
+
+            // An agent woken in a Workspace first reads what it missed since it last looked, so its
+            // record of the topic is what it would be had it read every message as it came (R2).
+            // A resumed turn already did.
+            if matches!(session.1, VizierChannelId::Workspace(_))
+                && !turn.resumed
+                && let Some(seq) = request.metadata.get("workspace_entry").and_then(|v| v.as_i64())
+            {
+                match crate::workspaces::catch_up::for_activation(&crate::workspaces::Hub::from(&*deps), &session, seq).await {
+                    Some(Ok(done)) if done.skipped > 0 => {
+                        set_metadata(&mut request.metadata, "workspace_skipped", done.skipped.into());
+                    }
+                    Some(Err(e)) => {
+                        tracing::warn!(agent_id = %session.0, "Workspace catch-up failed: {e}");
+                    }
+                    _ => {}
                 }
             }
 
@@ -1823,6 +1848,12 @@ async fn answer_directly(
         let _ = tx.send_async(response).await;
     }
     Ok(())
+}
+
+/// Whether `/name` and `/skills` in a `Chat` are read as commands. A Workspace marks a plain
+/// mention so that text starting with `/` stays text.
+fn reads_skill_commands(metadata: &serde_json::Value) -> bool {
+    !metadata.get("workspace_plain").and_then(|v| v.as_bool()).unwrap_or(false)
 }
 
 fn set_metadata(metadata: &mut serde_json::Value, key: &str, value: serde_json::Value) {
@@ -2750,5 +2781,22 @@ mod btw_tests {
         ] {
             assert_eq!(chat_turn_prompt(&content, None), None, "{content:?}");
         }
+    }
+}
+
+#[cfg(test)]
+mod workspace_tests {
+    use super::reads_skill_commands;
+
+    #[test]
+    fn a_plain_workspace_mention_reads_no_skill_commands() {
+        assert!(!reads_skill_commands(&serde_json::json!({ "workspace_plain": true })));
+    }
+
+    #[test]
+    fn every_other_request_still_does() {
+        assert!(reads_skill_commands(&serde_json::json!({})));
+        assert!(reads_skill_commands(&serde_json::json!({ "workspace_plain": false })));
+        assert!(reads_skill_commands(&serde_json::json!({ "workspace_entry": 4 })));
     }
 }

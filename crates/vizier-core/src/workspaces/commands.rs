@@ -69,6 +69,49 @@ pub fn parse(text: &str, agents: &[&str]) -> Parsed {
     }
 }
 
+/// The text an agent receives for a command: `/name input`, `/skills`, `/abort`, … with the
+/// mentions taken out. `None` when the message is not a command that names agents.
+pub fn command_text(parsed: &Parsed) -> Option<String> {
+    match parsed {
+        Parsed::Skill { name, input, .. } => {
+            Some(if input.is_empty() { format!("/{name}") } else { format!("/{name} {input}") })
+        }
+        Parsed::Skills { .. } => Some("/skills".into()),
+        Parsed::Abort { .. } => Some("/abort".into()),
+        Parsed::Checkpoint { .. } => Some("/checkpoint".into()),
+        Parsed::Lobotomy { .. } => Some("/lobotomy".into()),
+        Parsed::Plain | Parsed::StopAll | Parsed::NotInWorkspace(_) => None,
+    }
+}
+
+/// The agents a command names.
+pub fn targets(parsed: &Parsed) -> &[String] {
+    match parsed {
+        Parsed::Skill { agents, .. }
+        | Parsed::Skills { agents }
+        | Parsed::Abort { agents }
+        | Parsed::Checkpoint { agents }
+        | Parsed::Lobotomy { agents } => agents,
+        _ => &[],
+    }
+}
+
+/// What one woken agent is sent, and whether it is plain text. A command goes only to the agents
+/// it names, as `/name input`; every other mention gets the message as written with the mentions
+/// at its very start removed (as Discord's `command_text` does). Plain text must never run a
+/// skill, so the caller marks the request (research R19).
+pub fn request_for(body: &str, target: &str, agents: &[&str]) -> (String, bool) {
+    let parsed = parse(body, agents);
+    if let Some(text) = command_text(&parsed)
+        && targets(&parsed).iter().any(|t| t.eq_ignore_ascii_case(target))
+    {
+        return (text, false);
+    }
+    let (_, rest) = leading_mentions(body.trim_start(), agents);
+    let text = if rest.is_empty() { body.trim().to_string() } else { rest };
+    (text, true)
+}
+
 fn split_word(text: &str) -> (&str, &str) {
     let text = text.trim_start();
     match text.find(char::is_whitespace) {
@@ -188,6 +231,29 @@ mod tests {
         assert_eq!(parse("hello", AGENTS), Parsed::Plain);
         assert_eq!(parse("/", AGENTS), Parsed::Plain);
         assert_eq!(parse("/skill", AGENTS), Parsed::Plain);
+    }
+
+    #[test]
+    fn a_command_is_sent_only_to_the_agents_it_names_and_everyone_else_gets_plain_text() {
+        let both = &["alpha", "beta"];
+        assert_eq!(request_for("/greet @alpha Rafi", "alpha", both), ("/greet Rafi".into(), false));
+        // beta was named later in the text, so it is a plain mention of the whole message.
+        assert_eq!(
+            request_for("/greet @alpha tell @beta", "beta", both),
+            ("/greet @alpha tell @beta".into(), true)
+        );
+        assert_eq!(request_for("/skills @alpha", "alpha", both), ("/skills".into(), false));
+    }
+
+    #[test]
+    fn plain_mentions_lose_only_the_mentions_at_the_start() {
+        let both = &["alpha", "beta"];
+        assert_eq!(request_for("@alpha @beta tools", "beta", both), ("tools".into(), true));
+        assert_eq!(request_for("hey @alpha, look", "alpha", both), ("hey @alpha, look".into(), true));
+        // `@a /foo` is plain: the text reaches the agent, and nothing runs.
+        assert_eq!(request_for("@alpha /foo", "alpha", both), ("/foo".into(), true));
+        // Only mentions: the message is kept rather than sent empty.
+        assert_eq!(request_for("@alpha", "alpha", both), ("@alpha".into(), true));
     }
 
     #[test]

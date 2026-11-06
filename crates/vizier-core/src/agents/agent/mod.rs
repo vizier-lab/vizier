@@ -993,6 +993,16 @@ impl VizierAgent {
         } else {
             None
         };
+        // The room an agent is woken in is volatile, like a project's state, so it goes in the
+        // per-message block and never the system prompt.
+        let project_state = match (
+            project_state,
+            crate::workspaces::context::section(&self.storage, &session, &req.metadata, &req.user)
+                .await,
+        ) {
+            (Some(project), Some(workspace)) => Some(format!("{project}\n\n{workspace}")),
+            (project, workspace) => project.or(workspace),
+        };
         let prompt_result = self
             .prompt_with(
                 &turn_model,
@@ -1771,8 +1781,24 @@ impl VizierAgent {
         session: &VizierSession,
         content: SessionHistoryContent,
     ) -> Option<String> {
+        // A message shown in a Workspace is written to the shared timeline by the save itself;
+        // it is announced, and the agents it names are woken, once it is saved (spec 053).
+        let shown = matches!(session.1, crate::schema::VizierChannelId::Workspace(_))
+            && matches!(
+                content,
+                SessionHistoryContent::AssistantMessage(_) | SessionHistoryContent::Response(_)
+            );
         match crate::storage::history::save_with_busy_retry(&self.storage, session, content).await {
-            Ok(uid) => Some(uid),
+            Ok(uid) => {
+                if shown {
+                    let hub = crate::workspaces::Hub::new(
+                        (*self.storage).clone(),
+                        self.transport.clone(),
+                    );
+                    crate::workspaces::after_save(&hub, &uid).await;
+                }
+                Some(uid)
+            }
             Err(e) => {
                 tracing::error!(
                     agent_id = %session.0,

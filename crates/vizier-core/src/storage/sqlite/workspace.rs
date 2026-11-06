@@ -729,6 +729,35 @@ impl WorkspaceStorage for SqlStorage {
         Ok((dropped, head))
     }
 
+    async fn steps_between(
+        &self,
+        workspace_id: &str,
+        topic_id: &str,
+        from_ms: i64,
+        to_ms: i64,
+    ) -> Result<Vec<SessionHistory>> {
+        use super::history::{fill_artifact_availability, fill_client_calls, fill_question_sets, fill_reactions, history_order_key, history_row, parse_history_row};
+        let conn = self.conn.lock()?;
+        let slug = VizierChannelId::Workspace(workspace_id.to_string()).to_slug();
+        let mut stmt = conn.prepare(
+            "SELECT data, seq FROM session_history \
+             WHERE channel = ?1 AND topic = ?2 AND timestamp >= ?3 AND timestamp <= ?4 \
+               AND content_type <> 'Request' \
+             ORDER BY timestamp, seq",
+        )?;
+        let mut list: Vec<SessionHistory> = stmt
+            .query_map(params![slug, topic_id, from_ms, to_ms], history_row)?
+            .filter_map(|r| r.ok())
+            .filter_map(parse_history_row)
+            .collect();
+        list.sort_by_key(history_order_key);
+        fill_reactions(&conn, &mut list)?;
+        fill_artifact_availability(&conn, &mut list)?;
+        fill_client_calls(&conn, &mut list)?;
+        fill_question_sets(&conn, &mut list)?;
+        Ok(list)
+    }
+
     async fn begin_reading_agent(&self, workspace_id: &str, agent_id: &str) -> Result<()> {
         self.conn.lock()?.execute(
             "INSERT INTO workspace_read (topic_id, agent_id, read_seq) \

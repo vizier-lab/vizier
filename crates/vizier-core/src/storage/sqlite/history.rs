@@ -34,7 +34,7 @@ fn insert_history_sql(dialect: &dyn sql::Dialect) -> String {
 
 /// `(data, seq)` as every ordered read selects it. `seq` lives on the column, not inside the
 /// serialized `data` blob, so it has to be read back and set on the deserialized entry.
-fn history_row(row: &sql::Row) -> sql::Result<(String, Option<i64>)> {
+pub(super) fn history_row(row: &sql::Row) -> sql::Result<(String, Option<i64>)> {
     Ok((row.get(0)?, row.get(1)?))
 }
 
@@ -273,7 +273,7 @@ pub(super) fn fill_question_sets(
 /// sort, so for every tie group it preserves the order SQLite handed it — which for a
 /// `DESC` query is backwards. The `ORDER BY` tie-break and this key have to change together
 /// (`specs/010-webui-reasoning-display/contracts/history-api.md` H6).
-fn history_order_key(entry: &SessionHistory) -> (Timestamp, Option<i64>) {
+pub(super) fn history_order_key(entry: &SessionHistory) -> (Timestamp, Option<i64>) {
     (entry.timestamp, entry.seq)
 }
 

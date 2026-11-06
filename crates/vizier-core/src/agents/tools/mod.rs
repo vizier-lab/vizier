@@ -303,7 +303,11 @@ pub fn is_interactive_turn(content: &VizierRequestContent, session: &VizierSessi
     };
     // A task, dream, subagent, inter-agent or system conversation has no person on it at all,
     // whatever the request kind says.
-    somebody_may_answer && (session.1.web_user().is_some() || session.1.platform().is_some())
+    // A Workspace topic has people on it too: any member may answer a question (spec 053).
+    somebody_may_answer
+        && (session.1.web_user().is_some()
+            || session.1.platform().is_some()
+            || matches!(session.1, crate::schema::VizierChannelId::Workspace(_)))
 }
 
 #[derive(Clone, Default)]

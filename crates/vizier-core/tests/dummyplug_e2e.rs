@@ -386,6 +386,171 @@ async fn text_beside_a_tool_call_is_saved_as_a_mid_turn_message() {
     runtime.shutdown().await.unwrap();
 }
 
+/// Spec 053 US1 and US2 (quickstart §2 to §5): a Workspace with two dummyplug agents. Unmentioned
+/// messages cost nothing; a mention wakes only that agent, who has read what came before; a
+/// mention in an agent's mid-turn text wakes the next one.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_workspace_wakes_only_who_is_mentioned_and_they_have_read_the_rest() {
+    use vizier_core::{
+        auth::AuthMethod,
+        schema::{EntryKind, MentionState, VizierRequestContent},
+        service::{
+            Services,
+            workspaces::{self as ws, AddMemberRequest, CreateWorkspaceRequest, PostRequest},
+        },
+        storage::{turn::TurnStorage, workspace::WorkspaceStorage},
+    };
+
+    let Some(dummyplug) = Dummyplug::start() else {
+        return;
+    };
+    dummyplug.ready().await;
+
+    let dir = tempfile::tempdir().unwrap();
+    let runtime = VizierRuntime::start(RuntimeOptions {
+        config: VizierConfig::with_workspace(dir.path().to_path_buf()),
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+    let storage = runtime.deps().storage.clone();
+    storage
+        .upsert_provider(&ProviderEntry {
+            id: ProviderId::DUMMYPLUG,
+            credentials: ProviderCredentials {
+                base_url: Some(dummyplug.base_url()),
+                ..Default::default()
+            },
+        })
+        .await
+        .unwrap();
+    let role = storage
+        .create_role("maker", vec!["workspaces:create".into(), "all_agents:edit".into(), "all_agents:view".into()], false)
+        .await
+        .unwrap();
+    let user = storage.create_user("rafi", "", &role.role_id).await.unwrap();
+    let s = Services::new(runtime.deps().clone());
+    let rafi = s.principal_for(&user.user_id, AuthMethod::Jwt).await.unwrap();
+
+    for id in ["alpha", "beta"] {
+        let (resp, created) = tokio::sync::oneshot::channel();
+        runtime
+            .transport()
+            .send_agent_command(AgentCommand::Create { agent_id: id.into(), config: agent_config(id), resp })
+            .await
+            .unwrap();
+        assert!(matches!(
+            tokio::time::timeout(TURN_TIMEOUT, created).await.unwrap().unwrap(),
+            AgentCommandResult::Ok(_)
+        ));
+    }
+
+    let made = ws::create(&s, &rafi, CreateWorkspaceRequest { name: "ops".into(), first_topic: None })
+        .await
+        .unwrap();
+    let (wid, tid) = (made.workspace.id.clone(), made.workspace.topics[0].id.clone());
+    for id in ["alpha", "beta"] {
+        ws::add_member(&s, &rafi, &wid, AddMemberRequest { kind: "agent".into(), handle: id.into(), role: None })
+            .await
+            .unwrap();
+    }
+    let say = |text: &str| PostRequest { text: text.into(), files: vec![] };
+    let history_of = |agent: &str| {
+        let storage = storage.clone();
+        let session = VizierSession(agent.into(), VizierChannelId::Workspace(wid.clone()), Some(tid.clone()));
+        async move { storage.list_session_history(session, None, None, None).await.unwrap() }
+    };
+    let wait_for = |what: &'static str, f: Box<dyn Fn() -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send>> + Send>| async move {
+        let start = std::time::Instant::now();
+        while start.elapsed() < TURN_TIMEOUT {
+            if f().await {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        panic!("timed out waiting for {what}");
+    };
+
+    // §2: silent messages reach everyone and cost nothing.
+    for text in ["the billing lock is back", "it was the deploy", "rolling back now"] {
+        ws::post(&s, &rafi, &wid, &tid, say(text)).await.unwrap();
+    }
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(storage.sessions_with_pending_turns().await.unwrap().is_empty());
+    assert!(history_of("alpha").await.is_empty() && history_of("beta").await.is_empty());
+    assert_eq!(storage.list_entries(&tid, None, 50).await.unwrap().len(), 3);
+
+    // §3: a mention wakes one agent, who has read the rest.
+    ws::post(&s, &rafi, &wid, &tid, say("@alpha tools")).await.unwrap();
+    {
+        let storage = storage.clone();
+        let tid = tid.clone();
+        wait_for("alpha's reply", Box::new(move || {
+            let storage = storage.clone();
+            let tid = tid.clone();
+            Box::pin(async move {
+                storage.list_entries(&tid, None, 50).await.unwrap().iter().any(|e| e.kind == EntryKind::Agent && e.is_final)
+            })
+        }))
+        .await;
+    }
+    let alpha = history_of("alpha").await;
+    let reads: Vec<String> = alpha
+        .iter()
+        .filter_map(|h| match &h.content {
+            SessionHistoryContent::Request(r) => match &r.content {
+                VizierRequestContent::SilentRead(t) => Some(t.clone()),
+                _ => None,
+            },
+            _ => None,
+        })
+        .collect();
+    assert_eq!(reads, ["the billing lock is back", "it was the deploy", "rolling back now"]);
+    assert!(history_of("beta").await.is_empty(), "beta was not mentioned, so its record is untouched");
+
+    // §5: mid-turn text that mentions another agent wakes it before the first one finishes.
+    let before = storage.list_entries(&tid, None, 100).await.unwrap().len();
+    ws::post(
+        &s,
+        &rafi,
+        &wid,
+        &tid,
+        say(r#"@alpha {"say":"asking @beta now","tool":"execute_python","arguments":{"intent":"x","code":"1"}}"#),
+    )
+    .await
+    .unwrap();
+    {
+        let storage = storage.clone();
+        let tid = tid.clone();
+        wait_for("beta woken by alpha's mid-turn text", Box::new(move || {
+            let storage = storage.clone();
+            let tid = tid.clone();
+            Box::pin(async move {
+                let entries = storage.list_entries(&tid, None, 100).await.unwrap();
+                let said = entries.iter().find(|e| e.author == "alpha" && e.body.contains("asking @beta"));
+                let beta_final = entries.iter().any(|e| e.author == "beta" && e.is_final);
+                match said {
+                    Some(e) => {
+                        let m = storage.mentions_of(&[e.seq]).await.unwrap();
+                        beta_final && m.iter().any(|m| m.target == "beta" && m.state == MentionState::Woken)
+                    }
+                    None => false,
+                }
+            })
+        }))
+        .await;
+    }
+    assert!(storage.list_entries(&tid, None, 100).await.unwrap().len() > before);
+    // Beta now has read alpha's shown messages (and none of its tool calls).
+    let beta = history_of("beta").await;
+    assert!(beta.iter().any(|h| matches!(&h.content, SessionHistoryContent::Request(r)
+        if matches!(&r.content, VizierRequestContent::SilentRead(_)) && r.user == "alpha")));
+    assert!(!beta.iter().any(|h| matches!(&h.content, SessionHistoryContent::ToolCall { .. })
+        && h.vizier_session.0 == "alpha"));
+
+    runtime.shutdown().await.unwrap();
+}
+
 /// Spec 040: the workspace shell is offered in a project session, runs a command in the project
 /// folder, and is absent from an ordinary conversation.
 #[tokio::test(flavor = "multi_thread")]

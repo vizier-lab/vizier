@@ -108,6 +108,43 @@ pub enum SessionFrame {
     },
 }
 
+/// Something that happened in a Workspace (`specs/053-workspace-channel/contracts/socket-frames.md`).
+/// It travels the bus on `workspace.{id}.events`. A gateway decides per delivery who may see it:
+/// nothing here is checked against a person.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub enum WorkspaceEvent {
+    /// A message or note was written.
+    Entry {
+        entry: crate::schema::WorkspaceEntry,
+        mentions: Vec<crate::schema::EntryMention>,
+    },
+    /// Mentions of one entry changed state.
+    Mentions {
+        workspace_id: String,
+        topic_id: String,
+        seq: i64,
+        mentions: Vec<crate::schema::EntryMention>,
+    },
+    /// Membership changed. `removed` names a person or agent who is out.
+    MemberChanged {
+        workspace_id: String,
+        removed: Option<(crate::schema::MemberKind, String)>,
+    },
+    /// The Workspace was deleted.
+    Deleted { workspace_id: String },
+}
+
+impl WorkspaceEvent {
+    pub fn workspace_id(&self) -> &str {
+        match self {
+            Self::Entry { entry, .. } => &entry.workspace_id,
+            Self::Mentions { workspace_id, .. }
+            | Self::MemberChanged { workspace_id, .. }
+            | Self::Deleted { workspace_id } => workspace_id,
+        }
+    }
+}
+
 /// Something the inbox stream (`specs/051-realtime-notifications`) turns into a frame for the
 /// people who may see it. It travels the bus on `inbox.events` and is never sent to a client
 /// as it is: each gateway decides per delivery who gets what, from the audience facts carried
@@ -198,6 +235,8 @@ pub struct VizierTransport {
 
     inbox_events: tokio::sync::broadcast::Sender<InboxEvent>,
 
+    workspace_events: tokio::sync::broadcast::Sender<WorkspaceEvent>,
+
     /// Where durable requests are journaled (`specs/023-persist-turn-activity`). `None` for
     /// a transport nothing restarts around, such as the tests'.
     journal: Option<JournalHandle>,
@@ -222,6 +261,7 @@ impl VizierTransport {
             session_events: tokio::sync::broadcast::channel(SESSION_EVENTS_CAPACITY).0,
             integration_events: tokio::sync::broadcast::channel(INTEGRATION_EVENTS_CAPACITY).0,
             inbox_events: tokio::sync::broadcast::channel(INBOX_EVENTS_CAPACITY).0,
+            workspace_events: tokio::sync::broadcast::channel(INBOX_EVENTS_CAPACITY).0,
             pump: Arc::new(std::sync::OnceLock::new()),
             journal: None,
         }
@@ -239,6 +279,7 @@ impl VizierTransport {
                 self.session_events.clone(),
                 self.integration_events.clone(),
                 self.inbox_events.clone(),
+                self.workspace_events.clone(),
             )
         }))
     }
@@ -263,6 +304,27 @@ impl VizierTransport {
     pub fn subscribe_inbox_events(&self) -> tokio::sync::broadcast::Receiver<InboxEvent> {
         let _ = self.pump();
         self.inbox_events.subscribe()
+    }
+
+    #[doc(hidden)]
+    /// Publish a Workspace event on `workspace.{id}.events`. Having no subscribers is the normal
+    /// case, and a failure to publish never reaches the work that caused it.
+    pub fn publish_workspace_event(&self, ev: WorkspaceEvent) {
+        match self.pump() {
+            Some(outbox) => {
+                let _ = outbox.send(events::Outgoing::Workspace(ev));
+            }
+            None => {
+                let _ = self.workspace_events.send(ev);
+            }
+        }
+    }
+
+    /// Receive every Workspace event, from this node or another. A subscriber that falls behind
+    /// sees `Lagged` and should resynchronise from the last `seq` it holds.
+    pub fn subscribe_workspace_events(&self) -> tokio::sync::broadcast::Receiver<WorkspaceEvent> {
+        let _ = self.pump();
+        self.workspace_events.subscribe()
     }
 
     #[doc(hidden)]

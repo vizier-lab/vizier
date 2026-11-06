@@ -6,8 +6,8 @@ use anyhow::Result;
 
 use crate::{
     schema::{
-        CatchUp, EntryMention, MemberKind, MentionState, NewEntry, VizierSession, Workspace,
-        WorkspaceEntry, WorkspaceMember, WorkspaceRole, WorkspaceTopic,
+        CatchUp, EntryMention, MemberKind, MentionState, NewEntry, SessionHistory, VizierSession,
+        Workspace, WorkspaceEntry, WorkspaceMember, WorkspaceRole, WorkspaceTopic,
     },
     storage::VizierStorage,
 };
@@ -114,6 +114,18 @@ pub trait WorkspaceStorage {
     /// that finishes a moment later cannot restart the chain (research R7). Returns how many
     /// mentions were dropped and the head.
     async fn stop_all(&self, workspace_id: &str, now: i64) -> Result<(usize, i64)>;
+
+    /// What the member agents did in a topic between two moments: the rows of their own
+    /// sessions that are not requests (thoughts, calls, results, messages), oldest first. The
+    /// timeline merges these with its entries by time (research R3); one query for the span of
+    /// a page, using the `(channel, topic, timestamp)` index.
+    async fn steps_between(
+        &self,
+        workspace_id: &str,
+        topic_id: &str,
+        from_ms: i64,
+        to_ms: i64,
+    ) -> Result<Vec<SessionHistory>>;
 
     // --- an agent's record -----------------------------------------------------------------
 
@@ -277,6 +289,16 @@ impl WorkspaceStorage for VizierStorage {
 
     async fn stop_all(&self, workspace_id: &str, now: i64) -> Result<(usize, i64)> {
         self.0.stop_all(workspace_id, now).await
+    }
+
+    async fn steps_between(
+        &self,
+        workspace_id: &str,
+        topic_id: &str,
+        from_ms: i64,
+        to_ms: i64,
+    ) -> Result<Vec<SessionHistory>> {
+        self.0.steps_between(workspace_id, topic_id, from_ms, to_ms).await
     }
 
     async fn begin_reading_agent(&self, workspace_id: &str, agent_id: &str) -> Result<()> {

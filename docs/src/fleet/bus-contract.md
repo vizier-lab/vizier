@@ -86,6 +86,7 @@ identifier is written as one token by percent-encoding every byte outside `[A-Za
 | `process.cmd` | a command from the command socket | request and reply |
 | `session.{id}.events` | a session event | fan-out; subscribers use `session.>` |
 | `integration.changed` | an integration write | fan-out |
+| `workspace.{id}.events` | a Workspace message or note was written, a mention's state changed, or its members changed | fan-out; each gateway re-checks membership per delivery (spec 053) |
 | `inbox.events` | a notification created, read state changed, or live setup changed | fan-out; each gateway decides per connection who may see it |
 | `lease.{name}` | the lease name space | the `Leases` trait |
 

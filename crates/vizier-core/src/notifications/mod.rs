@@ -183,7 +183,11 @@ impl Notifications {
         reason: Option<&str>,
         at: Timestamp,
     ) {
-        if origin.1.platform().is_some() {
+        // Discord, Telegram and Workspace topics do not notify about jobs: a Workspace notifies
+        // about its messages instead (spec 053).
+        if origin.1.platform().is_some()
+            || matches!(origin.1, crate::schema::VizierChannelId::Workspace(_))
+        {
             return;
         }
         let Some((summary, tone)) = text::background_job(kind, state, reason) else {

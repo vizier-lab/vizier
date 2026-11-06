@@ -131,7 +131,7 @@ pub struct EntryFile {
 
 /// One shown message in a topic, in the one shared order (`seq`). Holds no tool calls or
 /// thoughts: those stay in the author's own record (research R3).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct WorkspaceEntry {
     pub seq: i64,
     pub workspace_id: String,
