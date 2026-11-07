@@ -31,7 +31,7 @@ import {
 } from '../../lib/messages'
 import { Enter, stagger } from '../../lib/motion'
 import { usePrices } from '../../lib/prices'
-import { groupHistory, outcomeDurationMs } from '../../lib/trail'
+import { blockDurationMs, groupHistory, lastBlockOf, outcomeDurationMs } from '../../lib/trail'
 import { personName } from '../../lib/tasks'
 import { useSession } from '../../stores/session'
 import { Markdown } from '../shared/Markdown'
@@ -102,6 +102,11 @@ function lobotomyAt(entries: ChatMessage[], checkpoint: ChatMessage) {
     return false
 }
 
+/** Whether a turn has more than one part, so each trail shows its own time and the reply the whole. */
+function inParts(turn: Turn) {
+    return turn.blocks.length > 1
+}
+
 export function MessageList({ state, agent, greeting, hasOlder, bottomInset = 0, insetRight = 0, loadingOlder, onLoadOlder, onReact, error, clientCalls, questions, recalledFor, byPlatformName, emptyAction, onBuildPlan, buildingPlan }: Props) {
     const { entries } = state
     const me = useSession((s) => s.user)
@@ -159,7 +164,7 @@ export function MessageList({ state, agent, greeting, hasOlder, bottomInset = 0,
                 })()}
                 {(text != null || attachments.length > 0) && (
                     <AgentReply
-                        stats={stats ? statsLine(stats, price) : undefined}
+                        stats={stats ? statsLine(stats, price, inParts(turn) ? outcomeDurationMs(outcome) : undefined) : undefined}
                         onCopy={text != null ? () => void navigator.clipboard?.writeText(text) : undefined}
                         reactions={
                             outcome && (
@@ -183,19 +188,37 @@ export function MessageList({ state, agent, greeting, hasOlder, bottomInset = 0,
         )
     }
 
-    // One turn: the agent's head, then its working folded into the same flow, then what it said.
+    // A turn's parts in the order they happened: each stretch of work folded into the flow, and
+    // what the agent said on the way at the size of its reply. `live`: the last part is still open.
+    const parts = (turn: Turn, live: boolean) => {
+        const firstTrail = turn.blocks.findIndex((b) => b.kind === 'trail')
+        const lastTrail = lastBlockOf(turn, 'trail')
+        const failed = !!(turn.outcome && replyError(turn.outcome.content.Response!.content))
+        return turn.blocks.map((block, i) => {
+            if (block.kind === 'message') return <Markdown key={block.id}>{block.text}</Markdown>
+            const open = live && i === turn.blocks.length - 1
+            return (
+                <Trail
+                    // A trail that stops being the open one folds, which only a new mount does.
+                    key={`${block.events[0]?.id ?? i}-${open ? 'open' : 'done'}`}
+                    trail={block.events}
+                    live={open}
+                    turnRunning={live}
+                    durationMs={inParts(turn) ? blockDurationMs(block) : (outcomeDurationMs(turn.outcome) ?? blockDurationMs(block))}
+                    recalled={i === firstTrail ? recalledFor?.(turn) : undefined}
+                    failed={i === lastTrail && failed}
+                    aborted={i === lastTrail && turn.aborted}
+                    agentName={agent.name}
+                />
+            )
+        })
+    }
+
+    // One turn: the agent's head, then its parts, then what it said at the end.
     const block = (turn: Turn, key: string) => (
         <div key={key} className="flex flex-col gap-10">
             <AgentHeader agentId={agent.id} name={agent.name} live={agent.live} time={time(turn.outcome?.timestamp)} />
-            <Trail
-                trail={turn.trail}
-                live={false}
-                durationMs={outcomeDurationMs(turn.outcome)}
-                recalled={recalledFor?.(turn)}
-                failed={!!(turn.outcome && replyError(turn.outcome.content.Response!.content))}
-                aborted={turn.aborted}
-                agentName={agent.name}
-            />
+            {parts(turn, false)}
             {clientCalls?.(turn, false)}
             {turn.outcome && reply(turn)}
             {questions?.(turn)}
@@ -265,7 +288,7 @@ export function MessageList({ state, agent, greeting, hasOlder, bottomInset = 0,
         if (turn && (c.Response || c.Checkpoint !== undefined || c.Command !== undefined)) {
             // The finished turn settles in as one piece: the work it did and
             // what it said arrive together.
-            if (c.Response || turn.trail.length || turn.clientCalls.length || turn.questions.length) arrive(block(turn, `turn-${e.uid}`), `turn-${e.uid}`)
+            if (c.Response || turn.blocks.length || turn.clientCalls.length || turn.questions.length) arrive(block(turn, `turn-${e.uid}`), `turn-${e.uid}`)
             if (c.Command === 'abort' && turn.aborted) arrive(<StoppedNote key={`stop-${e.uid}`}>Stopped by you at {stopTime(e)}</StoppedNote>, `stop-${e.uid}`)
         }
         if (c.Checkpoint !== undefined) {
@@ -282,11 +305,13 @@ export function MessageList({ state, agent, greeting, hasOlder, bottomInset = 0,
         }
     }
 
-    if (open && (running || open.trail.length || open.clientCalls.length || open.questions.length)) {
+    if (open && (running || open.blocks.length || open.clientCalls.length || open.questions.length)) {
         items.push(
             <div key="live" className="flex flex-col gap-10">
                 <AgentHeader agentId={agent.id} name={agent.name} live={agent.live} />
-                <Trail trail={open.trail} live recalled={recalledFor?.(open)} agentName={agent.name} />
+                {parts(open, running)}
+                {/* Between rounds there is no open trail yet, but the agent is still working. */}
+                {running && open.blocks[open.blocks.length - 1]?.kind !== 'trail' && <Trail trail={[]} live recalled={open.blocks.length ? undefined : recalledFor?.(open)} agentName={agent.name} />}
                 {clientCalls?.(open, true)}
                 {questions?.(open)}
             </div>

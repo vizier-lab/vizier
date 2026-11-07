@@ -1,5 +1,5 @@
-import { CodeBlock, Prose } from '@vizier/design'
-import { useMemo, type ComponentProps } from 'react'
+import { CodeBlock, MentionChip, Prose } from '@vizier/design'
+import { createContext, useContext, useMemo, type ComponentProps } from 'react'
 import ReactMarkdown from 'react-markdown'
 import rehypeKatex from 'rehype-katex'
 import { Link } from 'react-router'
@@ -28,6 +28,22 @@ function Fenced({ text, lang }: { text: string; lang: string | undefined }) {
     return <CodeBlock code={text} tokens={tokens} language={lang} />
 }
 
+/**
+ * Who a Workspace message may name. A mention drawn as inline code (`mentionsAsCode`) whose handle is
+ * in `handles` shows as a chip instead, the signed-in person's in the colour that means "you".
+ * Outside a Workspace there is no value, and it stays inline code.
+ */
+export const MentionHandles = createContext<{ handles: ReadonlySet<string>; me: string } | null>(null)
+
+function InlineCode({ text }: { text: string }) {
+    const mentions = useContext(MentionHandles)
+    const handle = text.startsWith('@') ? text.slice(1) : null
+    if (mentions && handle && mentions.handles.has(handle)) {
+        return <MentionChip handle={handle} tone={handle === mentions.me ? 'you' : 'resolved'} />
+    }
+    return <code>{text}</code>
+}
+
 const components: ComponentProps<typeof ReactMarkdown>['components'] = {
     // A link into the app (a memory wiki link) stays in the tab; anything else opens a new one.
     a: ({ node: _n, href, ...p }) =>
@@ -38,7 +54,7 @@ const components: ComponentProps<typeof ReactMarkdown>['components'] = {
     code: ({ className, children }) => {
         const text = String(children).replace(/\n$/, '')
         const lang = /language-([^\s]+)/.exec(className ?? '')?.[1]?.toLowerCase()
-        if (!lang && !text.includes('\n')) return <code>{text}</code>
+        if (!lang && !text.includes('\n')) return <InlineCode text={text} />
         return <Fenced text={text} lang={lang} />
     },
 }

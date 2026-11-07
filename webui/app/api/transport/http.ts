@@ -40,6 +40,11 @@ export function topicUrl(t: { agentId: string; channelId: string; topicId: strin
     return `${proto}//${location.host}${API_BASE}/agents/${t.agentId}/channel/${encodeURIComponent(t.channelId)}/topic/${encodeURIComponent(t.topicId)}/chat?token=${encodeURIComponent(token)}`
 }
 
+export function workspaceUrl(t: { workspaceId: string; topicId: string }, token: string): string {
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
+    return `${proto}//${location.host}${API_BASE}/workspaces/${encodeURIComponent(t.workspaceId)}/topics/${encodeURIComponent(t.topicId)}/stream?token=${encodeURIComponent(token)}`
+}
+
 export function inboxUrl(token: string): string {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
     return `${proto}//${location.host}${API_BASE}/inbox/stream?token=${encodeURIComponent(token)}`
@@ -90,6 +95,15 @@ export const http: Transport = {
             url: () => {
                 const token = getToken()
                 return token ? topicUrl(t, token) : null
+            },
+        })
+    },
+    openWorkspace(t, opts: TopicOptions): TopicHandle {
+        return new TopicSocket({
+            ...opts,
+            url: () => {
+                const token = getToken()
+                return token ? workspaceUrl(t, token) : null
             },
         })
     },

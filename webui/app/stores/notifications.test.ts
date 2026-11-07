@@ -10,6 +10,8 @@ vi.mock('../api/endpoints/notifications', async (importOriginal) => {
         notificationCounts: vi.fn(),
         setNotificationRead: vi.fn(),
         markAllNotificationsRead: vi.fn(),
+        unreadChats: vi.fn().mockResolvedValue([]),
+        markChatRead: vi.fn(),
     }
 })
 
@@ -42,6 +44,73 @@ function page(items: NotificationItem[], next: string | null = null): Notificati
 beforeEach(() => {
     vi.clearAllMocks()
     useNotifications.getState().reset()
+})
+
+describe('unread chats', () => {
+    const chat = (href: string, unread = 2) => ({ agent_id: 'scribe', href, unread })
+    const unread = vi.mocked(api.unreadChats)
+    const markChat = vi.mocked(api.markChatRead)
+    const hello = { type: 'hello' as const, counts, latest_id: 1, setups: [] }
+
+    beforeEach(() => {
+        unread.mockResolvedValue([])
+        markChat.mockResolvedValue(counts)
+    })
+
+    it('reads the counts when the stream says hello', async () => {
+        unread.mockResolvedValue([chat('/scribe/chat/a')])
+        useNotifications.getState().receive(hello)
+        await vi.waitFor(() => expect(useNotifications.getState().chats).toEqual([chat('/scribe/chat/a')]))
+        expect(markChat).not.toHaveBeenCalled()
+    })
+
+    it('reads a conversation when it is opened', async () => {
+        useNotifications.setState({ chats: [chat('/scribe/chat/a'), chat('/scribe/chat/b')] })
+        useNotifications.getState().setViewing('/scribe/chat/a')
+        expect(useNotifications.getState().chats).toEqual([chat('/scribe/chat/b')])
+        expect(markChat).toHaveBeenCalledExactlyOnceWith('/scribe/chat/a')
+    })
+
+    it('reads the conversation a page was reloaded on', async () => {
+        unread.mockResolvedValue([chat('/scribe/chat/a')])
+        useNotifications.getState().setViewing('/scribe/chat/a')
+        useNotifications.getState().receive(hello)
+        await vi.waitFor(() => expect(markChat).toHaveBeenCalledExactlyOnceWith('/scribe/chat/a'))
+        expect(useNotifications.getState().chats).toEqual([])
+    })
+
+    it('keeps a chat marked unread by hand while it is open', async () => {
+        useNotifications.getState().setViewing('/scribe/chat/a')
+        unread.mockResolvedValue([chat('/scribe/chat/a', 1)])
+        useNotifications.getState().receive({ type: 'read', id: 1, read: false, counts })
+        await vi.waitFor(() => expect(useNotifications.getState().chats).toHaveLength(1))
+        expect(markChat).not.toHaveBeenCalled()
+    })
+
+    it('counts a reply to another conversation, and leaves the one on screen to its read frame', async () => {
+        const reply = (href: string, id: number): NotificationItem => ({ ...item(id), category: 'chat_reply', href })
+        useNotifications.setState({ primed: true, lastSeenId: 1 })
+        useNotifications.getState().setViewing('/scribe/chat/a')
+
+        readOne.mockResolvedValue(counts)
+        useNotifications.getState().receive({ type: 'notification', item: reply('/scribe/chat/a', 2), counts })
+        expect(unread).not.toHaveBeenCalled()
+        expect(readOne).toHaveBeenCalledWith(2, true)
+
+        unread.mockResolvedValue([chat('/scribe/chat/b', 1)])
+        useNotifications.getState().receive({ type: 'notification', item: reply('/scribe/chat/b', 3), counts })
+        await vi.waitFor(() => expect(useNotifications.getState().chats).toEqual([chat('/scribe/chat/b', 1)]))
+    })
+
+    it('drops a slower answer meant for the previous person', async () => {
+        let answer: (chats: ReturnType<typeof chat>[]) => void = () => {}
+        unread.mockReturnValueOnce(new Promise((resolve) => (answer = resolve)))
+        const loading = useNotifications.getState().loadChats()
+        useNotifications.getState().reset()
+        answer([chat('/scribe/chat/a')])
+        await loading
+        expect(useNotifications.getState().chats).toEqual([])
+    })
 })
 
 describe('the notifications store', () => {

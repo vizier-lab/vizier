@@ -1,4 +1,4 @@
-import { Icon, IconButton, Notice } from '@vizier/design'
+import { Badge, Icon, IconButton, Notice } from '@vizier/design'
 import { useEffect, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router'
 import { renameTopic } from '../../api/endpoints/chat'
@@ -10,6 +10,8 @@ import {
     type ProjectSessionRow,
 } from '../../api/endpoints/projects'
 import { sidebarTime } from '../../lib/conversations'
+import { unreadAt } from '../../lib/notifications'
+import { useNotifications } from '../../stores/notifications'
 import { PROJECT_SESSION_PREVIEW, projectSessionRows } from '../../lib/projectSessions'
 import { useProjects } from '../../stores/projects'
 import { toast } from '../../stores/toasts'
@@ -36,6 +38,7 @@ type Props = {
  * of the rest until Show all — each with rename and delete on hover.
  */
 export function ProjectRow({ agentId, project, sessions }: Props) {
+    const chats = useNotifications((s) => s.chats)
     const navigate = useNavigate()
     const { pathname } = useLocation()
     const activeTopic = pathname.startsWith(`/${agentId}/projects/${project.id}/chat/`)
@@ -206,6 +209,7 @@ export function ProjectRow({ agentId, project, sessions }: Props) {
                             const title = session.title || 'New session'
                             const href = `/${agentId}/projects/${project.id}/chat/${session.topic}`
                             const active = activeTopic === session.topic
+                            const unread = unreadAt(chats, href)
                             if (renamingTopic === session.topic) {
                                 return (
                                     <li key={session.topic}>
@@ -275,6 +279,15 @@ export function ProjectRow({ agentId, project, sessions }: Props) {
                                             <span className="shrink-0 truncate type-mono-xs text-faint">
                                                 {session.worktree.branch}
                                             </span>
+                                        )}
+                                        {unread > 0 && (
+                                            <Badge
+                                                tone="rank"
+                                                aria-label={`${unread} unread`}
+                                                className="transition-opacity group-hover/row:opacity-0 group-focus-within/row:opacity-0"
+                                            >
+                                                {unread > 99 ? '99+' : unread}
+                                            </Badge>
                                         )}
                                         {session.last_activity != null && (
                                             <span

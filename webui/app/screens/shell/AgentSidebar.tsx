@@ -20,6 +20,8 @@ import { canManageSecrets, canViewArtifacts } from '../../lib/access'
 import { conversationHref, conversationTitle, sidebarSections, sidebarTime } from '../../lib/conversations'
 import { assetSrc } from '../../lib/fileUrls'
 import { relativeTime } from '../../lib/format'
+import { unreadAt } from '../../lib/notifications'
+import { useNotifications } from '../../stores/notifications'
 import { withNewAgent } from '../agents/NewAgentDialog'
 import { ProjectsSection } from '../projects/ProjectsSection'
 import { useAgents } from '../../stores/agents'
@@ -62,6 +64,7 @@ export function AgentSidebar({ agentId }: { agentId: string }) {
 
     const turns = useTurns((s) => s.topics)
     const isLive = (topic: string) => (turns[topicKey(agentId, topic)]?.phase ?? 'idle') !== 'idle'
+    const chats = useNotifications((s) => s.chats)
 
     // The conversation on screen: a WebUI topic by id, a Discord or Telegram one by channel.
     const topicId = pathname.match(/^\/[^/]+\/chat\/([^/]+)$/)?.[1]
@@ -78,6 +81,7 @@ export function AgentSidebar({ agentId }: { agentId: string }) {
                     title: conversationTitle(c.title, c.latest_topic),
                     time: sidebarTime(c.last_activity),
                     live: c.kind === 'webui' && isLive(c.latest_topic),
+                    unread: unreadAt(chats, conversationHref(agentId, c)),
                     href: conversationHref(agentId, c),
                     active: isCurrent(c),
                     // Only the WebUI's own conversations: Discord and Telegram ones belong to those platforms.
@@ -86,7 +90,7 @@ export function AgentSidebar({ agentId }: { agentId: string }) {
                 })),
             })),
         // eslint-disable-next-line react-hooks/exhaustive-deps
-        [items, turns, topicId, channel, agentId]
+        [items, turns, chats, topicId, channel, agentId]
     )
 
     const newConversation = () => navigate(`/${agentId}/chat/${nanoid(10)}`)

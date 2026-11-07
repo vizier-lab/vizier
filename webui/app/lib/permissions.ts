@@ -28,6 +28,13 @@ export const PERMISSION_GROUPS: { title: string; items: { permission: string; la
         ],
     },
     {
+        title: 'Workspaces',
+        items: [
+            { permission: 'workspaces:create', label: 'Create Workspaces' },
+            { permission: 'all_workspaces:manage', label: 'Read, post in and manage every Workspace' },
+        ],
+    },
+    {
         title: 'Integrations',
         items: [
             { permission: 'all_agents:integrations:manage', label: 'Manage every agent’s integrations' },

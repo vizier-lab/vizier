@@ -13,6 +13,8 @@ import { NotificationToasts } from '../screens/shared/NotificationToasts'
 import { NewAgentDialog, withNewAgent } from '../screens/agents/NewAgentDialog'
 import { SettingsSidebar } from '../screens/settings/SettingsSidebar'
 import { AgentSidebar } from '../screens/shell/AgentSidebar'
+import { WorkspaceColumn } from '../screens/workspaces/WorkspaceColumn'
+import { useWorkspaces } from '../stores/workspaces'
 import { viewOf } from '../screens/shell/pages'
 import { ShellRail } from '../screens/shell/ShellRail'
 import { useSession } from '../stores/session'
@@ -27,6 +29,7 @@ export default function AppShell() {
     const matches = useMatches()
     const { can } = useSession()
     const start = useAgents((s) => s.start)
+    const loadWorkspaces = useWorkspaces((s) => s.load)
     const mobile = useMobile()
     const navOpen = useNav((s) => s.open)
     const setNavOpen = useNav((s) => s.setOpen)
@@ -46,6 +49,7 @@ export default function AppShell() {
     }, [])
 
     useEffect(() => start(), [start])
+    useEffect(() => void loadWorkspaces(), [loadWorkspaces])
     // A fresh session starts from zero, then the badge is kept current by the inbox stream.
     useEffect(() => {
         resetNotifications()
@@ -105,8 +109,10 @@ export default function AppShell() {
             <AgentSidebar agentId={routeAgent} />
         ) : view === 'settings' ? (
             <SettingsSidebar active={settingsPage} admin={admin} />
+        ) : view === 'workspace' ? (
+            <WorkspaceColumn />
         ) : undefined
-    const sidebarKey = view === 'agent' ? `agent:${routeAgent}` : view
+    const sidebarKey = view === 'agent' ? `agent:${routeAgent}` : view === 'workspace' ? `workspace:${params.workspaceId}` : view
 
     // A new screen settles into place: it dims and lifts a
     // little, it doesn't slide in from nowhere.

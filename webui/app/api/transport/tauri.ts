@@ -128,6 +128,63 @@ export const tauri: Transport = {
             },
         }
     },
+    openWorkspace(t, opts: TopicOptions): TopicHandle {
+        let id: number | null = null
+        let closed = false
+        let everOpened = false
+        let unlisten: (() => void) | null = null
+
+        const open = async () => {
+            if (closed) return
+            opts.onState(everOpened ? 'reconnecting' : 'connecting')
+            const frames = new Channel<unknown>()
+            frames.onmessage = (frame) => opts.onFrame(frame)
+            try {
+                const res = await invoke<{ id: number }>('workspace_open', { workspaceId: t.workspaceId, topicId: t.topicId, frames })
+                if (closed) {
+                    void invoke('workspace_close', { id: res.id })
+                    return
+                }
+                id = res.id
+                const reopened = everOpened
+                everOpened = true
+                opts.onState('open')
+                opts.onOpen(reopened)
+            } catch {
+                id = null
+                opts.onState('offline')
+            }
+        }
+
+        void open()
+        // The engine restarting drops its topics; open again once it is ready.
+        void listen<DesktopState>('desktop://state', (e) => {
+            if (e.payload.state === 'ready' && everOpened && !closed) {
+                id = null
+                void open()
+            }
+        }).then((un) => (closed ? un() : (unlisten = un)))
+
+        return {
+            get isOpen() {
+                return id !== null
+            },
+            send(frame) {
+                if (id === null) return false
+                void invoke('workspace_send', { id, frame })
+                return true
+            },
+            retryNow() {
+                if (id === null) void open()
+            },
+            close() {
+                closed = true
+                unlisten?.()
+                if (id !== null) void invoke('workspace_close', { id })
+                id = null
+            },
+        }
+    },
     openInbox(opts: InboxOptions): InboxHandle {
         let id: number | null = null
         let closed = false

@@ -10,6 +10,7 @@ export type NotificationCategory =
     | 'background_job'
     | 'integration'
     | 'chat_reply'
+    | 'workspace_message'
 
 export type NotificationTone = 'default' | 'failed' | 'success'
 
@@ -55,3 +56,11 @@ export const setNotificationRead = (id: number, read: boolean) =>
 
 export const markAllNotificationsRead = () =>
     api.post<NotificationCounts>('/notifications/read-all')
+
+/** Replies not yet read in one of this person's conversations. */
+export type ChatUnread = { agent_id: string; href: string; unread: number }
+
+export const unreadChats = () => api.get<ChatUnread[]>('/notifications/chats')
+
+export const markChatRead = (href: string) =>
+    api.post<NotificationCounts>('/notifications/chats/read', { href })

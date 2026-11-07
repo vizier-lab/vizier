@@ -386,7 +386,7 @@ export function Composer({
                               label: 'Files',
                               query: mentionQuery(value)?.query ?? '',
                               items: suggestions.items,
-                              onPick: (item) => pick(item.path),
+                              onPick: (item) => 'path' in item && pick(item.path),
                               onDismiss: () => setDismissedAt(value),
                           }
                         : null
