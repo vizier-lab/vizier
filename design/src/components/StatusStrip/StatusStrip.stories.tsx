@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { StateGrid, interactionCells, statePseudo } from "../../stories/StateGrid";
 import { EmptyState } from "../EmptyState/EmptyState";
+import { Switch } from "../Switch/Switch";
 import { StatusStrip } from "./StatusStrip";
 import { StatusPanel } from "./StatusPanel";
 
@@ -124,5 +125,57 @@ export const States: Story = {
   parameters: statePseudo,
   render: () => (
     <StateGrid rows={[{ cells: interactionCells(() => <StatusStrip items={items} />).filter((c) => c.label !== "Pressed") }]} />
+  ),
+};
+
+const lsp = {
+  id: "lsp" as const,
+  icon: "code" as const,
+  label: "language servers ready",
+  count: 2,
+};
+
+/**
+ * The language-server item of a project chat (spec 054): the number is the servers that are ready,
+ * and the dot is the worst state. Off reads `off` instead of a number.
+ */
+export const LanguageServers: Story = {
+  render: () => (
+    <div className="flex flex-col gap-12">
+      <StatusStrip items={[...items.slice(0, 3), lsp]} fullWidth={false} />
+      <StatusStrip items={[lsp, { ...lsp, id: "changes" as const, dot: "pulse" as const }]} fullWidth={false} />
+      <StatusStrip items={[{ ...lsp, id: "jobs" as const, dot: "warn" as const }]} fullWidth={false} />
+      <StatusStrip items={[{ ...lsp, id: "files" as const, dot: "fail" as const }]} fullWidth={false} />
+      <StatusStrip items={[{ ...lsp, display: "off", count: 0, label: "language servers off" }]} fullWidth={false} />
+    </div>
+  ),
+};
+
+/** A panel with a control beside its title: the switch of the language-server panel. */
+export const PanelWithHeaderAction: Story = {
+  render: () => (
+    <div className="flex h-600 items-end justify-center bg-panel p-24">
+      <div className="flex w-1000 flex-col gap-8">
+        <div className="h-84 rounded-xl border border-border bg-surface" />
+        <StatusStrip items={[...items.slice(0, 3), lsp]} open="lsp" panelGap={100}>
+          {(_item, close) => (
+            <StatusPanel
+              title="Language servers"
+              meta="2 ready"
+              onClose={close}
+              headerAction={<Switch checked onCheckedChange={() => {}} aria-label="Language servers" />}
+            >
+              <ul className="flex flex-col">
+                {["Rust  ./  Ready", "TypeScript  webui/  Starting · indexing 41%"].map((p) => (
+                  <li key={p} className="truncate px-8 py-6 type-mono-sm text-fg">
+                    {p}
+                  </li>
+                ))}
+              </ul>
+            </StatusPanel>
+          )}
+        </StatusStrip>
+      </div>
+    </div>
   ),
 };
