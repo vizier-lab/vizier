@@ -247,12 +247,21 @@ export function groupHistory(entries: ChatMessage[]): Turn[] {
       continue
     }
 
-    // A mid-turn message ends the stretch of work before it; the next event opens a new one.
+    // Text an agent writes between tool rounds is thinking out loud, so it stays inside the work
+    // it belongs to: a step of the open trail, at the point it was written, like a thought. It is
+    // not a message, so it neither splits the turn into two trails nor reads as something said to
+    // anyone else (spec 053 US7, revised).
     if (typeof content.AssistantMessage === 'string') {
       // A bare "\n\n" from a model that says nothing beside a call is not a message.
       if (!content.AssistantMessage.trim()) continue
       if (!open) open = newTurn(entry.uid)
-      open.blocks.push({ kind: 'message', id: entry.uid, text: content.AssistantMessage, at: entry.timestamp })
+      let block = open.blocks[open.blocks.length - 1]
+      if (block?.kind !== 'trail') {
+        block = { kind: 'trail', events: [], startedAt: entry.timestamp }
+        open.blocks.push(block)
+      }
+      push(block.events, { kind: 'narration', id: entry.uid, text: content.AssistantMessage })
+      if (entry.timestamp) block.endedAt = entry.timestamp
       continue
     }
 
@@ -383,9 +392,9 @@ export function applyClientState(
 }
 
 /**
- * One streamed frame to a trail event, or `null` for a frame that is not one. A mid-turn message
- * is not one of them: it reaches a running turn as a `history_entry` frame, like every saved step,
- * and `groupHistory` draws it.
+ * One streamed frame to a trail event, or `null` for a frame that is not one. Text the agent
+ * writes between rounds is not one of them either: it reaches a running turn as a `history_entry`
+ * frame, like every saved step, and `groupHistory` places it in the trail.
  */
 export function liveEvent(content: VizierResponseContent, id: string): TrailEvent | null {
   if (typeof content !== 'object' || content === null) return null
@@ -475,8 +484,10 @@ export function appendLiveEvent(
 
 /** Counts by kind plus the turn's duration, bounded regardless of how long the trail is. */
 export function trailSummary(trail: TrailEvent[], durationMs?: number): string {
+  // A narration is the agent's prose between rounds, counted with its reasoning: the head says
+  // what the work was, not that it spoke.
   const counts = { thought: 0, tool: 0, python: 0 }
-  for (const event of trail) counts[event.kind] += 1
+  for (const event of trail) counts[event.kind === 'narration' ? 'thought' : event.kind] += 1
 
   const parts: string[] = []
   const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`

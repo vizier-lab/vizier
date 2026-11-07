@@ -68,7 +68,7 @@ describe('a command the person ran', () => {
     })
 })
 
-describe('a turn that spoke while it worked (spec 053)', () => {
+describe('a turn that spoke while it worked (spec 053, revised)', () => {
     const report = JSON.stringify({ ok: true, result: 1, stdout: '', tool_calls: [], duration_ms: 3 })
     const turn: ChatMessage[] = [
         entry('req', { Request: { timestamp: '2026-10-23T10:00:00Z', user: 'me', content: { chat: 'hi' } } }),
@@ -83,11 +83,11 @@ describe('a turn that spoke while it worked (spec 053)', () => {
         entry('end', { Response: { timestamp: '2026-10-23T10:00:09Z', content: { message: { content: 'All done.', stats: { duration: { secs: 9, nanos: 0 }, total_input_tokens: 1, total_output_tokens: 1 } as never } } } }, '2026-10-23T10:00:09Z'),
     ]
 
-    it('draws trail, message, trail, reply, in that order', () => {
+    // One trail for the whole turn: the prose is a step of it, not a second one below it.
+    it('draws one trail for the turn, then the reply', () => {
         const html = draw(finished)
-        const places = ['Worked 3', 'The log points at the deploy.', 'Worked 2', 'All done.'].map((text) => html.indexOf(text))
-        expect(places.every((at) => at >= 0)).toBe(true)
-        expect(places).toEqual([...places].sort((a, b) => a - b))
+        expect(html.match(/Worked/g) ?? []).toHaveLength(1)
+        expect(html.indexOf('All done.')).toBeGreaterThan(html.indexOf('Worked'))
     })
 
     it('keeps stats on the final message, with the whole time there', () => {
@@ -96,13 +96,13 @@ describe('a turn that spoke while it worked (spec 053)', () => {
         expect(html.indexOf('in ·')).toBeGreaterThan(html.indexOf('All done.'))
     })
 
-    it('draws the message in a turn still running, with the last trail live', () => {
+    // A finished turn folds its trail, so its prose is one click away; a running one shows it.
+    it('shows the prose inside the open trail of a turn still running', () => {
         const state = { ...emptyTopic(session), entries: turn, phase: 'running' as never }
         const html = renderToString(
             <MessageList state={state} agent={{ id: 'oz', name: 'Oz' }} hasOlder={false} loadingOlder={false} onLoadOlder={() => {}} onReact={() => {}} />
         )
-        expect(html).toContain('The log points at the deploy.')
         expect(html).toContain('Oz is ')
-        expect(html.indexOf('The log points at the deploy.')).toBeLessThan(html.indexOf('Oz is '))
+        expect(html.indexOf('The log points at the deploy.')).toBeGreaterThan(html.indexOf('Oz is '))
     })
 })

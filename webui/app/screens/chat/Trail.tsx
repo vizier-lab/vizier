@@ -6,9 +6,11 @@ import {
     ScriptCall,
     Thought,
     TrailCall,
+    TrailItem,
 } from '@vizier/design'
 import { useMemo, useState } from 'react'
 import { highlightCode } from '../../lib/highlight'
+import { Markdown } from '../shared/Markdown'
 import { useThinkingWord } from '../../lib/thinkingWords'
 import type { ExecutionReport, TrailEvent } from '../../api/frames'
 import { duration } from '../../lib/format'
@@ -125,6 +127,14 @@ function Event({ event, live }: { event: TrailEvent; live: boolean }) {
     switch (event.kind) {
         case 'thought':
             return <Thought>{event.text}</Thought>
+        // Prose the agent wrote between rounds, at the point it wrote it: on the spine, where a
+        // thought sits, rather than as a message that splits the turn.
+        case 'narration':
+            return (
+                <TrailItem>
+                    <Markdown>{event.text}</Markdown>
+                </TrailItem>
+            )
         case 'tool':
             return (
                 <TrailCall

@@ -56,8 +56,9 @@ describe('a Workspace topic as things to draw', () => {
         expect(kinds(items)).toEqual(['message', 'run:alpha', 'note'])
         const run = items[1]
         if (run.kind !== 'run') throw new Error('expected a run')
-        // trail, the mid-turn message, then the final reply as the outcome
-        expect(run.segment.blocks.map((b) => b.kind)).toEqual(['trail', 'message'])
+        // one trail, with the text the agent wrote on the way inside it, then the final reply
+        expect(run.segment.blocks.map((b) => b.kind)).toEqual(['trail'])
+        expect(run.segment.blocks[0].kind === 'trail' && run.segment.blocks[0].events.map((e) => e.kind)).toEqual(['tool', 'narration'])
         expect(run.segment.outcome?.uid).toBe('u-done')
         expect(run.segment.last).toBe(true)
     })
@@ -97,9 +98,10 @@ describe('a Workspace topic as things to draw', () => {
         const items = buildTimeline([...entries, agentEntry('alpha', 'asked', 5, 'u-done', true)], steps)
         const run = items.find((i) => i.kind === 'run')
         if (run?.kind !== 'run') throw new Error('expected a run')
-        expect(run.segment.blocks.map((b) => b.kind)).toEqual(['trail', 'message'])
-        const message = run.segment.blocks[1]
-        expect(message.kind === 'message' && message.text).toBe('@beta tools')
+        expect(run.segment.blocks.map((b) => b.kind)).toEqual(['trail'])
+        const trail = run.segment.blocks[0]
+        const text = trail.kind === 'trail' ? trail.events.find((e) => e.kind === 'narration') : undefined
+        expect(text?.kind === 'narration' && text.text).toBe('@beta tools')
     })
 
     it('keeps a python call paired with its result across a mention_agent message', () => {

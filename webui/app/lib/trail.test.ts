@@ -53,7 +53,8 @@ const python = (call_id: string, args: Record<string, unknown>) =>
 
 const toolResult = (call_id: string, content: string) => entry({ ToolResult: { call_id, content } })
 
-const kinds = (trail: TrailEvent[]) => trail.map((e) => e.kind)
+// Prose between rounds reads as a thought on the spine, so the shape helpers name it so.
+const kinds = (trail: TrailEvent[]) => trail.map((e) => (e.kind === 'narration' ? 'thought' : e.kind))
 
 // T1 — the storage layer already ordered the entries; the grouping must not re-derive one.
 test('T1 entry order in equals event order out', () => {
@@ -104,7 +105,7 @@ const say = (text: string, timestamp?: string) => ({ ...entry({ AssistantMessage
 const at = (message: ChatMessage, timestamp: string) => ({ ...message, timestamp })
 const shape = (blocks: TurnBlock[]) => blocks.map((b) => (b.kind === 'trail' ? kinds(b.events).join('+') : `"${b.text}"`))
 
-test('a message between two rounds splits them into two trails', () => {
+test('text between two rounds stays in the one trail, where it was written', () => {
   const turns = groupHistory([
     request('go'),
     tool('memory_search'),
@@ -114,26 +115,41 @@ test('a message between two rounds splits them into two trails', () => {
   ])
 
   assert.equal(turns.length, 1)
-  assert.deepEqual(shape(turns[0].blocks), ['tool', '"The log points at the deploy."', 'tool'])
+  assert.deepEqual(shape(turns[0].blocks), ['tool+thought+tool'])
+  const said = turnEvents(turns[0])[1]
+  assert.equal(said.kind === 'narration' && said.text, 'The log points at the deploy.')
   assert.ok(turns[0].outcome)
 })
 
-test('text first means no trail above it', () => {
+test('a turn never shows more than one trail, however much it says on the way', () => {
+  const turns = groupHistory([
+    request('go'),
+    say('Checking first.'),
+    tool('fetch'),
+    say('Now the log.'),
+    tool('memory_search'),
+    say('Almost there.'),
+    response('done'),
+  ])
+  assert.deepEqual(shape(turns[0].blocks), ['thought+tool+thought+tool+thought'])
+})
+
+test('text first opens the trail rather than sitting above it', () => {
   const turns = groupHistory([request('go'), say('Checking first.'), tool('fetch'), response('done')])
-  assert.deepEqual(shape(turns[0].blocks), ['"Checking first."', 'tool'])
+  assert.deepEqual(shape(turns[0].blocks), ['thought+tool'])
 })
 
-test('two messages in a row stay two messages, with no empty trail between', () => {
+test('text with no call at all still makes a trail of its own', () => {
   const turns = groupHistory([request('go'), say('one'), say('two'), response('done')])
-  assert.deepEqual(shape(turns[0].blocks), ['"one"', '"two"'])
+  assert.deepEqual(shape(turns[0].blocks), ['thought+thought'])
 })
 
-test('an empty message makes no block', () => {
+test('an empty message makes no step', () => {
   const turns = groupHistory([request('go'), tool('fetch'), say(''), tool('fetch'), response('done')])
   assert.deepEqual(shape(turns[0].blocks), ['tool+tool'])
 })
 
-test('a report pairs with its call even when a block began after the call', () => {
+test('a report pairs with its call across the text written while it ran', () => {
   const report = { ok: true, result: 1, stdout: '', tool_calls: [], duration_ms: 3 }
   const turns = groupHistory([
     request('go'),
@@ -144,10 +160,10 @@ test('a report pairs with its call even when a block began after the call', () =
   ])
   const run = turnEvents(turns[0])[0]
   assert.equal(run.kind === 'python' && run.report?.result, 1)
-  assert.deepEqual(shape(turns[0].blocks), ['python', '"A message written while the script ran."'])
+  assert.deepEqual(shape(turns[0].blocks), ['python+thought'])
 })
 
-test('a stopped turn keeps its earlier blocks and marks the cut-off call', () => {
+test('a stopped turn keeps its work and marks the cut-off call', () => {
   const turns = groupHistory([
     request('go'),
     tool('memory_search'),
@@ -157,12 +173,12 @@ test('a stopped turn keeps its earlier blocks and marks the cut-off call', () =>
     entry({ Command: 'abort' }),
   ])
   assert.equal(turns[0].aborted, true)
-  assert.deepEqual(shape(turns[0].blocks), ['tool', '"Looking further."', 'python'])
-  const run = turnEvents(turns[0])[1]
+  assert.deepEqual(shape(turns[0].blocks), ['tool+thought+python'])
+  const run = turnEvents(turns[0])[2]
   assert.equal(run.kind === 'python' && run.stopped, true)
 })
 
-test('each trail has its own time, including a late result', () => {
+test('the trail spans the whole turn, text included', () => {
   const turns = groupHistory([
     request('go'),
     at(python('c1', { code: '1' }), '2026-10-03T00:00:10Z'),
@@ -173,16 +189,11 @@ test('each trail has its own time, including a late result', () => {
     response('done'),
   ])
   const trails = turns[0].blocks.filter((b) => b.kind === 'trail')
-  assert.deepEqual(trails.map(blockDurationMs), [4000, 1000])
+  assert.equal(trails.length, 1)
+  assert.equal(trails[0].kind === 'trail' && blockDurationMs(trails[0]), 11000)
 })
 
-test('a trail with no times has no duration', () => {
-  const turns = groupHistory([request('go'), tool('fetch'), response('done')])
-  const block = turns[0].blocks[0]
-  assert.equal(block.kind === 'trail' && blockDurationMs(block), undefined)
-})
-
-test('old saved history with mid-turn text reads the same way, with no migration', () => {
+test('old saved history with text between rounds folds into one trail, with no migration', () => {
   const saved = JSON.parse(
     JSON.stringify([
       request('go'),
@@ -192,10 +203,10 @@ test('old saved history with mid-turn text reads the same way, with no migration
       response('done'),
     ])
   ) as ChatMessage[]
-  assert.deepEqual(shape(groupHistory(saved)[0].blocks), ['"From before the change."', 'tool'])
+  assert.deepEqual(shape(groupHistory(saved)[0].blocks), ['thought+tool'])
 })
 
-test('a bare newline a model sends beside each call is not a message, so the work stays one trail', () => {
+test('a bare newline a model sends beside each call is not a step', () => {
   const turn = groupHistory([
     request('go'),
     entry({ AssistantMessage: '\n\n' }),
@@ -227,12 +238,12 @@ test('the text a turn-ending call wrote is drawn once, as the reply', () => {
     toolResult('c1', '{}'),
     endedBy('Here is the plan.', 'propose_plan'),
   ])
-  assert.deepEqual(shape(turns[0].blocks), ['tool+python'])
+  assert.deepEqual(shape(turns[0].blocks), ['tool+thought+python'])
 })
 
 test('a genuine repeat in an ordinary turn is kept', () => {
   const turns = groupHistory([request('go'), say('same'), tool('fetch'), endedBy('same', null)])
-  assert.deepEqual(shape(turns[0].blocks), ['"same"', 'tool'])
+  assert.deepEqual(shape(turns[0].blocks), ['thought+tool'])
 })
 
 // T11 — an agent-initiated turn (a scheduled task, a dream cycle) has no request. Its trail

@@ -362,6 +362,9 @@ export interface ChatMessage {
 // nested calls never reach history and are not streamed, so neither producer can emit one.
 export type TrailEvent =
   | { kind: 'thought'; id: string; text: string }
+  // Prose the agent wrote between tool rounds: kept inside the work it belongs to rather than
+  // drawn as a message, since it is the agent thinking out loud, not something said to anyone.
+  | { kind: 'narration'; id: string; text: string }
   // `jobId` is set on the `background_subagents`/`delegate_agent` call that launched a
   // background job, read from its tool result, so the job tray can jump back to it. The
   // retired `paralel_subtasks` name is kept for saved history.
