@@ -16,6 +16,7 @@ import { applyAllRead, applyRead, belongs, mergePage, samePath, type ViewFilter 
 
 export type { ViewFilter }
 import { useAgents } from './agents'
+import { useProjects } from './projects'
 import { useWorkspaces } from './workspaces'
 
 const PAGE = 20
@@ -271,6 +272,7 @@ export const useNotifications = create<NotificationStore>()((set, get) => {
                 useAgents.getState().replaceSetups(frame.setups)
                 if (fetchPage) void get().catchUp()
                 void get().loadChats(true)
+                useProjects.getState().reloadWatchedLsp()
                 break
             }
             case 'notification': {
@@ -294,6 +296,10 @@ export const useNotifications = create<NotificationStore>()((set, get) => {
             case 'resync':
                 void get().catchUp()
                 void get().loadChats()
+                useProjects.getState().reloadWatchedLsp()
+                break
+            case 'lsp':
+                useProjects.getState().applyLsp(frame.snapshot)
                 break
         }
     },

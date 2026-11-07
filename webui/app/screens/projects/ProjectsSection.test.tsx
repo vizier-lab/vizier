@@ -21,6 +21,7 @@ const project = {
     folder: '/tmp/work/alpha',
     available: true,
     shell_enabled: true,
+    lsp_enabled: true,
     owner_id: 'user-1',
     is_owner: true,
     session_count: 1,

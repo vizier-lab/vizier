@@ -4015,6 +4015,232 @@
         }
       }
     },
+    "/agents/{agent_id}/projects/{project_id}/lsp": {
+      "get": {
+        "tags": [
+          "api::v1::agents::projects"
+        ],
+        "operationId": "lsp_status",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "Agent ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "project_id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The project's language servers; a manager also receives the built-in languages and the overrides",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_LspView"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller may not use this agent's projects"
+          },
+          "404": {
+            "description": "Agent or project not found, or removed"
+          }
+        }
+      }
+    },
+    "/agents/{agent_id}/projects/{project_id}/lsp/overrides/{language}": {
+      "put": {
+        "tags": [
+          "api::v1::agents::projects"
+        ],
+        "operationId": "lsp_set_override",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "Agent ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "project_id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "language",
+            "in": "path",
+            "description": "Built-in language id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ServerOverride"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Saved; the language's servers stop so the next use starts the new one",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_LspView"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not the project owner or a whole-workspace project manager"
+          },
+          "404": {
+            "description": "`unknown_language`, or the project was not found"
+          },
+          "422": {
+            "description": "`invalid_override`"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "api::v1::agents::projects"
+        ],
+        "operationId": "lsp_delete_override",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "Agent ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "project_id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "language",
+            "in": "path",
+            "description": "Built-in language id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Removed (an absent override also succeeds)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_LspView"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not the project owner or a whole-workspace project manager"
+          },
+          "404": {
+            "description": "`unknown_language`, or the project was not found"
+          }
+        }
+      }
+    },
+    "/agents/{agent_id}/projects/{project_id}/lsp/restart": {
+      "post": {
+        "tags": [
+          "api::v1::agents::projects"
+        ],
+        "operationId": "lsp_restart",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "Agent ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "project_id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RestartRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Restarting in the background",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_LspView"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not the project owner or a whole-workspace project manager"
+          },
+          "404": {
+            "description": "`unknown_language`, or the project was not found"
+          },
+          "409": {
+            "description": "`lsp_disabled`"
+          }
+        }
+      }
+    },
     "/agents/{agent_id}/projects/{project_id}/sessions": {
       "get": {
         "tags": [
@@ -6608,6 +6834,66 @@
         }
       }
     },
+    "/notifications/chats": {
+      "get": {
+        "tags": [
+          "api::v1::notifications"
+        ],
+        "operationId": "chats",
+        "responses": {
+          "200": {
+            "description": "The caller's unread replies, per conversation of theirs",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_Vec_ChatUnread"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/notifications/chats/read": {
+      "post": {
+        "tags": [
+          "api::v1::notifications"
+        ],
+        "operationId": "read_chat",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatReadRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Marks one conversation's replies read for the caller, with the new counts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_NotificationCounts"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A missing or empty `href`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/notifications/count": {
       "get": {
         "tags": [
@@ -7852,6 +8138,928 @@
           }
         }
       }
+    },
+    "/workspaces": {
+      "get": {
+        "tags": [
+          "api::v1::workspaces"
+        ],
+        "operationId": "list",
+        "responses": {
+          "200": {
+            "description": "The caller's Workspaces, with their topics",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_Vec_WorkspaceSummary"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "api::v1::workspaces"
+        ],
+        "operationId": "create",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateWorkspaceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created, with a first topic and the caller as owner",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_WorkspaceDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Missing the `workspaces:create` permission"
+          },
+          "409": {
+            "description": "`name_in_use`"
+          },
+          "422": {
+            "description": "`invalid_name`"
+          }
+        }
+      }
+    },
+    "/workspaces/{id}": {
+      "get": {
+        "tags": [
+          "api::v1::workspaces"
+        ],
+        "operationId": "detail",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Workspace ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The Workspace with its members",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_WorkspaceDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such Workspace, or the caller has no standing in it"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "api::v1::workspaces"
+        ],
+        "operationId": "delete_workspace",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Workspace ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deleted, with turns stopped first"
+          },
+          "403": {
+            "description": "Not an owner"
+          },
+          "404": {
+            "description": "No such Workspace, or the caller has no standing in it"
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "api::v1::workspaces"
+        ],
+        "operationId": "rename",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Workspace ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RenameRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Renamed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_WorkspaceSummary"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not an owner"
+          },
+          "404": {
+            "description": "No such Workspace, or the caller has no standing in it"
+          },
+          "409": {
+            "description": "`name_in_use`"
+          },
+          "422": {
+            "description": "`invalid_name`"
+          }
+        }
+      }
+    },
+    "/workspaces/{id}/candidates": {
+      "get": {
+        "tags": [
+          "api::v1::workspaces"
+        ],
+        "operationId": "candidates",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Workspace ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "q",
+            "in": "path",
+            "description": "Matches name, username or agent id, case-insensitively.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "path",
+            "description": "Per group; default 5, at most 20.",
+            "required": true,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Agents and people to add, addable first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_Candidates"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not an owner"
+          },
+          "404": {
+            "description": "No such Workspace, or the caller has no standing in it"
+          }
+        }
+      }
+    },
+    "/workspaces/{id}/commands": {
+      "get": {
+        "tags": [
+          "api::v1::workspaces"
+        ],
+        "operationId": "commands",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Workspace ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "For the `/` menu: commands, and each member agent's skills with the agents that have them. Names only",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_CommandsView"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such Workspace, or the caller has no standing in it"
+          }
+        }
+      }
+    },
+    "/workspaces/{id}/members": {
+      "post": {
+        "tags": [
+          "api::v1::workspaces"
+        ],
+        "operationId": "add_member",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Workspace ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddMemberRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Added",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_MemberView"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not an owner, or `cannot_edit_agent`"
+          },
+          "404": {
+            "description": "No such Workspace, person or agent"
+          },
+          "409": {
+            "description": "`handle_in_use`"
+          }
+        }
+      }
+    },
+    "/workspaces/{id}/members/{kind}/{handle}": {
+      "delete": {
+        "tags": [
+          "api::v1::workspaces"
+        ],
+        "operationId": "remove_member",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Workspace ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "path",
+            "description": "`person` or `agent`",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "handle",
+            "in": "path",
+            "description": "Username or agent ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Removed"
+          },
+          "403": {
+            "description": "Not an owner"
+          },
+          "404": {
+            "description": "No such Workspace or member"
+          },
+          "409": {
+            "description": "`last_owner`"
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "api::v1::workspaces"
+        ],
+        "operationId": "set_role",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Workspace ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "path",
+            "description": "`person`",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "handle",
+            "in": "path",
+            "description": "Username",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetRoleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Role changed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_MemberView"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not an owner"
+          },
+          "404": {
+            "description": "No such Workspace or member"
+          },
+          "409": {
+            "description": "`last_owner`"
+          }
+        }
+      }
+    },
+    "/workspaces/{id}/stop": {
+      "post": {
+        "tags": [
+          "api::v1::workspaces"
+        ],
+        "operationId": "stop_all",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Workspace ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Every agent's turn in every topic aborted, and waiting mentions dropped",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_StopResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such Workspace, or the caller has no standing in it"
+          }
+        }
+      }
+    },
+    "/workspaces/{id}/topics": {
+      "post": {
+        "tags": [
+          "api::v1::workspaces"
+        ],
+        "operationId": "create_topic",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Workspace ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateTopicRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_TopicSummary"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such Workspace, or the caller has no standing in it"
+          },
+          "409": {
+            "description": "`name_in_use`"
+          },
+          "422": {
+            "description": "`invalid_name`"
+          }
+        }
+      }
+    },
+    "/workspaces/{id}/topics/{tid}": {
+      "delete": {
+        "tags": [
+          "api::v1::workspaces"
+        ],
+        "operationId": "delete_topic",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Workspace ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "tid",
+            "in": "path",
+            "description": "Topic ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deleted"
+          },
+          "403": {
+            "description": "Not an owner"
+          },
+          "404": {
+            "description": "No such Workspace or topic"
+          },
+          "409": {
+            "description": "`last_topic`"
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "api::v1::workspaces"
+        ],
+        "operationId": "rename_topic",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Workspace ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "tid",
+            "in": "path",
+            "description": "Topic ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RenameRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Renamed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_TopicSummary"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not an owner"
+          },
+          "404": {
+            "description": "No such Workspace or topic"
+          },
+          "409": {
+            "description": "`name_in_use`"
+          },
+          "422": {
+            "description": "`invalid_name`"
+          }
+        }
+      }
+    },
+    "/workspaces/{id}/topics/{tid}/entries": {
+      "get": {
+        "tags": [
+          "api::v1::workspaces"
+        ],
+        "operationId": "timeline",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Workspace ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "tid",
+            "in": "path",
+            "description": "Topic ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "before",
+            "in": "path",
+            "description": "The `next_before` of the previous page: entries older than this `seq`.",
+            "required": true,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "path",
+            "description": "1 to 200; default 50.",
+            "required": true,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of messages, oldest first, with what the agents did in the same span",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_Timeline"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such Workspace or topic, or the caller has no standing in it"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "api::v1::workspaces"
+        ],
+        "operationId": "post_entry",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Workspace ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "tid",
+            "in": "path",
+            "description": "Topic ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PostRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Posted, or a command ran and left a note",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_PostResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`cannot_lobotomy`"
+          },
+          "404": {
+            "description": "No such Workspace or topic, or the caller has no standing in it"
+          },
+          "422": {
+            "description": "`not_in_workspace` for /btw and /clear-files, or `too_long`"
+          }
+        }
+      }
+    },
+    "/workspaces/{id}/topics/{tid}/reactions": {
+      "post": {
+        "tags": [
+          "api::v1::workspaces"
+        ],
+        "operationId": "react",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Workspace ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "tid",
+            "in": "path",
+            "description": "Topic ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReactRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Saved; the new set goes to every socket on the topic"
+          },
+          "404": {
+            "description": "No such Workspace, topic or message"
+          },
+          "422": {
+            "description": "Not a reply that can take a reaction"
+          }
+        }
+      }
+    },
+    "/workspaces/{id}/topics/{tid}/read": {
+      "post": {
+        "tags": [
+          "api::v1::workspaces"
+        ],
+        "operationId": "mark_read",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Workspace ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "tid",
+            "in": "path",
+            "description": "Topic ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The topic's messages are read for the caller; its notifications too",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_ReadMarked"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such Workspace or topic, or the caller has no standing in it"
+          }
+        }
+      }
+    },
+    "/workspaces/{id}/topics/{tid}/stream": {
+      "get": {
+        "tags": [
+          "api::v1::workspaces"
+        ],
+        "operationId": "stream",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Workspace ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "tid",
+            "in": "path",
+            "description": "Topic ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "101": {
+            "description": "WebSocket established. The server pushes `hello`, `workspace_entry`, `history_entry`, `workspace_mentions`, `agent_state`, `member_changed`, `closed` and `resync` frames; the client sends `{ \"post\": { \"text\": \"...\" } }`"
+          },
+          "404": {
+            "description": "No such Workspace or topic, or the caller has no standing in it"
+          }
+        }
+      }
+    },
+    "/workspaces/{id}/topics/{tid}/turns/{agent}/stop": {
+      "post": {
+        "tags": [
+          "api::v1::workspaces"
+        ],
+        "operationId": "stop_agent",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Workspace ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "tid",
+            "in": "path",
+            "description": "Topic ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "agent",
+            "in": "path",
+            "description": "Agent ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "That agent's turn in that topic aborted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_StopResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such Workspace, topic or agent member, or the caller has no standing in it"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -8801,6 +10009,40 @@
           }
         }
       },
+      "APIResponse_Candidates": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "agents",
+              "people"
+            ],
+            "properties": {
+              "agents": {
+                "$ref": "#/components/schemas/CandidateGroup_AgentCandidate"
+              },
+              "people": {
+                "$ref": "#/components/schemas/CandidateGroup_PersonCandidate"
+              }
+            }
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
       "APIResponse_CatalogueStatus": {
         "type": "object",
         "required": [
@@ -8889,6 +10131,46 @@
                     "type": "null"
                   }
                 ]
+              }
+            }
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "APIResponse_CommandsView": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "commands",
+              "skills"
+            ],
+            "properties": {
+              "commands": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/CommandView"
+                }
+              },
+              "skills": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/SkillView"
+                }
               }
             }
           },
@@ -10039,6 +11321,62 @@
           }
         }
       },
+      "APIResponse_LspView": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "data": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/LspStatusSnapshot"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "can_manage"
+                ],
+                "properties": {
+                  "can_manage": {
+                    "type": "boolean"
+                  },
+                  "languages": {
+                    "type": [
+                      "array",
+                      "null"
+                    ],
+                    "items": {
+                      "$ref": "#/components/schemas/LanguageInfo"
+                    }
+                  },
+                  "overrides": {
+                    "type": [
+                      "array",
+                      "null"
+                    ],
+                    "items": {
+                      "$ref": "#/components/schemas/OverrideInfo"
+                    }
+                  }
+                }
+              }
+            ],
+            "description": "What the popup shows, plus what only a manager receives."
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
       "APIResponse_MediaModels": {
         "type": "object",
         "required": [
@@ -10089,6 +11427,56 @@
               "source": {
                 "type": "string",
                 "description": "`bundled` (the embedded seed) or `cached` (a refreshed copy)."
+              }
+            }
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "APIResponse_MemberView": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "kind",
+              "handle",
+              "name",
+              "role",
+              "available"
+            ],
+            "properties": {
+              "available": {
+                "type": "boolean",
+                "description": "An agent that was deleted after being added reads `false`."
+              },
+              "handle": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "description": "`person` or `agent`."
+              },
+              "name": {
+                "type": "string",
+                "description": "The agent's name, or the person's username."
+              },
+              "role": {
+                "type": "string",
+                "description": "`owner` or `member`."
               }
             }
           },
@@ -10612,6 +12000,52 @@
           }
         }
       },
+      "APIResponse_PostResponse": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "properties": {
+              "entry": {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/EntryView",
+                    "description": "The message posted. None when the text was a command."
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "note": {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/EntryView",
+                    "description": "What a command did, shown as a centred line."
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
       "APIResponse_ProjectDetail": {
         "type": "object",
         "required": [
@@ -10704,6 +12138,7 @@
               "folder",
               "available",
               "shell_enabled",
+              "lsp_enabled",
               "owner_id",
               "is_owner",
               "session_count",
@@ -10729,6 +12164,9 @@
                 "type": "string"
               },
               "is_owner": {
+                "type": "boolean"
+              },
+              "lsp_enabled": {
                 "type": "boolean"
               },
               "name": {
@@ -10951,6 +12389,38 @@
               "variant": {
                 "$ref": "#/components/schemas/ProviderId",
                 "description": "The same id, under the field name pre-015 clients read."
+              }
+            }
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "APIResponse_ReadMarked": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "marked"
+            ],
+            "properties": {
+              "marked": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
               }
             }
           },
@@ -11372,6 +12842,42 @@
           }
         }
       },
+      "APIResponse_StopResponse": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "stopped",
+              "dropped"
+            ],
+            "properties": {
+              "dropped": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "stopped": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
       "APIResponse_String": {
         "type": "object",
         "required": [
@@ -11579,6 +13085,56 @@
           }
         }
       },
+      "APIResponse_Timeline": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "entries",
+              "steps"
+            ],
+            "properties": {
+              "entries": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/EntryView"
+                },
+                "description": "Oldest first."
+              },
+              "next_before": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64",
+                "description": "Pass as `before` for the page above; none when there is nothing older."
+              },
+              "steps": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/StepView"
+                },
+                "description": "What the member agents did in the same span, to merge with `entries` by time."
+              }
+            }
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
       "APIResponse_TopicEntry": {
         "type": "object",
         "required": [
@@ -11615,6 +13171,47 @@
               },
               "topic_id": {
                 "type": "string"
+              }
+            }
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "APIResponse_TopicSummary": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "id",
+              "name",
+              "unread"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "unread": {
+                "type": "integer",
+                "format": "int64",
+                "description": "Messages from others the person has not read in this topic.",
+                "minimum": 0
               }
             }
           },
@@ -12135,6 +13732,51 @@
                     "null"
                   ],
                   "format": "date-time"
+                }
+              }
+            }
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "APIResponse_Vec_ChatUnread": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "How many replies one person has not read in one of their own WebUI conversations.",
+              "required": [
+                "agent_id",
+                "href",
+                "unread"
+              ],
+              "properties": {
+                "agent_id": {
+                  "type": "string"
+                },
+                "href": {
+                  "type": "string",
+                  "description": "The conversation's in-app path, as its notifications link to it."
+                },
+                "unread": {
+                  "type": "integer",
+                  "format": "int64",
+                  "minimum": 0
                 }
               }
             }
@@ -13034,6 +14676,7 @@
                 "folder",
                 "available",
                 "shell_enabled",
+                "lsp_enabled",
                 "owner_id",
                 "is_owner",
                 "session_count",
@@ -13059,6 +14702,9 @@
                   "type": "string"
                 },
                 "is_owner": {
+                  "type": "boolean"
+                },
+                "lsp_enabled": {
                   "type": "boolean"
                 },
                 "name": {
@@ -13618,6 +15264,66 @@
           }
         }
       },
+      "APIResponse_Vec_WorkspaceSummary": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "name",
+                "role",
+                "unread",
+                "working",
+                "topics"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "role": {
+                  "type": "string",
+                  "description": "`owner`, `member`, or `admin` for someone who manages every Workspace without being in it."
+                },
+                "topics": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TopicSummary"
+                  }
+                },
+                "unread": {
+                  "type": "integer",
+                  "format": "int64",
+                  "minimum": 0
+                },
+                "working": {
+                  "type": "boolean",
+                  "description": "An agent is working in it."
+                }
+              }
+            }
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
       "APIResponse_Vec_WorktreeSummary": {
         "type": "object",
         "required": [
@@ -13649,6 +15355,103 @@
                 "name": {
                   "type": "string"
                 }
+              }
+            }
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "APIResponse_WorkspaceDetail": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "data": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/WorkspaceSummary"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "members"
+                ],
+                "properties": {
+                  "members": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/MemberView"
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "APIResponse_WorkspaceSummary": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "id",
+              "name",
+              "role",
+              "unread",
+              "working",
+              "topics"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "role": {
+                "type": "string",
+                "description": "`owner`, `member`, or `admin` for someone who manages every Workspace without being in it."
+              },
+              "topics": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/TopicSummary"
+                }
+              },
+              "unread": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              },
+              "working": {
+                "type": "boolean",
+                "description": "An agent is working in it."
               }
             }
           },
@@ -13922,6 +15725,30 @@
           }
         }
       },
+      "AddMemberRequest": {
+        "type": "object",
+        "required": [
+          "kind",
+          "handle"
+        ],
+        "properties": {
+          "handle": {
+            "type": "string",
+            "description": "A username or an agent id."
+          },
+          "kind": {
+            "type": "string",
+            "description": "`person` or `agent`."
+          },
+          "role": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`owner` or `member`; agents are always `member`."
+          }
+        }
+      },
       "AffectedAgent": {
         "type": "object",
         "description": "An agent that would lose a provider, for the delete warning.",
@@ -13942,6 +15769,36 @@
           },
           "name": {
             "type": "string"
+          }
+        }
+      },
+      "AgentCandidate": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "member",
+          "addable"
+        ],
+        "properties": {
+          "addable": {
+            "type": "boolean"
+          },
+          "id": {
+            "type": "string"
+          },
+          "member": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`cannot_edit` for an agent the caller may see but not add."
           }
         }
       },
@@ -14914,6 +16771,31 @@
           }
         }
       },
+      "AuthorView": {
+        "type": "object",
+        "required": [
+          "kind",
+          "id",
+          "name",
+          "available"
+        ],
+        "properties": {
+          "available": {
+            "type": "boolean",
+            "description": "An agent that was deleted since reads `false`; its messages stay."
+          },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "description": "`person` or `agent`."
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
       "BackgroundJobSnapshot": {
         "type": "object",
         "description": "The WebUI wire shape (`contracts/http-api.md`).",
@@ -15322,6 +17204,104 @@
           }
         ]
       },
+      "CandidateGroup_AgentCandidate": {
+        "type": "object",
+        "required": [
+          "items",
+          "more"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "name",
+                "member",
+                "addable"
+              ],
+              "properties": {
+                "addable": {
+                  "type": "boolean"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "member": {
+                  "type": "boolean"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "`cannot_edit` for an agent the caller may see but not add."
+                }
+              }
+            }
+          },
+          "more": {
+            "type": "integer",
+            "description": "How many more matched than were returned.",
+            "minimum": 0
+          }
+        }
+      },
+      "CandidateGroup_PersonCandidate": {
+        "type": "object",
+        "required": [
+          "items",
+          "more"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "username",
+                "name",
+                "member"
+              ],
+              "properties": {
+                "member": {
+                  "type": "boolean"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "username": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "more": {
+            "type": "integer",
+            "description": "How many more matched than were returned.",
+            "minimum": 0
+          }
+        }
+      },
+      "Candidates": {
+        "type": "object",
+        "required": [
+          "agents",
+          "people"
+        ],
+        "properties": {
+          "agents": {
+            "$ref": "#/components/schemas/CandidateGroup_AgentCandidate"
+          },
+          "people": {
+            "$ref": "#/components/schemas/CandidateGroup_PersonCandidate"
+          }
+        }
+      },
       "CatalogueStatus": {
         "type": "object",
         "required": [
@@ -15436,6 +17416,18 @@
           "failed"
         ]
       },
+      "ChatReadRequest": {
+        "type": "object",
+        "properties": {
+          "href": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The conversation's `href`, as `GET /notifications/chats` gives it."
+          }
+        }
+      },
       "ChatRequest": {
         "type": "object",
         "required": [
@@ -15499,6 +17491,29 @@
                 "type": "null"
               }
             ]
+          }
+        }
+      },
+      "ChatUnread": {
+        "type": "object",
+        "description": "How many replies one person has not read in one of their own WebUI conversations.",
+        "required": [
+          "agent_id",
+          "href",
+          "unread"
+        ],
+        "properties": {
+          "agent_id": {
+            "type": "string"
+          },
+          "href": {
+            "type": "string",
+            "description": "The conversation's in-app path, as its notifications link to it."
+          },
+          "unread": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
           }
         }
       },
@@ -15667,6 +17682,42 @@
           },
           "text": {
             "type": "string"
+          }
+        }
+      },
+      "CommandView": {
+        "type": "object",
+        "required": [
+          "name",
+          "description"
+        ],
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "CommandsView": {
+        "type": "object",
+        "required": [
+          "commands",
+          "skills"
+        ],
+        "properties": {
+          "commands": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CommandView"
+            }
+          },
+          "skills": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SkillView"
+            }
           }
         }
       },
@@ -16546,6 +18597,35 @@
           }
         }
       },
+      "CreateTopicRequest": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "CreateWorkspaceRequest": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "first_topic": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The first topic. Defaults to `general`."
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
       "CreateWorktreeRequest": {
         "type": "object",
         "required": [
@@ -16798,6 +18878,7 @@
               "enum": [
                 "chat",
                 "project",
+                "workspace",
                 "background",
                 "scheduled",
                 "dreams",
@@ -17302,6 +19383,32 @@
           "bedrock"
         ]
       },
+      "EntryFile": {
+        "type": "object",
+        "description": "A file shared with an entry.",
+        "required": [
+          "file_id",
+          "name",
+          "mime_type",
+          "size"
+        ],
+        "properties": {
+          "file_id": {
+            "type": "string"
+          },
+          "mime_type": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
       "EntryPricingView": {
         "type": "object",
         "description": "One entry's `pricing` as the API reports it (contracts §4a): the state, the figure when there\nis one, and — for every absence — the label plus a cause-specific reason that carries the way\nout. Computed per request from the entry's current state, never stored (FR-034a.2, FR-034b,\nSC-021). Fields that do not belong to an outcome are omitted, so the three absence shapes stay\ndistinct without a stored column.",
@@ -17351,6 +19458,71 @@
           "state": {
             "type": "string",
             "description": "`explicit`, `from_catalogue`, `not_resolved`, `not_set` or `no_catalogue`."
+          }
+        }
+      },
+      "EntryView": {
+        "type": "object",
+        "required": [
+          "seq",
+          "kind",
+          "author",
+          "body",
+          "at",
+          "mentions",
+          "is_final",
+          "files"
+        ],
+        "properties": {
+          "activated_by_seq": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "at": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Unix milliseconds."
+          },
+          "author": {
+            "$ref": "#/components/schemas/AuthorView"
+          },
+          "body": {
+            "type": "string"
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EntryFile"
+            }
+          },
+          "history_uid": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "is_final": {
+            "type": "boolean"
+          },
+          "kind": {
+            "type": "string",
+            "description": "`person`, `agent` or `note`."
+          },
+          "mentions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MentionView"
+            }
+          },
+          "origin": {
+            "description": "Where it was sent from when not from inside: `{kind, label}`."
+          },
+          "seq": {
+            "type": "integer",
+            "format": "int64"
           }
         }
       },
@@ -18339,6 +20511,25 @@
           }
         }
       },
+      "LanguageInfo": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "default_command"
+        ],
+        "properties": {
+          "default_command": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
       "LegacyLinked": {
         "type": "object",
         "description": "The other agents a legacy integration (FR-023) is still linked to.",
@@ -18458,6 +20649,135 @@
           }
         }
       },
+      "LspCapacity": {
+        "type": "object",
+        "required": [
+          "in_use",
+          "max"
+        ],
+        "properties": {
+          "in_use": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "max": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "LspServerStatus": {
+        "type": "object",
+        "description": "One server as a person sees it. `root` is relative to the project folder.",
+        "required": [
+          "language",
+          "name",
+          "root",
+          "state",
+          "overridden"
+        ],
+        "properties": {
+          "detail": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Progress while starting, such as `indexing 41%`."
+          },
+          "install_hint": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "language": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "overridden": {
+            "type": "boolean"
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "root": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "description": "`starting`, `ready`, `missing` or `failed`."
+          }
+        }
+      },
+      "LspStatusSnapshot": {
+        "type": "object",
+        "description": "What the status strip and its popup show (`data-model.md` §6).",
+        "required": [
+          "project_id",
+          "enabled",
+          "capacity",
+          "servers"
+        ],
+        "properties": {
+          "capacity": {
+            "$ref": "#/components/schemas/LspCapacity"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "project_id": {
+            "type": "string"
+          },
+          "servers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LspServerStatus"
+            }
+          }
+        }
+      },
+      "LspView": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/LspStatusSnapshot"
+          },
+          {
+            "type": "object",
+            "required": [
+              "can_manage"
+            ],
+            "properties": {
+              "can_manage": {
+                "type": "boolean"
+              },
+              "languages": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "$ref": "#/components/schemas/LanguageInfo"
+                }
+              },
+              "overrides": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "$ref": "#/components/schemas/OverrideInfo"
+                }
+              }
+            }
+          }
+        ],
+        "description": "What the popup shows, plus what only a manager receives."
+      },
       "MediaCapability": {
         "type": "string",
         "description": "The one axis discovery varies on (data-model §1). It is also the storage key and the API\nquery value.",
@@ -18556,6 +20876,37 @@
           "source": {
             "type": "string",
             "description": "`bundled` (the embedded seed) or `cached` (a refreshed copy)."
+          }
+        }
+      },
+      "MemberView": {
+        "type": "object",
+        "required": [
+          "kind",
+          "handle",
+          "name",
+          "role",
+          "available"
+        ],
+        "properties": {
+          "available": {
+            "type": "boolean",
+            "description": "An agent that was deleted after being added reads `false`."
+          },
+          "handle": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "description": "`person` or `agent`."
+          },
+          "name": {
+            "type": "string",
+            "description": "The agent's name, or the person's username."
+          },
+          "role": {
+            "type": "string",
+            "description": "`owner` or `member`."
           }
         }
       },
@@ -18919,6 +21270,26 @@
           }
         }
       },
+      "MentionView": {
+        "type": "object",
+        "required": [
+          "kind",
+          "handle",
+          "state"
+        ],
+        "properties": {
+          "handle": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "description": "`pending`, `woken`, `unavailable`, `dropped` or `resolved`. The client draws a note only\nfor `unavailable`."
+          }
+        }
+      },
       "ModelCaps": {
         "type": "object",
         "properties": {
@@ -19143,7 +21514,8 @@
           "dream_cycle",
           "background_job",
           "integration",
-          "chat_reply"
+          "chat_reply",
+          "workspace_message"
         ]
       },
       "NotificationCounts": {
@@ -19296,8 +21668,33 @@
           "folder": {
             "type": "string",
             "description": "The folder to mount. Its final component becomes the project name."
+          },
+          "lsp_enabled": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Language servers for this project's chats. On unless the request says otherwise."
           }
         }
+      },
+      "OverrideInfo": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ServerOverride"
+          },
+          {
+            "type": "object",
+            "required": [
+              "language"
+            ],
+            "properties": {
+              "language": {
+                "type": "string"
+              }
+            }
+          }
+        ]
       },
       "Overview": {
         "type": "object",
@@ -19437,6 +21834,25 @@
           }
         }
       },
+      "PersonCandidate": {
+        "type": "object",
+        "required": [
+          "username",
+          "name",
+          "member"
+        ],
+        "properties": {
+          "member": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
+          }
+        }
+      },
       "PieceState": {
         "type": "string",
         "enum": [
@@ -19476,6 +21892,51 @@
             }
           }
         ]
+      },
+      "PostRequest": {
+        "type": "object",
+        "required": [
+          "text"
+        ],
+        "properties": {
+          "files": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Ids of files already uploaded to this topic."
+          },
+          "text": {
+            "type": "string"
+          }
+        }
+      },
+      "PostResponse": {
+        "type": "object",
+        "properties": {
+          "entry": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/EntryView",
+                "description": "The message posted. None when the text was a command."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "note": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/EntryView",
+                "description": "What a command did, shown as a centred line."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
       },
       "ProfileEntry": {
         "type": "object",
@@ -19817,6 +22278,7 @@
           "folder",
           "available",
           "shell_enabled",
+          "lsp_enabled",
           "owner_id",
           "is_owner",
           "session_count",
@@ -19842,6 +22304,9 @@
             "type": "string"
           },
           "is_owner": {
+            "type": "boolean"
+          },
+          "lsp_enabled": {
             "type": "boolean"
           },
           "name": {
@@ -20403,6 +22868,27 @@
           "failed"
         ]
       },
+      "ReactRequest": {
+        "type": "object",
+        "required": [
+          "message_uid",
+          "emoji",
+          "action"
+        ],
+        "properties": {
+          "action": {
+            "type": "string",
+            "description": "`added` or `removed`."
+          },
+          "emoji": {
+            "type": "string"
+          },
+          "message_uid": {
+            "type": "string",
+            "description": "The history uid of an agent's reply in this topic."
+          }
+        }
+      },
       "ReactionEntry": {
         "type": "object",
         "required": [
@@ -20444,6 +22930,19 @@
               }
             ],
             "default": null
+          }
+        }
+      },
+      "ReadMarked": {
+        "type": "object",
+        "required": [
+          "marked"
+        ],
+        "properties": {
+          "marked": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
           }
         }
       },
@@ -20515,6 +23014,17 @@
             ]
           },
           "ttl": {
+            "type": "string"
+          }
+        }
+      },
+      "RenameRequest": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
             "type": "string"
           }
         }
@@ -20591,6 +23101,25 @@
           }
         ],
         "description": "Who wanted a task to exist.\n\nThe one distinction that matters — somebody asked, versus the agent set this\nup on its own initiative — made unforgeable in the type. `User`'s payload is\ndeliberately not an account: most people reaching an agent have none, and the\nchat channels already synthesise an identity string for them."
+      },
+      "RestartRequest": {
+        "type": "object",
+        "description": "Body of `POST …/lsp/restart`.",
+        "required": [
+          "language"
+        ],
+        "properties": {
+          "language": {
+            "type": "string"
+          },
+          "root": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "A root already listed, relative to the project folder; without it every root restarts."
+          }
+        }
       },
       "RevisionActor": {
         "oneOf": [
@@ -21141,6 +23670,33 @@
           }
         }
       },
+      "ServerOverride": {
+        "type": "object",
+        "description": "A person's choice of server for one language in one project (`data-model.md` §2).",
+        "required": [
+          "command"
+        ],
+        "properties": {
+          "args": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "command": {
+            "type": "string"
+          },
+          "env": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          }
+        }
+      },
       "ServerStatus": {
         "type": "object",
         "description": "What the sign-in page needs before anyone has signed in.",
@@ -21586,6 +24142,17 @@
           }
         }
       },
+      "SetRoleRequest": {
+        "type": "object",
+        "required": [
+          "role"
+        ],
+        "properties": {
+          "role": {
+            "type": "string"
+          }
+        }
+      },
       "SetSecretRequest": {
         "type": "object",
         "required": [
@@ -21875,6 +24442,29 @@
           }
         }
       },
+      "SkillView": {
+        "type": "object",
+        "required": [
+          "name",
+          "description",
+          "agents"
+        ],
+        "properties": {
+          "agents": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The member agents that have it."
+          },
+          "description": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
       "SortOrder": {
         "type": "string",
         "enum": [
@@ -21891,6 +24481,38 @@
           "expired",
           "unreadable"
         ]
+      },
+      "StepView": {
+        "type": "object",
+        "required": [
+          "agent_id",
+          "entry"
+        ],
+        "properties": {
+          "agent_id": {
+            "type": "string"
+          },
+          "entry": {
+            "description": "A history entry in the shape `GET …/history` returns."
+          }
+        }
+      },
+      "StopResponse": {
+        "type": "object",
+        "required": [
+          "stopped",
+          "dropped"
+        ],
+        "properties": {
+          "dropped": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "stopped": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
       },
       "String": {
         "type": "string"
@@ -22161,6 +24783,37 @@
           }
         }
       },
+      "Timeline": {
+        "type": "object",
+        "required": [
+          "entries",
+          "steps"
+        ],
+        "properties": {
+          "entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EntryView"
+            },
+            "description": "Oldest first."
+          },
+          "next_before": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Pass as `before` for the page above; none when there is nothing older."
+          },
+          "steps": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StepView"
+            },
+            "description": "What the member agents did in the same span, to merge with `entries` by time."
+          }
+        }
+      },
       "TodayByKind": {
         "type": "object",
         "required": [
@@ -22222,6 +24875,28 @@
           },
           "topic_id": {
             "type": "string"
+          }
+        }
+      },
+      "TopicSummary": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "unread"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "unread": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Messages from others the person has not read in this topic.",
+            "minimum": 0
           }
         }
       },
@@ -22414,6 +25089,13 @@
       "UpdateProjectRequest": {
         "type": "object",
         "properties": {
+          "lsp_enabled": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Language servers on or off (`specs/054-project-lsp`). Off stops them at once."
+          },
           "name": {
             "type": [
               "string",
@@ -22581,6 +25263,7 @@
         "enum": [
           "chat",
           "project",
+          "workspace",
           "background",
           "scheduled",
           "dreams",
@@ -23450,6 +26133,65 @@
         },
         "maxItems": 3,
         "minItems": 3
+      },
+      "WorkspaceDetail": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/WorkspaceSummary"
+          },
+          {
+            "type": "object",
+            "required": [
+              "members"
+            ],
+            "properties": {
+              "members": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/MemberView"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "WorkspaceSummary": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "role",
+          "unread",
+          "working",
+          "topics"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string",
+            "description": "`owner`, `member`, or `admin` for someone who manages every Workspace without being in it."
+          },
+          "topics": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TopicSummary"
+            }
+          },
+          "unread": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "working": {
+            "type": "boolean",
+            "description": "An agent is working in it."
+          }
+        }
       },
       "WorktreeDeleted": {
         "type": "object",

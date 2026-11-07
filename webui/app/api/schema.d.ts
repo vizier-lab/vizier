@@ -697,6 +697,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/agents/{agent_id}/projects/{project_id}/lsp": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["lsp_status"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agent_id}/projects/{project_id}/lsp/overrides/{language}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["lsp_set_override"];
+        post?: never;
+        delete: operations["lsp_delete_override"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agent_id}/projects/{project_id}/lsp/restart": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["lsp_restart"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/agents/{agent_id}/projects/{project_id}/sessions": {
         parameters: {
             query?: never;
@@ -1241,6 +1289,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/notifications/chats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["chats"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/notifications/chats/read": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["read_chat"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/notifications/count": {
         parameters: {
             query?: never;
@@ -1597,6 +1677,230 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/workspaces": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list"];
+        put?: never;
+        post: operations["create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/workspaces/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["detail"];
+        put?: never;
+        post?: never;
+        delete: operations["delete_workspace"];
+        options?: never;
+        head?: never;
+        patch: operations["rename"];
+        trace?: never;
+    };
+    "/workspaces/{id}/candidates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["candidates"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/workspaces/{id}/commands": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["commands"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/workspaces/{id}/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["add_member"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/workspaces/{id}/members/{kind}/{handle}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["remove_member"];
+        options?: never;
+        head?: never;
+        patch: operations["set_role"];
+        trace?: never;
+    };
+    "/workspaces/{id}/stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["stop_all"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/workspaces/{id}/topics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["create_topic"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/workspaces/{id}/topics/{tid}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["delete_topic"];
+        options?: never;
+        head?: never;
+        patch: operations["rename_topic"];
+        trace?: never;
+    };
+    "/workspaces/{id}/topics/{tid}/entries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["timeline"];
+        put?: never;
+        post: operations["post_entry"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/workspaces/{id}/topics/{tid}/reactions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["react"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/workspaces/{id}/topics/{tid}/read": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["mark_read"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/workspaces/{id}/topics/{tid}/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["stream"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/workspaces/{id}/topics/{tid}/turns/{agent}/stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["stop_agent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1830,6 +2134,15 @@ export interface components {
             /** Format: int32 */
             status: number;
         };
+        APIResponse_Candidates: {
+            data?: {
+                agents: components["schemas"]["CandidateGroup_AgentCandidate"];
+                people: components["schemas"]["CandidateGroup_PersonCandidate"];
+            };
+            message?: string | null;
+            /** Format: int32 */
+            status: number;
+        };
         APIResponse_CatalogueStatus: {
             data?: {
                 /** Format: date-time */
@@ -1851,6 +2164,15 @@ export interface components {
                 attachments: components["schemas"]["VizierAttachment"][];
                 content: string;
                 stats?: components["schemas"]["VizierResponseStats"] | null;
+            };
+            message?: string | null;
+            /** Format: int32 */
+            status: number;
+        };
+        APIResponse_CommandsView: {
+            data?: {
+                commands: components["schemas"]["CommandView"][];
+                skills: components["schemas"]["SkillView"][];
             };
             message?: string | null;
             /** Format: int32 */
@@ -2153,6 +2475,17 @@ export interface components {
             /** Format: int32 */
             status: number;
         };
+        APIResponse_LspView: {
+            /** @description What the popup shows, plus what only a manager receives. */
+            data?: components["schemas"]["LspStatusSnapshot"] & {
+                can_manage: boolean;
+                languages?: components["schemas"]["LanguageInfo"][] | null;
+                overrides?: components["schemas"]["OverrideInfo"][] | null;
+            };
+            message?: string | null;
+            /** Format: int32 */
+            status: number;
+        };
         APIResponse_MediaModels: {
             /** @description One OpenRouter media capability's listing (spec 028, contract `media-catalogue-api.md`). */
             data?: {
@@ -2167,6 +2500,22 @@ export interface components {
                 refresh: components["schemas"]["RefreshStatus"];
                 /** @description `bundled` (the embedded seed) or `cached` (a refreshed copy). */
                 source: string;
+            };
+            message?: string | null;
+            /** Format: int32 */
+            status: number;
+        };
+        APIResponse_MemberView: {
+            data?: {
+                /** @description An agent that was deleted after being added reads `false`. */
+                available: boolean;
+                handle: string;
+                /** @description `person` or `agent`. */
+                kind: string;
+                /** @description The agent's name, or the person's username. */
+                name: string;
+                /** @description `owner` or `member`. */
+                role: string;
             };
             message?: string | null;
             /** Format: int32 */
@@ -2307,6 +2656,15 @@ export interface components {
             /** Format: int32 */
             status: number;
         };
+        APIResponse_PostResponse: {
+            data?: {
+                entry?: components["schemas"]["EntryView"] | null;
+                note?: components["schemas"]["EntryView"] | null;
+            };
+            message?: string | null;
+            /** Format: int32 */
+            status: number;
+        };
         APIResponse_ProjectDetail: {
             data?: components["schemas"]["ProjectSummary"] & {
                 instructions_present: boolean;
@@ -2339,6 +2697,7 @@ export interface components {
                 folder: string;
                 id: string;
                 is_owner: boolean;
+                lsp_enabled: boolean;
                 name: string;
                 owner_id: string;
                 /** @description Sessions in the project across every owner (the sidebar's project row). */
@@ -2404,6 +2763,15 @@ export interface components {
                 used_by: components["schemas"]["UsedBy"];
                 /** @description The same id, under the field name pre-015 clients read. */
                 variant: components["schemas"]["ProviderId"];
+            };
+            message?: string | null;
+            /** Format: int32 */
+            status: number;
+        };
+        APIResponse_ReadMarked: {
+            data?: {
+                /** Format: int64 */
+                marked: number;
             };
             message?: string | null;
             /** Format: int32 */
@@ -2527,6 +2895,15 @@ export interface components {
             /** Format: int32 */
             status: number;
         };
+        APIResponse_StopResponse: {
+            data?: {
+                dropped: number;
+                stopped: number;
+            };
+            message?: string | null;
+            /** Format: int32 */
+            status: number;
+        };
         APIResponse_String: {
             data?: string;
             message?: string | null;
@@ -2591,6 +2968,22 @@ export interface components {
             /** Format: int32 */
             status: number;
         };
+        APIResponse_Timeline: {
+            data?: {
+                /** @description Oldest first. */
+                entries: components["schemas"]["EntryView"][];
+                /**
+                 * Format: int64
+                 * @description Pass as `before` for the page above; none when there is nothing older.
+                 */
+                next_before?: number | null;
+                /** @description What the member agents did in the same span, to merge with `entries` by time. */
+                steps: components["schemas"]["StepView"][];
+            };
+            message?: string | null;
+            /** Format: int32 */
+            status: number;
+        };
         APIResponse_TopicEntry: {
             data?: {
                 agent_id: string;
@@ -2600,6 +2993,20 @@ export interface components {
                 running_jobs: number;
                 title: string;
                 topic_id: string;
+            };
+            message?: string | null;
+            /** Format: int32 */
+            status: number;
+        };
+        APIResponse_TopicSummary: {
+            data?: {
+                id: string;
+                name: string;
+                /**
+                 * Format: int64
+                 * @description Messages from others the person has not read in this topic.
+                 */
+                unread: number;
             };
             message?: string | null;
             /** Format: int32 */
@@ -2726,6 +3133,18 @@ export interface components {
                 protected?: boolean;
                 /** Format: date-time */
                 updated_at?: string | null;
+            }[];
+            message?: string | null;
+            /** Format: int32 */
+            status: number;
+        };
+        APIResponse_Vec_ChatUnread: {
+            data?: {
+                agent_id: string;
+                /** @description The conversation's in-app path, as its notifications link to it. */
+                href: string;
+                /** Format: int64 */
+                unread: number;
             }[];
             message?: string | null;
             /** Format: int32 */
@@ -2971,6 +3390,7 @@ export interface components {
                 folder: string;
                 id: string;
                 is_owner: boolean;
+                lsp_enabled: boolean;
                 name: string;
                 owner_id: string;
                 /** @description Sessions in the project across every owner (the sidebar's project row). */
@@ -3129,6 +3549,22 @@ export interface components {
             /** Format: int32 */
             status: number;
         };
+        APIResponse_Vec_WorkspaceSummary: {
+            data?: {
+                id: string;
+                name: string;
+                /** @description `owner`, `member`, or `admin` for someone who manages every Workspace without being in it. */
+                role: string;
+                topics: components["schemas"]["TopicSummary"][];
+                /** Format: int64 */
+                unread: number;
+                /** @description An agent is working in it. */
+                working: boolean;
+            }[];
+            message?: string | null;
+            /** Format: int32 */
+            status: number;
+        };
         APIResponse_Vec_WorktreeSummary: {
             data?: {
                 /** @description The folder is still there (FR-032). */
@@ -3137,6 +3573,30 @@ export interface components {
                 id: string;
                 name: string;
             }[];
+            message?: string | null;
+            /** Format: int32 */
+            status: number;
+        };
+        APIResponse_WorkspaceDetail: {
+            data?: components["schemas"]["WorkspaceSummary"] & {
+                members: components["schemas"]["MemberView"][];
+            };
+            message?: string | null;
+            /** Format: int32 */
+            status: number;
+        };
+        APIResponse_WorkspaceSummary: {
+            data?: {
+                id: string;
+                name: string;
+                /** @description `owner`, `member`, or `admin` for someone who manages every Workspace without being in it. */
+                role: string;
+                topics: components["schemas"]["TopicSummary"][];
+                /** Format: int64 */
+                unread: number;
+                /** @description An agent is working in it. */
+                working: boolean;
+            };
             message?: string | null;
             /** Format: int32 */
             status: number;
@@ -3207,11 +3667,27 @@ export interface components {
             /** @description Turns started in each of the 24 hours of [`Activity::hours`]. */
             turns: number[];
         };
+        AddMemberRequest: {
+            /** @description A username or an agent id. */
+            handle: string;
+            /** @description `person` or `agent`. */
+            kind: string;
+            /** @description `owner` or `member`; agents are always `member`. */
+            role?: string | null;
+        };
         /** @description An agent that would lose a provider, for the delete warning. */
         AffectedAgent: {
             features: string[];
             id: string;
             name: string;
+        };
+        AgentCandidate: {
+            addable: boolean;
+            id: string;
+            member: boolean;
+            name: string;
+            /** @description `cannot_edit` for an agent the caller may see but not add. */
+            reason?: string | null;
         };
         AgentCounts: {
             /** @description Failed to start or run, whatever their retry state. */
@@ -3482,6 +3958,14 @@ export interface components {
         AttachmentBody: {
             attached: boolean;
         };
+        AuthorView: {
+            /** @description An agent that was deleted since reads `false`; its messages stay. */
+            available: boolean;
+            id: string;
+            /** @description `person` or `agent`. */
+            kind: string;
+            name: string;
+        };
         /** @description The WebUI wire shape (`contracts/http-api.md`). */
         BackgroundJobSnapshot: {
             cancelled_by?: components["schemas"]["Canceller"] | null;
@@ -3592,6 +4076,31 @@ export interface components {
         } | {
             person: string;
         };
+        CandidateGroup_AgentCandidate: {
+            items: {
+                addable: boolean;
+                id: string;
+                member: boolean;
+                name: string;
+                /** @description `cannot_edit` for an agent the caller may see but not add. */
+                reason?: string | null;
+            }[];
+            /** @description How many more matched than were returned. */
+            more: number;
+        };
+        CandidateGroup_PersonCandidate: {
+            items: {
+                member: boolean;
+                name: string;
+                username: string;
+            }[];
+            /** @description How many more matched than were returned. */
+            more: number;
+        };
+        Candidates: {
+            agents: components["schemas"]["CandidateGroup_AgentCandidate"];
+            people: components["schemas"]["CandidateGroup_PersonCandidate"];
+        };
         CatalogueStatus: {
             /** Format: date-time */
             checked_at?: string | null;
@@ -3630,6 +4139,10 @@ export interface components {
         ChannelPlatform: "discord" | "telegram";
         /** @enum {string} */
         ChannelState: "running" | "reconnecting" | "failed";
+        ChatReadRequest: {
+            /** @description The conversation's `href`, as `GET /notifications/chats` gives it. */
+            href?: string | null;
+        };
         ChatRequest: {
             attachments?: components["schemas"]["VizierAttachment"][] | null;
             channel_id: string;
@@ -3641,6 +4154,14 @@ export interface components {
             attachments: components["schemas"]["VizierAttachment"][];
             content: string;
             stats?: components["schemas"]["VizierResponseStats"] | null;
+        };
+        /** @description How many replies one person has not read in one of their own WebUI conversations. */
+        ChatUnread: {
+            agent_id: string;
+            /** @description The conversation's in-app path, as its notifications link to it. */
+            href: string;
+            /** Format: int64 */
+            unread: number;
         };
         /**
          * @description One choice a `choice` or `multi_choice` question offers (FR-003).
@@ -3692,6 +4213,14 @@ export interface components {
             data?: unknown;
             source_call_id?: string | null;
             text: string;
+        };
+        CommandView: {
+            description: string;
+            name: string;
+        };
+        CommandsView: {
+            commands: components["schemas"]["CommandView"][];
+            skills: components["schemas"]["SkillView"][];
         };
         Connection: {
             /** @description `saved`, `env:NAME`, or `null` (a local provider, or none found). */
@@ -3909,6 +4438,14 @@ export interface components {
             schedule: components["schemas"]["ScheduleRequest"];
             slug: string;
             title: string;
+        };
+        CreateTopicRequest: {
+            name: string;
+        };
+        CreateWorkspaceRequest: {
+            /** @description The first topic. Defaults to `general`. */
+            first_topic?: string | null;
+            name: string;
         };
         CreateWorktreeRequest: {
             base: string;
@@ -4140,6 +4677,14 @@ export interface components {
         };
         /** @enum {string} */
         EmbeddingProvider: "local" | "openrouter" | "ollama" | "openai" | "gemini" | "voyageai" | "mistral" | "together" | "cohere" | "copilot" | "bedrock";
+        /** @description A file shared with an entry. */
+        EntryFile: {
+            file_id: string;
+            mime_type: string;
+            name: string;
+            /** Format: int64 */
+            size: number;
+        };
         /**
          * @description One entry's `pricing` as the API reports it (contracts §4a): the state, the figure when there
          *     is one, and — for every absence — the label plus a cause-specific reason that carries the way
@@ -4159,6 +4704,27 @@ export interface components {
             source?: string | null;
             /** @description `explicit`, `from_catalogue`, `not_resolved`, `not_set` or `no_catalogue`. */
             state: string;
+        };
+        EntryView: {
+            /** Format: int64 */
+            activated_by_seq?: number | null;
+            /**
+             * Format: int64
+             * @description Unix milliseconds.
+             */
+            at: number;
+            author: components["schemas"]["AuthorView"];
+            body: string;
+            files: components["schemas"]["EntryFile"][];
+            history_uid?: string | null;
+            is_final: boolean;
+            /** @description `person`, `agent` or `note`. */
+            kind: string;
+            mentions: components["schemas"]["MentionView"][];
+            /** @description Where it was sent from when not from inside: `{kind, label}`. */
+            origin?: unknown;
+            /** Format: int64 */
+            seq: number;
         };
         /** @enum {string} */
         ErrorKind: "completion" | "tool_timeout" | "prompt_timeout" | "rate_limited" | "provider_unavailable" | "agent_unavailable";
@@ -4420,6 +4986,11 @@ export interface components {
             id: string;
             name: string;
         };
+        LanguageInfo: {
+            default_command: string;
+            id: string;
+            name: string;
+        };
         /** @description The other agents a legacy integration (FR-023) is still linked to. */
         LegacyLinked: {
             /** @description Those the caller can see. */
@@ -4460,6 +5031,36 @@ export interface components {
         LoginResponse: {
             token: string;
         };
+        LspCapacity: {
+            in_use: number;
+            max: number;
+        };
+        /** @description One server as a person sees it. `root` is relative to the project folder. */
+        LspServerStatus: {
+            /** @description Progress while starting, such as `indexing 41%`. */
+            detail?: string | null;
+            install_hint?: string | null;
+            language: string;
+            name: string;
+            overridden: boolean;
+            reason?: string | null;
+            root: string;
+            /** @description `starting`, `ready`, `missing` or `failed`. */
+            state: string;
+        };
+        /** @description What the status strip and its popup show (`data-model.md` §6). */
+        LspStatusSnapshot: {
+            capacity: components["schemas"]["LspCapacity"];
+            enabled: boolean;
+            project_id: string;
+            servers: components["schemas"]["LspServerStatus"][];
+        };
+        /** @description What the popup shows, plus what only a manager receives. */
+        LspView: components["schemas"]["LspStatusSnapshot"] & {
+            can_manage: boolean;
+            languages?: components["schemas"]["LanguageInfo"][] | null;
+            overrides?: components["schemas"]["OverrideInfo"][] | null;
+        };
         /**
          * @description The one axis discovery varies on (data-model §1). It is also the storage key and the API
          *     query value.
@@ -4492,6 +5093,17 @@ export interface components {
             refresh: components["schemas"]["RefreshStatus"];
             /** @description `bundled` (the embedded seed) or `cached` (a refreshed copy). */
             source: string;
+        };
+        MemberView: {
+            /** @description An agent that was deleted after being added reads `false`. */
+            available: boolean;
+            handle: string;
+            /** @description `person` or `agent`. */
+            kind: string;
+            /** @description The agent's name, or the person's username. */
+            name: string;
+            /** @description `owner` or `member`. */
+            role: string;
         };
         /**
          * @description The HTTP view of a memory attachment: tagged by kind and carrying read-time availability.
@@ -4603,6 +5215,15 @@ export interface components {
             /** Format: date-time */
             updated_at: string;
         };
+        MentionView: {
+            handle: string;
+            kind: string;
+            /**
+             * @description `pending`, `woken`, `unavailable`, `dropped` or `resolved`. The client draws a note only
+             *     for `unavailable`.
+             */
+            state: string;
+        };
         ModelCaps: {
             attachment?: boolean | null;
             image_input?: boolean | null;
@@ -4656,7 +5277,7 @@ export interface components {
          *     a filter.
          * @enum {string}
          */
-        NotificationCategory: "agent_start_failure" | "agent_setup_ready" | "task_run" | "dream_cycle" | "background_job" | "integration" | "chat_reply";
+        NotificationCategory: "agent_start_failure" | "agent_setup_ready" | "task_run" | "dream_cycle" | "background_job" | "integration" | "chat_reply" | "workspace_message";
         /** @description Counts over the whole visible, retained set, independent of the selected page/filter. */
         NotificationCounts: {
             /** Format: int64 */
@@ -4715,6 +5336,11 @@ export interface components {
         OpenProjectRequest: {
             /** @description The folder to mount. Its final component becomes the project name. */
             folder: string;
+            /** @description Language servers for this project's chats. On unless the request says otherwise. */
+            lsp_enabled?: boolean | null;
+        };
+        OverrideInfo: components["schemas"]["ServerOverride"] & {
+            language: string;
         };
         Overview: {
             /**
@@ -4756,6 +5382,11 @@ export interface components {
             /** Format: int64 */
             tokens: number;
         };
+        PersonCandidate: {
+            member: boolean;
+            name: string;
+            username: string;
+        };
         /** @enum {string} */
         PieceState: "running" | "answered" | "failed" | "timed_out" | "cancelled" | "interrupted";
         PlatformMessageId: {
@@ -4764,6 +5395,15 @@ export interface components {
         } | {
             /** Format: int64 */
             telegram: number;
+        };
+        PostRequest: {
+            /** @description Ids of files already uploaded to this topic. */
+            files?: string[];
+            text: string;
+        };
+        PostResponse: {
+            entry?: components["schemas"]["EntryView"] | null;
+            note?: components["schemas"]["EntryView"] | null;
         };
         /**
          * @description One Application Inference Profile a connection may chat through (spec 044, data-model
@@ -4905,6 +5545,7 @@ export interface components {
             folder: string;
             id: string;
             is_owner: boolean;
+            lsp_enabled: boolean;
             name: string;
             owner_id: string;
             /** @description Sessions in the project across every owner (the sidebar's project row). */
@@ -5079,6 +5720,13 @@ export interface components {
          * @enum {string}
          */
         Rank: "most_active" | "mine" | "live" | "failed";
+        ReactRequest: {
+            /** @description `added` or `removed`. */
+            action: string;
+            emoji: string;
+            /** @description The history uid of an agent's reply in this topic. */
+            message_uid: string;
+        };
         ReactionEntry: {
             emoji: string;
             user_id: string;
@@ -5089,6 +5737,10 @@ export interface components {
             model: string | null;
             /** @default null */
             provider: components["schemas"]["ProviderId"] | null;
+        };
+        ReadMarked: {
+            /** Format: int64 */
+            marked: number;
         };
         /**
          * @description How recalled passages reached the turn.
@@ -5111,6 +5763,9 @@ export interface components {
             in_progress: boolean;
             last_error?: string | null;
             ttl: string;
+        };
+        RenameRequest: {
+            name: string;
         };
         RenameTopicRequest: {
             title: string;
@@ -5142,6 +5797,12 @@ export interface components {
         } | {
             /** @description The agent set this task up itself, with no one asking. */
             agent: components["schemas"]["String"];
+        };
+        /** @description Body of `POST …/lsp/restart`. */
+        RestartRequest: {
+            language: string;
+            /** @description A root already listed, relative to the project folder; without it every root restarts. */
+            root?: string | null;
         };
         /** @description Who performed a save. */
         RevisionActor: {
@@ -5299,6 +5960,14 @@ export interface components {
             /** @description `created` or `replaced`. */
             status: string;
         };
+        /** @description A person's choice of server for one language in one project (`data-model.md` §2). */
+        ServerOverride: {
+            args?: string[];
+            command: string;
+            env?: {
+                [key: string]: string;
+            };
+        };
         /** @description What the sign-in page needs before anyone has signed in. */
         ServerStatus: {
             online: boolean;
@@ -5429,6 +6098,9 @@ export interface components {
         SetModeResponse: {
             mode: components["schemas"]["ProjectMode"];
         };
+        SetRoleRequest: {
+            role: string;
+        };
         SetSecretRequest: {
             /** @description The value to store. Never returned by any route. */
             value: string;
@@ -5520,6 +6192,12 @@ export interface components {
         SignOutResponse: {
             state: string;
         };
+        SkillView: {
+            /** @description The member agents that have it. */
+            agents: string[];
+            description: string;
+            name: string;
+        };
         /** @enum {string} */
         SortOrder: "asc" | "desc";
         /**
@@ -5528,6 +6206,15 @@ export interface components {
          * @enum {string}
          */
         SsoSessionState: "configured" | "signed-in" | "expired" | "unreadable";
+        StepView: {
+            agent_id: string;
+            /** @description A history entry in the shape `GET …/history` returns. */
+            entry: unknown;
+        };
+        StopResponse: {
+            dropped: number;
+            stopped: number;
+        };
         String: string;
         /** @enum {string} */
         SttProvider: "openai" | "openrouter" | "elevenlabs" | "groq" | "mistral" | "huggingface" | "gemini" | "whisper";
@@ -5625,6 +6312,17 @@ export interface components {
             /** Format: int32 */
             status?: number | null;
         };
+        Timeline: {
+            /** @description Oldest first. */
+            entries: components["schemas"]["EntryView"][];
+            /**
+             * Format: int64
+             * @description Pass as `before` for the page above; none when there is nothing older.
+             */
+            next_before?: number | null;
+            /** @description What the member agents did in the same span, to merge with `entries` by time. */
+            steps: components["schemas"]["StepView"][];
+        };
         TodayByKind: {
             /** Format: int64 */
             background: number;
@@ -5643,6 +6341,15 @@ export interface components {
             running_jobs: number;
             title: string;
             topic_id: string;
+        };
+        TopicSummary: {
+            id: string;
+            name: string;
+            /**
+             * Format: int64
+             * @description Messages from others the person has not read in this topic.
+             */
+            unread: number;
         };
         /** @enum {string} */
         TtsProvider: "openai" | "openrouter" | "elevenlabs" | "xai" | "hyperbolic" | "kokoro";
@@ -5704,6 +6411,8 @@ export interface components {
             warning?: string | null;
         };
         UpdateProjectRequest: {
+            /** @description Language servers on or off (`specs/054-project-lsp`). Off stops them at once. */
+            lsp_enabled?: boolean | null;
             /** @description Trimmed, 1–120 characters. */
             name?: string | null;
             shell_enabled?: boolean | null;
@@ -5762,7 +6471,7 @@ export interface components {
          * @description What a model call was for. Decided once, when the call is recorded (research R4).
          * @enum {string}
          */
-        UsageActivity: "chat" | "project" | "background" | "scheduled" | "dreams" | "compaction" | "vision" | "other";
+        UsageActivity: "chat" | "project" | "workspace" | "background" | "scheduled" | "dreams" | "compaction" | "vision" | "other";
         UsageLink: {
             kind: components["schemas"]["UsageLinkKind"];
             path: string;
@@ -6019,6 +6728,20 @@ export interface components {
             total_tokens: number;
         };
         VizierSession: Record<string, never>[];
+        WorkspaceDetail: components["schemas"]["WorkspaceSummary"] & {
+            members: components["schemas"]["MemberView"][];
+        };
+        WorkspaceSummary: {
+            id: string;
+            name: string;
+            /** @description `owner`, `member`, or `admin` for someone who manages every Workspace without being in it. */
+            role: string;
+            topics: components["schemas"]["TopicSummary"][];
+            /** Format: int64 */
+            unread: number;
+            /** @description An agent is working in it. */
+            working: boolean;
+        };
         WorktreeDeleted: {
             branch_deleted: boolean;
             deleted: boolean;
@@ -8649,6 +9372,188 @@ export interface operations {
             };
         };
     };
+    lsp_status: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Agent ID */
+                agent_id: string;
+                /** @description Project ID */
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The project's language servers; a manager also receives the built-in languages and the overrides */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_LspView"];
+                };
+            };
+            /** @description The caller may not use this agent's projects */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Agent or project not found, or removed */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    lsp_set_override: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Agent ID */
+                agent_id: string;
+                /** @description Project ID */
+                project_id: string;
+                /** @description Built-in language id */
+                language: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ServerOverride"];
+            };
+        };
+        responses: {
+            /** @description Saved; the language's servers stop so the next use starts the new one */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_LspView"];
+                };
+            };
+            /** @description Not the project owner or a whole-workspace project manager */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description `unknown_language`, or the project was not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description `invalid_override` */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    lsp_delete_override: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Agent ID */
+                agent_id: string;
+                /** @description Project ID */
+                project_id: string;
+                /** @description Built-in language id */
+                language: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed (an absent override also succeeds) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_LspView"];
+                };
+            };
+            /** @description Not the project owner or a whole-workspace project manager */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description `unknown_language`, or the project was not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    lsp_restart: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Agent ID */
+                agent_id: string;
+                /** @description Project ID */
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RestartRequest"];
+            };
+        };
+        responses: {
+            /** @description Restarting in the background */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_LspView"];
+                };
+            };
+            /** @description Not the project owner or a whole-workspace project manager */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description `unknown_language`, or the project was not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description `lsp_disabled` */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     sessions: {
         parameters: {
             query?: never;
@@ -10460,6 +11365,59 @@ export interface operations {
             };
         };
     };
+    chats: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller's unread replies, per conversation of theirs */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_Vec_ChatUnread"];
+                };
+            };
+        };
+    };
+    read_chat: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChatReadRequest"];
+            };
+        };
+        responses: {
+            /** @description Marks one conversation's replies read for the caller, with the new counts */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_NotificationCounts"];
+                };
+            };
+            /** @description A missing or empty `href` */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_String"];
+                };
+            };
+        };
+    };
     count: {
         parameters: {
             query?: never;
@@ -11365,6 +12323,810 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["APIResponse_Zone"];
                 };
+            };
+        };
+    };
+    list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller's Workspaces, with their topics */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_Vec_WorkspaceSummary"];
+                };
+            };
+        };
+    };
+    create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateWorkspaceRequest"];
+            };
+        };
+        responses: {
+            /** @description Created, with a first topic and the caller as owner */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_WorkspaceDetail"];
+                };
+            };
+            /** @description Missing the `workspaces:create` permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description `name_in_use` */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description `invalid_name` */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    detail: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Workspace ID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The Workspace with its members */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_WorkspaceDetail"];
+                };
+            };
+            /** @description No such Workspace, or the caller has no standing in it */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    delete_workspace: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Workspace ID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted, with turns stopped first */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not an owner */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such Workspace, or the caller has no standing in it */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    rename: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Workspace ID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RenameRequest"];
+            };
+        };
+        responses: {
+            /** @description Renamed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_WorkspaceSummary"];
+                };
+            };
+            /** @description Not an owner */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such Workspace, or the caller has no standing in it */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description `name_in_use` */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description `invalid_name` */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    candidates: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Workspace ID */
+                id: string;
+                /** @description Matches name, username or agent id, case-insensitively. */
+                q: string;
+                /** @description Per group; default 5, at most 20. */
+                limit: number | null;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Agents and people to add, addable first */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_Candidates"];
+                };
+            };
+            /** @description Not an owner */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such Workspace, or the caller has no standing in it */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    commands: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Workspace ID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description For the `/` menu: commands, and each member agent's skills with the agents that have them. Names only */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_CommandsView"];
+                };
+            };
+            /** @description No such Workspace, or the caller has no standing in it */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    add_member: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Workspace ID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddMemberRequest"];
+            };
+        };
+        responses: {
+            /** @description Added */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_MemberView"];
+                };
+            };
+            /** @description Not an owner, or `cannot_edit_agent` */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such Workspace, person or agent */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description `handle_in_use` */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    remove_member: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Workspace ID */
+                id: string;
+                /** @description `person` or `agent` */
+                kind: string;
+                /** @description Username or agent ID */
+                handle: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not an owner */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such Workspace or member */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description `last_owner` */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    set_role: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Workspace ID */
+                id: string;
+                /** @description `person` */
+                kind: string;
+                /** @description Username */
+                handle: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetRoleRequest"];
+            };
+        };
+        responses: {
+            /** @description Role changed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_MemberView"];
+                };
+            };
+            /** @description Not an owner */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such Workspace or member */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description `last_owner` */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    stop_all: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Workspace ID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Every agent's turn in every topic aborted, and waiting mentions dropped */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_StopResponse"];
+                };
+            };
+            /** @description No such Workspace, or the caller has no standing in it */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    create_topic: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Workspace ID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateTopicRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_TopicSummary"];
+                };
+            };
+            /** @description No such Workspace, or the caller has no standing in it */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description `name_in_use` */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description `invalid_name` */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    delete_topic: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Workspace ID */
+                id: string;
+                /** @description Topic ID */
+                tid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not an owner */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such Workspace or topic */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description `last_topic` */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    rename_topic: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Workspace ID */
+                id: string;
+                /** @description Topic ID */
+                tid: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RenameRequest"];
+            };
+        };
+        responses: {
+            /** @description Renamed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_TopicSummary"];
+                };
+            };
+            /** @description Not an owner */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such Workspace or topic */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description `name_in_use` */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description `invalid_name` */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    timeline: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Workspace ID */
+                id: string;
+                /** @description Topic ID */
+                tid: string;
+                /** @description The `next_before` of the previous page: entries older than this `seq`. */
+                before: number | null;
+                /** @description 1 to 200; default 50. */
+                limit: number | null;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of messages, oldest first, with what the agents did in the same span */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_Timeline"];
+                };
+            };
+            /** @description No such Workspace or topic, or the caller has no standing in it */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    post_entry: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Workspace ID */
+                id: string;
+                /** @description Topic ID */
+                tid: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PostRequest"];
+            };
+        };
+        responses: {
+            /** @description Posted, or a command ran and left a note */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_PostResponse"];
+                };
+            };
+            /** @description `cannot_lobotomy` */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such Workspace or topic, or the caller has no standing in it */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description `not_in_workspace` for /btw and /clear-files, or `too_long` */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    react: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Workspace ID */
+                id: string;
+                /** @description Topic ID */
+                tid: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReactRequest"];
+            };
+        };
+        responses: {
+            /** @description Saved; the new set goes to every socket on the topic */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such Workspace, topic or message */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not a reply that can take a reaction */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    mark_read: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Workspace ID */
+                id: string;
+                /** @description Topic ID */
+                tid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The topic's messages are read for the caller; its notifications too */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_ReadMarked"];
+                };
+            };
+            /** @description No such Workspace or topic, or the caller has no standing in it */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    stream: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Workspace ID */
+                id: string;
+                /** @description Topic ID */
+                tid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description WebSocket established. The server pushes `hello`, `workspace_entry`, `history_entry`, `workspace_mentions`, `agent_state`, `member_changed`, `closed` and `resync` frames; the client sends `{ "post": { "text": "..." } }` */
+            101: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such Workspace or topic, or the caller has no standing in it */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    stop_agent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Workspace ID */
+                id: string;
+                /** @description Topic ID */
+                tid: string;
+                /** @description Agent ID */
+                agent: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description That agent's turn in that topic aborted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_StopResponse"];
+                };
+            };
+            /** @description No such Workspace, topic or agent member, or the caller has no standing in it */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

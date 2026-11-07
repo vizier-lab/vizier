@@ -30,7 +30,10 @@ import {
   jobCounts,
   memoryBundles,
 } from '../../lib/statusFilters'
+import { readyCount, stripLabel, worstDot } from '../../lib/lsp'
+import { useProjects } from '../../stores/projects'
 import { toast } from '../../stores/toasts'
+import { LspPanel } from './LspPanel'
 import { FilePreviewDialog } from './FilePreviewDialog'
 import { ConfirmDialog } from '../shared/ConfirmDialog'
 
@@ -44,6 +47,8 @@ type Props = {
   onFilesCleared: () => void
   /** A project chat's uncommitted changes: the count joins the strip, and the item opens the changes dialog. */
   changes?: { count: number; open: () => void }
+  /** A project chat's language servers (spec 054): the item opens the panel. Other chats have none. */
+  lsp?: { projectId: string; enabled: boolean }
   /** How far above the strip the panel sits: the composer's height, so it clears the composer. */
   panelGap?: number
   /** The panel's width in px: the composer's, since the strip itself is only as wide as its counts. */
@@ -74,6 +79,7 @@ export function ChatStatusStrip({
   canPromote,
   onFilesCleared,
   changes,
+  lsp,
   panelGap,
   panelWidth,
   className,
@@ -116,6 +122,25 @@ export function ChatStatusStrip({
       label: 'changed files',
       count: changes.count,
       onSelect: changes.open,
+    })
+  }
+
+  const lspView = useProjects((s) => (lsp ? s.lsp[lsp.projectId] : undefined))
+  // The status is read as soon as the chat shows, so the strip's number is right before the panel
+  // is ever opened. The inbox stream keeps it current after that.
+  useEffect(() => {
+    if (!lsp) return
+    return useProjects.getState().watchLsp(agentId, lsp.projectId)
+  }, [agentId, lsp?.projectId])
+  if (lsp) {
+    const snapshot = lspView ?? { enabled: lsp.enabled, servers: [] }
+    items.push({
+      id: 'lsp',
+      icon: 'code',
+      label: stripLabel(snapshot),
+      count: readyCount(snapshot),
+      display: snapshot.enabled ? undefined : 'off',
+      dot: worstDot(snapshot),
     })
   }
 
@@ -367,7 +392,15 @@ export function ChatStatusStrip({
   )
 
   const panelFor = (id: StatusStripItem['id'], close: () => void) =>
-    id === 'memory' ? memoryPanel(close) : id === 'jobs' ? jobsPanel(close) : filesPanel(close)
+    id === 'memory' ? (
+      memoryPanel(close)
+    ) : id === 'jobs' ? (
+      jobsPanel(close)
+    ) : id === 'lsp' && lsp ? (
+      <LspPanel agentId={agentId} projectId={lsp.projectId} onClose={close} />
+    ) : (
+      filesPanel(close)
+    )
 
   return (
     <StatusStrip
@@ -378,7 +411,9 @@ export function ChatStatusStrip({
       onOpenChange={setOpen}
       panelGap={panelGap}
       panelWidth={panelWidth}
-      key={`${items.map((i) => i.count).join('-')}`}
+      // The language-server item is left out of the key: its status changes under an open panel,
+      // and remounting would drop what a person is typing in an override form.
+      key={`${items.filter((i) => i.id !== 'lsp').map((i) => i.count).join('-')}`}
     >
       {(item, close) => panelFor(item.id, close)}
     </StatusStrip>

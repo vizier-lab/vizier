@@ -592,6 +592,7 @@ export default function Chat() {
                         canPromote={agent ? canManageArtifacts(agent) : false}
                         onFilesCleared={() => dispatch(agentId, topicId ?? '', { type: 'files', files: [] })}
                         changes={changes}
+                        lsp={projectId && project ? { projectId, enabled: project.lsp_enabled } : undefined}
                         // The panel clears the composer and the strip's own margin.
                         panelGap={composerCardHeight + STRIP_MARGIN + PANEL_GAP}
                         panelWidth={composerCardWidth}

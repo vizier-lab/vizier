@@ -1,11 +1,14 @@
 import { create } from 'zustand'
 import {
     getGitSummary,
+    getProjectLsp,
     listProjectSessions,
     listProjects,
     listWorktrees,
     setProjectMode as setProjectModeApi,
     type GitSummary,
+    type LspSnapshot,
+    type LspView,
     type Project,
     type ProjectMode,
     type ProjectSessionRow,
@@ -15,6 +18,9 @@ import {
 const REFRESH_MS = 15_000
 
 export const projectKey = (agentId: string, projectId: string) => `${agentId}/${projectId}`
+
+/** Projects whose language-server panel is on screen, with how many watchers each has. */
+const watched = new Map<string, number>()
 
 type ProjectsStore = {
     /** Per agent, newest first. Kept on a failed poll rather than blanked. */
@@ -37,6 +43,17 @@ type ProjectsStore = {
     refreshGit: (agentId: string, projectId: string, topic: string) => Promise<void>
     /** The project is gone: drop it and its sessions. */
     forget: (agentId: string, projectId: string) => void
+    /** Language servers per project id (spec 054), kept live by the inbox stream. */
+    lsp: Record<string, LspView>
+    loadLsp: (agentId: string, projectId: string) => Promise<void>
+    /** A pushed snapshot: it replaces the status and keeps what only a read carries. */
+    applyLsp: (snapshot: LspSnapshot) => void
+    /** The panel is open on this project: keep it read, and re-read it after a gap. */
+    watchLsp: (agentId: string, projectId: string) => () => void
+    /** Re-read every watched project: the stream said it may have missed something. */
+    reloadWatchedLsp: () => void
+    /** The panel's own change (switch, override): take the server's answer as it is. */
+    setLsp: (projectId: string, view: LspView) => void
     /** Polls while the tab is visible; returns a stop function. */
     start: (agentId: string) => () => void
 }
@@ -54,6 +71,7 @@ export const useProjects = create<ProjectsStore>()((set, get) => ({
     sessions: {},
     worktrees: {},
     git: {},
+    lsp: {},
 
     refresh: async (agentId) => {
         try {
@@ -144,6 +162,47 @@ export const useProjects = create<ProjectsStore>()((set, get) => ({
             set((cur) => ({ git: { ...cur.git, [key]: summary } }))
         } catch {
             /* a failed read leaves the header as it was */
+        }
+    },
+
+    loadLsp: async (agentId, projectId) => {
+        try {
+            const view = await getProjectLsp(agentId, projectId)
+            if (view) set((cur) => ({ lsp: { ...cur.lsp, [projectId]: view } }))
+        } catch {
+            /* keep what is held: a failed read is not an empty list */
+        }
+    },
+
+    applyLsp: (snapshot) =>
+        set((cur) => {
+            const held = cur.lsp[snapshot.project_id]
+            // A project nobody read yet still shows its status; the next read adds the rest.
+            return {
+                lsp: {
+                    ...cur.lsp,
+                    [snapshot.project_id]: { ...held, ...snapshot, can_manage: held?.can_manage ?? false },
+                },
+            }
+        }),
+
+    setLsp: (projectId, view) => set((cur) => ({ lsp: { ...cur.lsp, [projectId]: view } })),
+
+    watchLsp: (agentId, projectId) => {
+        const key = projectKey(agentId, projectId)
+        watched.set(key, (watched.get(key) ?? 0) + 1)
+        void get().loadLsp(agentId, projectId)
+        return () => {
+            const left = (watched.get(key) ?? 1) - 1
+            if (left <= 0) watched.delete(key)
+            else watched.set(key, left)
+        }
+    },
+
+    reloadWatchedLsp: () => {
+        for (const key of watched.keys()) {
+            const [agentId, projectId] = key.split('/')
+            void get().loadLsp(agentId, projectId)
         }
     },
 
