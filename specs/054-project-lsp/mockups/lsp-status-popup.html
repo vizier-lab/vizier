@@ -310,7 +310,7 @@ function renderLang(l) {
 }
 
 function addForm() {
-  const options = ['Rust', 'TypeScript', 'Python', 'Go', 'C/C++', 'Lua'].map((n) => `<option>${n}</option>`).join('');
+  const options = ['Rust', 'TypeScript', 'Python', 'Go', 'C/C++', 'Lua', 'Java', 'Kotlin', 'C#', 'Ruby', 'PHP', 'Swift', 'Dart', 'Elixir', 'Zig', 'Bash'].map((n) => `<option>${n}</option>`).join('');
   return `<form class="form" onsubmit="return false" style="margin:10px 0">
     <div class="field"><label for="a-lang">Language</label><select id="a-lang">${options}</select></div>
     <div class="field"><label for="a-cmd">Command</label><input id="a-cmd" placeholder="/path/to/server" spellcheck="false" autocomplete="off"></div>

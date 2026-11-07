@@ -10,13 +10,32 @@ Facts below come from reading `develop` at `9266772c`. Measurements come from
 | Server | Result |
 |---|---|
 | clangd | `initialize` answered in 1.48 s. Negotiated `positionEncoding: utf-8`. No `diagnosticProvider`, so push only. After `didChange`, the error arrived **0.06 s** later, as a push carrying the edit's version. |
-| rust-analyzer | **Not measured.** `~/.cargo/bin/rust-analyzer` is a `rustup` proxy, the component is not installed, and it exits with `Unknown binary 'rust-analyzer' in official toolchain`. See R3 and the open item below. |
+| rust-analyzer, no component | `~/.cargo/bin/rust-analyzer` was a `rustup` proxy. It exits with `Unknown binary 'rust-analyzer' in official toolchain`. See R3. |
 
-**Open item, first implementation task**: run `lsp-spike.py rust` with rust-analyzer installed and
-record pull support, push timing, what needs `didSave`, and whether the server exits when stdin
-closes. R6 is written so the design holds either way, but SC-001's timing for Rust depends on it.
-From general knowledge (unverified here), rust-analyzer's own checks are fast while `cargo check`
-errors only follow a save and can take much longer than 3 s.
+rust-analyzer 1.99.1, measured with [`lsp-spike.py`](./lsp-spike.py) and
+[`lsp-spike-2.py`](./lsp-spike-2.py):
+
+| Question | Result |
+|---|---|
+| Capabilities | `positionEncoding: utf-8`; `diagnosticProvider` with `interFileDependencies: true` and `workspaceDiagnostics: false` |
+| Own analysis after an edit (pull) | Toy crate 0.17 s. Crate with serde, tokio and regex 0.09 s. **Vizier 1.95 s** (build scripts and proc macros off) |
+| What it caught | The type error in the edited file, **and** the broken call site in another **open** file |
+| Push without a save | None within 3 s. Pull is the only fast route here |
+| `cargo check` after `didSave` | Runs and pushes `rustc` errors, 0.2 s on a toy crate. Not measured on a large one |
+| A question during startup | Returns `[]` while `Fetching` is open, which looks like "no definition" |
+| Time to quiet | Toy crate 4.2 s. Serde/tokio/regex 14 s (6.6 s of it `Building compile-time-deps`). Vizier 26 s (build scripts and proc macros off) |
+| Memory on Vizier | **Peak 2.4 GB**, 1.4 GB settled (build scripts and proc macros off, so a real run may use more) |
+| `cargo build` during `cargo check` | **Blocked**: `Blocking waiting for file lock`, 5.3 s on a small crate, until the check ended |
+| stdin closes after the handshake | Exits in 0.07-0.12 s. **Before** `initialized`, it stayed running |
+| Parent killed, pipe closed | Gone in 0.2 s |
+| Parent killed, pipe held open by another process | Still running after 15 s, so it does not honour `processId` |
+
+Not measured: `typescript-language-server`, `pyright-langserver`, `gopls` and `lua-language-server` (not
+installed here). `tests/lsp_real.rs` covers whichever is present.
+
+Inferred, not run: with build scripts on, a server rooted at Vizier would run
+`crates/vizier-http/build.rs`, which runs `npm run build` in `webui/`. The spike kept them off to avoid
+writing to the repository.
 
 ## R1. Where a server lives and who owns it
 
@@ -81,7 +100,12 @@ and fall back to `cwd`.
 - `RootRule::Nearest(&[..])`: the nearest folder holding a marker. TypeScript: `tsconfig.json`,
   `jsconfig.json`, `package.json`. Python: `pyproject.toml`, `setup.py`, `requirements.txt`. Go:
   `go.work`, `go.mod`, with `go.work` winning at any level. C/C++: `compile_commands.json`,
-  `.clangd`, `CMakeLists.txt`. Lua: `.luarc.json`.
+  `.clangd`, `CMakeLists.txt`. Lua: `.luarc.json`. Java and Kotlin: `settings.gradle`,
+  `settings.gradle.kts`, `pom.xml`, `build.gradle`, `build.gradle.kts`, with the settings files winning at
+  any level, so a multi-module build roots at the top. C#: `*.sln`, `*.csproj`. Ruby: `Gemfile`. PHP:
+  `composer.json`. Swift: `Package.swift`. Dart: `pubspec.yaml`. Elixir: `mix.exs`. Zig: `build.zig`. Bash:
+  no marker, so the chat's folder. A marker may be a `*.ext` pattern, which C# needs. Markers listed as
+  winning at any level are a `RootRule` of their own, shared by Go, Java and Kotlin.
 - `RootRule::CargoWorkspace`: the nearest ancestor `Cargo.toml` containing a `[workspace]` table, or
   else the nearest `Cargo.toml`. It is found with a line scan, so no TOML dependency and no running
   `cargo`.
@@ -113,8 +137,12 @@ The field is absent when no language applies or the feature is off.
 
 **Rationale**:
 
-- clangd proves push works well (0.06 s). Pull is deterministic where offered, because a push may not
-  be re-sent when nothing changed.
+- clangd proves push works well (0.06 s). rust-analyzer proves pull has to be supported: it sent no push
+  within 3 s of an edit, and answered a pull in 0.09-1.95 s.
+- **Other files**: when a server reports `interFileDependencies`, also pull the other **open** documents
+  under the root, at most 20, within the same 3 s. That caught the broken call site in the test.
+  `read_file` therefore opens the file on a ready server. A call site in a file nobody has opened is not
+  caught this way, which R17 weighs.
 - **"Clean" must never be claimed while a check runs.** A pull can be clean while a slower build check
   has just started. The rule is generic, with no Rust special case: any open `$/progress` token after
   a 300 ms grace period forces `pending`. The agent then calls `lsp_diagnostics` later.
@@ -148,7 +176,8 @@ codes `-32801` and `-32802` are retried once and then read as `lsp_starting`. Ea
 10 s limit, returning `lsp_timeout`.
 
 **Rationale**: `tools.timeout` is 30 s in the default and wraps every nested call in
-`agents/tools/python/bridge.rs`. Waiting inside it cannot work on a 10-60 s index.
+`agents/tools/python/bridge.rs`. Waiting inside it cannot work on a 10-60 s index. The measured `[]`
+during startup means a question must be refused until ready, or the agent reads "no definition" as fact.
 
 **Start trigger**: `read_file`, `edit_file`, `write_file` and any `lsp_*` call start the server in a
 spawned task and never wait for it (FR-017). `list_files`, `grep` and `glob` do not, because a grep
@@ -164,8 +193,9 @@ affects only its own calls. stderr goes into a capped 8 KiB ring for failure rea
 
 - Linux: `PR_SET_PDEATHSIG` through `libc`.
 - Windows: a job object with `KILL_ON_JOB_CLOSE`, using `windows-sys` (already in `Cargo.lock`).
-- macOS: no kernel equivalent. Relies on servers exiting when stdin closes, which LSP clients depend
-  on. Confirm for rust-analyzer in the open item above.
+- macOS: no kernel equivalent. Relies on servers exiting when stdin closes, measured at 0.2 s for
+  rust-analyzer after its parent was killed. That needs the handshake to have finished, so send
+  `initialized` straight after the `initialize` answer. Do not rely on `processId`, which it did not honour.
 
 **Cleanup paths**: switch off, `service::projects::remove`, `delete_worktree`, agent delete
 (`AgentHost` near `storage.delete_agent`), override change, idle sweep, and `VizierRuntime::shutdown`.
@@ -230,6 +260,28 @@ the negotiated encoding (`position.rs`, pure and unit-tested on CJK, emoji and C
 `symbol_not_on_line`, returning the line's text.
 
 **Rationale**: Agents miscount columns, and `grep` and `read_file` already give them lines.
+
+## R17. rust-analyzer's `cargo check`
+
+**Decision**: Applied as the default when tasks were generated, without an explicit answer from the
+person; it is one field on one table row, so easy to change. Turn it off by default, with
+`initializationOptions: {"checkOnSave": false}` on the Rust row of the language table. The agent relies on the fast analysis and runs `cargo check` through the
+shell when it wants a full build.
+
+| | **Check off (recommended)** | Check on, own target folder (`cargo.targetDir: true`) | Check on, shared target |
+|---|---|---|---|
+| Time per edit | 0.09-1.95 s, `current` | Pending until the check ends | Pending until the check ends |
+| Agent's own `cargo` commands | Unaffected by checks | Unaffected | **Blocked** (measured) |
+| Disk and CPU | No check builds | A second target folder per root, per worktree; a full cold check | A check on every edit |
+| Borrow-check and lifetime errors | **Not reported** | Reported | Reported |
+| Call site in an unopened file | **Not reported** | Reported | Reported |
+
+**Rationale**: A turn makes several edits, so checks would stack, and each worktree would pay for a cold
+build. The fast analysis covers type and argument errors immediately, and the shell covers the rest.
+
+**Limit**: `"current"` for Rust means "the fast analysis agrees", so the prompt sentence says to run the
+build before finishing when the shell is on. Startup still builds compile-time dependencies, so build
+scripts and proc macros run, and a concurrent `cargo` can wait during that step.
 
 ## R16. Test fixture
 

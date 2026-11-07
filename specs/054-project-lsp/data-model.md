@@ -56,6 +56,19 @@ Rows:
 | Go | `gopls` | `go install golang.org/x/tools/gopls@latest` |
 | C/C++ | `clangd` | Install LLVM or the Xcode command line tools |
 | Lua | `lua-language-server` | See its project page |
+| Java | `jdtls` | `brew install jdtls`, or the Eclipse JDT LS downloads |
+| Kotlin | `kotlin-language-server` | `brew install kotlin-language-server` |
+| C# | `csharp-ls` | `dotnet tool install --global csharp-ls` |
+| Ruby | `ruby-lsp` | `gem install ruby-lsp` |
+| PHP | `intelephense --stdio` | `npm install -g intelephense` |
+| Swift | `sourcekit-lsp` | Comes with the Swift toolchain or Xcode |
+| Dart | `dart language-server` | Comes with the Dart or Flutter SDK |
+| Elixir | `elixir-ls` | `brew install elixir-ls` |
+| Zig | `zls` | `brew install zls` |
+| Bash | `bash-language-server start` | `npm install -g bash-language-server` |
+
+Install hints are shown to people as they are, so check each one when `languages.rs` is written. Only
+clangd and rust-analyzer have been run so far.
 
 ## 4. `ServerInstance` (memory only)
 

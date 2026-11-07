@@ -143,7 +143,7 @@ A person wants a different server for a language than the built-in choice, or ha
 **Finding servers**
 
 - **FR-007**: Vizier MUST NOT download or install language servers.
-- **FR-008**: Vizier MUST ship a built-in table covering at least Rust, TypeScript/JavaScript, Python, Go, C/C++ and Lua, giving each language its server, its file types, its root rule and its install hint.
+- **FR-008**: Vizier MUST ship a built-in table covering at least Rust, TypeScript/JavaScript, Python, Go, C/C++, Lua, Java, Kotlin, C#, Ruby, PHP, Swift, Dart, Elixir, Zig and Bash, giving each language its server, its file types, its root rule and its install hint.
 - **FR-009**: The server for a language MUST be resolved from the project's override first, then the built-in table, located on the host's search path.
 - **FR-010**: A person who can manage the project MUST be able to set and remove a per-language override of command, arguments and environment.
 - **FR-011**: Server commands MUST NOT be taken from files in the repository, MUST NOT be changeable by an agent's tools, and MUST NOT resolve to an executable inside the project folder unless a person set that override.

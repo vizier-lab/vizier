@@ -20,9 +20,9 @@ something, and can ask about definitions, references, types and symbols instead 
 5. **A popup from the chat's status strip**: the switch, server status (live through the inbox stream) and
    per-language overrides. New projects are on by default; existing ones stay off.
 
-Vizier does not install servers. Research measured clangd and found that a found command may not run. **Rust
-timing is not yet measured**, because rust-analyzer's component is not installed on this machine; it is
-the first task.
+Vizier does not install servers. Research measured clangd and rust-analyzer, including on Vizier's own
+workspace. A pull after an edit answered in 1.95 s there, so the 3 s target holds. rust-analyzer's
+`cargo check` blocks an agent's own `cargo` commands, and R17 recommends turning it off by default.
 
 ## Technical Context
 
@@ -88,7 +88,8 @@ specs/054-project-lsp/
 ├── research.md
 ├── data-model.md
 ├── quickstart.md
-├── lsp-spike.py            # Measures real servers; re-run for the open item
+├── lsp-spike.py            # Measures real servers
+├── lsp-spike-2.py          # Process lifetime, build lock, Vizier's own workspace
 ├── mockups/lsp-status-popup.html
 ├── contracts/
 │   ├── lsp-tools.md
@@ -161,8 +162,8 @@ go in `vizier-http`, with authorization in `service`, as CLAUDE.md requires.
 
 Each slice can be verified alone, and Story 1 (the main payoff) lands before the question tools.
 
-1. **Measure rust-analyzer** with `lsp-spike.py rust`, and record results in `research.md`. Needs the
-   component installed.
+1. **Prerequisites**: `url` and Windows `windows-sys` dependencies; rust-analyzer's `cargo check` is off
+   (R17).
 2. **Host core**: `rpc`, `position`, `languages`, `search_path`, `server`, `LspHost`, `fake_lsp`. No
    agent-visible change yet.
 3. **Switch, overrides and status**: column, table, service, routes, inbox frame, turn context, state line.
@@ -177,11 +178,12 @@ Each slice can be verified alone, and Story 1 (the main payoff) lands before the
 
 | Risk | Effect | Mitigation |
 |---|---|---|
-| rust-analyzer's real errors arrive after 3 s | SC-001 is not met for Rust build-check errors; those edits read `pending` | `pending` is truthful by design. Measure first; revisit the wait or SC-001 with numbers |
-| Its `cargo check` holds the build lock | A `workspace_shell` `cargo` command may wait on it | Measure in step 1. Document, or give the server its own target folder through an override |
+| With `cargo check` off, some Rust errors go unreported | Borrow-check errors, and call sites in unopened files, are not in an edit's result | Prompt says to run the build before finishing; the shell does that (R17) |
+| Startup runs build scripts | On Vizier itself this would likely run `npm run build`, and a concurrent `cargo` can wait | Accepted with the on-by-default decision; docs cover it. Inferred, not run |
+| A server is memory-heavy | Peak 2.4 GB on Vizier, and worktrees multiply it | Limit of 6, idle stop, per-project switch. Consider lowering the default if 14 GB is too much |
 | On by default, with no warning | Opening an untrusted repo can run its build scripts as soon as the agent reads a file, even in Plan mode | Accepted by decision. Docs cover it. A server only runs if installed, and the switch stops it |
 | Many servers in worktrees | Memory | Capacity limit, idle stop, per-project switch |
-| macOS has no parent-death signal | An orphan after `kill -9` if a server ignores stdin close | Standard client behaviour; verified per server in step 1 |
+| macOS has no parent-death signal | An orphan after `kill -9` if a server ignores stdin close | Measured for rust-analyzer: gone in 0.2 s. Other servers are covered by `lsp_real.rs` where installed |
 | Login-shell `PATH` read runs profile scripts | A slow or noisy shell | Only on a lookup miss, 3 s limit, once per process |
 
 ## Complexity Tracking
