@@ -22,6 +22,8 @@ export type RailAgent = {
   imageSrc?: string;
   /** Being created: the tile is busy, not yet a link, and shows a scrim with a spinner. */
   pending?: boolean;
+  /** Replies not yet read in this person's chats; a count on the tile's corner. */
+  unread?: number;
   /** Pages this person may not see of this agent, in its right-click menu. */
   hiddenPages?: readonly RailAgentPage[];
   /** Shown there but not reachable. */
@@ -129,6 +131,18 @@ function Marker({ id }: { id: string }) {
       className="absolute top-1/2 -left-8 h-22 w-2 -translate-y-1/2 rounded-pill bg-fg"
       transition={{ duration: motionDurations.base, ease: motionEases.standard }}
     />
+  );
+}
+
+/** A count on a tile's top corner. The tile's accessible name says it too. */
+function UnreadBadge({ count }: { count: number }) {
+  return (
+    <span
+      aria-hidden
+      className="absolute -top-4 -right-4 grid h-16 min-w-16 place-items-center rounded-pill bg-rank-text px-4 type-mono-xs-medium text-shell ring-2 ring-shell"
+    >
+      {count > 99 ? "99+" : count}
+    </span>
   );
 }
 
@@ -251,14 +265,7 @@ export function Rail({
       >
         {w.initials}
       </span>
-      {w.unread ? (
-        <span
-          aria-hidden
-          className="absolute -top-4 -right-4 grid h-16 min-w-16 place-items-center rounded-pill bg-rank-text px-4 type-mono-xs-medium text-shell ring-2 ring-shell"
-        >
-          {w.unread > 99 ? "99+" : w.unread}
-        </span>
-      ) : null}
+      {w.unread ? <UnreadBadge count={w.unread} /> : null}
       {w.working && <span aria-hidden className="absolute -right-2 -bottom-2 size-10 rounded-pill bg-live ring-2 ring-shell" />}
     </RailLink>
   );
@@ -280,7 +287,7 @@ export function Rail({
       </RailTip>
     ) : (
       <RailLink
-        label={a.name}
+        label={a.unread ? `${a.name}, ${a.unread} unread` : a.name}
         href={a.href}
         active={a.agentId === activeAgentId}
         marker={marker}
@@ -297,10 +304,9 @@ export function Rail({
             : undefined
         }
       >
-        {/* An agent is always online, so a healthy one shows nothing: no lit cell and no dot. A dot
-            is a warning, drawn only while it is starting, retrying, failed or stopped. */}
-        <Sigil size="rail" agentId={a.agentId} image={a.imageSrc} />
-        {a.state !== "live" && a.state !== "running" && <StatusDot state={a.state} />}
+        <Sigil size="rail" agentId={a.agentId} image={a.imageSrc} live={a.state === "live" || a.state === "running"} />
+        {a.unread ? <UnreadBadge count={a.unread} /> : null}
+        <StatusDot state={a.state} />
       </RailLink>
     );
   return (

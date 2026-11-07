@@ -21,7 +21,7 @@ type Story = StoryObj<typeof meta>;
 
 const AGENTS = [
   { agentId: "archivist", name: "Archivist", state: "running", href: "#archivist" },
-  { agentId: "scout", name: "Scout", state: "live", href: "#scout" },
+  { agentId: "scout", name: "Scout", state: "live", href: "#scout", unread: 3 },
   { agentId: "quill", name: "Quill", state: "stopped", href: "#quill" },
   { agentId: "ledger", name: "Ledger", state: "retrying", href: "#ledger" },
   // Still being created: a busy tile, not yet a link.
@@ -33,7 +33,7 @@ const SESSIONS: SessionGroup[] = [
     label: "Today",
     items: [
       { key: "a", title: "vector-db-review", time: "12m", live: true, href: "#a", active: true },
-      { key: "b", title: "release-notes-draft", time: "2h", href: "#b" },
+      { key: "b", title: "release-notes-draft", time: "2h", href: "#b", unread: 3 },
     ],
   },
   { label: "Yesterday", items: [{ key: "c", title: "q4-spend-check", time: "18:40", href: "#c" }, { key: "d", title: "onboarding-flow", time: "11:02", href: "#d" }] },
