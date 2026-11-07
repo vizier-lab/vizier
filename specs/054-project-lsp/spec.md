@@ -111,7 +111,8 @@ A person wants a different server for a language than the built-in choice, or ha
 
 ### Edge Cases
 
-- **A server crashes**: it restarts automatically, at most 3 times in 10 minutes. After that it shows as failed, and calls say so, until the switch is turned off and on again, the override changes or Vizier restarts.
+- **A server crashes**: it restarts automatically, at most 3 times in 10 minutes. After that it shows as failed, and calls say so, until a person restarts it, the switch is turned off and on again, the override changes or Vizier restarts.
+- **A command is found but cannot run** (for example a `rustup` proxy whose component is not installed): this reads as not installed, with the install hint, not as a crash.
 - **A server hangs**: calls to it end with a clear result within the tool's time limit, and other agents, chats and the desktop app are unaffected.
 - **A file changes behind the server's back** (a shell command, a formatter, a code generator, a branch switch): the next answer must reflect the current bytes on disk for the file asked about, and the server must be told about changes made through the shell or a branch switch.
 - **A definition lies outside the project** (a standard library or dependency): the location is marked as outside the project and names the file without exposing an absolute host path. Hover still gives the signature.
@@ -193,7 +194,7 @@ A person wants a different server for a language than the built-in choice, or ha
 
 **Status**
 
-- **FR-041**: A person who can use a project MUST be able to see, for each of its servers: language, root, state (starting, ready, failed, not installed) and the reason for a failure.
+- **FR-041**: A person who can use a project MUST be able to see, for each of its servers: language, root, state (starting, ready, failed, not installed) and the reason for a failure. Someone who can manage the project MUST be able to restart a failed server and check again for a missing one. The status MUST update without a page reload. The status lives in a popup from the chat's status strip, which also holds the switch and the overrides (`mockups/lsp-status-popup.html`).
 - **FR-042**: Project documentation MUST cover installing a server per language, the switch and what it permits (including that a server may execute code from the project, in Plan mode too), overrides, and the not-installed state.
 
 ### Key Entities
