@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { bootstrapView, errorCode, failureMessage, lockHolder, ownerCandidates, pollDelay, shouldNotifyOs, stoppedSubsystems, validPort } from './desktop'
+import { bootstrapView, errorCode, failureMessage, lockHolder, ownerCandidates, shouldNotifyOs, stoppedSubsystems, validPort } from './desktop'
 
 describe('desktop helpers', () => {
     it('shows the app only when ready or degraded', () => {
@@ -25,11 +25,6 @@ describe('desktop helpers', () => {
         expect(shouldNotifyOs('hidden', true)).toBe(true)
         expect(shouldNotifyOs('visible', false)).toBe(true)
         expect(shouldNotifyOs('visible', true)).toBe(false)
-    })
-    it('poll delay', () => {
-        expect(pollDelay(false, 'hidden')).toBeNull()
-        expect(pollDelay(true, 'hidden')).toBe(60_000)
-        expect(pollDelay(true, 'visible')).toBe(15_000)
     })
     it('ports', () => {
         expect(validPort(9999)).toBe(true)

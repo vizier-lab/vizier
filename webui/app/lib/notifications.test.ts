@@ -61,6 +61,11 @@ describe('notifications helpers', () => {
         expect(isViewing(reply, '/scribe/chat/t2')).toBe(false)
         expect(isViewing(reply, '/scribe/core')).toBe(false)
         expect(isViewing(reply, null)).toBe(false)
+        // A Workspace message is the topic on screen, even with a query on the address.
+        const message = { ...item(10), category: 'workspace_message' as const, href: '/workspaces/w1/t1' }
+        expect(isViewing(message, '/workspaces/w1/t1')).toBe(true)
+        expect(isViewing(message, '/workspaces/w1/t1?members=1')).toBe(true)
+        expect(isViewing(message, '/workspaces/w1/t2')).toBe(false)
         // Other categories are never the conversation on screen.
         expect(isViewing(item(1), '/scribe/chat/t1')).toBe(false)
     })

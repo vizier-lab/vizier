@@ -2,7 +2,20 @@
 import { Channel, convertFileSrc, invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { sendNotification } from '@tauri-apps/plugin-notification'
-import { API_BASE, relativeToApi, settle, type DesktopShell, type DesktopState, type Envelope, type Transport, type UpdateInfo, type TopicHandle, type TopicOptions } from './common'
+import {
+    API_BASE,
+    relativeToApi,
+    settle,
+    type DesktopShell,
+    type DesktopState,
+    type Envelope,
+    type InboxHandle,
+    type InboxOptions,
+    type Transport,
+    type UpdateInfo,
+    type TopicHandle,
+    type TopicOptions,
+} from './common'
 
 // WebView2 serves a custom scheme as `http://<scheme>.localhost`; the other webviews as `<scheme>://localhost`.
 // `convertFileSrc` knows which, so the base is asked for rather than written down.
@@ -35,7 +48,7 @@ export const tauriShell: DesktopShell = {
     restart: () => invoke('runtime_restart'),
     settingsGet: () => invoke('desktop_settings_get'),
     settingsSet: (settings) => invoke('desktop_settings_set', { patch: settings }),
-    theme: (appearance) => invoke('desktop_theme', { appearance }),
+    theme: (appearance, frame) => invoke('desktop_theme', { appearance, frame }),
     onUpdate: (fn) => listen<UpdateInfo>('desktop://update', (e) => fn(e.payload)),
     updateCheck: () => invoke('update_check'),
     updateInstall: () => invoke('update_install'),
@@ -56,6 +69,7 @@ export const tauri: Transport = {
     },
     assetUrl: (path) => `${assetBase()}${API_BASE}${relativeToApi(path)}`,
     saveFile: (path, filename) => invoke('save_file', { path: `${API_BASE}${path}`, filename }),
+    saveText: (text, filename) => invoke('save_text', { text, filename }),
     openFile: (path, filename) => invoke('open_file', { path: `${API_BASE}${path}`, filename }),
     openTopic(t, opts: TopicOptions): TopicHandle {
         let id: number | null = null
@@ -110,6 +124,115 @@ export const tauri: Transport = {
                 closed = true
                 unlisten?.()
                 if (id !== null) void invoke('topic_close', { id })
+                id = null
+            },
+        }
+    },
+    openWorkspace(t, opts: TopicOptions): TopicHandle {
+        let id: number | null = null
+        let closed = false
+        let everOpened = false
+        let unlisten: (() => void) | null = null
+
+        const open = async () => {
+            if (closed) return
+            opts.onState(everOpened ? 'reconnecting' : 'connecting')
+            const frames = new Channel<unknown>()
+            frames.onmessage = (frame) => opts.onFrame(frame)
+            try {
+                const res = await invoke<{ id: number }>('workspace_open', { workspaceId: t.workspaceId, topicId: t.topicId, frames })
+                if (closed) {
+                    void invoke('workspace_close', { id: res.id })
+                    return
+                }
+                id = res.id
+                const reopened = everOpened
+                everOpened = true
+                opts.onState('open')
+                opts.onOpen(reopened)
+            } catch {
+                id = null
+                opts.onState('offline')
+            }
+        }
+
+        void open()
+        // The engine restarting drops its topics; open again once it is ready.
+        void listen<DesktopState>('desktop://state', (e) => {
+            if (e.payload.state === 'ready' && everOpened && !closed) {
+                id = null
+                void open()
+            }
+        }).then((un) => (closed ? un() : (unlisten = un)))
+
+        return {
+            get isOpen() {
+                return id !== null
+            },
+            send(frame) {
+                if (id === null) return false
+                void invoke('workspace_send', { id, frame })
+                return true
+            },
+            retryNow() {
+                if (id === null) void open()
+            },
+            close() {
+                closed = true
+                unlisten?.()
+                if (id !== null) void invoke('workspace_close', { id })
+                id = null
+            },
+        }
+    },
+    openInbox(opts: InboxOptions): InboxHandle {
+        let id: number | null = null
+        let closed = false
+        let everOpened = false
+        let unlisten: (() => void) | null = null
+
+        const open = async () => {
+            if (closed) return
+            opts.onState(everOpened ? 'reconnecting' : 'connecting')
+            const frames = new Channel<unknown>()
+            frames.onmessage = (frame) => opts.onFrame(frame)
+            try {
+                const res = await invoke<{ id: number }>('inbox_open', { frames })
+                if (closed) {
+                    void invoke('inbox_close', { id: res.id })
+                    return
+                }
+                id = res.id
+                const reopened = everOpened
+                everOpened = true
+                opts.onState('open')
+                opts.onOpen(reopened)
+            } catch {
+                id = null
+                opts.onState('offline')
+            }
+        }
+
+        void open()
+        // The engine restarting drops its streams; open again once it is ready.
+        void listen<DesktopState>('desktop://state', (e) => {
+            if (e.payload.state === 'ready' && everOpened && !closed) {
+                id = null
+                void open()
+            }
+        }).then((un) => (closed ? un() : (unlisten = un)))
+
+        return {
+            get isOpen() {
+                return id !== null
+            },
+            retryNow() {
+                if (id === null) void open()
+            },
+            close() {
+                closed = true
+                unlisten?.()
+                if (id !== null) void invoke('inbox_close', { id })
                 id = null
             },
         }

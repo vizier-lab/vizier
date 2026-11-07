@@ -1,10 +1,11 @@
 import { AudioPlayer, FilePeek, ImageGallery, VideoPlayer } from '@vizier/design'
 import { useRef, useState } from 'react'
-import type { SessionFileRecord, VizierAttachment } from '../../api/frames'
+import type { VizierAttachment } from '../../api/frames'
 import { artifactContentUrl } from '../../api/endpoints/artifacts'
 import { relativeToApi, transport } from '../../api/transport'
+import { downloadFile } from '../../lib/download'
 import { assetPath } from '../../lib/fileUrls'
-import { FilePreviewDialog } from './FilePreviewDialog'
+import { FilePreviewModal, type PreviewFile } from '../shared/FilePreviewModal'
 
 const EXT = (name: string) => name.split('.').pop()?.toLowerCase() ?? ''
 const IMAGE = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'avif'])
@@ -28,26 +29,37 @@ export function attachmentUrl(a: VizierAttachment): string | null {
     return c.url ?? null
 }
 
-/** A synthetic record, so an attachment opens in the same preview as a session file. */
-function asRecord(a: VizierAttachment, url: string): SessionFileRecord {
+/**
+ * Where the attachment's bytes are under the API, for the transport to fetch. Null for one that isn't
+ * ours to fetch: a remote URL, or an artifact that has gone.
+ */
+export function attachmentPath(a: VizierAttachment): string | null {
+    const c = a.content as { local?: string; artifact?: { agent_id: string; artifact_id: string; available?: boolean } }
+    if (c.artifact) {
+        if (c.artifact.available === false) return null
+        return `/agents/${c.artifact.agent_id}/artifacts/${encodeURIComponent(c.artifact.artifact_id)}/content`
+    }
+    return c.local ? relativeToApi(c.local) : null
+}
+
+function asPreview(a: VizierAttachment, path: string): PreviewFile {
     const ext = EXT(a.filename)
     return {
-        id: url,
-        session_slug: '',
-        agent_id: '',
-        filename: a.filename,
-        mime_type: IMAGE.has(ext) ? `image/${ext}` : (MIME[ext] ?? 'application/octet-stream'),
+        key: path,
+        name: a.filename,
+        mimeType: IMAGE.has(ext) ? `image/${ext}` : (MIME[ext] ?? 'application/octet-stream'),
         size: 0,
-        file_id: url.split('/').pop() ?? '',
-        added_at: '',
+        url: path,
     }
 }
 
+const openElsewhere = (src: string) => window.open(src, '_blank', 'noopener')
+
 /** A file downloads through the transport when it is ours; a remote one opens where it lives. */
 function download(a: VizierAttachment, src: string) {
-    const local = (a.content as { local?: string }).local
-    if (local) return void transport.saveFile(relativeToApi(local), a.filename)
-    window.open(src, '_blank', 'noopener')
+    const path = attachmentPath(a)
+    if (path) return void downloadFile(path, a.filename)
+    openElsewhere(src)
 }
 
 export function Audio({ src, transcript }: { src: string; transcript?: string }) {
@@ -109,7 +121,16 @@ export function ReplyMedia({ attachments, transcript }: { attachments: VizierAtt
 
     const images = items.filter((x) => IMAGE.has(EXT(x.a.filename)))
     const others = items.filter((x) => !IMAGE.has(EXT(x.a.filename)))
-    const records = items.map((x) => asRecord(x.a, x.url))
+    // The preview reads through the transport, so only files of ours can open in it.
+    const previews = items.flatMap((x) => {
+        const path = attachmentPath(x.a)
+        return path ? [{ url: x.url, file: asPreview(x.a, path) }] : []
+    })
+    const openFile = (url: string) => {
+        const index = previews.findIndex((p) => p.url === url)
+        if (index >= 0) setOpen(index)
+        else openElsewhere(url)
+    }
 
     return (
         <div className="flex flex-col gap-8">
@@ -125,7 +146,7 @@ export function ReplyMedia({ attachments, transcript }: { attachments: VizierAtt
             {images.length > 0 && (
                 <ImageGallery
                     images={images.map((x) => ({ src: x.url, name: x.a.filename }))}
-                    onOpen={(i) => setOpen(items.indexOf(images[i]))}
+                    onOpen={(i) => openFile(images[i].url)}
                 />
             )}
             {others.map(({ a, url }) => {
@@ -140,13 +161,13 @@ export function ReplyMedia({ attachments, transcript }: { attachments: VizierAtt
                         meta={previewable ? undefined : 'no preview for this type'}
                         action={
                             previewable
-                                ? { label: 'Open', onClick: () => setOpen(items.indexOf(items.find((x) => x.url === url)!)) }
+                                ? { label: 'Open', onClick: () => openFile(url) }
                                 : { label: 'Download', onClick: () => download(a, url) }
                         }
                     />
                 )
             })}
-            {open !== null && <FilePreviewDialog files={records} index={open} onIndex={setOpen} onClose={() => setOpen(null)} />}
+            {open !== null && <FilePreviewModal files={previews.map((p) => p.file)} index={open} onIndex={setOpen} onClose={() => setOpen(null)} />}
         </div>
     )
 }

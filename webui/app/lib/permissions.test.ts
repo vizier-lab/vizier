@@ -7,6 +7,12 @@ describe('groupsFor', () => {
         expect(groups.map((g) => g.title)).toEqual(['Agents', 'Administration', 'Other'])
         expect(groups[2].items[0]).toEqual({ permission: 'brand:new', label: 'brand:new' })
     })
+
+    it('shows model override as a named Chat permission', () => {
+        expect(groupsFor(['model_override'])).toEqual([
+            { title: 'Chat', items: [{ permission: 'model_override', label: 'Choose a model for chat' }] },
+        ])
+    })
 })
 
 describe('permissionCount', () => {

@@ -1,4 +1,4 @@
-import { AgentStartingCard } from '@vizier/design'
+import { SetupItem } from '@vizier/design'
 import type { SetupState } from '../../api/endpoints/agents'
 import { bytes } from '../../lib/format'
 import { eta, setupProgress, useAgents } from '../../stores/agents'
@@ -13,17 +13,10 @@ function etaText(seconds: number | null): string | undefined {
     return `about ${Math.ceil(seconds / 60)} min`
 }
 
-function percentOf(d: SetupState['downloads'][number]): number | null {
-    if (typeof d.progress === 'number')
-        return Math.round(Math.min(1, Math.max(0, d.progress)) * 100)
-    if (typeof d.completed === 'number' && typeof d.total === 'number' && d.total > 0)
-        return Math.round((d.completed / d.total) * 100)
-    return null
-}
-
 /**
- * One agent's live setup: what it is doing, how far along, and a line per
- * artifact. Live only — it has no read state and is never counted as unread.
+ * One agent's live setup, in the same card shape as a notification. One row per agent: what it
+ * is doing, how far along, the size and the time left. Live only: it has no read state and is
+ * never counted as unread.
  */
 export function SetupActivity({ setup }: Props) {
     const agent = useAgents((s) => s.agents.find((a) => a.agent_id === setup.agent_id))
@@ -33,39 +26,20 @@ export function SetupActivity({ setup }: Props) {
     const measured = setup.downloads.find(
         (d) => typeof d.completed === 'number' && typeof d.total === 'number' && (d.total ?? 0) > 0
     )
-    const detail = measured
+    const label = measured?.label ?? measured?.name
+    const size = measured
         ? `${bytes(measured.completed ?? 0)} of ${bytes(measured.total ?? 0)}`
         : undefined
+    const detail = [label, size].filter(Boolean).join(' · ') || undefined
 
     return (
-        <div className="flex w-full flex-col gap-6">
-            {/* The card caps its own width for toasts; in the panel it spans the column. */}
-            <AgentStartingCard
-                className="max-w-none!"
-                name={name}
-                step={setup.message || 'Building tools'}
-                percent={pct == null ? undefined : Math.round(pct * 100)}
-                detail={detail}
-                eta={etaText(eta(samples))}
-                downloads={
-                    setup.downloads.length ? (
-                        setup.downloads.map((d, i) => {
-                            const percent = percentOf(d)
-                            return (
-                                <span
-                                    key={`${d.kind ?? 'download'}-${i}`}
-                                    className={`type-mono-xs ${d.error ? 'text-failed-text' : 'text-muted'}`}
-                                >
-                                    {d.kind ?? 'download'} · {d.label ?? d.name ?? ''}
-                                    {percent != null && ` · ${percent}%`}
-                                    {d.status && ` · ${d.status}`}
-                                    {d.error && ` · ${d.error}`}
-                                </span>
-                            )
-                        })
-                    ) : undefined
-                }
-            />
-        </div>
+        <SetupItem
+            agentId={setup.agent_id}
+            agentName={name}
+            step={setup.message || 'Building tools'}
+            percent={pct == null ? undefined : Math.round(pct * 100)}
+            detail={detail}
+            eta={etaText(eta(samples))}
+        />
     )
 }

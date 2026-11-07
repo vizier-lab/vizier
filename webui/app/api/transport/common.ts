@@ -29,6 +29,15 @@ export interface TopicHandle {
     close(): void
 }
 
+/** The inbox stream (`GET /inbox/stream`, `inbox_open`): pushed frames, nothing sent back. */
+export type InboxOptions = TopicOptions
+
+export interface InboxHandle {
+    readonly isOpen: boolean
+    retryNow(): void
+    close(): void
+}
+
 export type AuthMode = 'http' | 'desktop'
 
 export type DesktopState = {
@@ -60,7 +69,8 @@ export interface DesktopShell {
     settingsGet(): Promise<DesktopSettings>
     settingsSet(settings: DesktopSettings): Promise<DesktopSettings>
     /** Paint the window frame (the title bar) in this appearance's shell colour. */
-    theme(appearance: 'dark' | 'light'): Promise<void>
+    /** `frame` is the scheme's frame colour, for a title bar the OS lets us paint. */
+    theme(appearance: 'dark' | 'light', frame?: string): Promise<void>
     updateCheck(): Promise<UpdateInfo>
     onUpdate(fn: (u: UpdateInfo) => void): Promise<() => void>
     updateInstall(): Promise<void>
@@ -78,8 +88,14 @@ export interface Transport {
     fetchFile(path: string, init?: { range?: [number, number]; signal?: AbortSignal }): Promise<Response>
     assetUrl(path: string): string
     saveFile(path: string, filename: string): Promise<void>
+    /** Saves text made here, not fetched from a server path. Cancelling a save dialog is not an error. */
+    saveText(text: string, filename: string): Promise<void>
     openFile(path: string, filename: string): Promise<void>
     openTopic(t: { agentId: string; channelId: string; topicId: string }, opts: TopicOptions): TopicHandle
+    /** One Workspace topic: the `hello`, then entries, steps and states. Sends `{ post }` back. */
+    openWorkspace(t: { workspaceId: string; topicId: string }, opts: TopicOptions): TopicHandle
+    /** One live connection for notifications and setup status; reconnects with the topic backoff. */
+    openInbox(opts: InboxOptions): InboxHandle
     notify(n: { title: string; body: string; href: string }): Promise<void>
     /** The native folder picker in the desktop app; the browser has none and resolves `null`. */
     pickFolder(): Promise<string | null>

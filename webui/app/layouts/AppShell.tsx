@@ -7,15 +7,19 @@ import { useMobile } from '../lib/useMobile'
 import { useNav } from '../stores/nav'
 import { useAgents } from '../stores/agents'
 import { useNotifications } from '../stores/notifications'
-import { NotificationsAside, NotificationsPanel } from '../screens/notifications/NotificationsPanel'
+import { NotificationsPopup } from '../screens/notifications/NotificationsPopup'
 import { NotificationsBell } from '../screens/shared/NotificationsBell'
 import { NotificationToasts } from '../screens/shared/NotificationToasts'
 import { NewAgentDialog, withNewAgent } from '../screens/agents/NewAgentDialog'
 import { SettingsSidebar } from '../screens/settings/SettingsSidebar'
 import { AgentSidebar } from '../screens/shell/AgentSidebar'
+import { WorkspaceColumn } from '../screens/workspaces/WorkspaceColumn'
+import { useWorkspaces } from '../stores/workspaces'
 import { viewOf } from '../screens/shell/pages'
 import { ShellRail } from '../screens/shell/ShellRail'
 import { useSession } from '../stores/session'
+import { getInstanceZone } from '../api/endpoints/timezone'
+import { setInstanceZone } from '../lib/timezone'
 import { ToastRegion } from './ToastRegion'
 
 export default function AppShell() {
@@ -25,17 +29,28 @@ export default function AppShell() {
     const matches = useMatches()
     const { can } = useSession()
     const start = useAgents((s) => s.start)
+    const loadWorkspaces = useWorkspaces((s) => s.load)
     const mobile = useMobile()
-    const notificationsOpen = useNotifications((s) => s.open)
     const navOpen = useNav((s) => s.open)
     const setNavOpen = useNav((s) => s.setOpen)
+    const sidebarCollapsed = useNav((s) => s.sidebarCollapsed)
+    const toggleSidebar = useNav((s) => s.toggleSidebar)
     const resetNotifications = useNotifications((s) => s.reset)
     const setViewing = useNotifications((s) => s.setViewing)
     const [drawerAgent, setDrawerAgent] = useState<string>()
+    // Times are drawn in the instance's zone, so the pages wait for it. If it can't be read they
+    // carry on in the browser's zone rather than show nothing.
+    const [zoneKnown, setZoneKnown] = useState(false)
+    useEffect(() => {
+        getInstanceZone()
+            .then(setInstanceZone)
+            .catch((e) => console.warn("Couldn't read the instance's timezone; using the browser's", e))
+            .finally(() => setZoneKnown(true))
+    }, [])
 
     useEffect(() => start(), [start])
-    // A fresh session starts from zero, then the badge is kept current by the
-    // store's own 15s poll.
+    useEffect(() => void loadWorkspaces(), [loadWorkspaces])
+    // A fresh session starts from zero, then the badge is kept current by the inbox stream.
     useEffect(() => {
         resetNotifications()
         return useNotifications.getState().start()
@@ -56,6 +71,18 @@ export default function AppShell() {
     useEffect(() => {
         if (routeAgent) setDrawerAgent(routeAgent)
     }, [routeAgent])
+    // Ctrl B (or ⌘B) shuts the agent column. A rich text editor keeps the key for bold.
+    useEffect(() => {
+        if (mobile || view !== 'agent') return
+        const on = (e: KeyboardEvent) => {
+            if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey || e.key.toLowerCase() !== 'b') return
+            if (e.defaultPrevented || (e.target as HTMLElement | null)?.isContentEditable) return
+            e.preventDefault()
+            toggleSidebar()
+        }
+        window.addEventListener('keydown', on)
+        return () => window.removeEventListener('keydown', on)
+    }, [mobile, view, toggleSidebar])
 
     // Which screen is showing, rather than which URL: a screen keeps its
     // identity while its parameters change, so switching conversation or
@@ -82,8 +109,10 @@ export default function AppShell() {
             <AgentSidebar agentId={routeAgent} />
         ) : view === 'settings' ? (
             <SettingsSidebar active={settingsPage} admin={admin} />
+        ) : view === 'workspace' ? (
+            <WorkspaceColumn />
         ) : undefined
-    const sidebarKey = view === 'agent' ? `agent:${routeAgent}` : view
+    const sidebarKey = view === 'agent' ? `agent:${routeAgent}` : view === 'workspace' ? `workspace:${params.workspaceId}` : view
 
     // A new screen settles into place: it dims and lifts a
     // little, it doesn't slide in from nowhere.
@@ -98,7 +127,7 @@ export default function AppShell() {
                 transition: { duration: motionDurations.base, ease: motionEases.arrive },
             }}
         >
-            <Outlet />
+            {zoneKnown && <Outlet />}
         </motion.div>
     )
 
@@ -137,7 +166,7 @@ export default function AppShell() {
                         ) : null}
                     </div>
                 </SlideOver>
-                <NotificationsPanel />
+                <NotificationsPopup />
                 <NotificationToasts />
                 <ToastRegion />
                 <NewAgentDialog />
@@ -151,10 +180,11 @@ export default function AppShell() {
                 rail={<ShellRail pathname={pathname} view={view} routeAgent={routeAgent} />}
                 sidebar={sidebar}
                 sidebarKey={sidebarKey}
-                aside={notificationsOpen ? <NotificationsAside /> : undefined}
+                collapsed={view === 'agent' && sidebarCollapsed}
             >
                 {page}
             </ShellFrame>
+            <NotificationsPopup />
             <NotificationToasts />
             <ToastRegion />
             <NewAgentDialog />

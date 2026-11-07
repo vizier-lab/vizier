@@ -9,6 +9,7 @@ import { isCron, slugOf } from '../lib/tasks'
 import { useMobile } from '../lib/useMobile'
 import { PageFrame } from '../screens/shared/PageFrame'
 import { toast } from '../stores/toasts'
+import { wallClockString, zoned } from '../lib/timezone'
 
 const FORM = 'task-form'
 
@@ -37,13 +38,13 @@ export default function TaskEdit() {
                 setInstruction(t.instruction)
                 setKind(isCron(t.schedule) ? 'cron' : 'one_time')
                 if (isCron(t.schedule)) setCron(t.schedule.CronTask)
-                else setAt(new Date(t.schedule.OneTimeTask))
+                else setAt(zoned(t.schedule.OneTimeTask))
             })
             .catch((e) => toast.error("Couldn't load the task", e.message))
     }, [agentId, slug, creating])
 
     const finalSlug = creating ? slugOf(title) : slug
-    const valid = title.trim() !== '' && instruction.trim() !== '' && finalSlug !== '' && (kind === 'cron' ? cron.trim() !== '' : at !== null && at > new Date())
+    const valid = title.trim() !== '' && instruction.trim() !== '' && finalSlug !== '' && (kind === 'cron' ? cron.trim() !== '' : at !== null && at > zoned(new Date()))
     const carry = useCarry()
     const fromList = useReturnTo(`/${agentId}/tasks`)
     const back = creating ? fromList : `/${agentId}/tasks/${encodeURIComponent(slug)}`
@@ -56,7 +57,7 @@ export default function TaskEdit() {
             slug: finalSlug,
             title: title.trim(),
             instruction: instruction.trim(),
-            schedule: kind === 'cron' ? { type: 'Cron' as const, expression: cron.trim() } : { type: 'OneTime' as const, datetime: at!.toISOString() },
+            schedule: kind === 'cron' ? { type: 'Cron' as const, expression: cron.trim() } : { type: 'OneTime' as const, datetime: wallClockString(at!) },
             is_active: task?.is_active ?? true,
         }
         try {
@@ -122,7 +123,7 @@ export default function TaskEdit() {
                                     helper={human ?? 'Minute, hour, day of month, month, day of week. 0 9 * * 1 is Mondays at 09:00.'}
                                 />
                             ) : (
-                                <DateTimeField label="Run at" value={at} onChange={setAt} min={new Date()} helper="Your time zone" />
+                                <DateTimeField label="Run at" value={at} onChange={setAt} min={zoned(new Date())} />
                             )}
                         </div>
                     </div>

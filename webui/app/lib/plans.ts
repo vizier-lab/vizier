@@ -1,4 +1,5 @@
 import type { Turn } from '../api/frames'
+import { turnEvents } from './trail'
 
 /** A plan proposed by `propose_plan` in a Plan-mode project chat (spec 041 US2). */
 export type Plan = {
@@ -9,8 +10,9 @@ export type Plan = {
 
 /** The plan a turn proposed, from the `execute_python` report that ended it. */
 export function planOf(turn: Turn): Plan | null {
-    for (let i = turn.trail.length - 1; i >= 0; i--) {
-        const event = turn.trail[i]
+    const events = turnEvents(turn)
+    for (let i = events.length - 1; i >= 0; i--) {
+        const event = events[i]
         if (event.kind !== 'python' || !event.report?.ok) continue
         const call = [...event.report.tool_calls]
             .reverse()

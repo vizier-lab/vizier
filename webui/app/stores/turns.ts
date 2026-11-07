@@ -6,8 +6,9 @@ import {
     topicHistory,
     topicJobs,
 } from '../api/endpoints/chat'
-import { classifyFrame, type ChatMessage, type QuestionAnswerPayload, type VizierRequestContent } from '../api/frames'
+import { classifyFrame, type ChatMessage, type ModelOverride, type QuestionAnswerPayload, type VizierRequestContent } from '../api/frames'
 import { emptyTopic, reduce, type Action, type TopicState } from '../lib/frames'
+import { modelOverridePayload } from '../lib/modelOverride'
 import { handleClientCall } from '../lib/clientTools'
 import { playNotify } from '../lib/sound'
 import { topicKey, useConnection } from './connection'
@@ -35,9 +36,10 @@ type TurnStore = {
         text: string,
         attachments?: object[],
         spoken?: boolean,
-        mentions?: string[]
+        mentions?: string[],
+        modelOverride?: ModelOverride | null
     ) => void
-    sendAudio: (agentId: string, topicId: string, attachment: object) => void
+    sendAudio: (agentId: string, topicId: string, attachment: object, modelOverride?: ModelOverride | null) => void
     clientEvent: (agentId: string, topicId: string, text: string, data?: unknown, sourceCallId?: string) => void
     saveClientState: (agentId: string, topicId: string, callId: string, state: unknown) => void
     /** Submit (or dismiss) a question set the agent asked: one ordinary request, claimed once on the server. */
@@ -62,12 +64,14 @@ function request(
     content: VizierRequestContent,
     attachments?: object[],
     spoken?: boolean,
-    mentions?: string[]
+    mentions?: string[],
+    modelOverride?: ModelOverride | null
 ) {
     return {
         timestamp: new Date().toISOString(),
         user: useSession.getState().user?.username ?? '',
         content,
+        ...modelOverridePayload(modelOverride ?? null),
         metadata: null,
         ...(attachments?.length ? { attachments } : {}),
         ...(spoken ? { expect_audio_reply: true } : {}),
@@ -209,20 +213,20 @@ export const useTurns = create<TurnStore>()((set, get) => {
             })
         },
 
-        send: (agentId, topicId, text, attachments, spoken, mentions) => {
+        send: (agentId, topicId, text, attachments, spoken, mentions, modelOverride) => {
             const id = String(nextId++)
             const now = new Date().toISOString()
             // Sent whether or not a turn is running: the agent queues it the same way, and a
             // message held in this tab is gone the moment the page is left. The wait is drawn
             // until the server stores it (`sent`, or the next history read).
-            const sent = useConnection.getState().send(agentId, topicId, request({ chat: text }, attachments, spoken, mentions))
+            const sent = useConnection.getState().send(agentId, topicId, request({ chat: text }, attachments, spoken, mentions, modelOverride))
             if (sent) dispatch(agentId, topicId, { type: 'send', id, text, attachments: attachments as never, spoken, now })
         },
 
-        sendAudio: (agentId, topicId, attachment) => {
+        sendAudio: (agentId, topicId, attachment, modelOverride) => {
             // A recording is a message like any other: it goes now, and waits its turn at the agent.
             const now = new Date().toISOString()
-            const frame = { ...request({ audio_chat: [attachment, null] } as never), expect_audio_reply: true }
+            const frame = { ...request({ audio_chat: [attachment, null] } as never, undefined, undefined, undefined, modelOverride), expect_audio_reply: true }
             if (useConnection.getState().send(agentId, topicId, frame)) {
                 dispatch(agentId, topicId, {
                     type: 'send',

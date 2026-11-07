@@ -2,25 +2,24 @@
 //
 // The library is large, so it is imported the first time a diagram is met and never with the
 // app. A diagram carries its colours in its own markup, so it is drawn from the design tokens
-// and redrawn when the appearance changes (`useDark`). Anything that goes wrong — a parse
+// and redrawn when the colours on screen change (`useAppearanceKey`). Anything that goes wrong — a parse
 // error, a diagram this browser cannot draw — falls back to the source block, which is the
 // text the reply actually said.
 import { CodeBlock } from '@vizier/design'
 import { memo, useEffect, useRef, useState } from 'react'
-import { useDark } from '../../lib/useDark'
+import { isDark, useAppearanceKey } from '../../lib/useDark'
 
 /** Render ids have to be unique and start with a letter; mermaid adds one element per render. */
 let sequence = 0
-/** The appearance the current global config was built for, so it is rebuilt only when it moves. */
+/** The colours the current global config was built for, so it is rebuilt only when they move. */
 let configured: string | null = null
 
 function token(name: string): string {
     return getComputedStyle(document.documentElement).getPropertyValue(name).trim()
 }
 
-async function draw(source: string, dark: boolean): Promise<string> {
+async function draw(source: string, look: string): Promise<string> {
     const mermaid = (await import('mermaid')).default
-    const look = dark ? 'dark' : 'light'
     if (configured !== look) {
         mermaid.initialize({
             startOnLoad: false,
@@ -29,7 +28,7 @@ async function draw(source: string, dark: boolean): Promise<string> {
             theme: 'base',
             fontFamily: token('--font-sans'),
             themeVariables: {
-                darkMode: dark,
+                darkMode: isDark(),
                 background: token('--vz-ground'),
                 primaryColor: token('--vz-raised'),
                 primaryTextColor: token('--vz-text'),
@@ -57,7 +56,7 @@ async function draw(source: string, dark: boolean): Promise<string> {
 
 /** A mermaid fence: the drawn diagram, or its source while it is being drawn or if it cannot be. */
 export const Mermaid = memo(function Mermaid({ code }: { code: string }) {
-    const dark = useDark()
+    const look = useAppearanceKey()
     const [svg, setSvg] = useState<string | null>(null)
     // A different diagram under the same component is drawn from scratch; the same diagram is
     // kept on screen while a theme change redraws it, so the block does not flash its source.
@@ -69,7 +68,7 @@ export const Mermaid = memo(function Mermaid({ code }: { code: string }) {
             setSvg(null)
         }
         let live = true
-        draw(code, dark).then(
+        draw(code, look).then(
             (markup) => {
                 if (live) setSvg(markup)
             },
@@ -80,7 +79,7 @@ export const Mermaid = memo(function Mermaid({ code }: { code: string }) {
         return () => {
             live = false
         }
-    }, [code, dark])
+    }, [code, look])
 
     if (!svg) return <CodeBlock code={code} language="mermaid" />
     return (

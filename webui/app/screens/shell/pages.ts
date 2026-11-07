@@ -27,9 +27,10 @@ export function pageOf(pathname: string): AgentPage | undefined {
 }
 
 /** The shell has three shapes: no column (Home and the New agent modal), the agent's column, or Settings'. */
-export type ShellView = 'bare' | 'agent' | 'settings'
+export type ShellView = 'bare' | 'agent' | 'settings' | 'workspace'
 
 export function viewOf(pathname: string, routeAgent: string | undefined): ShellView {
     if (pathname.startsWith('/settings')) return 'settings'
+    if (pathname.startsWith('/workspaces/')) return 'workspace'
     return routeAgent ? 'agent' : 'bare'
 }

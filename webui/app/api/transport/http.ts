@@ -1,5 +1,16 @@
 // The browser transport: fetch and a WebSocket per topic, with a bearer token.
-import { API_BASE, getToken, relativeToApi, settle, type Envelope, type Transport, type TopicHandle, type TopicOptions } from './common'
+import {
+    API_BASE,
+    getToken,
+    relativeToApi,
+    settle,
+    type Envelope,
+    type InboxHandle,
+    type InboxOptions,
+    type Transport,
+    type TopicHandle,
+    type TopicOptions,
+} from './common'
 import { TopicSocket } from './websocket'
 
 async function send<T>(method: string, path: string, body: unknown, init?: { signal?: AbortSignal; raw?: boolean }): Promise<T> {
@@ -29,6 +40,16 @@ export function topicUrl(t: { agentId: string; channelId: string; topicId: strin
     return `${proto}//${location.host}${API_BASE}/agents/${t.agentId}/channel/${encodeURIComponent(t.channelId)}/topic/${encodeURIComponent(t.topicId)}/chat?token=${encodeURIComponent(token)}`
 }
 
+export function workspaceUrl(t: { workspaceId: string; topicId: string }, token: string): string {
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
+    return `${proto}//${location.host}${API_BASE}/workspaces/${encodeURIComponent(t.workspaceId)}/topics/${encodeURIComponent(t.topicId)}/stream?token=${encodeURIComponent(token)}`
+}
+
+export function inboxUrl(token: string): string {
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
+    return `${proto}//${location.host}${API_BASE}/inbox/stream?token=${encodeURIComponent(token)}`
+}
+
 export const http: Transport = {
     authMode: 'http',
     request: (method, path, body, init) => send(method, path, body, init),
@@ -48,7 +69,17 @@ export const http: Transport = {
     },
     async saveFile(path, filename) {
         const res = await this.fetchFile(path)
+        // An error's body is not the file: saved under the file's name, it would look like a download.
+        if (!res.ok) settle(res.status, await res.json().catch(() => undefined), path)
         const href = URL.createObjectURL(await res.blob())
+        const a = document.createElement('a')
+        a.href = href
+        a.download = filename
+        a.click()
+        URL.revokeObjectURL(href)
+    },
+    async saveText(text, filename) {
+        const href = URL.createObjectURL(new Blob([text], { type: 'application/json' }))
         const a = document.createElement('a')
         a.href = href
         a.download = filename
@@ -64,6 +95,24 @@ export const http: Transport = {
             url: () => {
                 const token = getToken()
                 return token ? topicUrl(t, token) : null
+            },
+        })
+    },
+    openWorkspace(t, opts: TopicOptions): TopicHandle {
+        return new TopicSocket({
+            ...opts,
+            url: () => {
+                const token = getToken()
+                return token ? workspaceUrl(t, token) : null
+            },
+        })
+    },
+    openInbox(opts: InboxOptions): InboxHandle {
+        return new TopicSocket({
+            ...opts,
+            url: () => {
+                const token = getToken()
+                return token ? inboxUrl(token) : null
             },
         })
     },

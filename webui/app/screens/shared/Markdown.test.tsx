@@ -107,8 +107,8 @@ describe('markdown highlighting', () => {
     // the source, which is what the tests above keep locking.
     it('colours a fence by its language', () => {
         const html = draw('```python\nfor x in hits:\n    print("db", 8)\n```')
-        expect(html).toContain('text-rank-text')
-        expect(html).toContain('text-live-text')
+        expect(html).toContain('text-code-keyword')
+        expect(html).toContain('text-code-string')
         expect(shown(html)).toBe('for x in hits:    print("db", 8)')
         expect(html).not.toContain('[object Object]')
     })

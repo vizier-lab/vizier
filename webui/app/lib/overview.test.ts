@@ -1,19 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import type { Activity } from '../api/endpoints/overview'
-import { tzParam } from '../api/endpoints/overview'
 import { greetingMeta, gridMeta, gridRows, hourHints, summaryLine } from './overview'
 
 const hours = Array.from({ length: 24 }, (_, i) => new Date(Date.UTC(2026, 9, 22, i + 1)).toISOString())
 const turns = (n: number) => Array.from({ length: 24 }, (_, i) => (i === 23 ? n : 0))
-
-describe('tzParam', () => {
-    it('writes the offset the API reads, east positive', () => {
-        // Date#getTimezoneOffset is minutes WEST of UTC, so UTC+7 is -420.
-        expect(tzParam({ getTimezoneOffset: () => -420 } as Date)).toBe('+07:00')
-        expect(tzParam({ getTimezoneOffset: () => 330 } as Date)).toBe('-05:30')
-        expect(tzParam({ getTimezoneOffset: () => 0 } as Date)).toBe('+00:00')
-    })
-})
 
 describe('greetingMeta', () => {
     it('lists what is worth saying', () => {

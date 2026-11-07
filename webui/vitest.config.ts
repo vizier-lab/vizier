@@ -19,6 +19,8 @@ export default defineConfig({
         include: ['app/**/*.test.ts', 'app/**/*.test.tsx'],
         environment: 'node',
         setupFiles: ['app/test/oneReact.ts'],
+        // `tokens.css?raw` is how Vizier's own colours are read; left out, vitest hands it back empty.
+        css: { include: [/tokens.css/] },
         server: { deps: { inline: [/@vizier\/design/, /lucide-react/, /\/design\/node_modules\//] } },
     },
 })

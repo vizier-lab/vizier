@@ -14,6 +14,7 @@ import { ScheduleCalendar, type Range } from '../screens/schedule/ScheduleCalend
 import { PagedTable } from '../screens/shared/PagedTable'
 import { PageFrame } from '../screens/shared/PageFrame'
 import { toast } from '../stores/toasts'
+import { zoned } from '../lib/timezone'
 
 const SORTS = [
     { value: 'next_run', label: 'Next run' },
@@ -71,7 +72,7 @@ function ScheduleCalendarPage({ agentId, switcher }: { agentId: string; switcher
     const [params, setParams] = useSearchParams()
     const [tasks, setTasks] = useState<Task[] | null>(null)
     const [error, setError] = useState<Error | null>(null)
-    const [now, setNow] = useState(() => new Date())
+    const [now, setNow] = useState(() => zoned(new Date()))
 
     useEffect(() => {
         const ctl = new AbortController()
@@ -88,7 +89,7 @@ function ScheduleCalendarPage({ agentId, switcher }: { agentId: string; switcher
 
     // The "now" line and what counts as ahead move once a minute.
     useEffect(() => {
-        const id = setInterval(() => setNow(new Date()), 60_000)
+        const id = setInterval(() => setNow(zoned(new Date())), 60_000)
         return () => clearInterval(id)
     }, [])
 

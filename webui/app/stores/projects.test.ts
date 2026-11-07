@@ -6,6 +6,7 @@ vi.mock('../api/endpoints/projects', async (importOriginal) => {
         ...actual,
         listProjects: vi.fn(),
         listProjectSessions: vi.fn(),
+        getProjectLsp: vi.fn(),
     }
 })
 
@@ -14,6 +15,7 @@ import { projectKey, useProjects } from './projects'
 
 const list = vi.mocked(api.listProjects)
 const sessions = vi.mocked(api.listProjectSessions)
+const readLsp = vi.mocked(api.getProjectLsp)
 
 function project(id: string, sessionCount = 0): api.Project {
     return {
@@ -23,6 +25,7 @@ function project(id: string, sessionCount = 0): api.Project {
         folder: `/tmp/${id}`,
         available: true,
         shell_enabled: true,
+        lsp_enabled: true,
         owner_id: 'u1',
         is_owner: true,
         session_count: sessionCount,
@@ -36,7 +39,7 @@ function session(topic: string): api.ProjectSessionRow {
 
 beforeEach(() => {
     vi.clearAllMocks()
-    useProjects.setState({ byAgent: {}, loaded: {}, sessions: {} })
+    useProjects.setState({ byAgent: {}, loaded: {}, sessions: {}, lsp: {} })
 })
 
 describe('the projects store', () => {
@@ -78,5 +81,57 @@ describe('the projects store', () => {
         useProjects.getState().forget('dp-a', 'alpha')
         expect(useProjects.getState().byAgent['dp-a'].map((p) => p.id)).toEqual(['beta'])
         expect(useProjects.getState().sessions[projectKey('dp-a', 'alpha')]).toBeUndefined()
+    })
+})
+
+describe('language servers', () => {
+    const snapshot = (over: Partial<api.LspSnapshot> = {}): api.LspSnapshot => ({
+        project_id: 'alpha',
+        enabled: true,
+        capacity: { in_use: 0, max: 6 },
+        servers: [],
+        ...over,
+    })
+    const view = (over: Partial<api.LspView> = {}): api.LspView => ({ ...snapshot(), can_manage: true, languages: [], overrides: [], ...over })
+
+    it('reads a project and keeps what only a read carries when a snapshot is pushed', async () => {
+        readLsp.mockResolvedValue(view({ languages: [{ id: 'rust', name: 'Rust', default_command: 'rust-analyzer' }] }))
+        await useProjects.getState().loadLsp('dp-a', 'alpha')
+        useProjects.getState().applyLsp(snapshot({ capacity: { in_use: 2, max: 6 } }))
+        const held = useProjects.getState().lsp.alpha
+        expect(held.capacity.in_use).toBe(2)
+        expect(held.can_manage).toBe(true)
+        expect(held.languages).toHaveLength(1)
+    })
+
+    it('shows a pushed snapshot for a project nobody read yet, as view only', () => {
+        useProjects.getState().applyLsp(snapshot({ project_id: 'beta' }))
+        expect(useProjects.getState().lsp.beta.can_manage).toBe(false)
+    })
+
+    it('keeps the held status when a read fails', async () => {
+        readLsp.mockResolvedValueOnce(view())
+        await useProjects.getState().loadLsp('dp-a', 'alpha')
+        readLsp.mockRejectedValueOnce(new Error('offline'))
+        await useProjects.getState().loadLsp('dp-a', 'alpha')
+        expect(useProjects.getState().lsp.alpha).toBeDefined()
+    })
+
+    it('re-reads watched projects after a gap, and stops when the last watcher leaves', async () => {
+        readLsp.mockResolvedValue(view())
+        const stopA = useProjects.getState().watchLsp('dp-a', 'alpha')
+        const stopB = useProjects.getState().watchLsp('dp-a', 'alpha')
+        await Promise.resolve()
+        readLsp.mockClear()
+        useProjects.getState().reloadWatchedLsp()
+        expect(readLsp).toHaveBeenCalledTimes(1)
+        stopA()
+        readLsp.mockClear()
+        useProjects.getState().reloadWatchedLsp()
+        expect(readLsp).toHaveBeenCalledTimes(1)
+        stopB()
+        readLsp.mockClear()
+        useProjects.getState().reloadWatchedLsp()
+        expect(readLsp).not.toHaveBeenCalled()
     })
 })

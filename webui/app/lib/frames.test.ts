@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { ChatMessage, Frame, WebSocketResponse } from '../api/frames'
 import { emptyTopic, reduce, type Action, type TopicState } from './frames'
-import { groupHistory, openTurn } from './trail'
+import { groupHistory, openTurn, turnEvents } from './trail'
 
 const session = { agent_id: 'plug', channel: 'webui', topic: 't' }
 const frame = (f: Frame): Action => ({ type: 'frame', frame: f })
@@ -119,7 +119,7 @@ describe('abort boundary', () => {
         const turns = groupHistory(s.entries)
         expect(turns).toHaveLength(2)
         // The stopped turn keeps its work, and the trail is drawn at the abort: above the next message.
-        expect(turns[0].trail).toHaveLength(1)
+        expect(turnEvents(turns[0])).toHaveLength(1)
         expect(turns[0].aborted).toBe(true)
         expect(turns[0].anchorUid).toBe(s.entries[2].uid)
         expect(turns[1].request?.uid).toBe('live-req-2')
@@ -180,7 +180,7 @@ describe('history and reopening', () => {
         const turns = groupHistory(s.entries)
         expect(turns).toHaveLength(1)
         expect(openTurn(turns)).toBeDefined()
-        expect(turns[0].trail).toHaveLength(1)
+        expect(turnEvents(turns[0])).toHaveLength(1)
     })
 
     it('reads the context ring from the newest stored reply when a topic is opened', () => {

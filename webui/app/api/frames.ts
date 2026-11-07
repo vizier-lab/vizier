@@ -306,6 +306,8 @@ export interface VizierResponseStats {
   // The provider and model that answered.
   provider?: string
   model?: string
+  // The turn-ending tool whose call was this turn's answer (spec 026).
+  ended_by_tool?: string | null
 }
 
 export interface ChatMessage {
@@ -328,7 +330,7 @@ export interface ChatMessage {
       // The turn was interrupted by a restart and carried on afterwards.
       resumed?: boolean
     }
-    // Intermediate narration: text the agent wrote alongside its tool calls.
+    // A mid-turn message: text the agent wrote alongside its tool calls.
     AssistantMessage?: string
     ToolCall?: { call_id: string; name: string; arguments: Record<string, unknown> }
     ToolResult?: { call_id: string; content: string }
@@ -359,7 +361,6 @@ export interface ChatMessage {
 // component. There is deliberately no variant for a tool call made by a python script:
 // nested calls never reach history and are not streamed, so neither producer can emit one.
 export type TrailEvent =
-  | { kind: 'narration'; id: string; text: string }
   | { kind: 'thought'; id: string; text: string }
   // `jobId` is set on the `background_subagents`/`delegate_agent` call that launched a
   // background job, read from its tool result, so the job tray can jump back to it. The
@@ -374,12 +375,18 @@ export type TrailEvent =
       stopped?: boolean
     }
 
+// One part of a turn, in the order it happened: a stretch of work, or something the agent said
+// on the way (specs/053-workspace-channel/contracts/turn-rendering.md). A trail is never empty.
+export type TurnBlock =
+  | { kind: 'trail'; events: TrailEvent[]; startedAt?: string; endedAt?: string }
+  | { kind: 'message'; id: string; text: string; at?: string }
+
 // One exchange: what was asked, what the agent did on the way, and what came back.
 export interface Turn {
   key: string
   // Absent for an agent-initiated turn — a scheduled task or a dream cycle.
   request?: ChatMessage
-  trail: TrailEvent[]
+  blocks: TurnBlock[]
   outcome?: ChatMessage
   // The uid of the entry the turn ends at — its outcome, or the checkpoint or command that
   // closed it. It is what the trail renders above, and it is what lets a turn closed live
@@ -401,10 +408,16 @@ export interface HistoryEntryFrame {
   history_entry: ChatMessage
 }
 
+export interface ModelOverride {
+  provider: string
+  model: string
+}
+
 export interface WebSocketMessage {
   timestamp: string
   user: string
   content: VizierRequestContent
+  model_override?: ModelOverride
   metadata?: Record<string, unknown>
   attachments?: VizierAttachment[]
   expect_audio_reply?: boolean

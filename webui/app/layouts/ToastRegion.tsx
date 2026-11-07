@@ -13,6 +13,9 @@ export function ToastRegion() {
                         tone={t.tone}
                         title={t.title}
                         message={t.message}
+                        agentId={t.agent?.id}
+                        agentName={t.agent?.name}
+                        excerpt={t.excerpt}
                         onSelect={
                             t.onSelect
                                 ? () => {

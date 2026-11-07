@@ -55,12 +55,6 @@ export function shouldNotifyOs(visibility: string, focused: boolean): boolean {
     return visibility === 'hidden' || !focused
 }
 
-/** Poll every 15s while visible; the desktop app keeps going at 60s while hidden. */
-export function pollDelay(desktop: boolean, visibility: string): number | null {
-    if (visibility === 'visible') return 15_000
-    return desktop ? 60_000 : null
-}
-
 /** Settings are valid to save: a port in range. */
 export function validPort(port: number): boolean {
     return Number.isInteger(port) && port >= 1 && port <= 65535

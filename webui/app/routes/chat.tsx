@@ -1,13 +1,11 @@
 import { DeleteConversation, type DeleteTarget } from '../screens/chat/DeleteConversation'
 import { DeleteWorktreeDialog } from '../screens/projects/DeleteWorktreeDialog'
-import { FadeRule, SIDE_PANEL_WIDTH, SideCard } from '../screens/shared/SideCard'
-import { IconButton, JobsPill, Notice, Presence, SlideOver, motionDurations, motionEases } from '@vizier/design'
+import { IconButton, Notice } from '@vizier/design'
 import { nanoid } from 'nanoid'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { motion, useReducedMotion } from 'motion/react'
 import { useNavigate, useParams } from 'react-router'
 import { agentState, getAgent } from '../api/endpoints/agents'
-import { CHANNEL, cancelJob, listTopics, restartAgent } from '../api/endpoints/chat'
+import { CHANNEL, listTopics, restartAgent } from '../api/endpoints/chat'
 import { listIntegrations } from '../api/endpoints/integrations'
 import { createProjectSession, projectChannel } from '../api/endpoints/projects'
 import type { Topic, Turn } from '../api/frames'
@@ -17,9 +15,8 @@ import { greeting } from '../lib/greetings'
 import { requestText } from '../lib/messages'
 import { ConversationHeader } from '../screens/chat/ConversationHeader'
 import { BranchChip } from '../screens/chat/BranchChip'
-import { ChangesPanel } from '../screens/chat/ChangesPanel'
+import { ChangesSection } from '../screens/chat/ChangesSection'
 import { AgentStateBanner } from '../screens/chat/AgentStateBanner'
-import { BackgroundJobsPanel } from '../screens/chat/BackgroundJobsPanel'
 import { renderClientCalls } from '../screens/chat/ClientCalls'
 import { renderQuestions } from '../screens/chat/Questions'
 import { SensitiveAskDialog } from '../components/questions/SensitiveAskDialog'
@@ -28,16 +25,17 @@ import { SideChatPanel } from '../screens/chat/SideChatPanel'
 import { ErrorNotice } from '../screens/chat/ErrorNotice'
 import { MessageList } from '../screens/chat/MessageList'
 import { recalledFrom } from '../lib/recall'
-import { RecalledMemoryPanel } from '../screens/chat/RecalledMemoryPanel'
-import { SessionFilesPanel } from '../screens/chat/SessionFilesPanel'
+import { ChatStatusStrip } from '../screens/chat/ChatStatusStrip'
+import { ModelOverridePicker } from '../screens/chat/ModelOverridePicker'
+import { readModelOverride, writeModelOverride } from '../lib/modelOverride'
+import type { ModelOverride } from '../api/frames'
 import { HostExecutionNotice } from '../screens/projects/HostExecutionNotice'
 import {
     OpenProjectButton,
     ProjectsRefused,
     shouldOfferOpenProject,
 } from '../screens/projects/ProjectsSection'
-import { lastTopic, read, rememberTopic, write } from '../lib/remember'
-import { useMobile } from '../lib/useMobile'
+import { lastTopic, rememberTopic } from '../lib/remember'
 import { useAgents } from '../stores/agents'
 import { topicKey, useConnection } from '../stores/connection'
 import { useSession } from '../stores/session'
@@ -48,9 +46,9 @@ import { useTurns } from '../stores/turns'
 import { conversationTitle } from '../lib/conversations'
 
 const EMPTY = emptyTopic()
-// A new key so the details panel starts collapsed for everyone, including people
-// who left it open under the old default.
-const PANEL_KEY = 'vizier.chat.panel.v2'
+// The strip's own margin under the composer, and the air between it and the panel.
+const STRIP_MARGIN = 8
+const PANEL_GAP = 8
 
 export default function Chat() {
     const { agentId = '', topicId, projectId } = useParams()
@@ -78,11 +76,10 @@ export default function Chat() {
                   ?.worktree ?? null)
             : null
     )
-    const gitAvailable = useProjects((s) =>
-        projectId && topicId
-            ? !!s.git[`${projectKey(agentId, projectId)}/${topicId}`]?.available
-            : false
+    const gitSummary = useProjects((s) =>
+        projectId && topicId ? s.git[`${projectKey(agentId, projectId)}/${topicId}`] : undefined
     )
+    const gitAvailable = !!gitSummary?.available
     const refreshGit = useProjects((s) => s.refreshGit)
     const projectMode = useProjects((s) =>
         projectId && topicId
@@ -146,19 +143,29 @@ export default function Chat() {
     }, [agentId])
 
     const [topics, setTopics] = useState<Topic[]>([])
-    const mobile = useMobile()
     const userId = useSession((s) => s.user?.user_id)
-    const [panel, setPanel] = useState(() => read(PANEL_KEY, false))
-    const togglePanel = (open: boolean) => {
-        write(PANEL_KEY, open)
-        setPanel(open)
-    }
+    const canOverrideModel = useSession((s) => s.user?.permissions.includes('model_override') ?? false)
+    const preferenceKey = useMemo(() => userId && topicId ? {
+        userId,
+        agentId,
+        channelId: channel,
+        topicId,
+    } : null, [userId, agentId, channel, topicId])
+    const [modelOverride, setModelOverride] = useState<ModelOverride | null>(null)
+    const [modelChoiceAvailable, setModelChoiceAvailable] = useState(true)
+    useEffect(() => {
+        setModelOverride(preferenceKey ? readModelOverride(preferenceKey) : null)
+    }, [preferenceKey])
+    const changeModelOverride = useCallback((choice: ModelOverride | null) => {
+        setModelOverride(choice)
+        if (preferenceKey) writeModelOverride(preferenceKey, choice)
+    }, [preferenceKey])
+    // A project's changes open in their own dialog, behind the status strip's count.
+    const [changesOpen, setChangesOpen] = useState(false)
     // Stable, so the panel's Escape listener is not re-bound on every render.
     const closeSideChat = useCallback(() => setSideChat((s) => (s.open ? { ...s, open: false } : s)), [])
     const composerBox = useRef<HTMLDivElement>(null)
     const [composerHeight, setComposerHeight] = useState(120)
-    // A person who asked for less movement gets the panel, not the choreography.
-    const reducedMotion = useReducedMotion() ?? false
     useEffect(() => {
         const el = composerBox.current
         if (!el) return
@@ -166,7 +173,24 @@ export default function Chat() {
         ro.observe(el)
         return () => ro.disconnect()
     }, [])
-    const [sheet, setSheet] = useState(false)
+    // The status panel hangs above the composer, so it must clear the composer's height.
+    const composerCard = useRef<HTMLDivElement>(null)
+    const [composerCardHeight, setComposerCardHeight] = useState(84)
+    // The strip shares its row with the model picker, so it is only as wide as its counts:
+    // the panel takes the composer's width instead of the strip's.
+    const [composerCardWidth, setComposerCardWidth] = useState<number | undefined>(undefined)
+    useEffect(() => {
+        const el = composerCard.current
+        if (!el) return
+        const measure = () => {
+            setComposerCardHeight(el.offsetHeight)
+            setComposerCardWidth(el.offsetWidth)
+        }
+        measure()
+        const ro = new ResizeObserver(measure)
+        ro.observe(el)
+        return () => ro.disconnect()
+    }, [])
     // `/btw` panel. The id changes per invocation, so a second /btw while it is open starts fresh.
     const [sideChat, setSideChat] = useState<{ open: boolean; id: string; question?: string }>({ open: false, id: '' })
     // A side chat belongs to the conversation it was opened on.
@@ -250,9 +274,6 @@ export default function Chat() {
 
     const recalled = useMemo(() => recalledFrom(state.entries), [state.entries])
     const jobs = useMemo(() => Object.values(state.jobs), [state.jobs])
-    const runningJobs = jobs.filter(
-        (j) => j.state === 'running' || j.state === 'reporting'
-    ).length
 
     const lastRequestText = () => {
         for (let i = state.entries.length - 1; i >= 0; i--) {
@@ -321,46 +342,15 @@ export default function Chat() {
         />
     )
 
-    // The recalled memory, background jobs and session files: a side panel, or a sheet on a phone.
-    const details = (
-        <SideCard>
-            {projectId && topicId && gitAvailable && (
-                <>
-                    <ChangesPanel
-                        agentId={agentId}
-                        projectId={projectId}
-                        topicId={topicId}
-                        refreshKey={`${state.phase}:${state.entries.length}`}
-                        branchAction={
-                            mobile ? (
-                                <BranchChip agentId={agentId} projectId={projectId} topicId={topicId} />
-                            ) : undefined
-                        }
-                    />
-                    <FadeRule />
-                </>
-            )}
-            <RecalledMemoryPanel agentId={agentId} recalled={recalled} />
-            <FadeRule />
-            <BackgroundJobsPanel
-                jobs={jobs}
-                onCancel={(id) =>
-                    void cancelJob(agentId, topicId ?? '', id).catch((e) =>
-                        toast.error("Couldn't cancel the job", e.message)
-                    )
-                }
-                onJumpToStart={() => {}}
-            />
-            <FadeRule />
-            <SessionFilesPanel
-                files={state.files}
-                agentId={agentId}
-                topicId={topicId ?? ''}
-                canPromote={agent ? canManageArtifacts(agent) : false}
-                onClear={() => dispatch(agentId, topicId ?? '', { type: 'files', files: [] })}
-            />
-        </SideCard>
-    )
+    // What the agent recalled, what it is still working on, what it left behind and
+    // what it changed all live in the status strip under the composer.
+    const changes =
+        projectId && topicId && gitAvailable
+            ? {
+                  count: gitSummary?.changed ?? 0,
+                  open: () => setChangesOpen(true),
+              }
+            : undefined
 
     // A direct project URL without the permission shows the refused state, never empty
     // read-only content (FR-018). Kept after every hook so the hook order never changes.
@@ -391,18 +381,8 @@ export default function Chat() {
                     }}
                     mobileTrailing={
                         <>
-                            <JobsPill
-                                compact
-                                count={runningJobs}
-                                onClick={() => setSheet(true)}
-                            />
                             {deleteConversation}
                             {newConversation}
-                            <IconButton
-                                icon="layers"
-                                aria-label="Conversation details"
-                                onClick={() => setSheet(true)}
-                            />
                         </>
                     }
                     liveTopics={topics
@@ -417,19 +397,8 @@ export default function Chat() {
                                     topicId={topicId}
                                 />
                             )}
-                            <JobsPill
-                                count={runningJobs}
-                                onClick={() => togglePanel(true)}
-                                open={panel}
-                            />
                             {deleteConversation}
                             {newConversation}
-                            <IconButton
-                                icon="layers"
-                                aria-label={panel ? 'Hide conversation details' : 'Show conversation details'}
-                                aria-pressed={panel}
-                                onClick={() => togglePanel(!panel)}
-                            />
                         </>
                     }
                 />
@@ -468,7 +437,6 @@ export default function Chat() {
                 <div className="relative flex min-h-0 flex-1">
                 <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
                 <MessageList
-                    insetRight={!mobile && panel ? SIDE_PANEL_WIDTH : 0}
                     bottomInset={composerHeight}
                     state={state}
                     agent={{ id: agentId, name: agentName, live: ['live', 'running'].includes(agentState(health)) }}
@@ -528,8 +496,7 @@ export default function Chat() {
                 {/* The composer floats over the messages: its box is the frosted glass, over a fade to the page colour so the toggle below stays readable. */}
                 <div
                     ref={composerBox}
-                    className="pointer-events-none absolute inset-x-0 bottom-0 z-10 transition-[padding] duration-[var(--vz-duration-slow)]"
-                    style={{ paddingRight: !mobile && panel ? SIDE_PANEL_WIDTH : 0 }}
+                    className="pointer-events-none absolute inset-x-0 bottom-0 z-10"
                 >
                     <div aria-hidden className="absolute inset-0 bg-gradient-to-t from-panel via-panel/80 to-transparent" />
                     <div className="pointer-events-auto relative mx-auto w-full max-w-4xl px-24 pt-24 pb-16">
@@ -548,6 +515,7 @@ export default function Chat() {
                         shell={!!shellAddon || !!project?.shell_enabled}
                         className="mb-8"
                     />
+                    <div ref={composerCard}>
                     <Composer
                         agentId={agentId}
                         agentName={agentName}
@@ -579,7 +547,9 @@ export default function Chat() {
                                 ? `${agentName} can't answer until it restarts`
                                 : connection === 'offline'
                                   ? "You're offline"
-                                  : undefined
+                                  : canOverrideModel && modelOverride && channel === CHANNEL && !modelChoiceAvailable
+                                    ? 'The selected model is unavailable. Choose another model or Agent default.'
+                                    : undefined
                         }
                         context={
                             state.context
@@ -593,11 +563,17 @@ export default function Chat() {
                                 text,
                                 attachments,
                                 spoken,
-                                mentions
+                                mentions,
+                                canOverrideModel && channel && userId ? modelOverride : null
                             )
                         }
                         onSendAudio={(attachment) =>
-                            sendAudio(agentId, topicId ?? '', attachment)
+                            sendAudio(
+                                agentId,
+                                topicId ?? '',
+                                attachment,
+                                canOverrideModel && channel && userId ? modelOverride : null
+                            )
                         }
                         onCommand={(c) => command(agentId, topicId ?? '', c)}
                         onStop={() => command(agentId, topicId ?? '', 'abort')}
@@ -606,25 +582,38 @@ export default function Chat() {
                         }
                     />
                     </div>
-                </div>
-                </div>
-                <Presence>
-                    {!mobile && panel && (
-                        <motion.aside
-                            key="details"
-                            aria-label="Conversation details"
-                            className="pointer-events-none absolute inset-y-0 right-0 flex w-400 flex-col gap-24 overflow-x-hidden overflow-y-auto p-16 [&>*]:pointer-events-auto [&>*]:min-w-0"
-                            // The conversation makes room for the panel instead of
-                            // jumping when it appears.
-                            initial={{ width: reducedMotion ? SIDE_PANEL_WIDTH : 0, opacity: reducedMotion ? 1 : 0 }}
-                            animate={{ width: SIDE_PANEL_WIDTH, opacity: 1 }}
-                            exit={reducedMotion ? { opacity: 0 } : { width: 0, opacity: 0 }}
-                            transition={{ duration: motionDurations.slow, ease: motionEases.standard }}
-                        >
-                            {details}
-                        </motion.aside>
+                    {/* The status strip: what the agent recalled, what it is still working
+                        on, what it left in this conversation and what it changed. */}
+                    <div className="mt-8 flex min-w-0 items-center gap-16">
+                    <ChatStatusStrip
+                        className="shrink-0"
+                        agentId={agentId}
+                        topicId={topicId ?? ''}
+                        recalled={recalled}
+                        jobs={jobs}
+                        files={state.files}
+                        canPromote={agent ? canManageArtifacts(agent) : false}
+                        onFilesCleared={() => dispatch(agentId, topicId ?? '', { type: 'files', files: [] })}
+                        changes={changes}
+                        lsp={projectId && project ? { projectId, enabled: project.lsp_enabled } : undefined}
+                        // The panel clears the composer and the strip's own margin.
+                        panelGap={composerCardHeight + STRIP_MARGIN + PANEL_GAP}
+                        panelWidth={composerCardWidth}
+                    />
+                    {canOverrideModel && userId && topicId && (
+                        <>
+                            <ModelOverridePicker
+                                defaultModel={health?.model ?? null}
+                                value={modelOverride}
+                                onChange={changeModelOverride}
+                                onAvailabilityChange={setModelChoiceAvailable}
+                            />
+                        </>
                     )}
-                </Presence>
+                    </div>
+                    </div>
+                </div>
+                </div>
                 </div>
             </div>
 
@@ -664,14 +653,15 @@ export default function Chat() {
                 ask={Object.values(state.asks)[0] ?? null}
                 onAnswer={(askId, value) => answerSensitive(agentId, topicId ?? '', askId, value)}
             />
-            {mobile && (
-                <SlideOver
-                    open={sheet}
-                    title="Conversation details"
-                    onClose={() => setSheet(false)}
-                >
-                    {details}
-                </SlideOver>
+            {projectId && topicId && (
+                <ChangesSection
+                    agentId={agentId}
+                    projectId={projectId}
+                    topicId={topicId}
+                    open={changesOpen}
+                    onClose={() => setChangesOpen(false)}
+                    refreshKey={`${state.phase}:${state.entries.length}`}
+                />
             )}
         </div>
     )

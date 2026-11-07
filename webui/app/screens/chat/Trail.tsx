@@ -124,7 +124,6 @@ function Run({
 function Event({ event, live }: { event: TrailEvent; live: boolean }) {
     switch (event.kind) {
         case 'thought':
-        case 'narration':
             return <Thought>{event.text}</Thought>
         case 'tool':
             return (
@@ -174,6 +173,11 @@ type Props = {
     aborted?: boolean
     /** The agent's name, for the line shown while it works. */
     agentName?: string
+    /**
+     * The turn is still running, though this trail is finished: a call in it with no report yet is
+     * waiting rather than failed.
+     */
+    turnRunning?: boolean
 }
 
 /** The agent's working: live while it runs, folding to a summary row when it answers (FR-008b). */
@@ -185,6 +189,7 @@ export function Trail({
     failed,
     aborted,
     agentName,
+    turnRunning,
 }: Props) {
     const [all, setAll] = useState(false)
     // The line says what the agent is doing, and changes while the turn works.
@@ -219,7 +224,7 @@ export function Trail({
                                   (e) =>
                                       e.kind === 'python' || e.kind === 'tool'
                               )
-                              .map((e) => miniDot(e, live)),
+                              .map((e) => miniDot(e, live || !!turnRunning)),
                       }
                     : undefined
             }
@@ -241,7 +246,7 @@ export function Trail({
                 // The steps stay direct children of the list: the spine's
                 // not-last rule needs them as siblings. ActivityTrail animates
                 // their arrival while live.
-                return <Event key={e.id} event={e} live={live} />
+                return <Event key={e.id} event={e} live={live || !!turnRunning} />
             })}
         </ActivityTrail>
     )

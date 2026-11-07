@@ -67,3 +67,42 @@ describe('a command the person ran', () => {
         expect(html).not.toContain('text-live-text')
     })
 })
+
+describe('a turn that spoke while it worked (spec 053)', () => {
+    const report = JSON.stringify({ ok: true, result: 1, stdout: '', tool_calls: [], duration_ms: 3 })
+    const turn: ChatMessage[] = [
+        entry('req', { Request: { timestamp: '2026-10-23T10:00:00Z', user: 'me', content: { chat: 'hi' } } }),
+        entry('c1', { ToolCall: { call_id: 'c1', name: 'execute_python', arguments: { intent: 'first', code: '1' } } }, '2026-10-23T10:00:01Z'),
+        entry('r1', { ToolResult: { call_id: 'c1', content: report } }, '2026-10-23T10:00:04Z'),
+        entry('say', { AssistantMessage: 'The log points at the deploy.' }, '2026-10-23T10:00:05Z'),
+        entry('c2', { ToolCall: { call_id: 'c2', name: 'execute_python', arguments: { intent: 'second', code: '2' } } }, '2026-10-23T10:00:06Z'),
+        entry('r2', { ToolResult: { call_id: 'c2', content: report } }, '2026-10-23T10:00:08Z'),
+    ]
+    const finished = [
+        ...turn,
+        entry('end', { Response: { timestamp: '2026-10-23T10:00:09Z', content: { message: { content: 'All done.', stats: { duration: { secs: 9, nanos: 0 }, total_input_tokens: 1, total_output_tokens: 1 } as never } } } }, '2026-10-23T10:00:09Z'),
+    ]
+
+    it('draws trail, message, trail, reply, in that order', () => {
+        const html = draw(finished)
+        const places = ['Worked 3', 'The log points at the deploy.', 'Worked 2', 'All done.'].map((text) => html.indexOf(text))
+        expect(places.every((at) => at >= 0)).toBe(true)
+        expect(places).toEqual([...places].sort((a, b) => a - b))
+    })
+
+    it('keeps stats on the final message, with the whole time there', () => {
+        const html = draw(finished)
+        expect(html).toContain('9')
+        expect(html.indexOf('in ·')).toBeGreaterThan(html.indexOf('All done.'))
+    })
+
+    it('draws the message in a turn still running, with the last trail live', () => {
+        const state = { ...emptyTopic(session), entries: turn, phase: 'running' as never }
+        const html = renderToString(
+            <MessageList state={state} agent={{ id: 'oz', name: 'Oz' }} hasOlder={false} loadingOlder={false} onLoadOlder={() => {}} onReact={() => {}} />
+        )
+        expect(html).toContain('The log points at the deploy.')
+        expect(html).toContain('Oz is ')
+        expect(html.indexOf('The log points at the deploy.')).toBeLessThan(html.indexOf('Oz is '))
+    })
+})
