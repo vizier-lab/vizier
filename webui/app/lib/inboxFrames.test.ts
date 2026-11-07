@@ -111,3 +111,16 @@ describe('setup frames', () => {
         expect(dropTerminal(onSetup(s, restarted, 2), done)).toBeNull()
     })
 })
+
+describe('the language-server frame', () => {
+    const snapshot = { project_id: 'p1', enabled: true, capacity: { in_use: 1, max: 6 }, servers: [] }
+
+    it('is understood when it names a project and carries a snapshot', () => {
+        expect(parseFrame({ type: 'lsp', project_id: 'p1', snapshot })).toEqual({ type: 'lsp', project_id: 'p1', snapshot })
+    })
+
+    it('is ignored when it is malformed', () => {
+        expect(parseFrame({ type: 'lsp', snapshot })).toBeNull()
+        expect(parseFrame({ type: 'lsp', project_id: 'p1', snapshot: { servers: 'x' } })).toBeNull()
+    })
+})

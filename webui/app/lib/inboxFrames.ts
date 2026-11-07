@@ -3,6 +3,7 @@
 // the patch to apply, so the rules are tested without a socket and the stores stay thin.
 import type { SetupState } from '../api/endpoints/agents'
 import type { NotificationCounts, NotificationItem } from '../api/endpoints/notifications'
+import type { LspSnapshot } from '../api/endpoints/projects'
 import type { ViewFilter } from './notifications'
 import { applyAllRead, applyRead, isViewing, mergePage } from './notifications'
 import { SAMPLES, setupProgress, type SetupSample } from './setupProgress'
@@ -14,6 +15,7 @@ export type InboxFrame =
     | { type: 'setup'; state: SetupState }
     | { type: 'setup_cleared'; agent_id: string }
     | { type: 'resync' }
+    | { type: 'lsp'; project_id: string; snapshot: LspSnapshot }
 
 const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object'
 
@@ -33,6 +35,10 @@ export function parseFrame(data: unknown): InboxFrame | null {
             return typeof data.agent_id === 'string' ? (data as unknown as InboxFrame) : null
         case 'resync':
             return { type: 'resync' }
+        case 'lsp':
+            return typeof data.project_id === 'string' && isObject(data.snapshot) && Array.isArray(data.snapshot.servers)
+                ? (data as unknown as InboxFrame)
+                : null
         default:
             return null
     }

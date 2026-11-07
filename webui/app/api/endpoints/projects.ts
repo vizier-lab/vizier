@@ -9,6 +9,8 @@ export type Project = {
     folder: string
     available: boolean
     shell_enabled: boolean
+    /** Language servers for this project's chats (spec 054). */
+    lsp_enabled: boolean
     owner_id: string
     is_owner: boolean
     session_count: number
@@ -58,7 +60,7 @@ export const getProject = (agentId: string, projectId: string) =>
 export const updateProject = (
     agentId: string,
     projectId: string,
-    body: { name?: string; shell_enabled?: boolean }
+    body: { name?: string; shell_enabled?: boolean; lsp_enabled?: boolean }
 ) => api.patch<Project>(`${base(agentId)}/${encodeURIComponent(projectId)}`, body)
 
 export const removeProject = (agentId: string, projectId: string) =>
@@ -230,3 +232,61 @@ export const deleteWorktree = (
         `${worktreeBase(agentId, projectId)}/${encodeURIComponent(id)}?${params}`
     )
 }
+
+
+// ------------------------------------------------------------------ language servers (spec 054)
+
+export type LspState = 'starting' | 'ready' | 'missing' | 'failed'
+
+/** One server: a language at a root used in this project. `root` is relative to the folder. */
+export type LspServer = {
+    language: string
+    name: string
+    root: string
+    state: LspState
+    /** Progress while starting: "indexing 41%". */
+    detail: string | null
+    reason: string | null
+    install_hint: string | null
+    overridden: boolean
+}
+
+export type LspSnapshot = {
+    project_id: string
+    enabled: boolean
+    capacity: { in_use: number; max: number }
+    servers: LspServer[]
+}
+
+export type LspOverride = {
+    command: string
+    args: string[]
+    env: Record<string, string>
+}
+
+/** What `GET …/lsp` returns. Only someone who manages the project gets languages and overrides. */
+export type LspView = LspSnapshot & {
+    can_manage: boolean
+    languages?: { id: string; name: string; default_command: string }[]
+    overrides?: ({ language: string } & LspOverride)[]
+}
+
+const lsp = (agentId: string, projectId: string) =>
+    `${base(agentId)}/${encodeURIComponent(projectId)}/lsp`
+
+export const getProjectLsp = (agentId: string, projectId: string) =>
+    api.get<LspView>(lsp(agentId, projectId))
+
+export const putLspOverride = (
+    agentId: string,
+    projectId: string,
+    language: string,
+    body: LspOverride
+) => api.put<LspView>(`${lsp(agentId, projectId)}/overrides/${encodeURIComponent(language)}`, body)
+
+export const deleteLspOverride = (agentId: string, projectId: string, language: string) =>
+    api.delete<LspView>(`${lsp(agentId, projectId)}/overrides/${encodeURIComponent(language)}`)
+
+/** Restart, and "Check again" for a missing server. Without a root, every root restarts. */
+export const restartLsp = (agentId: string, projectId: string, language: string, root?: string) =>
+    api.post<LspView>(`${lsp(agentId, projectId)}/restart`, { language, root })
