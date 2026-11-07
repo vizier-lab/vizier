@@ -16,6 +16,8 @@ export type ComposerSuggest = {
   onPick: (item: MentionMenuItem) => void;
   /** Escape: the host puts the menu away until the text changes. */
   onDismiss: () => void;
+  /** Said when nothing matches; defaults to the file wording. */
+  emptyText?: string;
 };
 
 export type ComposerProps = {
@@ -53,6 +55,8 @@ export type ComposerProps = {
   context?: { used: number; window: number; detail?: string };
   /** Mobile shows the count as text instead of the ring: "21k / 200k". */
   tokenText?: string;
+  /** Replaces "Message {agentName} — type / for skills", e.g. in a Workspace topic. */
+  placeholder?: string;
 } & Omit<HTMLAttributes<HTMLDivElement>, "onChange">;
 
 /**
@@ -80,6 +84,7 @@ export function Composer({
   overlay,
   skills = [],
   suggest = null,
+  placeholder,
   context,
   tokenText,
   className,
@@ -156,6 +161,7 @@ export function Composer({
             label={suggest.label}
             items={suggest.items}
             query={suggest.query}
+            emptyText={suggest.emptyText}
             active={suggestIndex}
             onPick={suggest.onPick}
             className="absolute inset-x-0 bottom-full mb-8"
@@ -189,7 +195,7 @@ export function Composer({
                 setSuggestActive(0);
               }}
               onKeyDown={onKeyDown}
-              placeholder={disabledReason ?? (recording ? "" : `Message ${agentName} — type / for skills`)}
+              placeholder={disabledReason ?? (recording ? "" : (placeholder ?? `Message ${agentName} — type / for skills`))}
               aria-label={`Message ${agentName}`}
               role={menuOpen || suggestOpen ? "combobox" : undefined}
               aria-expanded={menuOpen || suggestOpen || undefined}
@@ -202,9 +208,12 @@ export function Composer({
           )}
           {recording && !voice && <p className="type-body text-fg">Recording · press the mic again to stop</p>}
           <div className="flex items-center gap-8">
-            <button type="button" aria-label="Attach files" onClick={onAttach} disabled={disabled} className={toolButton}>
-              <Icon name="attach" />
-            </button>
+            {/* A host that takes no files passes no handler, so there is no button. */}
+            {onAttach && (
+              <button type="button" aria-label="Attach files" onClick={onAttach} disabled={disabled} className={toolButton}>
+                <Icon name="attach" />
+              </button>
+            )}
             {skills.length > 0 && (
               <button type="button" aria-label="Skills" onClick={() => onValueChange("/")} disabled={disabled} className={toolButton}>
                 <Icon name="slash" />

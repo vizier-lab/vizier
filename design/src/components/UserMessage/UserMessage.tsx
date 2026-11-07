@@ -18,21 +18,37 @@ export type UserMessageProps = {
   attachments?: ReactNode;
   /** Waiting behind a running turn: outlined, with when it sends. */
   queued?: { agentName: string };
+  /** Right is the signed-in person (the default). Left is someone else in a Workspace, with the avatar first. */
+  side?: "right" | "left";
+  /** It names the signed-in person: a lapis edge on the bubble. */
+  mentioned?: boolean;
 } & HTMLAttributes<HTMLDivElement>;
 
 /** A person's message, right-aligned: a meta row (time, name, avatar) above its container (D43). */
-export function UserMessage({ name = "You", seed, time, avatarSrc, skill, attachments, queued, className, children, ...rest }: UserMessageProps) {
+export function UserMessage({ name = "You", seed, time, avatarSrc, skill, attachments, queued, side = "right", mentioned, className, children, ...rest }: UserMessageProps) {
+  const left = side === "left";
   return (
-    <div className={cx("flex flex-col items-end gap-10", className)} {...rest}>
+    <div className={cx("flex flex-col gap-10", left ? "items-start" : "items-end", className)} {...rest}>
       <div className="flex items-center gap-8">
-        <span className="type-mono-xs text-faint">{queued ? `Queued · sends when ${queued.agentName} finishes` : time}</span>
-        <span className="type-body-strong text-fg">{name}</span>
-        <Avatar name={seed ?? name} src={avatarSrc} size="xs" square />
+        {left && <Avatar name={seed ?? name} src={avatarSrc} size="xs" square />}
+        {left ? (
+          <>
+            <span className="type-body-strong text-fg">{name}</span>
+            <span className="type-mono-xs text-faint">{time}</span>
+          </>
+        ) : (
+          <>
+            <span className="type-mono-xs text-faint">{queued ? `Queued · sends when ${queued.agentName} finishes` : time}</span>
+            <span className="type-body-strong text-fg">{name}</span>
+          </>
+        )}
+        {!left && <Avatar name={seed ?? name} src={avatarSrc} size="xs" square />}
       </div>
       <div
         className={cx(
           "flex max-w-480 min-w-0 flex-col items-start gap-6 rounded-lg px-14 py-10 [overflow-wrap:anywhere]",
           queued ? "border border-dashed border-border-strong" : "bg-surface",
+          mentioned && "border-l-2 border-l-rank",
         )}
       >
         {skill && <SkillChip skill={skill} />}
