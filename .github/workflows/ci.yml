@@ -337,6 +337,10 @@ jobs:
         env:
           PGPASSWORD: vizier-test
         run: psql -h 127.0.0.1 -U postgres -d vizier -c 'CREATE EXTENSION vector'
+      # The `lsp_*` tests start the `fake_lsp` example as their language server, and `--lib` does
+      # not build examples the way a plain `cargo test` does.
+      - name: Build the language-server fixture
+        run: cargo build -p vizier-core --example fake_lsp
       - name: Test managed backends
         env:
           CI: 'true'
