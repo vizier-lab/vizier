@@ -1788,14 +1788,28 @@ impl VizierAgent {
                 content,
                 SessionHistoryContent::AssistantMessage(_) | SessionHistoryContent::Response(_)
             );
+        let saved = shown.then(|| content.clone());
         match crate::storage::history::save_with_busy_retry(&self.storage, session, content).await {
             Ok(uid) => {
-                if shown {
+                if let Some(content) = saved {
                     let hub = crate::workspaces::Hub::new(
                         (*self.storage).clone(),
                         self.transport.clone(),
                     );
                     crate::workspaces::after_save(&hub, &uid).await;
+                    // The saved step carries what the shared entry doesn't (stats, attachments),
+                    // so an open topic has it as a reload would.
+                    self.transport.publish_session_event(crate::transport::SessionEvent {
+                        session: session.clone(),
+                        frame: crate::transport::SessionFrame::HistoryEntry(SessionHistory {
+                            uid: uid.clone(),
+                            vizier_session: session.clone(),
+                            content,
+                            timestamp: crate::time::now(),
+                            reactions: vec![],
+                            seq: None,
+                        }),
+                    });
                 }
                 Some(uid)
             }

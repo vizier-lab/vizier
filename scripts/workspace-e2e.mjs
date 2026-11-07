@@ -139,6 +139,8 @@ check('alpha answers', !!alphaReply)
 check('it answered what was asked once the mention was taken out', alphaReply.body.includes('Available tools'), alphaReply.body)
 check('beta did not wake', !live.entries().some((e) => e.author.id === 'beta'))
 
+check('the final reply arrives as a step too, as a reload would have it', live.frames.some((f) => f.history_entry?.agent_id === 'alpha' && f.history_entry.entry.content.Response), live.frames.length)
+
 // --- §4 several at once, and what does not count --------------------------------------------------------
 section('§4 several at once')
 seen = live.entries().length
