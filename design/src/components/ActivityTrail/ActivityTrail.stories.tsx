@@ -108,3 +108,13 @@ export const Collapsed: Story = { args: { defaultExpanded: false } };
 
 /** Mobile: a mini timeline. */
 export const Mini: Story = { args: { title: "Worked 18.4s", counts: "3 runs", mini: { dots: ["done", "done", "done"] } } };
+
+/** A long turn on a phone: a capped strip and a count, not a dot per call. */
+export const MiniCapped: Story = {
+  decorators: [(Story) => <div className="w-342">{Story()}</div>],
+  args: {
+    title: "Worked 35.1s",
+    counts: "94 python runs (3 failed)",
+    mini: { dots: ["done", "done", "done", "failed", "failed", "failed", "running"], more: 94 - 7 },
+  },
+};

@@ -10,8 +10,11 @@ export type ActivityTrailProps = {
   defaultExpanded?: boolean;
   /** TrailCalls, Thoughts, a Fold; Notices for failures. */
   children?: ReactNode;
-  /** Mobile: one line with a dot per call instead of the spine. */
-  mini?: { dots: ("done" | "running" | "failed")[] };
+  /**
+   * Mobile: one line instead of the spine. A dot per call, at most a few of each state, and `more`
+   * for the calls past that — a dot for every call would stretch the line with the work done.
+   */
+  mini?: { dots: ("done" | "running" | "failed")[]; more?: number };
   /** Inside an agent's turn, as the start of its reply: no card around it. */
   bare?: boolean;
 } & Omit<HTMLAttributes<HTMLDivElement>, "title">;
@@ -22,13 +25,20 @@ export function ActivityTrail({ state, title, counts, defaultExpanded, children,
   const [expanded, setExpanded] = useState(defaultExpanded ?? state === "live");
   if (mini) {
     return (
-      <div className={cx("flex items-center gap-8 rounded-lg border border-border bg-surface px-12 py-8", className)} {...rest}>
-        <span className="type-small-medium text-fg">{title}</span>
-        <span aria-hidden className="flex items-center gap-4">
-          {mini.dots.map((d, i) => (
-            <span key={i} className={cx("size-5 rounded-pill", d === "running" ? "bg-live" : d === "failed" ? "bg-failed" : "bg-muted")} />
-          ))}
+      <div className={cx("flex min-w-0 flex-col gap-4 rounded-lg border border-border bg-surface px-12 py-8", className)} {...rest}>
+        <span className="flex min-w-0 items-center gap-8">
+          <span className="shrink-0 type-small-medium text-fg">{title}</span>
+          {/* Clipped by the row, so the strip can never push the count off the end. */}
+          <span className="flex min-w-0 flex-1 justify-end overflow-hidden">
+            <span aria-hidden className="flex shrink-0 items-center gap-4">
+              {mini.dots.map((d, i) => (
+                <span key={i} className={cx("size-5 rounded-pill", d === "running" ? "bg-live" : d === "failed" ? "bg-failed" : "bg-muted")} />
+              ))}
+            </span>
+            {mini.more ? <span className="ml-6 shrink-0 type-mono-xs text-faint">+{mini.more}</span> : null}
+          </span>
         </span>
+        {/* Its own line: beside the title and a full strip there is no room left for it. */}
         {counts && <span className="min-w-0 truncate type-mono-xs text-faint">{counts}</span>}
       </div>
     );
