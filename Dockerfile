@@ -18,6 +18,7 @@ ARG TARGETARCH
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates \
+        tzdata \
         libssl3t64 \
         curl \
         wget \
@@ -31,7 +32,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY --from=build /staging/vizier-v${VERSION}-${TARGETARCH}/vizier /usr/local/bin/vizier
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+# Stable unprivileged identity for Kubernetes Restricted Pod Security.
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh \
+    && groupadd --gid 10001 vizier \
+    && useradd --uid 10001 --gid 10001 --create-home --shell /usr/sbin/nologin vizier \
+    && install -d -o 10001 -g 10001 /data
+
+ENV HOME=/home/vizier
+WORKDIR /home/vizier
+USER 10001:10001
 
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 CMD []

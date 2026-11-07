@@ -1,0 +1,193 @@
+{{- include "vizier.validate" . -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "vizier.fullname" . }}
+  labels:
+    {{- include "vizier.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "vizier.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "vizier.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "vizier.serviceAccountName" . }}
+      automountServiceAccountToken: {{ .Values.serviceAccount.automountServiceAccountToken }}
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . | quote }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: vizier
+          image: {{ include "vizier.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+              protocol: TCP
+          env:
+            - name: HOME
+              value: /tmp
+            - name: VIZIER_DATA_DIR
+              value: /data
+            - name: VIZIER_PORT
+              value: {{ .Values.service.port | quote }}
+            - name: VIZIER_SHUTDOWN_GRACE
+              value: {{ .Values.shutdown.gracePeriodSeconds | quote }}
+            {{- if .Values.trustedCa.enabled }}
+            - name: SSL_CERT_FILE
+              value: /etc/vizier/ca/ca.crt
+            {{- end }}
+            - name: VIZIER_JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.jwt.name | quote }}
+                  key: {{ .Values.secrets.jwt.key | quote }}
+            {{- if and .Values.secrets.encryptionKey.name .Values.secrets.encryptionKey.key }}
+            - name: VIZIER_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.encryptionKey.name | quote }}
+                  key: {{ .Values.secrets.encryptionKey.key | quote }}
+            {{- end }}
+            {{- if eq .Values.storage.profile "managed" }}
+            - name: VIZIER_STORAGE
+              value: postgres
+            - name: VIZIER_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.managed.database.urlSecretRef.name | quote }}
+                  key: {{ .Values.managed.database.urlSecretRef.key | quote }}
+            - name: VIZIER_OBJECTS
+              value: s3
+            - name: VIZIER_S3_BUCKET
+              value: {{ .Values.managed.objects.bucket | quote }}
+            - name: VIZIER_S3_REGION
+              value: {{ .Values.managed.objects.region | quote }}
+            - name: VIZIER_S3_PATH_STYLE
+              value: {{ .Values.managed.objects.pathStyle | quote }}
+            {{- with .Values.managed.objects.endpoint }}
+            - name: VIZIER_S3_ENDPOINT
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.managed.objects.prefix }}
+            - name: VIZIER_S3_PREFIX
+              value: {{ . | quote }}
+            {{- end }}
+            - name: VIZIER_S3_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.managed.objects.accessKeySecretRef.name | quote }}
+                  key: {{ .Values.managed.objects.accessKeySecretRef.key | quote }}
+            - name: VIZIER_S3_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.managed.objects.secretKeySecretRef.name | quote }}
+                  key: {{ .Values.managed.objects.secretKeySecretRef.key | quote }}
+            {{- with .Values.managed.objects.sessionTokenSecretRef }}
+            {{- if and .name .key }}
+            - name: VIZIER_S3_SESSION_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .name | quote }}
+                  key: {{ .key | quote }}
+            {{- end }}
+            {{- end }}
+            {{- end }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- with .Values.extraEnvFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          startupProbe:
+            httpGet:
+              path: /health/startup
+              port: http
+            {{- toYaml .Values.startupProbe | nindent 12 }}
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: http
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: tmp
+              mountPath: /tmp
+            {{- if .Values.trustedCa.enabled }}
+            - name: trusted-ca
+              mountPath: /etc/vizier/ca/ca.crt
+              subPath: ca.crt
+              readOnly: true
+            {{- end }}
+            {{- with .Values.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+      volumes:
+        - name: data
+          {{- if eq .Values.storage.profile "embedded" }}
+          persistentVolumeClaim:
+            claimName: {{ include "vizier.persistenceClaimName" . }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        - name: tmp
+          emptyDir:
+            sizeLimit: 2Gi
+        {{- if .Values.trustedCa.enabled }}
+        - name: trusted-ca
+          configMap:
+            name: {{ .Values.trustedCa.configMapName | quote }}
+            items:
+              - key: {{ .Values.trustedCa.key | quote }}
+                path: ca.crt
+        {{- end }}
+        {{- with .Values.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}

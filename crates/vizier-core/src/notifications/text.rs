@@ -95,19 +95,6 @@ pub fn background_job(
     Some((format!("{what} {outcome}{reason}."), tone))
 }
 
-/// `Replied once in a Discord conversation.` / `Replied 3 times in a Telegram conversation.`
-pub fn channel_replies(channel: &str, replies: u64) -> String {
-    let platform = if channel.starts_with("telegram__") {
-        "Telegram"
-    } else {
-        "Discord"
-    };
-    match replies {
-        1 => format!("Replied once in a {platform} conversation."),
-        n => format!("Replied {n} times in a {platform} conversation."),
-    }
-}
-
 /// A WebUI conversation's reply, for the person whose conversation it is.
 pub fn chat_replied() -> &'static str {
     "Replied in your conversation."
@@ -135,10 +122,6 @@ pub fn dream_href(agent_id: &str, cycle_id: &str) -> String {
 
 pub fn chat_href(agent_id: &str) -> String {
     format!("/{agent_id}/chat")
-}
-
-pub fn channel_href(agent_id: &str, channel: &str) -> String {
-    format!("/{agent_id}/chat?channel={channel}")
 }
 
 pub fn config_href(agent_id: &str) -> String {
@@ -223,18 +206,6 @@ mod tests {
     }
 
     #[test]
-    fn channel_replies_are_platform_aware_and_plural() {
-        assert_eq!(
-            channel_replies("discord__1", 1),
-            "Replied once in a Discord conversation."
-        );
-        assert_eq!(
-            channel_replies("telegram__5", 3),
-            "Replied 3 times in a Telegram conversation."
-        );
-    }
-
-    #[test]
     fn integration_wording_reads_as_a_sentence() {
         assert_eq!(
             integration_changed("ana", EventAction::Created, "Work Discord"),
@@ -266,7 +237,6 @@ mod tests {
     fn hrefs_point_at_their_destinations() {
         assert_eq!(task_href("a", "brief", 812), "/a/tasks?task=brief&run=812");
         assert_eq!(dream_href("a", "c1"), "/a/dream?cycle=c1");
-        assert_eq!(channel_href("a", "discord__1"), "/a/chat?channel=discord__1");
         assert_eq!(integrations_href("a", IntegrationFamily::Addon), "/a/integrations/addons");
         assert_eq!(config_href("a"), "/a/config");
     }

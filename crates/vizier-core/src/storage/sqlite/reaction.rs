@@ -1,32 +1,33 @@
+use crate::storage::sql::{self, OptionalExtension, params};
 use anyhow::Result;
-use chrono::Utc;
-use rusqlite::OptionalExtension;
+
 
 use crate::{
     schema::{ReactionEntry, SessionHistory},
     storage::{
         reaction::{Platform, ReactionStorage, Reactor},
         sqlite::{
-            SqliteStorage,
+            SqlStorage,
             history::{fill_client_calls, fill_question_sets, fill_reactions, parse_history_row},
         },
     },
 };
 
 #[async_trait::async_trait]
-impl ReactionStorage for SqliteStorage {
+impl ReactionStorage for SqlStorage {
     async fn add_reaction(&self, history_uid: &str, reactor: &Reactor, emoji: &str) -> Result<()> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         conn.execute(
-            "INSERT OR IGNORE INTO message_reaction
+            "INSERT INTO message_reaction
                 (history_uid, reactor_id, reactor_name, emoji, added_at)
-             VALUES (?1, ?2, ?3, ?4, ?5)",
-            rusqlite::params![
+             VALUES (?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT DO NOTHING",
+            params![
                 history_uid,
                 reactor.id,
                 reactor.name,
                 emoji,
-                Utc::now().timestamp_millis()
+                crate::time::now().timestamp_millis()
             ],
         )?;
         Ok(())
@@ -38,45 +39,45 @@ impl ReactionStorage for SqliteStorage {
         reactor_id: &str,
         emoji: &str,
     ) -> Result<()> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         conn.execute(
             "DELETE FROM message_reaction
              WHERE history_uid = ?1 AND reactor_id = ?2 AND emoji = ?3",
-            rusqlite::params![history_uid, reactor_id, emoji],
+            params![history_uid, reactor_id, emoji],
         )?;
         Ok(())
     }
 
     async fn clear_reactions(&self, history_uid: &str, emoji: Option<&str>) -> Result<()> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         match emoji {
             Some(emoji) => conn.execute(
                 "DELETE FROM message_reaction WHERE history_uid = ?1 AND emoji = ?2",
-                rusqlite::params![history_uid, emoji],
+                params![history_uid, emoji],
             )?,
             None => conn.execute(
                 "DELETE FROM message_reaction WHERE history_uid = ?1",
-                rusqlite::params![history_uid],
+                params![history_uid],
             )?,
         };
         Ok(())
     }
 
     async fn list_reactions(&self, history_uid: &str) -> Result<Vec<ReactionEntry>> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let mut stmt = conn.prepare(
             "SELECT reactor_id, reactor_name, emoji FROM message_reaction
              WHERE history_uid = ?1 ORDER BY added_at, rowid",
         )?;
         let reactions = stmt
-            .query_map(rusqlite::params![history_uid], |row| {
+            .query_map(params![history_uid], |row| {
                 Ok(ReactionEntry {
                     user_id: row.get(0)?,
                     user_name: row.get(1)?,
                     emoji: row.get(2)?,
                 })
             })?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
+            .collect::<sql::Result<Vec<_>>>()?;
         Ok(reactions)
     }
 
@@ -88,14 +89,22 @@ impl ReactionStorage for SqliteStorage {
         message_ids: &[String],
         history_uid: &str,
     ) -> Result<()> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let tx = conn.unchecked_transaction()?;
         for message_id in message_ids {
             tx.execute(
-                "INSERT OR REPLACE INTO platform_message_link
+                "INSERT INTO platform_message_link
                     (agent_id, platform, chat_id, message_id, history_uid)
-                 VALUES (?1, ?2, ?3, ?4, ?5)",
-                rusqlite::params![agent_id, platform.as_str(), chat_id, message_id, history_uid],
+                 VALUES (?1, ?2, ?3, ?4, ?5)
+                 ON CONFLICT (agent_id, platform, chat_id, message_id)
+                 DO UPDATE SET history_uid = excluded.history_uid",
+                params![
+                    agent_id,
+                    platform.as_str(),
+                    chat_id,
+                    message_id,
+                    history_uid
+                ],
             )?;
         }
         tx.commit()?;
@@ -109,13 +118,13 @@ impl ReactionStorage for SqliteStorage {
         chat_id: &str,
         message_id: &str,
     ) -> Result<Option<SessionHistory>> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let row = conn
             .query_row(
                 "SELECT h.data, h.seq FROM platform_message_link l
                  JOIN session_history h ON h.uid = l.history_uid
                  WHERE l.agent_id = ?1 AND l.platform = ?2 AND l.chat_id = ?3 AND l.message_id = ?4",
-                rusqlite::params![agent_id, platform.as_str(), chat_id, message_id],
+                params![agent_id, platform.as_str(), chat_id, message_id],
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .optional()?;
@@ -123,11 +132,11 @@ impl ReactionStorage for SqliteStorage {
     }
 
     async fn get_history_entry(&self, history_uid: &str) -> Result<Option<SessionHistory>> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let row = conn
             .query_row(
                 "SELECT data, seq FROM session_history WHERE uid = ?1",
-                rusqlite::params![history_uid],
+                params![history_uid],
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .optional()?;
@@ -136,7 +145,7 @@ impl ReactionStorage for SqliteStorage {
 }
 
 fn with_reactions(
-    conn: &rusqlite::Connection,
+    conn: &sql::Connection,
     row: Option<(String, Option<i64>)>,
 ) -> Result<Option<SessionHistory>> {
     let Some(mut entry) = row.and_then(parse_history_row) else {
@@ -152,7 +161,7 @@ fn with_reactions(
 mod tests {
     use std::sync::Arc;
 
-    use parking_lot::Mutex;
+    use crate::storage::sql::SqlStore;
     use rusqlite::Connection;
 
     use super::*;
@@ -161,20 +170,23 @@ mod tests {
         VizierSession,
     };
     use crate::storage::{
-        document::LocalDocumentStore,
+        document::BlobDocumentStore,
         history::HistoryStorage,
         sqlite::{init_history_schema, init_reaction_schema},
     };
 
-    fn setup() -> (SqliteStorage, tempfile::TempDir) {
+    fn setup() -> (SqlStorage, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
-        let conn = Connection::open_in_memory().unwrap();
-        conn.execute_batch("PRAGMA foreign_keys=ON;").unwrap();
-        init_history_schema(&conn).unwrap();
-        init_reaction_schema(&conn).unwrap();
-        let storage = SqliteStorage::new(
-            Arc::new(Mutex::new(conn)),
-            Arc::new(LocalDocumentStore::new(dir.path().to_path_buf())),
+        let store = crate::tests_support::test_store(|| {
+            let conn = Connection::open_in_memory().unwrap();
+            conn.execute_batch("PRAGMA foreign_keys=ON;").unwrap();
+            init_history_schema(&conn).unwrap();
+            init_reaction_schema(&conn).unwrap();
+            SqlStore::sqlite(conn)
+        });
+        let storage = SqlStorage::new(
+            store,
+            Arc::new(BlobDocumentStore::local(dir.path().to_path_buf())),
         );
         (storage, dir)
     }
@@ -187,12 +199,12 @@ mod tests {
         )
     }
 
-    async fn reply(storage: &SqliteStorage) -> String {
+    async fn reply(storage: &SqlStorage) -> String {
         storage
             .save_session_history(
                 session(),
                 SessionHistoryContent::Response(VizierResponse {
-                    timestamp: Utc::now(),
+                    timestamp: crate::time::now(),
                     content: VizierResponseContent::Message {
                         content: "hello".to_string(),
                         stats: None,
@@ -254,7 +266,10 @@ mod tests {
         storage.add_reaction(&uid, &alice(), "🎉").await.unwrap();
 
         storage.clear_reactions(&uid, Some("👍")).await.unwrap();
-        assert_eq!(emojis(&storage.list_reactions(&uid).await.unwrap()), vec!["🎉"]);
+        assert_eq!(
+            emojis(&storage.list_reactions(&uid).await.unwrap()),
+            vec!["🎉"]
+        );
 
         storage.clear_reactions(&uid, None).await.unwrap();
         assert!(storage.list_reactions(&uid).await.unwrap().is_empty());
@@ -317,28 +332,30 @@ mod tests {
         let (storage, _dir) = setup();
         let uid = reply(&storage).await;
         {
-            let conn = storage.conn.lock();
+            let conn = storage.conn.lock().unwrap();
             conn.execute(
                 "UPDATE session_history
                     SET data = json_set(data, '$.reactions', json('[{\"user_id\":\"a\",\"emoji\":\"👍\"}]'))
                   WHERE uid = ?1",
-                rusqlite::params![uid],
+                params![uid],
             )
             .unwrap();
         }
 
         for _ in 0..2 {
-            let conn = storage.conn.lock();
-            init_reaction_schema(&conn).unwrap();
+            let conn = storage.conn.lock().unwrap();
+            conn.with_rusqlite(init_reaction_schema).unwrap().unwrap();
 
             let rows: i64 = conn
-                .query_row("SELECT COUNT(*) FROM message_reaction", [], |row| row.get(0))
+                .query_row("SELECT COUNT(*) FROM message_reaction", [], |row| {
+                    row.get(0)
+                })
                 .unwrap();
             assert_eq!(rows, 1);
             let blob: String = conn
                 .query_row(
                     "SELECT json_extract(data, '$.reactions') FROM session_history WHERE uid = ?1",
-                    rusqlite::params![uid],
+                    params![uid],
                     |row| row.get(0),
                 )
                 .unwrap();
@@ -355,4 +372,11 @@ mod tests {
         assert_eq!(list[0].reactions[0].emoji, "👍");
         assert_eq!(list[0].reactions[0].user_name, None);
     }
+
+    crate::postgres_tests!(
+        adding_twice_keeps_one_row,
+        removing_an_absent_reaction_never_adds_one,
+        clearing_one_emoji_leaves_the_others,
+        platform_links_resolve_to_their_entry,
+    );
 }

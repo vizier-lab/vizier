@@ -1,7 +1,7 @@
 //! Home's data: the counts for the greeting and the "Last 24 hours" dot grid. Everything is
 //! limited to the agents the person can see (`specs/024-webui-rewrite/contracts/http-api.md`).
 
-use chrono::{DateTime, Duration, DurationRound, Utc};
+use chrono::{DateTime, Duration, DurationRound, Local};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -12,7 +12,7 @@ use crate::{
     storage::{
         agent::AgentStorage, session::SessionStorage, state::StateStorage, usage::UsageStorage,
     },
-    usage::Pricer,
+    usage::{Pricer, saved_entries},
 };
 
 /// The agents `user` can see, in id order.
@@ -33,12 +33,10 @@ pub async fn visible_agents(
     Ok(agents)
 }
 
-/// The start of "today" for a person `offset_minutes` east of UTC, as a UTC instant.
-pub fn start_of_today(now: DateTime<Utc>, offset_minutes: i32) -> DateTime<Utc> {
-    let shift = Duration::minutes(offset_minutes as i64);
-    let local = now + shift;
-    let midnight = local.duration_trunc(Duration::days(1)).unwrap_or(local);
-    midnight - shift
+/// The start of "today" on this instance: local midnight (or the first moment after it, on a day
+/// whose midnight the clocks skip).
+pub fn start_of_today(now: DateTime<Local>) -> DateTime<Local> {
+    crate::time::start_of_local_day(crate::time::local_date_of(now))
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -59,29 +57,30 @@ pub struct Overview {
     /// price add nothing.
     pub cost_today_usd: f64,
     /// Where complete usage accounting starts; spend from before it is partial.
-    pub accounting_since: Option<DateTime<Utc>>,
+    pub accounting_since: Option<DateTime<Local>>,
 }
 
-/// Ids of agents in a failed state.
+/// Ids of agents in a failed state, read from the published health views.
 async fn failed_agents(services: &Services) -> std::collections::HashSet<String> {
-    services
-        .deps()
-        .transport
-        .agent_health()
-        .await
-        .map(|h| {
-            h.into_iter()
-                .filter(|s| s.state == AgentRunState::Failed)
-                .map(|s| s.agent_id)
-                .collect()
-        })
-        .unwrap_or_default()
+    let deps = services.deps();
+    let Ok(agents) = deps.storage.list_agents().await else {
+        return Default::default();
+    };
+    let mut failed = std::collections::HashSet::new();
+    for (id, _) in agents {
+        let Some(status) = crate::agents::views::read_health(deps, &id).await else {
+            continue;
+        };
+        if status.state == AgentRunState::Failed {
+            failed.insert(id);
+        }
+    }
+    failed
 }
 
 pub async fn counts(
     services: &Services,
     user: &Principal,
-    offset_minutes: i32,
 ) -> Result<Overview, ServiceError> {
     let deps = services.deps();
     let agents = visible_agents(services, user).await?;
@@ -89,9 +88,9 @@ pub async fn counts(
     let live = deps.storage.thinking_agents().await.unwrap_or_default();
     let failed = failed_agents(services).await;
 
-    let since = start_of_today(Utc::now(), offset_minutes);
+    let since = start_of_today(crate::time::now());
     let groups = deps.storage.usage_groups_since(&ids, since).await.unwrap_or_default();
-    let mut pricer = Pricer::new(&deps.catalogue);
+    let mut pricer = Pricer::with_entries(&deps.catalogue, saved_entries(&deps.storage).await);
     let cost_today_usd: f64 = groups
         .iter()
         .filter_map(|g| pricer.cost(&g.provider, &g.model, &g.tokens))
@@ -106,7 +105,7 @@ pub async fn counts(
         .flatten()
         .and_then(|v| v.as_str().map(str::to_string))
         .and_then(|s| DateTime::parse_from_rfc3339(&s).ok())
-        .map(|d| d.with_timezone(&Utc));
+        .map(|d| d.with_timezone(&Local));
 
     Ok(Overview {
         agents: AgentCounts {
@@ -162,7 +161,7 @@ pub struct TodayByKind {
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct Activity {
     /// The start of each of the last 24 hours, oldest first, ending with the current hour.
-    pub hours: Vec<DateTime<Utc>>,
+    pub hours: Vec<DateTime<Local>>,
     /// At most 6: the top 5 when `all` is present, otherwise every agent.
     pub rows: Vec<ActivityRow>,
     /// Present when there are 7 or more agents.
@@ -227,15 +226,17 @@ pub async fn activity(
     services: &Services,
     user: &Principal,
     rank: Rank,
-    offset_minutes: i32,
 ) -> Result<Activity, ServiceError> {
     let deps = services.deps();
     let agents = visible_agents(services, user).await?;
     let ids: Vec<String> = agents.iter().map(|(id, _)| id.clone()).collect();
 
-    let now = Utc::now();
-    let this_hour = now.duration_trunc(Duration::hours(1)).unwrap_or(now);
-    let hours: Vec<DateTime<Utc>> = (0..24).rev().map(|back| this_hour - Duration::hours(back)).collect();
+    let now = crate::time::now();
+    // Usage is bucketed by UTC hour, so the window is too; truncating the local clock would
+    // misalign it in a zone with a half-hour offset.
+    let hour_ms = 3_600_000;
+    let this_hour = crate::time::from_millis(now.timestamp_millis().div_euclid(hour_ms) * hour_ms);
+    let hours: Vec<DateTime<Local>> = (0..24).rev().map(|back| this_hour - Duration::hours(back)).collect();
     let since = hours[0];
 
     let counts = deps.storage.hourly_turns(&ids, since).await.unwrap_or_default();
@@ -265,14 +266,15 @@ pub async fn activity(
     let (rows, all) = arrange(ranked, rank);
 
     let today_by_kind = if agent_total == 1 {
-        let start = start_of_today(now, offset_minutes);
+        let start = start_of_today(now);
         let mut kinds = TodayByKind::default();
         for (activity, n) in deps.storage.turns_by_activity(&ids, start).await.unwrap_or_default() {
             use crate::schema::usage::UsageActivity::*;
             match activity {
                 // A project chat is still a person's chat turn in the today summary; the
                 // usage report is where project work is broken out (FR-016).
-                Chat | Project => kinds.chat += n,
+                // A Workspace turn is a chat turn too.
+                Chat | Project | Workspace => kinds.chat += n,
                 Scheduled => kinds.scheduled += n,
                 Dreams => kinds.dream_stages += n,
                 Background => kinds.background += n,
@@ -339,11 +341,27 @@ mod tests {
     }
 
     #[test]
-    fn today_starts_at_the_persons_midnight() {
-        let now = DateTime::parse_from_rfc3339("2026-10-23T20:30:00Z").unwrap().with_timezone(&Utc);
-        // +07:00: it is already 03:30 on the 24th there, so today began at 17:00Z on the 23rd.
-        assert_eq!(start_of_today(now, 420).to_rfc3339(), "2026-10-23T17:00:00+00:00");
-        assert_eq!(start_of_today(now, 0).to_rfc3339(), "2026-10-23T00:00:00+00:00");
-        assert_eq!(start_of_today(now, -300).to_rfc3339(), "2026-10-23T05:00:00+00:00");
+    fn today_starts_at_the_instances_midnight() {
+        let now = DateTime::parse_from_rfc3339("2026-10-23T20:30:00Z").unwrap().with_timezone(&Local);
+        let start = start_of_today(now);
+        assert_eq!(start.date_naive(), now.date_naive());
+        assert_eq!(start.naive_local().time(), chrono::NaiveTime::MIN);
+        assert!(start <= now && now - start < Duration::hours(25));
+    }
+
+    #[test]
+    fn a_day_starts_at_local_midnight_in_any_zone() {
+        use chrono_tz::{America::New_York, Asia::Jakarta};
+        let date = chrono::NaiveDate::from_ymd_opt(2026, 10, 24).unwrap();
+        // +07:00: the 24th began at 17:00Z on the 23rd.
+        assert_eq!(
+            crate::time::start_of_day_in(date, &Jakarta).to_utc().to_rfc3339(),
+            "2026-10-23T17:00:00+00:00"
+        );
+        // The clocks go back on 1 Nov, so that day is 25 hours long and still starts at 00:00.
+        let day = chrono::NaiveDate::from_ymd_opt(2026, 11, 1).unwrap();
+        let start = crate::time::start_of_day_in(day, &New_York);
+        let next = crate::time::start_of_day_in(day.succ_opt().unwrap(), &New_York);
+        assert_eq!(next - start, Duration::hours(25));
     }
 }

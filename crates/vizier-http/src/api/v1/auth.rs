@@ -3,7 +3,7 @@ use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
 };
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Local};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -91,7 +91,7 @@ pub struct RoleResponse {
     pub name: String,
     pub permissions: Vec<String>,
     pub is_system: bool,
-    pub created_at: DateTime<Utc>,
+    pub created_at: DateTime<Local>,
 }
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
@@ -112,7 +112,7 @@ pub struct UserResponse {
     pub username: String,
     pub role_id: String,
     pub role_name: Option<String>,
-    pub created_at: DateTime<Utc>,
+    pub created_at: DateTime<Local>,
 }
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
@@ -151,8 +151,8 @@ pub struct CreateApiKeyResponse {
     pub id: String,
     pub name: String,
     pub key: String,
-    pub expires_at: Option<DateTime<Utc>>,
-    pub created_at: DateTime<Utc>,
+    pub expires_at: Option<DateTime<Local>>,
+    pub created_at: DateTime<Local>,
 }
 
 #[derive(Debug, Serialize, Clone, utoipa::ToSchema)]
@@ -161,9 +161,9 @@ pub struct ApiKeyResponse {
     pub name: String,
     /// The first characters of the key; empty for a key made before they were kept.
     pub prefix: Option<String>,
-    pub expires_at: Option<DateTime<Utc>>,
-    pub created_at: DateTime<Utc>,
-    pub last_used_at: Option<DateTime<Utc>>,
+    pub expires_at: Option<DateTime<Local>>,
+    pub created_at: DateTime<Local>,
+    pub last_used_at: Option<DateTime<Local>>,
 }
 
 #[derive(Debug, Serialize, Clone, utoipa::ToSchema)]

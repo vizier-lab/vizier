@@ -3,7 +3,8 @@ use anyhow::Result;
 use crate::{
     config::{ChunkLimits, MemoryLimits},
     indexer::VizierIndexer,
-    schema::{MemoryOpEnvelope, MemoryOpRequest, MemoryOpResponse},
+    schema::{MemoryOpRequest, MemoryOpResponse},
+    transport::MemoryOpInbox,
     storage::{VizierStorage, memory::MemoryStorage, memory_bundle::WritePolicy},
 };
 
@@ -22,17 +23,15 @@ pub struct MemoryOpSettings {
 }
 
 pub async fn handle_memory_ops(
-    rx: flume::Receiver<MemoryOpEnvelope>,
+    mut rx: MemoryOpInbox,
     indexer: VizierIndexer,
     agent_id: String,
     storage: VizierStorage,
     settings: MemoryOpSettings,
 ) -> Result<()> {
-    let mut rx = rx;
-    while let Ok(envelope) = rx.recv_async().await {
-        let result =
-            dispatch_memory_op(&envelope.op, &agent_id, &storage, &indexer, &settings).await;
-        let _ = envelope.response.send(result);
+    while let Some((op, replier)) = rx.recv().await {
+        let result = dispatch_memory_op(&op, &agent_id, &storage, &indexer, &settings).await;
+        replier.answer(result).await;
     }
     Ok(())
 }

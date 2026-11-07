@@ -1,4 +1,4 @@
-use chrono::Utc;
+
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -49,7 +49,7 @@ impl ListBackgroundJobs {
 }
 
 fn elapsed(job: &BackgroundJob) -> String {
-    let secs = (Utc::now() - job.created_at).num_seconds().max(0);
+    let secs = (crate::time::now() - job.created_at).num_seconds().max(0);
     format!("{}m {:02}s", secs / 60, secs % 60)
 }
 
@@ -74,7 +74,7 @@ impl VizierTool for ListBackgroundJobs {
     }
 
     fn description(&self) -> String {
-        "List the background jobs you have running (from background_subagents or delegate_agent), across all your conversations, with their progress. Use it to find a job id to cancel.".into()
+        "List the background jobs you have running (from background_subagents), across all your conversations, with their progress. Use it to find a job id to cancel.".into()
     }
 
     async fn call(&self, _args: Self::Input, ctx: &ToolContext) -> Result<Self::Output, VizierError> {

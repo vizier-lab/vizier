@@ -3,7 +3,7 @@ mod prompts;
 use std::str::FromStr;
 
 use anyhow::Result;
-use chrono::{DateTime, Duration, Utc};
+use chrono::Duration;
 use croner::Cron;
 
 use crate::{
@@ -71,7 +71,7 @@ impl DreamScheduler {
                 .storage
                 .get_last_dream_time(&agent_id)
                 .await?
-                .unwrap_or(Utc::now() - Duration::hours(24));
+                .unwrap_or(crate::time::now() - Duration::hours(24));
             let next = match cron.find_next_occurrence(&last, true) {
                 Ok(n) => n,
                 Err(e) => {
@@ -84,7 +84,7 @@ impl DreamScheduler {
                 }
             };
 
-            if next <= Utc::now()
+            if next <= crate::time::now()
                 && let Err(e) = self.trigger_dream(&agent_id).await
             {
                 tracing::error!("Failed to trigger dream for agent '{}': {}", agent_id, e);
@@ -94,13 +94,55 @@ impl DreamScheduler {
         Ok(())
     }
 
+    /// Whether a frame ends a dream turn: the shared predicate, so a failed extraction is over
+    /// like an answered one and the cycle never waits on a channel that stays open (FR-017).
     fn is_final_response(response: &VizierResponse) -> bool {
-        matches!(
-            response.content,
-            VizierResponseContent::Message { .. }
-                | VizierResponseContent::Abort
-                | VizierResponseContent::Empty
-        )
+        response.ends_turn()
+    }
+
+    /// The ended-session explanation a dream turn failed with, when that is what ended it
+    /// (FR-016, FR-017). Every extraction of one cycle uses the same session, so the first one
+    /// that names it is the cycle's answer: continuing would be one failing turn per session and
+    /// a consolidation that cannot work either.
+    fn session_failure(response: &VizierResponse) -> Option<&str> {
+        match &response.content {
+            VizierResponseContent::Error { message, .. }
+                if crate::llm::sso::is_session_failure_message(message) =>
+            {
+                Some(message)
+            }
+            _ => None,
+        }
+    }
+
+    /// Brings the agent's idle Workspace sessions up to date, so the cycle sees what it read
+    /// but was never woken for. A session with a turn pending is left alone: that turn catches
+    /// up itself. Best effort; a failure only means the dream sees a little less.
+    async fn catch_up_workspaces(&self, agent_id: &str) {
+        use crate::storage::turn::TurnStorage;
+        use crate::storage::workspace::WorkspaceStorage;
+        let hub = crate::workspaces::Hub::from(&self.deps);
+        let storage = &self.deps.storage;
+        let busy = storage.sessions_with_pending_turns().await.unwrap_or_default();
+        let workspaces = match storage.workspaces_of_agent(agent_id).await {
+            Ok(ids) => ids,
+            Err(e) => {
+                tracing::warn!("Workspace catch-up skipped for '{}': {}", agent_id, e);
+                return;
+            }
+        };
+        for workspace_id in workspaces {
+            let topics = storage.list_topics(&workspace_id).await.unwrap_or_default();
+            for topic in topics {
+                let session = crate::workspaces::session_of(agent_id, &workspace_id, &topic.id);
+                if busy.iter().any(|b| b.to_slug() == session.to_slug()) {
+                    continue;
+                }
+                if let Some(Err(e)) = crate::workspaces::catch_up::to_head(&hub, &session).await {
+                    tracing::warn!("Workspace catch-up failed for {}: {}", session.to_slug(), e);
+                }
+            }
+        }
     }
 
     /// Trigger a dream cycle for a specific agent.
@@ -118,13 +160,15 @@ impl DreamScheduler {
         }
 
         let cycle_id = uuid::Uuid::new_v4().to_string();
-        let now = Utc::now();
+        let now = crate::time::now();
         let last_dream = self
             .deps
             .storage
             .get_last_dream_time(agent_id)
             .await?
             .unwrap_or(now - Duration::hours(24));
+
+        self.catch_up_workspaces(agent_id).await;
 
         // Collect user-interaction sessions in window
         let sessions = self
@@ -177,7 +221,9 @@ impl DreamScheduler {
             // Send all extraction requests, collect response channels
             let mut response_rxs = vec![];
             for session in &sessions {
-                let (resp_tx, resp_rx) = flume::unbounded();
+                let Ok((resp_tx, resp_rx)) = deps.transport.reply_channel().await else {
+                    continue;
+                };
 
                 if let Err(e) = deps
                     .transport
@@ -191,7 +237,7 @@ impl DreamScheduler {
                             Some(cycle_id.clone()),
                         ),
                         VizierRequest {
-                            timestamp: Utc::now(),
+                            timestamp: crate::time::now(),
                             user: agent_id.clone(),
                             content: VizierRequestContent::Unattended(
                                 EXTRACTION_PROMPT.to_string(),
@@ -215,12 +261,21 @@ impl DreamScheduler {
                 response_rxs.push(resp_rx);
             }
 
-            // Await ALL extraction responses, updating progress as each completes
+            // Await ALL extraction responses, updating progress as each completes — unless one
+            // says the session ended, which fails every remaining extraction the same way.
+            let mut ended_session: Option<String> = None;
             for (i, rx) in response_rxs.iter().enumerate() {
                 while let Ok(response) = rx.recv_async().await {
+                    if let Some(message) = Self::session_failure(&response) {
+                        ended_session = Some(message.to_string());
+                    }
                     if Self::is_final_response(&response) {
                         break;
                     }
+                }
+
+                if ended_session.is_some() {
+                    break;
                 }
 
                 // Update progress
@@ -238,13 +293,28 @@ impl DreamScheduler {
                     .await;
             }
 
+            // A cycle whose session ended stops here: nothing it could consolidate was
+            // extracted, and the people who need to know are the ones the connection's health
+            // reports it to (FR-017, FR-018).
+            if let Some(message) = ended_session {
+                tracing::warn!(
+                    agent_id,
+                    "the dream cycle for '{agent_id}' stopped: {message}"
+                );
+                let _ = deps
+                    .storage
+                    .set_dream_status(&agent_id, DreamStatus::Idle)
+                    .await;
+                return;
+            }
+
             // Set status → Consolidating
             let _ = deps
                 .storage
                 .set_dream_status(
                     &agent_id,
                     DreamStatus::Consolidating {
-                        started_at: Utc::now(),
+                        started_at: crate::time::now(),
                         cycle_id: cycle_id.clone(),
                     },
                 )
@@ -273,7 +343,7 @@ impl DreamScheduler {
                 .map(|entries| entries.len() as u64)
                 .unwrap_or(0);
             deps.notifications
-                .dream_ended(&agent_id, &cycle_id, entries, Utc::now())
+                .dream_ended(&agent_id, &cycle_id, entries, crate::time::now())
                 .await;
 
             // Set status → Idle
@@ -292,7 +362,7 @@ impl DreamScheduler {
         agent_id: &str,
         cycle_id: &str,
         source_sessions: &[VizierSession],
-    ) -> Result<flume::Receiver<VizierResponse>> {
+    ) -> Result<crate::transport::ResponseStream> {
         let source_session_slugs: Vec<String> =
             source_sessions.iter().map(|s| s.to_slug()).collect();
         // Read all extraction entries for this cycle
@@ -311,10 +381,10 @@ impl DreamScheduler {
                 cycle_id
             );
             // Return a channel that immediately gets an empty response
-            let (tx, rx) = flume::unbounded();
+            let (tx, rx) = deps.transport.reply_channel().await?;
             let _ = tx
                 .send_async(VizierResponse {
-                    timestamp: Utc::now(),
+                    timestamp: crate::time::now(),
                     content: VizierResponseContent::Empty,
                     attachments: vec![],
                     ..Default::default()
@@ -337,8 +407,8 @@ impl DreamScheduler {
         let prompt = CONSOLIDATION_PROMPT_TEMPLATE.replace("{extraction_content}", &aggregated);
 
         // Send consolidation request with response channel
-        let now = Utc::now();
-        let (resp_tx, resp_rx) = flume::unbounded();
+        let now = crate::time::now();
+        let (resp_tx, resp_rx) = deps.transport.reply_channel().await?;
 
         deps.transport
             .send_request(
@@ -413,14 +483,14 @@ impl DreamScheduler {
                 continue;
             }
 
-            let (resp_tx, resp_rx) = flume::unbounded();
+            let (resp_tx, resp_rx) = self.deps.transport.reply_channel().await?;
             if let Err(e) = self
                 .deps
                 .transport
                 .send_request(
                     session.clone(),
                     VizierRequest {
-                        timestamp: Utc::now(),
+                        timestamp: crate::time::now(),
                         user: agent_id.to_string(),
                         content: VizierRequestContent::Command("checkpoint".to_string()),
                         ..Default::default()
@@ -441,5 +511,81 @@ impl DreamScheduler {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+    use crate::llm::sso::SsoError;
+    use crate::schema::ErrorKind;
+
+    fn frame(content: VizierResponseContent) -> VizierResponse {
+        VizierResponse {
+            content,
+            ..Default::default()
+        }
+    }
+
+    /// FR-017: the first extraction that names the ended session is the cycle's answer, and the
+    /// frame ends the turn like any other. A dream therefore fails once, promptly, instead of
+    /// one failing turn per source session.
+    #[tokio::test]
+    async fn an_ended_session_stops_a_dream_cycle_promptly() {
+        let (tx, rx) = flume::unbounded::<VizierResponse>();
+        tx.send(frame(VizierResponseContent::Error {
+            kind: ErrorKind::Completion,
+            message: SsoError::SessionExpired.to_string(),
+        }))
+        .unwrap();
+
+        let stopped = tokio::time::timeout(Duration::from_secs(1), async {
+            while let Ok(response) = rx.recv_async().await {
+                if let Some(message) = DreamScheduler::session_failure(&response) {
+                    return Some(message.to_string());
+                }
+                if DreamScheduler::is_final_response(&response) {
+                    return None;
+                }
+            }
+            None
+        })
+        .await
+        .expect("the cycle must not wait on the channel");
+
+        let message = stopped.expect("the frame names the ended session");
+        assert!(message.contains("AWS SSO session has ended"), "{message}");
+        assert!(message.contains("sign in again"), "{message}");
+        drop(tx);
+    }
+
+    /// A dream turn that failed for any other reason is not a session failure: the cycle carries
+    /// on with the other sessions rather than blaming the connection.
+    #[test]
+    fn only_a_session_failure_stops_the_cycle() {
+        for other in [
+            SsoError::Throttled,
+            SsoError::ModelAccessNotEnabled {
+                model: "anthropic.claude-sonnet-4-5".into(),
+            },
+            SsoError::RegionMismatch {
+                arn_region: "us-east-1".into(),
+                connection_region: "eu-west-1".into(),
+            },
+        ] {
+            let frame = frame(VizierResponseContent::Error {
+                kind: ErrorKind::Completion,
+                message: other.to_string(),
+            });
+            assert!(DreamScheduler::session_failure(&frame).is_none(), "{other:?}");
+        }
+        assert!(
+            DreamScheduler::session_failure(&frame(VizierResponseContent::Message {
+                content: "done".into(),
+                stats: None,
+            }))
+            .is_none()
+        );
     }
 }

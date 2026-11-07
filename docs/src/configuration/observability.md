@@ -41,7 +41,7 @@ invoke_agent otel                         ← the turn
   chat gpt-5                              ← the turn's final answer
 ```
 
-`consult_agent` and `delegate_agent` nest the same way: the other agent's turn appears under the tool call that started it.
+An agent woken by a mention in a Workspace starts a new trace of its own, because it is a turn of its own; filter on the Workspace's conversation id to follow a chain.
 
 A message from a person (WebUI, Discord, Telegram), a scheduled task run and a dream cycle each start a **new trace**. To see a whole conversation, filter on its `gen_ai.conversation.id` (below).
 
@@ -99,7 +99,7 @@ Tools the model calls directly (`execute_python`, `list_tool_functions`, …) an
 
 ### `background_job {kind}`: a background job
 
-It opens when `background_subagents` or `delegate_agent` launches the job and closes when the job is reported or cancelled, so its duration is the job's. The blocking `parallel_subagents` tool has no background-job span: its pieces are children of the tool call itself.
+It opens when `background_subagents` launches the job and closes when the job is reported or cancelled, so its duration is the job's. The blocking `parallel_subagents` tool has no background-job span: its pieces are children of the tool call itself.
 
 | Attribute | Value |
 |-----------|-------|

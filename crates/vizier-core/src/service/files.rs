@@ -1,15 +1,12 @@
 //! Session file uploads and downloads (spec 038 US2). Multipart/base64 parsing and Range
 //! handling are the adapter's; the service validates, stores and locates.
 
-use std::path::PathBuf;
-
 use base64::Engine;
 use serde::Serialize;
 
 use super::{ServiceError, Services};
 use crate::auth::Principal;
-
-const UPLOADS_DIR: &str = "uploads";
+use crate::storage::blob::BlobRef;
 
 #[derive(Debug, Serialize, Clone)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
@@ -43,21 +40,19 @@ pub async fn upload(
         }),
         Err(e) => {
             tracing::error!("Failed to upload file: {}", e);
-            Err(ServiceError::Internal(format!("Failed to upload file: {}", e)))
+            Err(ServiceError::Internal(format!(
+                "Failed to upload file: {}",
+                e
+            )))
         }
     }
 }
 
-/// Where an uploaded file is on disk. Downloads are not authenticated: the file id is the
-/// capability, as it always was.
-pub async fn locate(s: &Services, file_id: &str) -> Result<PathBuf, ServiceError> {
-    let dir = PathBuf::from(&s.deps().config.workspace)
-        .join(UPLOADS_DIR)
-        .join(file_id);
-    let not_found = || ServiceError::NotFound("File not found".into());
-    let mut entries = tokio::fs::read_dir(&dir).await.map_err(|_| not_found())?;
-    match entries.next_entry().await {
-        Ok(Some(entry)) => Ok(entry.path()),
-        _ => Err(not_found()),
+/// The uploaded file's object, for streaming. Downloads are not authenticated: the file id is
+/// the capability, as it always was.
+pub async fn locate(s: &Services, file_id: &str) -> Result<BlobRef, ServiceError> {
+    match s.deps().file_manager.locate(file_id).await {
+        Ok(Some(blob)) => Ok(blob),
+        _ => Err(ServiceError::NotFound("File not found".into())),
     }
 }

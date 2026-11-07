@@ -67,7 +67,11 @@ pub async fn set(
 
 /// The stored value. An invalid name is refused before storage, so it is never reported as a
 /// misleading not-found.
-pub async fn get(storage: &VizierStorage, agent_id: &str, name: &str) -> Result<String, SecretError> {
+pub async fn get(
+    storage: &VizierStorage,
+    agent_id: &str,
+    name: &str,
+) -> Result<String, SecretError> {
     validate_name(name).map_err(SecretError::InvalidName)?;
     storage
         .get_agent_secret(agent_id, name)
@@ -96,7 +100,10 @@ pub async fn delete(
 }
 
 /// Metadata for every secret of one agent, sorted by name. Never a value.
-pub async fn list(storage: &VizierStorage, agent_id: &str) -> Result<Vec<SecretRecord>, SecretError> {
+pub async fn list(
+    storage: &VizierStorage,
+    agent_id: &str,
+) -> Result<Vec<SecretRecord>, SecretError> {
     storage
         .list_agent_secrets(agent_id)
         .await
@@ -121,14 +128,12 @@ pub async fn events(
 mod tests {
     use std::sync::Arc;
 
-    use parking_lot::Mutex;
-
     use super::*;
     use crate::{
         schema::SecretAction,
         storage::{
-            document::LocalDocumentStore,
-            sqlite::{SqliteStorage, init_secret_schema},
+            document::BlobDocumentStore,
+            sqlite::{SqlStorage, init_secret_schema},
         },
     };
 
@@ -140,9 +145,9 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let conn = rusqlite::Connection::open_in_memory().unwrap();
         init_secret_schema(&conn).unwrap();
-        let storage = SqliteStorage::new(
-            Arc::new(Mutex::new(conn)),
-            Arc::new(LocalDocumentStore::new(dir.path().to_path_buf())),
+        let storage = SqlStorage::new(
+            crate::storage::sql::SqlStore::sqlite(conn),
+            Arc::new(BlobDocumentStore::local(dir.path().to_path_buf())),
         );
         (VizierStorage::new(storage), dir)
     }
@@ -150,26 +155,43 @@ mod tests {
     #[tokio::test]
     async fn a_set_then_get_reads_through_immediately() {
         let (storage, _dir) = storage();
-        let write = set(&storage, "dp-a", "TOKEN", "agent-token-abc123", &agent_actor())
-            .await
-            .unwrap();
-        assert_eq!(write.outcome, crate::storage::secret::SecretOutcome::Created);
+        let write = set(
+            &storage,
+            "dp-a",
+            "TOKEN",
+            "agent-token-abc123",
+            &agent_actor(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            write.outcome,
+            crate::storage::secret::SecretOutcome::Created
+        );
         assert_eq!(
             get(&storage, "dp-a", "TOKEN").await.unwrap(),
             "agent-token-abc123"
         );
 
         // No cache: a second set is visible to the very next get.
-        set(&storage, "dp-a", "TOKEN", "rotated-token-xyz789", &agent_actor())
-            .await
-            .unwrap();
+        set(
+            &storage,
+            "dp-a",
+            "TOKEN",
+            "rotated-token-xyz789",
+            &agent_actor(),
+        )
+        .await
+        .unwrap();
         assert_eq!(
             get(&storage, "dp-a", "TOKEN").await.unwrap(),
             "rotated-token-xyz789"
         );
 
         // And a delete is visible just as immediately.
-        delete(&storage, "dp-a", "TOKEN", &agent_actor()).await.unwrap();
+        delete(&storage, "dp-a", "TOKEN", &agent_actor())
+            .await
+            .unwrap();
         assert!(matches!(
             get(&storage, "dp-a", "TOKEN").await,
             Err(SecretError::NotFound)
@@ -179,16 +201,34 @@ mod tests {
     #[tokio::test]
     async fn invalid_input_is_refused_before_storage() {
         let (storage, _dir) = storage();
-        match set(&storage, "dp-a", "a/b", "agent-token-abc123", &agent_actor()).await {
-            Err(SecretError::InvalidName(message)) => assert_eq!(message, crate::secrets::NAME_RULE),
+        match set(
+            &storage,
+            "dp-a",
+            "a/b",
+            "agent-token-abc123",
+            &agent_actor(),
+        )
+        .await
+        {
+            Err(SecretError::InvalidName(message)) => {
+                assert_eq!(message, crate::secrets::NAME_RULE)
+            }
             other => panic!("expected InvalidName, got {other:?}"),
         }
         match set(&storage, "dp-a", "TOKEN", "short", &agent_actor()).await {
-            Err(SecretError::InvalidValue(message)) => assert_eq!(message, crate::secrets::VALUE_RULE),
+            Err(SecretError::InvalidValue(message)) => {
+                assert_eq!(message, crate::secrets::VALUE_RULE)
+            }
             other => panic!("expected InvalidValue, got {other:?}"),
         }
         assert!(list(&storage, "dp-a").await.unwrap().is_empty());
-        assert!(storage.list_agent_secret_events("dp-a", 20).await.unwrap().is_empty());
+        assert!(
+            storage
+                .list_agent_secret_events("dp-a", 20)
+                .await
+                .unwrap()
+                .is_empty()
+        );
 
         // Get and delete validate the name too, rather than reporting a misleading not-found.
         assert!(matches!(
@@ -217,9 +257,15 @@ mod tests {
     #[tokio::test]
     async fn list_and_events_never_carry_a_value() {
         let (storage, _dir) = storage();
-        set(&storage, "dp-a", "TOKEN", "agent-token-abc123", &agent_actor())
-            .await
-            .unwrap();
+        set(
+            &storage,
+            "dp-a",
+            "TOKEN",
+            "agent-token-abc123",
+            &agent_actor(),
+        )
+        .await
+        .unwrap();
         let list = list(&storage, "dp-a").await.unwrap();
         assert_eq!(list.len(), 1);
         assert_eq!(list[0].masked, "••••c123");
@@ -227,7 +273,8 @@ mod tests {
         assert_eq!(events[0].action, SecretAction::Created);
         let text = format!(
             "{} {}",
-            serde_json::to_string(&list.iter().map(|s| s.masked.clone()).collect::<Vec<_>>()).unwrap(),
+            serde_json::to_string(&list.iter().map(|s| s.masked.clone()).collect::<Vec<_>>())
+                .unwrap(),
             serde_json::to_string(&events).unwrap()
         );
         assert!(!text.contains("agent-token-abc123"), "{text}");
@@ -237,9 +284,15 @@ mod tests {
     async fn the_event_limit_is_clamped() {
         let (storage, _dir) = storage();
         for i in 0..3 {
-            set(&storage, "dp-a", "T", &format!("agent-token-{i:04}"), &agent_actor())
-                .await
-                .unwrap();
+            set(
+                &storage,
+                "dp-a",
+                "T",
+                &format!("agent-token-{i:04}"),
+                &agent_actor(),
+            )
+            .await
+            .unwrap();
         }
         // 0 becomes 1, and 1000 becomes 100 (which is more than there are).
         assert_eq!(events(&storage, "dp-a", 0).await.unwrap().len(), 1);
@@ -250,9 +303,9 @@ mod tests {
     async fn a_storage_failure_is_mapped_not_swallowed() {
         // No schema at all: the read fails at the database, not at validation.
         let dir = tempfile::tempdir().unwrap();
-        let storage = VizierStorage::new(SqliteStorage::new(
-            Arc::new(Mutex::new(rusqlite::Connection::open_in_memory().unwrap())),
-            Arc::new(LocalDocumentStore::new(dir.path().to_path_buf())),
+        let storage = VizierStorage::new(SqlStorage::new(
+            crate::storage::sql::SqlStore::sqlite(rusqlite::Connection::open_in_memory().unwrap()),
+            Arc::new(BlobDocumentStore::local(dir.path().to_path_buf())),
         ));
         assert!(matches!(
             list(&storage, "dp-a").await,
@@ -269,13 +322,28 @@ mod tests {
     #[tokio::test]
     async fn the_service_never_signals_the_agent() {
         let (storage, _dir) = storage();
-        set(&storage, "dp-a", "TOKEN", "agent-token-abc123", &agent_actor())
-            .await
-            .unwrap();
-        let write = set(&storage, "dp-a", "TOKEN", "rotated-token-xyz789", &agent_actor())
-            .await
-            .unwrap();
-        assert_eq!(write.outcome, crate::storage::secret::SecretOutcome::Replaced);
+        set(
+            &storage,
+            "dp-a",
+            "TOKEN",
+            "agent-token-abc123",
+            &agent_actor(),
+        )
+        .await
+        .unwrap();
+        let write = set(
+            &storage,
+            "dp-a",
+            "TOKEN",
+            "rotated-token-xyz789",
+            &agent_actor(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            write.outcome,
+            crate::storage::secret::SecretOutcome::Replaced
+        );
         assert_eq!(
             get(&storage, "dp-a", "TOKEN").await.unwrap(),
             "rotated-token-xyz789"

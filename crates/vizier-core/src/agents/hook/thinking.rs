@@ -8,12 +8,12 @@ use crate::{
 
 #[derive(Debug, Clone)]
 pub struct ThinkingHook {
-    response_tx: flume::Sender<VizierResponse>,
+    response_tx: crate::transport::ResponseSender,
     session: VizierSession,
 }
 
 impl ThinkingHook {
-    pub fn new(response_tx: flume::Sender<VizierResponse>, session: VizierSession) -> Self {
+    pub fn new(response_tx: crate::transport::ResponseSender, session: VizierSession) -> Self {
         Self {
             response_tx,
             session,
@@ -29,7 +29,7 @@ impl VizierSessionHook for ThinkingHook {
                 let _ = self
                     .response_tx
                     .send_async(VizierResponse {
-                        timestamp: chrono::Utc::now(),
+                        timestamp: crate::time::now(),
                         content: VizierResponseContent::Thinking(
                             thinking["thought"].as_str().unwrap().to_string(),
                         ),

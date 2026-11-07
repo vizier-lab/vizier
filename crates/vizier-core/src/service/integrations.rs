@@ -5,7 +5,7 @@
 
 use std::collections::HashMap;
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Local};
 use serde::Serialize;
 
 use super::{ServiceError, Services};
@@ -383,7 +383,7 @@ pub struct GrantState {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub granted_by: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub granted_at: Option<DateTime<Utc>>,
+    pub granted_at: Option<DateTime<Local>>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -465,9 +465,9 @@ pub struct EventPage {
     pub next: Option<String>,
 }
 
-fn parse_cursor(cursor: &str) -> Option<(DateTime<Utc>, String)> {
+fn parse_cursor(cursor: &str) -> Option<(DateTime<Local>, String)> {
     let (at, id) = cursor.split_once('|')?;
-    let at = DateTime::parse_from_rfc3339(at).ok()?.with_timezone(&Utc);
+    let at = DateTime::parse_from_rfc3339(at).ok()?.with_timezone(&Local);
     Some((at, id.to_string()))
 }
 
@@ -501,7 +501,7 @@ pub async fn events(
     let agents = agents_by_id(s).await;
     let users = usernames(s).await;
     let next = (events.len() == limit)
-        .then(|| events.last().map(|e| format!("{}|{}", e.at.to_rfc3339(), e.id)))
+        .then(|| events.last().map(|e| format!("{}|{}", crate::time::stored(e.at), e.id)))
         .flatten();
     let items = events
         .into_iter()

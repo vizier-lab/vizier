@@ -5,15 +5,21 @@
 
 use axum::{
     Extension, Json, Router,
-    extract::{Path, Query, State, rejection::JsonRejection},
+    extract::{
+        Path, Query, State, WebSocketUpgrade,
+        rejection::JsonRejection,
+        ws::{Message, WebSocket},
+    },
     routing::{get, post, put},
 };
+use futures::{SinkExt, StreamExt};
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 
 use crate::{
     api::v1::auth,
-    auth::Principal,
+    auth::{Principal, middleware::TokenExpiry},
+    inbox::InboxConnection,
     models::{
         self,
         response::{APIResponse, api_response, err_response},
@@ -21,7 +27,7 @@ use crate::{
     state::HTTPState,
 };
 use vizier_core::{
-    schema::{NotificationCounts, NotificationItem, NotificationPage},
+    schema::{ChatUnread, NotificationCounts, NotificationItem, NotificationPage},
     service::notifications,
 };
 
@@ -30,7 +36,112 @@ pub fn notifications() -> Router<HTTPState> {
         .route("/", get(list))
         .route("/count", get(count))
         .route("/read-all", post(read_all))
+        .route("/chats", get(chats))
+        .route("/chats/read", post(read_chat))
         .route("/{id}/read", put(set_read))
+}
+
+/// The live stream (`specs/051-realtime-notifications`), mounted at `/inbox`.
+pub fn inbox() -> Router<HTTPState> {
+    Router::new().route("/stream", get(stream))
+}
+
+/// How often the server pings. There is no idle deadline: a push-only socket never sends a
+/// frame, so the chat socket's idle timeout would drop every quiet inbox (research R10).
+const PING_EVERY: std::time::Duration = std::time::Duration::from_secs(30);
+
+#[utoipa::path(
+    get,
+    path = "/inbox/stream",
+    responses(
+        (status = 101, description = "WebSocket established. The server pushes JSON frames (`hello`, `notification`, `read`, `setup`, `setup_cleared`, `resync`) and ignores anything the client sends"),
+        (status = 401, description = "Missing, invalid or expired credentials", body = APIResponse<String>)
+    )
+)]
+pub async fn stream(
+    ws: WebSocketUpgrade,
+    State(state): State<HTTPState>,
+    Extension(user): Extension<Principal>,
+    Extension(expiry): Extension<TokenExpiry>,
+) -> axum::response::Response {
+    let (out_tx, out_rx) = flume::unbounded();
+    let connection = match InboxConnection::open(&state, &user, out_tx).await {
+        Ok(connection) => connection,
+        Err(e) => {
+            if matches!(e, vizier_core::service::ServiceError::Internal(_)) {
+                tracing::error!("failed to open the inbox stream: {e}");
+            }
+            return axum::response::Response::builder()
+                .status(e.status())
+                .body(axum::body::Body::empty())
+                .unwrap();
+        }
+    };
+    ws.on_upgrade(move |socket| serve_socket(socket, connection, out_rx, expiry))
+}
+
+/// Writes the connection's frames to the socket, pings, and ends at the token's expiry.
+async fn serve_socket(
+    socket: WebSocket,
+    connection: InboxConnection,
+    out_rx: flume::Receiver<serde_json::Value>,
+    expiry: TokenExpiry,
+) {
+    let (mut writer, mut reader) = socket.split();
+    let pushing = tokio::spawn(connection.run());
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs());
+    // A credential that does not expire waits "forever"; the sleep is simply never reached.
+    let until_expiry = expiry
+        .remaining(now)
+        .unwrap_or(std::time::Duration::from_secs(60 * 60 * 24 * 365));
+    let expired = tokio::time::sleep(until_expiry);
+    tokio::pin!(expired);
+    let mut ping = tokio::time::interval(PING_EVERY);
+    // The first tick is immediate; the hello is the first thing a client should see.
+    ping.tick().await;
+
+    loop {
+        tokio::select! {
+            _ = ping.tick() => {
+                if writer.send(Message::Ping(vec![].into())).await.is_err() {
+                    break;
+                }
+            }
+            frame = out_rx.recv_async() => {
+                match frame {
+                    Ok(frame) => {
+                        if writer.send(Message::Text(frame.to_string().into())).await.is_err() {
+                            break;
+                        }
+                    }
+                    // The connection ended: the person no longer resolves.
+                    Err(_) => {
+                        let _ = writer.send(Message::Close(None)).await;
+                        break;
+                    }
+                }
+            }
+            msg = reader.next() => {
+                match msg {
+                    Some(Ok(Message::Ping(data))) => {
+                        let _ = writer.send(Message::Pong(data)).await;
+                    }
+                    Some(Ok(Message::Close(_))) | Some(Err(_)) | None => break,
+                    // The stream only pushes; whatever else a client sends is ignored.
+                    Some(Ok(_)) => {}
+                }
+            }
+            _ = &mut expired => {
+                // The reconnect then meets a 401, and the client signs the person out.
+                let _ = writer.send(Message::Close(None)).await;
+                break;
+            }
+        }
+    }
+    pushing.abort();
 }
 
 #[derive(Debug, Deserialize, utoipa::IntoParams)]
@@ -135,6 +246,52 @@ pub async fn read_all(
     }
 }
 
+#[utoipa::path(
+    get,
+    path = "/notifications/chats",
+    responses((status = 200, description = "The caller's unread replies, per conversation of theirs", body = APIResponse<Vec<ChatUnread>>))
+)]
+pub async fn chats(
+    State(state): State<HTTPState>,
+    Extension(user): Extension<Principal>,
+) -> models::response::Response<Vec<ChatUnread>> {
+    match notifications::chat_unread(&auth::services(&state), &user).await {
+        Ok(chats) => api_response(StatusCode::OK, chats),
+        Err(e) => auth::err(e),
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, utoipa::ToSchema)]
+pub struct ChatReadRequest {
+    /// The conversation's `href`, as `GET /notifications/chats` gives it.
+    #[serde(default)]
+    pub href: Option<String>,
+}
+
+#[utoipa::path(
+    post,
+    path = "/notifications/chats/read",
+    request_body = ChatReadRequest,
+    responses(
+        (status = 200, description = "Marks one conversation's replies read for the caller, with the new counts", body = APIResponse<NotificationCounts>),
+        (status = 400, description = "A missing or empty `href`", body = APIResponse<String>)
+    )
+)]
+pub async fn read_chat(
+    State(state): State<HTTPState>,
+    Extension(user): Extension<Principal>,
+    body: Result<Json<ChatReadRequest>, JsonRejection>,
+) -> models::response::Response<NotificationCounts> {
+    let href = match body {
+        Ok(Json(ChatReadRequest { href: Some(href) })) if !href.is_empty() => href,
+        _ => return err_response(StatusCode::BAD_REQUEST, "an `href` is required".into()),
+    };
+    match notifications::mark_chat_read(&auth::services(&state), &user, &href).await {
+        Ok(counts) => api_response(StatusCode::OK, counts),
+        Err(e) => auth::err(e),
+    }
+}
+
 /// The item type is part of the page schema; named here so both are in `ApiDoc`.
 #[allow(dead_code)]
 fn _item_in_schema(_: NotificationItem) {}
@@ -143,7 +300,7 @@ fn _item_in_schema(_: NotificationItem) {}
 mod tests {
     use std::sync::Arc;
 
-    use chrono::Utc;
+    
 
     use super::*;
     use crate::{
@@ -185,7 +342,6 @@ mod tests {
                 1,
                 std::time::Duration::from_secs(60),
             )),
-            deferred_client_calls: Default::default(),
         };
         (state, dir)
     }
@@ -199,7 +355,7 @@ mod tests {
                 name: "role".into(),
                 permissions: vec![],
                 is_system: system,
-                created_at: Utc::now(),
+                created_at: vizier_core::time::now(),
             },
             permissions: vec![],
             method: AuthMethod::Jwt,
@@ -223,7 +379,12 @@ mod tests {
                 tone: NotificationTone::Default,
                 summary: format!("Notification {key}"),
                 href: "/x".into(),
-                created_at: Utc::now(),
+                created_at: vizier_core::time::now(),
+                source_session: None,
+                source_title: None,
+                excerpt: None,
+                workspace_id: None,
+                author: None,
             }])
             .await
             .unwrap();

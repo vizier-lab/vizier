@@ -2,6 +2,97 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.15.0-rc.4] - 2026-11-05
+
+### ⚙️ Miscellaneous Tasks
+
+- Bump webui submodule (status panel width)
+- Bump design and webui submodules (user avatar, message meta row)
+- Bump design submodule (square settings avatars)
+- Bump design and webui submodules (copy button, sending avatar seed)
+## [0.15.0-rc.1] - 2026-11-04
+
+### 🚀 Features
+
+- Add managed storage backends and migration
+- Implementation progress
+- Add pluggable PostgreSQL and S3 storage (#157)
+- [**breaking**] rename vizier-core feature flags and make CI path-aware
+- [**breaking**] rename vizier-core feature flags and make CI path-aware (#174)
+- [**breaking**] [**breaking**] fleet role plumbing (--role, ServerRoleSet, role-* features) (#161)
+- [**breaking**] fleet role plumbing (--role, ServerRoleSet, role-* features) (#161) (#175)
+- Support Kubernetes deployments (#178)
+- Add vizier-schema, the Fleet bus contract (#162)
+- Add the in-process bus backend, leases and the conformance suite (#162)
+- Add role contracts, a scripted peer and the role test harness (#162)
+- [**breaking**] add the Fleet message bus and run the transport on it (#162) (#180)
+- *(schema)* Add the per-agent command subject and the role contracts
+- *(core)* Add the agent seam, split the host from the placement and publish the views
+- *(core)* Claim a deferred client call on the stored row
+- *(core)* Add the Fleet agent service seam (#163) (#181)
+- *(bedrock)* Sign in through AWS SSO and choose inference profiles by ARN (#183)
+- *(agents)* Per-request model override (#184)
+
+### 🐛 Bug Fixes
+
+- Normalize literal `\n` escapes in agent-created task instructions
+- *(test)* Produce the over-cap stream with posix awk, not a bashism
+- *(app)* Do not let the linux build trip -D warnings on the window binding
+- Make managed storage CI reproducible
+- Pass managed storage test credentials
+- Wait for web access to stop on a fresh connection in the smoke test
+- Port the Discord and Telegram reply streams to the bus (#162)
+- Install the design submodule's dependencies before building the WebUI in the Kubernetes workflow
+- Use a kind node image that exists in the Kubernetes workflow
+- *(core)* Drop the unused import the host test carried
+- *(ci)* Bump vizier-schema's version requirement in the release
+
+### 🚜 Refactor
+
+- Run storage over a backend-neutral SQL connection
+- [**breaking**] make trace context and the client binding serialisable (#162)
+- [**breaking**] run the request path on the bus (#162)
+- [**breaking**] send commands over the bus (#162)
+- [**breaking**] send file commands over the bus (#162)
+- [**breaking**] carry session and integration events on the bus (#162)
+
+### 📚 Documentation
+
+- Add specification
+- Add implementation plan
+- Add tasks
+- Add project constitution
+- Add specification
+- Add implementation plan
+- Add tasks
+- Add specification
+- Add implementation plan
+- Ship the bus as one pull request, one commit per slice
+- Add tasks
+- Add the bus contract page and the vizier-schema layering policy (#162)
+- Add specification
+- Add implementation plan
+- Correct the claim migration and the single-node publication rules
+- Add tasks
+- Record the agent seam in the bus contract, the audit and the map
+- Record the dummyplug turn that ran on this branch
+- Renumber the Fleet specs to the sequential feature counter
+
+### 🧪 Testing
+
+- Exercise managed storage backends in CI
+- Await integration changes instead of reading them synchronously (#162)
+- Cover the agent seam, the host and the published views
+
+### ⚙️ Miscellaneous Tasks
+
+- Merge latest develop
+- Save progress before implementation
+- Refuse a gateway-side read of a running agent's state
+- Bump design and webui submodules (status strip)
+- Bump design and webui submodules (model override picker)
+- Bump webui submodule (quiet model trigger)
+- Bump version to 0.15.0-rc.1
 ## [0.15.0-rc.3] - 2026-11-05
 
 ### 🐛 Bug Fixes
@@ -210,6 +301,7 @@ All notable changes to this project will be documented in this file.
 - Bump webui for reaction undo and a steady memory explorer
 - Bump design for the memory graph background
 - Bump design for the agent card without its status dot
+- Prevent deleted, disabled, or rescheduled tasks from firing from stale scheduler state
 
 ### 💼 Other
 

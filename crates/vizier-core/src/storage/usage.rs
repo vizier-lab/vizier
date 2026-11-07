@@ -1,8 +1,9 @@
 //! Usage accounting storage (`specs/018-usage-accounting/data-model.md` §3): one row per answered
 //! model call, plus one row per failed turn, joined at query time.
 
+use crate::time::Timestamp;
 use anyhow::Result;
-use chrono::{DateTime, NaiveDate, Utc};
+use chrono::NaiveDate;
 
 use crate::{
     agents::agent::model::usage::TurnId,
@@ -18,8 +19,8 @@ use crate::{
 #[derive(Debug, Clone)]
 pub struct UsageQuery {
     pub agent_id: String,
-    pub start: DateTime<Utc>,
-    pub end: DateTime<Utc>,
+    pub start: Timestamp,
+    pub end: Timestamp,
     pub activity: Option<UsageActivity>,
     pub conversation: Option<(String, Option<String>)>,
 }
@@ -54,7 +55,7 @@ pub struct UsageGroup {
     pub calls: u64,
     /// Distinct turns among the rows (0 for rows without one).
     pub turns: u64,
-    pub last_at: DateTime<Utc>,
+    pub last_at: Timestamp,
 }
 
 /// One recorded call, as returned for a conversation's details.
@@ -78,7 +79,7 @@ pub struct ConversationRows {
 pub struct HourlyTurns {
     pub agent_id: String,
     /// The start of the hour.
-    pub hour: DateTime<Utc>,
+    pub hour: Timestamp,
     pub turns: u64,
 }
 
@@ -86,24 +87,24 @@ pub struct HourlyTurns {
 pub trait UsageStorage {
     /// Turns per agent per UTC hour since `since`, a turn counted in the hour of its first
     /// recorded call (one that began before `since` counts from its first call after it).
-    async fn hourly_turns(&self, agents: &[String], since: DateTime<Utc>) -> Result<Vec<HourlyTurns>>;
+    async fn hourly_turns(&self, agents: &[String], since: Timestamp) -> Result<Vec<HourlyTurns>>;
 
     /// Turns since `since` by activity, across `agents`.
     async fn turns_by_activity(
         &self,
         agents: &[String],
-        since: DateTime<Utc>,
+        since: Timestamp,
     ) -> Result<Vec<(UsageActivity, u64)>>;
 
     /// Token sums since `since` across `agents`, split by `(provider, model)` and by
     /// failed/not failed, for the caller to price. Only the provider, model, failed, tokens and
     /// counts of each group are set.
-    async fn usage_groups_since(&self, agents: &[String], since: DateTime<Utc>) -> Result<Vec<UsageGroup>>;
+    async fn usage_groups_since(&self, agents: &[String], since: Timestamp) -> Result<Vec<UsageGroup>>;
 
     async fn record_usage(&self, event: UsageEvent) -> Result<()>;
 
     /// Idempotent: a turn is failed once.
-    async fn record_failed_turn(&self, turn: &TurnId, agent_id: &str, at: DateTime<Utc>)
+    async fn record_failed_turn(&self, turn: &TurnId, agent_id: &str, at: Timestamp)
     -> Result<()>;
 
     async fn usage_groups(&self, q: &UsageQuery, grouping: UsageGrouping) -> Result<Vec<UsageGroup>>;
@@ -142,19 +143,19 @@ pub trait UsageStorage {
 
 #[async_trait::async_trait]
 impl UsageStorage for VizierStorage {
-    async fn hourly_turns(&self, agents: &[String], since: DateTime<Utc>) -> Result<Vec<HourlyTurns>> {
+    async fn hourly_turns(&self, agents: &[String], since: Timestamp) -> Result<Vec<HourlyTurns>> {
         self.0.hourly_turns(agents, since).await
     }
 
     async fn turns_by_activity(
         &self,
         agents: &[String],
-        since: DateTime<Utc>,
+        since: Timestamp,
     ) -> Result<Vec<(UsageActivity, u64)>> {
         self.0.turns_by_activity(agents, since).await
     }
 
-    async fn usage_groups_since(&self, agents: &[String], since: DateTime<Utc>) -> Result<Vec<UsageGroup>> {
+    async fn usage_groups_since(&self, agents: &[String], since: Timestamp) -> Result<Vec<UsageGroup>> {
         self.0.usage_groups_since(agents, since).await
     }
 
@@ -166,7 +167,7 @@ impl UsageStorage for VizierStorage {
         &self,
         turn: &TurnId,
         agent_id: &str,
-        at: DateTime<Utc>,
+        at: Timestamp,
     ) -> Result<()> {
         self.0.record_failed_turn(turn, agent_id, at).await
     }

@@ -11,12 +11,12 @@ use crate::{
     storage::{
         memory::MemoryStorage,
         memory_bundle::{WritePolicy, WrittenMemory},
-        sqlite::SqliteStorage,
+        sqlite::SqlStorage,
     },
 };
 
 #[async_trait::async_trait]
-impl MemoryStorage for SqliteStorage {
+impl MemoryStorage for SqlStorage {
     #[allow(clippy::too_many_arguments)]
     async fn write_memory(
         &self,

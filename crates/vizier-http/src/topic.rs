@@ -11,6 +11,7 @@ use tokio::sync::{broadcast, mpsc};
 use vizier_core::{
     agents::client::ClientConnection,
     auth::Principal,
+    access::require,
     schema::{
         VizierAttachmentContent, VizierChannelId, VizierRequest, VizierRequestContent, VizierSession,
     },
@@ -26,6 +27,43 @@ use crate::{
     state::HTTPState,
 };
 
+/// What the server decides about a person's message, whatever the client sent.
+///
+/// A message starts a fresh background chain, so the depth is never the client's to set. Its time is
+/// the server's clock on receipt, on every channel: a client's own value would misorder history and
+/// move the cutoff it is compared with (`specs/052-unify-local-timezone`). The field stays required
+/// on input so existing clients keep working.
+fn stamp_on_receipt(request: &mut vizier_core::schema::VizierRequest) {
+    request.background_depth = 0;
+    request.timestamp = vizier_core::time::now();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::stamp_on_receipt;
+    use vizier_core::schema::{VizierRequest, VizierRequestContent};
+
+    #[test]
+    fn a_clients_own_time_and_depth_are_discarded() {
+        let sent: VizierRequest = serde_json::from_value(serde_json::json!({
+            "timestamp": "2001-01-01T00:00:00Z",
+            "user": "alice",
+            "content": { "chat": "hello" },
+            "metadata": {}
+        }))
+        .unwrap();
+        assert!(matches!(sent.content, VizierRequestContent::Chat(_)));
+        let mut request = sent;
+        request.background_depth = 3;
+
+        let before = vizier_core::time::now();
+        stamp_on_receipt(&mut request);
+
+        assert!(request.timestamp >= before, "stamped with the server's time, not 2001");
+        assert_eq!(request.background_depth, 0);
+    }
+}
+
 pub struct TopicConnection {
     session: VizierSession,
     /// The caller and the service layer, kept so every inbound turn re-checks the project
@@ -36,6 +74,8 @@ pub struct TopicConnection {
     storage: Arc<vizier_core::storage::VizierStorage>,
     limits: ClientLimits,
     connection: Arc<ClientConnection>,
+    /// Where this process finds the socket a request names; the binding holds only its id.
+    connections: vizier_core::agents::client::ClientConnections,
     /// The shared question service (`specs/042-agent-asking-question`): a submission is validated
     /// and claimed through it before a turn is queued.
     questions: Arc<vizier_core::questions::Questions>,
@@ -96,7 +136,6 @@ impl TopicConnection {
         let limits = ClientLimits {
             events: state.client_events.clone(),
             state_saves: state.client_state_saves.clone(),
-            deferred: state.deferred_client_calls.clone(),
         };
         // The client tool calls' frames, as JSON values: the engine has no socket types.
         let (client_tx, client_rx) = mpsc::channel::<serde_json::Value>(64);
@@ -105,7 +144,7 @@ impl TopicConnection {
         let connection = ClientConnection::new(client_tx);
 
         // Calls deferred while no client was here are this connection's to deliver first.
-        spawn_delivery(&state.storage, &state.transport, &session, &connection, &limits.deferred, None);
+        spawn_delivery(&state.storage, &state.transport, &session, &connection, None);
 
         // A dialog still open survives a reload or a second tab: the asks are replayed from
         // storage, so nothing about a live ask is held only in the process that asked
@@ -140,6 +179,7 @@ impl TopicConnection {
             storage: state.storage.clone(),
             limits,
             connection,
+            connections: state.deps.client_connections.clone(),
             questions: state.deps.questions.clone(),
             client_rx: Some(client_rx),
             events: Some(events),
@@ -163,6 +203,7 @@ impl TopicConnection {
 
     pub fn close(&self) {
         self.connection.close();
+        self.connections.remove(&self.connection.id);
     }
 
     pub async fn handle_inbound(&self, frame: serde_json::Value) {
@@ -248,7 +289,73 @@ impl TopicConnection {
                             let mut request = request.clone();
                             // A person's message starts a fresh chain; the depth is never
                             // the client's to set.
-                            request.background_depth = 0;
+                            stamp_on_receipt(&mut request);
+                            let Some(channel_id) = self.session.1.web_channel_id() else {
+                                if request.model_override.is_some() {
+                                    send_frame(client_error(
+                                        "model_override_unsupported",
+                                        None,
+                                        "model override is supported only for WebUI chat channels",
+                                    ))
+                                    .await;
+                                }
+                                return;
+                            };
+                            if request.model_override.is_some() {
+                                let supported_channel = self
+                                    .session
+                                    .1
+                                    .web_channel_id()
+                                    .is_some_and(|channel| {
+                                        channel == "vizier-webui"
+                                            || vizier_core::projects::channel::is_project_channel(&channel)
+                                    });
+                                let supported_kind = matches!(
+                                    &request.content,
+                                    VizierRequestContent::Chat(_) | VizierRequestContent::AudioChat(..)
+                                );
+                                if !supported_channel || !supported_kind {
+                                    send_frame(client_error(
+                                        "model_override_unsupported",
+                                        None,
+                                        "model override is supported only for WebUI chat and audio chat",
+                                    ))
+                                    .await;
+                                    return;
+                                }
+                                let principal = match self
+                                    .services
+                                    .resolve(&self.principal.user_id, self.principal.method)
+                                    .await
+                                {
+                                    Ok(principal) => principal,
+                                    Err(error) => {
+                                        send_frame(client_error("model_override_forbidden", None, error.message()))
+                                            .await;
+                                        return;
+                                    }
+                                };
+                                if let Err(error) = require(&principal, "model_override") {
+                                    send_frame(client_error("model_override_forbidden", None, error.message()))
+                                        .await;
+                                    return;
+                                }
+                                if let Some(choice) = &request.model_override
+                                    && let Err(error) = vizier_core::service::catalogue::validate_chat_model_override(
+                                        self.services.deps(),
+                                        choice,
+                                    )
+                                    .await
+                                {
+                                    send_frame(client_error(
+                                        error.code().unwrap_or("model_override_unavailable"),
+                                        None,
+                                        error.message(),
+                                    ))
+                                    .await;
+                                    return;
+                                }
+                            }
                             // `@` mentions are a project-chat feature; elsewhere the field is
                             // ignored (contracts/http-api.md §6).
                             if self.session.1.project_id().is_some() {
@@ -262,20 +369,28 @@ impl TopicConnection {
 
                             // A project socket re-checks the caller's permission on every turn
                             // (FR-018), so a revocation between two frames refuses the next one.
-                            let Some(channel_id) = self.session.1.web_channel_id() else {
-                                return;
-                            };
                             if self.session.1.project_id().is_some() {
+                                let current_principal = if request.model_override.is_some() {
+                                    match self.services.resolve(&self.principal.user_id, self.principal.method).await {
+                                        Ok(principal) => principal,
+                                        Err(error) => {
+                                            send_frame(client_error("forbidden", None, error.message())).await;
+                                            return;
+                                        }
+                                    }
+                                } else {
+                                    self.principal.clone()
+                                };
                                 let check = async {
                                     let config = vizier_core::service::topics::authorize_view(
                                         &self.services,
-                                        &self.principal,
+                                        &current_principal,
                                         &self.session.0,
                                     )
                                     .await?;
                                     vizier_core::service::topics::authorize_project_channel(
                                         &self.services,
-                                        &self.principal,
+                                        &current_principal,
                                         &config,
                                         &self.session.0,
                                         &channel_id,
@@ -303,7 +418,7 @@ impl TopicConnection {
                             }
 
                             // Refused before anything is sent, so no turn starts (FR-002).
-                            if let Err(error) = bind_client_tools(&mut request, &self.connection) {
+                            if let Err(error) = bind_client_tools(&mut request, &self.connection, &self.connections) {
                                 send_frame(error).await;
                                 return;
                             }
@@ -372,7 +487,10 @@ impl TopicConnection {
                                 }
                             }
 
-                            let (response_tx, response_rx) = flume::unbounded();
+                            let (response_tx, response_rx) = match self.transport.reply_channel().await {
+                                Ok(pair) => pair,
+                                Err(_) => return,
+                            };
                             let session = self.session.clone();
                             if let Err(err) = self.transport.send_request(session.clone(), request, Some(response_tx)).await {
                                 tracing::error!("failed to send request: {}", err);
@@ -433,7 +551,7 @@ impl TopicOutbound {
                                 })
                             ),
                             SessionFrame::ClientCallDeferred { call_id } => {
-                                spawn_delivery(&self.storage, &self.transport, &self.session, &self.connection, &self.limits.deferred, Some(vec![call_id]));
+                                spawn_delivery(&self.storage, &self.transport, &self.session, &self.connection, Some(vec![call_id]));
                                 None
                             }
                             SessionFrame::HistoryEntry(entry) => {

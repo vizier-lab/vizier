@@ -37,6 +37,7 @@ pub struct ProjectSummary {
     pub folder: String,
     pub available: bool,
     pub shell_enabled: bool,
+    pub lsp_enabled: bool,
     pub owner_id: String,
     pub is_owner: bool,
     /// Sessions in the project across every owner (the sidebar's project row).
@@ -61,6 +62,9 @@ pub struct ProjectDetail {
 pub struct OpenProjectRequest {
     /// The folder to mount. Its final component becomes the project name.
     pub folder: String,
+    /// Language servers for this project's chats. On unless the request says otherwise.
+    #[serde(default)]
+    pub lsp_enabled: Option<bool>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -71,6 +75,9 @@ pub struct UpdateProjectRequest {
     pub name: Option<String>,
     #[serde(default)]
     pub shell_enabled: Option<bool>,
+    /// Language servers on or off (`specs/054-project-lsp`). Off stops them at once.
+    #[serde(default)]
+    pub lsp_enabled: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -139,11 +146,11 @@ pub struct OpenedProject {
     pub created: bool,
 }
 
-fn internal(err: impl std::fmt::Display) -> ServiceError {
+pub(super) fn internal(err: impl std::fmt::Display) -> ServiceError {
     ServiceError::Internal(err.to_string())
 }
 
-fn invalid_code(code: &str, message: impl Into<String>) -> ServiceError {
+pub(super) fn invalid_code(code: &str, message: impl Into<String>) -> ServiceError {
     ServiceError::Invalid {
         status: 422,
         message: message.into(),
@@ -170,7 +177,7 @@ async fn agent_for_use(
 }
 
 /// The agent and a non-removed project of it, or `404`/`403`.
-async fn project_for_read(
+pub(super) async fn project_for_read(
     s: &Services,
     who: &Principal,
     agent_id: &str,
@@ -185,7 +192,7 @@ async fn project_for_read(
 }
 
 /// [`project_for_read`], plus the right to rename, remove or toggle it.
-async fn project_for_manage(
+pub(super) async fn project_for_manage(
     s: &Services,
     who: &Principal,
     agent_id: &str,
@@ -262,6 +269,7 @@ async fn summary(s: &Services, who: &Principal, project: Project) -> Result<Proj
         folder: project.display_folder(),
         available: project.available(),
         shell_enabled: project.shell_enabled,
+        lsp_enabled: project.lsp_enabled,
         is_owner: project.owner_id == who.user_id,
         owner_id: project.owner_id.clone(),
         session_count,
@@ -336,7 +344,7 @@ pub async fn open(
     let folder = validate_folder(s, &request.folder)?;
     let name = folder_name(&folder)?;
 
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = crate::time::now().timestamp_millis();
     let project = Project {
         id: nanoid::nanoid!(PROJECT_ID_LEN),
         agent_id: agent_id.to_string(),
@@ -344,10 +352,13 @@ pub async fn open(
         folder,
         owner_id: who.user_id.clone(),
         shell_enabled: true,
+        lsp_enabled: request.lsp_enabled.unwrap_or(true),
         created_at: now,
         removed_at: None,
     };
     let (project, created) = s.deps().storage.open_project(project).await.map_err(internal)?;
+    // A restored project may have been closed when it was removed.
+    s.deps().lsp.open_project(&project.id);
     Ok(OpenedProject {
         project: summary(s, who, project).await?,
         created,
@@ -363,8 +374,11 @@ pub async fn update(
     request: UpdateProjectRequest,
 ) -> Result<ProjectSummary, ServiceError> {
     project_for_manage(s, who, agent_id, project_id).await?;
-    if request.name.is_none() && request.shell_enabled.is_none() {
-        return Err(invalid_code("invalid_update", "provide a name or a shell switch"));
+    if request.name.is_none() && request.shell_enabled.is_none() && request.lsp_enabled.is_none() {
+        return Err(invalid_code(
+            "invalid_update",
+            "provide a name, a shell switch or a language server switch",
+        ));
     }
     if let Some(name) = request.name {
         let name = validate_name(&name)?;
@@ -380,6 +394,18 @@ pub async fn update(
             .set_project_shell(project_id, enabled)
             .await
             .map_err(internal)?;
+    }
+    if let Some(enabled) = request.lsp_enabled {
+        s.deps()
+            .storage
+            .set_project_lsp(project_id, enabled)
+            .await
+            .map_err(internal)?;
+        match enabled {
+            true => s.deps().lsp.open_project(project_id),
+            // Stopped before this returns: no process outlives the switch (FR-004).
+            false => s.deps().lsp.close_project(project_id).await,
+        }
     }
     let project = s
         .deps()
@@ -407,6 +433,7 @@ pub async fn rename(
         UpdateProjectRequest {
             name: Some(name.to_string()),
             shell_enabled: None,
+            lsp_enabled: None,
         },
     )
     .await
@@ -428,6 +455,7 @@ pub async fn set_shell(
         UpdateProjectRequest {
             name: None,
             shell_enabled: Some(enabled),
+            lsp_enabled: None,
         },
     )
     .await
@@ -460,9 +488,10 @@ pub async fn remove(
     }
     s.deps()
         .storage
-        .remove_project(&project.id, chrono::Utc::now().timestamp_millis())
+        .remove_project(&project.id, crate::time::now().timestamp_millis())
         .await
         .map_err(internal)?;
+    s.deps().lsp.close_project(&project.id).await;
     Ok(ProjectRemoved { removed: true })
 }
 
@@ -918,6 +947,10 @@ pub async fn git_switch(
             _ => mapped,
         });
     }
+    // A switch rewrites files under the servers; they hear of it in the background (FR-032).
+    if project.lsp_enabled {
+        s.deps().lsp.notify_changes(&project.id, &cwd);
+    }
     Ok(git.summary().await)
 }
 
@@ -1082,7 +1115,7 @@ pub async fn create_worktree(
         branch: branch.clone(),
         base_ref: base.to_string(),
         path: canonical,
-        created_at: chrono::Utc::now().timestamp_millis(),
+        created_at: crate::time::now().timestamp_millis(),
     };
     let detail = VizierSessionDetail {
         agent_id: agent_id.to_string(),
@@ -1207,6 +1240,9 @@ pub async fn delete_worktree(
         });
     }
 
+    // Servers rooted in the worktree stop before its folder goes (FR-005).
+    s.deps().lsp.stop_under(&project.id, &worktree.path).await;
+
     let git = crate::projects::git::Git::new(&project.folder);
     let available = worktree.path.is_dir();
     if available {
@@ -1263,6 +1299,10 @@ pub async fn delete_worktree(
     s.deps()
         .project_ledger
         .forget_session(&session.to_slug());
+    s.deps().transport.publish_inbox_event(crate::transport::InboxEvent::Stale {
+        user: None,
+        agent_id: Some(agent_id.to_string()),
+    });
     s.deps()
         .storage
         .delete_worktree(&worktree.id)
@@ -1273,7 +1313,7 @@ pub async fn delete_worktree(
 
 #[cfg(test)]
 mod tests {
-    use chrono::Utc;
+    
 
     use super::*;
     use crate::{
@@ -1328,6 +1368,7 @@ mod tests {
     fn request(dir: &tempfile::TempDir) -> OpenProjectRequest {
         OpenProjectRequest {
             folder: dir.path().to_string_lossy().into_owned(),
+            lsp_enabled: None,
         }
     }
 
@@ -1458,7 +1499,7 @@ mod tests {
             &who,
             AuthMethod::Desktop,
             "dp-a",
-            OpenProjectRequest { folder: "/no/such/folder".into() },
+            OpenProjectRequest { folder: "/no/such/folder".into(), lsp_enabled: None },
         )
         .await
         .unwrap_err();
@@ -1474,7 +1515,7 @@ mod tests {
                 &who,
                 AuthMethod::Desktop,
                 "dp-a",
-                OpenProjectRequest { folder: folder.to_string_lossy().into_owned() },
+                OpenProjectRequest { folder: folder.to_string_lossy().into_owned(), lsp_enabled: None },
             )
             .await
             .unwrap_err();
@@ -1497,7 +1538,7 @@ mod tests {
             &who,
             AuthMethod::Desktop,
             "dp-a",
-            OpenProjectRequest { folder: link.to_string_lossy().into_owned() },
+            OpenProjectRequest { folder: link.to_string_lossy().into_owned(), lsp_enabled: None },
         )
         .await
         .unwrap_err();
@@ -1605,7 +1646,7 @@ mod tests {
         assert!(detail.instructions_present);
         let text = serde_json::to_string(&detail).unwrap();
         assert!(!text.contains("Be terse."));
-        assert!(Utc::now().timestamp_millis() >= detail.project.created_at);
+        assert!(crate::time::now().timestamp_millis() >= detail.project.created_at);
     }
 
     fn git_repo() -> Option<tempfile::TempDir> {

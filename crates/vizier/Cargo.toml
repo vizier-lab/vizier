@@ -14,8 +14,21 @@ include = ["/src/**/*", "/Cargo.toml"]
 name = "vizier"
 path = "src/main.rs"
 
+[features]
+# Which roles this binary carries (`vizier run --role`, Fleet #161). `role-all` is the shipped
+# build: one process doing everything. A leaner build names the roles it wants, and `--role`
+# then refuses a role it does not have with the flag to rebuild with.
+default = ["role-all"]
+role-all = ["role-gateway-http", "role-gateway-grpc", "role-worker", "role-channels", "role-control"]
+role-gateway-http = []
+role-gateway-grpc = []
+role-worker = []
+role-channels = []
+role-control = []
+
 [dependencies]
 vizier-core = { workspace = true, features = ["full"] }
+vizier-fleet.workspace = true
 vizier-http.workspace = true
 anyhow.workspace = true
 chrono.workspace = true

@@ -36,6 +36,10 @@ pub struct Project {
     /// The `user_id` of the person who opened it.
     pub owner_id: String,
     pub shell_enabled: bool,
+    /// Language servers for this project's chats (`specs/054-project-lsp`). Existing projects
+    /// read off; a newly opened one is on unless the request says otherwise.
+    #[serde(default)]
+    pub lsp_enabled: bool,
     /// Unix milliseconds.
     pub created_at: i64,
     /// `None` while open; set by soft removal.
@@ -163,4 +167,48 @@ pub struct ProjectSessionRow {
     pub mode: ProjectMode,
     /// The worktree the chat is bound to, when it has one.
     pub worktree: Option<WorktreeRef>,
+}
+
+/// A person's choice of server for one language in one project (`data-model.md` §2).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+pub struct ServerOverride {
+    pub command: String,
+    #[serde(default)]
+    pub args: Vec<String>,
+    #[serde(default)]
+    pub env: std::collections::BTreeMap<String, String>,
+}
+
+/// One server as a person sees it. `root` is relative to the project folder.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+pub struct LspServerStatus {
+    pub language: String,
+    pub name: String,
+    pub root: String,
+    /// `starting`, `ready`, `missing` or `failed`.
+    pub state: String,
+    /// Progress while starting, such as `indexing 41%`.
+    pub detail: Option<String>,
+    pub reason: Option<String>,
+    pub install_hint: Option<String>,
+    pub overridden: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+pub struct LspCapacity {
+    pub in_use: usize,
+    pub max: usize,
+}
+
+/// What the status strip and its popup show (`data-model.md` §6).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+pub struct LspStatusSnapshot {
+    pub project_id: String,
+    pub enabled: bool,
+    pub capacity: LspCapacity,
+    pub servers: Vec<LspServerStatus>,
 }

@@ -14,7 +14,7 @@ use vizier_core::{
     runtime::{RuntimeOptions, VizierRuntime},
     schema::{
         AgentCommand, AgentCommandResult, AgentConfig, AgentToolsConfig, VizierChannelId,
-        VizierRequest, VizierRequestContent, VizierResponse, VizierResponseContent,
+        VizierRequest, VizierRequestContent, VizierResponseContent,
         VizierSession,
     },
 };
@@ -23,7 +23,10 @@ use vizier_core::{
 async fn main() -> vizier_core::Result<()> {
     let workspace = workspace_arg()?;
     let config = VizierConfig::with_workspace(workspace);
-    let runtime = VizierRuntime::start(RuntimeOptions { config }).await?;
+    let runtime = VizierRuntime::start(RuntimeOptions {
+        config,
+        ..Default::default()
+    }).await?;
 
     let mut events = runtime.events();
     tokio::spawn(async move {
@@ -59,13 +62,13 @@ async fn main() -> vizier_core::Result<()> {
         VizierChannelId::HTTP("headless".into(), "example".into()),
         Some("hello".into()),
     );
-    let (tx, rx) = flume::unbounded::<VizierResponse>();
+    let (tx, rx) = runtime.transport().reply_channel().await.map_err(err)?;
     runtime
         .transport()
         .send_request(
             session,
             VizierRequest {
-                timestamp: chrono::Utc::now(),
+                timestamp: vizier_core::time::now(),
                 user: "headless".into(),
                 content: VizierRequestContent::Chat("tools".into()),
                 metadata: serde_json::json!({}),

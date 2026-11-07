@@ -1,10 +1,13 @@
+use crate::time::Timestamp;
 use anyhow::Result;
-use chrono::{DateTime, TimeZone, Utc};
+use chrono::{TimeZone, Local};
+
+use crate::storage::sql::{self, Row, ToSql, params, params_from_iter};
 
 use crate::{
     schema::{AgentId, TaskRun, TaskRunState},
     storage::{
-        sqlite::SqliteStorage,
+        sqlite::SqlStorage,
         task_run::{InterruptedRun, TaskRunStorage},
     },
 };
@@ -12,11 +15,11 @@ use crate::{
 /// Every ordered read selects these columns in this order.
 const RUN_COLUMNS: &str = "id, agent_id, task_slug, ran_at, finished_at, session_key, state";
 
-fn millis_to_utc(ms: i64) -> Option<DateTime<Utc>> {
-    Utc.timestamp_millis_opt(ms).single()
+fn millis_to_utc(ms: i64) -> Option<Timestamp> {
+    Local.timestamp_millis_opt(ms).single()
 }
 
-fn run_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Option<TaskRun>> {
+fn run_from_row(row: &Row) -> sql::Result<Option<TaskRun>> {
     let id: i64 = row.get(0)?;
     let agent_id: String = row.get(1)?;
     let task_slug: String = row.get(2)?;
@@ -44,42 +47,43 @@ fn run_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Option<TaskRun>> {
 }
 
 #[async_trait::async_trait]
-impl TaskRunStorage for SqliteStorage {
+impl TaskRunStorage for SqlStorage {
     async fn open_task_run(
         &self,
         agent_id: AgentId,
         task_slug: String,
-        ran_at: DateTime<Utc>,
+        ran_at: Timestamp,
         session_key: String,
     ) -> Result<i64> {
-        let conn = self.conn.lock();
-        conn.execute(
+        let conn = self.conn.lock()?;
+        let id = conn.query_row(
             "INSERT INTO task_run (agent_id, task_slug, ran_at, finished_at, session_key, state) \
-             VALUES (?1, ?2, ?3, NULL, ?4, ?5)",
-            rusqlite::params![
+             VALUES (?1, ?2, ?3, NULL, ?4, ?5) RETURNING id",
+            params![
                 agent_id,
                 task_slug,
                 ran_at.timestamp_millis(),
                 session_key,
                 TaskRunState::Running.as_str(),
             ],
+            |row| row.get(0),
         )?;
 
-        Ok(conn.last_insert_rowid())
+        Ok(id)
     }
 
     async fn close_task_run(
         &self,
         id: i64,
         state: TaskRunState,
-        finished_at: DateTime<Utc>,
+        finished_at: Timestamp,
     ) -> Result<()> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         // `state = 'running'` in the predicate is what makes a terminal state terminal:
         // a late close cannot overwrite one already recorded.
         conn.execute(
             "UPDATE task_run SET state = ?1, finished_at = ?2 WHERE id = ?3 AND state = ?4",
-            rusqlite::params![
+            params![
                 state.as_str(),
                 finished_at.timestamp_millis(),
                 id,
@@ -94,7 +98,7 @@ impl TaskRunStorage for SqliteStorage {
         agent_id: AgentId,
         task_slug: String,
     ) -> Result<Option<TaskRun>> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let sql = format!(
             "SELECT {RUN_COLUMNS} FROM task_run \
              WHERE agent_id = ?1 AND task_slug = ?2 AND state = ?3 \
@@ -102,7 +106,7 @@ impl TaskRunStorage for SqliteStorage {
         );
         let mut stmt = conn.prepare(&sql)?;
         let mut rows = stmt.query_map(
-            rusqlite::params![agent_id, task_slug, TaskRunState::Running.as_str()],
+            params![agent_id, task_slug, TaskRunState::Running.as_str()],
             run_from_row,
         )?;
 
@@ -117,20 +121,18 @@ impl TaskRunStorage for SqliteStorage {
         &self,
         agent_id: AgentId,
         task_slug: String,
-        before: Option<DateTime<Utc>>,
+        before: Option<Timestamp>,
         before_id: Option<i64>,
         limit: usize,
     ) -> Result<Vec<TaskRun>> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
 
         // Key-set cursor on the strictly-ordered pair `(ran_at, id)`. `before_id` is what
         // keeps runs sharing a millisecond from straddling a page boundary; an offset
         // cursor would also shift under a new run landing at the head mid-paging.
-        let mut sql = format!(
-            "SELECT {RUN_COLUMNS} FROM task_run WHERE agent_id = ?1 AND task_slug = ?2"
-        );
-        let mut params: Vec<Box<dyn rusqlite::types::ToSql>> =
-            vec![Box::new(agent_id), Box::new(task_slug)];
+        let mut sql =
+            format!("SELECT {RUN_COLUMNS} FROM task_run WHERE agent_id = ?1 AND task_slug = ?2");
+        let mut params: Vec<Box<dyn ToSql>> = vec![Box::new(agent_id), Box::new(task_slug)];
 
         if let Some(before) = before {
             let before_ms = before.timestamp_millis();
@@ -153,7 +155,7 @@ impl TaskRunStorage for SqliteStorage {
 
         let mut stmt = conn.prepare(&sql)?;
         let runs: Vec<TaskRun> = stmt
-            .query_map(rusqlite::params_from_iter(params.iter()), run_from_row)?
+            .query_map(params_from_iter(params.iter()), run_from_row)?
             .filter_map(|r| r.ok())
             .flatten()
             .collect();
@@ -165,9 +167,9 @@ impl TaskRunStorage for SqliteStorage {
         &self,
         agent_id: AgentId,
         task_slug: String,
-        ran_at: DateTime<Utc>,
+        ran_at: Timestamp,
     ) -> Result<Option<TaskRun>> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let sql = format!(
             "SELECT {RUN_COLUMNS} FROM task_run \
              WHERE agent_id = ?1 AND task_slug = ?2 AND ran_at = ?3 \
@@ -175,7 +177,7 @@ impl TaskRunStorage for SqliteStorage {
         );
         let mut stmt = conn.prepare(&sql)?;
         let mut rows = stmt.query_map(
-            rusqlite::params![agent_id, task_slug, ran_at.timestamp_millis()],
+            params![agent_id, task_slug, ran_at.timestamp_millis()],
             run_from_row,
         )?;
 
@@ -187,7 +189,7 @@ impl TaskRunStorage for SqliteStorage {
     }
 
     async fn open_task_runs(&self) -> Result<Vec<TaskRun>> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let sql = format!("SELECT {RUN_COLUMNS} FROM task_run WHERE state = ?1 ORDER BY id");
         let mut stmt = conn.prepare(&sql)?;
         let runs = stmt
@@ -199,33 +201,41 @@ impl TaskRunStorage for SqliteStorage {
     }
 
     async fn interrupt_open_task_runs_except(&self, keep: &[i64]) -> Result<Vec<InterruptedRun>> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let open: Vec<(i64, String, String)> = {
             let mut stmt =
                 conn.prepare("SELECT id, agent_id, task_slug FROM task_run WHERE state = ?1")?;
             stmt.query_map([TaskRunState::Running.as_str()], |row| {
                 Ok((row.get(0)?, row.get(1)?, row.get(2)?))
             })?
-            .collect::<rusqlite::Result<_>>()?
+            .collect::<sql::Result<_>>()?
         };
         let mut swept = vec![];
         for (id, agent_id, task_slug) in open.into_iter().filter(|(id, _, _)| !keep.contains(id)) {
             conn.execute(
                 "UPDATE task_run SET state = ?1, finished_at = ?2 WHERE id = ?3",
-                rusqlite::params![TaskRunState::Interrupted.as_str(), Utc::now().timestamp_millis(), id],
+                params![
+                    TaskRunState::Interrupted.as_str(),
+                    crate::time::now().timestamp_millis(),
+                    id
+                ],
             )?;
-            swept.push(InterruptedRun { id, agent_id, task_slug });
+            swept.push(InterruptedRun {
+                id,
+                agent_id,
+                task_slug,
+            });
         }
         Ok(swept)
     }
 
     async fn interrupt_open_task_runs(&self) -> Result<usize> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let swept = conn.execute(
             "UPDATE task_run SET state = ?1, finished_at = ?2 WHERE state = ?3",
-            rusqlite::params![
+            params![
                 TaskRunState::Interrupted.as_str(),
-                Utc::now().timestamp_millis(),
+                crate::time::now().timestamp_millis(),
                 TaskRunState::Running.as_str(),
             ],
         )?;
@@ -234,10 +244,10 @@ impl TaskRunStorage for SqliteStorage {
     }
 
     async fn delete_task_runs(&self, agent_id: AgentId, task_slug: String) -> Result<()> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         conn.execute(
             "DELETE FROM task_run WHERE agent_id = ?1 AND task_slug = ?2",
-            rusqlite::params![agent_id, task_slug],
+            params![agent_id, task_slug],
         )?;
         Ok(())
     }
@@ -247,29 +257,32 @@ impl TaskRunStorage for SqliteStorage {
 mod tests {
     use std::sync::Arc;
 
-    use parking_lot::Mutex;
+    use crate::storage::sql::SqlStore;
     use rusqlite::Connection;
 
     use super::*;
-    use crate::storage::document::LocalDocumentStore;
+    use crate::storage::document::BlobDocumentStore;
 
-    fn setup() -> (SqliteStorage, tempfile::TempDir) {
+    fn setup() -> (SqlStorage, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
-        let conn = Connection::open_in_memory().unwrap();
-        crate::storage::sqlite::init_task_run_schema(&conn).unwrap();
-        let storage = SqliteStorage::new(
-            Arc::new(Mutex::new(conn)),
-            Arc::new(LocalDocumentStore::new(dir.path().to_path_buf())),
+        let store = crate::tests_support::test_store(|| {
+            let conn = Connection::open_in_memory().unwrap();
+            crate::storage::sqlite::init_task_run_schema(&conn).unwrap();
+            SqlStore::sqlite(conn)
+        });
+        let storage = SqlStorage::new(
+            store,
+            Arc::new(BlobDocumentStore::local(dir.path().to_path_buf())),
         );
         (storage, dir)
     }
 
-    fn at(ms: i64) -> DateTime<Utc> {
-        Utc.timestamp_millis_opt(ms).single().unwrap()
+    fn at(ms: i64) -> Timestamp {
+        Local.timestamp_millis_opt(ms).single().unwrap()
     }
 
     /// Open a run and close it `Answered`, so a test can build a history cheaply.
-    async fn answered_run(storage: &SqliteStorage, slug: &str, ran_at: DateTime<Utc>) -> i64 {
+    async fn answered_run(storage: &SqlStorage, slug: &str, ran_at: Timestamp) -> i64 {
         let id = storage
             .open_task_run(
                 "agent-1".into(),
@@ -298,7 +311,7 @@ mod tests {
         }
 
         let mut seen: Vec<i64> = Vec::new();
-        let mut cursor: Option<(DateTime<Utc>, i64)> = None;
+        let mut cursor: Option<(Timestamp, i64)> = None;
         loop {
             let page = storage
                 .list_task_runs(
@@ -336,7 +349,7 @@ mod tests {
 
         // The route derives `has_more` by requesting `limit + 1` and trimming.
         let limit = 2usize;
-        let mut cursor: Option<(DateTime<Utc>, i64)> = None;
+        let mut cursor: Option<(Timestamp, i64)> = None;
         let mut has_more_flags: Vec<bool> = Vec::new();
         loop {
             let mut page = storage
@@ -548,4 +561,14 @@ mod tests {
             1
         );
     }
+
+    crate::postgres_tests!(
+        page_cursor_over_runs_sharing_one_millisecond_neither_duplicates_nor_skips,
+        has_more_is_false_only_on_the_last_page,
+        runs_come_back_newest_first,
+        at_most_one_running_row_per_task,
+        the_sweep_turns_every_running_row_into_interrupted,
+        a_closed_run_is_not_reopened_by_a_late_close,
+        deleting_a_tasks_runs_leaves_other_tasks_alone,
+    );
 }

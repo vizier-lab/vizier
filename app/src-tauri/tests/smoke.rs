@@ -290,8 +290,19 @@ async fn web_access_needs_a_password_and_keeps_the_login_rules() {
         })
         .await
         .unwrap();
-    tokio::time::sleep(Duration::from_millis(300)).await;
-    assert!(http.get(format!("{base}/ping")).send().await.is_err());
+    // Stopping drops the listener, but a connection already accepted (the pooled keep-alive one
+    // `http` holds) is served by its own task and outlives it. Ask on fresh connections, and give
+    // the aborted task a moment to drop the socket.
+    let fresh = reqwest::Client::builder().pool_max_idle_per_host(0).build().unwrap();
+    let mut closed = false;
+    for _ in 0..50 {
+        if fresh.get(format!("{base}/ping")).send().await.is_err() {
+            closed = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    assert!(closed, "web access did not stop listening");
     engine.shutdown().await;
 }
 

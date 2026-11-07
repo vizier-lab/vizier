@@ -13,7 +13,8 @@ use serde::Serialize;
 
 use vizier_core::{
     auth::Principal,
-    service::{ServiceError, projects as service},
+    schema::ServerOverride,
+    service::{ServiceError, project_lsp, projects as service},
 };
 
 use crate::{
@@ -28,6 +29,8 @@ pub use vizier_core::service::projects::{
     ProjectSummary, SetModeRequest, SetModeResponse, SwitchBranchRequest, UpdateProjectRequest,
     WorktreeDeleted, WorktreeDetail, WorktreeSummary,
 };
+
+pub use vizier_core::service::project_lsp::{LanguageInfo, LspView, OverrideInfo, RestartRequest};
 
 pub fn projects() -> Router<HTTPState> {
     Router::new()
@@ -44,6 +47,12 @@ pub fn projects() -> Router<HTTPState> {
             "/{project_id}/sessions/{topic}/mode",
             put(set_mode),
         )
+        .route("/{project_id}/lsp", get(lsp_status))
+        .route(
+            "/{project_id}/lsp/overrides/{language}",
+            put(lsp_set_override).delete(lsp_delete_override),
+        )
+        .route("/{project_id}/lsp/restart", post(lsp_restart))
         .route("/{project_id}/files", get(files))
         .route("/{project_id}/skills", get(skills))
         .route("/{project_id}/git", get(git_summary))
@@ -626,6 +635,119 @@ pub async fn delete_worktree(
             &id,
             query.force.unwrap_or(false),
             query.delete_branch.unwrap_or(false),
+        )
+        .await,
+        StatusCode::OK,
+    )
+}
+
+#[utoipa::path(
+    get,
+    path = "/agents/{agent_id}/projects/{project_id}/lsp",
+    params(
+        ("agent_id" = String, Path, description = "Agent ID"),
+        ("project_id" = String, Path, description = "Project ID")
+    ),
+    responses(
+        (status = 200, description = "The project's language servers; a manager also receives the built-in languages and the overrides", body = APIResponse<LspView>),
+        (status = 403, description = "The caller may not use this agent's projects"),
+        (status = 404, description = "Agent or project not found, or removed")
+    )
+)]
+pub async fn lsp_status(
+    State(state): State<HTTPState>,
+    Extension(user): Extension<Principal>,
+    Path((agent_id, project_id)): Path<(String, String)>,
+) -> Response {
+    respond(
+        project_lsp::status(&svc(&state), &user, &agent_id, &project_id).await,
+        StatusCode::OK,
+    )
+}
+
+#[utoipa::path(
+    put,
+    path = "/agents/{agent_id}/projects/{project_id}/lsp/overrides/{language}",
+    params(
+        ("agent_id" = String, Path, description = "Agent ID"),
+        ("project_id" = String, Path, description = "Project ID"),
+        ("language" = String, Path, description = "Built-in language id")
+    ),
+    request_body = ServerOverride,
+    responses(
+        (status = 200, description = "Saved; the language's servers stop so the next use starts the new one", body = APIResponse<LspView>),
+        (status = 403, description = "Not the project owner or a whole-workspace project manager"),
+        (status = 404, description = "`unknown_language`, or the project was not found"),
+        (status = 422, description = "`invalid_override`")
+    )
+)]
+pub async fn lsp_set_override(
+    State(state): State<HTTPState>,
+    Extension(user): Extension<Principal>,
+    Path((agent_id, project_id, language)): Path<(String, String, String)>,
+    Json(body): Json<ServerOverride>,
+) -> Response {
+    respond(
+        project_lsp::set_override(&svc(&state), &user, &agent_id, &project_id, &language, body)
+            .await,
+        StatusCode::OK,
+    )
+}
+
+#[utoipa::path(
+    delete,
+    path = "/agents/{agent_id}/projects/{project_id}/lsp/overrides/{language}",
+    params(
+        ("agent_id" = String, Path, description = "Agent ID"),
+        ("project_id" = String, Path, description = "Project ID"),
+        ("language" = String, Path, description = "Built-in language id")
+    ),
+    responses(
+        (status = 200, description = "Removed (an absent override also succeeds)", body = APIResponse<LspView>),
+        (status = 403, description = "Not the project owner or a whole-workspace project manager"),
+        (status = 404, description = "`unknown_language`, or the project was not found")
+    )
+)]
+pub async fn lsp_delete_override(
+    State(state): State<HTTPState>,
+    Extension(user): Extension<Principal>,
+    Path((agent_id, project_id, language)): Path<(String, String, String)>,
+) -> Response {
+    respond(
+        project_lsp::delete_override(&svc(&state), &user, &agent_id, &project_id, &language).await,
+        StatusCode::OK,
+    )
+}
+
+#[utoipa::path(
+    post,
+    path = "/agents/{agent_id}/projects/{project_id}/lsp/restart",
+    params(
+        ("agent_id" = String, Path, description = "Agent ID"),
+        ("project_id" = String, Path, description = "Project ID")
+    ),
+    request_body = RestartRequest,
+    responses(
+        (status = 200, description = "Restarting in the background", body = APIResponse<LspView>),
+        (status = 403, description = "Not the project owner or a whole-workspace project manager"),
+        (status = 404, description = "`unknown_language`, or the project was not found"),
+        (status = 409, description = "`lsp_disabled`")
+    )
+)]
+pub async fn lsp_restart(
+    State(state): State<HTTPState>,
+    Extension(user): Extension<Principal>,
+    Path((agent_id, project_id)): Path<(String, String)>,
+    Json(body): Json<RestartRequest>,
+) -> Response {
+    respond(
+        project_lsp::restart(
+            &svc(&state),
+            &user,
+            &agent_id,
+            &project_id,
+            &body.language,
+            body.root.as_deref(),
         )
         .await,
         StatusCode::OK,

@@ -1,5 +1,5 @@
 //! Background jobs (`specs/012-background-subagent-results/`): work an agent hands off with
-//! `background_subagents` or `delegate_agent`, which reports back to the conversation that
+//! `background_subagents` (or `delegate_agent` in history saved before spec 053), which reports back to the conversation that
 //! launched it as one `BackgroundReport` turn.
 //!
 //! Delivery is the same for every conversation. Nothing here branches on `VizierChannelId`:
@@ -9,7 +9,7 @@
 
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
-use chrono::Utc;
+
 use futures::{FutureExt, future::BoxFuture};
 use parking_lot::Mutex;
 use tokio::sync::watch;
@@ -138,7 +138,7 @@ pub fn classify(content: &VizierResponseContent) -> Option<PieceOutcome> {
 /// without answering, which is what happens when the executor's process is shut down
 /// (an agent respawn): a turn that merely fails still sends an `Error` frame. So the
 /// closed channel is reported as a restart (research D9).
-async fn first_terminal(rx: &flume::Receiver<VizierResponse>) -> PieceOutcome {
+async fn first_terminal(rx: &crate::transport::ResponseStream) -> PieceOutcome {
     loop {
         match rx.recv_async().await {
             Ok(frame) => {
@@ -167,7 +167,7 @@ async fn cancelled(mut rx: watch::Receiver<bool>) {
 /// Where a piece's outcome comes from.
 enum PieceSource {
     /// The response channel the job dispatched it with, or `None` when it is already closed.
-    Dispatched(Option<flume::Receiver<VizierResponse>>),
+    Dispatched(Option<crate::transport::ResponseStream>),
     /// A recovered piece: read from its session.
     Session,
 }
@@ -209,7 +209,7 @@ impl BackgroundJobs {
         check_depth(ctx)?;
 
         let origin = ctx.session.clone();
-        let now = Utc::now();
+        let now = crate::time::now();
         let mut job = BackgroundJob {
             id: new_job_id(),
             kind,
@@ -288,7 +288,7 @@ impl BackgroundJobs {
                     // A piece that could not be handed off is failed right away (FR-014);
                     // the rest of the job carries on.
                     let reason = err.to_string();
-                    let finished_at = Utc::now();
+                    let finished_at = crate::time::now();
                     if let Err(e) = self
                         .storage
                         .close_background_piece(
@@ -352,13 +352,13 @@ impl BackgroundJobs {
         depth: u8,
         transient: bool,
         scope: Option<&crate::schema::ProjectScope>,
-    ) -> crate::Result<flume::Receiver<VizierResponse>> {
-        let (tx, rx) = flume::unbounded();
+    ) -> crate::Result<crate::transport::ResponseStream> {
+        let (tx, rx) = self.transport.reply_channel().await?;
         self.transport
             .send_request(
                 session.clone(),
                 VizierRequest {
-                    timestamp: Utc::now(),
+                    timestamp: crate::time::now(),
                     user: origin.clone(),
                     content: VizierRequestContent::Prompt(prompt.to_string()),
                     metadata: serde_json::json!({}),
@@ -377,7 +377,7 @@ impl BackgroundJobs {
     /// Wait for one dispatched piece, stopping it if it runs past its limit.
     pub(crate) async fn await_piece(
         &self,
-        rx: &flume::Receiver<VizierResponse>,
+        rx: &crate::transport::ResponseStream,
         limit: Duration,
         session: &VizierSession,
         origin: &AgentId,
@@ -420,7 +420,7 @@ impl BackgroundJobs {
                             JobState::Reported,
                             None,
                             None,
-                            Utc::now(),
+                            crate::time::now(),
                         )
                         .await
                     {
@@ -434,11 +434,11 @@ impl BackgroundJobs {
                     self.notifications
                         .job_ended(
                             &job.id,
-                            &job.origin.0,
+                            &job.origin,
                             job.kind,
                             JobState::Reported,
                             None,
-                            Utc::now(),
+                            crate::time::now(),
                         )
                         .await;
                 }
@@ -522,7 +522,7 @@ impl BackgroundJobs {
                 let reason = (state != PieceState::Answered).then(|| text.clone());
                 if let Err(e) = self
                     .storage
-                    .close_background_piece(&job_id, piece.ordinal, state, reason, Utc::now())
+                    .close_background_piece(&job_id, piece.ordinal, state, reason, crate::time::now())
                     .await
                 {
                     tracing::warn!(
@@ -555,7 +555,7 @@ impl BackgroundJobs {
                 JobState::Reporting,
                 None,
                 None,
-                Utc::now(),
+                crate::time::now(),
             )
             .await
         {
@@ -602,7 +602,7 @@ impl BackgroundJobs {
     /// the agent is not registered (being respawned).
     async fn deliver(&self, job: &BackgroundJob, report: BackgroundReport) {
         let request = VizierRequest {
-            timestamp: Utc::now(),
+            timestamp: crate::time::now(),
             user: job.origin.0.clone(),
             content: VizierRequestContent::BackgroundReport(report),
             metadata: serde_json::json!({}),
@@ -616,13 +616,13 @@ impl BackgroundJobs {
                 tokio::time::sleep(Duration::from_millis(DELIVERY_BACKOFF_MS[attempt - 1])).await;
             }
             let mut request = request.clone();
-            request.timestamp = Utc::now();
+            request.timestamp = crate::time::now();
             match self
                 .transport
                 .send_request(
                     job.origin.clone(),
                     request,
-                    Some(self.transport.broadcast_sender(job.origin.clone())),
+                    self.transport.broadcast_sender(job.origin.clone()).await.ok(),
                 )
                 .await
             {
@@ -635,7 +635,7 @@ impl BackgroundJobs {
                             JobState::Reported,
                             None,
                             None,
-                            Utc::now(),
+                            crate::time::now(),
                         )
                         .await
                     {
@@ -645,11 +645,11 @@ impl BackgroundJobs {
                     self.notifications
                         .job_ended(
                             &job.id,
-                            &job.origin.0,
+                            &job.origin,
                             job.kind,
                             JobState::Reported,
                             None,
-                            Utc::now(),
+                            crate::time::now(),
                         )
                         .await;
                     return;
@@ -671,7 +671,7 @@ impl BackgroundJobs {
                 JobState::Undelivered,
                 None,
                 Some(reason.clone()),
-                Utc::now(),
+                crate::time::now(),
             )
             .await
         {
@@ -685,11 +685,11 @@ impl BackgroundJobs {
         self.notifications
             .job_ended(
                 &job.id,
-                &job.origin.0,
+                &job.origin,
                 job.kind,
                 JobState::Undelivered,
                 Some(&reason),
-                Utc::now(),
+                crate::time::now(),
             )
             .await;
     }
@@ -701,7 +701,7 @@ impl BackgroundJobs {
             .send_request(
                 session.clone(),
                 VizierRequest {
-                    timestamp: Utc::now(),
+                    timestamp: crate::time::now(),
                     user: origin_agent.clone(),
                     content: VizierRequestContent::Command("abort".into()),
                     metadata: serde_json::json!({}),
@@ -744,7 +744,7 @@ impl BackgroundJobs {
                     JobState::Cancelled,
                     Some(by.to_column()),
                     reason.clone(),
-                    Utc::now(),
+                    crate::time::now(),
                 )
                 .await
                 .map_err(|err| VizierError(format!("failed to cancel background job: {err}")))?;
@@ -822,11 +822,11 @@ impl BackgroundJobs {
             self.notifications
                 .job_ended(
                     &job.id,
-                    &job.origin.0,
+                    &job.origin,
                     job.kind,
                     JobState::Cancelled,
                     job.reason.as_deref(),
-                    Utc::now(),
+                    crate::time::now(),
                 )
                 .await;
 
@@ -933,9 +933,9 @@ mod tests {
 
     #[tokio::test]
     async fn a_closed_channel_without_an_answer_reads_as_a_restart() {
-        let (tx, rx) = flume::unbounded::<VizierResponse>();
+        let (tx, rx) = crate::transport::standalone_reply_channel().await;
         tx.send(VizierResponse {
-            timestamp: Utc::now(),
+            timestamp: crate::time::now(),
             content: VizierResponseContent::ThinkingStart,
             attachments: vec![],
             ..Default::default()
@@ -962,9 +962,9 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let conn = rusqlite::Connection::open_in_memory().unwrap();
         crate::storage::sqlite::init_background_job_schema(&conn).unwrap();
-        let storage = VizierStorage::new(crate::storage::sqlite::SqliteStorage::new(
-            Arc::new(Mutex::new(conn)),
-            Arc::new(crate::storage::document::LocalDocumentStore::new(
+        let storage = VizierStorage::new(crate::storage::sqlite::SqlStorage::new(
+            crate::storage::sql::SqlStore::sqlite(conn),
+            Arc::new(crate::storage::document::BlobDocumentStore::local(
                 dir.path().to_path_buf(),
             )),
         ));
@@ -1018,4 +1018,3 @@ fn project_scope(ctx: &ToolContext) -> Option<crate::schema::ProjectScope> {
         mode: project.mode,
     })
 }
-

@@ -1,7 +1,8 @@
+use crate::time::Timestamp;
 use std::path::PathBuf;
 
 use anyhow::Result;
-use chrono::{DateTime, NaiveDate, Utc};
+use chrono::NaiveDate;
 use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 
@@ -47,7 +48,7 @@ impl HistoryStorage for FileSystemStorage {
             uid: uid.clone(),
             vizier_session: session.clone(),
             content,
-            timestamp: Utc::now(),
+            timestamp: crate::time::now(),
             reactions: vec![],
             seq: None,
         };
@@ -66,7 +67,7 @@ impl HistoryStorage for FileSystemStorage {
     async fn list_session_history(
         &self,
         session: VizierSession,
-        before: Option<DateTime<Utc>>,
+        before: Option<Timestamp>,
         // This backend survives only as a read source for the one-time migration into
         // sqlite, and it never assigned a `seq`, so there is no cursor position to honour.
         _before_seq: Option<i64>,
@@ -97,8 +98,8 @@ impl HistoryStorage for FileSystemStorage {
     async fn list_session_by_time_window(
         &self,
         session: VizierSession,
-        start_datetime: Option<DateTime<Utc>>,
-        end_datetime: Option<DateTime<Utc>>,
+        start_datetime: Option<Timestamp>,
+        end_datetime: Option<Timestamp>,
     ) -> Result<Vec<SessionHistory>> {
         let pattern = format!("{}/*.json", topic_dir(&self.workspace, &session).display());
         let mut res: Vec<SessionHistory> = glob::glob(&pattern)?
@@ -128,8 +129,8 @@ impl HistoryStorage for FileSystemStorage {
     async fn list_user_sessions_in_window(
         &self,
         agent_id: &str,
-        start: DateTime<Utc>,
-        end: DateTime<Utc>,
+        start: Timestamp,
+        end: Timestamp,
     ) -> Result<Vec<VizierSession>> {
         let path_pattern = format!(
             "{}/agents/{}/{}/*/*/*.json",
@@ -169,7 +170,7 @@ impl HistoryStorage for FileSystemStorage {
     async fn list_session_history_until_checkpoint(
         &self,
         session: VizierSession,
-        before: Option<DateTime<Utc>>,
+        before: Option<Timestamp>,
     ) -> Result<(Vec<SessionHistory>, Option<String>)> {
         let pattern = format!("{}/*.json", topic_dir(&self.workspace, &session).display());
         let mut all_entries: Vec<SessionHistory> = glob::glob(&pattern)?
@@ -227,7 +228,7 @@ impl HistoryStorage for FileSystemStorage {
             uid: uid.clone(),
             vizier_session: session.clone(),
             content: SessionHistoryContent::Checkpoint(handover),
-            timestamp: Utc::now(),
+            timestamp: crate::time::now(),
             reactions: vec![],
             seq: None,
         };

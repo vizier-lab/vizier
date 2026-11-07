@@ -1,7 +1,7 @@
 use std::sync::atomic::{AtomicI64, Ordering};
 
 use anyhow::Result;
-use chrono::Utc;
+
 use serde::{Deserialize, Serialize};
 use teloxide::Bot;
 pub mod questions;
@@ -325,7 +325,7 @@ impl TelegramChannelReader {
                     (
                         state.active_topic,
                         state.show_thinking,
-                        state.show_tool_calls,
+                        state.show_thinking,
                     )
                 } else {
                     (None, false, false)
@@ -426,7 +426,6 @@ impl TelegramChannelReader {
             .unwrap_or_else(|| "Unknown".into());
 
         let metadata = serde_json::json!({
-            "sent_at": Utc::now().to_string(),
             "is_reply_message": replied_to.is_some(),
             "replied_message_id": replied_to,
             "message_id": message_id,
@@ -586,6 +585,8 @@ impl TelegramChannelReader {
                 }
             };
             state.show_thinking = !state.show_thinking;
+            // One switch: thinking and the tool-call trail travel together.
+            state.show_tool_calls = state.show_thinking;
             let _ = self
                 .deps
                 .storage
@@ -595,35 +596,6 @@ impl TelegramChannelReader {
             let _ = self
                 .bot
                 .send_message(chat_id, format!("thinking output: {}", status))
-                .await?;
-            return Ok(());
-        }
-
-        if is_command(&text, "tool_calls", &bot_username) {
-            let mut state = if let Ok(Some(value)) = self.deps.storage.get_state(key.clone()).await
-            {
-                serde_json::from_value::<ChannelState>(value).unwrap_or(ChannelState {
-                    active_topic: None,
-                    show_thinking: false,
-                    show_tool_calls: false,
-                })
-            } else {
-                ChannelState {
-                    active_topic: topic_id.clone(),
-                    show_thinking: false,
-                    show_tool_calls: false,
-                }
-            };
-            state.show_tool_calls = !state.show_tool_calls;
-            let _ = self
-                .deps
-                .storage
-                .save_state(key.clone(), serde_json::to_value(&state).unwrap())
-                .await;
-            let status = if state.show_tool_calls { "ON" } else { "OFF" };
-            let _ = self
-                .bot
-                .send_message(chat_id, format!("tool call details: {}", status))
                 .await?;
             return Ok(());
         }
@@ -741,7 +713,7 @@ impl TelegramChannelReader {
                         client_tools: vec![],
                         client_categories: vec![],
                         client: None,
-                        timestamp: Utc::now(),
+                        timestamp: crate::time::now(),
                         user: user.clone(),
                         content: VizierRequestContent::Command("abort".to_string()),
                         platform_message_id: None,
@@ -760,7 +732,7 @@ impl TelegramChannelReader {
 
         if is_command(&text, "checkpoint", &bot_username) {
             let session = VizierSession(self.agent_id.clone(), channel.clone(), topic_id.clone());
-            let (response_tx, response_rx) = flume::unbounded();
+            let (response_tx, response_rx) = transport.reply_channel().await?;
             let _ = transport
                 .send_request(
                     session,
@@ -769,7 +741,7 @@ impl TelegramChannelReader {
                         client_tools: vec![],
                         client_categories: vec![],
                         client: None,
-                        timestamp: Utc::now(),
+                        timestamp: crate::time::now(),
                         user: user.clone(),
                         content: VizierRequestContent::Command("checkpoint".to_string()),
                         platform_message_id: None,
@@ -828,7 +800,7 @@ impl TelegramChannelReader {
 
         if is_command(&text, "lobotomy", &bot_username) {
             let session = VizierSession(self.agent_id.clone(), channel.clone(), topic_id.clone());
-            let (response_tx, response_rx) = flume::unbounded();
+            let (response_tx, response_rx) = transport.reply_channel().await?;
             let _ = transport
                 .send_request(
                     session,
@@ -837,7 +809,7 @@ impl TelegramChannelReader {
                         client_tools: vec![],
                         client_categories: vec![],
                         client: None,
-                        timestamp: Utc::now(),
+                        timestamp: crate::time::now(),
                         user: user.clone(),
                         content: VizierRequestContent::Command("lobotomy".to_string()),
                         platform_message_id: None,
@@ -924,7 +896,7 @@ impl TelegramChannelReader {
             client_tools: vec![],
             client_categories: vec![],
             client: None,
-            timestamp: chrono::Utc::now(),
+            timestamp: crate::time::now(),
             user,
             content: request_content,
             platform_message_id: Some(PlatformMessageId::Telegram(msg.id.0.into())),
@@ -947,7 +919,10 @@ impl TelegramChannelReader {
         };
 
         tokio::spawn(async move {
-            let (response_tx, response_rx) = flume::unbounded();
+            let Ok((response_tx, response_rx)) = transport.reply_channel().await else {
+                tracing::error!("could not open a reply stream");
+                return;
+            };
 
             if let Err(err) = transport
                 .send_request(session.clone(), request, Some(response_tx))
@@ -1090,7 +1065,7 @@ impl TelegramChannelReader {
         bot: Bot,
         deps: VizierDependencies,
         session: VizierSession,
-        frames: flume::Receiver<VizierResponse>,
+        frames: crate::transport::ResponseStream,
     ) {
         let VizierChannelId::TelegramChannel(chat_id) = session.1 else {
             return;
@@ -1107,7 +1082,7 @@ impl TelegramChannelReader {
             agent_id: session.0.clone(),
             chat_id: ChatId(chat_id),
             show_thinking: state.as_ref().is_some_and(|s| s.show_thinking),
-            show_tool_calls: state.as_ref().is_some_and(|s| s.show_tool_calls),
+            show_tool_calls: state.as_ref().is_some_and(|s| s.show_thinking),
         }
         .render(frames)
         .await;
@@ -1127,7 +1102,7 @@ struct TurnRenderer {
 }
 
 impl TurnRenderer {
-    async fn render(self, response_rx: flume::Receiver<VizierResponse>) {
+    async fn render(self, response_rx: crate::transport::ResponseStream) {
         let Self {
             bot,
             file_manager,
@@ -1431,8 +1406,7 @@ fn telegram_rules() -> PlatformRules {
             CommandEntry::new("abort", "abort current thinking"),
             CommandEntry::new("checkpoint", "save checkpoint with handover summary"),
             CommandEntry::new("lobotomy", "save checkpoint without handover (clean break)"),
-            CommandEntry::new("thinking", "toggle showing thinking output"),
-            CommandEntry::new("tool_calls", "toggle showing tool call details"),
+            CommandEntry::new("thinking", "toggle showing thinking and the activity trail"),
             CommandEntry::new("clear_files", "clear this conversation's session files"),
             CommandEntry::new(
                 "btw",

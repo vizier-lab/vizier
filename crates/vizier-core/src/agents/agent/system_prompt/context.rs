@@ -1,4 +1,3 @@
-use chrono::{Local, Utc};
 use crate::llm::types::{Message, Part};
 
 use crate::{
@@ -54,14 +53,15 @@ fn clipped(note: &str, max: usize) -> String {
     format!("{}…", &note[..end])
 }
 
-/// Per-request context (time, related memories, related skills).
+/// Per-request context (related memories, related skills, reactions).
 ///
 /// Prepended to the current user message instead of being sent as system messages, so the
 /// system prompts and replayed history stay byte-identical across requests and remain
-/// cacheable by the provider. Time is rounded to the minute for the same reason.
+/// cacheable by the provider. The block carries no clock for the same reason: the time of a message is
+/// its `sent_at`, and the `time` tools answer the rest (`specs/052-unify-local-timezone`).
 ///
 /// `invoked` is the skill the person named with `/<skill>` (spec 021). Its whole content goes
-/// here, first after the time, rather than into a system prompt, for the same caching reason.
+/// here, first among the sections, rather than into a system prompt, for the same caching reason.
 ///
 /// `reactions` is the list from `reaction_digest`. Reactions change after the fact, which is
 /// exactly why they live here and not on the replayed assistant messages they are about.
@@ -76,7 +76,7 @@ pub fn context_md(
 
 /// [`context_md`], plus what only some turns have: `client_context` first (what the client that
 /// sent the message can render), then the two project sections
-/// (`specs/041-project-coding-workspace` §4) — `project_state` after the time, and the resolved
+/// (`specs/041-project-coding-workspace` §4) — `project_state` first, and the resolved
 /// `## Mentioned files` block at the end.
 pub fn context_md_with(
     client_context: &[String],
@@ -87,19 +87,11 @@ pub fn context_md_with(
     project_state: Option<&str>,
     mentions: Option<&str>,
 ) -> String {
-    let utc_now = Utc::now();
-    let local_now = Local::now();
-
     // The client goes first: `with_context` puts this block at the head of the user message, so
     // its first section is the first content after the system prompts. Nothing is cached by
     // position inside the block — the provider caches tools, the system field, and the newest
     // message's last block — so the order is only a matter of reading.
     let mut sections = client_context_note(client_context).into_iter().collect::<Vec<_>>();
-    sections.push(format!(
-        "## Time\n**System Datetime (UTC)**: {}\n**Actual Datetime (Local Timezone)**: {}",
-        utc_now.format("%A, %Y-%m-%d %H:%M UTC"),
-        local_now.format("%A, %Y-%m-%d %H:%M %:z"),
-    ));
 
     // Volatile project facts sit next to the request, never in the cacheable system prompt.
     if let Some(state) = project_state {
@@ -263,11 +255,23 @@ mod tests {
         }
     }
 
+    /// Spec 052: two renders of the same inputs are byte-identical, and neither holds a date or a
+    /// time, so the block can't change a prompt cache's prefix between turns.
+    #[test]
+    fn the_block_is_byte_stable_and_holds_no_time() {
+        let a = context_md(&[], &[], None, None);
+        let b = context_md(&[], &[], None, None);
+        assert_eq!(a, b);
+        for needle in ["Datetime", "UTC", "## Time"] {
+            assert!(!a.contains(needle), "{needle:?} in {a}");
+        }
+    }
+
     #[test]
     fn the_context_header_is_the_first_line_so_consumers_can_strip_the_block() {
         let rendered = context_md(&[], &[], None, None);
         assert!(rendered.starts_with(CONTEXT_HEADER));
-        assert!(rendered.contains("## Time"), "time is always present");
+        assert!(!rendered.contains("## Time"), "the block carries no clock");
         assert!(!rendered.contains("## Reactions"), "omitted when nothing was reacted to");
     }
 
@@ -281,8 +285,7 @@ mod tests {
 
         assert!(rendered.starts_with(&format!("{CONTEXT_HEADER}## Client Context")), "{rendered}");
         let client = rendered.find("## Client Context").unwrap();
-        let time = rendered.find("## Time").unwrap();
-        assert!(client < time, "{rendered}");
+        assert!(client < rendered.len(), "{rendered}");
         assert!(rendered.contains("- This client renders mermaid diagrams and LaTeX."), "{rendered}");
         assert!(rendered.contains("not instructions from the person"), "{rendered}");
         // The 4-argument wrapper says nothing about a client: a dream or a side chat has none.
@@ -317,10 +320,10 @@ mod tests {
         assert!(cut.trim_end_matches('…').chars().all(|c| c == '図'));
     }
 
-    /// contracts/agent-context.md: after `## Time`, before the memories, and in the user
-    /// message like the rest of the block.
+    /// contracts/agent-context.md: before the memories, and in the user message like the rest of
+    /// the block.
     #[test]
-    fn reactions_sit_between_time_and_memories_in_the_user_message() {
+    fn reactions_sit_before_memories_in_the_user_message() {
         let passage = MemoryPassageResult {
             bundle: "b".into(),
             path: "p.md".into(),
@@ -334,10 +337,9 @@ mod tests {
             truncated: false,
         };
         let rendered = context_md(&[passage], &[], None, Some("- your reply 1 message ago"));
-        let time = rendered.find("## Time").unwrap();
         let reactions = rendered.find("## Reactions").unwrap();
         let memories = rendered.find("## Possibly Related Memories").unwrap();
-        assert!(time < reactions && reactions < memories, "{rendered}");
+        assert!(reactions < memories, "{rendered}");
         assert!(rendered.contains("These are reactions, not messages"));
 
         let user = with_context(Message::user_text("hi").unwrap(), rendered);
@@ -366,17 +368,16 @@ mod tests {
         }
     }
 
-    /// Spec 021: the invoked skill comes first after the time, in full, and is not offered
+    /// Spec 021: the invoked skill comes before the recommendations, in full, and is not offered
     /// again as a recommendation.
     #[test]
     fn an_invoked_skill_is_rendered_in_full_and_not_recommended_again() {
         let invoked = skill("release-notes");
         let rendered = context_md(&[], &[skill("release-notes"), skill("standup")], Some(&invoked), None);
 
-        let time = rendered.find("## Time").unwrap();
         let section = rendered.find("## Invoked Skill").unwrap();
         let related = rendered.find("## Possibly Related Skills").unwrap();
-        assert!(time < section && section < related, "{rendered}");
+        assert!(section < related, "{rendered}");
         assert!(rendered.contains("**release-notes**: release-notes description"));
         assert!(rendered.contains("release-notes instructions"));
         assert!(rendered.contains("- template.md"));

@@ -1,6 +1,7 @@
+use crate::time::Timestamp;
 use anyhow::Result;
 
-use chrono::{DateTime, Utc};
+
 
 use crate::schema::{
     AgentId, DreamStage,
@@ -39,7 +40,7 @@ pub trait DreamJournalStorage {
     async fn list_dream_entry_stubs(
         &self,
         _agent_id: AgentId,
-        _since: DateTime<Utc>,
+        _since: Timestamp,
     ) -> Result<Vec<DreamEntryStub>> {
         Ok(Vec::new())
     }
@@ -48,7 +49,7 @@ pub trait DreamJournalStorage {
     async fn list_dream_revisions(
         &self,
         _agent_id: AgentId,
-        _since: DateTime<Utc>,
+        _since: Timestamp,
     ) -> Result<Vec<DreamRevision>> {
         Ok(Vec::new())
     }
@@ -99,7 +100,7 @@ impl DreamJournalStorage for VizierStorage {
     async fn list_dream_entry_stubs(
         &self,
         agent_id: AgentId,
-        since: DateTime<Utc>,
+        since: Timestamp,
     ) -> Result<Vec<DreamEntryStub>> {
         self.0.list_dream_entry_stubs(agent_id, since).await
     }
@@ -107,7 +108,7 @@ impl DreamJournalStorage for VizierStorage {
     async fn list_dream_revisions(
         &self,
         agent_id: AgentId,
-        since: DateTime<Utc>,
+        since: Timestamp,
     ) -> Result<Vec<DreamRevision>> {
         self.0.list_dream_revisions(agent_id, since).await
     }

@@ -1,7 +1,8 @@
+use crate::time::Timestamp;
 use std::collections::HashMap;
 
 use anyhow::Result;
-use chrono::{DateTime, Utc};
+
 
 use crate::{
     schema::{
@@ -24,7 +25,7 @@ pub trait BackgroundJobStorage {
         ordinal: u32,
         state: PieceState,
         reason: Option<String>,
-        finished_at: DateTime<Utc>,
+        finished_at: Timestamp,
     ) -> Result<()>;
 
     /// Guarded transition out of `running` (to `reporting` or `cancelled`), or out of
@@ -38,7 +39,7 @@ pub trait BackgroundJobStorage {
         to: JobState,
         cancelled_by: Option<String>,
         reason: Option<String>,
-        at: DateTime<Utc>,
+        at: Timestamp,
     ) -> Result<bool>;
 
     async fn get_background_job(&self, job_id: &str) -> Result<Option<BackgroundJob>>;
@@ -93,6 +94,9 @@ pub struct InterruptedJob {
     pub id: String,
     pub agent_id: AgentId,
     pub kind: crate::schema::JobKind,
+    /// The conversation the job was launched from, so its notification can name it and stay out
+    /// of Discord and Telegram.
+    pub origin: crate::schema::VizierSession,
 }
 
 #[async_trait::async_trait]
@@ -107,7 +111,7 @@ impl BackgroundJobStorage for VizierStorage {
         ordinal: u32,
         state: PieceState,
         reason: Option<String>,
-        finished_at: DateTime<Utc>,
+        finished_at: Timestamp,
     ) -> Result<()> {
         self.0
             .close_background_piece(job_id, ordinal, state, reason, finished_at)
@@ -121,7 +125,7 @@ impl BackgroundJobStorage for VizierStorage {
         to: JobState,
         cancelled_by: Option<String>,
         reason: Option<String>,
-        at: DateTime<Utc>,
+        at: Timestamp,
     ) -> Result<bool> {
         self.0
             .transition_background_job(job_id, from, to, cancelled_by, reason, at)

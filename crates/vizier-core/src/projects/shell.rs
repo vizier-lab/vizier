@@ -124,14 +124,20 @@ impl VizierTool for WorkspaceShell {
             path: workdir.to_string_lossy().into_owned(),
             env: None,
         });
-        shell
+        let outcome = shell
             .run(ShellCommand {
                 command: args.command,
                 workdir,
                 timeout,
             })
             .await
-            .map_err(|err| VizierError(format!("spawn_failed: {err}")))
+            .map_err(|err| VizierError(format!("spawn_failed: {err}")))?;
+        // A command may have changed files the servers know nothing about. They are told in the
+        // background, so the result is never delayed (FR-032).
+        if project.lsp_enabled {
+            project.lsp.notify_changes(&project.project_id, &project.cwd);
+        }
+        Ok(outcome)
     }
 }
 
@@ -183,6 +189,9 @@ mod tests {
             instructions_truncated: false,
             is_piece: false,
             ledger: Default::default(),
+            lsp_enabled: false,
+            lsp_overrides: Default::default(),
+            lsp: Default::default(),
         }
     }
 

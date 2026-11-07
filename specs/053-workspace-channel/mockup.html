@@ -1,0 +1,660 @@
+<!doctype html>
+<!--
+  Mockup for spec 053: the Workspace channel and mid-turn messages. Open it in a browser and click through.
+  FigCraft was not reachable, so this stands in for the drawing (constitution v2.2.0).
+
+  Trust it for layout, structure, wording and behaviour, and for token values, which come from
+  design/src/tokens/tokens.css. Component shapes follow design/src/components (ActivityTrail, TrailCall, AgentHeader,
+  AgentReply, UserMessage, Composer, MentionMenu, Rail, TopicHeader, Badge). Do NOT copy this CSS: build from those.
+  Person avatars are simplified placeholders; the real ones are boring-avatars faces.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Workspace mockup</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Schibsted+Grotesk:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/lucide-static@0.460.0/font/lucide.css">
+<style>
+:root{color-scheme:light;
+  --ground:#fff;--shell:#f1f1f3;--panel:#fff;--surface:#f4f4f5;--raised:#e9e9ec;--pressed:#dcdce0;
+  --border:#e4e4e7;--border-strong:#d4d4d8;--focus:#3f3f46;--border-hover:#a1a1aa;--unlit:#d4d4da;
+  --faint:#6e6e78;--muted:#5b5b66;--soft:#3f3f46;--text:#111114;--ink:#111114;--on-ink:#fff;--ink-hover:#2e2e33;
+  --live:#059669;--live-text:#046c4e;--live-bg:#ecf8f2;
+  --rank:#5b7be8;--rank-text:#3651c4;--rank-bg:#e6ebfb;
+  --failed:#c8371d;--failed-text:#b4321c;--failed-bg:#fdf1ee;--failed-line:#f5c9c0;
+  --retrying:#a86a12;--retrying-bg:#fbf4e6;--retrying-line:#ebd9b0;
+  --sans:"Schibsted Grotesk",ui-sans-serif,system-ui,sans-serif;--mono:"JetBrains Mono",ui-monospace,Menlo,monospace;
+  --shadow:0 8px 24px rgba(17,17,20,.12),0 2px 6px rgba(17,17,20,.06)}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){color-scheme:dark;
+  --ground:#0b0b0c;--shell:#070708;--panel:#0b0b0c;--surface:#151518;--raised:#1c1c20;--pressed:#26262b;
+  --border:#242428;--border-strong:#303036;--focus:#d6d6dc;--border-hover:#45454d;--unlit:#3a3a42;
+  --faint:#8b8b96;--muted:#a0a0aa;--soft:#d6d6dc;--text:#ededef;--ink:#f2f2f5;--on-ink:#0b0b0c;--ink-hover:#d6d6dc;
+  --live:#10b981;--live-text:#10b981;--live-bg:#0f2a21;
+  --rank:#5b7be8;--rank-text:#9db1f5;--rank-bg:#1e2540;
+  --failed:#e5654b;--failed-text:#f0a394;--failed-bg:#2a1714;--failed-line:#4a2a26;
+  --retrying:#e2b04a;--retrying-bg:#2a2213;--retrying-line:#4a3d22;--shadow:0 8px 24px rgba(0,0,0,.5)}}
+:root[data-theme=dark]{color-scheme:dark;
+  --ground:#0b0b0c;--shell:#070708;--panel:#0b0b0c;--surface:#151518;--raised:#1c1c20;--pressed:#26262b;
+  --border:#242428;--border-strong:#303036;--focus:#d6d6dc;--border-hover:#45454d;--unlit:#3a3a42;
+  --faint:#8b8b96;--muted:#a0a0aa;--soft:#d6d6dc;--text:#ededef;--ink:#f2f2f5;--on-ink:#0b0b0c;--ink-hover:#d6d6dc;
+  --live:#10b981;--live-text:#10b981;--live-bg:#0f2a21;
+  --rank:#5b7be8;--rank-text:#9db1f5;--rank-bg:#1e2540;
+  --failed:#e5654b;--failed-text:#f0a394;--failed-bg:#2a1714;--failed-line:#4a2a26;
+  --retrying:#e2b04a;--retrying-bg:#2a2213;--retrying-line:#4a3d22;--shadow:0 8px 24px rgba(0,0,0,.5)}
+
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--shell);color:var(--text);font:400 14px/1.4 var(--sans);-webkit-font-smoothing:antialiased}
+a{color:inherit;text-decoration:none}
+[hidden]{display:none!important}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer;text-align:left}
+input,textarea{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--focus);outline-offset:1px}
+p{margin:0}
+.mono-xs{font:400 11px/1.3 var(--mono);color:var(--faint)}
+.mono-sm{font:400 12px/1.3 var(--mono)}
+.small{font-size:13px;line-height:18px}
+.label{font:500 11px/1.2 var(--sans);letter-spacing:.06em;text-transform:uppercase;color:var(--faint)}
+.heading{font:600 15px/1.25 var(--sans)}
+.strong{font-weight:600}
+.prose{font:400 15px/24px var(--sans);color:var(--text);overflow-wrap:anywhere}
+.prose p+p{margin-top:12px}
+.prose code{font:400 13px var(--mono);background:var(--surface);border-radius:4px;padding:1px 4px}
+.muted{color:var(--muted)}.faint{color:var(--faint)}
+
+/* Mockup chrome: not part of the design */
+.bar{display:flex;align-items:center;gap:12px;padding:10px 16px;position:sticky;top:0;z-index:50;background:var(--shell)}
+.tabs{display:flex;gap:2px;overflow-x:auto;scrollbar-width:none;flex:1;min-width:0}
+.tab{padding:6px 10px;border-radius:8px;color:var(--muted);white-space:nowrap;font-size:13px}
+.tab[aria-selected=true]{background:var(--raised);color:var(--text);font-weight:500}
+.page{padding:0 16px 24px}
+
+/* Shell */
+.frame{display:flex;height:calc(100vh - 66px);min-height:620px;background:var(--shell);border:1px solid var(--border);border-radius:12px;overflow:hidden;position:relative}
+.rail{width:66px;flex:none;display:flex;flex-direction:column;align-items:center;gap:10px;padding:14px 0}
+.rail .sp{flex:1}
+.rbtn{width:42px;height:42px;display:flex;align-items:center;justify-content:center;border-radius:9px;color:var(--muted)}
+.rbtn:hover{background:var(--surface);color:var(--text)}
+.rbtn.on{background:var(--raised);color:var(--text)}
+.rsep{width:26px;height:1px;flex:none;margin:2px 0;background:var(--border-hover)}
+.rtile{position:relative;display:flex}
+.radd{border:1px dashed var(--border-strong)}
+.mark{font-weight:600;font-size:18px;color:var(--text)}
+.rtile.ws{border-radius:9px}
+.wtile{width:42px;height:42px;display:flex;align-items:center;justify-content:center;border-radius:9px;background:var(--raised);color:var(--soft);font:600 13px/1 var(--sans);letter-spacing:.02em}
+.rtile.ws:hover .wtile{background:var(--pressed);color:var(--text)}
+.rtile.ws.on .wtile{background:var(--ink);color:var(--on-ink)}
+.rtile.ws.on::before{content:"";position:absolute;left:-12px;top:10px;bottom:10px;width:3px;border-radius:0 3px 3px 0;background:var(--ink)}
+.wcount{position:absolute;top:-4px;right:-4px;min-width:16px;height:16px;padding:0 4px;display:flex;align-items:center;justify-content:center;border-radius:999px;background:var(--rank-text);color:var(--shell);font:500 10px/1 var(--mono);box-shadow:0 0 0 2px var(--shell)}
+.wlive{position:absolute;right:-2px;bottom:-2px;width:10px;height:10px;border-radius:50%;background:var(--live);box-shadow:0 0 0 2px var(--shell)}
+.ctx{width:256px;flex:none;display:flex;flex-direction:column;gap:8px;padding:14px 12px 14px 0;overflow:auto}
+.ctx-h{display:flex;align-items:center;justify-content:space-between;padding:4px 4px 4px 10px}
+.nav{display:flex;align-items:center;gap:10px;width:100%;height:31px;padding:0 10px;border-radius:8px;color:var(--muted)}
+.nav:hover{background:var(--surface);color:var(--soft)}
+.nav.on{background:var(--raised);color:var(--text);font-weight:500}
+.nav .t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sub{padding-left:22px}
+.ring{width:12px;height:12px;flex:none;border-radius:50%;border:1px solid var(--live)}
+.main{flex:1;min-width:0;display:flex;flex-direction:column;background:var(--panel);border-left:1px solid var(--border);border-radius:12px 0 0 12px;position:relative}
+.top{display:flex;align-items:center;gap:12px;min-height:60px;padding:10px 20px;border-bottom:1px solid var(--border)}
+.topic-b{display:flex;flex-direction:column;align-items:flex-start;gap:2px;min-width:0;border-radius:6px}
+.topic-t{display:flex;align-items:center;gap:6px;min-width:0}
+.crumb{color:var(--muted);font-weight:400}
+.top .sp{flex:1}
+.stack{display:flex;align-items:center;border-radius:8px;padding:3px 6px 3px 4px;gap:8px}
+.stack:hover{background:var(--surface)}
+.stack .fs{display:flex}
+.stack .fs>*{margin-left:-5px;outline:2px solid var(--panel);border-radius:6px}
+.stack .fs>*:first-child{margin-left:0}
+.ibtn{width:30px;height:30px;display:flex;align-items:center;justify-content:center;border-radius:8px;color:var(--muted)}
+.ibtn:hover{background:var(--surface);color:var(--text)}
+.btn{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 10px;border-radius:8px;border:1px solid var(--border-strong);font-size:13px;font-weight:500;white-space:nowrap}
+.btn:hover{border-color:var(--border-hover)}
+.btn.pri{background:var(--ink);color:var(--on-ink);border-color:var(--ink)}
+.btn.pri:hover{background:var(--ink-hover)}
+.btn.dng{color:var(--failed-text);border-color:var(--failed-line)}
+.btn.dng:hover{background:var(--failed-bg)}
+.btn[disabled]{opacity:.5;cursor:not-allowed}
+.statdot{width:6px;height:6px;border-radius:50%;background:var(--live);flex:none}
+.scroll{flex:1;min-height:0;overflow-y:auto;padding:24px 24px 16px}
+.col{max-width:896px;margin:0 auto;display:flex;flex-direction:column;gap:20px}
+
+/* Sigil, avatar */
+.sig{display:inline-flex;flex:none;align-items:center;justify-content:center;border:1px solid var(--border-strong);background:var(--ground);overflow:hidden}
+.sig circle{fill:var(--text)}
+.sig circle.sg{fill:var(--live)}
+.ava{display:inline-flex;flex:none;align-items:center;justify-content:center;font:600 11px var(--sans);color:#fff}
+
+/* Turn */
+.turn{display:flex;flex-direction:column;gap:10px}
+.ahead{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.badge{display:inline-flex;align-items:center;gap:4px;height:16px;padding:0 4px;border-radius:4px;background:var(--raised);color:var(--muted);font:500 11px var(--mono);white-space:nowrap}
+.badge.rank{background:var(--rank-bg);color:var(--rank-text)}
+.badge.fail{background:var(--failed-bg);color:var(--failed-text)}
+.badge.live{color:var(--live-text)}
+.trail{border:1px solid var(--border);background:var(--surface);border-radius:10px;padding:12px 16px;display:flex;flex-direction:column;gap:10px}
+.thead{display:flex;align-items:center;gap:8px;width:100%;border-radius:4px}
+.ttitle{font-size:13px;font-weight:500}
+.ttitle.bad{color:var(--failed-text)}
+.tcount{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chev{margin-left:auto;color:var(--faint);transition:transform 180ms cubic-bezier(.2,0,0,1)}
+.trail.open .chev{transform:rotate(90deg)}
+.steps{display:none;flex-direction:column;list-style:none;margin:0;padding:0}
+.trail.open .steps{display:flex}
+.step{position:relative;display:flex;align-items:center;gap:8px;min-height:26px;padding:2px 0}
+.step:not(:last-child)::before{content:"";position:absolute;left:5.5px;top:15px;bottom:-11px;width:1px;background:var(--border-strong)}
+.dot{position:relative;z-index:1;width:12px;height:12px;flex:none;display:flex;align-items:center;justify-content:center}
+.dot i{width:7px;height:7px;border-radius:50%;background:var(--muted);box-shadow:0 0 0 3px var(--surface);display:block}
+.dot.run i{background:var(--live)}.dot.fail i{background:var(--failed)}.dot.look i{background:var(--faint)}
+.sname{font:500 12px var(--mono)}
+.sname.look{font-weight:400;color:var(--muted)}
+.sint{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;color:var(--muted)}
+.sdur{margin-left:auto;flex:none}
+.sdur.run{color:var(--live-text)}
+.thought{padding:4px 0 4px 20px;font-size:13px;line-height:20px;color:var(--muted);font-style:italic}
+.wave{display:flex;gap:4px;flex:none}
+.wave i{width:5px;height:5px;border-radius:50%;background:var(--muted);animation:wave 1.2s infinite ease-in-out}
+.wave i:nth-child(2){animation-delay:.15s}.wave i:nth-child(3){animation-delay:.3s}
+@keyframes wave{0%,60%,100%{opacity:.35;transform:none}30%{opacity:1;background:var(--live);transform:translateY(-2px)}}
+.mini-dots{display:none;gap:4px;align-items:center}
+.mini-dots i{width:5px;height:5px;border-radius:50%;background:var(--muted)}
+.mini-dots i.run{background:var(--live)}
+.mid{display:flex;flex-direction:column;gap:6px}
+.woke{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.woke i.ic{color:var(--faint);font-size:13px}
+.woke .bad{color:var(--failed-text)}
+.reply{display:flex;flex-direction:column;gap:10px}
+.meta{display:flex;align-items:center;gap:12px;min-height:26px;flex-wrap:wrap}
+.react{display:inline-flex;align-items:center;gap:4px;height:24px;padding:0 8px;border:1px solid var(--border);border-radius:999px;font-size:12px}
+.react.add{width:24px;padding:0;justify-content:center;color:var(--faint)}
+
+/* Mentions */
+.m{display:inline-block;padding:0 4px;border-radius:4px;background:var(--rank-bg);color:var(--rank-text);font-weight:500;line-height:20px}
+.m.you{background:var(--rank-text);color:var(--panel)}
+.skillchip{display:inline-flex;align-items:center;gap:4px;padding:0 6px;border-radius:4px;background:var(--raised);font:500 12px/20px var(--mono);vertical-align:1px}
+.m.off{background:none;color:var(--faint);padding:0;font-weight:400;text-decoration:line-through}
+
+/* People */
+.me{display:flex;flex-direction:column;align-items:flex-end;gap:10px}
+.mehead{display:flex;align-items:center;gap:8px}
+.bub{max-width:480px;min-width:0;border-radius:10px;padding:10px 14px;background:var(--surface)}
+.other{align-items:flex-start}
+.mentioned .bub{box-shadow:inset 2px 0 0 var(--rank)}
+
+/* Notes */
+.note{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted);justify-content:center}
+.note::before,.note::after{content:"";height:1px;flex:1;background:var(--border)}
+.day{display:flex;align-items:center;gap:10px}
+.day::before,.day::after{content:"";height:1px;flex:1;background:var(--border)}
+
+/* Composer */
+.cwrap{position:relative;padding:0 24px 16px}
+.comp{max-width:896px;margin:0 auto;border:1px solid var(--border-strong);border-radius:12px;background:var(--panel);padding:10px 12px;display:flex;flex-direction:column;gap:8px;position:relative}
+.comp:focus-within{border-color:var(--live);box-shadow:0 0 0 1px var(--live)}
+.comp textarea{all:unset;box-sizing:border-box;display:block;width:100%;min-height:24px;font:400 15px/24px var(--sans);white-space:pre-wrap;color:var(--text)}
+.comp textarea::placeholder{color:var(--faint)}
+.crow{display:flex;align-items:center;gap:2px}
+.crow .sp{flex:1}
+.send{width:30px;height:30px;display:flex;align-items:center;justify-content:center;border-radius:8px;background:var(--ink);color:var(--on-ink)}
+.send[disabled]{background:var(--raised);color:var(--faint);cursor:not-allowed}
+.chint{margin-left:8px}
+.attach{display:flex;flex-direction:column;gap:6px;align-items:flex-start}
+.chip{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 8px;border:1px solid var(--border);border-radius:8px;font-size:13px}
+.menu{position:absolute;left:0;bottom:calc(100% + 6px);width:min(360px,100%);background:var(--panel);border:1px solid var(--border-strong);border-radius:10px;box-shadow:var(--shadow);padding:6px;z-index:20;max-height:320px;overflow:auto}
+.menu .label{display:block;padding:6px 8px 4px}
+.mi{display:flex;align-items:center;gap:8px;width:100%;padding:6px 8px;border-radius:6px;cursor:pointer}
+.mi[aria-selected=true]{background:var(--raised)}
+.mi .n{font-weight:500}
+.mi .id{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mi .st{margin-left:auto;flex:none}
+.empty-m{padding:8px;font-size:13px;color:var(--muted)}
+
+/* Dialog */
+.scrim{position:absolute;inset:0;background:rgba(10,10,12,.42);display:flex;align-items:center;justify-content:center;padding:16px;z-index:40}
+.dlg{width:min(520px,100%);max-height:100%;overflow:auto;background:var(--panel);border:1px solid var(--border-strong);border-radius:16px;box-shadow:var(--shadow);display:flex;flex-direction:column}
+.dlg.fixed{height:min(600px,100%)}
+.dlg.fixed .db{flex:1}
+.dh{display:flex;align-items:center;justify-content:space-between;padding:16px 16px 12px 20px;position:sticky;top:0;background:var(--panel);z-index:1}
+.db{padding:0 20px 16px;display:flex;flex-direction:column;gap:16px}
+.df{display:flex;justify-content:flex-end;gap:8px;padding:12px 20px;border-top:1px solid var(--border);position:sticky;bottom:0;background:var(--panel)}
+.row{display:flex;align-items:center;gap:10px;min-height:44px;padding:4px 0}
+.row+.row{border-top:1px solid var(--border)}
+.row .i{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
+.row .i span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pick{width:100%;padding:6px 8px;border-radius:8px;display:flex;align-items:center;gap:10px}
+.pick:hover:not([disabled]){background:var(--surface)}
+.pick[disabled]{cursor:not-allowed;opacity:.6}
+.pick.on,.pick.kb{background:var(--raised)}
+.sbox{display:flex;align-items:center;gap:8px;height:36px;padding:0 10px;border:1px solid var(--border-strong);border-radius:8px;flex:none}
+.sbox:focus-within{border-color:var(--live);box-shadow:0 0 0 1px var(--live)}
+.sbox input{all:unset;flex:1;min-width:0;font:400 14px var(--sans);color:var(--text)}
+.sbox input::placeholder{color:var(--faint)}
+.notice{display:flex;gap:8px;padding:10px 12px;border-radius:8px;border:1px solid var(--retrying-line);background:var(--retrying-bg);font-size:13px;line-height:19px}
+.notice i{color:var(--retrying);font-size:15px;margin-top:2px}
+.choice{display:flex;align-items:center;gap:12px;width:100%;padding:12px;border:1px solid var(--border);border-radius:10px}
+.choice:hover{border-color:var(--border-hover);background:var(--surface)}
+.choice .i{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.field{display:flex;flex-direction:column;gap:6px}
+.field label{font-size:13px;font-weight:500}
+.field input{height:34px;border:1px solid var(--border-strong);border-radius:8px;background:var(--panel);padding:0 10px}
+.field input:focus{outline:0;border-color:var(--live);box-shadow:0 0 0 1px var(--live)}
+.err{color:var(--failed-text)}
+
+/* Compare page */
+.cmp{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start}
+.card{border:1px solid var(--border);border-radius:12px;background:var(--panel);padding:20px;display:flex;flex-direction:column;gap:14px;min-width:0}
+.ch{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+.wrap{max-width:1180px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
+.rules{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px;font-size:14px;line-height:21px}
+.gal{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;align-items:start}
+.q{border:1px solid var(--border);border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:8px}
+
+/* Phone */
+.phonewrap{display:flex;justify-content:center}
+.phone .rail,.phone .ctx{display:none}
+.phone.frame{width:375px;height:760px;min-height:0;border-radius:24px}
+.phone .main{border-left:0;border-radius:0}
+.phone .top{padding:8px 12px;gap:8px;min-height:52px}
+.phone .scroll{padding:16px 16px 12px}
+.phone .cwrap{padding:0 12px 12px}
+.phone .only-wide{display:none!important}
+.only-phone{display:none}
+.phone .only-phone{display:inline-flex}
+.phone .bub{max-width:100%}
+.phone .trail{padding:8px 12px}
+.phone .steps,.phone .trail.open .steps{display:none}
+.phone .mini-dots{display:flex}
+.phone .chev{display:none}
+.phone .tcount{flex:1}
+.phone .col{gap:16px}
+.phone .chint{display:none}
+.phone .topic-b{flex:1 1 0;min-width:0}
+.phone .topic-t{width:100%}
+.phone .top .sp{display:none}
+.phone .top .btn{width:30px;padding:0;justify-content:center;flex:none}
+.phone .stack{flex:none;padding:3px 2px}
+.phone .stack .fs>*:nth-child(n+3){display:none}
+.phone .ibtn{flex:none}
+
+@media (max-width:900px){.cmp,.gal{grid-template-columns:1fr}}
+@media (max-width:767px){
+  .bar{padding:8px 16px}.page{padding:0 16px 16px}
+  .frame:not(.phone){height:calc(100vh - 62px);min-height:560px}
+  .phone.frame{width:100%;height:calc(100vh - 62px);border-radius:12px}
+}
+@media (prefers-reduced-motion:reduce){.wave i{animation:none}.wave i:last-child{background:var(--live)}.chev{transition:none}}
+</style>
+</head>
+<body>
+<div class="bar">
+  <div class="tabs" role="tablist" id="tabs"></div>
+  <button class="btn" id="theme" aria-label="Switch between light and dark"><i class="icon-sun-moon"></i>Theme</button>
+</div>
+<main class="page" id="page"></main>
+
+<script>
+/* --- Marks ------------------------------------------------------------- */
+function fnv(t){let h=0x811c9dc5;for(const b of new TextEncoder().encode(t)){h^=b;h=Math.imul(h,0x01000193)>>>0}return h}
+function cells(id){let s=id;for(;;){const b=fnv(s),c=[];for(let r=0;r<8;r++){const l=[0,1,2,3].map(k=>((b>>>(r*4+k))&1)===1);c.push(l[0],l[1],l[2],l[3],l[3],l[2],l[1],l[0])}const n=c.filter(Boolean).length;if(n>=14&&n<=44)return c;s+="#"}}
+const SZ={sm:[22,16,6],md:[34,25,7.5],rail:[42,31,9]};
+function sigil(id,size='sm',live=false){const[b,g,r]=SZ[size];const c=cells(id);const lit=c.map((v,i)=>v?i:-1).filter(i=>i>=0);const sg=live?lit[Math.floor(lit.length/2)]:-1;
+  const dots=lit.map(i=>`<circle class="${i===sg?'sg':''}" cx="${(i%8)*2+1}" cy="${Math.floor(i/8)*2+1}" r=".7"/>`).join('');
+  return `<span class="sig" aria-hidden="true" style="width:${b}px;height:${b}px;border-radius:${r}px"><svg viewBox="0 0 16 16" width="${g}" height="${g}">${dots}</svg></span>`}
+const AC=['#059669','#3f3f46','#6b6b76','#111114'];
+function ava(n,s=22){return `<span class="ava" aria-hidden="true" style="width:${s}px;height:${s}px;border-radius:${s>24?7:6}px;background:${AC[fnv(n)%AC.length]}">${n[0].toUpperCase()}</span>`}
+const ic=(n,s=16,x='')=>`<i class="icon-${n} ${x}" style="font-size:${s}px" aria-hidden="true"></i>`;
+const at=(id,c='')=>`<span class="m ${c}">@${id}</span>`;
+
+/* --- Pieces, matching design/src/components ------------------------------ */
+const call=(name,intent,dur,st='')=>`<li class="step"><span class="dot ${st}"><i></i></span><span class="sname ${st==='look'?'look':''}">${name}</span><span class="sint">${intent||''}</span>${st==='look'?'':`<span class="sdur mono-xs ${st==='run'?'run':''}">${st==='run'?'running…':dur||''}</span>`}</li>`;
+const thought=t=>`<li class="thought">${t}</li>`;
+function trail({title,counts='',live=false,open=false,bad=false,steps=[],dots=[]}){
+  return `<div class="trail ${open?'open':''}" data-trail>
+    <button class="thead" aria-expanded="${open}">
+      ${bad?'<span class="statdot" style="background:var(--failed)"></span>':''}
+      <span class="ttitle ${bad?'bad':''}">${title}</span>
+      ${live?'<span class="wave" aria-hidden="true"><i></i><i></i><i></i></span>':''}
+      <span class="mini-dots" aria-hidden="true">${dots.map(d=>`<i class="${d?'run':''}"></i>`).join('')}</span>
+      <span class="tcount mono-xs">${counts}</span>
+      ${ic('chevron-right',14,'chev')}
+    </button>
+    <ul class="steps">${steps.join('')}</ul>
+  </div>`}
+const head=(id,name,time,live,extra='')=>`<div class="ahead">${sigil(id,'sm',live)}<span class="strong">${name}</span>${time?`<span class="mono-xs">${time}</span>`:''}${extra}</div>`;
+const mid=(html,woke='')=>`<div class="mid"><div class="prose">${html}</div>${woke}</div>`;
+/* A successful mention draws nothing beyond its chip. Only a failed one leaves a note. */
+const woke=(who,bad)=>bad?`<div class="woke mono-xs">${ic('corner-down-right',13,'ic')}<span class="bad">${who}</span></div>`:'';
+const final=(html,stats,reacts='')=>`<div class="reply"><div class="prose">${html}</div>${stats||reacts?`<div class="meta">${reacts}${stats?`<span class="mono-xs">${stats}</span>`:''}</div>`:''}</div>`;
+const mine=(html,time)=>`<div class="me"><div class="mehead"><span class="mono-xs">${time}</span><span class="strong">You</span>${ava('maya')}</div><div class="bub prose">${html}</div></div>`;
+const other=(n,html,time,c='')=>`<div class="me other ${c}"><div class="mehead">${ava(n)}<span class="strong">${n}</span><span class="mono-xs">${time}</span></div><div class="bub prose">${html}</div></div>`;
+const turn=(...p)=>`<div class="turn">${p.join('')}</div>`;
+
+/* --- Page: Turn ---------------------------------------------------------- */
+const pythonA=call('execute_python','Find last night\'s failed deploys','6.2s');
+const pythonB=call('execute_python','Read the billing migration logs','4.8s');
+const tA={title:'Worked 6.4s',counts:'1 python run · 2 passages recalled',dots:[0],steps:[thought('Start with the deploy log, then decide whether to read logs.'),pythonA]};
+const tB={title:'Worked 5.0s',counts:'1 python run',dots:[0],steps:[pythonB,call('list_tool_functions','category: web','','look')]};
+function pageTurn(){return `<div class="wrap">
+  <div class="cmp">
+    <section class="card"><div class="ch"><span class="heading">Before</span><span class="mono-xs">direct chat, today</span></div>
+      ${mine('What went wrong with last night\'s deploys?','09:12')}
+      ${turn(head('pathfinder','Pathfinder','09:12'),
+        trail({title:'Worked 11.4s',counts:'2 python runs · 2 passages recalled',dots:[0,0],steps:[thought('Start with the deploy log, then decide whether to read logs.'),pythonA,thought('<b style="font-style:normal;font-weight:500">Note, hidden here until you open the trail:</b> Two deploys failed, both on billing. Checking whether they share a cause.'),pythonB]}),
+        final('<p>Both failed on the same migration lock. The first deploy never released it, so the second one timed out waiting.</p>','anthropic/claude-sonnet-5-5 · 6.1k in · 712 out · ~$0.03'))}
+    </section>
+    <section class="card"><div class="ch"><span class="heading">After</span><span class="mono-xs">every WebUI chat, Workspace or not</span></div>
+      ${mine('What went wrong with last night\'s deploys?','09:12')}
+      ${turn(head('pathfinder','Pathfinder','09:12'),
+        trail(tA),
+        mid('Two deploys failed, both on billing. Checking whether they share a cause.'),
+        trail(tB),
+        final('<p>Both failed on the same migration lock. The first deploy never released it, so the second one timed out waiting.</p>','anthropic/claude-sonnet-5-5 · 6.1k in · 712 out · ~$0.03 · 11.4s',`<span class="react">👍 1</span><button class="react add" aria-label="Add a reaction">${ic('smile-plus',13)}</button>`))}
+    </section>
+  </div>
+  <div class="cmp">
+    <section class="card"><div class="ch"><span class="heading">While it runs</span><span class="mono-xs">finished work folds, the current work stays open</span></div>
+      ${turn(head('pathfinder','Pathfinder','',true),
+        trail(tA),
+        mid('Two deploys failed, both on billing. Checking whether they share a cause.'),
+        trail({title:'Pathfinder is reading logs',live:true,open:true,counts:'1 python run',dots:[1],steps:[call('execute_python','Read the billing migration logs','','run')]}))}
+    </section>
+    <section class="card"><div class="ch"><span class="heading">Text first, and a failed turn</span><span class="mono-xs">no empty trail, what arrived stays</span></div>
+      ${turn(head('pathfinder','Pathfinder','09:14'),
+        mid('I will check the deploy log first.'),
+        trail({title:'Failed after 12.0s',bad:true,counts:'1 python run (1 failed)',dots:[0],steps:[call('execute_python','Read the deploy log','12.0s','fail')]}),
+        `<p class="small" style="color:var(--failed-text);display:flex;gap:6px;align-items:flex-start">${ic('alert-circle',14)}Stopped: the provider didn't answer in 120 s. What arrived is kept; send again to retry.</p>`)}
+    </section>
+  </div>
+  <section class="card"><span class="heading">The rules this draws</span>
+    <ol class="rules">
+      <li>Text between tool rounds becomes a message at the same size as the final answer. Thoughts and tool calls stay in the trail.</li>
+      <li>The agent's head appears once per turn. Each stretch of work gets its own trail, with its own time and counts.</li>
+      <li>Stats, total time, reactions and copy stay on the final message only.</li>
+      <li>Saved conversations pick this up with no data change, because the text is already stored. Discord and Telegram are unchanged.</li>
+      <li>In a Workspace, <code style="font:400 13px var(--mono)">mention_agent</code> draws as one of these messages, not as a trail row. It is still listed in the script's own detail.</li>
+      <li>In a Workspace, a mid-turn message is a real message: other agents read it, and a mention in it wakes someone right away, while the turn carries on.</li>
+      <li>If someone else's message lands in the middle of a turn, the agent's head appears again when it continues, so it's always clear who is speaking.</li>
+    </ol>
+  </section>
+</div>`}
+
+/* --- Workspace timeline -------------------------------------------------- */
+const AGENTS=[{id:'pathfinder',n:'Pathfinder'},{id:'archivist',n:'Archivist'},{id:'scribe',n:'Scribe'}];
+const PEOPLE=[{id:'maya',n:'Maya',me:1},{id:'rafi',n:'Rafi'},{id:'lena',n:'Lena'}];
+let stopped=false;
+function timeline(){return `<div class="col">
+  <div class="day mono-xs">Today</div>
+  ${turn(head('archivist','Archivist','09:00',false,`<span class="badge">${ic('clock',11)}scheduled task · morning-sweep</span>`),
+    final(`<p>${at('pathfinder')} pull last night's failed deploys and anything that paged.</p>`),woke('pathfinder'))}
+  ${turn(head('pathfinder','Pathfinder','09:00'),
+    trail(tA),
+    mid('Two deploys failed, both on billing. Checking whether they share a cause.'),
+    trail(tB),
+    final(`<p>Both failed on the same migration lock, so the second one timed out waiting. ${at('maya','you')} do you want me to retry once it clears?</p>`,'anthropic/claude-sonnet-5-5 · 6.1k in · 712 out · ~$0.03 · 11.4s',`<button class="react add" aria-label="Add a reaction">${ic('smile-plus',13)}</button>`))}
+  ${other('Rafi',`Hold the retry, the lock is still there. ${at('scribe')} draft a status page note, and ${at('pathfinder')} find out who holds it.`,'09:06')}
+  ${woke('scribe, pathfinder')}
+  ${mine('Agreed, no retry until we know.','09:07')}
+  ${stopped?`
+  ${turn(head('scribe','Scribe','09:06'),trail({title:'Stopped',bad:true,counts:'1 tool',dots:[0],steps:[call('memory_search','status page style','','look')]}))}
+  ${turn(head('pathfinder','Pathfinder','09:08'),
+    trail({title:'Worked 8.1s',counts:'1 python run',dots:[0],steps:[call('execute_python','List open database locks','8.1s')]}),
+    mid(`${at('archivist')} have we seen this billing lock before?`,woke('archivist')))}
+  ${turn(head('archivist','Archivist','09:08'),trail({title:'Stopped',bad:true,counts:'1 tool',dots:[0],steps:[call('memory_search','billing migration lock','','look')]}))}
+  ${turn(head('pathfinder','Pathfinder','09:09'),trail({title:'Stopped',bad:true,counts:'1 python run',dots:[0],steps:[call('execute_python','Find the session holding the lock','','fail')]}))}
+  <div class="note">Stopped by you at 09:09 · 3 turns stopped · queued mentions dropped</div>`:`
+  ${turn(head('scribe','Scribe','',true),trail({title:'Scribe is drafting',live:true,open:true,counts:'1 tool',dots:[1],steps:[call('memory_search','status page style','','look'),call('execute_python','Draft the status note','','run')]}))}
+  ${turn(head('pathfinder','Pathfinder','09:08'),
+    trail({title:'Worked 8.1s',counts:'1 python run',dots:[0],steps:[call('execute_python','List open database locks','8.1s')]}),
+    mid(`${at('archivist')} have we seen this billing lock before?`,woke('archivist')))}
+  ${turn(head('archivist','Archivist','',true),trail({title:'Archivist is recalling',live:true,open:true,counts:'1 tool',dots:[1],steps:[call('memory_search','billing migration lock','','look')]}))}
+  ${turn(head('pathfinder','Pathfinder','',true,'<span class="mono-xs">still working</span>'),trail({title:'Pathfinder is tracing the lock',live:true,open:true,counts:'1 python run',dots:[1],steps:[call('execute_python','Find the session holding the lock','','run')]}))}`}
+</div>`}
+
+function members(){return [...AGENTS.map(a=>sigil(a.id,'sm')),...PEOPLE.map(p=>ava(p.n))].slice(0,5).join('')}
+function rail(){return `<nav class="rail" aria-label="Agents">
+  <a class="rbtn mark" aria-label="Home" href="#">V</a>
+  <span class="rsep"></span>
+  ${workspaces().map(w=>{const work=w.work&&!stopped;return `<button class="rtile ws ${w.id===curWs?'on':''}" data-ws="${w.id}" title="${w.id}" aria-label="${w.id}${w.mentions?`, ${w.mentions} unread`:''}${work?', an agent is working':''}" ${w.id===curWs?'aria-current="page"':''}>
+    <span class="wtile" aria-hidden="true">${w.ini}</span>
+    ${w.mentions?`<span class="wcount" aria-hidden="true">${w.mentions}</span>`:''}
+    ${work?'<span class="wlive" aria-hidden="true"></span>':''}
+  </button>`}).join('')}
+  <span class="rsep"></span>
+  ${AGENTS.map(a=>`<a href="#" class="rtile" aria-label="${a.n}" title="${a.n}">${sigil(a.id,'rail',false)}</a>`).join('')}
+  <button class="rbtn radd" data-create-open aria-label="Create a workspace or an agent" title="Create">${ic('plus',18)}</button>
+  <span class="sp"></span>
+  <button class="rbtn" aria-label="Settings">${ic('settings',18)}</button>
+  ${ava('maya',30)}
+</nav>`}
+/* One tile per workspace, each with its own topics. Initials, since the dot-pattern sigil means "agent". */
+let curWs='ops';
+function workspaces(){const all=[
+  {id:'ops',ini:'OP',people:3,agents:3,work:1,mentions:2,topics:[{t:'daily-incidents',work:1},{t:'release-notes',m:2},{t:'general'}]},
+  {id:'design-review',ini:'DR',people:4,agents:1,topics:[{t:'general'},{t:'onboarding-flow'}]},
+  {id:'launch-war-room',ini:'LW',people:6,agents:2,mentions:1,topics:[{t:'launch-day',m:1},{t:'general'}]}];
+  if(tab==='new')all.push({id:'launch',ini:'LA',people:1,agents:0,topics:[{t:'general'}]});
+  return all}
+function ctx(){const w=workspaces().find(x=>x.id===curWs);return `<nav class="ctx" aria-label="Topics of ${w.id}">
+  <div class="ctx-h"><span class="heading" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${w.id}</span><button class="ibtn" data-members aria-label="Members of ${w.id}" title="Members">${ic('users',16)}</button></div>
+  <span class="label" style="padding:6px 10px 2px">Topics</span>
+  <div style="display:flex;flex-direction:column;gap:2px">
+    ${w.topics.map((t,i)=>`<a href="#" class="nav ${i===0?'on':''}"><span class="t"># ${t.t}</span>${t.work&&!stopped?'<span class="ring" role="img" aria-label="An agent is working"></span>':''}${t.m?`<span class="badge rank" aria-label="${t.m} unread">${t.m}</span>`:''}</a>`).join('')}
+    <button class="nav faint">${ic('plus',14)}<span class="t">New topic</span></button>
+  </div>
+</nav>`}
+function topbar(work=true){const on=work&&!stopped;return `<header class="top">
+  <button class="ibtn only-phone" aria-label="Open workspaces">${ic('menu',18)}</button>
+  <button class="topic-b" aria-haspopup="dialog">
+    <span class="topic-t heading"><span class="crumb only-wide">ops /</span><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap"># daily-incidents</span>${ic('chevron-down',14,'muted')}</span>
+    <span class="mono-xs only-wide">topic 1 of 3 · 3 people · 3 agents</span>
+  </button>
+  <span class="sp"></span>
+  ${on?`<span class="only-wide mono-xs" style="display:flex;align-items:center;gap:6px;color:var(--live-text)"><span class="statdot"></span>3 working</span>
+  <button class="btn" data-stop aria-label="Stop every agent working in this workspace">${ic('square',12)}<span class="only-wide">Stop all</span></button>`:''}
+  <button class="stack" data-members aria-label="Members of ops"><span class="fs">${members()}</span><span class="mono-xs only-wide">+1</span></button>
+  <button class="ibtn" aria-label="Notifications">${ic('bell',17)}</button>
+</header>`}
+function composer(ph=(tab==='phone'||narrow())?'Message # daily-incidents':'Message # daily-incidents. Agents reply only when mentioned.'){return `<div class="cwrap"><div class="comp" data-comp>
+  <div class="attach" data-att hidden></div>
+  <textarea rows="1" aria-label="Message" placeholder="${ph}"></textarea>
+  <div class="crow">
+    <button class="ibtn" data-attach aria-label="Attach a file">${ic('paperclip',16)}</button>
+    <button class="ibtn" data-at aria-label="Mention someone">${ic('at-sign',16)}</button>
+    <span class="chint mono-xs">Everyone here reads this</span>
+    <span class="sp"></span>
+    <button class="send" aria-label="Send" disabled>${ic('arrow-up',16)}</button>
+  </div>
+</div></div>`}
+function shell(phone,inner,dialog=''){return `<div class="frame ${phone?'phone':''}">${rail()}${ctx()}<div class="main">${inner}</div>${dialog}</div>`}
+const wsMain=()=>topbar()+`<div class="scroll" data-pin>${timeline()}</div>`+composer();
+
+/* --- Dialogs ------------------------------------------------------------- */
+let pickedAgent=null;
+/* Search-first: an installation can hold far more people and agents than a list can show. Results are capped per group. */
+let memberQuery='',mActive=0,added=[];
+const CAP=5;
+const ALL_AGENTS=[...'sentinel,ledger,herald,quartermaster,warden,oracle,navigator,steward,surveyor,scout,sexton,seneschal'.split(',').map(id=>({id,can:1})),{id:'courier',can:0},{id:'cartographer',can:0}].map(a=>({...a,n:a.id[0].toUpperCase()+a.id.slice(1),k:'a'}));
+const ALL_PEOPLE='priya,tomas,noor,jonas,ines,kenji,sofia,samir,sana,stefan,selin,simone,omar'.split(',').map(id=>({id,n:id[0].toUpperCase()+id.slice(1),k:'p',can:1}));
+function currentMembers(){const ops=curWs==='ops';
+  return {agents:[...(ops?[{id:'pathfinder',n:'Pathfinder',s:'working',t:'live'},{id:'archivist',n:'Archivist',s:'reading',t:''},{id:'scribe',n:'Scribe',s:'restarting',t:'fail'}]:[]),...added.filter(x=>x.k==='a').map(x=>({...x,s:'reading',t:''}))],
+    people:[{id:'maya',n:'Maya',s:'owner · you',me:1},...(ops?[{id:'rafi',n:'Rafi',s:'member'},{id:'lena',n:'Lena',s:'member'}]:[]),...added.filter(x=>x.k==='p').map(x=>({...x,s:'member'}))]}}
+function hit(n,q){const i=n.toLowerCase().indexOf(q);return i<0?n:`${n.slice(0,i)}<b style="font-weight:600;color:var(--text)">${n.slice(i,i+q.length)}</b>${n.slice(i+q.length)}`}
+function memberResults(q){
+  const m=currentMembers(),inWs=new Set([...m.agents,...m.people].map(x=>x.id));
+  const f=x=>x.id.includes(q)||x.n.toLowerCase().includes(q);
+  const known=[...m.agents.map(x=>({...x,k:'a',can:1})),...m.people.map(x=>({...x,k:'p',can:1}))];
+  const uniq=l=>l.filter((x,i)=>l.findIndex(y=>y.id===x.id)===i);
+  /* Who can be added comes first, so members never use up the capped rows. */
+  const rank=x=>inWs.has(x.id)?2:x.can?0:1,order=l=>l.map((x,i)=>[x,i]).sort((a,b)=>rank(a[0])-rank(b[0])||a[1]-b[1]).map(p=>p[0]);
+  const ag=order(uniq([...known.filter(x=>x.k==='a'),...ALL_AGENTS]).filter(f)),pe=order(uniq([...known.filter(x=>x.k==='p'),...ALL_PEOPLE]).filter(f));
+  const group=(label,l)=>{if(!l.length)return '';return `<div style="display:flex;flex-direction:column;gap:2px"><span class="label" style="padding:0 8px 4px">${label}</span>
+    ${l.slice(0,CAP).map(x=>{const inside=inWs.has(x.id);const ok=x.can&&!inside;return `<button class="pick ${pickedAgent===x.id?'on':''}" ${ok?`data-pick="${x.id}" data-kind="${x.k}"`:'disabled'}>${x.k==='a'?sigil(x.id,'sm'):ava(x.n)}<span class="strong" style="font-weight:500">${hit(x.n,q)}</span><span class="mono-xs">@${hit(x.id,q)}</span><span class="mono-xs" style="margin-left:auto;white-space:nowrap">${inside?`in ${curWs}`:x.can?'':'you can\'t edit this agent'}</span></button>`}).join('')}
+    ${l.length>CAP?`<p class="mono-xs" style="padding:4px 8px">${l.length-CAP} more, keep typing</p>`:''}</div>`};
+  const body=group('Agents',ag)+group('People',pe);
+  return body||`<p class="small muted" style="padding:8px">Nobody matches “${q}”. Check the spelling, or try a username or agent id.</p>`}
+function memberList(){const m=currentMembers();return `
+  <div><span class="label">Agents · ${m.agents.length}</span>${m.agents.length?m.agents.map(a=>`<div class="row">${sigil(a.id,'md',a.s==='working')}<div class="i"><span class="strong">${a.n}</span><span class="mono-xs">@${a.id}</span></div><span class="badge ${a.t}">${a.s}</span><button class="ibtn" aria-label="Remove ${a.n}">${ic('x',14)}</button></div>`).join(''):`<p class="small muted" style="padding-top:6px">No agents yet. Search above to add one.</p>`}</div>
+  <div><span class="label">People · ${m.people.length}</span>${m.people.map(p=>`<div class="row">${ava(p.n,26)}<div class="i"><span class="strong">${p.n}</span><span class="mono-xs">@${p.id}</span></div><span class="badge">${p.s}</span>${p.me?'<span style="width:30px"></span>':`<button class="ibtn" aria-label="Remove ${p.n}">${ic('x',14)}</button>`}</div>`).join('')}</div>`}
+function membersInner(){const q=memberQuery.trim().toLowerCase(),p=ALL_AGENTS.find(c=>c.id===pickedAgent);
+  return `<div class="dh"><span class="heading">Members of ${curWs}</span><button class="ibtn" data-close aria-label="Close">${ic('x',16)}</button></div>
+  <div class="db">
+    <div class="sbox">${ic('search',15,'faint')}<input data-msearch type="text" role="combobox" aria-expanded="${!!q}" aria-label="Search people and agents to add" placeholder="Search people and agents to add" value="${memberQuery.replace(/"/g,'&quot;')}" autocomplete="off"></div>
+    ${q?`<div style="display:flex;flex-direction:column;gap:14px" data-mres>${memberResults(q)}</div>`:memberList()}
+    ${p?`<div class="notice">${ic('alert-triangle',15)}<p>Everyone in <b style="font-weight:600">${curWs}</b> will be able to mention ${p.n}, even people who can't see it today. They can use its tools and integrations, spend its provider budget, and see what it recalls from memory.</p></div>`:''}
+  </div>
+  <div class="df"><button class="btn" data-close>Done</button>${p?`<button class="btn pri" data-confirm>Add ${p.n}</button>`:''}</div>`}
+function refreshMembers(){const d=document.querySelector('.dlg');if(!d)return;const top=d.scrollTop;d.innerHTML=membersInner();d.scrollTop=top;mActive=Math.min(mActive,Math.max(d.querySelectorAll('[data-pick]').length-1,0));markActive();const i=d.querySelector('[data-msearch]');i.focus();i.setSelectionRange(i.value.length,i.value.length)}
+function markActive(){document.querySelectorAll('[data-pick]').forEach((b,i)=>b.classList.toggle('kb',i===mActive))}
+function membersDialog(){return `<div class="scrim" data-scrim><div class="dlg fixed" role="dialog" aria-modal="true" aria-label="Members of ${curWs}">${membersInner()}</div></div>`}
+/* The rail's one "+". Someone who may create only one of the two skips this and goes straight there; someone who may create neither has no "+". */
+function createDialog(){const opt=(k,icon,t,d)=>`<button class="choice" data-choose="${k}">${ic(icon,20)}<span class="i"><span class="strong">${t}</span><span class="small muted">${d}</span></span>${ic('chevron-right',16,'faint')}</button>`;
+  return `<div class="scrim" data-scrim><div class="dlg" style="width:min(440px,100%)" role="dialog" aria-modal="true" aria-label="Create">
+  <div class="dh"><span class="heading">Create</span><button class="ibtn" data-close aria-label="Close">${ic('x',16)}</button></div>
+  <div class="db" style="gap:8px">
+    ${opt('workspace','messages-square','Workspace','A shared space for people and agents')}
+    ${opt('agent','bot','Agent','A new agent with its own tools and memory')}
+  </div>
+</div></div>`}
+function agentStub(){return `<div class="scrim" data-scrim><div class="dlg" style="width:min(440px,100%)" role="dialog" aria-modal="true" aria-label="New agent">
+  <div class="dh"><span class="heading">New agent</span><button class="ibtn" data-close aria-label="Close">${ic('x',16)}</button></div>
+  <div class="db"><p class="muted">The existing new-agent form opens here, unchanged.</p></div>
+</div></div>`}
+function newDialog(){return `<div class="scrim" data-scrim><div class="dlg" role="dialog" aria-modal="true" aria-label="New workspace">
+  <div class="dh"><span class="heading">New workspace</span><button class="ibtn" data-close aria-label="Close">${ic('x',16)}</button></div>
+  <div class="db">
+    <div class="field"><label for="wn">Name</label><input id="wn" value="ops"><span class="small err" data-nameerr>A workspace called ops already exists. Agents find workspaces by name, so each needs its own.</span></div>
+    <div class="field"><label for="wt">First topic</label><input id="wt" value="general"></div>
+    <p class="small muted">You can add people and agents next. Agents read everything here and reply only when mentioned.</p>
+  </div>
+  <div class="df"><button class="btn" data-close>Cancel</button><button class="btn pri" data-create disabled>Create workspace</button></div>
+</div></div>`}
+
+/* --- Page: empty --------------------------------------------------------- */
+function emptyMain(){const w=workspaces().find(x=>x.id===curWs),t=w.topics[0].t;const plural=(n,o)=>n===1?`1 ${o}`:`${n} ${o==='person'?'people':o+'s'}`;
+  return `<header class="top"><button class="topic-b"><span class="topic-t heading"><span class="crumb only-wide">${w.id} /</span># ${t}${ic('chevron-down',14,'muted')}</span><span class="mono-xs only-wide">topic 1 of ${w.topics.length} · ${plural(w.people,'person')} · ${w.agents?plural(w.agents,'agent'):'no agents'}</span></button><span class="sp"></span><button class="ibtn" aria-label="Notifications">${ic('bell',17)}</button></header>
+  <div class="scroll" style="display:flex"><div class="col" style="margin:auto;align-items:center;text-align:center;gap:12px;max-width:380px">
+    ${ic('messages-square',26,'faint')}
+    <p class="heading">Nothing in # ${t} yet</p>
+    <p class="muted" style="line-height:21px">Add agents and people. Agents read along, and reply only when someone mentions them.</p>
+    <button class="btn pri" data-members>${ic('user-plus',14)}Add members</button>
+  </div></div>${composer('Message # '+t)}`}
+
+/* --- Page: states -------------------------------------------------------- */
+function pageStates(){const row=(t,s,b)=>`<section class="card"><div class="ch"><span class="heading">${t}</span><span class="mono-xs">${s}</span></div>${b}</section>`;
+ return `<div class="wrap"><div class="gal">
+ ${row('Someone mentions you','highlighted in the conversation, same notification as any message',other('Rafi',`${at('maya','you')} can you sign off on the note?`,'09:21','mentioned'))}
+ ${row('Notification for a message','one per message, not for your own',`<div class="card" style="padding:12px;gap:6px;border-color:var(--live)"><div style="display:flex;align-items:center;gap:10px">${sigil('pathfinder','md')}<div style="flex:1;min-width:0"><p class="small"><b style="font-weight:600">Pathfinder</b> in ops / # daily-incidents</p><p class="small muted" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Both failed on the same migration lock, so the second…</p></div><span class="mono-xs">09:02</span></div></div>`)}
+ ${row('A mention from outside','origin shows who it really came from',turn(head('archivist','Archivist','09:30',false,`<span class="badge">${ic('message-circle',11)}from Discord</span>`),final(`<p>${at('scribe')} add the billing outage to this week's notes.</p>`),woke('scribe')))}
+ ${row('Mentioned agent is down','the message posts, nobody hangs',turn(head('pathfinder','Pathfinder','09:33'),mid(`${at('scribe')} can you check this wording?`,woke('scribe is restarting, so it was not woken',true))))}
+ ${row('Not a mention','plain text, wakes no one',`<div class="prose">Ask <code>@scribe</code> later, and ping @nobody-here too. Scribe wrote the last one.</div>`)}
+ ${row('Agent reply with no mention back','Archivist reads this and stays asleep',turn(head('scribe','Scribe','09:40'),final('<p>The note is drafted and in the release file.</p>')))}
+ ${row('Agent left the workspace','history stays, it can\'t be mentioned',turn(head('sentinel','Sentinel','Mon 16:02',false,'<span class="badge">removed</span>'),final('<p>All alerts cleared for the weekend.</p>')))}
+ ${row('Question from an agent','any person can answer, agents can\'t',`<div class="q"><p class="strong">Retry the billing deploy now?</p><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn">Yes</button><button class="btn">Not yet</button></div><p class="mono-xs">Asked by Pathfinder · answered by Rafi at 09:44</p></div>`)}
+ ${row('Sensitive input isn\'t offered','the agent redirects instead',turn(head('pathfinder','Pathfinder','09:50'),final('<p>I need an API key for that, and this room is shared. Please message me directly and I will ask there.</p>')))}
+ ${row('Attaching a file','told before sending',`<div class="comp" style="width:100%"><div class="attach"><span class="chip">${ic('file-text',14)}incident-notes.pdf<button aria-label="Remove file">${ic('x',13)}</button></span><span class="small muted">Everyone in ops can see this file, agents included.</span></div><div class="crow"><span class="faint">Add a message</span><span class="sp"></span><button class="send" aria-label="Send">${ic('arrow-up',16)}</button></div></div>`)}
+ ${row('Running a skill','/&lt;command&gt; @&lt;agent-id&gt;, and everyone sees it',other('Rafi',`<span class="skillchip">${ic('sparkles',12)}/status-note</span> ${at('scribe')} billing outage, keep it short`,'10:02'))}
+ ${row('Running a command','a note, not a message, and no agent reads it',`<div class="note">Rafi started a checkpoint for Scribe · 10:04</div><div class="note">Maya stopped Pathfinder · 10:05</div>`)}
+ ${row('Refused commands','not posted, explained where you typed',`<p class="small" style="color:var(--failed-text);display:flex;gap:6px;align-items:flex-start">${ic('alert-circle',14)}Side chats and clearing files are not available in a Workspace.</p>`)}
+ ${row('Mention menu, no match','Enter sends it as text',`<div class="menu" style="position:static;width:100%;box-shadow:none"><p class="empty-m">No member matches “@zed”. Enter sends it as text.</p></div>`)}
+ </div></div>`}
+
+/* --- Router -------------------------------------------------------------- */
+const narrow=()=>matchMedia('(max-width:767px)').matches;
+const TABS=[['turn','Mid-turn messages'],['ws','Workspace'],['members','Members'],['new','New workspace'],['states','States'],['phone','Phone']];
+let tab=(location.hash||'').slice(1);if(!TABS.some(t=>t[0]===tab))tab='turn';
+let dlg=null;
+function render(){
+  const P=document.getElementById('page');
+  if(!dlg){memberQuery='';pickedAgent=null;mActive=0}
+  document.getElementById('tabs').innerHTML=TABS.map(([k,l])=>`<button class="tab" role="tab" aria-selected="${k===tab}" data-tab="${k}">${l}</button>`).join('');
+  const d=dlg==='members'?membersDialog():dlg==='new'?newDialog():dlg==='create'?createDialog():dlg==='agent'?agentStub():'';
+  if(tab==='turn')P.innerHTML=pageTurn();
+  else if(tab==='states')P.innerHTML=pageStates();
+  else if(tab==='new'||curWs!=='ops')P.innerHTML=(tab==='phone'?x=>`<div class="phonewrap">${x}</div>`:x=>x)(shell(tab==='phone'||narrow(),emptyMain(),d));
+  else if(tab==='ws'||tab==='members')P.innerHTML=shell(narrow(),wsMain(),d);
+  else if(tab==='phone')P.innerHTML=`<div class="phonewrap">${shell(true,wsMain(),d)}</div>`;
+  P.querySelectorAll('[data-pin]').forEach(e=>e.scrollTop=e.scrollHeight);
+  P.querySelectorAll('[data-comp]').forEach(wireComposer);
+  P.querySelector('[data-msearch]')?.focus();
+}
+function go(k){tab=k;pickedAgent=null;curWs=k==='new'?'launch':'ops';dlg=k==='members'?'members':k==='new'?'new':null;history.replaceState(null,'','#'+k);render();scrollTo(0,0)}
+
+document.addEventListener('click',e=>{
+  const c=(s)=>e.target.closest(s);let x;
+  if(x=c('[data-tab]'))return go(x.dataset.tab);
+  if(x=c('[data-go]'))return go(x.dataset.go);
+  if(c('[data-create-open]')){dlg='create';return render()}
+  if(x=c('[data-choose]')){if(x.dataset.choose==='workspace')return go('new');dlg='agent';return render()}
+  if(x=c('[data-ws]')){curWs=x.dataset.ws;dlg=null;return render()}
+  if(c('[data-stop]')){stopped=true;return render()}
+  if(c('[data-members]')){dlg='members';return render()}
+  if(c('[data-close]')){dlg=null;pickedAgent=null;return render()}
+  if(c('[data-confirm]')){const a=ALL_AGENTS.find(y=>y.id===pickedAgent);if(a)added.push(a);pickedAgent=null;memberQuery='';mActive=0;return refreshMembers()}
+  if(x=c('[data-pick]')){
+    if(x.dataset.kind==='p'){added.push(ALL_PEOPLE.find(y=>y.id===x.dataset.pick));pickedAgent=null;memberQuery='';mActive=0}
+    else pickedAgent=x.dataset.pick===pickedAgent?null:x.dataset.pick;
+    return refreshMembers()}
+  if(e.target.matches('[data-scrim]')){dlg=null;pickedAgent=null;return render()}
+  if(x=c('[data-trail] .thead')){const t=x.closest('[data-trail]');t.classList.toggle('open');x.setAttribute('aria-expanded',t.classList.contains('open'))}
+  if(c('a[href="#"]'))e.preventDefault();
+});
+document.addEventListener('keydown',e=>{
+  if(e.target.matches&&e.target.matches('[data-msearch]')){const picks=[...document.querySelectorAll('[data-pick]')];
+    if(e.key==='ArrowDown'&&picks.length){e.preventDefault();mActive=(mActive+1)%picks.length;markActive()}
+    else if(e.key==='ArrowUp'&&picks.length){e.preventDefault();mActive=(mActive-1+picks.length)%picks.length;markActive()}
+    else if(e.key==='Enter'){e.preventDefault();const cf=document.querySelector('[data-confirm]');if(cf)cf.click();else picks[mActive]?.click()}}
+  if(e.key==='Escape'&&dlg){dlg=null;pickedAgent=null;render()}});
+document.addEventListener('input',e=>{
+  if(e.target.matches('[data-msearch]')){memberQuery=e.target.value;pickedAgent=null;mActive=0;return refreshMembers()}
+  if(e.target.id==='wn'){const n=e.target.value.trim().toLowerCase(),clash=n==='ops'||n==='design-review';
+    const er=document.querySelector('[data-nameerr]');er.hidden=!clash;if(!clash)er.textContent='';
+    if(clash)er.textContent=`A workspace called ${n} already exists. Agents find workspaces by name, so each needs its own.`;
+    document.querySelector('[data-create]').disabled=clash||!n}
+});
+document.getElementById('theme').onclick=()=>{const r=document.documentElement;const dark=r.dataset.theme?r.dataset.theme==='dark':matchMedia('(prefers-color-scheme:dark)').matches;r.dataset.theme=dark?'light':'dark'};
+addEventListener('resize',()=>{if(tab==='ws'||tab==='members'||tab==='new')render()});
+
+/* --- Composer: the working @ menu ---------------------------------------- */
+function wireComposer(root){
+  const ta=root.querySelector('textarea'),send=root.querySelector('.send');let menu=null,items=[],active=0,start=-1;
+  const close=()=>{menu?.remove();menu=null;ta.removeAttribute('aria-activedescendant');ta.removeAttribute('aria-controls')};
+  function token(){const v=ta.value,c=ta.selectionStart;const m=/(^|\s)@([\w-]*)$/.exec(v.slice(0,c));return m?{q:m[2],at:c-m[2].length-1}:null}
+  /* /<command> @<agent-id>: "/" at the start lists everything, then "@" offers only the agents that have it. */
+  function slash(){const m=/^\/([\w-]*)$/.exec(ta.value.slice(0,ta.selectionStart));return m?{q:m[1],at:0}:null}
+  const ALL=['pathfinder','archivist','scribe'];
+  const SLASH=[{id:'status-note',d:'Draft a status page note',g:'Skills',agents:['scribe']},{id:'release-notes',d:'Summarise changes since the last tag',g:'Skills',agents:['scribe','archivist']},{id:'skills',d:'List an agent\'s skills',g:'Commands',agents:ALL},{id:'abort',d:'Stop an agent, or everyone with no mention',g:'Commands',agents:ALL},{id:'checkpoint',d:'Save a checkpoint with a handover',g:'Commands',agents:ALL},{id:'lobotomy',d:'Save a checkpoint with no handover',g:'Commands',agents:ALL}];
+  function drawSlash(s){start=s.at;const q=s.q.toLowerCase();items=SLASH.filter(x=>x.id.includes(q)).map(x=>({...x,k:'s'}));if(active>=items.length)active=0;
+    if(!menu){menu=document.createElement('div');menu.className='menu';menu.id='mm';root.appendChild(menu);ta.setAttribute('aria-controls','mm')}
+    const groups=[...new Set(items.map(x=>x.g))];
+    menu.innerHTML=items.length?`<div role="listbox" aria-label="Skills and commands">${groups.map(g=>`<span class="label">${g}</span>${items.map((x,i)=>x.g===g?`<div class="mi" id="mi-${i}" role="option" aria-selected="${i===active}" data-i="${i}" style="flex-wrap:wrap;gap:2px 8px"><span class="n mono-sm" style="white-space:nowrap">/${x.id}</span>${x.g==='Skills'?`<span class="st mono-xs">${x.agents.join(', ')}</span>`:''}<span class="small muted" style="width:100%">${x.d}</span></div>`:'').join('')}`).join('')}</div>`:`<p class="empty-m">No skill or command matches “/${s.q}”.</p>`;
+    if(items.length)ta.setAttribute('aria-activedescendant','mi-'+active)}
+  /* After a chosen command, the "@" menu is agents only, and only those that can run it. */
+  function commandAgents(){const m=/^\/([\w-]+)\s/.exec(ta.value);if(!m)return null;const c=SLASH.find(x=>x.id===m[1]);return c?c.agents:null}
+  function draw(){const s=slash();if(s)return drawSlash(s);const t=token();if(!t)return close();start=t.at;const q=t.q.toLowerCase();
+    const f=x=>x.id.includes(q)||x.n.toLowerCase().includes(q);
+    const only=commandAgents();
+    const a=AGENTS.filter(x=>f(x)&&(!only||only.includes(x.id))).map(x=>({...x,k:'a'})),p=only?[]:PEOPLE.filter(x=>!x.me&&f(x)).map(x=>({...x,k:'p'}));items=[...a,...p];if(active>=items.length)active=0;
+    if(!menu){menu=document.createElement('div');menu.className='menu';menu.id='mm';root.appendChild(menu);ta.setAttribute('aria-controls','mm')}
+    const opt=(x,i)=>`<div class="mi" id="mi-${i}" role="option" aria-selected="${i===active}" data-i="${i}">${x.k==='a'?sigil(x.id,'sm',x.id==='pathfinder'):ava(x.n)}<span class="n">${x.n}</span><span class="id mono-xs">@${x.id}</span>${x.k==='a'?`<span class="st mono-xs">${x.id==='scribe'?'restarting':x.id==='pathfinder'?'working':'reading'}</span>`:''}</div>`;
+    menu.innerHTML=items.length?`<div role="listbox" aria-label="Members">${a.length?`<span class="label">Agents</span>${a.map((x,i)=>opt(x,i)).join('')}`:''}${p.length?`<span class="label">People</span>${p.map((x,i)=>opt(x,i+a.length)).join('')}`:''}</div>`:`<p class="empty-m">No member matches “@${t.q}”. Enter sends it as text.</p>`;
+    if(items.length)ta.setAttribute('aria-activedescendant','mi-'+active)}
+  function pick(i){const x=items[i];if(!x)return;const c=ta.selectionStart;const mark=x.k==='s'?'/':'@';ta.value=ta.value.slice(0,start)+mark+x.id+' '+ta.value.slice(c);const n=start+x.id.length+2;ta.setSelectionRange(n,n);close();ta.focus();sync()}
+  function sync(){send.disabled=!ta.value.trim();ta.style.height='auto';ta.style.height=Math.min(ta.scrollHeight,160)+'px'}
+  ta.addEventListener('input',()=>{active=0;draw();sync()});
+  ta.addEventListener('keydown',e=>{if(!menu)return;
+    if(e.key==='Escape'){e.stopPropagation();close();return}
+    if(!items.length)return;
+    if(e.key==='ArrowDown'){e.preventDefault();active=(active+1)%items.length;draw()}
+    else if(e.key==='ArrowUp'){e.preventDefault();active=(active-1+items.length)%items.length;draw()}
+    else if(e.key==='Enter'||e.key==='Tab'){e.preventDefault();pick(active)}});
+  ta.addEventListener('blur',()=>setTimeout(close,120));
+  root.addEventListener('pointerdown',e=>{const o=e.target.closest('.mi');if(o){e.preventDefault();pick(+o.dataset.i)}});
+  root.querySelector('[data-at]').onclick=()=>{const c=ta.selectionStart,v=ta.value,pre=c&&!/\s/.test(v[c-1])?' ':'';ta.value=v.slice(0,c)+pre+'@'+v.slice(c);const n=c+pre.length+1;ta.focus();ta.setSelectionRange(n,n);draw();sync()};
+  root.querySelector('[data-attach]').onclick=()=>{const b=root.querySelector('[data-att]');b.hidden=!b.hidden;b.innerHTML=`<span class="chip">${ic('file-text',14)}incident-notes.pdf</span><span class="small muted">Everyone in this workspace can see this file, agents included.</span>`};
+}
+go(tab);
+</script>
+</body>
+</html>

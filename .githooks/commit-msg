@@ -1,0 +1,45 @@
+#!/bin/sh
+# commit-msg hook: enforce Conventional Commits v1.0.0 on the commit subject.
+# Installed by `just hooks` (core.hooksPath, workspace and every submodule). CI runs this same
+# file for pull request titles, so the rule lives in exactly one place.
+#
+# $1 is the message file git passes in. It is read-only here: rewriting it can mangle the commit.
+# Exit 0 to accept, 1 to reject (reason on stderr).
+
+set -u
+
+msgfile=${1-}
+if [ -z "$msgfile" ] || [ ! -f "$msgfile" ] || [ ! -r "$msgfile" ]; then
+  printf '%s\n' "commit-msg: no readable message file (got '${msgfile}')" >&2
+  printf '%s\n' "commit-msg: run it through git, or as: sh .githooks/commit-msg <message-file>" >&2
+  exit 1
+fi
+
+# Subject: first non-empty line that is not a comment, surrounding whitespace trimmed.
+subject=$(grep -v -e '^[[:space:]]*#' -e '^[[:space:]]*$' "$msgfile" \
+  | head -n 1 \
+  | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+
+# Git writes its own subjects for these, so they are not held to the format.
+case $subject in
+  'Merge '* | 'Revert '* | 'revert:'* | 'fixup! '* | 'squash! '* | 'amend! '*) exit 0 ;;
+esac
+
+# type(scope)!: description -- scope optional, `!` optional, exactly one space after the colon,
+# description starts with a non-space character. Format only: no line-length limit.
+pattern='^(feat|fix|build|chore|ci|docs|style|refactor|perf|test|revert)(\([^ ()]+\))?!?: [^ ]'
+
+if printf '%s\n' "$subject" | grep -Eq "$pattern"; then
+  exit 0
+fi
+
+{
+  printf '%s\n' "commit rejected: subject is not in Conventional Commits format"
+  printf '%s\n' "  subject: ${subject:-(empty)}"
+  printf '%s\n' "  valid types: feat fix build chore ci docs style refactor perf test revert"
+  printf '%s\n' "  expected: type(optional-scope)!: description  (one space after the colon)"
+  printf '%s\n' "  example: fix(agents): publish the entries a reset and a direct answer save"
+  printf '%s\n' "  see: https://www.conventionalcommits.org/en/v1.0.0/"
+} >&2
+
+exit 1

@@ -2,7 +2,7 @@
 //! detail and deletion (spec 038, US2). Moved from `vizier-http`'s `agents/channel.rs`; the
 //! live connection (`TopicConnection`) stays in `vizier-http`.
 
-use chrono::Utc;
+
 use serde::Serialize;
 
 use super::{Services, error::ServiceError};
@@ -179,7 +179,7 @@ pub async fn history(
     agent_id: &str,
     channel_id: &str,
     topic_id: TopicId,
-    before: Option<chrono::DateTime<Utc>>,
+    before: Option<chrono::DateTime<chrono::Local>>,
     before_seq: Option<i64>,
     limit: Option<usize>,
 ) -> Result<Vec<SessionHistory>, ServiceError> {
@@ -417,6 +417,11 @@ pub async fn delete(
         Ok(_) => {
             // The stale-read ledger is per conversation and dies with it.
             s.deps().project_ledger.forget_session(&session.to_slug());
+            // Its notifications went with it: this person's clients drop them.
+            s.deps().transport.publish_inbox_event(crate::transport::InboxEvent::Stale {
+                user: Some(who.user_id.clone()),
+                agent_id: None,
+            });
             Ok("Topic deleted".into())
         }
         Err(ClearError::TurnActive) => Err(conflict(TURN_ACTIVE)),
@@ -427,7 +432,7 @@ pub async fn delete(
 
 #[cfg(test)]
 mod tests {
-    use chrono::Utc;
+    
 
     use super::*;
     use crate::{
@@ -446,6 +451,7 @@ mod tests {
             folder: std::path::PathBuf::from("/tmp/does-not-matter"),
             owner_id: owner.into(),
             shell_enabled: true,
+            lsp_enabled: false,
             created_at: 0,
             removed_at: None,
         }
@@ -501,7 +507,7 @@ mod tests {
         services
             .deps()
             .storage
-            .remove_project("p3xY9aQ2mZ", Utc::now().timestamp_millis())
+            .remove_project("p3xY9aQ2mZ", crate::time::now().timestamp_millis())
             .await
             .unwrap();
         assert_eq!(

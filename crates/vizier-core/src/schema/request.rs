@@ -1,10 +1,9 @@
 use std::fmt::Display;
-use std::path::PathBuf;
 
 use crate::llm::types::{Message, Part};
 use anyhow::Result;
 use base64::Engine;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Local};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -202,18 +201,31 @@ pub struct VizierAttachment {
     pub content: VizierAttachmentContent,
 }
 
-/// Turns an artifact identity into its current content path (`specs/035-add-artifacts` R3).
-/// Synchronous because model-part conversion is; the implementation is a single indexed SQLite
-/// read plus one content-file existence check.
+/// Reads the bytes behind stored attachments: uploads (`/api/v1/files/<id>`) and artifacts
+/// (`specs/035-add-artifacts` R3). Both live in the [`crate::storage::blob::BlobStore`].
+#[async_trait::async_trait]
 pub trait AttachmentResolver: Send + Sync {
-    fn artifact_path(&self, agent_id: &str, artifact_id: &str) -> Result<Option<PathBuf>>;
+    /// The bytes of upload `file_id`.
+    async fn upload_bytes(&self, file_id: &str) -> Result<Vec<u8>>;
+
+    /// The artifact's current bytes; `None` when its row or its content is gone.
+    async fn artifact_bytes(&self, agent_id: &str, artifact_id: &str) -> Result<Option<Vec<u8>>>;
 }
 
-/// A resolver for tests and the offline provider: every artifact is unavailable.
+/// A resolver for tests and the offline provider: no uploads, every artifact unavailable.
 pub struct NoopAttachmentResolver;
 
+#[async_trait::async_trait]
 impl AttachmentResolver for NoopAttachmentResolver {
-    fn artifact_path(&self, _agent_id: &str, _artifact_id: &str) -> Result<Option<PathBuf>> {
+    async fn upload_bytes(&self, file_id: &str) -> Result<Vec<u8>> {
+        Err(VizierError(format!("upload {file_id} is not available here")).into())
+    }
+
+    async fn artifact_bytes(
+        &self,
+        _agent_id: &str,
+        _artifact_id: &str,
+    ) -> Result<Option<Vec<u8>>> {
         Ok(None)
     }
 }
@@ -221,14 +233,19 @@ impl AttachmentResolver for NoopAttachmentResolver {
 impl VizierAttachment {
     /// The attachment as a message part. Whether the model gets it, or a note saying it was
     /// attached, is decided by capability in `llm::prepare` (FR-013).
-    pub fn to_part(&self, workspace: &str, resolver: &dyn AttachmentResolver) -> Result<Part> {
+    pub async fn to_part(&self, resolver: &dyn AttachmentResolver) -> Result<Part> {
         let mime = get_mime_type(&self.filename);
         let data = match &self.content {
             VizierAttachmentContent::Bytes(bytes) => bytes.clone(),
             VizierAttachmentContent::Base64(b64) => base64::engine::general_purpose::STANDARD
                 .decode(b64)
                 .map_err(|e| VizierError(format!("attachment {}: {e}", self.filename)))?,
-            VizierAttachmentContent::Local(path) => Self::resolve_local_bytes(workspace, path)?,
+            VizierAttachmentContent::Local(path) => {
+                let file_id = path.trim_start_matches("/api/v1/files/");
+                resolver.upload_bytes(file_id).await.map_err(|e| {
+                    VizierError(format!("failed to read attachment {}: {e}", self.filename))
+                })?
+            }
             VizierAttachmentContent::Url(url) => {
                 return Ok(Part::Text(format!("[attachment {}: {url}]", self.filename)));
             }
@@ -236,14 +253,8 @@ impl VizierAttachment {
                 agent_id,
                 artifact_id,
                 ..
-            } => match resolver.artifact_path(agent_id, artifact_id) {
-                Ok(Some(path)) => std::fs::read(&path).map_err(|e| {
-                    VizierError(format!(
-                        "failed to read artifact {} at {}: {e}",
-                        self.filename,
-                        path.display()
-                    ))
-                })?,
+            } => match resolver.artifact_bytes(agent_id, artifact_id).await {
+                Ok(Some(bytes)) => bytes,
                 // A deleted artifact is a readable note, never a failed turn.
                 _ => {
                     return Ok(Part::Text(format!(
@@ -259,38 +270,24 @@ impl VizierAttachment {
             name: Some(self.filename.clone()),
         })
     }
+}
 
-    pub fn resolve_local_bytes(workspace: &str, path: &str) -> Result<Vec<u8>> {
-        let file_id = path.trim_start_matches("/api/v1/files/");
-        let uploads_dir = PathBuf::from(workspace).join("uploads").join(file_id);
-        let mut entries = std::fs::read_dir(&uploads_dir).map_err(|e| {
-            VizierError(format!(
-                "Failed to read uploads dir {}: {}",
-                uploads_dir.display(),
-                e
-            ))
-        })?;
-        let file_path = entries
-            .next()
-            .and_then(|r| r.ok())
-            .ok_or_else(|| VizierError(format!("No file found in {}", uploads_dir.display())))?
-            .path();
-        Ok(std::fs::read(&file_path).map_err(|e| {
-            VizierError(format!(
-                "Failed to read local file {}: {}",
-                file_path.display(),
-                e
-            ))
-        })?)
-    }
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+pub struct ModelOverride {
+    pub provider: String,
+    pub model: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct VizierRequest {
-    pub timestamp: DateTime<Utc>,
+    pub timestamp: DateTime<Local>,
     pub user: String,
     pub content: VizierRequestContent,
+    /// Explicit provider/model for this chat turn; absent means the configured agent model.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_override: Option<ModelOverride>,
     #[serde(default)]
     pub platform_message_id: Option<PlatformMessageId>,
     pub metadata: serde_json::Value,
@@ -414,6 +411,27 @@ impl VizierRequest {
         Ok(prompt)
     }
 
+    /// When the message arrived, in the instance's local time to the second. The server stamps
+    /// `timestamp` on receipt, so this is the one time a message has (`specs/052-unify-local-timezone`).
+    pub fn sent_at(&self) -> String {
+        self.timestamp.to_rfc3339_opts(chrono::SecondsFormat::Secs, false)
+    }
+
+    /// The metadata an agent is shown. Older rows carry a `sent_at` (Discord and Telegram, in UTC) or
+    /// a `timestamp` (scheduled runs) of their own; both are the message's time, which `sent_at`
+    /// already shows, so they are left out rather than shown twice. Tracked for removal in #82.
+    fn shown_metadata(&self) -> serde_json::Value {
+        match &self.metadata {
+            serde_json::Value::Object(map) => serde_json::Value::Object(
+                map.iter()
+                    .filter(|(key, _)| !matches!(key.as_str(), "sent_at" | "timestamp"))
+                    .map(|(key, value)| (key.clone(), value.clone()))
+                    .collect(),
+            ),
+            other => other.clone(),
+        }
+    }
+
     pub fn generate_frontmatter(&self) -> anyhow::Result<String> {
         // A scheduled run is attributed to the scheduler on behalf of the requester. It
         // used to emit the task's stored `user` as `sender`, so the run arrived looking
@@ -429,7 +447,8 @@ impl VizierRequest {
                 "sender": "scheduler",
                 "task": task,
                 "requested_by": self.user,
-                "metadata": self.metadata,
+                "sent_at": self.sent_at(),
+                "metadata": self.shown_metadata(),
             }))?);
         }
 
@@ -440,7 +459,8 @@ impl VizierRequest {
                 "sender": "background",
                 "job": report.job_id,
                 "job_kind": report.kind.as_str(),
-                "metadata": self.metadata,
+                "sent_at": self.sent_at(),
+                "metadata": self.shown_metadata(),
             }))?);
         }
 
@@ -453,7 +473,8 @@ impl VizierRequest {
             if let Some(source) = &event.source_call_id {
                 frontmatter.insert("source_call".into(), json!(source));
             }
-            frontmatter.insert("metadata".into(), self.metadata.clone());
+            frontmatter.insert("sent_at".into(), json!(self.sent_at()));
+            frontmatter.insert("metadata".into(), self.shown_metadata());
             return Ok(serde_yaml::to_string(&frontmatter)?);
         }
 
@@ -465,27 +486,25 @@ impl VizierRequest {
             frontmatter.insert("sender".into(), json!(self.user));
             frontmatter.insert("via".into(), json!("question_answer"));
             frontmatter.insert("question_set".into(), json!(answer.set_id));
-            frontmatter.insert("metadata".into(), self.metadata.clone());
+            frontmatter.insert("sent_at".into(), json!(self.sent_at()));
+            frontmatter.insert("metadata".into(), self.shown_metadata());
             return Ok(serde_yaml::to_string(&frontmatter)?);
         }
 
         Ok(serde_yaml::to_string(&json!({
             "sender": self.user,
-            "metadata": self.metadata,
+            "sent_at": self.sent_at(),
+            "metadata": self.shown_metadata(),
         }))?)
     }
 
-    pub fn to_message(
-        &self,
-        workspace: &str,
-        resolver: &dyn AttachmentResolver,
-    ) -> Result<Message> {
+    pub async fn to_message(&self, resolver: &dyn AttachmentResolver) -> Result<Message> {
         let mut contents = vec![Part::Text(
             self.to_prompt()
                 .map_err(|err| VizierError(err.to_string()))?,
         )];
         for attachment in self.attachments.iter() {
-            contents.push(attachment.to_part(workspace, resolver)?);
+            contents.push(attachment.to_part(resolver).await?);
         }
         Ok(Message::User(contents))
     }
@@ -493,6 +512,30 @@ impl VizierRequest {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn model_override_is_optional_and_preserves_slashes_in_model_ids() {
+        let legacy: VizierRequest = serde_json::from_value(serde_json::json!({
+            "timestamp": "2026-11-04T00:00:00Z",
+            "user": "alice",
+            "content": { "chat": "hello" },
+            "metadata": {}
+        }))
+        .unwrap();
+        assert!(legacy.model_override.is_none());
+
+        let request = VizierRequest {
+            content: VizierRequestContent::Chat("hello".into()),
+            model_override: Some(ModelOverride {
+                provider: "opencode".into(),
+                model: "deepseek/deepseek-flash".into(),
+            }),
+            ..Default::default()
+        };
+        let round_trip: VizierRequest = serde_json::from_value(serde_json::to_value(&request).unwrap()).unwrap();
+        assert_eq!(round_trip.model_override, request.model_override);
+        assert_eq!(round_trip.model_override.unwrap().model, "deepseek/deepseek-flash");
+    }
+
     #[test]
     fn btw_serialises_with_its_question_and_earlier_turns() {
         let content = VizierRequestContent::Btw(SideChat {
@@ -618,7 +661,7 @@ mod tests {
 
     fn scheduled() -> VizierRequest {
         VizierRequest {
-            timestamp: Utc::now(),
+            timestamp: crate::time::now(),
             user: "@dani (DiscordId: 182)".to_string(),
             content: VizierRequestContent::Unattended("Summarise merged PRs".to_string()),
             metadata: serde_json::json!({ "timestamp": "2026-10-04T09:00:00Z" }),
@@ -649,6 +692,60 @@ mod tests {
         );
     }
 
+    fn at_known_time(content: VizierRequestContent) -> VizierRequest {
+        VizierRequest {
+            timestamp: "2026-11-07T09:00:00+07:00".parse().unwrap(),
+            user: "alice".into(),
+            content,
+            ..Default::default()
+        }
+    }
+
+    /// Spec 052: every kind of request shows the one time it has, as `sent_at`, local to the
+    /// second, and shows it once.
+    #[test]
+    fn every_request_kind_shows_one_sent_at() {
+        let expected = at_known_time(VizierRequestContent::Chat("hi".into())).timestamp;
+        let expected = expected.to_rfc3339_opts(chrono::SecondsFormat::Secs, false);
+        let kinds = [
+            VizierRequestContent::Chat("hi".into()),
+            VizierRequestContent::Unattended("run".into()),
+        ];
+        for content in kinds {
+            let frontmatter = at_known_time(content).generate_frontmatter().unwrap();
+            assert_eq!(frontmatter.matches("sent_at").count(), 1, "{frontmatter}");
+            assert!(frontmatter.contains(&format!("sent_at: {expected}")), "{frontmatter}");
+        }
+        let scheduled = scheduled().generate_frontmatter().unwrap();
+        assert_eq!(scheduled.matches("sent_at").count(), 1, "{scheduled}");
+    }
+
+    /// A row written before this carries its own UTC `sent_at` (Discord, Telegram) or `timestamp`
+    /// (scheduled runs) in metadata. They are the message's time, which `sent_at` already shows.
+    #[test]
+    fn an_old_rows_own_time_is_not_shown_twice() {
+        let mut old = at_known_time(VizierRequestContent::Chat("hi".into()));
+        old.metadata = serde_json::json!({
+            "sent_at": "2026-11-07 02:00:00 UTC",
+            "timestamp": "2026-11-07T02:00:00Z",
+            "is_dm": true,
+        });
+        let frontmatter = old.generate_frontmatter().unwrap();
+        assert_eq!(frontmatter.matches("sent_at").count(), 1, "{frontmatter}");
+        assert!(!frontmatter.contains("UTC"), "{frontmatter}");
+        assert!(!frontmatter.contains("timestamp"), "{frontmatter}");
+        assert!(frontmatter.contains("is_dm: true"), "other metadata is kept: {frontmatter}");
+        assert!(scheduled().generate_frontmatter().unwrap().find("2026-10-04").is_none());
+    }
+
+    /// The text replayed from history is the same every time it is rebuilt, so a stored message
+    /// never changes a prompt cache's prefix.
+    #[test]
+    fn the_same_request_renders_the_same_text() {
+        let request = at_known_time(VizierRequestContent::Chat("hi".into()));
+        assert_eq!(request.to_prompt().unwrap(), request.to_prompt().unwrap());
+    }
+
     /// An agent's own initiative renders as `self`, which is what `Requester::Agent` maps to.
     #[test]
     fn an_agents_own_initiative_is_requested_by_self() {
@@ -666,7 +763,7 @@ mod tests {
     #[test]
     fn an_interactive_turn_still_names_its_sender() {
         let req = VizierRequest {
-            timestamp: Utc::now(),
+            timestamp: crate::time::now(),
             user: "someone".to_string(),
             content: VizierRequestContent::Chat("hey".to_string()),
             ..Default::default()
@@ -683,7 +780,7 @@ mod tests {
     #[test]
     fn a_background_report_is_sent_by_the_background() {
         let req = VizierRequest {
-            timestamp: Utc::now(),
+            timestamp: crate::time::now(),
             user: "agent-1".to_string(),
             content: VizierRequestContent::BackgroundReport(BackgroundReport {
                 job_id: "b-7f3a9c".to_string(),
@@ -708,7 +805,7 @@ mod tests {
     #[test]
     fn a_dream_request_is_not_attributed_to_the_scheduler() {
         let req = VizierRequest {
-            timestamp: Utc::now(),
+            timestamp: crate::time::now(),
             user: "agent-1".to_string(),
             content: VizierRequestContent::Unattended("extract insights".to_string()),
             ..Default::default()
@@ -721,7 +818,7 @@ mod tests {
 
     fn client_event(source: Option<&str>, data: Option<serde_json::Value>) -> VizierRequest {
         VizierRequest {
-            timestamp: Utc::now(),
+            timestamp: crate::time::now(),
             user: "alice".to_string(),
             content: VizierRequestContent::ClientEvent(ClientEvent {
                 text: "Submitted filters".into(),

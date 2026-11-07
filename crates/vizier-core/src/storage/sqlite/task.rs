@@ -1,32 +1,35 @@
+use crate::storage::sql::params;
 use anyhow::Result;
 
 use crate::{
     schema::{AgentId, Task},
-    storage::{sqlite::SqliteStorage, task::TaskStorage},
+    storage::{sqlite::SqlStorage, task::TaskStorage},
 };
 
 #[async_trait::async_trait]
-impl TaskStorage for SqliteStorage {
+impl TaskStorage for SqlStorage {
     async fn save_task(&self, task: Task) -> Result<()> {
         let id = format!("{}/{}", task.agent_id, task.slug);
         let data = serde_json::to_string(&task)?;
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         conn.execute(
-            "INSERT OR REPLACE INTO task (id, agent_id, slug, is_active, data) VALUES (?1, ?2, ?3, ?4, ?5)",
-            rusqlite::params![id, task.agent_id, task.slug, task.is_active as i32, data],
+            "INSERT INTO task (id, agent_id, slug, is_active, data) VALUES (?1, ?2, ?3, ?4, ?5) \
+             ON CONFLICT (id) DO UPDATE SET agent_id = excluded.agent_id, slug = excluded.slug, \
+             is_active = excluded.is_active, data = excluded.data",
+            params![id, task.agent_id, task.slug, task.is_active as i32, data],
         )?;
         Ok(())
     }
 
     async fn delete_task(&self, agent_id: AgentId, slug: String) -> Result<()> {
         let id = format!("{}/{}", agent_id, slug);
-        let conn = self.conn.lock();
-        conn.execute("DELETE FROM task WHERE id = ?1", rusqlite::params![id])?;
+        let conn = self.conn.lock()?;
+        conn.execute("DELETE FROM task WHERE id = ?1", params![id])?;
         // The task's runs go with it, which is also what stops a new task reusing a
         // freed slug from inheriting the deleted one's history.
         conn.execute(
             "DELETE FROM task_run WHERE agent_id = ?1 AND task_slug = ?2",
-            rusqlite::params![agent_id, slug],
+            params![agent_id, slug],
         )?;
         Ok(())
     }
@@ -36,11 +39,11 @@ impl TaskStorage for SqliteStorage {
         agent_id: Option<AgentId>,
         is_active: Option<bool>,
     ) -> Result<Vec<Task>> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
 
         let mut sql = String::from("SELECT data FROM task");
         let mut conditions: Vec<String> = Vec::new();
-        let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+        let mut params: Vec<Box<dyn crate::storage::sql::ToSql>> = Vec::new();
         let mut idx = 1;
 
         if let Some(ref aid) = agent_id {
@@ -60,10 +63,13 @@ impl TaskStorage for SqliteStorage {
 
         let mut stmt = conn.prepare(&sql)?;
         let tasks: Vec<Task> = stmt
-            .query_map(rusqlite::params_from_iter(params.iter()), |row| {
-                let data: String = row.get(0)?;
-                Ok(data)
-            })?
+            .query_map(
+                crate::storage::sql::params_from_iter(params.iter()),
+                |row| {
+                    let data: String = row.get(0)?;
+                    Ok(data)
+                },
+            )?
             .filter_map(|r| r.ok())
             .filter_map(|data: String| serde_json::from_str::<Task>(&data).ok())
             .collect();
@@ -73,9 +79,9 @@ impl TaskStorage for SqliteStorage {
 
     async fn get_task(&self, agent_id: AgentId, slug: String) -> Result<Option<Task>> {
         let id = format!("{}/{}", agent_id, slug);
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let mut stmt = conn.prepare("SELECT data FROM task WHERE id = ?1")?;
-        let mut rows = stmt.query_map(rusqlite::params![id], |row| {
+        let mut rows = stmt.query_map(params![id], |row| {
             let data: String = row.get(0)?;
             Ok(data)
         })?;

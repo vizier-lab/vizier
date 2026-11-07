@@ -1,3 +1,4 @@
+use crate::time::Timestamp;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::time::Duration;
@@ -5,7 +6,7 @@ use tokio::sync::{Mutex, RwLock};
 
 use crate::llm::types::Message;
 use anyhow::Result;
-use chrono::Utc;
+use chrono::Local;
 use tokio::sync::watch;
 use tokio::task::{AbortHandle, Id as TaskId, JoinHandle, JoinSet};
 
@@ -43,7 +44,7 @@ use crate::{
 /// Requests waiting for the session's running job, each with where its response goes.
 type SessionQueue = VecDeque<(
     VizierRequest,
-    Option<flume::Sender<VizierResponse>>,
+    Option<crate::transport::ResponseSender>,
     TurnRef,
 )>;
 
@@ -77,7 +78,7 @@ async fn abort_session_notify(
     session_queues: &mut HashMap<VizierSession, SessionQueue>,
     storage: &VizierStorage,
     transport: &VizierTransport,
-    response_tx: &Option<flume::Sender<VizierResponse>>,
+    response_tx: &Option<crate::transport::ResponseSender>,
 ) {
     // The aborted turn's own sender hears it too: Discord and Telegram send `/abort` with
     // no sender of their own, and only the turn's renderer can say "thinking aborted".
@@ -103,7 +104,7 @@ async fn abort_session_notify(
         {
             let _ = tx
                 .send_async(VizierResponse {
-                    timestamp: chrono::Utc::now(),
+                    timestamp: crate::time::now(),
                     content: crate::schema::VizierResponseContent::Abort,
                     attachments: vec![],
                     ..Default::default()
@@ -122,7 +123,7 @@ pub async fn agent_process(
     deps: VizierDependencies,
     agent_config: AgentConfig,
     indexer: Option<crate::indexer::VizierIndexer>,
-    recv: flume::Receiver<VizierRequestEnvelope>,
+    recv: crate::transport::Inbox,
     mut shutdown_rx: watch::Receiver<bool>,
     deleting: Arc<std::sync::atomic::AtomicBool>,
 ) -> Result<()> {
@@ -152,7 +153,7 @@ pub async fn agent_process(
                     break;
                 }
             }
-            result = recv.recv_async() => {
+            result = recv.recv_request() => {
                 let Ok(envelope) = result else { break };
                 let session = envelope.session;
                 let request = envelope.request;
@@ -163,7 +164,10 @@ pub async fn agent_process(
                 // A side chat must leave no trace (FR-006): it never creates or titles the
                 // session's detail row, and never touches the conversation itself. The
                 // on-the-record decision lives in one testable predicate (research R2).
-                if records_session_activity(&request.content) {
+                // A Workspace topic is titled by its name, so it never spends a model call on one.
+                if records_session_activity(&request.content)
+                    && !matches!(session.1, VizierChannelId::Workspace(_))
+                {
                     detail_tasks.spawn(refresh_session_detail(
                         agent.clone(),
                         deps.storage.clone(),
@@ -222,7 +226,7 @@ pub async fn agent_process(
                         if let Some(ref tx) = response_tx {
                             let _ = tx
                                 .send_async(VizierResponse {
-                                    timestamp: chrono::Utc::now(),
+                                    timestamp: crate::time::now(),
                                     content: VizierResponseContent::Message {
                                         content: "Dream cycle started.".to_string(),
                                         stats: None,
@@ -383,7 +387,7 @@ fn queue_handover(
     queue: &mut SessionQueue,
     item: (
         VizierRequest,
-        Option<flume::Sender<VizierResponse>>,
+        Option<crate::transport::ResponseSender>,
         TurnRef,
     ),
 ) {
@@ -409,7 +413,7 @@ const TURN_STOP_TIMEOUT: Duration = Duration::from_secs(5);
 /// and whoever sent the request hears why there is no answer.
 async fn notify_turn_stopped(
     session: &VizierSession,
-    response_tx: Option<flume::Sender<VizierResponse>>,
+    response_tx: Option<crate::transport::ResponseSender>,
     thinking_handles: &mut HashMap<VizierSession, Arc<JoinHandle<()>>>,
     storage: &VizierStorage,
 ) {
@@ -427,7 +431,7 @@ async fn notify_turn_stopped(
     if let Some(tx) = response_tx {
         let _ = tx
             .send_async(VizierResponse {
-                timestamp: chrono::Utc::now(),
+                timestamp: crate::time::now(),
                 content: VizierResponseContent::Error {
                     kind: ErrorKind::AgentUnavailable,
                     message: "The agent was updated or stopped while working on this, so the \
@@ -448,7 +452,7 @@ async fn hand_on_queued(
     session_queues: HashMap<VizierSession, SessionQueue>,
     resumed_turns: Vec<(
         VizierSession,
-        Option<flume::Sender<VizierResponse>>,
+        Option<crate::transport::ResponseSender>,
         TurnRef,
     )>,
     deps: &VizierDependencies,
@@ -497,7 +501,7 @@ async fn hand_on_queued(
                 if let Some(tx) = response_tx {
                     let _ = tx
                         .send_async(VizierResponse {
-                            timestamp: chrono::Utc::now(),
+                            timestamp: crate::time::now(),
                             content: VizierResponseContent::Error {
                                 kind: ErrorKind::AgentUnavailable,
                                 message: "The agent was removed before it got to this.".to_string(),
@@ -655,6 +659,15 @@ async fn refresh_session_detail(
         is_thinking: existing.is_thinking,
     };
     if storage.update_session_detail(detail).await.is_ok() {
+        // The person's inbox rows about this conversation named it before it had a title.
+        if let Some(username) = titled_session.1.web_user()
+            && let Ok(Some(user)) = crate::storage::user::UserStorage::get_user(&*storage, username).await
+        {
+            transport.publish_inbox_event(crate::transport::InboxEvent::Stale {
+                user: Some(user.user_id),
+                agent_id: None,
+            });
+        }
         transport.publish_session_event(SessionEvent {
             session: titled_session,
             frame: SessionFrame::Title { title },
@@ -682,7 +695,7 @@ enum TurnOutcome {
 /// A turn whose task has ended, with where its response was going.
 struct FinishedTurn {
     session: VizierSession,
-    response_tx: Option<flume::Sender<VizierResponse>>,
+    response_tx: Option<crate::transport::ResponseSender>,
     turn: TurnRef,
     outcome: TurnOutcome,
     /// Still the session's running turn when it ended. False when `/abort` stopped it, or
@@ -701,7 +714,7 @@ struct SessionTurns {
         TaskId,
         (
             VizierSession,
-            Option<flume::Sender<VizierResponse>>,
+            Option<crate::transport::ResponseSender>,
             TurnRef,
         ),
     >,
@@ -711,7 +724,7 @@ impl SessionTurns {
     fn spawn<F>(
         &mut self,
         session: VizierSession,
-        response_tx: Option<flume::Sender<VizierResponse>>,
+        response_tx: Option<crate::transport::ResponseSender>,
         turn_ref: TurnRef,
         turn: F,
     ) where
@@ -725,7 +738,7 @@ impl SessionTurns {
     }
 
     /// Where the session's running turn sends its response, if it has a turn and a sender.
-    fn response_tx(&self, session: &VizierSession) -> Option<flume::Sender<VizierResponse>> {
+    fn response_tx(&self, session: &VizierSession) -> Option<crate::transport::ResponseSender> {
         let (id, _) = self.running.get(session)?;
         self.spawned.get(id)?.1.clone()
     }
@@ -786,7 +799,7 @@ impl SessionTurns {
         timeout: Duration,
     ) -> Vec<(
         VizierSession,
-        Option<flume::Sender<VizierResponse>>,
+        Option<crate::transport::ResponseSender>,
         TurnRef,
     )> {
         let stopped = self
@@ -812,7 +825,7 @@ impl SessionTurns {
 fn recover_failed_turn(
     session: &VizierSession,
     outcome: TurnOutcome,
-    response_tx: Option<flume::Sender<VizierResponse>>,
+    response_tx: Option<crate::transport::ResponseSender>,
     thinking_handles: &mut HashMap<VizierSession, Arc<JoinHandle<()>>>,
     storage: &VizierStorage,
 ) {
@@ -834,7 +847,7 @@ fn recover_failed_turn(
             let message = "The turn failed with an internal error and was stopped.".to_string();
             let _ = tx
                 .send_async(VizierResponse {
-                    timestamp: chrono::Utc::now(),
+                    timestamp: crate::time::now(),
                     content: VizierResponseContent::Error {
                         kind: ErrorKind::classify(&message),
                         message,
@@ -881,7 +894,7 @@ fn start_session_job(
     jobs: &SessionJobs,
     session: VizierSession,
     request: VizierRequest,
-    response_tx: Option<flume::Sender<VizierResponse>>,
+    response_tx: Option<crate::transport::ResponseSender>,
     turn: TurnRef,
     turns: &mut SessionTurns,
     thinking_handles: &mut HashMap<VizierSession, Arc<JoinHandle<()>>>,
@@ -904,7 +917,7 @@ fn start_session_job(
             if let Some(ref tx) = thinking_response_tx {
                 let _ = tx
                     .send_async(VizierResponse {
-                        timestamp: chrono::Utc::now(),
+                        timestamp: crate::time::now(),
                         content: crate::schema::VizierResponseContent::ThinkingStart,
                         attachments: vec![],
                         ..Default::default()
@@ -979,7 +992,7 @@ fn start_session_job(
                 let err_str = err.to_string();
                 let _ = tx
                     .send_async(VizierResponse {
-                        timestamp: chrono::Utc::now(),
+                        timestamp: crate::time::now(),
                         content: VizierResponseContent::Error {
                             kind: ErrorKind::classify(&err_str),
                             message: err_str,
@@ -1007,11 +1020,11 @@ fn start_session_job(
     });
 }
 
-async fn send_text(response_tx: &Option<flume::Sender<VizierResponse>>, content: String) {
+async fn send_text(response_tx: &Option<crate::transport::ResponseSender>, content: String) {
     if let Some(tx) = response_tx {
         let _ = tx
             .send_async(VizierResponse {
-                timestamp: chrono::Utc::now(),
+                timestamp: crate::time::now(),
                 content: VizierResponseContent::Message {
                     content,
                     stats: None,
@@ -1024,13 +1037,13 @@ async fn send_text(response_tx: &Option<flume::Sender<VizierResponse>>, content:
 }
 
 async fn send_checkpoint(
-    response_tx: &Option<flume::Sender<VizierResponse>>,
+    response_tx: &Option<crate::transport::ResponseSender>,
     handover: Option<String>,
 ) {
     if let Some(tx) = response_tx {
         let _ = tx
             .send_async(VizierResponse {
-                timestamp: chrono::Utc::now(),
+                timestamp: crate::time::now(),
                 content: VizierResponseContent::Checkpoint { handover },
                 attachments: vec![],
                 ..Default::default()
@@ -1045,7 +1058,7 @@ async fn run_checkpoint(
     storage: &VizierStorage,
     transport: &VizierTransport,
     session: &VizierSession,
-    response_tx: &Option<flume::Sender<VizierResponse>>,
+    response_tx: &Option<crate::transport::ResponseSender>,
 ) {
     // Saved when the handover starts, not when the command arrived, so it lands after the
     // turn it waited for.
@@ -1134,7 +1147,7 @@ async fn run_btw(
     storage: Arc<VizierStorage>,
     session: VizierSession,
     request: VizierRequest,
-    response_tx: Option<flume::Sender<VizierResponse>>,
+    response_tx: Option<crate::transport::ResponseSender>,
 ) {
     let answer = match storage
         .list_session_history_until_checkpoint(session.clone(), Some(request.timestamp))
@@ -1155,7 +1168,7 @@ async fn run_btw(
 /// A side-chat failure sent on the response channel: never saved, only classified.
 fn btw_error_response(message: String) -> VizierResponse {
     VizierResponse {
-        timestamp: chrono::Utc::now(),
+        timestamp: crate::time::now(),
         content: VizierResponseContent::Error {
             kind: ErrorKind::classify(&message),
             message,
@@ -1170,7 +1183,7 @@ async fn run_lobotomy(
     storage: &VizierStorage,
     transport: &VizierTransport,
     session: &VizierSession,
-    response_tx: &Option<flume::Sender<VizierResponse>>,
+    response_tx: &Option<crate::transport::ResponseSender>,
 ) {
     // Published like a checkpoint's: the WebUI draws the reset from these entries, and a page
     // watching the conversation has no other copy of them.
@@ -1333,7 +1346,7 @@ async fn record_context_followup(
     storage: &VizierStorage,
     session: &VizierSession,
     agent_id: &str,
-    since: chrono::DateTime<Utc>,
+    since: Timestamp,
     injected: usize,
 ) {
     let Ok(history) = storage
@@ -1402,7 +1415,7 @@ pub async fn handle_request(
     agent_config: AgentConfig,
     session: VizierSession,
     mut request: VizierRequest,
-    response_tx: Option<flume::Sender<VizierResponse>>,
+    response_tx: Option<crate::transport::ResponseSender>,
     storage: Arc<VizierStorage>,
     indexer: Option<crate::indexer::VizierIndexer>,
     deps: &VizierDependencies,
@@ -1457,7 +1470,11 @@ pub async fn handle_request(
             };
 
             let mut invoked = None;
-            if let VizierRequestContent::Chat(text) = &request.content {
+            // A plain Workspace mention is text, not a command: `@a /foo` wakes `a` with `/foo`
+            // as words, and no skill runs (spec 053 R19).
+            if reads_skill_commands(&request.metadata)
+                && let VizierRequestContent::Chat(text) = &request.content
+            {
                 match invocation::parse(text) {
                     Parsed::Plain => {}
                     Parsed::List => {
@@ -1505,6 +1522,24 @@ pub async fn handle_request(
                 }
             }
 
+            // An agent woken in a Workspace first reads what it missed since it last looked, so its
+            // record of the topic is what it would be had it read every message as it came (R2).
+            // A resumed turn already did.
+            if matches!(session.1, VizierChannelId::Workspace(_))
+                && !turn.resumed
+                && let Some(seq) = request.metadata.get("workspace_entry").and_then(|v| v.as_i64())
+            {
+                match crate::workspaces::catch_up::for_activation(&crate::workspaces::Hub::from(deps), &session, seq).await {
+                    Some(Ok(done)) if done.skipped > 0 => {
+                        set_metadata(&mut request.metadata, "workspace_skipped", done.skipped.into());
+                    }
+                    Some(Err(e)) => {
+                        tracing::warn!(agent_id = %session.0, "Workspace catch-up failed: {e}");
+                    }
+                    _ => {}
+                }
+            }
+
             let prompt = chat_turn_prompt(&request.content, invoked.as_ref())
                 .ok_or_else(|| anyhow::anyhow!("a {} request has no prompt to start a turn with", request.content.kind()))?;
             // A report is a poor retrieval query — it is mostly other turns' answers — so it
@@ -1531,7 +1566,7 @@ pub async fn handle_request(
             )
             .await;
             let injected_context = (!memory.is_empty()).then_some(memory.len());
-            let turn_start = Utc::now();
+            let turn_start = crate::time::now();
             let skills = agent.recommend_skills(&prompt).await.unwrap_or_default();
             // A WebUI reply is news for the person whose conversation it is. A woken
             // background report already has its own job notification, so it is left out.
@@ -1602,7 +1637,7 @@ pub async fn handle_request(
             )
             .await;
             let injected_context = (!memory.is_empty()).then_some(memory.len());
-            let turn_start = Utc::now();
+            let turn_start = crate::time::now();
             let skills = agent.recommend_skills(&prompt).await.unwrap_or_default();
             let res = agent
                 .chat(
@@ -1630,7 +1665,7 @@ pub async fn handle_request(
         | VizierRequestContent::Unattended(_) => {
             let res = match &session.1 {
                 VizierChannelId::Dream(dream_session, stage) => {
-                    let dream_start = Utc::now();
+                    let dream_start = crate::time::now();
                     match stage {
                         DreamStage::Extraction => {
                             let end = request.timestamp;
@@ -1777,7 +1812,7 @@ async fn answer_directly(
     transport: &VizierTransport,
     session: &VizierSession,
     mut request: VizierRequest,
-    response_tx: &Option<flume::Sender<VizierResponse>>,
+    response_tx: &Option<crate::transport::ResponseSender>,
     content: String,
 ) -> Result<()> {
     request.attachments.clear();
@@ -1791,7 +1826,7 @@ async fn answer_directly(
     )
     .await;
     let mut response = VizierResponse {
-        timestamp: Utc::now(),
+        timestamp: crate::time::now(),
         content: VizierResponseContent::Message {
             content,
             stats: None,
@@ -1813,6 +1848,12 @@ async fn answer_directly(
         let _ = tx.send_async(response).await;
     }
     Ok(())
+}
+
+/// Whether `/name` and `/skills` in a `Chat` are read as commands. A Workspace marks a plain
+/// mention so that text starting with `/` stays text.
+fn reads_skill_commands(metadata: &serde_json::Value) -> bool {
+    !metadata.get("workspace_plain").and_then(|v| v.as_bool()).unwrap_or(false)
 }
 
 fn set_metadata(metadata: &mut serde_json::Value, key: &str, value: serde_json::Value) {
@@ -1881,7 +1922,7 @@ async fn save_dream_entry(
     source_sessions: Vec<String>,
     session_context: Option<String>,
     agent_config: &AgentConfig,
-    start_time: chrono::DateTime<Utc>,
+    start_time: Timestamp,
     stage: DreamStage,
     response: &VizierResponse,
 ) {
@@ -1894,7 +1935,7 @@ async fn save_dream_entry(
         return;
     }
 
-    let now = Utc::now();
+    let now = crate::time::now();
     let duration_ms = (now - start_time).num_milliseconds().max(0) as u64;
 
     let entry = DreamJournalEntry {
@@ -2154,7 +2195,7 @@ mod session_turns_tests {
     #[tokio::test]
     async fn a_panicking_turn_still_frees_its_session_and_returns_its_sender() {
         let mut turns = SessionTurns::default();
-        let (tx, _rx) = flume::unbounded();
+        let (tx, _rx) = crate::transport::standalone_reply_channel().await;
         turns.spawn(session("a"), Some(tx), TurnRef::default(), async {
             panic!("turn blew up")
         });
@@ -2229,7 +2270,7 @@ mod session_turns_tests {
     #[tokio::test]
     async fn stop_all_ends_every_turn_and_returns_the_running_ones() {
         let mut turns = SessionTurns::default();
-        let (tx, _rx) = flume::unbounded();
+        let (tx, _rx) = crate::transport::standalone_reply_channel().await;
         let (dropped_tx, dropped) = oneshot::channel::<()>();
         turns.spawn(session("a"), Some(tx), TurnRef::default(), async move {
             let _keep = dropped_tx;
@@ -2521,7 +2562,7 @@ mod btw_tests {
                 &[agent_id.to_string()],
                 chrono::DateTime::parse_from_rfc3339("2000-01-01T00:00:00Z")
                     .unwrap()
-                    .with_timezone(&Utc),
+                    .with_timezone(&Local),
             )
             .await
             .unwrap()
@@ -2549,7 +2590,7 @@ mod btw_tests {
         let (agent, storage, session, _dir) =
             setup(ScriptedSideChat::text(vec![AssistantPart::Text("aside answer".into())])).await;
 
-        let (tx, rx) = flume::bounded(1);
+        let (tx, rx) = crate::transport::standalone_reply_channel().await;
         run_btw(
             agent.clone(),
             storage.clone(),
@@ -2584,7 +2625,7 @@ mod btw_tests {
     async fn a_tool_call_answer_becomes_the_no_tools_notice() {
         let (agent, storage, session, _dir) = setup(ScriptedSideChat::tool_call()).await;
 
-        let (tx, rx) = flume::bounded(1);
+        let (tx, rx) = crate::transport::standalone_reply_channel().await;
         run_btw(
             agent,
             storage.clone(),
@@ -2607,7 +2648,7 @@ mod btw_tests {
 
         let detail_before = detail_at(&storage, &session).await;
 
-        let (tx, rx) = flume::bounded(1);
+        let (tx, rx) = crate::transport::standalone_reply_channel().await;
         run_btw(
             agent,
             storage.clone(),
@@ -2634,7 +2675,7 @@ mod btw_tests {
         let (agent, storage, session, _dir) =
             setup(ScriptedSideChat::text(vec![AssistantPart::Text("aside answer".into())])).await;
 
-        let (tx, rx) = flume::bounded(1);
+        let (tx, rx) = crate::transport::standalone_reply_channel().await;
         run_btw(
             agent,
             storage.clone(),
@@ -2660,7 +2701,7 @@ mod btw_tests {
         let model = ScriptedSideChat::text(vec![AssistantPart::Text("aside answer".into())]);
         let (agent, storage, session, _dir) = setup(model.clone()).await;
 
-        let (tx, rx) = flume::bounded(1);
+        let (tx, rx) = crate::transport::standalone_reply_channel().await;
         run_btw(
             agent,
             storage.clone(),
@@ -2740,5 +2781,22 @@ mod btw_tests {
         ] {
             assert_eq!(chat_turn_prompt(&content, None), None, "{content:?}");
         }
+    }
+}
+
+#[cfg(test)]
+mod workspace_tests {
+    use super::reads_skill_commands;
+
+    #[test]
+    fn a_plain_workspace_mention_reads_no_skill_commands() {
+        assert!(!reads_skill_commands(&serde_json::json!({ "workspace_plain": true })));
+    }
+
+    #[test]
+    fn every_other_request_still_does() {
+        assert!(reads_skill_commands(&serde_json::json!({})));
+        assert!(reads_skill_commands(&serde_json::json!({ "workspace_plain": false })));
+        assert!(reads_skill_commands(&serde_json::json!({ "workspace_entry": 4 })));
     }
 }

@@ -93,7 +93,8 @@ mod tests {
         };
         let (connection, _rx) = ClientConnection::for_tests();
         let binding = ClientBinding {
-            connection,
+            node: "local".into(),
+            connection_id: connection.id.clone(),
             tools: vec![tool("ui_render", "ui"), tool("pick_color", "palette"), tool("x", "memory")],
             categories: vec![ClientCategoryDeclaration {
                 name: "ui".into(),
@@ -102,6 +103,7 @@ mod tests {
         };
         let client = ClientTools::resolve(
             &binding,
+            connection.clone(),
             &[],
             &[],
             crate::schema::VizierSession("a".into(), crate::schema::VizierChannelId::System, None),

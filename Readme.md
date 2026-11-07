@@ -55,13 +55,33 @@ Images: `blinfoldking/vizier` (Docker Hub, recommended) and `ghcr.io/vizier-lab/
 | `VIZIER_CONFIG` | Path to a `.vizier.yaml` to load (env overrides still apply on top) | unset |
 | `VIZIER_DATA_DIR` / `VIZIER_WORKSPACE` | Data directory — mount a volume | `$HOME/.vizier` |
 | `VIZIER_PORT` | HTTP port | `9999` |
-| `VIZIER_STORAGE` | `sqlite` (only value; a legacy `filesystem` deployment is auto-migrated on first start) | `sqlite` |
+| `VIZIER_STORAGE` | `sqlite` (default) or `postgres` using `VIZIER_DATABASE_URL` | `sqlite` |
+| `VIZIER_OBJECTS` | `local` (default) or `s3` using `VIZIER_S3_*` | `local` |
 | `VIZIER_WORKERS` | Tokio worker threads | `4` |
 | `VIZIER_WS_IDLE_TIMEOUT` | WebSocket idle timeout (s) | `300` |
+| `VIZIER_SHUTDOWN_GRACE` | Maximum graceful shutdown drain (s) | `30` |
 | `VIZIER_JWT_SECRET` | JWT signing secret — **set a strong value** | `vizier-default-secret-change-me` |
 | `VIZIER_EXTRA_ARGS` | Extra CLI args appended to `vizier run` | unset |
 
 Any first argument other than `run` (`shutdown`, `agent ps`, `skill …`) is passed straight through.
+
+### Kubernetes
+
+Each release publishes a matching Helm chart to
+`oci://ghcr.io/vizier-lab/charts/vizier`. It installs one non-root Vizier
+replica with embedded PVC storage by default or external PostgreSQL/S3:
+
+```sh
+helm install vizier oci://ghcr.io/vizier-lab/charts/vizier \
+  --version "$VERSION" --namespace vizier --create-namespace \
+  --set secrets.jwt.name=vizier-runtime \
+  --set secrets.jwt.key=jwt-secret
+```
+
+Create the referenced Secret first. See the
+[Kubernetes deployment guide](docs/src/deployment/kubernetes.md) for managed
+storage, ingress/WebSockets, upgrades, backups, and removal.
+
 
 ## Configuration model
 
@@ -83,7 +103,7 @@ Resolution order: `-c <path>` → `$VIZIER_CONFIG` → `./.vizier.yaml` → buil
 
 | Command | Description |
 |---------|-------------|
-| `vizier run [-c <path>] [-d] [--port] [--data-dir] [--storage sqlite] [--workers] [--ws-idle-timeout]` | Start agents, scheduler, channels, and the API/WebUI (`-d` daemonizes) |
+| `vizier run [-c <path>] [-d] [--port] [--data-dir] [--storage sqlite\|postgres] [--objects local\|s3] [--workers] [--ws-idle-timeout] [--shutdown-grace]` | Start agents, scheduler, channels, and the API/WebUI (`-d` daemonizes) |
 | `vizier shutdown [-c <path>]` | Stop a running instance via its command socket |
 | `vizier onboard [-p <path>]` | Interactive wizard that writes a seed `.vizier.yaml` |
 | `vizier agent ps` | List running agents and their status |

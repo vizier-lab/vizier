@@ -62,7 +62,7 @@ impl Drop for Dummyplug {
 }
 
 fn request(text: &str) -> Value {
-    json!({ "timestamp": chrono::Utc::now(), "user": "olive", "content": { "chat": text }, "metadata": {} })
+    json!({ "timestamp": vizier_core::time::now(), "user": "olive", "content": { "chat": text }, "metadata": {} })
 }
 
 /// The frame kinds of a turn, in order: the top-level key of each frame, or its `type`.
@@ -97,7 +97,10 @@ async fn a_turn_looks_the_same_over_the_socket_and_the_dispatcher() {
     http.jwt_secret = "topic-secret".into();
     http.port = port as u32;
     http.host = Some("127.0.0.1".into());
-    let runtime = VizierRuntime::start(RuntimeOptions { config }).await.unwrap();
+    let runtime = VizierRuntime::start(RuntimeOptions {
+        config,
+        ..Default::default()
+    }).await.unwrap();
     let storage = runtime.deps().storage.clone();
     let http_cfg = runtime.deps().config.channels.http.clone().unwrap();
 

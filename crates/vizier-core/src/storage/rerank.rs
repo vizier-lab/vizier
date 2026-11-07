@@ -1,3 +1,4 @@
+use crate::time::Timestamp;
 use std::collections::HashMap;
 
 use crate::schema::{Memory, MemoryPassageResult};
@@ -82,7 +83,7 @@ fn ranks_by_desc<T, K: PartialOrd, F: Fn(&T) -> K>(items: &[T], key: F) -> Vec<f
 /// What a passage's source document contributes to the blend: link count, recency, read count.
 /// Passages themselves carry only the similarity signal.
 pub struct SourceSignals {
-    pub updated_at: chrono::DateTime<chrono::Utc>,
+    pub updated_at: Timestamp,
     pub read_count: u64,
 }
 
@@ -172,11 +173,11 @@ mod tests {
         }
     }
 
-    /// A fixed epoch, so `days_ago` is the only thing that varies. Deriving from `Utc::now()`
+    /// A fixed epoch, so `days_ago` is the only thing that varies. Deriving from `crate::time::now()`
     /// per call made every candidate differ by nanoseconds, which is a recency signal the test did
     /// not mean to set.
     fn signals(days_ago: i64, read_count: u64) -> SourceSignals {
-        let epoch = chrono::DateTime::from_timestamp(1_700_000_000, 0)
+        let epoch = crate::time::from_secs_opt(1_700_000_000, 0)
             .expect("fixed epoch is valid");
         SourceSignals {
             updated_at: epoch - chrono::Duration::days(days_ago),

@@ -3,8 +3,9 @@
 //! Metadata, references and events are in SQLite; the bytes are on disk. Every mutation takes
 //! the event it records so the row change and its event share one transaction.
 
+use crate::time::Timestamp;
 use anyhow::Result;
-use chrono::{DateTime, Utc};
+
 
 use crate::schema::{
     Artifact, ArtifactCursor, ArtifactEvent, ArtifactFilters, ArtifactKind, ArtifactPage,
@@ -34,7 +35,7 @@ pub trait ArtifactStorage {
         mime_type: &str,
         kind: ArtifactKind,
         source_filename: &str,
-        updated_at: DateTime<Utc>,
+        updated_at: Timestamp,
         event: &ArtifactEvent,
     ) -> Result<Artifact>;
 
@@ -74,9 +75,9 @@ pub trait ArtifactStorage {
 
     async fn delete_agent_artifact_data(&self, agent_id: &str) -> Result<()>;
 
-    /// Synchronous because model-part conversion (`to_part`) and `FileManager::resolve` are
-    /// synchronous. One indexed read under the existing connection lock.
-    fn artifact_content_file(&self, agent_id: &str, id: &str) -> Result<Option<String>>;
+    /// The current content file name (`content.v<n>`) of an artifact, `None` when the row is
+    /// gone. The bytes are read from the `BlobStore` by `Artifacts`.
+    async fn artifact_content_file(&self, agent_id: &str, id: &str) -> Result<Option<String>>;
 }
 
 #[async_trait::async_trait]
@@ -111,7 +112,7 @@ impl ArtifactStorage for crate::storage::VizierStorage {
         mime_type: &str,
         kind: ArtifactKind,
         source_filename: &str,
-        updated_at: DateTime<Utc>,
+        updated_at: Timestamp,
         event: &ArtifactEvent,
     ) -> Result<Artifact> {
         self.0
@@ -192,7 +193,7 @@ impl ArtifactStorage for crate::storage::VizierStorage {
         self.0.delete_agent_artifact_data(agent_id).await
     }
 
-    fn artifact_content_file(&self, agent_id: &str, id: &str) -> Result<Option<String>> {
-        self.0.artifact_content_file(agent_id, id)
+    async fn artifact_content_file(&self, agent_id: &str, id: &str) -> Result<Option<String>> {
+        self.0.artifact_content_file(agent_id, id).await
     }
 }

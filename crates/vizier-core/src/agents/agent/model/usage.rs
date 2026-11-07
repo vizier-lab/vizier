@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use chrono::Utc;
+
 
 use crate::{
     schema::{AgentId, VizierSession, usage::UsageActivity},
@@ -131,9 +131,16 @@ impl Drop for TurnGuard {
         let Ok(handle) = tokio::runtime::Handle::try_current() else {
             return;
         };
-        let (turn, agent_id, storage) = (self.turn.clone(), self.agent_id.clone(), self.storage.clone());
+        let (turn, agent_id, storage) = (
+            self.turn.clone(),
+            self.agent_id.clone(),
+            self.storage.clone(),
+        );
         handle.spawn(async move {
-            if let Err(e) = storage.record_failed_turn(&turn, &agent_id, Utc::now()).await {
+            if let Err(e) = storage
+                .record_failed_turn(&turn, &agent_id, crate::time::now())
+                .await
+            {
                 tracing::warn!(agent_id = %agent_id, "failed to record a failed turn's usage: {e}");
             }
         });
@@ -142,32 +149,34 @@ impl Drop for TurnGuard {
 
 #[cfg(test)]
 mod tests {
-    use parking_lot::Mutex;
     use rusqlite::Connection;
 
-    use super::*;
-    use crate::storage::{document::LocalDocumentStore, sqlite::SqliteStorage};
+    use crate::storage::sql::SqlStore;
 
-    fn storage() -> (Arc<VizierStorage>, Arc<Mutex<Connection>>, tempfile::TempDir) {
+    use super::*;
+    use crate::storage::{document::BlobDocumentStore, sqlite::SqlStorage};
+
+    fn storage() -> (Arc<VizierStorage>, SqlStore, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
         let conn = Connection::open_in_memory().unwrap();
         crate::storage::sqlite::init_usage_schema(&conn).unwrap();
-        let conn = Arc::new(Mutex::new(conn));
-        let storage = VizierStorage::new(SqliteStorage::new(
+        let conn = SqlStore::sqlite(conn);
+        let storage = VizierStorage::new(SqlStorage::new(
             conn.clone(),
-            Arc::new(LocalDocumentStore::new(dir.path().to_path_buf())),
+            Arc::new(BlobDocumentStore::local(dir.path().to_path_buf())),
         ));
         (Arc::new(storage), conn, dir)
     }
 
-    fn failed_turns(conn: &Mutex<Connection>) -> i64 {
+    fn failed_turns(conn: &SqlStore) -> i64 {
         conn.lock()
+            .unwrap()
             .query_row("SELECT COUNT(*) FROM usage_failed_turn", [], |r| r.get(0))
             .unwrap()
     }
 
     /// The spawned write needs a moment on the runtime; yield until it lands or give up.
-    async fn settle(conn: &Mutex<Connection>, want: i64) -> i64 {
+    async fn settle(conn: &SqlStore, want: i64) -> i64 {
         for _ in 0..50 {
             if failed_turns(conn) == want {
                 break;
@@ -196,12 +205,21 @@ mod tests {
         use crate::schema::VizierChannelId;
         let task = Some(VizierSession(
             "a".into(),
-            VizierChannelId::Task("t".into(), Utc::now()),
+            VizierChannelId::Task("t".into(), crate::time::now()),
             None,
         ));
-        assert_eq!(UsageScope::turn(task.clone(), &TurnId::new(), 1).activity(), UsageActivity::Scheduled);
-        assert_eq!(UsageScope::handover(task.clone()).activity(), UsageActivity::Compaction);
+        assert_eq!(
+            UsageScope::turn(task.clone(), &TurnId::new(), 1).activity(),
+            UsageActivity::Scheduled
+        );
+        assert_eq!(
+            UsageScope::handover(task.clone()).activity(),
+            UsageActivity::Compaction
+        );
         assert_eq!(UsageScope::vision(task).activity(), UsageActivity::Vision);
-        assert_eq!(UsageScope::turn(None, &TurnId::new(), 1).activity(), UsageActivity::Other);
+        assert_eq!(
+            UsageScope::turn(None, &TurnId::new(), 1).activity(),
+            UsageActivity::Other
+        );
     }
 }

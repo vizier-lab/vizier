@@ -15,7 +15,7 @@ pub mod tools;
 
 use crate::{
     config::{
-        storage::StorageConfig,
+        storage::{ObjectsConfig, StorageConfig},
     },
     constant,
 };
@@ -160,12 +160,38 @@ pub struct VizierConfig {
     #[serde(default, skip_serializing)]
     pub providers: Option<serde_yaml::Value>,
     pub storage: StorageConfig,
+    /// Where file bytes live (spec 045); local workspace files unless configured.
+    #[serde(default)]
+    pub objects: ObjectsConfig,
     pub channels: ChannelsConfig,
     #[serde(default = "default_worker_threads")]
     pub worker_threads: usize,
     /// The model catalogue's lazy refresh (spec 015, data-model §10).
     #[serde(default)]
     pub catalogue: CatalogueConfig,
+    /// Language servers for project chats (spec 054).
+    #[serde(default)]
+    pub lsp: LspConfig,
+}
+
+/// Language servers in project chats (`specs/054-project-lsp`).
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct LspConfig {
+    /// Most servers running at once, instance-wide. The least recently used one stops first.
+    #[serde(default = "default_lsp_max_servers")]
+    pub max_servers: usize,
+}
+
+fn default_lsp_max_servers() -> usize {
+    6
+}
+
+impl Default for LspConfig {
+    fn default() -> Self {
+        Self {
+            max_servers: default_lsp_max_servers(),
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -217,6 +243,7 @@ pub struct RunOverrides {
     pub workspace: Option<PathBuf>,
     pub port: Option<u32>,
     pub storage: Option<StorageConfig>,
+    pub objects: Option<ObjectsConfig>,
     pub workers: Option<usize>,
     pub ws_idle_timeout: Option<u64>,
     pub catalogue_refresh: Option<bool>,
@@ -294,6 +321,9 @@ impl VizierConfig {
         if let Some(ref s) = overrides.storage {
             self.storage = s.clone();
         }
+        if let Some(o) = &overrides.objects {
+            self.objects = o.clone();
+        }
         if let Some(w) = overrides.workers {
             self.worker_threads = w;
         }
@@ -326,12 +356,14 @@ impl Default for VizierConfig {
         VizierConfig {
             workspace: String::new(),
             storage: StorageConfig::Sqlite,
+            objects: ObjectsConfig::Local,
             providers: None,
             channels: ChannelsConfig {
                 http: Some(default_http_channel()),
             },
             worker_threads: 4,
             catalogue: CatalogueConfig::default(),
+            lsp: LspConfig::default(),
         }
     }
 }
@@ -384,5 +416,18 @@ mod memory_limits_tests {
         // An agent config saved before this existed must load unchanged.
         let limits: MemoryLimits = serde_yaml::from_str("{}").unwrap();
         assert_eq!(limits, MemoryLimits::default());
+    }
+}
+
+#[cfg(test)]
+mod lsp_config_tests {
+    use super::*;
+
+    #[test]
+    fn a_config_without_the_section_gets_the_default() {
+        let lsp: LspConfig = serde_yaml::from_str("{}").unwrap();
+        assert_eq!(lsp.max_servers, 6);
+        let set: LspConfig = serde_yaml::from_str("max_servers: 2").unwrap();
+        assert_eq!(set.max_servers, 2);
     }
 }

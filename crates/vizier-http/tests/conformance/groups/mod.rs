@@ -14,6 +14,7 @@ mod projects;
 mod providers;
 mod tasks;
 mod topics;
+mod workspaces;
 
 pub fn all() -> Vec<Vector> {
     let mut all = vec![
@@ -38,5 +39,6 @@ pub fn all() -> Vec<Vector> {
     all.extend(providers::vectors());
     all.extend(tasks::vectors());
     all.extend(topics::vectors());
+    all.extend(workspaces::vectors());
     all
 }

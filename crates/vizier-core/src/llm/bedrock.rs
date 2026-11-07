@@ -86,6 +86,159 @@ pub fn valid_region(region: &str) -> bool {
         })
 }
 
+/// Which of AWS's two inference-profile resource types an ARN names (research D11).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProfileResource {
+    /// `inference-profile`: the system-defined profile AWS maintains.
+    System,
+    /// `application-inference-profile`: the profile a person creates in the console.
+    Application,
+}
+
+impl ProfileResource {
+    /// The resource type as it appears in the ARN.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ProfileResource::System => "inference-profile",
+            ProfileResource::Application => "application-inference-profile",
+        }
+    }
+}
+
+/// The partitions an inference profile may live in (FR-023).
+pub const ARN_PARTITIONS: [&str; 5] = ["aws", "aws-cn", "aws-us-gov", "aws-iso", "aws-iso-b"];
+
+/// A value that parsed as
+/// `arn:{partition}:bedrock:{region}:{account}:{resource}/{profile-id}`
+/// (contract `bedrock-sso-wire.md` §6, FR-023).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InferenceProfileArn {
+    /// One of [`ARN_PARTITIONS`].
+    pub partition: String,
+    /// The region segment, checked by [`valid_region`]; FR-024 compares it with the connection's.
+    pub region: String,
+    /// The 12-digit account segment.
+    pub account: String,
+    /// Which of the two resource types the ARN names.
+    pub resource: ProfileResource,
+    /// The profile identifier, used as an entry's display name when none was given (FR-026).
+    pub id: String,
+    /// The value trimmed once: what is sent to the runtime, unchanged (FR-027).
+    pub raw: String,
+}
+
+/// Why a value is not an inference-profile ARN; every message names the expected shape
+/// (FR-023, SC-008).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ArnError {
+    /// The literal `arn:` prefix is missing (a console URL, a bare model id).
+    NotArn,
+    /// Fewer than the six colon-separated segments the grammar has.
+    Incomplete,
+    /// The partition segment is not one of AWS's five.
+    Partition(String),
+    /// The service segment is not `bedrock`.
+    Service(String),
+    /// The region segment is not an AWS region.
+    Region(String),
+    /// The account segment is not 12 digits.
+    Account(String),
+    /// The resource segment is neither inference-profile type.
+    Resource(String),
+    /// The profile-id segment is empty or outside `[A-Za-z0-9.:-]`.
+    NoProfileId,
+}
+
+impl std::fmt::Display for ArnError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ArnError::NotArn => write!(f, "an inference profile ARN starts with \"arn:\""),
+            ArnError::Incomplete => write!(
+                f,
+                "an inference profile ARN has the form \
+                 arn:{{partition}}:bedrock:{{region}}:{{account}}:{{resource}}/{{profile-id}}"
+            ),
+            ArnError::Partition(p) => write!(
+                f,
+                "unsupported ARN partition \"{p}\": expected aws, aws-cn, aws-us-gov, aws-iso or aws-iso-b"
+            ),
+            ArnError::Service(s) => write!(
+                f,
+                "\"{s}\" is not a Bedrock ARN: the service segment must be \"bedrock\""
+            ),
+            ArnError::Region(r) => write!(f, "\"{r}\" is not an AWS region"),
+            ArnError::Account(a) => {
+                write!(
+                    f,
+                    "the ARN's account segment must be 12 digits, not \"{a}\""
+                )
+            }
+            ArnError::Resource(r) => write!(
+                f,
+                "an inference profile ARN names \"inference-profile\" or \
+                 \"application-inference-profile\", not \"{r}\""
+            ),
+            ArnError::NoProfileId => write!(f, "the ARN names no profile id"),
+        }
+    }
+}
+
+impl std::error::Error for ArnError {}
+
+/// Parse an inference-profile ARN. Pure: no AWS call and no credential (research D11).
+///
+/// The value is trimmed once, so a copy out of the console's table is accepted; an internal
+/// space still fails its segment rule. Both resource types are accepted on equal footing and
+/// neither is rewritten, because the ARN is sent to the runtime exactly as saved (FR-023,
+/// FR-027).
+pub fn parse_inference_profile_arn(raw: &str) -> Result<InferenceProfileArn, ArnError> {
+    let value = raw.trim();
+    let rest = value.strip_prefix("arn:").ok_or(ArnError::NotArn)?;
+    let mut segments = rest.splitn(5, ':');
+    let partition = segments.next().unwrap_or_default();
+    let service = segments.next().ok_or(ArnError::Incomplete)?;
+    let region = segments.next().ok_or(ArnError::Incomplete)?;
+    let account = segments.next().ok_or(ArnError::Incomplete)?;
+    let tail = segments.next().ok_or(ArnError::Incomplete)?;
+
+    if !ARN_PARTITIONS.contains(&partition) {
+        return Err(ArnError::Partition(partition.to_string()));
+    }
+    if service != SERVICE {
+        return Err(ArnError::Service(service.to_string()));
+    }
+    if !valid_region(region) {
+        return Err(ArnError::Region(region.to_string()));
+    }
+    if account.len() != 12 || !account.bytes().all(|b| b.is_ascii_digit()) {
+        return Err(ArnError::Account(account.to_string()));
+    }
+    // The resource segment is compared as a whole: the application form is never read as the
+    // system form with an odd id.
+    let (resource, id) = tail.split_once('/').unwrap_or((tail, ""));
+    let resource = match resource {
+        "inference-profile" => ProfileResource::System,
+        "application-inference-profile" => ProfileResource::Application,
+        other => return Err(ArnError::Resource(other.to_string())),
+    };
+    if id.is_empty()
+        || !id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b':' | b'-'))
+    {
+        return Err(ArnError::NoProfileId);
+    }
+
+    Ok(InferenceProfileArn {
+        partition: partition.to_string(),
+        region: region.to_string(),
+        account: account.to_string(),
+        resource,
+        id: id.to_string(),
+        raw: value.to_string(),
+    })
+}
+
 /// Count the `modelSummaries` in a `ListFoundationModels` reply.
 pub fn count_foundation_models(body: &Value) -> Result<usize, LlmError> {
     body.get("modelSummaries")
@@ -219,7 +372,158 @@ mod tests {
         }
     }
 
+    // ---- Inference-profile ARNs (FR-023, FR-024, SC-008) ----
+
+    /// SC-008: both AWS resource types, in all five partitions, parse on equal footing and each
+    /// segment is returned as it was written.
     #[test]
+    fn both_resource_types_parse_in_every_partition() {
+        for (partition, region) in [
+            ("aws", "us-east-1"),
+            ("aws-cn", "cn-north-1"),
+            ("aws-us-gov", "us-gov-west-1"),
+            ("aws-iso", "us-iso-east-1"),
+            ("aws-iso-b", "us-isob-east-1"),
+        ] {
+            for (resource, id) in [
+                (ProfileResource::Application, "abc123def456"),
+                (
+                    ProfileResource::System,
+                    "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+                ),
+            ] {
+                let raw = format!(
+                    "arn:{partition}:bedrock:{region}:123456789012:{}/{id}",
+                    resource.as_str()
+                );
+                let arn =
+                    parse_inference_profile_arn(&raw).unwrap_or_else(|e| panic!("{raw}: {e}"));
+                assert_eq!(arn.partition, partition);
+                assert_eq!(arn.region, region, "{raw}");
+                assert_eq!(arn.account, "123456789012");
+                assert_eq!(arn.resource, resource);
+                assert_eq!(arn.id, id);
+                assert_eq!(arn.raw, raw);
+            }
+        }
+    }
+
+    /// FR-024 compares the connection's region with the ARN's own segment, so the parser returns
+    /// that segment and nothing derived from it.
+    #[test]
+    fn the_parsed_region_is_the_arn_segment() {
+        let arn = parse_inference_profile_arn(
+            "arn:aws-us-gov:bedrock:us-gov-east-1:123456789012:application-inference-profile/x1:0",
+        )
+        .unwrap();
+        assert_eq!(arn.partition, "aws-us-gov");
+        assert_eq!(arn.region, "us-gov-east-1");
+        assert_eq!(arn.resource, ProfileResource::Application);
+        assert_eq!(arn.id, "x1:0");
+    }
+
+    /// A copy out of the console's table carries padding: trimmed once, then parsed (contract §6).
+    #[test]
+    fn surrounding_padding_is_trimmed_once() {
+        let padded =
+            "\t arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/abc123 \n";
+        let arn = parse_inference_profile_arn(padded).unwrap();
+        assert_eq!(
+            arn.raw,
+            "arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/abc123"
+        );
+        assert_eq!(arn.id, "abc123");
+    }
+
+    /// Every refusal names the expected shape (FR-023, SC-008): a foundation-model ARN, another
+    /// service's ARN, a bare model id, a truncated ARN, a console URL, and padding inside a
+    /// segment.
+    #[test]
+    fn non_inference_profile_arn_values_are_refused() {
+        for (value, expected) in [
+            (
+                "arn:aws:bedrock:us-east-1:123456789012:foundation-model/anthropic.claude-3-5-sonnet-20241022-v2:0",
+                "an inference profile ARN names \"inference-profile\" or \"application-inference-profile\"",
+            ),
+            (
+                "arn:aws:bedrock:us-east-1:123456789012:inference-profile-v2/x",
+                "an inference profile ARN names",
+            ),
+            (
+                "arn:aws:s3:us-east-1:123456789012:inference-profile/x",
+                "is not a Bedrock ARN",
+            ),
+            (
+                "arn:aws:bedrock-runtime:us-east-1:123456789012:application-inference-profile/x",
+                "is not a Bedrock ARN",
+            ),
+            (
+                "anthropic.claude-sonnet-4-5-20250929-v1:0",
+                "starts with \"arn:\"",
+            ),
+            (
+                "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+                "starts with \"arn:\"",
+            ),
+            (
+                "arn:aws:bedrock:us-east-1:123456789012:inference-profile",
+                "names no profile id",
+            ),
+            (
+                "arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/",
+                "names no profile id",
+            ),
+            (
+                "arn:aws:bedrock:us-east-1:123456789012:inference-profile/a/b",
+                "names no profile id",
+            ),
+            ("arn:aws:bedrock:us-east-1:123456789012", "has the form"),
+            (
+                "arn:aws:bedrock:us-east-1:123456789012:",
+                "an inference profile ARN names",
+            ),
+            (
+                "https://console.aws.amazon.com/bedrock/home?region=us-east-1#/inference-profiles",
+                "starts with \"arn:\"",
+            ),
+            ("", "starts with \"arn:\""),
+            (
+                "arn:aws-iso-e:bedrock:us-iso-east-1:123456789012:inference-profile/x",
+                "unsupported ARN partition \"aws-iso-e\"",
+            ),
+            (
+                "arn:aws:bedrock: us-east-1:123456789012:inference-profile/x",
+                "is not an AWS region",
+            ),
+            (
+                "arn:aws:bedrock:us-east:123456789012:inference-profile/x",
+                "is not an AWS region",
+            ),
+            (
+                "arn:aws:bedrock:us-east-1:12345678901:inference-profile/x",
+                "must be 12 digits",
+            ),
+            (
+                "arn:aws:bedrock:us-east-1: 123456789012:inference-profile/x",
+                "must be 12 digits",
+            ),
+            (
+                "arn:aws:bedrock:us-east-1:123456789012:inference-profile/ x",
+                "names no profile id",
+            ),
+            (
+                "arn:aws:bedrock:us-east-1:123456789012:inference-profile/x y",
+                "names no profile id",
+            ),
+        ] {
+            let err = parse_inference_profile_arn(value).unwrap_err();
+            assert!(
+                err.to_string().contains(expected),
+                "{value:?} gave {err:?}, which does not name {expected:?}"
+            );
+        }
+    }
+
     fn the_listing_counts_the_models() {
         assert_eq!(
             count_foundation_models(&json!({"modelSummaries": [{}, {}, {}]})).unwrap(),

@@ -1,7 +1,7 @@
 use anyhow::Result;
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
-use tokio::sync::{oneshot, watch};
+use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::{JoinHandle, JoinSet};
 
 use crate::agents::supervisor::{AgentStatus, BuiltAgent, CurrentAgent, SharedStatus, Supervisor};
@@ -27,6 +27,8 @@ pub mod client;
 pub mod hook;
 pub mod mcp;
 pub mod memory_ops;
+pub mod placement;
+pub mod views;
 pub mod process;
 pub mod shell;
 pub mod skill;
@@ -36,6 +38,19 @@ pub mod tools;
 
 /// How long an update waits for the old agent to stop before aborting it.
 const STOP_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// How often the host refreshes the published health views. A view is good for ten
+/// seconds, so it is refreshed well inside that.
+const VIEW_REFRESH: Duration = Duration::from_secs(5);
+
+/// Where a command came from: the fleet-wide subject, or one agent's own.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Scoped {
+    /// `agents.cmd`: the fleet-wide commands, the create among them.
+    Fleet,
+    /// `agent.{id}.cmd`: a command about one agent, which this host must hold.
+    Agent,
+}
 
 /// One agent's supervisor. Every agent in storage has one, whether it is running, starting
 /// or failed, so update and delete always find it (#42).
@@ -49,7 +64,7 @@ struct AgentProcess {
     current: CurrentAgent,
     /// The agent's request channel, registered once and handed from one supervisor to the
     /// next across updates, so nothing sent during a swap is lost (#43).
-    recv: flume::Receiver<VizierRequestEnvelope>,
+    recv: crate::transport::Inbox,
 }
 
 impl AgentProcess {
@@ -82,8 +97,15 @@ enum BuildKind {
     Update,
 }
 
-pub struct VizierAgents {
+/// The agent host: it builds and runs **only** the agents it was told to hold.
+///
+/// Which agents those are is placement's decision, not the host's
+/// (`specs/048-agent-service-seam` contracts/agent-host-placement.md). The host keeps the
+/// supervisors, the running instances, the builds and the resumption of pending turns.
+pub struct AgentHost {
     deps: VizierDependencies,
+    /// Commands from `agents.cmd`, subscribed before this struct exists so none is missed.
+    commands: crate::transport::AgentCommands,
     processes: HashMap<AgentId, AgentProcess>,
     /// Builds run as their own tasks, so one slow build (an Ollama pull, an embedder) does
     /// not hold up every other agent's commands and health checks (#52).
@@ -91,27 +113,120 @@ pub struct VizierAgents {
     /// Agents with a build in flight. Other creates, updates and deletes of them are
     /// refused until it finishes, so two swaps of one agent never race.
     building: HashSet<AgentId>,
+    /// The agents this host holds, and the subscription that carries their commands. A
+    /// command reaches exactly one handler because only the owner subscribes to
+    /// `agent.{id}.cmd` (`specs/048-agent-service-seam` contracts/agents-client.md, rule 2).
+    scoped: HashMap<AgentId, JoinHandle<()>>,
+    /// Where the scoped subscriptions hand the commands they read.
+    scoped_tx: mpsc::UnboundedSender<AgentCommand>,
+    /// The commands the scoped subscriptions read, handled on the command loop like the
+    /// fleet-wide ones.
+    scoped_rx: mpsc::UnboundedReceiver<AgentCommand>,
 }
 
-impl VizierAgents {
-    /// Register and start every stored agent. Returns once all are registered, without
-    /// waiting for any to finish starting: requests sent meanwhile queue (#26, #43).
-    pub async fn new(deps: VizierDependencies) -> Result<Self> {
+impl AgentHost {
+    /// Start the host with the agents it is told to hold.
+    ///
+    /// The host never reads the agent list itself: `held` is placement's answer. Each
+    /// agent's *configuration* is read from storage, which is stored state and not the
+    /// running agent's state.
+    pub async fn new(deps: VizierDependencies, held: Vec<AgentId>) -> Result<Self> {
+        let commands = deps.transport.serve_agent_commands().await?;
+        let (scoped_tx, scoped_rx) = mpsc::unbounded_channel();
         let mut agents = Self {
             deps,
+            commands,
             processes: HashMap::new(),
             builds: JoinSet::new(),
             building: HashSet::new(),
+            scoped: HashMap::new(),
+            scoped_tx,
+            scoped_rx,
         };
 
-        for (agent_id, config) in agents.deps.storage.list_agents().await? {
-            tracing::info!("starting agent: {}", agent_id);
-            let recv = agents.deps.transport.register_agent(agent_id.clone()).await;
-            agents.resend_pending_turns(&agent_id).await;
-            agents.start(agent_id, config, recv, None);
+        for agent_id in held {
+            let Some(config) = agents.deps.storage.get_agent(&agent_id).await? else {
+                // Placed but not stored: nothing to run.
+                tracing::warn!(agent_id = %agent_id, "the placement named an agent that is not stored");
+                continue;
+            };
+            agents.take(agent_id, config).await?;
         }
 
+        // A Workspace mention saved just before the last stop, and never sent, is sent now. Every
+        // held agent's request channel is registered by this point, so it queues like any other
+        // (spec 053 R4).
+        let hub = crate::workspaces::Hub::from(&agents.deps);
+        tokio::spawn(async move { crate::workspaces::redispatch_pending(&hub).await });
+
         Ok(agents)
+    }
+
+    /// Take an agent on: subscribe to its subjects, register its request channel, re-send
+    /// the turns that were pending, and start it.
+    pub async fn take(&mut self, agent_id: AgentId, config: AgentConfig) -> Result<()> {
+        tracing::info!("starting agent: {}", agent_id);
+        let recv = self.deps.transport.register_agent(agent_id.clone()).await;
+        self.subscribe_scoped(&agent_id).await?;
+        self.resend_pending_turns(&agent_id).await;
+        self.start(agent_id.clone(), config, recv, None);
+        self.publish_health(&agent_id);
+        Ok(())
+    }
+
+    /// Publish an agent's health view, so a gateway can read it without asking the owner.
+    fn publish_health(&self, agent_id: &AgentId) {
+        let Some((id, process)) = self.processes.get_key_value(agent_id) else {
+            return;
+        };
+        let status = AgentStatus::health(
+            &process.status,
+            &self.deps.channel_board,
+            &self.deps.sso_failures,
+            id,
+        );
+        crate::agents::views::publish_health(&self.deps, id, &status);
+    }
+
+    /// Let an agent go. The running turns end the way a delete ends them.
+    pub async fn release(&mut self, agent_id: &AgentId) -> Result<()> {
+        self.release_scoped(agent_id);
+        self.deps.transport.unregister_agent(agent_id).await;
+        if let Some(process) = self.processes.remove(agent_id) {
+            process.deleting.store(true, Ordering::SeqCst);
+            process.stop(agent_id).await;
+        }
+        Ok(())
+    }
+
+    /// Subscribe to one agent's commands, so the seam can reach it.
+    ///
+    /// Only the agent's owner subscribes to its subject, so a command reaches exactly one
+    /// handler: the bus delivers at most once, so a command a non-owner consumed would be
+    /// lost. An agent this host does not hold has no subscription, so a command for it is
+    /// answered by nobody - the *no owner* answer, at once.
+    async fn subscribe_scoped(&mut self, agent_id: &AgentId) -> Result<()> {
+        if self.scoped.contains_key(agent_id) {
+            return Ok(());
+        }
+        let mut commands = self.deps.transport.serve_agent_commands_for(agent_id).await?;
+        let tx = self.scoped_tx.clone();
+        let handle = tokio::spawn(async move {
+            while let Some(cmd) = commands.recv().await {
+                if tx.send(cmd).is_err() {
+                    break;
+                }
+            }
+        });
+        self.scoped.insert(agent_id.clone(), handle);
+        Ok(())
+    }
+
+    /// Stop answering commands for an agent this host no longer holds.
+    fn release_scoped(&mut self, agent_id: &AgentId) {
+        if let Some(handle) = self.scoped.remove(agent_id) {
+            handle.abort();
+        }
     }
 
     /// Requests accepted before vizier went down and not finished are sent again, in the
@@ -133,7 +248,7 @@ impl VizierAgents {
         tracing::info!(agent_id = %agent_id, count = pending.len(), "re-sending turns that were pending at shutdown");
         for turn in pending {
             let envelope = crate::transport::VizierRequestEnvelope {
-                response_tx: Some(self.deps.transport.broadcast_sender(turn.session.clone())),
+                response_tx: self.deps.transport.broadcast_sender(turn.session.clone()).await.ok(),
                 session: turn.session,
                 request: turn.request,
                 turn_id: Some(turn.id),
@@ -150,7 +265,7 @@ impl VizierAgents {
         &mut self,
         agent_id: AgentId,
         config: AgentConfig,
-        recv: flume::Receiver<VizierRequestEnvelope>,
+        recv: crate::transport::Inbox,
         prebuilt: Option<BuiltAgent>,
     ) {
         let (shutdown, shutdown_rx) = watch::channel(false);
@@ -183,9 +298,29 @@ impl VizierAgents {
 
     pub async fn run(&mut self) -> Result<()> {
         let mut integration_changes = self.deps.transport.subscribe_integration_changes();
+        // A published view is good for ten seconds, so the host refreshes them before that
+        // (contracts/shared-state-views.md, rule 3). Without the refresh an idle agent's
+        // view would expire and the WebUI would show it as unknown.
+        let mut refresh = tokio::time::interval(VIEW_REFRESH);
+        refresh.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        refresh.tick().await;
         loop {
             tokio::select! {
-                cmd = self.deps.transport.recv_agent_command() => self.handle_command(cmd?).await,
+                _ = refresh.tick() => {
+                    let ids: Vec<AgentId> = self.processes.keys().cloned().collect();
+                    for agent_id in &ids {
+                        self.publish_health(agent_id);
+                    }
+                }
+                cmd = self.commands.recv() => match cmd {
+                    Some(cmd) => self.handle_command(cmd, Scoped::Fleet).await,
+                    None => return Err(anyhow::anyhow!("the agent command channel closed")),
+                },
+                // The commands of the agents this host holds, read on `agent.{id}.cmd`.
+                cmd = self.scoped_rx.recv() => match cmd {
+                    Some(cmd) => self.handle_command(cmd, Scoped::Agent).await,
+                    None => return Err(anyhow::anyhow!("the agent command channel closed")),
+                },
                 change = integration_changes.recv() => match change {
                     Ok(change) => {
                         for agent_id in &change.agents {
@@ -212,7 +347,17 @@ impl VizierAgents {
         }
     }
 
-    async fn handle_command(&mut self, cmd: AgentCommand) {
+    async fn handle_command(&mut self, cmd: AgentCommand, scoped: Scoped) {
+        if scoped == Scoped::Agent {
+            // A command about one agent reaches only the host that holds it. An agent this
+            // host does not hold is not its to act on: the slot is dropped, so the caller
+            // reads the *owner lost* failure rather than a wrong answer.
+            let agent_id = cmd.agent_id().to_string();
+            if !self.processes.contains_key(&agent_id) {
+                tracing::warn!(agent_id, "refusing a command for an agent this host does not hold");
+                return;
+            }
+        }
         match cmd {
             AgentCommand::Create {
                 agent_id,
@@ -241,10 +386,30 @@ impl VizierAgents {
                     .processes
                     .iter()
                     .map(|(id, process)| {
-                        AgentStatus::health(&process.status, &self.deps.channel_board, id)
+                        AgentStatus::health(
+                            &process.status,
+                            &self.deps.channel_board,
+                            &self.deps.sso_failures,
+                            id,
+                        )
                     })
                     .collect();
                 let _ = resp.send(statuses);
+            }
+            AgentCommand::AgentHealth { agent_id, resp } => {
+                // One agent's health. An agent this host does not hold has no answer: the
+                // slot is dropped and the caller reads the *owner lost* failure.
+                let status = self.processes.get(&agent_id).map(|process| {
+                    AgentStatus::health(
+                        &process.status,
+                        &self.deps.channel_board,
+                        &self.deps.sso_failures,
+                        &agent_id,
+                    )
+                });
+                if let Some(status) = status {
+                    let _ = resp.send(status);
+                }
             }
             AgentCommand::RefreshIntegrations { agent_id } => self.refresh_integrations(&agent_id),
             AgentCommand::IntegrationStatus { agent_id, resp } => match self.current(&agent_id) {
@@ -411,7 +576,7 @@ impl VizierAgents {
 
         // Built-in default addon, before the agent starts (specs/036-office-addon). A failure
         // is logged and never fails the creation.
-        #[cfg(feature = "documents")]
+        #[cfg(feature = "addon-documents")]
         if let Err(e) = crate::integrations::service::seed_default(
             &self.deps,
             &agent_id,
@@ -425,6 +590,14 @@ impl VizierAgents {
         }
 
         let recv = self.deps.transport.register_agent(agent_id.clone()).await;
+        // The new agent is held from here on, so its own command subject is answered by
+        // this host.
+        if let Err(e) = self.subscribe_scoped(&agent_id).await {
+            return AgentCommandResult::Error(format!(
+                "failed to answer commands for agent '{}': {e}",
+                agent_id
+            ));
+        }
         let summary = self.summary(&agent_id, &config).await;
         self.start(agent_id.clone(), config, recv, Some(built));
         // The change event fired before the agent had a process entry, so it saw nothing:
@@ -532,6 +705,17 @@ impl VizierAgents {
             .files_for_agent(agent_id)
             .await
             .unwrap_or_default();
+        // Language servers rooted in this agent's projects stop before their rows go.
+        for project in crate::storage::project::ProjectStorage::list_projects(
+            &*self.deps.storage,
+            agent_id,
+            true,
+        )
+            .await
+            .unwrap_or_default()
+        {
+            self.deps.lsp.close_project(&project.id).await;
+        }
         if let Err(e) = self.deps.storage.delete_agent(agent_id).await {
             return AgentCommandResult::Error(format!("failed to delete agent: {}", e));
         }
@@ -551,14 +735,12 @@ impl VizierAgents {
             .transport
             .unregister_agent(&agent_id.to_string())
             .await;
+        // The agent is gone, so nothing answers its command subject any more.
+        self.release_scoped(&agent_id.to_string());
         if let Some(process) = self.processes.remove(agent_id) {
             process.deleting.store(true, Ordering::SeqCst);
             process.stop(agent_id).await;
         }
-        self.deps
-            .transport
-            .unregister_memory_op(&agent_id.to_string())
-            .await;
 
         if delete_workspace {
             let workspace = agent_workspace(&self.deps.config.workspace, agent_id);

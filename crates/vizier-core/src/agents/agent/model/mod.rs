@@ -85,7 +85,7 @@ impl VizierModel {
         let session = scope.session.as_ref();
         let event = UsageEvent {
             agent_id: self.agent_id.clone(),
-            at: chrono::Utc::now(),
+            at: crate::time::now(),
             activity: scope.activity(),
             channel: session.map(|s| s.1.to_slug()),
             topic: session.and_then(|s| s.2.clone()),

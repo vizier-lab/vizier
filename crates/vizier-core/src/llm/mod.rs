@@ -15,6 +15,7 @@ pub mod prepare;
 pub mod resolve;
 pub mod sigv4;
 pub mod sse;
+pub mod sso;
 pub mod telemetry;
 pub mod types;
 

@@ -2,7 +2,7 @@
 //! side chat (spec 038, US2). Moved from `vizier-http`'s `agents/mod.rs`; messages and statuses
 //! are the handlers' own.
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Local};
 use serde::{Deserialize, Serialize};
 
 use super::{Services, error::ServiceError};
@@ -12,10 +12,10 @@ use crate::{
     channels::side_chat::SideChatOutcome,
     config::shell::ShellConfig,
     schema::{
-        AgentCommand, AgentCommandResult, AgentConfig, AgentHealthStatus, AgentSummary,
+        AgentConfig, AgentHealthStatus, AgentSummary,
         AgentToolsConfig, EmbeddingConfig, ImageGenToolSettings, IndexerConfig,
         ReadImageToolSettings, ToolConfig, TtsToolSettings, VizierAttachment, VizierChannelId,
-        VizierRequest, VizierRequestContent, VizierResponseStats, VizierSession,
+        ModelOverride, VizierRequest, VizierRequestContent, VizierResponseStats, VizierSession,
         agent::{EmbeddingProvider, IndexerKind, SttToolSettings},
     },
     storage::{
@@ -30,7 +30,7 @@ pub struct AgentListItem {
     #[serde(flatten)]
     pub summary: AgentSummary,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub last_active: Option<chrono::DateTime<chrono::Utc>>,
+    pub last_active: Option<chrono::DateTime<chrono::Local>>,
     #[serde(skip)]
     #[cfg_attr(feature = "utoipa", schema(ignore))]
     pub mine: bool,
@@ -266,6 +266,14 @@ pub struct PingResponse {
     pub alive: bool,
 }
 
+/// An explicit per-chat model choice. Provider and complete model id remain separate.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+pub struct ModelOverrideRequest {
+    pub provider: String,
+    pub model: String,
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct ChatRequest {
@@ -274,6 +282,34 @@ pub struct ChatRequest {
     pub content: String,
     #[serde(default)]
     pub attachments: Option<Vec<VizierAttachment>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_override: Option<ModelOverrideRequest>,
+}
+
+#[cfg(test)]
+mod model_override_request_tests {
+    use super::{ChatRequest, ModelOverrideRequest};
+
+    #[test]
+    fn legacy_rest_chat_requests_omit_model_override_and_slash_ids_round_trip() {
+        let legacy: ChatRequest = serde_json::from_value(serde_json::json!({
+            "channel_id": "vizier-webui",
+            "topic_id": "topic",
+            "content": "hello"
+        }))
+        .unwrap();
+        assert!(legacy.model_override.is_none());
+        assert!(serde_json::to_value(&legacy).unwrap().get("model_override").is_none());
+
+        let selected: ChatRequest = serde_json::from_value(serde_json::json!({
+            "channel_id": "vizier-webui",
+            "topic_id": "topic",
+            "content": "hello",
+            "model_override": { "provider": "opencode", "model": "deepseek/deepseek-flash" }
+        }))
+        .unwrap();
+        assert_eq!(selected.model_override.unwrap().model, "deepseek/deepseek-flash");
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -343,17 +379,9 @@ pub async fn list(
     let agents = deps.storage.list_agents().await.map_err(internal)?;
     // Only what the listing needs: skipped without a `limit`, which has always been just names.
     let (last_active, live, failed) = if paged {
-        let failed: std::collections::HashSet<String> = deps
-            .transport
-            .agent_health()
-            .await
-            .map(|h| {
-                h.into_iter()
-                    .filter(|s| s.state == crate::schema::AgentRunState::Failed)
-                    .map(|s| s.agent_id)
-                    .collect()
-            })
-            .unwrap_or_default();
+        // The agents' health comes from the published views, not from the manager's memory
+        // (`specs/048-agent-service-seam` contracts/shared-state-views.md).
+        let failed: std::collections::HashSet<String> = failed_agents(deps).await;
         (
             deps.storage.last_activity_by_agent().await.unwrap_or_default(),
             deps.storage.thinking_agents().await.unwrap_or_default(),
@@ -504,20 +532,20 @@ fn check_embedding(body: &CreateAgentRequest) -> Result<(), ServiceError> {
     Ok(())
 }
 
-/// Sends an agent command and maps its answer: a refusal is a `400`, a dead manager a `500`.
-async fn command(
-    s: &Services,
-    build: impl FnOnce(tokio::sync::oneshot::Sender<AgentCommandResult>) -> AgentCommand,
-) -> Result<AgentSummary, ServiceError> {
-    let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
-    if let Err(e) = s.deps().transport.send_agent_command(build(resp_tx)).await {
-        return Err(ServiceError::Internal(format!("failed to send command: {}", e)));
+/// A seam failure, as the command path reports it: a refusal is the `400` it has always
+/// been, and an agent that could not be reached is the `500` a command that was not
+/// delivered returns.
+fn command_error(e: crate::error::VizierError) -> ServiceError {
+    match crate::agents_client::refusal(&e.0) {
+        Some(message) => ServiceError::invalid(message),
+        None => ServiceError::Internal(format!("failed to send command: {}", e.0)),
     }
-    match resp_rx.await {
-        Ok(AgentCommandResult::Ok(summary)) => Ok(summary),
-        Ok(AgentCommandResult::Error(e)) => Err(ServiceError::invalid(e)),
-        Err(_) => Err(ServiceError::Internal("agent manager unavailable".into())),
-    }
+}
+
+/// A seam failure, as the read path reports it: an agent that could not be reached is
+/// the `503` the health reads have always returned.
+fn unavailable(e: crate::error::VizierError) -> ServiceError {
+    ServiceError::Unavailable(e.0)
 }
 
 pub async fn create(
@@ -532,12 +560,12 @@ pub async fn create(
     config.owner_id = Some(who.user_id.clone());
     let saved = config.clone();
 
-    let summary = command(s, |resp| AgentCommand::Create {
-        agent_id,
-        config,
-        resp,
-    })
-    .await?;
+    let summary = s
+        .deps()
+        .agents
+        .create(&agent_id, config)
+        .await
+        .map_err(command_error)?;
     Ok(saved_with_warnings(s, &saved, summary).await)
 }
 
@@ -562,12 +590,12 @@ pub async fn update(
     let saved = config.clone();
 
     let agent_id = agent_id.to_string();
-    let summary = command(s, |resp| AgentCommand::Update {
-        agent_id,
-        config,
-        resp,
-    })
-    .await?;
+    let summary = s
+        .deps()
+        .agents
+        .update(&agent_id, config)
+        .await
+        .map_err(command_error)?;
     Ok(saved_with_warnings(s, &saved, summary).await)
 }
 
@@ -593,12 +621,17 @@ pub async fn delete(
     }
 
     let agent_id = agent_id.to_string();
-    command(s, |resp| AgentCommand::Delete {
-        agent_id,
-        delete_workspace,
-        resp,
-    })
-    .await?;
+    s.deps()
+        .agents
+        .delete(&agent_id, delete_workspace)
+        .await
+        .map_err(command_error)?;
+    // The agent's notifications went with it, and it can no longer be checked for who may
+    // view it, so every client reloads.
+    s.deps().transport.publish_inbox_event(crate::transport::InboxEvent::Stale {
+        user: None,
+        agent_id: None,
+    });
     Ok("deleted".into())
 }
 
@@ -617,36 +650,28 @@ pub async fn restart(
         return Err(ServiceError::Forbidden("Access denied".into()));
     }
 
-    let (resp, rx) = tokio::sync::oneshot::channel();
-    if let Err(e) = deps
-        .transport
-        .send_agent_command(AgentCommand::Restart {
-            agent_id: agent_id.to_string(),
-            resp,
-        })
-        .await
-    {
-        return Err(ServiceError::Internal(format!("failed to send command: {e}")));
-    }
-    match rx.await {
-        Ok(AgentCommandResult::Ok(_)) => {}
-        Ok(AgentCommandResult::Error(e)) if e.contains("still being created or updated") => {
-            return Err(ServiceError::Conflict {
-                message: e,
-                code: None,
-                data: None,
-            });
+    // The restart goes through the seam, like every other operation on an agent.
+    match deps.agents.restart(agent_id).await {
+        Ok(_) => {}
+        Err(e) => {
+            let message = match crate::agents_client::refusal(&e.0) {
+                Some(message) => message,
+                None => return Err(command_error(e)),
+            };
+            if message.contains("still being created or updated") {
+                return Err(ServiceError::Conflict {
+                    message,
+                    code: None,
+                    data: None,
+                });
+            }
+            return Err(ServiceError::invalid(message));
         }
-        Ok(AgentCommandResult::Error(e)) => return Err(ServiceError::invalid(e)),
-        Err(_) => return Err(ServiceError::Internal("agent manager unavailable".into())),
     }
 
-    match deps.transport.agent_health().await {
-        Ok(statuses) => statuses
-            .into_iter()
-            .find(|s| s.agent_id == agent_id)
-            .ok_or_else(|| ServiceError::NotFound("agent not found".into())),
-        Err(e) => Err(ServiceError::Unavailable(e.to_string())),
+    match deps.agents.health(agent_id).await {
+        Ok(status) => Ok(status),
+        Err(e) => Err(unavailable(e)),
     }
 }
 
@@ -657,12 +682,12 @@ fn usage_query(
     end_date: Option<&str>,
     activity: Option<&str>,
 ) -> Result<crate::storage::usage::UsageQuery, ServiceError> {
-    let parse = |s: &str| DateTime::parse_from_rfc3339(s).map(|dt| dt.with_timezone(&Utc));
+    let parse = |s: &str| DateTime::parse_from_rfc3339(s).map(|dt| dt.with_timezone(&Local));
     let bad_range = |message: &str| with_code(400, message, "invalid_range");
 
     let end = match end_date {
         Some(s) => parse(s).map_err(|_| bad_range("end_date is not RFC 3339"))?,
-        None => Utc::now(),
+        None => crate::time::now(),
     };
     let start = match start_date {
         Some(s) => parse(s).map_err(|_| bad_range("start_date is not RFC 3339"))?,
@@ -794,29 +819,50 @@ pub async fn update_sharing(
     })
 }
 
+/// The ids of the agents whose published health says they failed.
+///
+/// A missing or expired view reads as *unknown*, never as a stale value, so an agent the
+/// fleet says nothing about is simply not failed.
+async fn failed_agents(deps: &crate::dependencies::VizierDependencies) -> std::collections::HashSet<String> {
+    let Ok(agents) = deps.storage.list_agents().await else {
+        return Default::default();
+    };
+    let mut failed = std::collections::HashSet::new();
+    for (id, _) in agents {
+        let Some(status) = crate::agents::views::read_health(deps, &id).await else {
+            continue;
+        };
+        if status.state == crate::schema::AgentRunState::Failed {
+            failed.insert(id);
+        }
+    }
+    failed
+}
+
 pub async fn health(s: &Services, _who: &Principal) -> Result<Vec<AgentHealthStatus>, ServiceError> {
     let deps = s.deps();
-    match deps.transport.agent_health().await {
-        Ok(mut statuses) => {
-            let live = deps.storage.thinking_agents().await.unwrap_or_default();
-            for st in &mut statuses {
-                st.live = st.alive && live.contains(&st.agent_id.to_string());
-            }
-            Ok(statuses)
-        }
-        Err(e) => Err(ServiceError::Unavailable(e.to_string())),
+    // The health of every agent, read from the views the host published. An agent with no
+    // live view is not in the list: its state is unknown, which is not the same as failed.
+    let agents = deps.storage.list_agents().await.map_err(internal)?;
+    let live = deps.storage.thinking_agents().await.unwrap_or_default();
+    let mut statuses = Vec::new();
+    for (id, _) in agents {
+        let Some(mut status) = crate::agents::views::read_health(deps, &id).await else {
+            continue;
+        };
+        status.live = status.alive && live.contains(&id);
+        statuses.push(status);
     }
+    Ok(statuses)
 }
 
 pub async fn ping(s: &Services, _who: &Principal, agent_id: &str) -> Result<PingResponse, ServiceError> {
     if !exists(s, agent_id).await {
         return Err(not_found_lowercase());
     }
-    match s.deps().transport.agent_health().await {
-        Ok(statuses) => Ok(PingResponse {
-            alive: statuses.iter().any(|st| st.agent_id == agent_id && st.alive),
-        }),
-        Err(e) => Err(ServiceError::Unavailable(e.to_string())),
+    match s.deps().agents.health(agent_id).await {
+        Ok(status) => Ok(PingResponse { alive: status.alive }),
+        Err(e) => Err(unavailable(e)),
     }
 }
 
@@ -827,16 +873,35 @@ pub async fn chat(
     body: ChatRequest,
 ) -> Result<ChatResponse, ServiceError> {
     let deps = s.deps();
+    let who = if body.model_override.is_some() {
+        s.resolve(&who.user_id, who.method).await?
+    } else {
+        who.clone()
+    };
+    if let Some(choice) = &body.model_override {
+        if body.channel_id != "vizier-webui"
+            && !crate::projects::channel::is_project_channel(&body.channel_id)
+        {
+            return Err(ServiceError::Invalid {
+                status: 422,
+                message: "model override is supported only for WebUI chat channels".into(),
+                code: Some("model_override_unsupported".into()),
+            });
+        }
+        crate::access::require(&who, "model_override")?;
+        let choice = ModelOverride { provider: choice.provider.clone(), model: choice.model.clone() };
+        crate::service::catalogue::validate_chat_model_override(deps, &choice).await?;
+    }
     let config = match deps.storage.get_agent(agent_id).await {
         Ok(Some(config)) => config,
         Ok(None) => return Err(not_found_lowercase()),
         Err(e) => return Err(ServiceError::Internal(format!("failed to get agent: {}", e))),
     };
-    if !can_view_agent(who, &config) {
+    if !can_view_agent(&who, &config) {
         return Err(ServiceError::Forbidden("Access denied".into()));
     }
     // A REST chat naming a project channel goes through the same matrix as its socket.
-    super::topics::authorize_project_channel(s, who, &config, agent_id, &body.channel_id).await?;
+    super::topics::authorize_project_channel(s, &who, &config, agent_id, &body.channel_id).await?;
 
     let transport = deps.transport.clone();
     let session = VizierSession(
@@ -891,9 +956,13 @@ pub async fn chat(
         client_tools: vec![],
         client_categories: vec![],
         client: None,
-        timestamp: Utc::now(),
+        timestamp: crate::time::now(),
         user: who.username.clone(),
         content: VizierRequestContent::Chat(body.content),
+        model_override: body.model_override.map(|choice| ModelOverride {
+            provider: choice.provider,
+            model: choice.model,
+        }),
         platform_message_id: None,
         metadata: serde_json::json!({}),
         attachments,
@@ -903,7 +972,7 @@ pub async fn chat(
         ..Default::default()
     };
 
-    let (response_tx, response_rx) = flume::unbounded();
+    let (response_tx, response_rx) = transport.reply_channel().await.map_err(|e| ServiceError::Internal(format!("failed to open a reply stream: {e}")))?;
     if let Err(err) = transport
         .send_request(session.clone(), request, Some(response_tx))
         .await

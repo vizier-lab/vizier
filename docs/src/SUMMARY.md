@@ -29,6 +29,10 @@
 - [2.16 Office Addon](./configuration/office-addon.md)
 - [2.17 Desktop Web Access](./configuration/desktop-web-access.md)
 - [2.18 Asking the Person](./configuration/questions.md)
+- [2.19 Build Flavours](./configuration/build-flavours.md)
+- [2.20 Color Themes](./configuration/themes.md)
+- [2.21 Time](./configuration/time.md)
+- [2.22 Workspaces](./configuration/workspaces.md)
 
 # 3. API Integration
 
@@ -37,3 +41,11 @@
 - [3.3 Generative UI](./api-integration/generative-ui.md)
 - [3.4 Examples](./api-integration/examples.md)
 - [3.5 Building on vizier-core](./api-integration/building-on-vizier-core.md)
+
+# 4. Deployment
+
+- [4.1 Kubernetes](./deployment/kubernetes.md)
+
+# Fleet
+
+- [Bus Contract](./fleet/bus-contract.md)

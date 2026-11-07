@@ -143,7 +143,7 @@ The scheduler runs cron and one-time tasks that the agent creates for itself (`s
 | `POST` | `/api/v1/agents/{id}/tasks` | Create |
 | `GET|PUT|DELETE` | `/api/v1/agents/{id}/tasks/{slug}` | Read / update / delete |
 
-The WebUI shows them on the agent's **Schedule** page, as a calendar (a month, or one day) or as a table. The calendar places each task on the days its schedule names, in your timezone; cron expressions are evaluated in UTC, as the scheduler does. The past shows only each task's latest run, since that is what the task list carries. The filter tabs (Active, Last run failed, All) open on Active and apply to both views.
+The WebUI shows them on the agent's **Schedule** page, as a calendar (a month, or one day) or as a table. The calendar places each task on the days its schedule names, in the [instance's timezone](./time.md), whatever your browser's is; cron expressions are evaluated in that same zone, as the scheduler does. The past shows only each task's latest run, since that is what the task list carries. The filter tabs (Active, Last run failed, All) open on Active and apply to both views.
 
 A task's prompt runs as the agent in a dedicated `Task` session; the agent can report results into a WebUI topic with `webui_send_message`, or into Discord/Telegram with the platform tools.
 
@@ -156,7 +156,7 @@ Each call has one **activity**:
 | Activity | What it covers |
 |---|---|
 | Chat | Turns answering a person on Discord, Telegram, the WebUI or the HTTP API, including the turn a finished background job wakes |
-| Background | Subagents (`parallel_subagents` and `background_subagents`), delegations (`delegate_agent`) and consults (`consult_agent`), counted for the agent that ran them |
+| Background | Subagents (`parallel_subagents` and `background_subagents`), counted for the agent that ran them |
 | Scheduled | Scheduled task runs |
 | Dreams | Dream extraction and consolidation |
 | Compaction | Checkpoint summaries, automatic and `/checkpoint` |

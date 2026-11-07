@@ -1,18 +1,19 @@
 //! The `project` table (`specs/040-projects-mode/data-model.md` §1): one additive SQLite table
 //! with a soft-removed state, so reopening a folder restores the id and every session under it.
 
+use crate::storage::sql::{Connection, params};
 use anyhow::Result;
-use rusqlite::{Connection, params};
 
 use crate::{
     schema::{
-        Project, ProjectMode, ProjectSessionRow, VizierSessionDetail, Worktree, WorktreeRef,
+        Project, ProjectMode, ProjectSessionRow, ServerOverride, VizierSessionDetail, Worktree,
+        WorktreeRef,
     },
-    storage::{project::ProjectStorage, sqlite::SqliteStorage},
+    storage::{project::ProjectStorage, sqlite::SqlStorage},
 };
 
 /// The project table and its lookup index. New tables only, so no migration is needed.
-pub fn init_project_schema(conn: &Connection) -> Result<()> {
+pub fn init_project_schema(conn: &rusqlite::Connection) -> Result<()> {
     conn.execute_batch(
         "
         CREATE TABLE IF NOT EXISTS project (
@@ -57,12 +58,27 @@ pub fn init_project_schema(conn: &Connection) -> Result<()> {
             UNIQUE (project_id, topic)
         );
         CREATE INDEX IF NOT EXISTS idx_worktree_project ON project_worktree(project_id);
+
+        -- A person's server for one language in one project (`specs/054-project-lsp` data-model §2).
+        -- `env` is an encrypted envelope.
+        CREATE TABLE IF NOT EXISTS project_lsp_override (
+            project_id TEXT    NOT NULL REFERENCES project(id) ON DELETE CASCADE,
+            language   TEXT    NOT NULL,
+            command    TEXT    NOT NULL,
+            args       TEXT    NOT NULL,
+            env        TEXT    NOT NULL,
+            updated_by TEXT    NOT NULL,
+            updated_at INTEGER NOT NULL,
+            PRIMARY KEY (project_id, language)
+        );
         ",
     )?;
+    // Spec 054: the language-server switch. Existing rows read off; tracked on #82.
+    super::add_column_if_missing(conn, "project", "lsp_enabled", "INTEGER NOT NULL DEFAULT 0")?;
     Ok(())
 }
 
-fn row_to_worktree(row: &rusqlite::Row<'_>) -> rusqlite::Result<Worktree> {
+fn row_to_worktree(row: &crate::storage::sql::Row) -> crate::storage::sql::Result<Worktree> {
     let path: String = row.get(9)?;
     Ok(Worktree {
         id: row.get(0)?,
@@ -82,7 +98,7 @@ fn row_to_worktree(row: &rusqlite::Row<'_>) -> rusqlite::Result<Worktree> {
 const WORKTREE_COLUMNS: &str = "id, project_id, agent_id, owner_id, owner_name, topic, name, \
                                 branch, base_ref, path, created_at";
 
-fn row_to_project(row: &rusqlite::Row<'_>) -> rusqlite::Result<Project> {
+fn row_to_project(row: &crate::storage::sql::Row) -> crate::storage::sql::Result<Project> {
     let folder: String = row.get(3)?;
     Ok(Project {
         id: row.get(0)?,
@@ -93,12 +109,13 @@ fn row_to_project(row: &rusqlite::Row<'_>) -> rusqlite::Result<Project> {
         shell_enabled: row.get::<_, i64>(5)? != 0,
         created_at: row.get(6)?,
         removed_at: row.get(7)?,
+        lsp_enabled: row.get::<_, i64>(8)? != 0,
     })
 }
 
 fn read_project(conn: &Connection, agent_id: &str, project_id: &str) -> Result<Option<Project>> {
     let mut stmt = conn.prepare(
-        "SELECT id, agent_id, name, folder, owner_id, shell_enabled, created_at, removed_at \
+        "SELECT id, agent_id, name, folder, owner_id, shell_enabled, created_at, removed_at, lsp_enabled \
          FROM project WHERE agent_id = ?1 AND id = ?2",
     )?;
     let mut rows = stmt.query_map(params![agent_id, project_id], row_to_project)?;
@@ -107,55 +124,61 @@ fn read_project(conn: &Connection, agent_id: &str, project_id: &str) -> Result<O
 
 fn read_by_folder(conn: &Connection, agent_id: &str, folder: &str) -> Result<Option<Project>> {
     let mut stmt = conn.prepare(
-        "SELECT id, agent_id, name, folder, owner_id, shell_enabled, created_at, removed_at \
+        "SELECT id, agent_id, name, folder, owner_id, shell_enabled, created_at, removed_at, lsp_enabled \
          FROM project WHERE agent_id = ?1 AND folder = ?2",
     )?;
     let mut rows = stmt.query_map(params![agent_id, folder], row_to_project)?;
     Ok(rows.next().transpose()?)
 }
 
-fn is_constraint_violation(err: &rusqlite::Error) -> bool {
-    matches!(
-        err,
-        rusqlite::Error::SqliteFailure(inner, _)
-            if inner.code == rusqlite::ErrorCode::ConstraintViolation
-    )
+fn is_constraint_violation(err: &crate::storage::sql::Error) -> bool {
+    err.is_constraint_violation()
 }
 
 /// Every project of one agent, in the same transaction as the rest of its rows.
 pub fn delete_agent_projects(conn: &Connection, agent_id: &str) -> Result<usize> {
     // Explicit rather than trusting `ON DELETE CASCADE`, which only fires with foreign keys on.
-    conn.execute("DELETE FROM project_chat WHERE agent_id = ?1", params![agent_id])?;
-    conn.execute("DELETE FROM project_worktree WHERE agent_id = ?1", params![agent_id])?;
+    conn.execute(
+        "DELETE FROM project_chat WHERE agent_id = ?1",
+        params![agent_id],
+    )?;
+    conn.execute(
+        "DELETE FROM project_worktree WHERE agent_id = ?1",
+        params![agent_id],
+    )?;
+    conn.execute(
+        "DELETE FROM project_lsp_override WHERE project_id IN (SELECT id FROM project WHERE agent_id = ?1)",
+        params![agent_id],
+    )?;
     Ok(conn.execute("DELETE FROM project WHERE agent_id = ?1", params![agent_id])?)
 }
 
 #[async_trait::async_trait]
-impl ProjectStorage for SqliteStorage {
+impl ProjectStorage for SqlStorage {
     async fn list_projects(&self, agent_id: &str, include_removed: bool) -> Result<Vec<Project>> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let sql = match include_removed {
             true => {
-                "SELECT id, agent_id, name, folder, owner_id, shell_enabled, created_at, removed_at \
+                "SELECT id, agent_id, name, folder, owner_id, shell_enabled, created_at, removed_at, lsp_enabled \
                  FROM project WHERE agent_id = ?1 ORDER BY created_at DESC, id"
             }
             false => {
-                "SELECT id, agent_id, name, folder, owner_id, shell_enabled, created_at, removed_at \
+                "SELECT id, agent_id, name, folder, owner_id, shell_enabled, created_at, removed_at, lsp_enabled \
                  FROM project WHERE agent_id = ?1 AND removed_at IS NULL \
                  ORDER BY created_at DESC, id"
             }
         };
         let mut stmt = conn.prepare(sql)?;
         let rows = stmt.query_map(params![agent_id], row_to_project)?;
-        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+        Ok(rows.collect::<crate::storage::sql::Result<Vec<_>>>()?)
     }
 
     async fn get_project(&self, agent_id: &str, project_id: &str) -> Result<Option<Project>> {
-        read_project(&self.conn.lock(), agent_id, project_id)
+        read_project(&self.conn.lock()?, agent_id, project_id)
     }
 
     async fn open_project(&self, project: Project) -> Result<(Project, bool)> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let folder = project.folder.to_string_lossy().into_owned();
         if let Some(existing) = read_by_folder(&conn, &project.agent_id, &folder)? {
             // Restoring keeps the id, so the project's sessions become addressable again.
@@ -164,14 +187,17 @@ impl ProjectStorage for SqliteStorage {
                     "UPDATE project SET removed_at = NULL WHERE id = ?1",
                     params![existing.id],
                 )?;
-                return Ok((read_project(&conn, &project.agent_id, &existing.id)?.unwrap_or(existing), false));
+                return Ok((
+                    read_project(&conn, &project.agent_id, &existing.id)?.unwrap_or(existing),
+                    false,
+                ));
             }
             return Ok((existing, false));
         }
 
         let inserted = conn.execute(
-            "INSERT INTO project (id, agent_id, name, folder, owner_id, shell_enabled, created_at, removed_at) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            "INSERT INTO project (id, agent_id, name, folder, owner_id, shell_enabled, created_at, removed_at, lsp_enabled) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             params![
                 project.id,
                 project.agent_id,
@@ -181,36 +207,121 @@ impl ProjectStorage for SqliteStorage {
                 project.shell_enabled as i64,
                 project.created_at,
                 project.removed_at,
+                project.lsp_enabled as i64,
             ],
         );
         match inserted {
             Ok(_) => Ok((project, true)),
             // A concurrent open won the unique constraint: return its row instead of failing.
-            Err(err) if is_constraint_violation(&err) => match read_by_folder(&conn, &project.agent_id, &folder)? {
-                Some(existing) => Ok((existing, false)),
-                None => Err(err.into()),
-            },
+            Err(err) if is_constraint_violation(&err) => {
+                match read_by_folder(&conn, &project.agent_id, &folder)? {
+                    Some(existing) => Ok((existing, false)),
+                    None => Err(err.into()),
+                }
+            }
             Err(err) => Err(err.into()),
         }
     }
 
     async fn rename_project(&self, project_id: &str, name: &str) -> Result<()> {
-        self.conn
-            .lock()
-            .execute("UPDATE project SET name = ?1 WHERE id = ?2", params![name, project_id])?;
+        self.conn.lock()?.execute(
+            "UPDATE project SET name = ?1 WHERE id = ?2",
+            params![name, project_id],
+        )?;
         Ok(())
     }
 
     async fn set_project_shell(&self, project_id: &str, enabled: bool) -> Result<()> {
-        self.conn.lock().execute(
+        self.conn.lock()?.execute(
             "UPDATE project SET shell_enabled = ?1 WHERE id = ?2",
             params![enabled as i64, project_id],
         )?;
         Ok(())
     }
 
+    async fn set_project_lsp(&self, project_id: &str, enabled: bool) -> Result<()> {
+        self.conn.lock()?.execute(
+            "UPDATE project SET lsp_enabled = ?1 WHERE id = ?2",
+            params![enabled as i64, project_id],
+        )?;
+        Ok(())
+    }
+
+    async fn lsp_overrides(&self, project_id: &str) -> Result<Vec<(String, ServerOverride)>> {
+        let conn = self.conn.lock()?;
+        let mut stmt = conn.prepare(
+            "SELECT language, command, args, env FROM project_lsp_override \
+             WHERE project_id = ?1 ORDER BY language",
+        )?;
+        let rows = stmt
+            .query_map(params![project_id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                ))
+            })?
+            .collect::<crate::storage::sql::Result<Vec<_>>>()?;
+        let mut out = vec![];
+        for (language, command, args, env) in rows {
+            let env_json =
+                crate::encryption::fields::decrypt_lsp_env(&self.cipher, project_id, &language, &env)?;
+            out.push((
+                language,
+                ServerOverride {
+                    command,
+                    args: serde_json::from_str(&args)?,
+                    env: serde_json::from_str(&env_json)?,
+                },
+            ));
+        }
+        Ok(out)
+    }
+
+    async fn set_lsp_override(
+        &self,
+        project_id: &str,
+        language: &str,
+        server: &ServerOverride,
+        updated_by: &str,
+        updated_at: i64,
+    ) -> Result<()> {
+        let env = crate::encryption::fields::protect_lsp_env(
+            &self.cipher,
+            project_id,
+            language,
+            &serde_json::to_string(&server.env)?,
+        )?;
+        self.conn.lock()?.execute(
+            "INSERT INTO project_lsp_override (project_id, language, command, args, env, updated_by, updated_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7) \
+             ON CONFLICT (project_id, language) DO UPDATE SET command = excluded.command, \
+             args = excluded.args, env = excluded.env, updated_by = excluded.updated_by, \
+             updated_at = excluded.updated_at",
+            params![
+                project_id,
+                language,
+                server.command,
+                serde_json::to_string(&server.args)?,
+                env,
+                updated_by,
+                updated_at,
+            ],
+        )?;
+        Ok(())
+    }
+
+    async fn delete_lsp_override(&self, project_id: &str, language: &str) -> Result<()> {
+        self.conn.lock()?.execute(
+            "DELETE FROM project_lsp_override WHERE project_id = ?1 AND language = ?2",
+            params![project_id, language],
+        )?;
+        Ok(())
+    }
+
     async fn remove_project(&self, project_id: &str, removed_at: i64) -> Result<()> {
-        self.conn.lock().execute(
+        self.conn.lock()?.execute(
             "UPDATE project SET removed_at = ?1 WHERE id = ?2",
             params![removed_at, project_id],
         )?;
@@ -224,15 +335,19 @@ impl ProjectStorage for SqliteStorage {
     ) -> Result<Vec<ProjectSessionRow>> {
         // `project__<user>__<id>`; the id addresses the project's worktrees.
         let project_id = channel_slug.rsplit_once("__").map_or("", |(_, id)| id);
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         // Creation order, not activity: a chat keeps its row when a turn runs, so the list holds
         // still. A worktree chat knows its exact creation time; for the rest it is the first
         // message (`session_detail` has no created_at of its own), and a session that has never
         // been messaged yet has none, so it sorts last. Both sides are Unix milliseconds.
-        let mut stmt = conn.prepare(
+        // `MAX` over the session_detail columns: each topic has one detail row, repeated by the
+        // joins, and PostgreSQL wants every selected column grouped or aggregated. A JSON `true`
+        // reads back as 1 on SQLite and as 'true' on PostgreSQL.
+        let json = conn.dialect();
+        let mut stmt = conn.prepare(&format!(
             "SELECT sd.topic, \
-                    COALESCE(json_extract(sd.data, '$.title'), sd.topic), \
-                    COALESCE(json_extract(sd.data, '$.is_thinking'), 0), \
+                    COALESCE(MAX({}), sd.topic), \
+                    MAX(CASE WHEN CAST({} AS TEXT) IN ('1', 'true') THEN 1 ELSE 0 END), \
                     MAX(sh.timestamp), \
                     MAX(COALESCE(pc.mode, 'plan')), \
                     MAX(pw.id), MAX(pw.name), MAX(pw.branch) \
@@ -251,7 +366,9 @@ impl ProjectStorage for SqliteStorage {
              ORDER BY COALESCE(MAX(pw.created_at), MIN(sh.timestamp)) IS NULL, \
                       COALESCE(MAX(pw.created_at), MIN(sh.timestamp)) DESC, \
                       sd.topic",
-        )?;
+            json.json_text("sd.data", &["title"]),
+            json.json_text("sd.data", &["is_thinking"]),
+        ))?;
         let rows = stmt.query_map(params![agent_id, channel_slug, project_id], |row| {
             let mode: String = row.get(4)?;
             let worktree_id: Option<String> = row.get(5)?;
@@ -271,15 +388,15 @@ impl ProjectStorage for SqliteStorage {
                 },
             })
         })?;
-        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+        Ok(rows.collect::<crate::storage::sql::Result<Vec<_>>>()?)
     }
 
     async fn project_session_count(&self, agent_id: &str, project_id: &str) -> Result<usize> {
         // `project__<user>__<id>`: one project id, whichever person owns the chat.
         let pattern = format!("project\\_\\_%\\_\\_{project_id}");
-        let count: i64 = self.conn.lock().query_row(
+        let count: i64 = self.conn.lock()?.query_row(
             "SELECT COUNT(*) FROM (SELECT DISTINCT topic FROM session_detail \
-             WHERE agent_id = ?1 AND topic IS NOT NULL AND channel LIKE ?2 ESCAPE '\\')",
+             WHERE agent_id = ?1 AND topic IS NOT NULL AND channel LIKE ?2 ESCAPE '\\') AS topics",
             params![agent_id, pattern],
             |row| row.get(0),
         )?;
@@ -294,7 +411,7 @@ impl ProjectStorage for SqliteStorage {
     ) -> Result<ProjectMode> {
         let mode: Option<String> = self
             .conn
-            .lock()
+            .lock()?
             .query_row(
                 "SELECT mode FROM project_chat WHERE agent_id = ?1 AND channel = ?2 AND topic = ?3",
                 params![agent_id, channel, topic],
@@ -311,7 +428,7 @@ impl ProjectStorage for SqliteStorage {
         topic: &str,
         mode: ProjectMode,
     ) -> Result<()> {
-        self.conn.lock().execute(
+        self.conn.lock()?.execute(
             "INSERT INTO project_chat (agent_id, channel, topic, mode, updated_at) \
              VALUES (?1, ?2, ?3, ?4, ?5) \
              ON CONFLICT (agent_id, channel, topic) \
@@ -321,7 +438,7 @@ impl ProjectStorage for SqliteStorage {
                 channel,
                 topic,
                 mode.as_str(),
-                chrono::Utc::now().timestamp_millis()
+                crate::time::now().timestamp_millis()
             ],
         )?;
         Ok(())
@@ -332,7 +449,7 @@ impl ProjectStorage for SqliteStorage {
         worktree: &Worktree,
         detail: VizierSessionDetail,
     ) -> Result<()> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let tx = conn.unchecked_transaction()?;
         tx.execute(
             &format!(
@@ -362,8 +479,10 @@ impl ProjectStorage for SqliteStorage {
             detail.topic.clone().unwrap_or("DEFAULT".into())
         );
         tx.execute(
-            "INSERT OR REPLACE INTO session_detail (id, agent_id, channel, topic, data) \
-             VALUES (?1, ?2, ?3, ?4, ?5)",
+            "INSERT INTO session_detail (id, agent_id, channel, topic, data) \
+             VALUES (?1, ?2, ?3, ?4, ?5) \
+             ON CONFLICT (id) DO UPDATE SET agent_id = excluded.agent_id, \
+             channel = excluded.channel, topic = excluded.topic, data = excluded.data",
             params![
                 id,
                 detail.agent_id,
@@ -377,7 +496,7 @@ impl ProjectStorage for SqliteStorage {
     }
 
     async fn worktree(&self, project_id: &str, id: &str) -> Result<Option<Worktree>> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let mut stmt = conn.prepare(&format!(
             "SELECT {WORKTREE_COLUMNS} FROM project_worktree WHERE project_id = ?1 AND id = ?2"
         ))?;
@@ -385,12 +504,8 @@ impl ProjectStorage for SqliteStorage {
         Ok(rows.next().transpose()?)
     }
 
-    async fn worktree_by_topic(
-        &self,
-        project_id: &str,
-        topic: &str,
-    ) -> Result<Option<Worktree>> {
-        let conn = self.conn.lock();
+    async fn worktree_by_topic(&self, project_id: &str, topic: &str) -> Result<Option<Worktree>> {
+        let conn = self.conn.lock()?;
         let mut stmt = conn.prepare(&format!(
             "SELECT {WORKTREE_COLUMNS} FROM project_worktree WHERE project_id = ?1 AND topic = ?2"
         ))?;
@@ -399,25 +514,25 @@ impl ProjectStorage for SqliteStorage {
     }
 
     async fn worktrees(&self, project_id: &str) -> Result<Vec<Worktree>> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let mut stmt = conn.prepare(&format!(
             "SELECT {WORKTREE_COLUMNS} FROM project_worktree WHERE project_id = ?1 \
              ORDER BY created_at, name"
         ))?;
         let rows = stmt.query_map(params![project_id], row_to_worktree)?;
-        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+        Ok(rows.collect::<crate::storage::sql::Result<Vec<_>>>()?)
     }
 
     async fn delete_worktree(&self, id: &str) -> Result<()> {
         self.conn
-            .lock()
+            .lock()?
             .execute("DELETE FROM project_worktree WHERE id = ?1", params![id])?;
         Ok(())
     }
 
     async fn project_has_main_turn(&self, agent_id: &str, project_id: &str) -> Result<bool> {
         let pattern = format!("project\\_\\_%\\_\\_{project_id}");
-        let pending: i64 = self.conn.lock().query_row(
+        let pending: i64 = self.conn.lock()?.query_row(
             "SELECT EXISTS( \
                  SELECT 1 FROM session_turn st \
                  WHERE st.agent_id = ?1 AND st.channel LIKE ?2 ESCAPE '\\' \
@@ -438,24 +553,35 @@ mod tests {
     use crate::schema::{VizierChannelId, VizierSessionDetail};
     use crate::storage::session::SessionStorage;
 
-    fn storage() -> SqliteStorage {
-        let conn = Connection::open_in_memory().unwrap();
-        init_project_schema(&conn).unwrap();
-        conn.execute_batch(
-            "CREATE TABLE session_detail (id TEXT PRIMARY KEY, agent_id TEXT NOT NULL, \
-             channel TEXT NOT NULL, topic TEXT, data TEXT NOT NULL); \
-             CREATE TABLE session_history (uid TEXT PRIMARY KEY, agent_id TEXT NOT NULL, \
-             channel TEXT NOT NULL, topic TEXT, timestamp INTEGER NOT NULL, \
-             content_type TEXT NOT NULL, data TEXT NOT NULL, seq INTEGER); \
-             CREATE TABLE session_turn (id INTEGER PRIMARY KEY, agent_id TEXT NOT NULL, \
-             channel TEXT NOT NULL, topic TEXT NOT NULL DEFAULT '');",
+    fn storage() -> SqlStorage {
+        let store = crate::tests_support::test_store(|| {
+            let conn = rusqlite::Connection::open_in_memory().unwrap();
+            init_project_schema(&conn).unwrap();
+            crate::storage::sqlite::init_history_schema(&conn).unwrap();
+            crate::storage::sqlite::init_turn_schema(&conn).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE session_detail (id TEXT PRIMARY KEY, agent_id TEXT NOT NULL, \
+                 channel TEXT NOT NULL, topic TEXT, data TEXT NOT NULL);",
+            )
+            .unwrap();
+            crate::storage::sql::SqlStore::sqlite(conn)
+        });
+        let dir = tempfile::tempdir().unwrap();
+        SqlStorage::new(
+            store,
+            Arc::new(crate::storage::document::BlobDocumentStore::local(
+                dir.path().to_path_buf(),
+            )),
+        )
+    }
+
+    fn turn(conn: &Connection, topic: &str) {
+        conn.execute(
+            "INSERT INTO session_turn (agent_id, channel, topic, session, request, state, accepted_at) \
+             VALUES ('dp-a', 'project__alice__p3xY9aQ2mZ', ?1, '{}', '{}', 'queued', '')",
+            params![topic],
         )
         .unwrap();
-        let dir = tempfile::tempdir().unwrap();
-        SqliteStorage::new(
-            Arc::new(parking_lot::Mutex::new(conn)),
-            Arc::new(crate::storage::document::LocalDocumentStore::new(dir.path().to_path_buf())),
-        )
     }
 
     fn project(folder: &std::path::Path) -> Project {
@@ -466,6 +592,7 @@ mod tests {
             folder: folder.to_path_buf(),
             owner_id: "u1".into(),
             shell_enabled: true,
+            lsp_enabled: false,
             created_at: 1,
             removed_at: None,
         }
@@ -483,11 +610,128 @@ mod tests {
 
     fn history(conn: &Connection, topic: &str, timestamp: i64) {
         conn.execute(
-            "INSERT INTO session_history (uid, agent_id, channel, topic, timestamp, content_type, data, seq) \
-             VALUES (?1, 'dp-a', 'project__alice__p3xY9aQ2mZ', ?2, ?3, 'request', '{}', 1)",
+            &format!(
+                "INSERT INTO session_history (uid, agent_id, channel, topic, timestamp, content_type, data, seq) \
+                 VALUES (?1, 'dp-a', 'project__alice__p3xY9aQ2mZ', ?2, ?3, 'request', '{{}}', {})",
+                conn.dialect().next_sequence_value("session_history", "seq")
+            ),
             params![format!("u-{topic}-{timestamp}"), topic, timestamp],
         )
         .unwrap();
+    }
+
+    fn sealed_storage() -> SqlStorage {
+        let store = crate::tests_support::test_store(|| {
+            let conn = rusqlite::Connection::open_in_memory().unwrap();
+            init_project_schema(&conn).unwrap();
+            crate::storage::sql::SqlStore::sqlite(conn)
+        });
+        let dir = tempfile::tempdir().unwrap();
+        SqlStorage::with_secrets(
+            store,
+            Arc::new(crate::storage::document::BlobDocumentStore::local(
+                dir.path().to_path_buf(),
+            )),
+            crate::encryption::SecretCipher::from_key_for_test([7; 32]),
+            Arc::new(crate::encryption::NoIntegrationSecretPaths),
+        )
+    }
+
+    #[tokio::test]
+    async fn the_lsp_switch_defaults_off_for_old_rows_and_follows_new_ones() {
+        let storage = storage();
+        let dir = tempfile::tempdir().unwrap();
+        let (opened, _) = storage.open_project(project(dir.path())).await.unwrap();
+        assert!(!opened.lsp_enabled);
+        storage.set_project_lsp(&opened.id, true).await.unwrap();
+        let read = storage.get_project("dp-a", &opened.id).await.unwrap().unwrap();
+        assert!(read.lsp_enabled);
+
+        let other = tempfile::tempdir().unwrap();
+        let mut fresh = project(other.path());
+        fresh.id = "q3xY9aQ2mZ".into();
+        fresh.lsp_enabled = true;
+        let (fresh, _) = storage.open_project(fresh).await.unwrap();
+        assert!(fresh.lsp_enabled);
+
+        // A row from before the column existed keeps reading off.
+        let legacy = tempfile::tempdir().unwrap();
+        storage
+            .conn
+            .lock()
+            .unwrap()
+            .execute(
+                "INSERT INTO project (id, agent_id, name, folder, owner_id, shell_enabled, created_at) \
+                 VALUES ('legacy', 'dp-a', 'old', ?1, 'u1', 1, 1)",
+                params![legacy.path().to_string_lossy().into_owned()],
+            )
+            .unwrap();
+        let old = storage.get_project("dp-a", "legacy").await.unwrap().unwrap();
+        assert!(!old.lsp_enabled);
+    }
+
+    #[tokio::test]
+    async fn overrides_round_trip_with_the_env_sealed_and_cascade_on_delete() {
+        let storage = sealed_storage();
+        let dir = tempfile::tempdir().unwrap();
+        let (opened, _) = storage.open_project(project(dir.path())).await.unwrap();
+        let server = ServerOverride {
+            command: "/opt/ra/rust-analyzer".into(),
+            args: vec!["--log".into()],
+            env: [("RA_LOG".to_string(), "warn".to_string())].into(),
+        };
+        storage
+            .set_lsp_override(&opened.id, "rust", &server, "u1", 5)
+            .await
+            .unwrap();
+
+        let raw: String = storage
+            .conn
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT env FROM project_lsp_override WHERE project_id = ?1",
+                params![opened.id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(raw.starts_with("enc:v1:"), "{raw}");
+        assert!(!raw.contains("RA_LOG"));
+
+        let read = storage.lsp_overrides(&opened.id).await.unwrap();
+        assert_eq!(read, vec![("rust".to_string(), server.clone())]);
+
+        // Saving again replaces.
+        let mut changed = server.clone();
+        changed.command = "ra".into();
+        storage
+            .set_lsp_override(&opened.id, "rust", &changed, "u1", 6)
+            .await
+            .unwrap();
+        assert_eq!(storage.lsp_overrides(&opened.id).await.unwrap()[0].1.command, "ra");
+
+        storage.delete_lsp_override(&opened.id, "rust").await.unwrap();
+        storage.delete_lsp_override(&opened.id, "rust").await.unwrap();
+        assert!(storage.lsp_overrides(&opened.id).await.unwrap().is_empty());
+
+        storage
+            .set_lsp_override(&opened.id, "go", &changed, "u1", 7)
+            .await
+            .unwrap();
+        storage
+            .conn
+            .lock()
+            .unwrap()
+            .execute("PRAGMA foreign_keys = ON", [])
+            .ok();
+        delete_agent_projects(&storage.conn.lock().unwrap(), "dp-a").unwrap();
+        let left: i64 = storage
+            .conn
+            .lock()
+            .unwrap()
+            .query_row("SELECT COUNT(*) FROM project_lsp_override", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(left, 0);
     }
 
     #[tokio::test]
@@ -508,10 +752,27 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let (project, _) = storage.open_project(project(dir.path())).await.unwrap();
         storage.remove_project(&project.id, 99).await.unwrap();
-        assert!(storage.list_projects("dp-a", false).await.unwrap().is_empty());
-        assert!(storage.get_project("dp-a", &project.id).await.unwrap().unwrap().removed_at.is_some());
+        assert!(
+            storage
+                .list_projects("dp-a", false)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            storage
+                .get_project("dp-a", &project.id)
+                .await
+                .unwrap()
+                .unwrap()
+                .removed_at
+                .is_some()
+        );
 
-        let (restored, created) = storage.open_project(self::project(dir.path())).await.unwrap();
+        let (restored, created) = storage
+            .open_project(self::project(dir.path()))
+            .await
+            .unwrap();
         assert!(!created);
         assert_eq!(restored.id, project.id);
         assert!(restored.removed_at.is_none());
@@ -535,9 +796,16 @@ mod tests {
         let storage = storage();
         let dir = tempfile::tempdir().unwrap();
         let (project, _) = storage.open_project(project(dir.path())).await.unwrap();
-        storage.rename_project(&project.id, "renamed").await.unwrap();
+        storage
+            .rename_project(&project.id, "renamed")
+            .await
+            .unwrap();
         storage.set_project_shell(&project.id, false).await.unwrap();
-        let stored = storage.get_project("dp-a", &project.id).await.unwrap().unwrap();
+        let stored = storage
+            .get_project("dp-a", &project.id)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(stored.name, "renamed");
         assert!(!stored.shell_enabled);
     }
@@ -547,11 +815,15 @@ mod tests {
         let storage = storage();
         let dir = tempfile::tempdir().unwrap();
         storage.open_project(project(dir.path())).await.unwrap();
-        for detail in [detail("old", "Old"), detail("new", "New"), detail("empty", "New session")] {
+        for detail in [
+            detail("old", "Old"),
+            detail("new", "New"),
+            detail("empty", "New session"),
+        ] {
             storage.save_session_detail(detail).await.unwrap();
         }
         {
-            let conn = storage.conn.lock();
+            let conn = storage.conn.lock().unwrap();
             // "old" started first…
             history(&conn, "old", 10);
             // …and was used last. Activity order would lift it above "new"; creation order holds.
@@ -562,7 +834,10 @@ mod tests {
             .project_sessions("dp-a", "project__alice__p3xY9aQ2mZ")
             .await
             .unwrap();
-        assert_eq!(rows.iter().map(|r| r.topic.as_str()).collect::<Vec<_>>(), vec!["new", "old", "empty"]);
+        assert_eq!(
+            rows.iter().map(|r| r.topic.as_str()).collect::<Vec<_>>(),
+            vec!["new", "old", "empty"]
+        );
         // The row below ran a turn more recently than the one above it: that is the point.
         assert_eq!(rows[0].last_activity, Some(20));
         assert_eq!(rows[1].last_activity, Some(30));
@@ -574,19 +849,31 @@ mod tests {
         let storage = storage();
         let dir = tempfile::tempdir().unwrap();
         storage.open_project(project(dir.path())).await.unwrap();
-        storage.save_session_detail(detail("chat", "Chat")).await.unwrap();
-        storage.save_session_detail(detail("empty", "New session")).await.unwrap();
+        storage
+            .save_session_detail(detail("chat", "Chat"))
+            .await
+            .unwrap();
+        storage
+            .save_session_detail(detail("empty", "New session"))
+            .await
+            .unwrap();
         {
-            let conn = storage.conn.lock();
+            let conn = storage.conn.lock().unwrap();
             history(&conn, "chat", 20);
         }
         // A worktree knows exactly when it was made; the chat was started in between the two.
         let mut early = worktree("early");
         early.created_at = 2;
-        storage.insert_worktree(&early, detail("early", "wt-early")).await.unwrap();
+        storage
+            .insert_worktree(&early, detail("early", "wt-early"))
+            .await
+            .unwrap();
         let mut later = worktree("later");
         later.created_at = 40;
-        storage.insert_worktree(&later, detail("later", "wt-later")).await.unwrap();
+        storage
+            .insert_worktree(&later, detail("later", "wt-later"))
+            .await
+            .unwrap();
 
         let rows = storage
             .project_sessions("dp-a", "project__alice__p3xY9aQ2mZ")
@@ -604,10 +891,16 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         storage.open_project(project(dir.path())).await.unwrap();
         {
-            let conn = storage.conn.lock();
+            let conn = storage.conn.lock().unwrap();
             delete_agent_projects(&conn, "dp-a").unwrap();
         }
-        assert!(storage.list_projects("dp-a", true).await.unwrap().is_empty());
+        assert!(
+            storage
+                .list_projects("dp-a", true)
+                .await
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[tokio::test]
@@ -615,11 +908,20 @@ mod tests {
         let storage = storage();
         let dir = tempfile::tempdir().unwrap();
         storage.open_project(project(dir.path())).await.unwrap();
-        storage.save_session_detail(detail("t1", "One")).await.unwrap();
+        storage
+            .save_session_detail(detail("t1", "One"))
+            .await
+            .unwrap();
         let mut bob = detail("t2", "Two");
         bob.channel = VizierChannelId::Project("bob".into(), "p3xY9aQ2mZ".into());
         storage.save_session_detail(bob).await.unwrap();
-        assert_eq!(storage.project_session_count("dp-a", "p3xY9aQ2mZ").await.unwrap(), 2);
+        assert_eq!(
+            storage
+                .project_session_count("dp-a", "p3xY9aQ2mZ")
+                .await
+                .unwrap(),
+            2
+        );
     }
 
     fn worktree(topic: &str) -> Worktree {
@@ -643,7 +945,10 @@ mod tests {
         let storage = storage();
         let channel = "project__alice__p3xY9aQ2mZ";
         assert_eq!(
-            storage.project_chat_mode("dp-a", channel, "t1").await.unwrap(),
+            storage
+                .project_chat_mode("dp-a", channel, "t1")
+                .await
+                .unwrap(),
             ProjectMode::Plan
         );
         storage
@@ -651,12 +956,18 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(
-            storage.project_chat_mode("dp-a", channel, "t1").await.unwrap(),
+            storage
+                .project_chat_mode("dp-a", channel, "t1")
+                .await
+                .unwrap(),
             ProjectMode::Build
         );
         // Another chat keeps its own mode.
         assert_eq!(
-            storage.project_chat_mode("dp-a", channel, "t2").await.unwrap(),
+            storage
+                .project_chat_mode("dp-a", channel, "t2")
+                .await
+                .unwrap(),
             ProjectMode::Plan
         );
     }
@@ -667,7 +978,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         storage.open_project(project(dir.path())).await.unwrap();
         let wt = worktree("t1");
-        storage.insert_worktree(&wt, detail("t1", "wt-t1")).await.unwrap();
+        storage
+            .insert_worktree(&wt, detail("t1", "wt-t1"))
+            .await
+            .unwrap();
         storage
             .set_project_chat_mode(
                 "dp-a",
@@ -678,7 +992,10 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(storage.worktree("p3xY9aQ2mZ", "w-t1").await.unwrap(), Some(wt.clone()));
+        assert_eq!(
+            storage.worktree("p3xY9aQ2mZ", "w-t1").await.unwrap(),
+            Some(wt.clone())
+        );
         assert_eq!(
             storage.worktree_by_topic("p3xY9aQ2mZ", "t1").await.unwrap(),
             Some(wt.clone())
@@ -692,7 +1009,10 @@ mod tests {
         let row = rows.iter().find(|row| row.topic == "t1").unwrap();
         assert_eq!(row.mode, ProjectMode::Build);
         let summary = row.worktree.as_ref().unwrap();
-        assert_eq!((summary.id.as_str(), summary.name.as_str()), ("w-t1", "wt-t1"));
+        assert_eq!(
+            (summary.id.as_str(), summary.name.as_str()),
+            ("w-t1", "wt-t1")
+        );
 
         storage.delete_worktree("w-t1").await.unwrap();
         assert!(storage.worktrees("p3xY9aQ2mZ").await.unwrap().is_empty());
@@ -704,7 +1024,12 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         storage.open_project(project(dir.path())).await.unwrap();
         storage
-            .set_project_chat_mode("dp-a", "project__alice__p3xY9aQ2mZ", "t1", ProjectMode::Build)
+            .set_project_chat_mode(
+                "dp-a",
+                "project__alice__p3xY9aQ2mZ",
+                "t1",
+                ProjectMode::Build,
+            )
             .await
             .unwrap();
         storage
@@ -712,7 +1037,7 @@ mod tests {
             .await
             .unwrap();
         {
-            let conn = storage.conn.lock();
+            let conn = storage.conn.lock().unwrap();
             delete_agent_projects(&conn, "dp-a").unwrap();
             let chats: i64 = conn
                 .query_row("SELECT COUNT(*) FROM project_chat", [], |r| r.get(0))
@@ -733,25 +1058,34 @@ mod tests {
             .insert_worktree(&worktree("wt1"), detail("wt1", "wt-wt1"))
             .await
             .unwrap();
-        {
-            let conn = storage.conn.lock();
-            conn.execute(
-                "INSERT INTO session_turn (agent_id, channel, topic) \
-                 VALUES ('dp-a', 'project__alice__p3xY9aQ2mZ', 'wt1')",
-                [],
-            )
-            .unwrap();
-        }
-        assert!(!storage.project_has_main_turn("dp-a", "p3xY9aQ2mZ").await.unwrap());
-        {
-            let conn = storage.conn.lock();
-            conn.execute(
-                "INSERT INTO session_turn (agent_id, channel, topic) \
-                 VALUES ('dp-a', 'project__alice__p3xY9aQ2mZ', 'main')",
-                [],
-            )
-            .unwrap();
-        }
-        assert!(storage.project_has_main_turn("dp-a", "p3xY9aQ2mZ").await.unwrap());
+        turn(&storage.conn.lock().unwrap(), "wt1");
+        assert!(
+            !storage
+                .project_has_main_turn("dp-a", "p3xY9aQ2mZ")
+                .await
+                .unwrap()
+        );
+        turn(&storage.conn.lock().unwrap(), "main");
+        assert!(
+            storage
+                .project_has_main_turn("dp-a", "p3xY9aQ2mZ")
+                .await
+                .unwrap()
+        );
     }
+
+    crate::postgres_tests!(
+        opening_the_same_folder_twice_reuses_the_row,
+        removal_is_soft_and_reopening_restores_the_same_id,
+        another_agent_gets_its_own_project_for_the_same_folder,
+        rename_and_the_shell_switch_persist,
+        sessions_keep_their_creation_order_and_an_empty_one_is_last,
+        a_worktree_chat_is_placed_by_its_own_creation_time,
+        deleting_an_agent_leaves_no_project_rows,
+        the_session_count_covers_every_owner,
+        a_chat_starts_in_plan_and_the_mode_upserts,
+        a_worktree_and_its_chat_are_written_together_and_listed_with_their_mode,
+        deleting_an_agent_leaves_no_chat_or_worktree_rows,
+        a_main_turn_ignores_worktree_chats,
+    );
 }

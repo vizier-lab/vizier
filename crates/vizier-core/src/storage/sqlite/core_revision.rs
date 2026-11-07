@@ -1,13 +1,14 @@
 //! CORE.md version history — the `core_revision` table.
 //!
-//! Synchronous helpers over a `&rusqlite::Connection`, called from
-//! `SqliteStorage::set_agent_core` (inside its transaction) and the `AgentStorage` history
+//! Synchronous helpers over a `&sql::Connection`, called from
+//! `SqlStorage::set_agent_core` (inside its transaction) and the `AgentStorage` history
 //! methods. Memory documents have their own, separate module (`memory_revision`); the two share
 //! only the value types in `schema::revision`.
 
 use anyhow::{Result, anyhow};
-use chrono::Utc;
-use rusqlite::{Connection, OptionalExtension, Row, params};
+
+
+use crate::storage::sql::{Connection, OptionalExtension, Row, params};
 
 use crate::schema::{RevisionActor, RevisionOrigin, RevisionTrigger};
 
@@ -31,7 +32,7 @@ fn clamp_limit(limit: usize) -> usize {
 const SELECT_COLUMNS: &str =
     "seq, content, actor_kind, actor_id, actor_name, trigger, restored_from, created_at";
 
-fn map_row(row: &Row) -> rusqlite::Result<CoreRevisionRow> {
+fn map_row(row: &Row) -> crate::storage::sql::Result<CoreRevisionRow> {
     let actor_kind: String = row.get(2)?;
     let trigger: String = row.get(5)?;
     let restored_from: Option<i64> = row.get(6)?;
@@ -78,7 +79,7 @@ pub(crate) fn list(
     ))?;
     let rows = stmt
         .query_map(params![agent_id, limit as i64, offset as i64], map_row)?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
+        .collect::<crate::storage::sql::Result<Vec<_>>>()?;
     Ok((rows, total as usize))
 }
 
@@ -104,7 +105,7 @@ fn insert(
             actor_name,
             trigger,
             restored_from,
-            Utc::now().timestamp_millis(),
+            crate::time::now().timestamp_millis(),
             origin.dream_cycle,
         ],
     )?;
@@ -144,16 +145,26 @@ pub(crate) fn record(
     current_before_save: Option<&str>,
 ) -> Result<Option<i64>> {
     if agent_id.is_empty() {
-        return Err(anyhow!("cannot record a CORE revision for an empty agent id"));
+        return Err(anyhow!(
+            "cannot record a CORE revision for an empty agent id"
+        ));
     }
-    ensure_baseline(conn, agent_id, current_before_save)?;
-    let next_seq = match latest(conn, agent_id)? {
-        Some(latest) if latest.content == content => return Ok(None),
-        Some(latest) => latest.seq + 1,
-        None => 1,
+    // Numbering is read-then-insert: hold the agent's key so two writers cannot both pick the
+    // same next number (FR-011). A savepoint when the caller already has a transaction open.
+    let tx = conn.transaction()?;
+    tx.lock_key(&format!("core_revision:{agent_id}"))?;
+    ensure_baseline(&tx, agent_id, current_before_save)?;
+    let next_seq = match latest(&tx, agent_id)? {
+        Some(latest) if latest.content == content => None,
+        Some(latest) => Some(latest.seq + 1),
+        None => Some(1),
     };
-    insert(conn, agent_id, next_seq, content, origin)?;
-    Ok(Some(next_seq))
+    if let Some(seq) = next_seq {
+        insert(&tx, agent_id, seq, content, origin)?;
+    }
+    // Commit even for a no-op: `ensure_baseline` may have just written the baseline.
+    tx.commit()?;
+    Ok(next_seq)
 }
 
 pub(crate) fn delete_agent(conn: &Connection, agent_id: &str) -> Result<()> {
@@ -167,12 +178,15 @@ pub(crate) fn delete_agent(conn: &Connection, agent_id: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::storage::sql::SqlStore;
     use crate::storage::sqlite::init_revision_schema;
 
-    fn conn() -> Connection {
-        let conn = Connection::open_in_memory().unwrap();
-        init_revision_schema(&conn).unwrap();
-        conn
+    fn store() -> SqlStore {
+        crate::tests_support::test_store(|| {
+            let conn = rusqlite::Connection::open_in_memory().unwrap();
+            init_revision_schema(&conn).unwrap();
+            SqlStore::sqlite(conn)
+        })
     }
 
     fn agent_origin() -> RevisionOrigin {
@@ -185,7 +199,8 @@ mod tests {
 
     #[test]
     fn first_record_with_prior_content_seeds_a_baseline() {
-        let c = conn();
+        let store = store();
+        let c = store.lock().unwrap();
         let seq = record(&c, "a", "new", &agent_origin(), Some("old")).unwrap();
         assert_eq!(seq, Some(2));
 
@@ -203,23 +218,38 @@ mod tests {
 
     #[test]
     fn first_record_without_prior_content_starts_at_seq_1() {
-        let c = conn();
-        assert_eq!(record(&c, "a", "v1", &agent_origin(), None).unwrap(), Some(1));
-        assert_eq!(record(&c, "a", "v2", &agent_origin(), Some("v1")).unwrap(), Some(2));
+        let store = store();
+        let c = store.lock().unwrap();
+        assert_eq!(
+            record(&c, "a", "v1", &agent_origin(), None).unwrap(),
+            Some(1)
+        );
+        assert_eq!(
+            record(&c, "a", "v2", &agent_origin(), Some("v1")).unwrap(),
+            Some(2)
+        );
         assert_eq!(latest(&c, "a").unwrap().unwrap().seq, 2);
     }
 
     #[test]
     fn identical_content_is_a_no_op() {
-        let c = conn();
-        assert_eq!(record(&c, "a", "same", &agent_origin(), None).unwrap(), Some(1));
-        assert_eq!(record(&c, "a", "same", &agent_origin(), Some("same")).unwrap(), None);
+        let store = store();
+        let c = store.lock().unwrap();
+        assert_eq!(
+            record(&c, "a", "same", &agent_origin(), None).unwrap(),
+            Some(1)
+        );
+        assert_eq!(
+            record(&c, "a", "same", &agent_origin(), Some("same")).unwrap(),
+            None
+        );
         assert_eq!(list(&c, "a", 0, 50).unwrap().1, 1);
     }
 
     #[test]
     fn list_is_newest_first_and_paginated() {
-        let c = conn();
+        let store = store();
+        let c = store.lock().unwrap();
         for i in 1..=5 {
             record(&c, "a", &format!("v{i}"), &agent_origin(), None).unwrap();
         }
@@ -234,7 +264,8 @@ mod tests {
 
     #[test]
     fn rollback_provenance_round_trips() {
-        let c = conn();
+        let store = store();
+        let c = store.lock().unwrap();
         record(&c, "a", "v1", &agent_origin(), None).unwrap();
         let origin = RevisionOrigin {
             actor: RevisionActor::User {
@@ -254,11 +285,53 @@ mod tests {
 
     #[test]
     fn delete_agent_removes_only_that_agent() {
-        let c = conn();
+        let store = store();
+        let c = store.lock().unwrap();
         record(&c, "a", "v1", &agent_origin(), None).unwrap();
         record(&c, "b", "v1", &agent_origin(), None).unwrap();
         delete_agent(&c, "a").unwrap();
         assert_eq!(list(&c, "a", 0, 50).unwrap().1, 0);
         assert_eq!(list(&c, "b", 0, 50).unwrap().1, 1);
     }
+
+    /// FR-011 / SC-004: writers racing on one agent's CORE (each on its own pooled connection)
+    /// all succeed and get contiguous, unique numbers. PostgreSQL only: SQLite has one
+    /// connection, so nothing races there.
+    #[test]
+    fn concurrent_writers_get_contiguous_numbers() {
+        let Some(store) = crate::tests_support::postgres_store() else { return };
+        const WRITERS: usize = 50;
+        const EACH: usize = 8;
+        std::thread::scope(|s| {
+            for w in 0..WRITERS {
+                let store = store.clone();
+                s.spawn(move || {
+                    for i in 0..EACH {
+                        let c = store.lock().unwrap();
+                        record(&c, "racer", &format!("w{w} i{i}"), &agent_origin(), None)
+                            .expect("every write succeeds");
+                    }
+                });
+            }
+        });
+        let c = store.lock().unwrap();
+        let mut seqs: Vec<i64> = c
+            .prepare("SELECT seq FROM core_revision WHERE agent_id = 'racer'")
+            .unwrap()
+            .query_map((), |r| r.get(0))
+            .unwrap()
+            .collect::<crate::storage::sql::Result<_>>()
+            .unwrap();
+        seqs.sort_unstable();
+        assert_eq!(seqs, (1..=(WRITERS * EACH) as i64).collect::<Vec<_>>());
+    }
+
+    crate::postgres_tests!(
+        first_record_with_prior_content_seeds_a_baseline,
+        first_record_without_prior_content_starts_at_seq_1,
+        identical_content_is_a_no_op,
+        list_is_newest_first_and_paginated,
+        rollback_provenance_round_trips,
+        delete_agent_removes_only_that_agent,
+    );
 }

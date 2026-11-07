@@ -12,7 +12,22 @@ use crate::{
 use vizier_core::setup::SetupStates;
 
 pub fn utils() -> Router<HTTPState> {
-    Router::new().route("/setup-state", get(setup_state))
+    Router::new()
+        .route("/setup-state", get(setup_state))
+        .route("/timezone", get(timezone))
+}
+
+#[utoipa::path(
+    get,
+    path = "/utils/timezone",
+    responses(
+        (status = 200, description = "The timezone this instance runs in. Every time it returns is in this zone", body = APIResponse<vizier_core::time::Zone>)
+    )
+)]
+pub async fn timezone(
+    Extension(_user): Extension<Principal>,
+) -> (StatusCode, axum::Json<APIResponse<vizier_core::time::Zone>>) {
+    api_response(StatusCode::OK, vizier_core::time::zone())
 }
 
 #[utoipa::path(

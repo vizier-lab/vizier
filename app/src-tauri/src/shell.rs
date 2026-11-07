@@ -21,13 +21,15 @@ use tauri_plugin_updater::UpdaterExt;
 use crate::{
     desktop::{self, Navigator},
     engine::{CommandError, Engine, SettingsPatch},
-    ipc::{self, IpcError, Topics},
+    ipc::{self, Inboxes, IpcError, Topics, Workspaces},
     settings::DesktopSettings,
 };
 
 struct Shell {
     engine: Engine,
     topics: Arc<Topics>,
+    inboxes: Arc<Inboxes>,
+    workspaces: Arc<Workspaces>,
     nav: Arc<Navigator>,
     quitting: std::sync::atomic::AtomicBool,
 }
@@ -61,6 +63,8 @@ async fn quit(app: AppHandle) {
     let shell = app.state::<Shell>();
     shell.quitting.store(true, std::sync::atomic::Ordering::SeqCst);
     shell.topics.close_all();
+    shell.inboxes.close_all();
+    shell.workspaces.close_all();
     shell.engine.shutdown().await;
     app.exit(0);
 }
@@ -117,6 +121,59 @@ fn topic_close(id: u64, shell: State<'_, Shell>) {
     shell.topics.close(id);
 }
 
+/// Opens the inbox stream (`specs/051-realtime-notifications`): notifications, read state and
+/// setup progress as the frames `GET /api/v1/inbox/stream` pushes, the `hello` first.
+#[tauri::command]
+async fn inbox_open(frames: Channel<Value>, shell: State<'_, Shell>) -> Result<Value, Value> {
+    match shell
+        .inboxes
+        .open(&shell.engine, move |frame| {
+            let _ = frames.send(frame);
+        })
+        .await
+    {
+        Ok(id) => Ok(json!({ "id": id })),
+        Err(refused) => Err(json!({ "status": refused.status })),
+    }
+}
+
+#[tauri::command]
+fn inbox_close(id: u64, shell: State<'_, Shell>) {
+    shell.inboxes.close(id);
+}
+
+/// Opens a Workspace topic stream (`specs/053-workspace-channel`): the frames
+/// `GET /api/v1/workspaces/{id}/topics/{tid}/stream` pushes, the `hello` first.
+#[tauri::command]
+async fn workspace_open(
+    workspace_id: String,
+    topic_id: String,
+    frames: Channel<Value>,
+    shell: State<'_, Shell>,
+) -> Result<Value, Value> {
+    match shell
+        .workspaces
+        .open(&shell.engine, &workspace_id, &topic_id, move |frame| {
+            let _ = frames.send(frame);
+        })
+        .await
+    {
+        Ok(id) => Ok(json!({ "id": id })),
+        Err(refused) => Err(json!({ "status": refused.status })),
+    }
+}
+
+#[tauri::command]
+async fn workspace_send(id: u64, frame: Value, shell: State<'_, Shell>) -> Result<(), ()> {
+    shell.workspaces.send(id, frame).await;
+    Ok(())
+}
+
+#[tauri::command]
+fn workspace_close(id: u64, shell: State<'_, Shell>) {
+    shell.workspaces.close(id);
+}
+
 // ---------------------------------------------------------------- commands: desktop shell
 
 #[tauri::command]
@@ -126,23 +183,35 @@ fn desktop_state(shell: State<'_, Shell>) -> Value {
 
 /// Paint the window frame in the app shell's colour, so the title bar reads as part of the rail
 /// rather than a separate slab above it. The WebUI calls this whenever its theme changes; the
-/// Windows 10 caption (which ignores `DWMWA_CAPTION_COLOR`) still gets dark mode.
+/// Windows 10 caption (which ignores `DWMWA_CAPTION_COLOR`) still gets dark mode. `frame` is the
+/// scheme's `--vz-shell`, so the bar follows the colour scheme and not only light or dark.
 #[tauri::command]
 #[allow(unused_variables)]
-fn desktop_theme(appearance: String, window: tauri::WebviewWindow) -> Result<(), String> {
+fn desktop_theme(appearance: String, frame: Option<String>, window: tauri::WebviewWindow) -> Result<(), String> {
     #[cfg(windows)]
-    paint_caption(&window, appearance != "light").map_err(|e| e.to_string())?;
+    paint_caption(&window, appearance != "light", frame.as_deref()).map_err(|e| e.to_string())?;
     Ok(())
 }
 
+/// `#rrggbb` as a COLORREF, 0x00BBGGRR. Anything else is None.
 #[cfg(windows)]
-fn paint_caption(window: &tauri::WebviewWindow, dark: bool) -> tauri::Result<()> {    use windows::Win32::Graphics::Dwm::{
+fn colorref(hex: &str) -> Option<u32> {
+    let digits = hex.strip_prefix('#')?;
+    if digits.len() != 6 || !digits.is_ascii() {
+        return None;
+    }
+    let channel = |at: usize| u32::from_str_radix(&digits[at..at + 2], 16).ok();
+    Some(channel(4)? << 16 | channel(2)? << 8 | channel(0)?)
+}
+
+#[cfg(windows)]
+fn paint_caption(window: &tauri::WebviewWindow, dark: bool, frame: Option<&str>) -> tauri::Result<()> {    use windows::Win32::Graphics::Dwm::{
         DWMWA_BORDER_COLOR, DWMWA_CAPTION_COLOR, DWMWA_USE_IMMERSIVE_DARK_MODE,
         DwmSetWindowAttribute,
     };
     let hwnd = window.hwnd()?;
-    // COLORREF is 0x00BBGGRR — the shell's own `--vz-shell` (#0B0B0C dark, #F1F1F3 light).
-    let color: u32 = if dark { 0x000C_0B0B } else { 0x00F3_F1F1 };
+    // Until the WebUI says otherwise, Vizier's own `--vz-shell` (#070708 dark, #F1F1F3 light).
+    let color: u32 = frame.and_then(colorref).unwrap_or(if dark { 0x0008_0707 } else { 0x00F3_F1F1 });
     let immersive: i32 = i32::from(dark);
     // Unsupported attributes (a Windows 10 caption) return an error that is safe to ignore.
     unsafe {
@@ -193,6 +262,8 @@ async fn desktop_open_workspace(path: Option<String>, app: AppHandle, shell: Sta
     };
     let Some(path) = chosen else { return Ok(()) };
     shell.topics.close_all();
+    shell.inboxes.close_all();
+    shell.workspaces.close_all();
     shell.engine.open_workspace(path).await;
     Ok(())
 }
@@ -213,6 +284,8 @@ async fn desktop_pick_folder(app: AppHandle) -> Result<Option<String>, CommandEr
 #[tauri::command]
 async fn runtime_restart(shell: State<'_, Shell>) -> Result<(), ()> {
     shell.topics.close_all();
+    shell.inboxes.close_all();
+    shell.workspaces.close_all();
     shell.engine.restart().await;
     Ok(())
 }
@@ -257,6 +330,20 @@ async fn save_file(path: String, filename: String, app: AppHandle, shell: State<
     }
 }
 
+/// Saves text the WebUI made itself (an exported theme), which has no server path for `save_file`.
+#[tauri::command]
+async fn save_text(text: String, filename: String, app: AppHandle) -> Result<(), String> {
+    let name = desktop::safe_filename(&filename);
+    tauri::async_runtime::spawn_blocking(move || {
+        match app.dialog().file().set_file_name(name).blocking_save_file().and_then(|p| p.into_path().ok()) {
+            Some(dest) => std::fs::write(dest, text).map_err(|e| e.to_string()),
+            None => Ok(()),
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 async fn open_file(path: String, filename: String, app: AppHandle, shell: State<'_, Shell>) -> Result<(), String> {
     let file = desktop::open_file_path(&shell.engine, &path, &filename).await?;
@@ -287,6 +374,8 @@ async fn update_install(app: AppHandle, shell: State<'_, Shell>) -> Result<(), S
     let Some(update) = updater.check().await.map_err(|e| e.to_string())? else { return Ok(()) };
     update.download_and_install(|_, _| {}, || {}).await.map_err(|e| e.to_string())?;
     shell.topics.close_all();
+    shell.inboxes.close_all();
+    shell.workspaces.close_all();
     shell.engine.shutdown().await;
     app.restart();
 }
@@ -338,18 +427,18 @@ pub fn run() {
 
     #[cfg(debug_assertions)]
     let handler: Box<dyn Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Sync> = Box::new(tauri::generate_handler![
-        api, topic_open, topic_send, topic_close, desktop_state, desktop_setup_owner,
+        api, topic_open, topic_send, topic_close, inbox_open, inbox_close, workspace_open, workspace_send, workspace_close, desktop_state, desktop_setup_owner,
         desktop_choose_owner, desktop_open_workspace, desktop_pick_folder, runtime_restart,
         desktop_theme, desktop_settings_get,
-        desktop_settings_set, desktop_ready, save_file, open_file, notify, update_check,
+        desktop_settings_set, desktop_ready, save_file, save_text, open_file, notify, update_check,
         update_install, runtime_debug_stop_scheduler
     ]);
     #[cfg(not(debug_assertions))]
     let handler: Box<dyn Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Sync> = Box::new(tauri::generate_handler![
-        api, topic_open, topic_send, topic_close, desktop_state, desktop_setup_owner,
+        api, topic_open, topic_send, topic_close, inbox_open, inbox_close, workspace_open, workspace_send, workspace_close, desktop_state, desktop_setup_owner,
         desktop_choose_owner, desktop_open_workspace, desktop_pick_folder, runtime_restart,
         desktop_theme, desktop_settings_get,
-        desktop_settings_set, desktop_ready, save_file, open_file, notify, update_check,
+        desktop_settings_set, desktop_ready, save_file, save_text, open_file, notify, update_check,
         update_install
     ]);
 
@@ -364,6 +453,8 @@ pub fn run() {
             app.manage(Shell {
                 engine: engine.clone(),
                 topics: Arc::new(Topics::default()),
+                inboxes: Arc::new(Inboxes::default()),
+                workspaces: Arc::new(Workspaces::default()),
                 nav: Arc::new(Navigator::default()),
                 quitting: Default::default(),
             });
@@ -421,7 +512,7 @@ pub fn run() {
                 .build()?;
             // The default look is the dark shell; the WebUI repaints this if its theme is light.
             #[cfg(windows)]
-            let _ = paint_caption(&window, true);
+            let _ = paint_caption(&window, true, None);
 
             // Tray: Open / Quit; a left click shows the window.
             let open = MenuItem::with_id(app, "open", "Open Vizier", true, None::<&str>)?;
@@ -468,7 +559,11 @@ pub fn run() {
                         let _ = app.emit("desktop://navigate", json!({ "href": href }));
                     }
                 }
-                WindowEvent::Destroyed => shell.topics.close_all(),
+                WindowEvent::Destroyed => {
+                    shell.topics.close_all();
+                    shell.inboxes.close_all();
+                    shell.workspaces.close_all();
+                }
                 _ => {}
             }
         })
@@ -484,4 +579,23 @@ pub fn run() {
             }
         }
     });
+}
+
+#[cfg(all(test, windows))]
+mod caption_tests {
+    use super::colorref;
+
+    #[test]
+    fn reads_rrggbb_as_a_colorref() {
+        assert_eq!(colorref("#070708"), Some(0x0008_0707));
+        assert_eq!(colorref("#f1f1f3"), Some(0x00F3_F1F1));
+        assert_eq!(colorref("#1D2021"), Some(0x0021_201D));
+    }
+
+    #[test]
+    fn refuses_anything_else() {
+        for bad in ["", "#fff", "070708", "#07070g", "#0707080", "red", "#é70708"] {
+            assert_eq!(colorref(bad), None, "{bad}");
+        }
+    }
 }

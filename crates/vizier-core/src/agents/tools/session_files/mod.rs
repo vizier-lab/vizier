@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-use chrono::Utc;
+
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -18,6 +18,8 @@ use crate::{
 pub const DOCX_MIME: &str = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 pub const XLSX_MIME: &str = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 pub const XLS_MIME: &str = "application/vnd.ms-excel";
+pub const PDF_MIME: &str = "application/pdf";
+pub const PNG_MIME: &str = "image/png";
 
 mod send_attachment;
 pub use send_attachment::SendAttachment;
@@ -137,13 +139,13 @@ fn extract_text(mime_type: &str, content: Vec<u8>) -> Result<String, VizierError
                 .map_err(|e| VizierError(format!("Invalid UTF-8: {}", e)))?;
             Ok(text)
         }
-        #[cfg(feature = "documents")]
+        #[cfg(feature = "addon-documents")]
         "application/pdf" => {
             let text = pdf_extract::extract_text_from_mem(&content)
                 .map_err(|e| VizierError(format!("Failed to extract PDF: {}", e)))?;
             Ok(text)
         }
-        #[cfg(not(feature = "documents"))]
+        #[cfg(not(feature = "addon-documents"))]
         "application/pdf" => Err(VizierError(
             "PDF text extraction is not supported in this build".into(),
         )),
@@ -200,7 +202,7 @@ impl VizierTool for ReadDocumentFile {
         let text = extract_text(&file.mime_type, content)?;
 
         Ok(VizierResponse {
-            timestamp: Utc::now(),
+            timestamp: crate::time::now(),
             content: VizierResponseContent::ToolResponse {
                 response: serde_json::Value::String(text),
             },
@@ -229,5 +231,14 @@ mod tests {
     fn text_still_reads_as_before() {
         assert_eq!(extract_text("text/plain", b"hello".to_vec()).unwrap(), "hello");
         assert!(extract_text("application/pdf", b"not a pdf".to_vec()).is_err());
+    }
+
+    /// Spec 044 adds PDF tools to the Office addon but leaves this reader's PDF path alone.
+    #[cfg(feature = "addon-documents")]
+    #[test]
+    fn a_pdf_still_reads_as_plain_text_here() {
+        let pdf = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/office/table.pdf")).to_vec();
+        let text = extract_text("application/pdf", pdf).unwrap();
+        assert!(text.contains("Quarterly Report") && text.contains("Widget"), "{text}");
     }
 }

@@ -12,10 +12,13 @@ use crate::dependencies::VizierDependencies;
 use crate::{
     config::provider::ProviderId,
     llm::{
-        CompletionRequest, DialectKind, LlmError, Message,
+        CompletionModel, CompletionRequest, DialectKind, LlmError, Message,
         resolve::{ModelOverrides, ResolveContext, ResolvedModel},
     },
-    schema::{AgentConfig, CustomProvider, ProviderCredentials, agent::CompletionRetryConfig},
+    schema::{
+        AgentConfig, CustomProvider, ProfileEntry, ProviderCredentials,
+        agent::CompletionRetryConfig,
+    },
     storage::agent::AgentStorage,
 };
 
@@ -160,6 +163,15 @@ pub fn reachable(deps: &VizierDependencies, id: &ProviderId) -> Option<bool> {
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct TestResult {
     pub ok: bool,
+    /// The target the test invoked, when the test is a real call: the SSO provider's test proves
+    /// one model or inference profile, so it names it (contract `media-and-test.md` §1).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    /// The marker of one billable inference call. Set only when the test really invoked a model —
+    /// the SSO test spends exactly one call (FR-012a, SC-018) — and never by a listing or a
+    /// failure, which spend nothing.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub billing: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model_count: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -187,6 +199,8 @@ impl TestResult {
         };
         Self {
             ok: false,
+            model: None,
+            billing: None,
             model_count: None,
             status,
             error,
@@ -223,6 +237,8 @@ pub async fn check(deps: &VizierDependencies, mut resolved: ResolvedModel) -> Te
         return match tokio::time::timeout(Duration::from_secs(15), model.complete(req)).await {
             Ok(Ok(_)) => TestResult {
                 ok: true,
+                model: None,
+                billing: None,
                 model_count: None,
                 status: None,
                 error: None,
@@ -230,6 +246,13 @@ pub async fn check(deps: &VizierDependencies, mut resolved: ResolvedModel) -> Te
             Ok(Err(e)) => TestResult::failed(e),
             Err(_) => TestResult::failed(LlmError::Timeout),
         };
+    }
+    // The SSO provider's test is a real invoke (contract `media-and-test.md` §1, FR-012a),
+    // never the foundation-model listing (FR-012b): only an invoke proves the role may reach
+    // *this* model or profile, which is the one thing the person is asking. `amazon-bedrock`'s
+    // own behaviour (the listing below) is untouched.
+    if resolved.provider == ProviderId::AMAZON_BEDROCK_SSO {
+        return check_sso(deps, resolved).await;
     }
     // Bedrock verifies the key pair and region with a signed control-plane listing, which
     // needs no model access and spends no tokens (research R8).
@@ -248,6 +271,8 @@ pub async fn check(deps: &VizierDependencies, mut resolved: ResolvedModel) -> Te
         {
             Ok(Ok(count)) => TestResult {
                 ok: true,
+                model: None,
+                billing: None,
                 model_count: Some(count),
                 status: None,
                 error: None,
@@ -262,12 +287,153 @@ pub async fn check(deps: &VizierDependencies, mut resolved: ResolvedModel) -> Te
     {
         Ok(Ok(models)) => TestResult {
             ok: true,
+            model: None,
+            billing: None,
             model_count: Some(models.len()),
             status: None,
             error: None,
         },
         Ok(Err(e)) => TestResult::failed(e),
         Err(_) => TestResult::failed(LlmError::Timeout),
+    }
+}
+
+/// The one refusal a test without a target gives, before any AWS request (SC-018).
+pub(crate) const NEEDS_MODEL: &str =
+    "the test needs a model or inference profile to invoke; choose one first";
+
+/// The SSO connection test: one `Converse` request with one token, the same shape the Anthropic
+/// arm sends. A 2xx is the answer, and every other outcome is a message — a failed test is an
+/// answer, not an HTTP error (contract `media-and-test.md` §1).
+async fn check_sso(deps: &VizierDependencies, resolved: ResolvedModel) -> TestResult {
+    let target = resolved.model.clone();
+    if target.trim().is_empty() {
+        // No target, no request: the answer is the refusal itself (SC-018).
+        return TestResult {
+            ok: false,
+            model: None,
+            billing: None,
+            model_count: None,
+            status: None,
+            error: Some(NEEDS_MODEL.into()),
+        };
+    }
+    let region = bedrock_region(&resolved.base_url);
+    // The dialect and the transport a turn uses, without the retry decorator `llm::build` wraps
+    // them in: that decorator rewrites every non-2xx into one "rate limited by the provider after
+    // N attempt(s)" string, which would lose both the status this table maps on and AWS's own
+    // wording. The test sends exactly one request and reports the answer as it came.
+    let model = crate::llm::HttpModel::new(
+        crate::llm::dialect::bedrock::Bedrock,
+        std::sync::Arc::new(resolved),
+        deps.http.clone(),
+    );
+    let req = match Message::user_text("ping") {
+        Ok(m) => CompletionRequest {
+            messages: vec![m],
+            tools: vec![],
+            tool_choice: None,
+            max_tokens: Some(1),
+        },
+        Err(e) => return sso_failure(LlmError::Config(e.to_string()), &target, &region),
+    };
+    match tokio::time::timeout(Duration::from_secs(15), model.complete(req)).await {
+        Ok(Ok(_)) => TestResult {
+            ok: true,
+            model: Some(target),
+            billing: Some("one billable inference call".into()),
+            model_count: None,
+            status: None,
+            error: None,
+        },
+        Ok(Err(e)) => sso_failure(e, &target, &region),
+        Err(_) => sso_failure(LlmError::Timeout, &target, &region),
+    }
+}
+
+/// The Bedrock region a resolved endpoint names, for the refusal that says where model access is
+/// turned on. An endpoint this cannot read is kept as it is, so the message never invents a region.
+fn bedrock_region(base_url: &str) -> String {
+    base_url
+        .trim_start_matches("https://")
+        .strip_prefix("bedrock-runtime.")
+        .and_then(|rest| rest.strip_suffix(".amazonaws.com"))
+        .unwrap_or(base_url)
+        .to_string()
+}
+
+/// `403` bodies AWS uses when the account has no access to the model. Checked before the action
+/// refusals, because AWS's own wording names no action at all.
+const MODEL_ACCESS_REFUSALS: [&str; 3] = [
+    "don't have access to the model",
+    "do not have access to the model",
+    "no access to this model",
+];
+
+/// `403` bodies that name an IAM action the role may not perform.
+const ACTION_REFUSALS: [&str; 3] = [
+    "not authorized to perform",
+    "is not allowed to perform",
+    "accessdenied",
+];
+
+/// Contract `media-and-test.md` §1's outcome table, one message per cause. The body of a
+/// refusal is passed through **whole** — never shortened the way [`TestResult::failed`] shortens
+/// the other providers' — because it is the text a person has to act on.
+fn sso_failure(error: LlmError, target: &str, region: &str) -> TestResult {
+    let failure = |error: String| TestResult {
+        ok: false,
+        model: Some(target.to_string()),
+        billing: None,
+        model_count: None,
+        status: None,
+        error: Some(error),
+    };
+    match error {
+        LlmError::Timeout => failure("request timed out".into()),
+        LlmError::Http { status, body, .. } => {
+            // FR-016: an ended session is the session's problem, in its own words. A test never
+            // reports one as a test failure (contract §1.1).
+            if crate::llm::sso::is_session_failure_message(&body) {
+                return failure(body);
+            }
+            let text = body.to_ascii_lowercase();
+            match status {
+                403 if MODEL_ACCESS_REFUSALS.iter().any(|marker| text.contains(marker)) => {
+                    failure(format!(
+                        "model {target:?} is not enabled for this account in {region}"
+                    ))
+                }
+                403 if ACTION_REFUSALS.iter().any(|marker| text.contains(marker)) => {
+                    failure(
+                        crate::llm::sso::SsoError::PermissionMissing {
+                            action: "perform bedrock:InvokeModel".into(),
+                        }
+                        .to_string(),
+                    )
+                }
+                // Only an ARN can be a profile: a foundation-model id that is missing is AWS's
+                // own answer, passed through below.
+                404 if crate::llm::bedrock::parse_inference_profile_arn(target).is_ok() => {
+                    failure(format!(
+                        "inference profile {target:?} was not found; it may have been deleted"
+                    ))
+                }
+                429 => failure("AWS throttled the test; try again shortly".into()),
+                _ => failure(if body.trim().is_empty() {
+                    reqwest::StatusCode::from_u16(status)
+                        .ok()
+                        .and_then(|s| s.canonical_reason())
+                        .unwrap_or("error")
+                        .to_string()
+                } else {
+                    body
+                }),
+            }
+        }
+        // A session or credential failure reaches here as `Config`, whose text is already the
+        // `SsoError` message verbatim; the rest say what they say.
+        other => failure(other.to_string()),
     }
 }
 
@@ -278,24 +444,51 @@ pub async fn resolve_for_test(
     provider: &ProviderId,
     credentials: Option<ProviderCredentials>,
     custom: Option<&CustomProvider>,
+    model: &str,
 ) -> crate::Result<ResolvedModel> {
     let env = crate::llm::resolve::provider_env(&deps.catalogue, provider);
     let saved = crate::provider_keys::resolve_credentials(&deps.storage, provider, &env)
         .await
         .map(|(c, _)| c);
-    let credentials = match (saved, credentials) {
+    let mut credentials = match (saved, credentials) {
         (Some(saved), Some(new)) => Some(saved.merged_with(&new)),
         (saved, new) => new.or(saved),
     };
+    let mut sso = None;
+    if *provider == ProviderId::AMAZON_BEDROCK_SSO {
+        let merged = credentials.clone().unwrap_or_default();
+        // The role credential is built from the values on the form laid over the saved row, so
+        // the test proves the connection the person is looking at (FR-012a). It reads the session
+        // store itself, so this hook needs no second lookup of its own.
+        sso = Some(crate::llm::resolve::bedrock_credentials_from(
+            deps, provider, &merged, None,
+        )?);
+        // An inference-profile ARN that is not saved yet is still the target of the test:
+        // `resolve_with` refuses an unknown ARN as a profile that is not on the connection
+        // (FR-030), which is the right answer for a turn and the wrong one here. The ARN is
+        // invoked exactly as given, with the same credentials and with no entry's limits, so AWS
+        // gets to answer 200, 403 or 404 — the answer the test exists to fetch.
+        if let Ok(arn) = crate::llm::bedrock::parse_inference_profile_arn(model)
+            && !merged.profiles.iter().any(|entry| entry.arn.trim() == arn.raw)
+        {
+            let mut with_target = merged;
+            with_target.profiles.push(ProfileEntry {
+                arn: arn.raw,
+                ..Default::default()
+            });
+            credentials = Some(with_target);
+        }
+    }
     crate::llm::resolve::resolve_with(
         &ResolveContext {
             catalogue: &deps.catalogue,
             custom,
             credentials,
             http: deps.http.clone(),
+            sso,
         },
         provider,
-        "",
+        model,
         &ModelOverrides::default(),
     )
 }
@@ -344,6 +537,25 @@ pub struct InUse {
     pub agents: Vec<AffectedAgent>,
 }
 
+/// The one `409` a provider delete and an inference-profile entry removal share: the agents
+/// that would lose `what`, and how to go on anyway (FR-029, FR-040). `data` carries the same
+/// [`InUse`] the WebUI already reads, so a caller's wire shape does not change.
+pub(crate) fn in_use_conflict(
+    what: &str,
+    agents: Vec<AffectedAgent>,
+    action: &str,
+) -> crate::service::ServiceError {
+    let names: Vec<&str> = agents.iter().map(|agent| agent.name.as_str()).collect();
+    crate::service::ServiceError::Conflict {
+        message: format!(
+            "{what} is used by {}; resend with ?confirm=true to {action} anyway",
+            names.join(", ")
+        ),
+        code: None,
+        data: serde_json::to_value(InUse { agents }).ok(),
+    }
+}
+
 /// A `409` naming the agents using `id`, unless the delete is confirmed.
 pub async fn check_in_use(
     deps: &VizierDependencies,
@@ -361,15 +573,7 @@ pub async fn check_in_use(
     if agents.is_empty() {
         return Ok(());
     }
-    let names: Vec<&str> = agents.iter().map(|a| a.name.as_str()).collect();
-    Err(crate::service::ServiceError::Conflict {
-        message: format!(
-            "used by {}; resend with ?confirm=true to delete anyway",
-            names.join(", ")
-        ),
-        code: None,
-        data: serde_json::to_value(InUse { agents }).ok(),
-    })
+    Err(in_use_conflict("this provider", agents, "delete"))
 }
 
 #[cfg(test)]
@@ -407,5 +611,424 @@ mod tests {
         assert!(found.contains(&"image_gen"), "{found:?}");
         assert_eq!(found.iter().filter(|f| **f == "chat").count(), 1, "{found:?}");
         assert!(features(&config, &ProviderId::OPENAI).is_empty());
+    }
+
+    // The SSO connection test is a real invoke (contract `media-and-test.md` §1). The stub
+    // server of `llm::sso::tests_support` stands in for the portal and the runtime at once, so
+    // these tests run the same request path a turn takes.
+
+    use std::sync::Arc;
+
+    use crate::catalogue::data::Capabilities;
+    use crate::config::VizierConfig;
+    use crate::dependencies::VizierDependencies;
+    use crate::llm::auth::{SsoRoleCredential, SsoRoleTarget};
+    use crate::llm::resolve::ContextSource;
+    use crate::llm::sso::SsoClient;
+    use crate::llm::sso::tests_support::{MemSessions, Reply, Stub};
+    use crate::schema::SsoSessionSecret;
+    use crate::storage::sso_session::SsoSessionStorage;
+
+    const TARGET: &str = "amazon.nova-lite-v1:0";
+    const PROFILE_ARN: &str =
+        "arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/abc123def456";
+
+    async fn deps() -> (VizierDependencies, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        let config = VizierConfig {
+            workspace: dir.path().to_string_lossy().to_string(),
+            ..Default::default()
+        };
+        (VizierDependencies::new(config).await.unwrap(), dir)
+    }
+
+    /// The SSO connection exactly as the form sends it.
+    fn sso_credentials() -> ProviderCredentials {
+        ProviderCredentials {
+            start_url: Some("https://acme.awsapps.com/start".into()),
+            sso_region: Some("us-east-1".into()),
+            account_id: Some("123456789012".into()),
+            role_name: Some("BedrockOperator".into()),
+            sso_profile: Some("acme-bedrock".into()),
+            region: Some("us-east-1".into()),
+            ..Default::default()
+        }
+    }
+
+    fn live_session() -> SsoSessionSecret {
+        SsoSessionSecret {
+            access_token: "access-token-value".into(),
+            refresh_token: Some("refresh-token-value".into()),
+            token_expires_at: crate::time::now() + chrono::TimeDelta::hours(1),
+            client_id: "client-id".into(),
+            client_secret: "client-secret-value".into(),
+            client_secret_expires_at: None,
+            issued_at: crate::time::now(),
+            revision: 0,
+        }
+    }
+
+    /// One `GetRoleCredentials` answer, good for an hour: the invoke needs a credential, and a
+    /// renewal of the token itself is a different test's business.
+    fn role_credentials() -> Reply {
+        Reply::ok(serde_json::json!({
+            "roleCredentials": {
+                "accessKeyId": "ASIAEXAMPLEKEYID",
+                "secretAccessKey": "secret-access-value",
+                "sessionToken": "session-token-value",
+                "expiration": (crate::time::now() + chrono::TimeDelta::hours(1)).timestamp_millis(),
+            }
+        }))
+    }
+
+    /// The cheapest `Converse` answer a 2xx can be.
+    fn converse() -> Reply {
+        Reply::ok(serde_json::json!({
+            "output": {"message": {"role": "assistant", "content": [{"text": "pong"}]}},
+            "stopReason": "end_turn",
+            "usage": {"inputTokens": 1, "outputTokens": 1, "totalTokens": 2}
+        }))
+    }
+
+    /// `target` as a turn would build it, with both the SSO portal and the Bedrock runtime at
+    /// `stub`, so `check` sends its real request over a socket.
+    fn sso_model(stub: &Stub, target: &str, sessions: Arc<MemSessions>) -> ResolvedModel {
+        ResolvedModel {
+            provider: ProviderId::AMAZON_BEDROCK_SSO,
+            model: target.to_string(),
+            dialect: DialectKind::Bedrock,
+            base_url: stub.base().to_string(),
+            credential: Arc::new(SsoRoleCredential::new(
+                SsoClient::at(reqwest::Client::new(), stub.base()),
+                sessions,
+                SsoRoleTarget {
+                    profile: "acme-bedrock".into(),
+                    account_id: "123456789012".into(),
+                    role_name: "BedrockOperator".into(),
+                    region: "us-east-1".into(),
+                },
+            )),
+            headers: vec![],
+            query: vec![],
+            context_window: None,
+            context_source: ContextSource::Unknown,
+            max_tokens: None,
+            max_output: None,
+            caps: Capabilities::default(),
+            cost: None,
+            stream_required: false,
+            default_instructions: None,
+        }
+    }
+
+    /// The same, signed in: a session row the credential can renew from.
+    async fn signed_in(stub: &Stub, target: &str) -> ResolvedModel {
+        let sessions = Arc::new(MemSessions::default());
+        sessions
+            .put_sso_session("acme-bedrock", &live_session(), None)
+            .await
+            .unwrap();
+        sso_model(stub, target, sessions)
+    }
+
+    #[tokio::test]
+    async fn the_sso_test_invokes_the_target_and_names_it() {
+        let path = crate::llm::bedrock::model_path(TARGET, "converse");
+        let stub = Stub::start_replies(vec![
+            ("/federation/credentials", vec![role_credentials()]),
+            (path.as_str(), vec![converse()]),
+        ])
+        .await;
+        let (deps, _dir) = deps().await;
+
+        let result = check(&deps, signed_in(&stub, TARGET).await).await;
+
+        assert!(result.ok, "{:?}", result.error);
+        assert_eq!(result.model.as_deref(), Some(TARGET));
+        assert_eq!(
+            result.billing.as_deref(),
+            Some("one billable inference call"),
+            "a 2xx is one billed call (SC-018)"
+        );
+        assert_eq!(
+            stub.path_count(&path),
+            1,
+            "one Converse request and nothing else"
+        );
+        let (_, body) = stub
+            .seen()
+            .into_iter()
+            .find(|(seen, _)| *seen == path)
+            .expect("the invoke reached the runtime");
+        assert!(body.contains("\"ping\""), "{body}");
+        assert!(body.contains("\"maxTokens\":1"), "one token: {body}");
+        assert!(!body.contains("toolConfig"), "no tools: {body}");
+    }
+
+    #[tokio::test]
+    async fn a_long_refusal_comes_back_whole() {
+        let path = crate::llm::bedrock::model_path(TARGET, "converse");
+        let long = format!("{}END OF THE REFUSAL", "x".repeat(400));
+        let stub = Stub::start_replies(vec![
+            ("/federation/credentials", vec![role_credentials()]),
+            (
+                path.as_str(),
+                vec![Reply {
+                    status: 400,
+                    body: serde_json::json!(long),
+                }],
+            ),
+        ])
+        .await;
+        let (deps, _dir) = deps().await;
+
+        let result = check(&deps, signed_in(&stub, TARGET).await).await;
+
+        let error = result.error.expect("a refusal");
+        assert!(!result.ok);
+        assert_eq!(result.model.as_deref(), Some(TARGET));
+        assert!(error.len() > 300, "not shortened: {} chars", error.len());
+        assert!(error.contains("END OF THE REFUSAL"), "{error}");
+    }
+
+    #[tokio::test]
+    async fn a_throttled_test_says_so() {
+        let path = crate::llm::bedrock::model_path(TARGET, "converse");
+        let stub = Stub::start_replies(vec![
+            ("/federation/credentials", vec![role_credentials()]),
+            (
+                path.as_str(),
+                vec![Reply {
+                    status: 429,
+                    body: serde_json::json!({"message": "ThrottlingException: too many requests"}),
+                }],
+            ),
+        ])
+        .await;
+        let (deps, _dir) = deps().await;
+
+        let result = check(&deps, signed_in(&stub, TARGET).await).await;
+
+        assert_eq!(
+            result.error.as_deref(),
+            Some("AWS throttled the test; try again shortly")
+        );
+    }
+
+    #[tokio::test]
+    async fn a_missing_invoke_permission_names_the_action() {
+        let path = crate::llm::bedrock::model_path(TARGET, "converse");
+        let stub = Stub::start_replies(vec![
+            ("/federation/credentials", vec![role_credentials()]),
+            (
+                path.as_str(),
+                vec![Reply {
+                    status: 403,
+                    body: serde_json::json!({"message": "User: arn:aws:sts::123456789012:assumed-role/BedrockOperator/session is not authorized to perform: bedrock:InvokeModel on resource: arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/abc123def456 because no identity-based policy allows the bedrock:InvokeModel action"}),
+                }],
+            ),
+        ])
+        .await;
+        let (deps, _dir) = deps().await;
+
+        let result = check(&deps, signed_in(&stub, TARGET).await).await;
+
+        let error = result.error.expect("the refusal is the answer");
+        assert!(error.contains("bedrock:InvokeModel"), "{error}");
+    }
+
+    /// The region is what tells a person where to enable the model, so it is named even though
+    /// only the endpoint carries it.
+    #[test]
+    fn a_model_access_refusal_names_the_model_and_the_region() {
+        let refusal = LlmError::Http {
+            status: 403,
+            retry_after: None,
+            body: "{\"message\":\"You don't have access to the model with the specified model ID.\"}"
+                .into(),
+        };
+        let result = sso_failure(
+            refusal,
+            TARGET,
+            &bedrock_region("https://bedrock-runtime.eu-west-1.amazonaws.com"),
+        );
+        assert_eq!(
+            result.error.as_deref(),
+            Some("model \"amazon.nova-lite-v1:0\" is not enabled for this account in eu-west-1")
+        );
+    }
+
+    #[tokio::test]
+    async fn a_deleted_inference_profile_is_named_in_its_own_words() {
+        let path = crate::llm::bedrock::model_path(PROFILE_ARN, "converse");
+        let stub = Stub::start_replies(vec![
+            ("/federation/credentials", vec![role_credentials()]),
+            (
+                path.as_str(),
+                vec![Reply {
+                    status: 404,
+                    body: serde_json::json!({"message": "ResourceNotFoundException"}),
+                }],
+            ),
+        ])
+        .await;
+        let (deps, _dir) = deps().await;
+
+        let result = check(&deps, signed_in(&stub, PROFILE_ARN).await).await;
+
+        let expected = format!(
+            "inference profile \"{PROFILE_ARN}\" was not found; it may have been deleted"
+        );
+        assert_eq!(result.error.as_deref(), Some(expected.as_str()));
+    }
+
+    #[test]
+    fn a_timeout_says_it_timed_out() {
+        assert_eq!(
+            sso_failure(LlmError::Timeout, TARGET, "us-east-1")
+                .error
+                .as_deref(),
+            Some("request timed out")
+        );
+        // Only the SSO success bills a call; every other provider's outcome spends nothing.
+        assert!(TestResult::failed(LlmError::Timeout).billing.is_none());
+    }
+
+    #[tokio::test]
+    async fn a_test_without_a_target_sends_no_request() {
+        let stub = Stub::start_replies(vec![]).await;
+        let (deps, _dir) = deps().await;
+
+        let result = check(&deps, signed_in(&stub, "").await).await;
+
+        assert!(!result.ok);
+        assert!(result.model.is_none(), "nothing was invoked");
+        assert_eq!(result.error.as_deref(), Some(NEEDS_MODEL));
+        assert!(stub.seen().is_empty(), "no AWS request: {:?}", stub.seen());
+    }
+
+    /// Contract §1.1: a test never reports a session problem as a test failure.
+    #[tokio::test]
+    async fn an_ended_session_is_the_sessions_problem() {
+        let stub = Stub::start_replies(vec![]).await;
+        let (deps, _dir) = deps().await;
+        let signed_out = sso_model(&stub, TARGET, Arc::new(MemSessions::default()));
+
+        let result = check(&deps, signed_out).await;
+
+        let error = result.error.expect("the session is named");
+        assert!(crate::llm::sso::is_session_failure_message(&error), "{error}");
+        assert!(error.contains("sign in again"), "{error}");
+        assert!(stub.seen().is_empty(), "nothing was asked of AWS");
+    }
+
+    /// Nothing is saved yet, so this only succeeds because the role credential is built from the
+    /// values in the request body: the proof that `sso` is connected before a save (FR-012a).
+    #[tokio::test]
+    async fn the_pre_save_resolve_uses_the_credentials_in_the_body() {
+        let (deps, _dir) = deps().await;
+
+        let resolved = resolve_for_test(
+            &deps,
+            &ProviderId::AMAZON_BEDROCK_SSO,
+            Some(sso_credentials()),
+            None,
+            TARGET,
+        )
+        .await
+        .expect("resolved from the body alone");
+
+        assert_eq!(resolved.model, TARGET);
+        assert_eq!(resolved.dialect, DialectKind::Bedrock);
+        assert_eq!(
+            resolved.base_url,
+            "https://bedrock-runtime.us-east-1.amazonaws.com"
+        );
+    }
+
+    /// A profile that is not on the connection yet is still the target of a test: AWS should
+    /// answer 200, 403 or 404 rather than the test refusing the ARN on its own behalf.
+    #[tokio::test]
+    async fn an_unsaved_inference_profile_arn_is_the_target_of_the_test() {
+        let (deps, _dir) = deps().await;
+
+        let resolved = resolve_for_test(
+            &deps,
+            &ProviderId::AMAZON_BEDROCK_SSO,
+            Some(sso_credentials()),
+            None,
+            PROFILE_ARN,
+        )
+        .await
+        .expect("an ARN is a target, not a missing entry");
+
+        assert_eq!(resolved.model, PROFILE_ARN);
+        assert_eq!(resolved.context_window, None, "no entry means no limits");
+        assert_eq!(resolved.context_source, ContextSource::Unknown);
+    }
+
+    /// FR-029 / US5 acceptance 3: deleting the SSO connection goes through the provider path, so
+    /// it names the agent chatting through an inference profile and the one dreaming through it —
+    /// and `?confirm=true` is all it takes to go on.
+    #[tokio::test]
+    async fn the_sso_connection_delete_names_the_agents_that_use_it() {
+        let (deps, _dir) = deps().await;
+
+        let mut chat = agent_config();
+        chat.name = "Acme Chat".into();
+        chat.provider = ProviderId::AMAZON_BEDROCK_SSO;
+        chat.model = PROFILE_ARN.into();
+        deps.storage.create_agent("acme-chat", &chat).await.unwrap();
+
+        let mut dream = agent_config();
+        dream.name = "Acme Dream".into();
+        dream.dream_provider = Some(ProviderId::AMAZON_BEDROCK_SSO);
+        dream.dream_model = Some(PROFILE_ARN.into());
+        deps.storage
+            .create_agent("acme-dream", &dream)
+            .await
+            .unwrap();
+
+        let (message, data) = match check_in_use(&deps, &ProviderId::AMAZON_BEDROCK_SSO, false)
+            .await
+        {
+            Err(crate::service::ServiceError::Conflict { message, data, .. }) => (message, data),
+            Err(other) => panic!("a provider in use is a conflict, not {other:?}"),
+            Ok(()) => panic!("both agents use this connection and neither was named"),
+        };
+
+        assert!(message.contains("Acme Chat"), "{message}");
+        assert!(message.contains("Acme Dream"), "{message}");
+        assert!(
+            message.starts_with("this provider is used by "),
+            "{message}"
+        );
+        assert!(
+            message.ends_with("; resend with ?confirm=true to delete anyway"),
+            "{message}"
+        );
+
+        let affected = data.expect("the affected agents");
+        let agents = affected["agents"].as_array().expect("an array of agents");
+        assert_eq!(agents.len(), 2, "one per kind of use: {affected}");
+        let mut named: Vec<(&str, &str)> = agents
+            .iter()
+            .map(|agent| {
+                (
+                    agent["id"].as_str().expect("an id"),
+                    agent["name"].as_str().expect("a name"),
+                )
+            })
+            .collect();
+        named.sort();
+        assert_eq!(
+            named,
+            vec![("acme-chat", "Acme Chat"), ("acme-dream", "Acme Dream")]
+        );
+
+        // The confirmation is the whole difference: the check itself is a no-op.
+        check_in_use(&deps, &ProviderId::AMAZON_BEDROCK_SSO, true)
+            .await
+            .expect("a confirmed delete is not held back");
     }
 }

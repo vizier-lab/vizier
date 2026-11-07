@@ -106,7 +106,7 @@ impl RouterBridge {
                 Some(ToolTarget::Project) => {
                     let value = crate::projects::tools::call(&tool, arguments, &self.ctx).await?;
                     Ok(crate::schema::VizierResponse {
-                        timestamp: chrono::Utc::now(),
+                        timestamp: crate::time::now(),
                         content: VizierResponseContent::ToolResponse { response: value },
                         attachments: vec![],
                         ..Default::default()

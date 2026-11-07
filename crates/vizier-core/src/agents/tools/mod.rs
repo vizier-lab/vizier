@@ -5,7 +5,7 @@ use tracing::Instrument;
 
 use crate::llm::types::ToolDefinition;
 use anyhow::Result;
-use chrono::{DateTime, Utc};
+
 use schemars::{JsonSchema, schema_for};
 use serde::{Deserialize, Serialize};
 
@@ -13,7 +13,6 @@ use crate::{
     agents::mcp::McpServer,
     agents::tools::{
         background_jobs::{CancelBackgroundJob, ListBackgroundJobs},
-        consult::{ConsultAgent, DelegateAgent},
         dream_journal::ReadDreamJournal,
         fetch::FetchWebpage,
         http_client::HttpClient,
@@ -25,6 +24,8 @@ use crate::{
             ScheduleOneTimeTask,
         },
         scratchpad::{AppendTmp, ReadTmp, WriteTmp},
+        workspaces::{ListWorkspaces, MentionAgent, ReadWorkspaceMessages, SendMessageToWorkspace},
+        time::{ConvertTime, CurrentTime, ShiftTime, TimeBetween},
         secrets::{GetSecret, SetSecret},
         session_files::{
             GetSessionFilePath, ListSessionFiles, LoadPathAsSessionFile, ReadDocumentFile,
@@ -56,14 +57,13 @@ use crate::{
 mod artifacts;
 mod background_jobs;
 pub mod brave_search;
-mod consult;
-#[cfg(feature = "discord")]
+#[cfg(feature = "channel-discord")]
 pub mod discord;
 mod dream_journal;
 pub mod fetch;
 pub mod http_client;
 mod image_gen;
-#[cfg(feature = "documents")]
+#[cfg(feature = "addon-documents")]
 pub mod office;
 mod python;
 mod read_image;
@@ -76,12 +76,14 @@ pub mod shell;
 mod skill;
 pub mod stt;
 mod subagents;
-#[cfg(feature = "telegram")]
+#[cfg(feature = "channel-telegram")]
 pub mod telegram;
 mod think;
+mod time;
 pub mod tts;
 mod vector_memory;
 mod webui;
+mod workspaces;
 
 pub type VizierToolDef = Arc<Box<dyn VizierToolDyn + Send + Sync + 'static>>;
 
@@ -112,10 +114,16 @@ pub enum ToolCategory {
     /// structured questions. Offered only in a turn somebody can answer, so its category line
     /// is absent from an unattended prompt (FR-007).
     Questions,
+    /// The time tools (`specs/052-unify-local-timezone`): the prompt carries no clock, so an agent
+    /// asks these for the time, converts between zones and does date arithmetic.
+    Time,
+    /// The Workspace tools (`specs/053-workspace-channel`): wake other agents by mentioning them
+    /// in a shared topic, and reach a Workspace from any other conversation.
+    Workspaces,
 }
 
 impl ToolCategory {
-    pub const ALL: [ToolCategory; 17] = [
+    pub const ALL: [ToolCategory; 19] = [
         Self::Memory,
         Self::Scheduling,
         Self::Agents,
@@ -133,6 +141,8 @@ impl ToolCategory {
         Self::Integrations,
         Self::Secrets,
         Self::Questions,
+        Self::Time,
+        Self::Workspaces,
     ];
 
     pub fn name(self) -> &'static str {
@@ -154,6 +164,8 @@ impl ToolCategory {
             Self::Integrations => "integrations",
             Self::Secrets => "secrets",
             Self::Questions => "questions",
+            Self::Time => "time",
+            Self::Workspaces => "workspaces",
         }
     }
 
@@ -161,9 +173,7 @@ impl ToolCategory {
         match self {
             Self::Memory => "Search, read, write and organise long-term memory",
             Self::Scheduling => "Schedule one-time and recurring tasks and check their results",
-            Self::Agents => {
-                "Consult or delegate to other agents, run parallel subagents, manage background jobs"
-            }
+            Self::Agents => "Run parallel subagents and manage background jobs",
             Self::Skills => "Create, find and use reusable skills",
             Self::Files => "Read files attached to this conversation and send attachments",
             Self::Scratchpad => {
@@ -188,6 +198,12 @@ impl ToolCategory {
             Self::Questions => {
                 "Ask the person one or more structured questions; the answer arrives as their next message"
             }
+            Self::Time => {
+                "The current time, timezone conversion and date arithmetic; the prompt does not carry a clock"
+            }
+            Self::Workspaces => {
+                "Wake other agents in a shared Workspace by mentioning them, and post to or read a Workspace from any conversation"
+            }
         }
     }
 }
@@ -199,6 +215,14 @@ pub const RETIRED_TOOL_NAMES: &[(&str, &str)] = &[
     (
         "paralel_subtasks",
         "paralel_subtasks was replaced by parallel_subagents (waits for the results) and background_subagents (results arrive later as a background report)",
+    ),
+    (
+        "consult_agent",
+        "consult_agent and delegate_agent were replaced: use mention_agent inside a Workspace, and send_message_to_workspace outside one. Both agents must be members of the Workspace.",
+    ),
+    (
+        "delegate_agent",
+        "consult_agent and delegate_agent were replaced: use mention_agent inside a Workspace, and send_message_to_workspace outside one. Both agents must be members of the Workspace.",
     ),
     (
         "ui_render_interactive_ui",
@@ -293,7 +317,11 @@ pub fn is_interactive_turn(content: &VizierRequestContent, session: &VizierSessi
     };
     // A task, dream, subagent, inter-agent or system conversation has no person on it at all,
     // whatever the request kind says.
-    somebody_may_answer && (session.1.web_user().is_some() || session.1.platform().is_some())
+    // A Workspace topic has people on it too: any member may answer a question (spec 053).
+    somebody_may_answer
+        && (session.1.web_user().is_some()
+            || session.1.platform().is_some()
+            || matches!(session.1, crate::schema::VizierChannelId::Workspace(_)))
 }
 
 #[derive(Clone, Default)]
@@ -723,7 +751,7 @@ fn tool_output_to_response(output: &str) -> Result<VizierResponse> {
     }
 
     Ok(VizierResponse {
-        timestamp: Utc::now(),
+        timestamp: crate::time::now(),
         content: crate::schema::VizierResponseContent::ToolResponse { response: res },
         attachments: vec![],
         ..Default::default()
@@ -1126,6 +1154,11 @@ impl VizierTools {
         "list_skills",
         "get_skill_details",
         "use_skill",
+        // Time (4): read-only, and a dream's schedule and night boundaries are in local time.
+        "current_time",
+        "convert_time",
+        "shift_time",
+        "time_between",
         // Scratchpad (3): each dream stage is its own session, so its own scratchpad.
         "write_tmp",
         "append_tmp",
@@ -1182,7 +1215,7 @@ impl VizierTools {
                 let output = tool.tool_call(params, ctx).await?;
                 let res = serde_json::from_str(&output)?;
                 return Ok(VizierResponse {
-                    timestamp: Utc::now(),
+                    timestamp: crate::time::now(),
                     content: crate::schema::VizierResponseContent::ToolResponse { response: res },
                     attachments: vec![],
                     ..Default::default()
@@ -1222,15 +1255,6 @@ impl BaseTools {
         let agent_workspace_path = agent_workspace(&workspace, &agent_id);
         let agent_workspace = agent_workspace_path.to_string_lossy().to_string();
 
-        let other_agents: HashMap<String, crate::schema::AgentConfig> = deps
-            .storage
-            .list_agents()
-            .await
-            .unwrap_or_default()
-            .into_iter()
-            .filter(|(aid, _)| aid != &agent_id)
-            .collect();
-
         let mut default_toolset = VizierToolSet::new();
         let mut user_toolset = VizierToolSet::new();
 
@@ -1263,12 +1287,11 @@ impl BaseTools {
                 agent_id: agent_id.clone(),
                 storage: deps.storage.clone(),
             })
-            .tool(ConsultAgent::new(
-                agent_id.clone(),
-                other_agents.clone(),
-                deps.transport.clone(),
-            ))
-            .tool(DelegateAgent::new(other_agents.clone(), deps.clone()))
+            // Workspaces (spec 053): wake agents by mention inside one, and reach one from anywhere.
+            .tool(MentionAgent { hub: crate::workspaces::Hub::from(&deps) })
+            .tool(SendMessageToWorkspace { hub: crate::workspaces::Hub::from(&deps) })
+            .tool(ListWorkspaces { hub: crate::workspaces::Hub::from(&deps) })
+            .tool(ReadWorkspaceMessages { hub: crate::workspaces::Hub::from(&deps) })
             .tool(BackgroundSubagentsTool::new(deps.clone()))
             .tool(ParallelSubagentsTool::new(deps.clone()))
             .tool(ListBackgroundJobs::new(deps.clone()))
@@ -1333,6 +1356,10 @@ impl BaseTools {
                 storage: deps.storage.clone(),
                 file_manager: deps.file_manager.clone(),
             })
+            .tool(CurrentTime)
+            .tool(ConvertTime)
+            .tool(ShiftTime)
+            .tool(TimeBetween)
             .tool(WriteTmp {
                 storage: deps.storage.clone(),
             })
@@ -1594,16 +1621,18 @@ mod tests {
         },
     };
 
-    #[cfg(feature = "documents")]
+    #[cfg(feature = "addon-documents")]
     use crate::agents::tools::office::{
-        OfficeDocxRead, OfficeDocxWrite, OfficeXlsxRead, OfficeXlsxReadCsv, OfficeXlsxWrite,
+        OfficeDocxRead, OfficeDocxWrite, OfficePdfRead, OfficePdfRenderPage,
+        OfficePdfWriteFromDocx, OfficePdfWriteFromHtml, OfficeXlsxRead, OfficeXlsxReadCsv,
+        OfficeXlsxWrite,
     };
-    #[cfg(feature = "discord")]
+    #[cfg(feature = "channel-discord")]
     use crate::agents::tools::discord::{
         GetDiscordChannelInfo, GetDiscordGuildInfo, GetDiscordMemberInfo, GetDiscordMessage,
         ReactDiscordMessage, SendDiscordMessage,
     };
-    #[cfg(feature = "telegram")]
+    #[cfg(feature = "channel-telegram")]
     use crate::agents::tools::telegram::{
         GetTelegramMessage, ReactTelegramMessage, SendTelegramMessage,
     };
@@ -1632,8 +1661,10 @@ mod tests {
             entry::<DeleteTask>(),
             entry::<ListTaskRuns>(),
             entry::<GetTaskRunDetail>(),
-            entry::<ConsultAgent>(),
-            entry::<DelegateAgent>(),
+            entry::<MentionAgent>(),
+            entry::<SendMessageToWorkspace>(),
+            entry::<ListWorkspaces>(),
+            entry::<ReadWorkspaceMessages>(),
             entry::<BackgroundSubagentsTool>(),
             entry::<ParallelSubagentsTool>(),
             entry::<ListBackgroundJobs>(),
@@ -1656,43 +1687,55 @@ mod tests {
             entry::<UpdateArtifact>(),
             entry::<ListArtifacts>(),
             entry::<LoadArtifactAsSessionFile>(),
+            entry::<CurrentTime>(),
+            entry::<ConvertTime>(),
+            entry::<ShiftTime>(),
+            entry::<TimeBetween>(),
             entry::<WriteTmp>(),
             entry::<AppendTmp>(),
             entry::<ReadTmp>(),
             entry::<BraveSearch<WebOnlySearch>>(),
             entry::<BraveSearch<NewsOnlySearch>>(),
-            #[cfg(feature = "documents")]
+            #[cfg(feature = "addon-documents")]
             entry::<OfficeDocxRead>(),
-            #[cfg(feature = "documents")]
+            #[cfg(feature = "addon-documents")]
             entry::<OfficeXlsxRead>(),
-            #[cfg(feature = "documents")]
+            #[cfg(feature = "addon-documents")]
             entry::<OfficeXlsxReadCsv>(),
-            #[cfg(feature = "documents")]
+            #[cfg(feature = "addon-documents")]
             entry::<OfficeDocxWrite>(),
-            #[cfg(feature = "documents")]
+            #[cfg(feature = "addon-documents")]
             entry::<OfficeXlsxWrite>(),
+            #[cfg(feature = "addon-documents")]
+            entry::<OfficePdfRead>(),
+            #[cfg(feature = "addon-documents")]
+            entry::<OfficePdfRenderPage>(),
+            #[cfg(feature = "addon-documents")]
+            entry::<OfficePdfWriteFromHtml>(),
+            #[cfg(feature = "addon-documents")]
+            entry::<OfficePdfWriteFromDocx>(),
             entry::<FetchWebpage>(),
             entry::<HttpClient>(),
             entry::<TtsGenerate>(),
             entry::<SttTranscribe>(),
             entry::<ImageGenerate>(),
-            #[cfg(feature = "discord")]
+            #[cfg(feature = "channel-discord")]
             entry::<SendDiscordMessage>(),
-            #[cfg(feature = "discord")]
+            #[cfg(feature = "channel-discord")]
             entry::<ReactDiscordMessage>(),
-            #[cfg(feature = "discord")]
+            #[cfg(feature = "channel-discord")]
             entry::<GetDiscordMessage>(),
-            #[cfg(feature = "discord")]
+            #[cfg(feature = "channel-discord")]
             entry::<GetDiscordGuildInfo>(),
-            #[cfg(feature = "discord")]
+            #[cfg(feature = "channel-discord")]
             entry::<GetDiscordChannelInfo>(),
-            #[cfg(feature = "discord")]
+            #[cfg(feature = "channel-discord")]
             entry::<GetDiscordMemberInfo>(),
-            #[cfg(feature = "telegram")]
+            #[cfg(feature = "channel-telegram")]
             entry::<SendTelegramMessage>(),
-            #[cfg(feature = "telegram")]
+            #[cfg(feature = "channel-telegram")]
             entry::<ReactTelegramMessage>(),
-            #[cfg(feature = "telegram")]
+            #[cfg(feature = "channel-telegram")]
             entry::<GetTelegramMessage>(),
             entry::<SendWebuiMessage>(),
             entry::<ListWebuiTopics>(),
@@ -1715,7 +1758,7 @@ mod tests {
         ]
     }
 
-    #[cfg(all(feature = "discord", feature = "telegram", feature = "documents"))]
+    #[cfg(all(feature = "channel-discord", feature = "channel-telegram", feature = "addon-documents"))]
     #[test]
     fn every_tool_is_in_its_category() {
         use ToolCategory::*;
@@ -1737,8 +1780,10 @@ mod tests {
             ("delete_task", Scheduling),
             ("list_task_runs", Scheduling),
             ("get_task_run_detail", Scheduling),
-            ("consult_agent", Agents),
-            ("delegate_agent", Agents),
+            ("mention_agent", Workspaces),
+            ("send_message_to_workspace", Workspaces),
+            ("list_workspaces", Workspaces),
+            ("read_workspace_messages", Workspaces),
             ("background_subagents", Agents),
             ("parallel_subagents", Agents),
             ("list_background_jobs", Agents),
@@ -1761,6 +1806,10 @@ mod tests {
             ("update_artifact", Files),
             ("list_artifacts", Files),
             ("load_artifact_as_session_file", Files),
+            ("current_time", Time),
+            ("convert_time", Time),
+            ("shift_time", Time),
+            ("time_between", Time),
             ("write_tmp", Scratchpad),
             ("append_tmp", Scratchpad),
             ("read_tmp", Scratchpad),
@@ -1769,23 +1818,23 @@ mod tests {
             ("tts_generate", Audio),
             ("stt_transcribe", Audio),
             ("image_generate", Media),
-            #[cfg(feature = "discord")]
+            #[cfg(feature = "channel-discord")]
             ("discord_send_message", Discord),
-            #[cfg(feature = "discord")]
+            #[cfg(feature = "channel-discord")]
             ("discord_react_message", Discord),
-            #[cfg(feature = "discord")]
+            #[cfg(feature = "channel-discord")]
             ("discord_get_message_by_id", Discord),
-            #[cfg(feature = "discord")]
+            #[cfg(feature = "channel-discord")]
             ("discord_get_guild_info", Discord),
-            #[cfg(feature = "discord")]
+            #[cfg(feature = "channel-discord")]
             ("discord_get_channel_info", Discord),
-            #[cfg(feature = "discord")]
+            #[cfg(feature = "channel-discord")]
             ("discord_get_member_info", Discord),
-            #[cfg(feature = "telegram")]
+            #[cfg(feature = "channel-telegram")]
             ("telegram_send_message", Telegram),
-            #[cfg(feature = "telegram")]
+            #[cfg(feature = "channel-telegram")]
             ("telegram_react_message", Telegram),
-            #[cfg(feature = "telegram")]
+            #[cfg(feature = "channel-telegram")]
             ("telegram_get_message_by_id", Telegram),
             ("webui_send_message", Webui),
             ("webui_list_topics", Webui),
@@ -1805,30 +1854,46 @@ mod tests {
         const ADDON: &[(&str, &str)] = &[
             ("brave_search_web", "brave_search"),
             ("brave_search_news", "brave_search"),
-            #[cfg(feature = "documents")]
+            #[cfg(feature = "addon-documents")]
             ("office_docx_read_as_md", "office"),
-            #[cfg(feature = "documents")]
+            #[cfg(feature = "addon-documents")]
             ("office_xlsx_read_as_cells", "office"),
-            #[cfg(feature = "documents")]
+            #[cfg(feature = "addon-documents")]
             ("office_xlsx_read_as_csv", "office"),
-            #[cfg(feature = "documents")]
+            #[cfg(feature = "addon-documents")]
             ("office_docx_write_from_md", "office"),
-            #[cfg(feature = "documents")]
+            #[cfg(feature = "addon-documents")]
             ("office_xlsx_write_from_sheets", "office"),
+            #[cfg(feature = "addon-documents")]
+            ("office_pdf_read_as_md", "office"),
+            #[cfg(feature = "addon-documents")]
+            ("office_pdf_render_page_as_png", "office"),
+            #[cfg(feature = "addon-documents")]
+            ("office_pdf_write_from_html", "office"),
+            #[cfg(feature = "addon-documents")]
+            ("office_pdf_write_from_docx", "office"),
         ];
         const UNCATEGORISED: &[&str] = &[
             "brave_search_web",
             "brave_search_news",
-            #[cfg(feature = "documents")]
+            #[cfg(feature = "addon-documents")]
             "office_docx_read_as_md",
-            #[cfg(feature = "documents")]
+            #[cfg(feature = "addon-documents")]
             "office_xlsx_read_as_cells",
-            #[cfg(feature = "documents")]
+            #[cfg(feature = "addon-documents")]
             "office_xlsx_read_as_csv",
-            #[cfg(feature = "documents")]
+            #[cfg(feature = "addon-documents")]
             "office_docx_write_from_md",
-            #[cfg(feature = "documents")]
+            #[cfg(feature = "addon-documents")]
             "office_xlsx_write_from_sheets",
+            #[cfg(feature = "addon-documents")]
+            "office_pdf_read_as_md",
+            #[cfg(feature = "addon-documents")]
+            "office_pdf_render_page_as_png",
+            #[cfg(feature = "addon-documents")]
+            "office_pdf_write_from_html",
+            #[cfg(feature = "addon-documents")]
+            "office_pdf_write_from_docx",
             "think",
             "execute_python",
             "list_tool_functions",
@@ -1940,8 +2005,10 @@ mod tests {
             .iter()
             .map(|category| category.name())
             .collect();
-        assert_eq!(names.last(), Some(&"questions"));
-        assert_eq!(names.len(), 17);
+        // `workspaces` (spec 053) is the last; `time` (spec 052) is the one before it.
+        assert_eq!(names.last(), Some(&"workspaces"));
+        assert_eq!(names[names.len() - 2], "time");
+        assert_eq!(names.len(), 19);
         // `coding` sits before `integrations`, but no agent-wide tool uses it (its tools are
         // per-turn project contributions).
         assert_eq!(names[13], "coding");
@@ -1951,6 +2018,7 @@ mod tests {
         );
         assert_eq!(ToolCategory::Secrets.name(), "secrets");
         assert_eq!(ToolCategory::Questions.name(), "questions");
+        assert_eq!(ToolCategory::Time.name(), "time");
     }
 
     /// An `execute_tool` span records a scrubbed result and scrubbed arguments once the turn
@@ -1962,7 +2030,7 @@ mod tests {
         redactor.arm(TOKEN);
 
         let response = VizierResponse {
-            timestamp: Utc::now(),
+            timestamp: crate::time::now(),
             content: crate::schema::VizierResponseContent::ToolResponse {
                 response: serde_json::json!({ "status": "found", "value": TOKEN }),
             },
@@ -2000,7 +2068,7 @@ mod tests {
         redactor.arm(TOKEN);
         let arguments = format!(r#"{{"header":"Bearer {TOKEN}"}}"#);
         let ok: Result<VizierResponse> = Ok(VizierResponse {
-            timestamp: Utc::now(),
+            timestamp: crate::time::now(),
             content: crate::schema::VizierResponseContent::ToolResponse {
                 response: serde_json::json!({ "value": TOKEN }),
             },
@@ -2141,6 +2209,7 @@ mod tests {
         assert_eq!(mcp_category_name("memory", &[]), "memory_mcp");
         assert_eq!(mcp_category_name("discord", &[]), "discord_mcp");
         assert_eq!(mcp_category_name("secrets", &[]), "secrets_mcp");
+        assert_eq!(mcp_category_name("time", &[]), "time_mcp", "time is a built-in category (spec 052)");
         assert_eq!(mcp_category_name("github", &[]), "github");
     }
 
@@ -2347,7 +2416,7 @@ mod tests {
         );
         let task = VizierSession(
             "a".into(),
-            crate::schema::VizierChannelId::Task("sched".into(), chrono::Utc::now()),
+            crate::schema::VizierChannelId::Task("sched".into(), crate::time::now()),
             None,
         );
         assert!(is_interactive_turn(&VizierRequestContent::Chat("hi".into()), &web));

@@ -1,3 +1,4 @@
+use crate::time::Timestamp;
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -31,18 +32,21 @@ use crate::{
         secret::SecretStorage,
         session::SessionStorage,
         session_file::SessionFileStorage,
+        sso_session::SsoSessionStorage,
         state::StateStorage,
         task::TaskStorage,
         task_run::TaskRunStorage,
         turn::TurnStorage,
         usage::UsageStorage,
         user::UserStorage,
+        workspace::WorkspaceStorage,
     },
 };
 
 pub mod agent;
 pub mod artifact;
 pub mod background_job;
+pub mod blob;
 pub mod catalogue;
 pub mod chunk;
 pub mod client_call;
@@ -66,15 +70,51 @@ pub mod scratch;
 pub mod secret;
 pub mod session;
 pub mod session_file;
+pub mod migrate;
+pub mod sql;
+pub mod sso_session;
 pub mod state;
 pub mod task;
 pub mod task_run;
 pub mod turn;
 pub mod usage;
 pub mod user;
+pub mod workspace;
 
 pub mod fs;
 pub mod sqlite;
+
+/// Open the configured database (spec 045): the embedded SQLite file (default, and for a legacy
+/// `filesystem` config that is about to be migrated into it) or PostgreSQL. PostgreSQL's URL comes
+/// from the environment variable the config names; its schema is brought up to date here.
+/// Errors are the fixed, credential-free messages of `contracts/configuration-and-cli.md`.
+pub fn open_store(config: &crate::config::VizierConfig) -> Result<sql::SqlStore> {
+    use crate::config::storage::StorageConfig;
+    match &config.storage {
+        StorageConfig::Sqlite | StorageConfig::Filesystem => Ok(sql::SqlStore::sqlite(
+            sqlite::SqlStorage::open_connection(&config.workspace)?,
+        )),
+        StorageConfig::Postgres(pg) => {
+            let url = std::env::var(&pg.url_env)
+                .ok()
+                .filter(|v| !v.trim().is_empty())
+                .ok_or_else(|| anyhow::anyhow!("storage: {} is not set", pg.url_env))?;
+            let ca_pem = pg
+                .ca_file
+                .as_ref()
+                .map(|path| {
+                    std::fs::read(path).map_err(|e| {
+                        anyhow::anyhow!("storage: cannot read ca_file {} ({})", path.display(), e.kind())
+                    })
+                })
+                .transpose()?;
+            let options = sql::PgOptions { max_size: pg.pool_size, ca_pem, ..Default::default() };
+            let store = sql::SqlStore::new(Arc::new(sql::PgPool::connect(&url, &options)?));
+            sql::postgres::migrate(&store.lock()?)?;
+            Ok(store)
+        }
+    }
+}
 
 pub trait VizierStorageProvider
 where
@@ -96,6 +136,7 @@ where
         + DreamJournalStorage
         + DreamStorage
         + SessionFileStorage
+        + SsoSessionStorage
         + ReactionStorage
         + IntegrationStorage
         + UsageStorage
@@ -105,6 +146,7 @@ where
         + SecretStorage
         + NotificationStorage
         + ProjectStorage
+        + WorkspaceStorage
         + QuestionStorage
         + SensitiveAskStorage,
 {
@@ -120,6 +162,29 @@ impl VizierStorage {
 }
 
 impl VizierStorageProvider for VizierStorage {}
+
+#[async_trait::async_trait]
+impl SsoSessionStorage for VizierStorage {
+    async fn get_sso_session(
+        &self,
+        profile: &str,
+    ) -> Result<Option<crate::schema::SsoSessionSecret>> {
+        self.0.get_sso_session(profile).await
+    }
+
+    async fn put_sso_session(
+        &self,
+        profile: &str,
+        secret: &crate::schema::SsoSessionSecret,
+        expected_revision: Option<u64>,
+    ) -> Result<crate::storage::sso_session::SsoWrite> {
+        self.0.put_sso_session(profile, secret, expected_revision).await
+    }
+
+    async fn delete_sso_session(&self, profile: &str) -> Result<()> {
+        self.0.delete_sso_session(profile).await
+    }
+}
 
 #[async_trait::async_trait]
 impl UserStorage for VizierStorage {
@@ -168,7 +233,7 @@ impl UserStorage for VizierStorage {
     async fn record_visit(
         &self,
         user_id: &str,
-        now: chrono::DateTime<chrono::Utc>,
+        now: Timestamp,
     ) -> Result<crate::storage::user::Visit> {
         self.0.record_visit(user_id, now).await
     }
@@ -227,7 +292,7 @@ impl UserStorage for VizierStorage {
         name: &str,
         key_hash: &str,
         prefix: &str,
-        expires_at: Option<chrono::DateTime<chrono::Utc>>,
+        expires_at: Option<Timestamp>,
     ) -> Result<crate::storage::user::ApiKey> {
         self.0
             .create_api_key(user_id, name, key_hash, prefix, expires_at)
@@ -350,11 +415,11 @@ impl CatalogueCacheStorage for VizierStorage {
         self.0.put_snapshot(row).await
     }
 
-    async fn touch_checked(&self, at: chrono::DateTime<chrono::Utc>) -> Result<()> {
+    async fn touch_checked(&self, at: Timestamp) -> Result<()> {
         self.0.touch_checked(at).await
     }
 
-    async fn record_failure(&self, error: &str, at: chrono::DateTime<chrono::Utc>) -> Result<()> {
+    async fn record_failure(&self, error: &str, at: Timestamp) -> Result<()> {
         self.0.record_failure(error, at).await
     }
 
@@ -384,7 +449,7 @@ impl MediaCatalogueStorage for VizierStorage {
         &self,
         capability: &str,
         error: &str,
-        at: chrono::DateTime<chrono::Utc>,
+        at: Timestamp,
     ) -> Result<()> {
         self.0.record_media_failure(capability, error, at).await
     }

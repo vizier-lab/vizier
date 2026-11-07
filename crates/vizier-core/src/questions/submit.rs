@@ -6,7 +6,7 @@
 //! answer the same history, queue and attribution as a typed message (FR-015) — the caller sends
 //! the returned request exactly as it sends a chat one.
 
-use chrono::Utc;
+
 
 use crate::{
     questions::{
@@ -56,7 +56,9 @@ impl SubmitError {
             Self::AlreadyClosed(QuestionState::Withdrawn) => {
                 "This question was withdrawn.".to_string()
             }
-            Self::AlreadyClosed(QuestionState::Pending) => "This cannot be answered now.".to_string(),
+            Self::AlreadyClosed(QuestionState::Pending) => {
+                "This cannot be answered now.".to_string()
+            }
             Self::Invalid(problems) => problems
                 .iter()
                 .map(Problem::to_string)
@@ -128,12 +130,19 @@ pub async fn submit(
     }
 
     // The card closes for every socket on the conversation, whether or not this one is watching.
-    let closed = storage.get_question_set(&answer.set_id).await.ok().flatten();
+    let closed = storage
+        .get_question_set(&answer.set_id)
+        .await
+        .ok()
+        .flatten();
     transport.publish_session_event(SessionEvent {
         session: session.clone(),
         frame: SessionFrame::QuestionSet {
             set_id: answer.set_id.clone(),
-            state: closed.as_ref().map(|r| r.state).unwrap_or(QuestionState::Answered),
+            state: closed
+                .as_ref()
+                .map(|r| r.state)
+                .unwrap_or(QuestionState::Answered),
             answers: closed.as_ref().and_then(|r| r.answers.clone()),
             answerer: Some(answerer.to_string()),
         },
@@ -148,7 +157,9 @@ pub async fn submit(
 /// already answered, so a failed edit is logged and must not undo the answer.
 async fn close_controls(questions: &Questions, record: Option<&QuestionSetRecord>) {
     let Some(record) = record else { return };
-    let Some(controls) = &record.controls else { return };
+    let Some(controls) = &record.controls else {
+        return;
+    };
     // With the reader gone there is nothing to edit, and the set is still answered.
     let Some((_, surface)) = questions.surface_for(&record.session) else {
         return;
@@ -174,7 +185,7 @@ fn request_for(
         answer.text
     };
     VizierRequest {
-        timestamp: Utc::now(),
+        timestamp: crate::time::now(),
         user: answerer.to_string(),
         content: VizierRequestContent::QuestionAnswer(QuestionAnswer {
             set_id: answer.set_id,
@@ -218,15 +229,13 @@ pub async fn record_set(
 mod tests {
     use std::sync::Arc;
 
-    use parking_lot::Mutex;
-
     use super::*;
     use crate::{
         questions::model::{
             Answer, AnswerState, AnswerValue, ChoiceOption, Question, QuestionSet, QuestionType,
         },
         schema::VizierChannelId,
-        storage::{document::LocalDocumentStore, sqlite::SqliteStorage},
+        storage::{document::BlobDocumentStore, sqlite::SqlStorage},
     };
 
     fn session(topic: &str) -> VizierSession {
@@ -246,7 +255,11 @@ mod tests {
             optional: false,
             default: None,
             options: if kind == QuestionType::Choice {
-                vec![ChoiceOption { value: "sqlite".into(), label: "SQLite".into(), description: None }]
+                vec![ChoiceOption {
+                    value: "sqlite".into(),
+                    label: "SQLite".into(),
+                    description: None,
+                }]
             } else {
                 vec![]
             },
@@ -271,9 +284,9 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let conn = rusqlite::Connection::open_in_memory().unwrap();
         crate::storage::sqlite::init_question_schema(&conn).unwrap();
-        let storage = Arc::new(VizierStorage::new(SqliteStorage::new(
-            Arc::new(Mutex::new(conn)),
-            Arc::new(LocalDocumentStore::new(dir.path().to_path_buf())),
+        let storage = Arc::new(VizierStorage::new(SqlStorage::new(
+            crate::storage::sql::SqlStore::sqlite(conn),
+            Arc::new(BlobDocumentStore::local(dir.path().to_path_buf())),
         )));
         let f = Fixture {
             storage,
@@ -289,14 +302,17 @@ mod tests {
             set: QuestionSet {
                 title: None,
                 description: None,
-                questions: vec![question("name", QuestionType::Text), question("db", QuestionType::Choice)],
+                questions: vec![
+                    question("name", QuestionType::Text),
+                    question("db", QuestionType::Choice),
+                ],
                 submit_label: None,
                 dismiss_label: None,
             },
             answers: None,
             answerer: None,
             controls: None,
-            created_at: Utc::now(),
+            created_at: crate::time::now(),
             closed_at: None,
         };
         f.storage.create_question_set(&record).await.unwrap();
@@ -326,8 +342,20 @@ mod tests {
         }
     }
 
-    async fn submit_as(f: &Fixture, session: &VizierSession, answer: QuestionAnswer) -> Result<VizierRequest, SubmitError> {
-        submit(&f.storage, &f.transport, &f.questions, session, answer, "alice").await
+    async fn submit_as(
+        f: &Fixture,
+        session: &VizierSession,
+        answer: QuestionAnswer,
+    ) -> Result<VizierRequest, SubmitError> {
+        submit(
+            &f.storage,
+            &f.transport,
+            &f.questions,
+            session,
+            answer,
+            "alice",
+        )
+        .await
     }
 
     /// A person who is not in the conversation reads the set as missing, answers nothing, and the
@@ -335,7 +363,9 @@ mod tests {
     #[tokio::test]
     async fn another_conversation_cannot_answer_a_set() {
         let f = fixture().await;
-        let refused = submit_as(&f, &session("somewhere-else"), answer("demo")).await.unwrap_err();
+        let refused = submit_as(&f, &session("somewhere-else"), answer("demo"))
+            .await
+            .unwrap_err();
         assert_eq!(refused, SubmitError::NotFound);
         let still = f.storage.get_question_set("set-1").await.unwrap().unwrap();
         assert_eq!(still.state, QuestionState::Pending);
@@ -349,23 +379,42 @@ mod tests {
     #[tokio::test]
     async fn a_second_submission_is_refused_and_starts_no_turn() {
         let f = fixture().await;
-        let first = submit_as(&f, &session("t"), answer("first")).await.expect("the first wins");
-        assert!(matches!(first.content, VizierRequestContent::QuestionAnswer(_)));
+        let first = submit_as(&f, &session("t"), answer("first"))
+            .await
+            .expect("the first wins");
+        assert!(matches!(
+            first.content,
+            VizierRequestContent::QuestionAnswer(_)
+        ));
 
-        let second = submit_as(&f, &session("t"), answer("second")).await.unwrap_err();
+        let second = submit_as(&f, &session("t"), answer("second"))
+            .await
+            .unwrap_err();
         assert_eq!(second, SubmitError::AlreadyClosed(QuestionState::Answered));
         let dismissed = submit_as(
             &f,
             &session("t"),
-            QuestionAnswer { declined: true, answers: vec![], ..answer("x") },
+            QuestionAnswer {
+                declined: true,
+                answers: vec![],
+                ..answer("x")
+            },
         )
         .await
         .unwrap_err();
-        assert_eq!(dismissed, SubmitError::AlreadyClosed(QuestionState::Answered));
+        assert_eq!(
+            dismissed,
+            SubmitError::AlreadyClosed(QuestionState::Answered)
+        );
 
         // What is stored is the first answer, untouched.
         let stored = f.storage.get_question_set("set-1").await.unwrap().unwrap();
-        let name = stored.answers.unwrap().into_iter().find(|a| a.question_id == "name").unwrap();
+        let name = stored
+            .answers
+            .unwrap()
+            .into_iter()
+            .find(|a| a.question_id == "name")
+            .unwrap();
         assert_eq!(name.value, Some(AnswerValue::Text("first".into())));
     }
 
@@ -380,7 +429,12 @@ mod tests {
         assert_eq!(refused.problems().len(), 1);
         assert_eq!(refused.problems()[0].rule, "value_not_offered");
         assert_eq!(
-            f.storage.get_question_set("set-1").await.unwrap().unwrap().state,
+            f.storage
+                .get_question_set("set-1")
+                .await
+                .unwrap()
+                .unwrap()
+                .state,
             QuestionState::Pending
         );
     }
@@ -393,18 +447,44 @@ mod tests {
         let hostile = "<script>alert(1)</script> $(rm -rf /) `id` {{7*7}} <!-- --> \u{202e}";
         let request = submit_as(&f, &session("t"), answer(hostile)).await.unwrap();
 
-        let VizierRequestContent::QuestionAnswer(delivered) = &request.content else { panic!() };
-        let name = delivered.answers.iter().find(|a| a.question_id == "name").unwrap();
-        assert_eq!(name.value, Some(AnswerValue::Text(hostile.into())), "delivered verbatim");
+        let VizierRequestContent::QuestionAnswer(delivered) = &request.content else {
+            panic!()
+        };
+        let name = delivered
+            .answers
+            .iter()
+            .find(|a| a.question_id == "name")
+            .unwrap();
+        assert_eq!(
+            name.value,
+            Some(AnswerValue::Text(hostile.into())),
+            "delivered verbatim"
+        );
         // The agent reads it inside a JSON string, never as markup of its own.
         let prompt = request.to_prompt().unwrap();
         assert!(prompt.contains("```json"), "{prompt}");
-        let data = prompt.split("```json\n").nth(1).unwrap().split("\n```").next().unwrap();
-        let parsed: serde_json::Value = serde_json::from_str(data).expect("the answers are valid JSON");
+        let data = prompt
+            .split("```json\n")
+            .nth(1)
+            .unwrap()
+            .split("\n```")
+            .next()
+            .unwrap();
+        let parsed: serde_json::Value =
+            serde_json::from_str(data).expect("the answers are valid JSON");
         assert_eq!(parsed["answers"][0]["value"], hostile);
 
         let stored = f.storage.get_question_set("set-1").await.unwrap().unwrap();
-        let stored_name = stored.answers.unwrap().into_iter().find(|a| a.question_id == "name").unwrap();
-        assert_eq!(stored_name.value, Some(AnswerValue::Text(hostile.into())), "stored verbatim");
+        let stored_name = stored
+            .answers
+            .unwrap()
+            .into_iter()
+            .find(|a| a.question_id == "name")
+            .unwrap();
+        assert_eq!(
+            stored_name.value,
+            Some(AnswerValue::Text(hostile.into())),
+            "stored verbatim"
+        );
     }
 }

@@ -40,7 +40,9 @@ impl VizierTool for WriteFile {
     fn description(&self) -> String {
         "Write a whole file in the project folder, creating parent folders inside it. Refuses a \
          file over 4 MiB, and overwriting an existing file this chat has not read (or that \
-         changed on disk since it did). The write is atomic, so a failure leaves the old file."
+         changed on disk since it did). The write is atomic, so a failure leaves the old file. \
+         When a language server is running for the file, the result carries `diagnostics`, read \
+         the same way as for `edit_file`."
             .into()
     }
 
@@ -84,11 +86,15 @@ impl VizierTool for WriteFile {
             .await
             .map_err(|err| VizierError(err.to_string()))??;
         record_read(ctx, &file, &bytes);
-        Ok(serde_json::json!({
+        let mut result = serde_json::json!({
             "path": path::display_rel(&cwd, &file),
             "created": !existed,
             "bytes": bytes.len(),
-        }))
+        });
+        if let Some(diagnostics) = super::after_write(ctx, &file, &bytes).await {
+            result["diagnostics"] = diagnostics;
+        }
+        Ok(result)
     }
 }
 
@@ -118,6 +124,9 @@ mod tests {
             instructions_truncated: false,
             is_piece: false,
             ledger: Default::default(),
+            lsp_enabled: false,
+            lsp_overrides: Default::default(),
+            lsp: Default::default(),
         };
         ToolContext {
             session: VizierSession(

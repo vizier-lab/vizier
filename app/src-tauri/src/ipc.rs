@@ -15,7 +15,7 @@ use serde::Serialize;
 use serde_json::Value;
 use tokio::task::JoinHandle;
 use vizier_core::service::ServiceError;
-use vizier_http::topic::TopicConnection;
+use vizier_http::{topic::TopicConnection, workspace_topic::WorkspaceConnection};
 
 use crate::engine::Engine;
 
@@ -199,6 +199,137 @@ impl Topics {
         if let Some(topic) = self.open.lock().unwrap().remove(&id) {
             topic.connection.close();
             topic.tasks.iter().for_each(|t| t.abort());
+        }
+    }
+
+    /// Every stream, e.g. when the window is destroyed or the engine restarts.
+    pub fn close_all(&self) {
+        let ids: Vec<u64> = self.open.lock().unwrap().keys().copied().collect();
+        ids.into_iter().for_each(|id| self.close(id));
+    }
+
+    pub fn len(&self) -> usize {
+        self.open.lock().unwrap().len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+}
+
+/// The inbox streams a window has open, by id (`specs/051-realtime-notifications`). The same
+/// frames as `GET /api/v1/inbox/stream`, without a socket: the app opens no port.
+#[derive(Default)]
+pub struct Inboxes {
+    next: AtomicU64,
+    open: Mutex<HashMap<u64, Vec<JoinHandle<()>>>>,
+}
+
+impl Inboxes {
+    /// Opens the stream; the `hello` and then every frame go to `sink`, in order. Refused with
+    /// `503` while the engine is starting, like a topic.
+    pub async fn open(
+        &self,
+        engine: &Engine,
+        sink: impl Fn(Value) + Send + 'static,
+    ) -> Result<u64, TopicRefused> {
+        let dispatcher = engine.dispatcher().await.ok_or(TopicRefused { status: 503 })?;
+        let (out_tx, out_rx) = flume::unbounded::<Value>();
+        let connection = dispatcher
+            .open_inbox(out_tx)
+            .await
+            .map_err(|e: ServiceError| TopicRefused { status: e.status() })?;
+        let tasks = vec![
+            tokio::spawn(connection.run()),
+            tokio::spawn(async move {
+                while let Ok(frame) = out_rx.recv_async().await {
+                    sink(frame);
+                }
+            }),
+        ];
+        let id = self.next.fetch_add(1, Ordering::Relaxed) + 1;
+        self.open.lock().unwrap().insert(id, tasks);
+        Ok(id)
+    }
+
+    pub fn close(&self, id: u64) {
+        if let Some(tasks) = self.open.lock().unwrap().remove(&id) {
+            tasks.iter().for_each(|t| t.abort());
+        }
+    }
+
+    /// Every stream, e.g. when the window is destroyed or the engine restarts.
+    pub fn close_all(&self) {
+        let ids: Vec<u64> = self.open.lock().unwrap().keys().copied().collect();
+        ids.into_iter().for_each(|id| self.close(id));
+    }
+
+    pub fn len(&self) -> usize {
+        self.open.lock().unwrap().len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+}
+
+struct OpenWorkspace {
+    connection: Arc<WorkspaceConnection>,
+    tasks: Vec<JoinHandle<()>>,
+}
+
+/// The Workspace topic streams a window has open, by id (`specs/053-workspace-channel`). The
+/// same frames as `GET /api/v1/workspaces/{id}/topics/{tid}/stream`, without a socket.
+#[derive(Default)]
+pub struct Workspaces {
+    next: AtomicU64,
+    open: Mutex<HashMap<u64, OpenWorkspace>>,
+}
+
+impl Workspaces {
+    /// Opens a stream; the `hello` and then every frame go to `sink`, in order. Refused with
+    /// the status the upgrade would have answered: `404` for a person with no standing.
+    pub async fn open(
+        &self,
+        engine: &Engine,
+        workspace_id: &str,
+        topic_id: &str,
+        sink: impl Fn(Value) + Send + 'static,
+    ) -> Result<u64, TopicRefused> {
+        let dispatcher = engine.dispatcher().await.ok_or(TopicRefused { status: 503 })?;
+        let (out_tx, out_rx) = flume::unbounded::<Value>();
+        let mut connection = dispatcher
+            .open_workspace(workspace_id, topic_id, out_tx)
+            .await
+            .map_err(|e: ServiceError| TopicRefused { status: e.status() })?;
+        let mut tasks = vec![];
+        if let Some(outbound) = connection.outbound() {
+            tasks.push(tokio::spawn(outbound.run()));
+        }
+        tasks.push(tokio::spawn(async move {
+            while let Ok(frame) = out_rx.recv_async().await {
+                sink(frame);
+            }
+        }));
+        let id = self.next.fetch_add(1, Ordering::Relaxed) + 1;
+        self.open
+            .lock()
+            .unwrap()
+            .insert(id, OpenWorkspace { connection: Arc::new(connection), tasks });
+        Ok(id)
+    }
+
+    /// Hands a client frame (a `post`) to the stream; an unknown id is ignored.
+    pub async fn send(&self, id: u64, frame: Value) {
+        let connection = self.open.lock().unwrap().get(&id).map(|w| w.connection.clone());
+        if let Some(connection) = connection {
+            connection.handle_inbound(frame).await;
+        }
+    }
+
+    pub fn close(&self, id: u64) {
+        if let Some(open) = self.open.lock().unwrap().remove(&id) {
+            open.tasks.iter().for_each(|t| t.abort());
         }
     }
 

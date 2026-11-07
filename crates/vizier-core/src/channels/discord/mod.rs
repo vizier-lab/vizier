@@ -1,7 +1,7 @@
 use std::sync::{Arc, OnceLock};
 
 use anyhow::{Result, anyhow};
-use chrono::Utc;
+
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use twilight_gateway::{
@@ -268,8 +268,7 @@ fn builtin_commands() -> Vec<CommandEntry> {
         CommandEntry::new("abort", "abort current thinking"),
         CommandEntry::new("checkpoint", "save checkpoint with handover summary"),
         CommandEntry::new("lobotomy", "save checkpoint without handover (clean break)"),
-        CommandEntry::new("thinking", "toggle showing thinking output"),
-        CommandEntry::new("tool_calls", "toggle showing tool call details"),
+        CommandEntry::new("thinking", "toggle showing thinking and the activity trail"),
         CommandEntry::new("clear-files", "clear this conversation's session files")
             .option(CommandOption::text("confirm", "Type confirm to clear")),
         CommandEntry::new("btw", "ask me a side question; public, not remembered").option(
@@ -629,7 +628,7 @@ If I am halucinating, feel free to `/lobotomy` me
                             client_tools: vec![],
                             client_categories: vec![],
                             client: None,
-                            timestamp: Utc::now(),
+                            timestamp: crate::time::now(),
                             user: agent_id.clone(),
                             content: VizierRequestContent::Command("abort".to_string()),
                             platform_message_id: None,
@@ -735,20 +734,12 @@ If I am halucinating, feel free to `/lobotomy` me
             "thinking" => {
                 let mut state = self.load_state(&channel).await;
                 state.show_thinking = !state.show_thinking;
+                // One switch: thinking and the tool-call trail travel together.
+                state.show_tool_calls = state.show_thinking;
                 self.save_state(&channel, &state).await;
 
                 let status = if state.show_thinking { "ON" } else { "OFF" };
                 self.respond(&interaction, format!("thinking output: **{}**", status))
-                    .await;
-            }
-
-            "tool_calls" => {
-                let mut state = self.load_state(&channel).await;
-                state.show_tool_calls = !state.show_tool_calls;
-                self.save_state(&channel, &state).await;
-
-                let status = if state.show_tool_calls { "ON" } else { "OFF" };
-                self.respond(&interaction, format!("tool call details: **{}**", status))
                     .await;
             }
 
@@ -881,8 +872,9 @@ If I am halucinating, feel free to `/lobotomy` me
         let ChannelState {
             active_topic,
             show_thinking,
-            show_tool_calls,
+            show_tool_calls: _,
         } = self.load_state(&channel).await;
+        let show_tool_calls = show_thinking;
         let session = VizierSession(self.agent_id.clone(), channel, active_topic);
         let user = match interaction.author() {
             Some(author) => format!(
@@ -893,11 +885,10 @@ If I am halucinating, feel free to `/lobotomy` me
             None => "unknown".to_string(),
         };
         let request = VizierRequest {
-            timestamp: Utc::now(),
+            timestamp: crate::time::now(),
             user,
             content: VizierRequestContent::Chat(text.clone()),
             metadata: json!({
-                "sent_at": Utc::now().to_string(),
                 "is_reply_message": false,
                 "discord_channel_id": channel_id.to_string(),
                 "is_dm": interaction.guild_id.is_none(),
@@ -915,7 +906,10 @@ If I am halucinating, feel free to `/lobotomy` me
             show_tool_calls,
         };
 
-        let (response_tx, response_rx) = flume::unbounded();
+        let Ok((response_tx, response_rx)) = self.deps.transport.reply_channel().await else {
+            tracing::error!("could not open a reply stream");
+            return;
+        };
         if let Err(err) = self
             .deps
             .transport
@@ -1091,7 +1085,10 @@ If I am halucinating, feel free to `/lobotomy` me
         let agent_id = self.agent_id.clone();
         let topic_id = self.load_state(&channel).await.active_topic;
         let session = VizierSession(agent_id.clone(), channel, topic_id);
-        let (response_tx, response_rx) = flume::unbounded();
+        let Ok((response_tx, response_rx)) = self.deps.transport.reply_channel().await else {
+            tracing::error!("could not open a reply stream");
+            return;
+        };
         let _ = self
             .deps
             .transport
@@ -1102,7 +1099,7 @@ If I am halucinating, feel free to `/lobotomy` me
                     client_tools: vec![],
                     client_categories: vec![],
                     client: None,
-                    timestamp: Utc::now(),
+                    timestamp: crate::time::now(),
                     user: agent_id,
                     content: VizierRequestContent::Command(command.to_string()),
                     platform_message_id: None,
@@ -1259,7 +1256,7 @@ If I am halucinating, feel free to `/lobotomy` me
     }
 
     /// Post a turn a background report woke into the Discord channel the work came from.
-    async fn render_woken(&self, session: VizierSession, frames: flume::Receiver<VizierResponse>) {
+    async fn render_woken(&self, session: VizierSession, frames: crate::transport::ResponseStream) {
         let VizierChannelId::DiscordChanel(channel_id) = session.1 else {
             return;
         };
@@ -1274,7 +1271,7 @@ If I am halucinating, feel free to `/lobotomy` me
             agent_id: self.agent_id.clone(),
             channel_id,
             show_thinking: state.show_thinking,
-            show_tool_calls: state.show_tool_calls,
+            show_tool_calls: state.show_thinking,
         }
         .render(frames)
         .await;
@@ -1364,9 +1361,12 @@ If I am halucinating, feel free to `/lobotomy` me
                 show_thinking,
                 show_tool_calls,
             };
-            let (response_tx, response_rx) = flume::unbounded();
+            let Ok((response_tx, response_rx)) = self.deps.transport.reply_channel().await else {
+                tracing::error!("could not open a reply stream");
+                return;
+            };
             let request = VizierRequest {
-                timestamp: Utc::now(),
+                timestamp: crate::time::now(),
                 user: self.agent_id.clone(),
                 content: VizierRequestContent::Command("abort".to_string()),
                 ..Default::default()
@@ -1415,7 +1415,6 @@ If I am halucinating, feel free to `/lobotomy` me
             .map(|message| message.id.to_string());
 
         let metadata = json!({
-            "sent_at": Utc::now().to_string(),
             "is_reply_message": replied_to.is_some(),
             "replied_message_id": replied_to,
             "message_id": msg.id.to_string(),
@@ -1453,7 +1452,7 @@ If I am halucinating, feel free to `/lobotomy` me
             .unwrap_or(&msg.author.name);
 
         let request = VizierRequest {
-            timestamp: chrono::Utc::now(),
+            timestamp: crate::time::now(),
             user: format!("@{} (DiscordId: {})", author_name, msg.author.id),
             content: request_content,
             platform_message_id: Some(PlatformMessageId::Discord(msg.id.get())),
@@ -1473,7 +1472,10 @@ If I am halucinating, feel free to `/lobotomy` me
         };
 
         tokio::spawn(async move {
-            let (response_tx, response_rx) = flume::unbounded();
+            let Ok((response_tx, response_rx)) = transport.reply_channel().await else {
+                tracing::error!("could not open a reply stream");
+                return;
+            };
 
             if let Err(err) = transport
                 .send_request(session.clone(), request, Some(response_tx))
@@ -1501,7 +1503,7 @@ struct TurnRenderer {
 }
 
 impl TurnRenderer {
-    async fn render(self, response_rx: flume::Receiver<VizierResponse>) {
+    async fn render(self, response_rx: crate::transport::ResponseStream) {
         let Self {
             http,
             file_manager,

@@ -46,6 +46,11 @@ pub struct ProjectTurnContext {
     pub is_piece: bool,
     /// The stale-read guard, shared with the tools that read and write project files.
     pub ledger: Arc<crate::projects::ledger::ProjectReadLedger>,
+    /// The project's language-server switch, read once at turn start like `mode`.
+    pub lsp_enabled: bool,
+    /// The project's per-language server overrides; empty when the switch is off.
+    pub lsp_overrides: Arc<std::collections::HashMap<String, crate::schema::ServerOverride>>,
+    pub lsp: crate::projects::lsp::LspHost,
 }
 
 impl ProjectTurnContext {
@@ -144,6 +149,15 @@ pub async fn for_turn(
             .unwrap_or_default(),
     };
     let available = cwd.is_dir();
+    if !available && project.lsp_enabled {
+        // A folder that is gone takes its servers with it (FR-005).
+        let lsp = deps.lsp.clone();
+        let project_id = project.id.clone();
+        let cwd = cwd.clone();
+        tokio::spawn(async move {
+            lsp.stop_under(&project_id, &cwd).await;
+        });
+    }
     let instructions = match available {
         true => instructions::read(&cwd),
         false => None,
@@ -151,6 +165,17 @@ pub async fn for_turn(
     let git = match available {
         true => probe(&cwd).await,
         false => None,
+    };
+
+    let lsp_overrides = match project.lsp_enabled {
+        true => deps
+            .storage
+            .lsp_overrides(&project.id)
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .collect(),
+        false => Default::default(),
     };
 
     Some(Arc::new(ProjectTurnContext {
@@ -167,6 +192,9 @@ pub async fn for_turn(
         instructions_truncated: instructions.is_some_and(|i| i.truncated),
         is_piece: scope.is_piece,
         ledger: deps.project_ledger.clone(),
+        lsp_enabled: project.lsp_enabled,
+        lsp_overrides: Arc::new(lsp_overrides),
+        lsp: deps.lsp.clone(),
     }))
 }
 
@@ -184,7 +212,7 @@ pub async fn skills_cwd(
 
 #[cfg(test)]
 mod tests {
-    use chrono::Utc;
+    
 
     use super::*;
     use crate::{
@@ -201,7 +229,8 @@ mod tests {
             folder: std::fs::canonicalize(folder).unwrap(),
             owner_id: owner.into(),
             shell_enabled: true,
-            created_at: Utc::now().timestamp_millis(),
+            lsp_enabled: false,
+            created_at: crate::time::now().timestamp_millis(),
             removed_at: None,
         }
     }
@@ -301,7 +330,7 @@ mod tests {
         );
         let task = VizierSession(
             agent.clone(),
-            VizierChannelId::Task("tick".into(), Utc::now()),
+            VizierChannelId::Task("tick".into(), crate::time::now()),
             None,
         );
         let subagent = VizierSession(agent.clone(), VizierChannelId::Subagent, None);
@@ -408,7 +437,7 @@ mod tests {
     async fn a_removed_project_resolves_to_none_for_turns() {
         let (deps, _dir, _folder, _uid) = setup().await;
         deps.storage
-            .remove_project("p3xY9aQ2mZ", Utc::now().timestamp_millis())
+            .remove_project("p3xY9aQ2mZ", crate::time::now().timestamp_millis())
             .await
             .unwrap();
         assert!(

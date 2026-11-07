@@ -1,23 +1,25 @@
 //! SQLite implementation of the artifact metadata store (`specs/035-add-artifacts`).
 
+use crate::time::Timestamp;
+use crate::storage::sql::{
+    self, OptionalExtension, Row, ToSql, Transaction, params, params_from_iter,
+};
 use anyhow::{Result, anyhow};
-use chrono::{DateTime, Utc};
-use rusqlite::{OptionalExtension, Row, ToSql, Transaction, params, params_from_iter};
 
 use crate::{
     schema::{
         Artifact, ArtifactCursor, ArtifactEvent, ArtifactEventAction, ArtifactFilters,
         ArtifactKind, ArtifactPage, ArtifactReference, ArtifactStats, Requester,
     },
-    storage::{artifact::ArtifactStorage, sqlite::SqliteStorage},
+    storage::{artifact::ArtifactStorage, sqlite::SqlStorage},
 };
 
-fn to_ms(at: DateTime<Utc>) -> i64 {
+fn to_ms(at: Timestamp) -> i64 {
     at.timestamp_millis()
 }
 
-fn from_ms(ms: i64) -> DateTime<Utc> {
-    DateTime::<Utc>::from_timestamp_millis(ms).unwrap_or_else(Utc::now)
+fn from_ms(ms: i64) -> Timestamp {
+    crate::time::from_millis_opt(ms).unwrap_or_else(crate::time::now)
 }
 
 fn actor_json(actor: &Requester) -> String {
@@ -31,7 +33,7 @@ fn actor_from_json(raw: &str) -> Requester {
 const ARTIFACT_COLUMNS: &str = "id, agent_id, name, kind, mime_type, size, version, content_file, \
      origin_channel, origin_topic, source_filename, created_by, created_at, updated_at";
 
-fn map_artifact(row: &Row<'_>) -> rusqlite::Result<Artifact> {
+fn map_artifact(row: &Row) -> sql::Result<Artifact> {
     let kind: String = row.get(3)?;
     let created_by: String = row.get(11)?;
     Ok(Artifact {
@@ -52,7 +54,7 @@ fn map_artifact(row: &Row<'_>) -> rusqlite::Result<Artifact> {
     })
 }
 
-fn insert_event(tx: &Transaction<'_>, event: &ArtifactEvent) -> Result<()> {
+fn insert_event(tx: &Transaction<'_, '_>, event: &ArtifactEvent) -> Result<()> {
     tx.execute(
         "INSERT INTO artifact_event \
          (id, agent_id, artifact_id, artifact_name, action, actor, source_channel, source_topic, source_filename, created_at) \
@@ -78,7 +80,11 @@ fn filter_conditions(filters: &ArtifactFilters, cursor: bool) -> (String, Vec<Bo
     let mut p: Vec<Box<dyn ToSql>> = vec![Box::new(filters.agent_id.clone())];
     if let Some(q) = &filters.q {
         p.push(Box::new(q.clone()));
-        sql.push_str(&format!(" AND name LIKE '%' || ?{} || '%'", p.len()));
+        // `lower` on both sides: SQLite's LIKE ignores ASCII case, PostgreSQL's does not.
+        sql.push_str(&format!(
+            " AND lower(name) LIKE '%' || lower(?{}) || '%'",
+            p.len()
+        ));
     }
     if let Some(kind) = filters.kind {
         p.push(Box::new(kind.as_str().to_string()));
@@ -109,9 +115,9 @@ fn filter_conditions(filters: &ArtifactFilters, cursor: bool) -> (String, Vec<Bo
 }
 
 #[async_trait::async_trait]
-impl ArtifactStorage for SqliteStorage {
+impl ArtifactStorage for SqlStorage {
     async fn create_artifact(&self, artifact: &Artifact, event: &ArtifactEvent) -> Result<()> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let tx = conn.unchecked_transaction()?;
         let inserted = tx.execute(
             &format!(
@@ -136,9 +142,7 @@ impl ArtifactStorage for SqliteStorage {
         );
         match inserted {
             Ok(_) => {}
-            Err(rusqlite::Error::SqliteFailure(err, _))
-                if err.code == rusqlite::ErrorCode::ConstraintViolation =>
-            {
+            Err(sql::Error::ConstraintViolation(_)) => {
                 return Err(anyhow!(
                     "an artifact named '{}' already exists; replace it instead",
                     artifact.name
@@ -152,7 +156,7 @@ impl ArtifactStorage for SqliteStorage {
     }
 
     async fn get_artifact(&self, agent_id: &str, id: &str) -> Result<Option<Artifact>> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         Ok(conn
             .query_row(
                 &format!("SELECT {ARTIFACT_COLUMNS} FROM artifact WHERE agent_id = ?1 AND id = ?2"),
@@ -163,7 +167,7 @@ impl ArtifactStorage for SqliteStorage {
     }
 
     async fn get_artifact_by_name(&self, agent_id: &str, name: &str) -> Result<Option<Artifact>> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         Ok(conn
             .query_row(
                 &format!(
@@ -177,7 +181,7 @@ impl ArtifactStorage for SqliteStorage {
 
     async fn list_artifacts(&self, filters: &ArtifactFilters) -> Result<ArtifactPage> {
         let (conditions, params) = filter_conditions(filters, false);
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
 
         let (total, total_bytes): (i64, i64) = conn.query_row(
             &format!(
@@ -203,7 +207,7 @@ impl ArtifactStorage for SqliteStorage {
         let mut stmt = conn.prepare(&sql)?;
         let mut items: Vec<Artifact> = stmt
             .query_map(params_from_iter(page_params.iter()), map_artifact)?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
+            .collect::<sql::Result<Vec<_>>>()?;
 
         let next = if items.len() > limit {
             items.truncate(limit);
@@ -225,7 +229,7 @@ impl ArtifactStorage for SqliteStorage {
     }
 
     async fn artifact_stats(&self, agent_id: &str) -> Result<ArtifactStats> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let (total, total_bytes): (i64, i64) = conn.query_row(
             "SELECT COUNT(*), COALESCE(SUM(size), 0) FROM artifact WHERE agent_id = ?1",
             params![agent_id],
@@ -247,11 +251,11 @@ impl ArtifactStorage for SqliteStorage {
         mime_type: &str,
         kind: ArtifactKind,
         source_filename: &str,
-        updated_at: DateTime<Utc>,
+        updated_at: Timestamp,
         event: &ArtifactEvent,
     ) -> Result<Artifact> {
         {
-            let conn = self.conn.lock();
+            let conn = self.conn.lock()?;
             let tx = conn.unchecked_transaction()?;
             let updated = tx.execute(
                 "UPDATE artifact SET content_file = ?3, size = ?4, mime_type = ?5, kind = ?6, \
@@ -283,7 +287,7 @@ impl ArtifactStorage for SqliteStorage {
     }
 
     async fn delete_artifact(&self, agent_id: &str, id: &str, event: &ArtifactEvent) -> Result<()> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let tx = conn.unchecked_transaction()?;
         tx.execute(
             "DELETE FROM artifact_reference WHERE agent_id = ?1 AND artifact_id = ?2",
@@ -308,7 +312,7 @@ impl ArtifactStorage for SqliteStorage {
         limit: usize,
     ) -> Result<Vec<ArtifactEvent>> {
         let limit = limit.clamp(1, 100) as i64;
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let mut p: Vec<Box<dyn ToSql>> = vec![Box::new(agent_id.to_string())];
         let mut sql = String::from(
             "SELECT id, agent_id, artifact_id, artifact_name, action, actor, source_channel, source_topic, source_filename, created_at \
@@ -348,7 +352,7 @@ impl ArtifactStorage for SqliteStorage {
                     created_at: from_ms(row.get(9)?),
                 })
             })?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
+            .collect::<sql::Result<Vec<_>>>()?;
         Ok(events)
     }
 
@@ -357,19 +361,19 @@ impl ArtifactStorage for SqliteStorage {
         agent_id: &str,
         artifact_id: &str,
     ) -> Result<Vec<ArtifactReference>> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let mut stmt = conn.prepare(
             "SELECT artifact_id, agent_id, kind, target, session_slug, history_uid, channel, topic, bundle, path, label, created_at \
              FROM artifact_reference WHERE agent_id = ?1 AND artifact_id = ?2 ORDER BY created_at DESC, kind, target",
         )?;
         let refs = stmt
             .query_map(params![agent_id, artifact_id], map_reference)?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
+            .collect::<sql::Result<Vec<_>>>()?;
         Ok(refs)
     }
 
     async fn count_artifact_references(&self, agent_id: &str, artifact_id: &str) -> Result<usize> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let count: i64 = conn.query_row(
             "SELECT COUNT(*) FROM artifact_reference WHERE agent_id = ?1 AND artifact_id = ?2",
             params![agent_id, artifact_id],
@@ -379,11 +383,15 @@ impl ArtifactStorage for SqliteStorage {
     }
 
     async fn upsert_artifact_reference(&self, reference: &ArtifactReference) -> Result<()> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         conn.execute(
-            "INSERT OR REPLACE INTO artifact_reference \
+            "INSERT INTO artifact_reference \
              (artifact_id, agent_id, kind, target, session_slug, history_uid, channel, topic, bundle, path, label, created_at) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12) \
+             ON CONFLICT (artifact_id, kind, target) DO UPDATE SET agent_id = excluded.agent_id, \
+             session_slug = excluded.session_slug, history_uid = excluded.history_uid, \
+             channel = excluded.channel, topic = excluded.topic, bundle = excluded.bundle, \
+             path = excluded.path, label = excluded.label, created_at = excluded.created_at",
             params![
                 reference.artifact_id,
                 reference.agent_id,
@@ -403,7 +411,7 @@ impl ArtifactStorage for SqliteStorage {
     }
 
     async fn delete_artifact_references(&self, agent_id: &str, artifact_id: &str) -> Result<()> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         conn.execute(
             "DELETE FROM artifact_reference WHERE agent_id = ?1 AND artifact_id = ?2",
             params![agent_id, artifact_id],
@@ -416,7 +424,7 @@ impl ArtifactStorage for SqliteStorage {
         agent_id: &str,
         session_slug: &str,
     ) -> Result<()> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         conn.execute(
             "DELETE FROM artifact_reference WHERE kind = 'message' AND agent_id = ?1 AND session_slug = ?2",
             params![agent_id, session_slug],
@@ -430,7 +438,7 @@ impl ArtifactStorage for SqliteStorage {
         bundle: &str,
         path: &str,
     ) -> Result<()> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         conn.execute(
             "DELETE FROM artifact_reference WHERE kind = 'memory' AND agent_id = ?1 AND bundle = ?2 AND path = ?3",
             params![agent_id, bundle, path],
@@ -439,7 +447,7 @@ impl ArtifactStorage for SqliteStorage {
     }
 
     async fn delete_agent_artifact_data(&self, agent_id: &str) -> Result<()> {
-        let conn = self.conn.lock();
+        let conn = self.conn.lock()?;
         let tx = conn.unchecked_transaction()?;
         tx.execute(
             "DELETE FROM artifact_reference WHERE agent_id = ?1",
@@ -457,8 +465,8 @@ impl ArtifactStorage for SqliteStorage {
         Ok(())
     }
 
-    fn artifact_content_file(&self, agent_id: &str, id: &str) -> Result<Option<String>> {
-        let conn = self.conn.lock();
+    async fn artifact_content_file(&self, agent_id: &str, id: &str) -> Result<Option<String>> {
+        let conn = self.conn.lock()?;
         Ok(conn
             .query_row(
                 "SELECT content_file FROM artifact WHERE agent_id = ?1 AND id = ?2",
@@ -469,7 +477,7 @@ impl ArtifactStorage for SqliteStorage {
     }
 }
 
-fn map_reference(row: &Row<'_>) -> rusqlite::Result<ArtifactReference> {
+fn map_reference(row: &Row) -> sql::Result<ArtifactReference> {
     Ok(ArtifactReference {
         artifact_id: row.get(0)?,
         agent_id: row.get(1)?,
@@ -490,19 +498,21 @@ fn map_reference(row: &Row<'_>) -> rusqlite::Result<ArtifactReference> {
 mod tests {
     use std::sync::Arc;
 
-    use parking_lot::Mutex;
-
     use super::*;
-    use crate::storage::document::LocalDocumentStore;
+    use crate::storage::document::BlobDocumentStore;
+    use crate::storage::sql::SqlStore;
 
-    fn storage() -> (SqliteStorage, tempfile::TempDir) {
+    fn storage() -> (SqlStorage, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
-        let conn = rusqlite::Connection::open_in_memory().unwrap();
-        crate::storage::sqlite::init_artifact_schema(&conn).unwrap();
+        let store = crate::tests_support::test_store(|| {
+            let conn = rusqlite::Connection::open_in_memory().unwrap();
+            crate::storage::sqlite::init_artifact_schema(&conn).unwrap();
+            SqlStore::sqlite(conn)
+        });
         (
-            SqliteStorage::new(
-                Arc::new(Mutex::new(conn)),
-                Arc::new(LocalDocumentStore::new(dir.path().to_path_buf())),
+            SqlStorage::new(
+                store,
+                Arc::new(BlobDocumentStore::local(dir.path().to_path_buf())),
             ),
             dir,
         )
@@ -542,7 +552,7 @@ mod tests {
         }
     }
 
-    async fn create(s: &SqliteStorage, a: &Artifact) {
+    async fn create(s: &SqlStorage, a: &Artifact) {
         s.create_artifact(a, &event(a, ArtifactEventAction::Promoted))
             .await
             .unwrap();
@@ -622,7 +632,7 @@ mod tests {
         assert_eq!(updated.size, 22);
         assert_eq!(updated.content_file, "content.v2");
         assert_eq!(
-            s.artifact_content_file("a", &a.id).unwrap().unwrap(),
+            s.artifact_content_file("a", &a.id).await.unwrap().unwrap(),
             "content.v2"
         );
 
@@ -825,4 +835,13 @@ mod tests {
         assert_eq!(s.count_artifact_references("a", &a.id).await.unwrap(), 0);
         assert!(s.get_artifact("a", &a.id).await.unwrap().is_none());
     }
+
+    crate::postgres_tests!(
+        create_get_duplicate_and_case_sensitive_names,
+        replacement_switches_version_and_records_an_event,
+        delete_removes_refs_but_keeps_the_event,
+        paging_is_stable_with_tied_timestamps,
+        filters_and_stats_are_independent_of_the_cursor,
+        session_and_memory_reference_cleanup_are_scoped,
+    );
 }

@@ -6,7 +6,7 @@ use arc_swap::ArcSwap;
 use tokio::sync::Mutex;
 
 use anyhow::Result;
-use chrono::{DateTime, Utc};
+use chrono::Local;
 use rand::{RngExt, SeedableRng, rngs::StdRng};
 use tokio::time::{Instant, timeout};
 use tracing::Instrument;
@@ -655,7 +655,7 @@ impl VizierAgent {
                 crate::agents::steps::MAX_RESUMES_WITHOUT_PROGRESS
             );
             let response = VizierResponse {
-                timestamp: chrono::Utc::now(),
+                timestamp: crate::time::now(),
                 content: VizierResponseContent::Error {
                     kind: ErrorKind::classify(&message),
                     message,
@@ -668,6 +668,47 @@ impl VizierAgent {
             return Ok(response);
         }
         let resuming = resume_steps.is_some();
+        let turn_model = if let Some(choice) = &req.model_override {
+            let model_result = async {
+                let (provider, model) = crate::service::catalogue::validate_chat_model_override(
+                    &self.deps,
+                    choice,
+                )
+                .await
+                .map_err(|error| anyhow::anyhow!(error.message().to_string()))?;
+                VizierModel::new_with_override(
+                    &self.agent_id,
+                    &self.deps,
+                    &self.config,
+                    Some((provider, model)),
+                )
+                .await
+            }
+            .await;
+            match model_result {
+                Ok(model) => model,
+                Err(error) => {
+                    let message = format!("The selected model is unavailable: {error}");
+                    let response = VizierResponse {
+                        timestamp: crate::time::now(),
+                        content: VizierResponseContent::Error {
+                            kind: ErrorKind::ProviderUnavailable,
+                            message,
+                        },
+                        attachments: vec![],
+                        ..Default::default()
+                    };
+                    self.save_history_or_log(
+                        &session,
+                        SessionHistoryContent::Response(response.clone()),
+                    )
+                    .await;
+                    return Ok(response);
+                }
+            }
+        } else {
+            self.model.clone()
+        };
 
         // Auto-transcribe AudioChat/AudioPrompt in-place
         if let Some(ref stt) = self.stt
@@ -708,7 +749,7 @@ impl VizierAgent {
             }
         }
 
-        let mut rng = StdRng::seed_from_u64(Utc::now().timestamp() as u64);
+        let mut rng = StdRng::seed_from_u64(crate::time::now().timestamp() as u64);
         let initiative_factor = rng.random_range(0_f32..=1_f32);
 
         // The one snapshot this turn uses, system prompt and every tool call alike (G2).
@@ -741,11 +782,18 @@ impl VizierAgent {
         // open now that the turn has started (specs/019-client-tools R4). They are named
         // against this snapshot's catalogue, and the client is told the names before the
         // model runs. Taken off the request so nothing downstream holds the connection.
-        ctx.client = match req.client.take() {
-            Some(binding) if binding.connection.is_open() => {
+        // The binding only names the connection; one that is not on this node, or has closed,
+        // reads as closed.
+        let live_binding = req.client.take().and_then(|binding| {
+            let connection = self.deps.client_connections.get(&binding.connection_id)?;
+            connection.is_open().then_some((binding, connection))
+        });
+        ctx.client = match live_binding {
+            Some((binding, connection)) => {
                 let catalogue = tools.router.catalogue(&ctx).await;
                 let client = crate::agents::client::ClientTools::resolve(
                     &binding,
+                    connection,
                     &catalogue,
                     &tools.router.client_reserved_categories(),
                     session.clone(),
@@ -755,7 +803,7 @@ impl VizierAgent {
                 client.announce();
                 Some(client)
             }
-            _ => None,
+            None => None,
         };
 
         let mut history = self
@@ -886,7 +934,7 @@ impl VizierAgent {
         if let VizierRequestContent::SilentRead(_) = req.content {
             if initiative_factor > self.config.silent_read_initiative_chance {
                 return Ok(VizierResponse {
-                    timestamp: chrono::Utc::now(),
+                    timestamp: crate::time::now(),
                     content: VizierResponseContent::Empty,
                     attachments: vec![],
                     ..Default::default()
@@ -904,9 +952,9 @@ impl VizierAgent {
                 if let VizierRequestContent::Chat(text) = &mut model_req.content {
                     *text = invoked.message().to_string();
                 }
-                model_req.to_message(&self.global_workspace, self.deps.artifacts.as_ref())?
+                model_req.to_message(self.deps.artifacts.as_ref()).await?
             }
-            None => req.to_message(&self.global_workspace, self.deps.artifacts.as_ref())?,
+            None => req.to_message(self.deps.artifacts.as_ref()).await?,
         };
         // What became of the person's files, on their own message: the ones that could not be
         // stored (loudly, #47) and the ones that did. Without the second, the model is handed a
@@ -945,8 +993,19 @@ impl VizierAgent {
         } else {
             None
         };
+        // The room an agent is woken in is volatile, like a project's state, so it goes in the
+        // per-message block and never the system prompt.
+        let project_state = match (
+            project_state,
+            crate::workspaces::context::section(&self.storage, &session, &req.metadata, &req.user)
+                .await,
+        ) {
+            (Some(project), Some(workspace)) => Some(format!("{project}\n\n{workspace}")),
+            (project, workspace) => project.or(workspace),
+        };
         let prompt_result = self
             .prompt_with(
+                &turn_model,
                 &tools,
                 with_context(
                     message,
@@ -995,7 +1054,7 @@ impl VizierAgent {
                 self.save_history_or_log(
                     &session,
                     SessionHistoryContent::Response(VizierResponse {
-                        timestamp: chrono::Utc::now(),
+                        timestamp: crate::time::now(),
                         content: VizierResponseContent::Error {
                             kind,
                             message: err_str,
@@ -1035,7 +1094,7 @@ impl VizierAgent {
 
         // Save response with full stats and attachments
         let mut response = VizierResponse {
-            timestamp: chrono::Utc::now(),
+            timestamp: crate::time::now(),
             content: VizierResponseContent::Message {
                 content: output,
                 stats: Some(stats),
@@ -1082,6 +1141,7 @@ impl VizierAgent {
     > {
         let tools = self.tools.load_full();
         self.prompt_with(
+            &self.model,
             &tools,
             message,
             history,
@@ -1097,6 +1157,7 @@ impl VizierAgent {
 
     async fn prompt_with(
         &self,
+        model: &VizierModel,
         snapshot: &Arc<VizierTools>,
         message: Message,
         history: Vec<Message>,
@@ -1117,7 +1178,7 @@ impl VizierAgent {
     > {
         // Every return but the answered one drops this, marking the turn's answered rounds as
         // spent on a failed turn (spec 018 FR-004); an aborted task drops it too.
-        let guard = self.model.guard();
+        let guard = model.guard();
         let mut history = history.clone();
         let mut full_history = history.clone();
         let mut turn_depth = turn_depth;
@@ -1195,8 +1256,7 @@ impl VizierAgent {
 
             // The model gets the narrowed view; `full_history` keeps the full record,
             // which is what storage and the WebUI are served from.
-            let response = self
-                .model
+            let response = model
                 .complete_until(
                     completion_request(&history, &message, &tools, wrapping_up),
                     Some(start + prompt_timeout),
@@ -1281,6 +1341,7 @@ impl VizierAgent {
                 // A final answer leaves no tool call waiting, so the checkpoint is safe here,
                 // and it's what keeps the session's next turn small.
                 self.maybe_checkpoint(
+                    model,
                     snapshot,
                     current_context_size,
                     &mut history,
@@ -1346,7 +1407,7 @@ impl VizierAgent {
                         tool_timeout_response(&function_name, *self.config.tools.timeout)
                     }
                     Ok(Err(err)) => VizierResponse {
-                        timestamp: Utc::now(),
+                        timestamp: crate::time::now(),
                         content: VizierResponseContent::ToolResponse {
                             response: serde_json::Value::String(err.to_string()),
                         },
@@ -1420,11 +1481,8 @@ impl VizierAgent {
                 }
 
                 let response_content = tool_res
-                    .to_tool_result(
-                        call_id.clone(),
-                        &self.global_workspace,
-                        self.deps.artifacts.as_ref(),
-                    )
+                    .to_tool_result(call_id.clone(), self.deps.artifacts.as_ref())
+                    .await
                     .map_err(|e| {
                         fail_turn(e, full_history.clone(), None, tool_responses.clone())
                     })?;
@@ -1459,7 +1517,8 @@ impl VizierAgent {
             for attachment in ctx.loaded_images.lock().await.drain(..) {
                 pending_images.push(
                     attachment
-                        .to_part(&self.global_workspace, self.deps.artifacts.as_ref())
+                        .to_part(self.deps.artifacts.as_ref())
+                        .await
                         .map_err(|e| {
                             fail_turn(e, full_history.clone(), None, tool_responses.clone())
                         })?,
@@ -1512,6 +1571,7 @@ impl VizierAgent {
             // Only now, with every tool call of the reply answered: checkpointing between the
             // completion and its tool results dropped the calls the results answer (#63).
             self.maybe_checkpoint(
+                model,
                 snapshot,
                 current_context_size,
                 &mut history,
@@ -1539,11 +1599,11 @@ impl VizierAgent {
                 cache_creation_input_tokens,
                 total_cache_creation_input_tokens,
                 current_context_size,
-                context_window: self.model.context_window(),
+                context_window: model.context_window(),
                 depth_exhausted,
                 ended_by_tool,
-                provider: Some(self.model.info().provider.clone()),
-                model: Some(self.model.info().model.clone()),
+                provider: Some(model.info().provider.clone()),
+                model: Some(model.info().model.clone()),
             },
             attachments,
             full_history,
@@ -1589,6 +1649,7 @@ impl VizierAgent {
     /// on with its full context and tries again after the next completion (#47).
     async fn maybe_checkpoint(
         &self,
+        model: &VizierModel,
         tools: &VizierTools,
         context_size: Option<u64>,
         history: &mut Vec<Message>,
@@ -1597,7 +1658,7 @@ impl VizierAgent {
         hooks: &Option<Arc<VizierSessionHooks>>,
         ctx: &ToolContext,
     ) {
-        let (Some(ctx_size), Some(ctx_window)) = (context_size, self.model.context_window()) else {
+        let (Some(ctx_size), Some(ctx_window)) = (context_size, model.context_window()) else {
             return;
         };
         let usage_ratio = ctx_size as f64 / ctx_window as f64;
@@ -1614,7 +1675,14 @@ impl VizierAgent {
         // No digest: the turn's request already carries it in its context block.
         let mut summarised = history.clone();
         summarised.extend(next.cloned());
-        let handover = match self.generate_handover_message(&summarised, None, ctx).await {
+        let handover = match generate_handover_with_model(
+            model,
+            &summarised,
+            None,
+            &UsageScope::handover(Some(ctx.session.clone())),
+        )
+        .await
+        {
             Ok(handover) => handover,
             Err(e) => {
                 tracing::warn!(
@@ -1713,8 +1781,38 @@ impl VizierAgent {
         session: &VizierSession,
         content: SessionHistoryContent,
     ) -> Option<String> {
+        // A message shown in a Workspace is written to the shared timeline by the save itself;
+        // it is announced, and the agents it names are woken, once it is saved (spec 053).
+        let shown = matches!(session.1, crate::schema::VizierChannelId::Workspace(_))
+            && matches!(
+                content,
+                SessionHistoryContent::AssistantMessage(_) | SessionHistoryContent::Response(_)
+            );
+        let saved = shown.then(|| content.clone());
         match crate::storage::history::save_with_busy_retry(&self.storage, session, content).await {
-            Ok(uid) => Some(uid),
+            Ok(uid) => {
+                if let Some(content) = saved {
+                    let hub = crate::workspaces::Hub::new(
+                        (*self.storage).clone(),
+                        self.transport.clone(),
+                    );
+                    crate::workspaces::after_save(&hub, &uid).await;
+                    // The saved step carries what the shared entry doesn't (stats, attachments),
+                    // so an open topic has it as a reload would.
+                    self.transport.publish_session_event(crate::transport::SessionEvent {
+                        session: session.clone(),
+                        frame: crate::transport::SessionFrame::HistoryEntry(SessionHistory {
+                            uid: uid.clone(),
+                            vizier_session: session.clone(),
+                            content,
+                            timestamp: crate::time::now(),
+                            reactions: vec![],
+                            seq: None,
+                        }),
+                    });
+                }
+                Some(uid)
+            }
             Err(e) => {
                 tracing::error!(
                     agent_id = %session.0,
@@ -1834,7 +1932,7 @@ impl VizierAgent {
                 &snapshot,
                 &dream_model,
                 with_context(
-                    req.to_message(&self.global_workspace, self.deps.artifacts.as_ref())?,
+                    req.to_message(self.deps.artifacts.as_ref()).await?,
                     context_md(
                         &[],
                         &[],
@@ -1865,7 +1963,7 @@ impl VizierAgent {
             .await?;
 
         let mut response = VizierResponse {
-            timestamp: chrono::Utc::now(),
+            timestamp: crate::time::now(),
             content: VizierResponseContent::Message {
                 content: output,
                 stats: Some(stats),
@@ -2024,7 +2122,7 @@ impl VizierAgent {
                             tool_timeout_response(&function_name, *self.config.tools.timeout)
                         }
                         Ok(Err(err)) => VizierResponse {
-                            timestamp: Utc::now(),
+                            timestamp: crate::time::now(),
                             content: VizierResponseContent::ToolResponse {
                                 response: serde_json::Value::String(err.to_string()),
                             },
@@ -2078,16 +2176,16 @@ impl VizierAgent {
                         }
                     }
 
-                    tool_responses.push(tool_res.to_tool_result(
-                        call_id.clone(),
-                        &self.global_workspace,
-                        self.deps.artifacts.as_ref(),
-                    )?);
+                    tool_responses.push(
+                        tool_res
+                            .to_tool_result(call_id.clone(), self.deps.artifacts.as_ref())
+                            .await?,
+                    );
                 }
 
                 for attachment in ctx.loaded_images.lock().await.drain(..) {
                     pending_attachments.push(
-                        attachment.to_part(&self.global_workspace, self.deps.artifacts.as_ref())?,
+                        attachment.to_part(self.deps.artifacts.as_ref()).await?,
                     );
                 }
 
@@ -2284,7 +2382,7 @@ fn answer_without_tool_calls(choices: Vec<AssistantPart>) -> Vec<AssistantPart> 
 
 fn tool_timeout_response(function_name: &str, limit: std::time::Duration) -> VizierResponse {
     VizierResponse {
-        timestamp: Utc::now(),
+        timestamp: crate::time::now(),
         content: VizierResponseContent::ToolResponse {
             response: serde_json::Value::String(format!(
                 "error: tool '{function_name}' timed out after {limit:?} and was abandoned; \
@@ -2524,6 +2622,10 @@ fn record_channel(span: &tracing::Span, channel: &crate::schema::VizierChannelId
             span.record("vizier.project.id", id.as_str());
             span.record("vizier.channel.id", id.as_str());
             "project"
+        }
+        VizierChannelId::Workspace(id) => {
+            span.record("vizier.channel.id", id.as_str());
+            "workspace"
         }
         VizierChannelId::Task(slug, _) => {
             span.record("vizier.task.slug", slug.as_str());

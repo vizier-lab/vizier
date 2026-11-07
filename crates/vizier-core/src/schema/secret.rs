@@ -1,7 +1,7 @@
 //! An agent's secret change log (`specs/027-agent-secrets/data-model.md` §2–3): who created,
 //! replaced or deleted which secret name, and when — never a value.
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Local};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -24,5 +24,5 @@ pub struct AgentSecretEvent {
     pub name: String,
     pub action: SecretAction,
     pub actor: Requester,
-    pub at: DateTime<Utc>,
+    pub at: DateTime<Local>,
 }

@@ -5,7 +5,7 @@
 //! (`storage::sqlite::core_revision` / `storage::sqlite::memory_revision`); only these
 //! kind-agnostic types and the `storage::diff` engine are shared between them.
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Local};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -207,7 +207,7 @@ pub struct CoreRevisionSummary {
     pub seq: i64,
     pub actor: RevisionActor,
     pub trigger: RevisionTrigger,
-    pub created_at: DateTime<Utc>,
+    pub created_at: DateTime<Local>,
     pub is_current: bool,
     pub size_bytes: usize,
 }
@@ -218,7 +218,7 @@ pub struct CoreRevision {
     pub seq: i64,
     pub actor: RevisionActor,
     pub trigger: RevisionTrigger,
-    pub created_at: DateTime<Utc>,
+    pub created_at: DateTime<Local>,
     pub is_current: bool,
     pub size_bytes: usize,
     pub content: String,
@@ -242,7 +242,7 @@ pub struct MemoryRevisionSummary {
     pub deleted: bool,
     pub actor: RevisionActor,
     pub trigger: RevisionTrigger,
-    pub created_at: DateTime<Utc>,
+    pub created_at: DateTime<Local>,
     pub is_current: bool,
     pub size_bytes: usize,
 }
@@ -254,7 +254,7 @@ pub struct MemoryRevision {
     pub deleted: bool,
     pub actor: RevisionActor,
     pub trigger: RevisionTrigger,
-    pub created_at: DateTime<Utc>,
+    pub created_at: DateTime<Local>,
     pub is_current: bool,
     pub size_bytes: usize,
     /// Canonical snapshot text; `None` on a deletion entry.

@@ -12,6 +12,7 @@ pub mod context;
 pub mod git;
 pub mod instructions;
 pub mod ledger;
+pub mod lsp;
 pub mod mentions;
 pub mod migrate;
 pub mod path;

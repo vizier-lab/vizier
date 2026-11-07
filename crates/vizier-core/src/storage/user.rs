@@ -1,5 +1,6 @@
+use crate::time::Timestamp;
 use anyhow::Result;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Local};
 use serde::{Deserialize, Serialize};
 
 pub const AVAILABLE_PERMISSIONS: &[&str] = &[
@@ -11,6 +12,7 @@ pub const AVAILABLE_PERMISSIONS: &[&str] = &[
     "all_agents:delete",
     "owned_agents:delete",
     "settings:providers",
+    "model_override",
     "all_agents:integrations:manage",
     "owned_agents:integrations:manage",
     "all_agents:secret",
@@ -21,6 +23,8 @@ pub const AVAILABLE_PERMISSIONS: &[&str] = &[
     "owned_agents:manage_artifacts",
     "all_agents:projects",
     "owned_agents:projects",
+    "workspaces:create",
+    "all_workspaces:manage",
     "all_agents:show_discord_chats",
     "owned_agents:show_discord_chats",
     "all_agents:show_telegram_chats",
@@ -38,7 +42,7 @@ pub struct Role {
     pub name: String,
     pub permissions: Vec<String>,
     pub is_system: bool,
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -47,7 +51,7 @@ pub struct User {
     pub username: String,
     pub password_hash: String,
     pub role_id: String,
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -67,9 +71,9 @@ pub struct ApiKey {
     pub user_id: String,
     pub name: String,
     pub key_hash: String,
-    pub expires_at: Option<DateTime<Utc>>,
-    pub created_at: DateTime<Utc>,
-    pub last_used_at: Option<DateTime<Utc>>,
+    pub expires_at: Option<Timestamp>,
+    pub created_at: Timestamp,
+    pub last_used_at: Option<Timestamp>,
     /// The first characters of the key, kept to tell keys apart on the API keys page. Keys made
     /// before it was kept have none.
     #[serde(default)]
@@ -80,8 +84,8 @@ pub struct ApiKey {
 /// away" starts from `previous_visit_at`).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Visit {
-    pub last_seen_at: Option<DateTime<Utc>>,
-    pub previous_visit_at: Option<DateTime<Utc>>,
+    pub last_seen_at: Option<Timestamp>,
+    pub previous_visit_at: Option<Timestamp>,
 }
 
 /// A gap longer than this between two requests starts a new visit.
@@ -91,7 +95,7 @@ impl Visit {
     /// The visit after a request at `now`: within [`VISIT_GAP_MINUTES`] of the last one it is the
     /// same visit and only `last_seen_at` moves; after a longer gap `last_seen_at` becomes the
     /// previous visit first.
-    pub fn seen_at(&self, now: DateTime<Utc>) -> Visit {
+    pub fn seen_at(&self, now: Timestamp) -> Visit {
         let new_visit = self
             .last_seen_at
             .is_some_and(|last| now - last > chrono::Duration::minutes(VISIT_GAP_MINUTES));
@@ -124,7 +128,7 @@ pub trait UserStorage {
     async fn user_exists(&self) -> Result<bool>;
 
     /// Notes that `user_id` made a request at `now` and returns the visit as it now stands.
-    async fn record_visit(&self, user_id: &str, now: DateTime<Utc>) -> Result<Visit>;
+    async fn record_visit(&self, user_id: &str, now: Timestamp) -> Result<Visit>;
     async fn get_visit(&self, user_id: &str) -> Result<Visit>;
 
     async fn create_role(
@@ -148,7 +152,7 @@ pub trait UserStorage {
         name: &str,
         key_hash: &str,
         prefix: &str,
-        expires_at: Option<DateTime<Utc>>,
+        expires_at: Option<Timestamp>,
     ) -> Result<ApiKey>;
     async fn get_api_key_by_hash(&self, key_hash: &str) -> Result<Option<ApiKey>>;
     async fn list_api_keys(&self, user_id: &str) -> Result<Vec<ApiKey>>;
@@ -160,19 +164,32 @@ pub trait UserStorage {
 mod tests {
     use super::*;
 
-    fn at(minutes: i64) -> DateTime<Utc> {
+    fn at(minutes: i64) -> Timestamp {
         DateTime::parse_from_rfc3339("2026-10-23T09:00:00Z")
             .unwrap()
-            .with_timezone(&Utc)
+            .with_timezone(&Local)
             + chrono::Duration::minutes(minutes)
     }
 
     /// The permission catalogue is the single list roles, the system role and the WebUI read;
     /// adding a project permission is a catalogue change, not a migration (spec 040 FR-019).
     #[test]
+    fn model_override_is_one_unscoped_permission() {
+        assert!(AVAILABLE_PERMISSIONS.contains(&"model_override"));
+        assert!(!AVAILABLE_PERMISSIONS.contains(&"all_agents:model_override"));
+        assert!(!AVAILABLE_PERMISSIONS.contains(&"owned_agents:model_override"));
+    }
+
+    #[test]
     fn the_project_permissions_are_pinned() {
         assert!(AVAILABLE_PERMISSIONS.contains(&"all_agents:projects"));
         assert!(AVAILABLE_PERMISSIONS.contains(&"owned_agents:projects"));
+    }
+
+    #[test]
+    fn the_workspace_permissions_are_pinned() {
+        assert!(AVAILABLE_PERMISSIONS.contains(&"workspaces:create"));
+        assert!(AVAILABLE_PERMISSIONS.contains(&"all_workspaces:manage"));
     }
 
     #[test]

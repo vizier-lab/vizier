@@ -19,7 +19,7 @@ use vizier_core::{
     runtime::{RuntimeEvent, RuntimeExit, RuntimeOptions, SubsystemState, VizierRuntime},
     schema::{
         AgentCommand, AgentConfig, AgentToolsConfig, AgentCommandResult, SessionHistoryContent, VizierChannelId, VizierRequest,
-        VizierRequestContent, VizierResponse, VizierResponseContent, VizierSession,
+        VizierRequestContent, VizierResponseContent, VizierSession,
         provider::{ProviderCredentials, ProviderEntry},
     },
     storage::{
@@ -129,9 +129,9 @@ fn agent_config(id: &str) -> AgentConfig {
 
 /// The text of a turn's final message, or the error it ended with.
 async fn chat(transport: &VizierTransport, session: &VizierSession, text: &str) -> String {
-    let (tx, rx) = flume::unbounded::<VizierResponse>();
+    let (tx, rx) = transport.reply_channel().await.expect("open a reply stream");
     let request = VizierRequest {
-        timestamp: chrono::Utc::now(),
+        timestamp: vizier_core::time::now(),
         user: "e2e".into(),
         content: VizierRequestContent::Chat(text.into()),
         metadata: serde_json::json!({}),
@@ -175,6 +175,7 @@ async fn dummyplug_agent_answers_through_the_runtime() {
     let config = VizierConfig::with_workspace(dir.path().to_path_buf());
     let mut runtime = VizierRuntime::start(RuntimeOptions {
         config: config.clone(),
+        ..Default::default()
     })
     .await
     .unwrap();
@@ -260,7 +261,10 @@ async fn dummyplug_agent_answers_through_the_runtime() {
     assert!(context.starts_with("# Context"), "{context}");
 
     // One engine per workspace: a second start is refused while this one runs (R14).
-    let second = VizierRuntime::start(RuntimeOptions { config }).await;
+    let second = VizierRuntime::start(RuntimeOptions {
+        config,
+        ..Default::default()
+    }).await;
     let error = second.err().expect("a second runtime on the same workspace is refused");
     assert!(error.to_string().contains("already in use"), "{error}");
 
@@ -282,6 +286,8 @@ async fn dummyplug_agent_answers_through_the_runtime() {
     };
     assert_eq!(stopped, "scheduler");
     let health = runtime.health().await;
+    // Fleet (#161): the default runtime is every role in one process.
+    assert!(health.roles.is_all(), "{:?}", health.roles);
     assert!(health.subsystems.iter().any(|(name, state)| *name == "scheduler"
         && matches!(state, SubsystemState::Stopped { .. })));
     assert!(health.subsystems.iter().any(|(name, state)| *name == "agent manager"
@@ -291,12 +297,258 @@ async fn dummyplug_agent_answers_through_the_runtime() {
     runtime.shutdown().await.unwrap();
     // The workspace is free again once the runtime is gone.
     let config = VizierConfig::with_workspace(dir.path().to_path_buf());
-    VizierRuntime::start(RuntimeOptions { config })
+    VizierRuntime::start(RuntimeOptions {
+        config,
+        ..Default::default()
+    })
         .await
         .unwrap()
         .shutdown()
         .await
         .unwrap();
+}
+
+/// Spec 053 US7: text a model writes beside a tool call is saved as a mid-turn message, ahead of
+/// the call, so a chat can draw trail, message, trail, reply (quickstart §12, backend half).
+#[tokio::test(flavor = "multi_thread")]
+async fn text_beside_a_tool_call_is_saved_as_a_mid_turn_message() {
+    let Some(dummyplug) = Dummyplug::start() else {
+        return;
+    };
+    dummyplug.ready().await;
+
+    let dir = tempfile::tempdir().unwrap();
+    let runtime = VizierRuntime::start(RuntimeOptions {
+        config: VizierConfig::with_workspace(dir.path().to_path_buf()),
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+    runtime
+        .deps()
+        .storage
+        .upsert_provider(&ProviderEntry {
+            id: ProviderId::DUMMYPLUG,
+            credentials: ProviderCredentials {
+                base_url: Some(dummyplug.base_url()),
+                ..Default::default()
+            },
+        })
+        .await
+        .unwrap();
+    let (resp, created) = tokio::sync::oneshot::channel();
+    runtime
+        .transport()
+        .send_agent_command(AgentCommand::Create {
+            agent_id: "plug".into(),
+            config: agent_config("plug"),
+            resp,
+        })
+        .await
+        .unwrap();
+    assert!(matches!(
+        tokio::time::timeout(TURN_TIMEOUT, created).await.unwrap().unwrap(),
+        AgentCommandResult::Ok(_)
+    ));
+
+    let session = VizierSession(
+        "plug".into(),
+        VizierChannelId::HTTP("e2e".into(), "harness".into()),
+        Some("say".into()),
+    );
+    let request = serde_json::json!({
+        "say": "checking first",
+        "tool": "execute_python",
+        "arguments": { "intent": "add", "code": "6 * 7" }
+    });
+    let reply = chat(runtime.transport(), &session, &request.to_string()).await;
+    assert!(reply.contains("42"), "{reply}");
+
+    let history = runtime
+        .deps()
+        .storage
+        .list_session_history(session, None, None, None)
+        .await
+        .unwrap();
+    let kinds: Vec<&str> = history
+        .iter()
+        .map(|h| match &h.content {
+            SessionHistoryContent::Request(_) => "request",
+            SessionHistoryContent::AssistantMessage(text) if text == "checking first" => "say",
+            SessionHistoryContent::ToolCall { .. } => "call",
+            SessionHistoryContent::ToolResult { .. } => "result",
+            SessionHistoryContent::Response(_) => "response",
+            _ => "other",
+        })
+        .collect();
+    assert_eq!(kinds, ["request", "say", "call", "result", "response"], "{history:#?}");
+
+    runtime.shutdown().await.unwrap();
+}
+
+/// Spec 053 US1 and US2 (quickstart §2 to §5): a Workspace with two dummyplug agents. Unmentioned
+/// messages cost nothing; a mention wakes only that agent, who has read what came before; a
+/// mention in an agent's mid-turn text wakes the next one.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_workspace_wakes_only_who_is_mentioned_and_they_have_read_the_rest() {
+    use vizier_core::{
+        auth::AuthMethod,
+        schema::{EntryKind, MentionState, VizierRequestContent},
+        service::{
+            Services,
+            workspaces::{self as ws, AddMemberRequest, CreateWorkspaceRequest, PostRequest},
+        },
+        storage::{turn::TurnStorage, workspace::WorkspaceStorage},
+    };
+
+    let Some(dummyplug) = Dummyplug::start() else {
+        return;
+    };
+    dummyplug.ready().await;
+
+    let dir = tempfile::tempdir().unwrap();
+    let runtime = VizierRuntime::start(RuntimeOptions {
+        config: VizierConfig::with_workspace(dir.path().to_path_buf()),
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+    let storage = runtime.deps().storage.clone();
+    storage
+        .upsert_provider(&ProviderEntry {
+            id: ProviderId::DUMMYPLUG,
+            credentials: ProviderCredentials {
+                base_url: Some(dummyplug.base_url()),
+                ..Default::default()
+            },
+        })
+        .await
+        .unwrap();
+    let role = storage
+        .create_role("maker", vec!["workspaces:create".into(), "all_agents:edit".into(), "all_agents:view".into()], false)
+        .await
+        .unwrap();
+    let user = storage.create_user("rafi", "", &role.role_id).await.unwrap();
+    let s = Services::new(runtime.deps().clone());
+    let rafi = s.principal_for(&user.user_id, AuthMethod::Jwt).await.unwrap();
+
+    for id in ["alpha", "beta"] {
+        let (resp, created) = tokio::sync::oneshot::channel();
+        runtime
+            .transport()
+            .send_agent_command(AgentCommand::Create { agent_id: id.into(), config: agent_config(id), resp })
+            .await
+            .unwrap();
+        assert!(matches!(
+            tokio::time::timeout(TURN_TIMEOUT, created).await.unwrap().unwrap(),
+            AgentCommandResult::Ok(_)
+        ));
+    }
+
+    let made = ws::create(&s, &rafi, CreateWorkspaceRequest { name: "ops".into(), first_topic: None })
+        .await
+        .unwrap();
+    let (wid, tid) = (made.workspace.id.clone(), made.workspace.topics[0].id.clone());
+    for id in ["alpha", "beta"] {
+        ws::add_member(&s, &rafi, &wid, AddMemberRequest { kind: "agent".into(), handle: id.into(), role: None })
+            .await
+            .unwrap();
+    }
+    let say = |text: &str| PostRequest { text: text.into(), files: vec![] };
+    let history_of = |agent: &str| {
+        let storage = storage.clone();
+        let session = VizierSession(agent.into(), VizierChannelId::Workspace(wid.clone()), Some(tid.clone()));
+        async move { storage.list_session_history(session, None, None, None).await.unwrap() }
+    };
+    let wait_for = |what: &'static str, f: Box<dyn Fn() -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send>> + Send>| async move {
+        let start = std::time::Instant::now();
+        while start.elapsed() < TURN_TIMEOUT {
+            if f().await {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        panic!("timed out waiting for {what}");
+    };
+
+    // §2: silent messages reach everyone and cost nothing.
+    for text in ["the billing lock is back", "it was the deploy", "rolling back now"] {
+        ws::post(&s, &rafi, &wid, &tid, say(text)).await.unwrap();
+    }
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(storage.sessions_with_pending_turns().await.unwrap().is_empty());
+    assert!(history_of("alpha").await.is_empty() && history_of("beta").await.is_empty());
+    assert_eq!(storage.list_entries(&tid, None, 50).await.unwrap().len(), 3);
+
+    // §3: a mention wakes one agent, who has read the rest.
+    ws::post(&s, &rafi, &wid, &tid, say("@alpha tools")).await.unwrap();
+    {
+        let storage = storage.clone();
+        let tid = tid.clone();
+        wait_for("alpha's reply", Box::new(move || {
+            let storage = storage.clone();
+            let tid = tid.clone();
+            Box::pin(async move {
+                storage.list_entries(&tid, None, 50).await.unwrap().iter().any(|e| e.kind == EntryKind::Agent && e.is_final)
+            })
+        }))
+        .await;
+    }
+    let alpha = history_of("alpha").await;
+    let reads: Vec<String> = alpha
+        .iter()
+        .filter_map(|h| match &h.content {
+            SessionHistoryContent::Request(r) => match &r.content {
+                VizierRequestContent::SilentRead(t) => Some(t.clone()),
+                _ => None,
+            },
+            _ => None,
+        })
+        .collect();
+    assert_eq!(reads, ["the billing lock is back", "it was the deploy", "rolling back now"]);
+    assert!(history_of("beta").await.is_empty(), "beta was not mentioned, so its record is untouched");
+
+    // §5: mid-turn text that mentions another agent wakes it before the first one finishes.
+    let before = storage.list_entries(&tid, None, 100).await.unwrap().len();
+    ws::post(
+        &s,
+        &rafi,
+        &wid,
+        &tid,
+        say(r#"@alpha {"say":"asking @beta now","tool":"execute_python","arguments":{"intent":"x","code":"1"}}"#),
+    )
+    .await
+    .unwrap();
+    {
+        let storage = storage.clone();
+        let tid = tid.clone();
+        wait_for("beta woken by alpha's mid-turn text", Box::new(move || {
+            let storage = storage.clone();
+            let tid = tid.clone();
+            Box::pin(async move {
+                let entries = storage.list_entries(&tid, None, 100).await.unwrap();
+                let said = entries.iter().find(|e| e.author == "alpha" && e.body.contains("asking @beta"));
+                let beta_final = entries.iter().any(|e| e.author == "beta" && e.is_final);
+                match said {
+                    Some(e) => {
+                        let m = storage.mentions_of(&[e.seq]).await.unwrap();
+                        beta_final && m.iter().any(|m| m.target == "beta" && m.state == MentionState::Woken)
+                    }
+                    None => false,
+                }
+            })
+        }))
+        .await;
+    }
+    assert!(storage.list_entries(&tid, None, 100).await.unwrap().len() > before);
+    // Beta now has read alpha's shown messages (and none of its tool calls).
+    let beta = history_of("beta").await;
+    assert!(beta.iter().any(|h| matches!(&h.content, SessionHistoryContent::Request(r)
+        if matches!(&r.content, VizierRequestContent::SilentRead(_)) && r.user == "alpha")));
+    assert!(!beta.iter().any(|h| matches!(&h.content, SessionHistoryContent::ToolCall { .. })
+        && h.vizier_session.0 == "alpha"));
+
+    runtime.shutdown().await.unwrap();
 }
 
 /// Spec 040: the workspace shell is offered in a project session, runs a command in the project
@@ -311,6 +563,7 @@ async fn a_project_session_can_run_the_workspace_shell() {
     let dir = tempfile::tempdir().unwrap();
     let runtime = VizierRuntime::start(RuntimeOptions {
         config: VizierConfig::with_workspace(dir.path().to_path_buf()),
+        ..Default::default()
     })
     .await
     .unwrap();
@@ -354,6 +607,7 @@ async fn a_project_session_can_run_the_workspace_shell() {
         folder: std::fs::canonicalize(folder.path()).unwrap(),
         owner_id: "u-e2e".into(),
         shell_enabled: true,
+        lsp_enabled: false,
         created_at: 0,
         removed_at: None,
     };
@@ -447,6 +701,192 @@ async fn a_project_session_can_run_the_workspace_shell() {
     runtime.shutdown().await.unwrap();
 }
 
+/// Spec 054 (quickstart §1 and §3): a project chat is offered the `lsp_*` tools, an edit's result
+/// says whether the code still holds together, and switching the feature off takes all of it away.
+/// The server is the `fake_lsp` example, set as the project's override, so nothing needs installing.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_project_edit_learns_what_it_broke_from_a_language_server() {
+    use vizier_core::schema::ServerOverride;
+
+    let Some(dummyplug) = Dummyplug::start() else {
+        return;
+    };
+    dummyplug.ready().await;
+
+    let fake = std::env::current_exe()
+        .unwrap()
+        .parent()
+        .and_then(|p| p.parent())
+        .unwrap()
+        .join("examples")
+        .join("fake_lsp");
+    assert!(fake.exists(), "build the fixture first: cargo build -p vizier-core --example fake_lsp");
+
+    let dir = tempfile::tempdir().unwrap();
+    let runtime = VizierRuntime::start(RuntimeOptions {
+        config: VizierConfig::with_workspace(dir.path().to_path_buf()),
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+    let storage = &runtime.deps().storage;
+    storage
+        .upsert_provider(&ProviderEntry {
+            id: ProviderId::DUMMYPLUG,
+            credentials: ProviderCredentials {
+                base_url: Some(dummyplug.base_url()),
+                ..Default::default()
+            },
+        })
+        .await
+        .unwrap();
+    let role = storage
+        .create_role("projects", vec!["all_agents:view".into(), "all_agents:projects".into()], false)
+        .await
+        .unwrap();
+    storage.create_user("e2e", "", &role.role_id).await.unwrap();
+
+    let folder = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(folder.path().join("src")).unwrap();
+    std::fs::write(folder.path().join("src/lib.rs"), "pub fn greet() -> u32 { 1 }\n").unwrap();
+    storage
+        .open_project(vizier_core::schema::Project {
+            id: "p3xY9aQ2mZ".into(),
+            agent_id: "plug".into(),
+            name: "alpha".into(),
+            folder: std::fs::canonicalize(folder.path()).unwrap(),
+            owner_id: "u-e2e".into(),
+            shell_enabled: true,
+            lsp_enabled: true,
+            created_at: 0,
+            removed_at: None,
+        })
+        .await
+        .unwrap();
+    storage
+        .set_lsp_override(
+            "p3xY9aQ2mZ",
+            "rust",
+            &ServerOverride {
+                command: fake.to_string_lossy().into_owned(),
+                args: vec!["--script".into(), "diagnostics".into()],
+                env: Default::default(),
+            },
+            "u-e2e",
+            0,
+        )
+        .await
+        .unwrap();
+
+    let (resp, created) = tokio::sync::oneshot::channel();
+    runtime
+        .transport()
+        .send_agent_command(AgentCommand::Create {
+            agent_id: "plug".into(),
+            config: agent_config("plug"),
+            resp,
+        })
+        .await
+        .unwrap();
+    match tokio::time::timeout(TURN_TIMEOUT, created).await.unwrap().unwrap() {
+        AgentCommandResult::Ok(_) => {}
+        AgentCommandResult::Error(e) => panic!("create failed: {e}"),
+    }
+    let transport = runtime.transport();
+    let session = VizierSession(
+        "plug".into(),
+        VizierChannelId::Project("e2e".into(), "p3xY9aQ2mZ".into()),
+        Some("project-1".into()),
+    );
+    storage
+        .set_project_chat_mode(
+            "plug",
+            &session.1.to_slug(),
+            "project-1",
+            vizier_core::schema::ProjectMode::Build,
+        )
+        .await
+        .unwrap();
+
+    // §1: the five tools are listed, and the state line reads on.
+    let list = chat(transport, &session, r#"{"tool":"list_tool_functions","arguments":{"category":"coding"}}"#).await;
+    for name in ["lsp_diagnostics", "lsp_definition", "lsp_references", "lsp_hover", "lsp_symbols"] {
+        assert!(list.contains(name), "{name} is listed under coding: {list}");
+    }
+    let context = chat(transport, &session, "context").await;
+    assert!(context.contains("Language servers: on."), "the state line is in the context: {context}");
+
+    // §3: reading the file starts the server in the background; once it is ready the edit's own
+    // result carries what it broke.
+    chat(
+        transport,
+        &session,
+        r#"{"tool":"execute_python","arguments":{"intent":"read","code":"print(read_file(path='src/lib.rs')['total_lines'])"}}"#,
+    )
+    .await;
+    let began = std::time::Instant::now();
+    loop {
+        let ready = runtime.deps().lsp.status("p3xY9aQ2mZ").iter().any(|s| s.state == "ready");
+        if ready {
+            break;
+        }
+        assert!(began.elapsed() < Duration::from_secs(20), "the server never became ready");
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+
+    let broken = chat(
+        transport,
+        &session,
+        r#"{"tool":"execute_python","arguments":{"intent":"break it","code":"r = edit_file(path='src/lib.rs', old_text='{ 1 }', new_text='{ ERROR }')\nprint(r['diagnostics']['status'], r['diagnostics']['errors'], r['diagnostics']['items'][0]['message'], r['diagnostics']['items'][0]['path'], r['diagnostics']['items'][0]['line'])"}}"#,
+    )
+    .await;
+    assert!(broken.contains("current 1 found ERROR src/lib.rs 1"), "the edit reports its error: {broken}");
+
+    let fixed = chat(
+        transport,
+        &session,
+        r#"{"tool":"execute_python","arguments":{"intent":"fix it","code":"r = edit_file(path='src/lib.rs', old_text='{ ERROR }', new_text='{ 2 }')\nprint(r['diagnostics']['status'], r['diagnostics']['errors'])"}}"#,
+    )
+    .await;
+    assert!(fixed.contains("current 0"), "reverting reports no errors: {fixed}");
+
+    // A question by meaning, in the same chat.
+    let hover = chat(
+        transport,
+        &session,
+        r#"{"tool":"execute_python","arguments":{"intent":"hover","code":"print(lsp_hover(path='src/lib.rs', line=1, symbol='greet')['signature'])"}}"#,
+    )
+    .await;
+    assert!(hover.contains("fn resolve()"), "hover answers: {hover}");
+
+    // An ordinary conversation has none of it.
+    let ordinary = VizierSession(
+        "plug".into(),
+        VizierChannelId::HTTP("e2e".into(), "harness".into()),
+        Some("plain-1".into()),
+    );
+    let list = chat(transport, &ordinary, r#"{"tool":"list_tool_functions","arguments":{"category":"coding"}}"#).await;
+    assert!(!list.contains("lsp_definition"), "ordinary turn has no lsp tools: {list}");
+
+    // Off: the tools go, the edit still works and carries no diagnostics, and nothing keeps running.
+    storage.set_project_lsp("p3xY9aQ2mZ", false).await.unwrap();
+    runtime.deps().lsp.close_project("p3xY9aQ2mZ").await;
+    assert!(runtime.deps().lsp.status("p3xY9aQ2mZ").is_empty());
+    let list = chat(transport, &session, r#"{"tool":"list_tool_functions","arguments":{"category":"coding"}}"#).await;
+    assert!(!list.contains("lsp_definition"), "off removes the tools: {list}");
+    let off = chat(
+        transport,
+        &session,
+        r#"{"tool":"execute_python","arguments":{"intent":"edit while off","code":"r = edit_file(path='src/lib.rs', old_text='{ 2 }', new_text='{ 3 }')\nprint('diagnostics' in r, r['replacements'])"}}"#,
+    )
+    .await;
+    assert!(off.contains("False 1"), "an edit while off succeeds without diagnostics: {off}");
+    let context = chat(transport, &session, "context").await;
+    assert!(context.contains("Language servers: off."), "the state line follows the switch: {context}");
+
+    runtime.shutdown().await.unwrap();
+}
+
 /// identity is a memory (`specs/043-unify-core-and-memory`, quickstart steps 1, 3 and 4).
 ///
 /// Everything here is agent-observable: the document exists because the agent was created, the
@@ -463,7 +903,10 @@ async fn an_agents_identity_is_a_memory_at_core_soul() {
 
     let dir = tempfile::tempdir().unwrap();
     let config = VizierConfig::with_workspace(dir.path().to_path_buf());
-    let runtime = VizierRuntime::start(RuntimeOptions { config }).await.unwrap();
+    let runtime = VizierRuntime::start(RuntimeOptions {
+        config,
+        ..Default::default()
+    }).await.unwrap();
     runtime
         .deps()
         .storage
@@ -566,6 +1009,9 @@ async fn an_agents_identity_is_a_memory_at_core_soul() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_runtime_needs_an_explicit_workspace() {
     let config = VizierConfig::with_workspace("".into());
-    let error = VizierRuntime::start(RuntimeOptions { config }).await.err();
+    let error = VizierRuntime::start(RuntimeOptions {
+        config,
+        ..Default::default()
+    }).await.err();
     assert!(error.expect("refused").to_string().contains("workspace"));
 }

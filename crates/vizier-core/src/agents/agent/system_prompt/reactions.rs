@@ -186,7 +186,7 @@ fn strip_controls(text: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use chrono::{Duration, Utc};
+    use chrono::{Duration, Local};
 
     use super::*;
     use crate::schema::{
@@ -206,7 +206,7 @@ mod tests {
             uid: uuid::Uuid::new_v4().to_string(),
             vizier_session: session(),
             content,
-            timestamp: Utc::now(),
+            timestamp: crate::time::now(),
             reactions,
             seq: None,
         }
@@ -215,7 +215,7 @@ mod tests {
     fn reply(text: &str, reactions: Vec<ReactionEntry>) -> SessionHistory {
         entry(
             SessionHistoryContent::Response(VizierResponse {
-                timestamp: Utc::now(),
+                timestamp: crate::time::now(),
                 content: VizierResponseContent::Message {
                     content: text.to_string(),
                     stats: None,
@@ -336,7 +336,7 @@ mod tests {
     #[test]
     fn an_older_reply_shows_its_date() {
         let mut old = reply("x", vec![r("a", "👍")]);
-        old.timestamp = Utc::now() - Duration::days(3);
+        old.timestamp = crate::time::now() - Duration::days(3);
         let digest = reaction_digest(&[old.clone()], 0).unwrap();
         let date = old.timestamp.with_timezone(&Local).format("%Y-%m-%d").to_string();
         assert!(digest.contains(&format!("at {date} ")), "{digest}");

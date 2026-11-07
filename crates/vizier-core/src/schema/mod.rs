@@ -10,6 +10,7 @@ pub mod integration;
 pub mod metrics;
 pub mod notification;
 pub mod project;
+pub mod workspace;
 pub mod provider;
 mod request;
 mod response;
@@ -17,6 +18,8 @@ pub mod revision;
 pub mod secret;
 mod session;
 pub mod session_file;
+/// The Bedrock SSO session: the non-secret view and the encrypted payload (spec 044).
+pub mod sso;
 mod storage;
 mod task;
 pub mod usage;
@@ -39,7 +42,7 @@ pub use background::{
 pub use commands::{
     AgentCommand, AgentCommandResult, AgentHealthStatus, AgentModelInfo, AgentRunState,
     AgentSummary, ChannelHealth, ChannelPlatform, ChannelState, CommandRequest, CommandResponse,
-    FileCommand, MemoryOpEnvelope, MemoryOpRequest, MemoryOpResponse,
+    MemoryOpRequest, MemoryOpResponse,
 };
 pub use dream_journal::{DreamJournalEntry, DreamJournalEntryFrontMatter};
 pub use file::FileRecord;
@@ -54,21 +57,26 @@ pub use integration::{
     IntegrationGrant, IntegrationStatus,
 };
 pub use notification::{
-    NotificationCategory, NotificationCounts, NotificationDraft, NotificationFilter,
-    NotificationItem, NotificationPage, NotificationTone, ReplyBatch,
+    ChatUnread, InsertedNotification, NotificationCategory, WORKSPACE_SCOPE_PREFIX, workspace_scope, NotificationCounts, NotificationDraft,
+    NotificationFilter, NotificationItem, NotificationPage, NotificationTone,
 };
 pub use project::{
     DEFAULT_COMMAND_TIMEOUT, INSTRUCTIONS_CAP_BYTES, MAX_COMMAND_TIMEOUT, NEW_SESSION_TITLE,
-    OUTPUT_CAP_BYTES, PROJECT_ID_LEN, Project, ProjectMode, ProjectScope, ProjectSessionRow,
-    Worktree, WorktreeRef,
+    LspCapacity, LspServerStatus, LspStatusSnapshot, OUTPUT_CAP_BYTES, PROJECT_ID_LEN, Project,
+    ProjectMode, ProjectScope, ProjectSessionRow, ServerOverride, Worktree, WorktreeRef,
+};
+pub use workspace::{
+    CatchUp, EntryFile, EntryKind, EntryMention, MemberKind, MentionState, NewEntry, Workspace,
+    WorkspaceEntry, WorkspaceMember, WorkspaceRole, WorkspaceTopic,
 };
 pub use provider::{
-    CustomModel, CustomProtocol, CustomProvider, ProviderCredentials, ProviderEntry,
+    CustomModel, CustomProtocol, CustomProvider, LimitsEdited, ProfileEntry, ProviderCredentials,
+    ProviderEntry,
 };
 pub use request::{
-    AttachmentResolver, ClientEvent, NoopAttachmentResolver, PlatformMessageId, ReactionAction,
-    ReactionEntry, SideChat, SideChatTurn, VizierAttachment, VizierAttachmentContent, VizierRequest,
-    VizierRequestContent, attachments_note,
+    AttachmentResolver, ClientEvent, ModelOverride, NoopAttachmentResolver, PlatformMessageId,
+    ReactionAction, ReactionEntry, SideChat, SideChatTurn, VizierAttachment,
+    VizierAttachmentContent, VizierRequest, VizierRequestContent, attachments_note,
 };
 pub use response::{ErrorKind, VizierResponse, VizierResponseContent, VizierResponseStats};
 pub use revision::{
@@ -77,6 +85,7 @@ pub use revision::{
     RevisionTrigger, RollbackResponse,
 };
 pub use secret::{AgentSecretEvent, SecretAction};
+pub use sso::{SsoSession, SsoSessionSecret, SsoSessionState};
 pub use session::{
     AgentId, DreamStage, DreamStatus, TopicId, VizierChannelId, VizierSession, VizierSessionDetail,
 };

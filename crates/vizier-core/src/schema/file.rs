@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Local};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -11,5 +11,5 @@ pub struct FileRecord {
     pub mime_type: String,
     pub size: u64,
     pub url: String,
-    pub created_at: DateTime<Utc>,
+    pub created_at: DateTime<Local>,
 }

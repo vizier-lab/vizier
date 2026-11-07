@@ -97,6 +97,7 @@ pub fn onboard(args: OnboardArgs) -> Result<()> {
         workspace: workspace.clone(),
         providers: None,
         storage: StorageConfig::Sqlite,
+        objects: Default::default(),
         channels: ChannelsConfig {
             http: Some(HTTPChannelConfig {
                 port,
@@ -109,6 +110,7 @@ pub fn onboard(args: OnboardArgs) -> Result<()> {
         },
         worker_threads,
         catalogue: Default::default(),
+        lsp: Default::default(),
     };
 
     config.save(config_path.clone(), "".into())?;

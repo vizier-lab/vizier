@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Local};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -15,7 +15,7 @@ pub struct SessionHistory {
     pub vizier_session: VizierSession,
     pub content: SessionHistoryContent,
     #[serde(default)]
-    pub timestamp: DateTime<Utc>,
+    pub timestamp: DateTime<Local>,
     #[serde(default)]
     pub reactions: Vec<ReactionEntry>,
     /// Explicit ordering position within the agent's history, breaking the ties that
@@ -298,12 +298,16 @@ pub fn messages_to_history_entries(messages: &[Message]) -> Vec<SessionHistoryCo
                 if !text_parts.is_empty() {
                     let text = text_parts.join("\n");
                     if has_tool_calls {
-                        // Intermediate text during tool calling
-                        entries.push(SessionHistoryContent::AssistantMessage(text));
+                        // Intermediate text during tool calling. Some models send a bare "\n\n"
+                        // beside every call: that says nothing, and saved it would show as an
+                        // empty message splitting the turn's work apart.
+                        if !text.trim().is_empty() {
+                            entries.push(SessionHistoryContent::AssistantMessage(text));
+                        }
                     } else {
                         // Final response
                         entries.push(SessionHistoryContent::Response(VizierResponse {
-                            timestamp: chrono::Utc::now(),
+                            timestamp: crate::time::now(),
                             content: VizierResponseContent::Message {
                                 content: text,
                                 stats: None,
@@ -329,9 +333,21 @@ pub fn history_entries_to_messages(entries: &[SessionHistory]) -> Vec<Message> {
     let mut messages = Vec::new();
     let mut pending_text: Option<String> = None;
     let mut pending_tool_calls: Vec<AssistantPart> = Vec::new();
+    // Calls with no result yet, and what was read while they ran. A Workspace message another
+    // member wrote during a tool call keeps the time it was written, so it sorts between the
+    // call and its result; a provider refuses a user message there, so it waits for the results.
+    let mut open_calls: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    let mut held: Vec<Message> = Vec::new();
 
     for entry in entries {
         match &entry.content {
+            SessionHistoryContent::Request(req) if !open_calls.is_empty() => {
+                if let Ok(text) = req.to_prompt()
+                    && !text.is_empty()
+                {
+                    held.push(Message::User(vec![Part::Text(text)]));
+                }
+            }
             SessionHistoryContent::Request(req) => {
                 flush_pending_tool_calls(&mut pending_text, &mut pending_tool_calls, &mut messages);
 
@@ -343,6 +359,9 @@ pub fn history_entries_to_messages(entries: &[SessionHistory]) -> Vec<Message> {
             }
             SessionHistoryContent::Response(res) => {
                 flush_pending_tool_calls(&mut pending_text, &mut pending_tool_calls, &mut messages);
+                // A turn that ended leaves nothing to wait for.
+                open_calls.clear();
+                messages.append(&mut held);
 
                 match &res.content {
                     VizierResponseContent::Message { content, .. } => {
@@ -368,7 +387,8 @@ pub fn history_entries_to_messages(entries: &[SessionHistory]) -> Vec<Message> {
                 // of which providers reject (FR-012).
                 flush_pending_tool_calls(&mut pending_text, &mut pending_tool_calls, &mut messages);
 
-                if !text.is_empty() {
+                // Saved before blank narration was dropped: it says nothing to the model either.
+                if !text.trim().is_empty() {
                     pending_text = Some(text.clone());
                 }
             }
@@ -377,6 +397,7 @@ pub fn history_entries_to_messages(entries: &[SessionHistory]) -> Vec<Message> {
                 name,
                 arguments,
             } => {
+                open_calls.insert(call_id.as_str());
                 pending_tool_calls.push(AssistantPart::ToolCall {
                     id: call_id.clone(),
                     name: name.clone(),
@@ -387,6 +408,10 @@ pub fn history_entries_to_messages(entries: &[SessionHistory]) -> Vec<Message> {
             SessionHistoryContent::ToolResult { call_id, content } => {
                 flush_pending_tool_calls(&mut pending_text, &mut pending_tool_calls, &mut messages);
                 messages.push(Message::tool_result(call_id.clone(), content.clone()));
+                open_calls.remove(call_id.as_str());
+                if open_calls.is_empty() {
+                    messages.append(&mut held);
+                }
             }
             SessionHistoryContent::Checkpoint(_) => {
                 // Skip checkpoint entries - they are metadata, not conversation messages
@@ -416,6 +441,7 @@ pub fn history_entries_to_messages(entries: &[SessionHistory]) -> Vec<Message> {
     }
 
     flush_pending_tool_calls(&mut pending_text, &mut pending_tool_calls, &mut messages);
+    messages.append(&mut held);
 
     repair_tool_pairing(messages)
 }
@@ -741,6 +767,70 @@ mod tests {
         ])
     }
 
+    fn read_while_working(text: &str) -> SessionHistoryContent {
+        SessionHistoryContent::Request(crate::schema::VizierRequest {
+            user: "owo".into(),
+            content: crate::schema::VizierRequestContent::SilentRead(text.into()),
+            ..Default::default()
+        })
+    }
+
+    fn call(id: &str) -> SessionHistoryContent {
+        SessionHistoryContent::ToolCall { call_id: id.into(), name: "execute_python".into(), arguments: serde_json::json!({}) }
+    }
+
+    fn result(id: &str) -> SessionHistoryContent {
+        SessionHistoryContent::ToolResult { call_id: id.into(), content: "ok".into() }
+    }
+
+    /// `(role, tool call count)` per message, which is what a provider's ordering rule looks at.
+    fn shape(messages: &[Message]) -> Vec<(&'static str, usize)> {
+        messages
+            .iter()
+            .map(|m| match m {
+                Message::User(_) => ("user", 0),
+                Message::Assistant(parts) => (
+                    "assistant",
+                    parts.iter().filter(|p| matches!(p, AssistantPart::ToolCall { .. })).count(),
+                ),
+                _ => ("result", 0),
+            })
+            .collect()
+    }
+
+    /// A Workspace message written during a tool call keeps its time, so it is stored between the
+    /// call and its result. Replayed there, providers refuse the whole conversation.
+    #[test]
+    fn a_message_read_during_a_tool_call_replays_after_its_result() {
+        let entries: Vec<_> = [call("c1"), read_while_working("from owo"), result("c1")].map(entry).into();
+        assert_eq!(shape(&history_entries_to_messages(&entries)), [("assistant", 1), ("result", 0), ("user", 0)]);
+    }
+
+    #[test]
+    fn a_message_read_during_parallel_calls_waits_for_every_result() {
+        let entries: Vec<_> =
+            [call("c1"), call("c2"), read_while_working("from owo"), result("c1"), result("c2")].map(entry).into();
+        assert_eq!(
+            shape(&history_entries_to_messages(&entries)),
+            [("assistant", 2), ("result", 0), ("result", 0), ("user", 0)]
+        );
+    }
+
+    #[test]
+    fn a_message_read_during_a_call_that_never_finished_is_not_lost() {
+        // Replay seals the open call, and the message still comes after it.
+        let entries: Vec<_> = [call("c1"), read_while_working("from owo")].map(entry).into();
+        assert_eq!(shape(&history_entries_to_messages(&entries)), [("assistant", 1), ("result", 0), ("user", 0)]);
+    }
+
+    #[test]
+    fn blank_narration_beside_a_call_is_neither_saved_nor_replayed() {
+        let saved: Vec<_> = [SessionHistoryContent::AssistantMessage("\n\n".into()), call("c1"), result("c1")].map(entry).into();
+        let replayed = history_entries_to_messages(&saved);
+        let Message::Assistant(parts) = &replayed[0] else { panic!("expected the call first") };
+        assert!(parts.iter().all(|p| matches!(p, AssistantPart::ToolCall { .. })), "{parts:?}");
+    }
+
     fn entry(content: SessionHistoryContent) -> SessionHistory {
         SessionHistory {
             uid: "uid".to_string(),
@@ -750,7 +840,7 @@ mod tests {
                 None,
             ),
             content,
-            timestamp: chrono::Utc::now(),
+            timestamp: crate::time::now(),
             reactions: vec![],
             seq: None,
         }
@@ -870,7 +960,7 @@ mod tests {
                 content: "two hits".to_string(),
             }),
             entry(SessionHistoryContent::Response(VizierResponse {
-                timestamp: chrono::Utc::now(),
+                timestamp: crate::time::now(),
                 content: VizierResponseContent::Message {
                     content: "Two releases.".to_string(),
                     stats: None,
@@ -914,7 +1004,7 @@ mod tests {
 
     fn error_entry() -> SessionHistory {
         entry(SessionHistoryContent::Response(VizierResponse {
-            timestamp: chrono::Utc::now(),
+            timestamp: crate::time::now(),
             content: VizierResponseContent::Error {
                 kind: crate::schema::ErrorKind::ToolTimeout,
                 message: "Tool 'memory_search' timed out".to_string(),
@@ -1019,7 +1109,7 @@ mod tests {
     #[test]
     fn a_tool_result_with_no_call_is_dropped() {
         let request = entry(SessionHistoryContent::Response(VizierResponse {
-            timestamp: chrono::Utc::now(),
+            timestamp: crate::time::now(),
             content: VizierResponseContent::Message {
                 content: "hello".to_string(),
                 stats: None,

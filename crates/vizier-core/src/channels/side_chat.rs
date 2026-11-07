@@ -94,7 +94,7 @@ pub enum SideChatOutcome {
 /// and the HTTP `agent_chat` — waits for the same first answer. `Err` is only `Timeout`
 /// (`SideChatError` has only that variant as an error).
 pub async fn await_reply(
-    rx: flume::Receiver<VizierResponse>,
+    rx: crate::transport::ResponseStream,
     timeout: Duration,
 ) -> Result<SideChatOutcome, SideChatError> {
     let deadline = tokio::time::Instant::now() + timeout;
@@ -163,7 +163,7 @@ pub async fn ask(
     let _ = deps.side_chat_limits.check(person);
 
     let request = VizierRequest {
-        timestamp: chrono::Utc::now(),
+        timestamp: crate::time::now(),
         user,
         content: VizierRequestContent::Btw(side_chat),
         attachments: vec![],
@@ -171,7 +171,7 @@ pub async fn ask(
         ..Default::default()
     };
 
-    let (tx, rx) = flume::bounded(1);
+    let (tx, rx) = deps.transport.reply_channel().await.map_err(|_| no_agent())?;
     deps.transport
         .send_request(session, request, Some(tx))
         .await

@@ -46,15 +46,17 @@ fn ps(config_path: Option<std::path::PathBuf>) -> Result<()> {
     tokio::runtime::Runtime::new()?.block_on(async move {
         let client = VizierCommandClient::new(config)?;
 
+        // Which roles this process runs (Fleet, #161). A daemon from before the command exists
+        // answers "unsupported command"; then the line is simply absent.
+        let roles = match client.send_command(CommandRequest::Roles).await {
+            Ok(vizier_core::schema::CommandResponse::Ok(body)) => Some(body),
+            _ => None,
+        };
+
         match client.send_command(CommandRequest::HealthCheck).await {
             Ok(vizier_core::schema::CommandResponse::Ok(body)) => {
                 let statuses: Vec<vizier_core::schema::AgentHealthStatus> =
                     serde_json::from_str(&body).unwrap_or_default();
-
-                if statuses.is_empty() {
-                    println!("No agents running.");
-                    return Ok(());
-                }
 
                 let d = "\x1b[2m";
                 let g = "\x1b[32m";
@@ -62,6 +64,16 @@ fn ps(config_path: Option<std::path::PathBuf>) -> Result<()> {
                 let reset = "\x1b[0m";
 
                 println!();
+                if let Some(roles) = &roles {
+                    println!("  {}Roles               {}{}", d, roles, reset);
+                    println!();
+                }
+
+                if statuses.is_empty() {
+                    println!("No agents running.");
+                    return Ok(());
+                }
+
                 println!("  {}Agent ID           Status{}", d, reset);
                 println!("  {}------------------- --------{}", d, reset);
 
@@ -90,7 +102,7 @@ fn ps(config_path: Option<std::path::PathBuf>) -> Result<()> {
                     if let Some(error) = &status.last_error {
                         let retry = status
                             .next_retry_at
-                            .map(|at| format!(", retrying at {}", at.format("%H:%M:%S UTC")))
+                            .map(|at| format!(", retrying at {}", at.format("%H:%M:%S %:z")))
                             .unwrap_or_default();
                         println!(
                             "  {:<20} {}{} (failure {}{}){}",

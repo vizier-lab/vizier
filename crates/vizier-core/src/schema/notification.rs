@@ -2,8 +2,10 @@
 //! event, stored once and filtered by agent visibility at read. Read state is per person, and
 //! unread is the absence of a read row.
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Local};
 use serde::{Deserialize, Serialize};
+
+use super::VizierSession;
 
 /// What kind of event a notification records. Exposed for semantics and tests; never offered as
 /// a filter.
@@ -17,10 +19,12 @@ pub enum NotificationCategory {
     DreamCycle,
     BackgroundJob,
     Integration,
-    ChannelReplies,
     /// A WebUI conversation's reply. Addressed to the person whose conversation it is
     /// (`audience_user_id`), not to everyone who can see the agent.
     ChatReply,
+    /// A message in a Workspace (`specs/053-workspace-channel`), one row per message. Seen by
+    /// every current member except its author.
+    WorkspaceMessage,
 }
 
 impl NotificationCategory {
@@ -32,8 +36,8 @@ impl NotificationCategory {
             Self::DreamCycle => "dream_cycle",
             Self::BackgroundJob => "background_job",
             Self::Integration => "integration",
-            Self::ChannelReplies => "channel_replies",
             Self::ChatReply => "chat_reply",
+            Self::WorkspaceMessage => "workspace_message",
         }
     }
 
@@ -45,8 +49,8 @@ impl NotificationCategory {
             "dream_cycle" => Some(Self::DreamCycle),
             "background_job" => Some(Self::BackgroundJob),
             "integration" => Some(Self::Integration),
-            "channel_replies" => Some(Self::ChannelReplies),
             "chat_reply" => Some(Self::ChatReply),
+            "workspace_message" => Some(Self::WorkspaceMessage),
             _ => None,
         }
     }
@@ -112,6 +116,16 @@ impl NotificationFilter {
     }
 }
 
+/// The `agent_id` of a Workspace row starts with this and is followed by the Workspace id. The
+/// service adds one such id for every Workspace a person is in to the agents they may see, so the
+/// visibility clause every query already has covers Workspace rows too.
+pub const WORKSPACE_SCOPE_PREFIX: &str = "workspace:";
+
+/// The scope id of a Workspace's notifications.
+pub fn workspace_scope(workspace_id: &str) -> String {
+    format!("{WORKSPACE_SCOPE_PREFIX}{workspace_id}")
+}
+
 /// A row the `Notifications` service asks storage to insert. Not exposed by the API.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NotificationDraft {
@@ -127,7 +141,29 @@ pub struct NotificationDraft {
     /// Plain text, built from stored facts. Never model output or a setting value.
     pub summary: String,
     pub href: String,
-    pub created_at: DateTime<Utc>,
+    pub created_at: DateTime<Local>,
+    /// The conversation the row is about, when it has one. Its current title is filled on read,
+    /// and the row goes away with the conversation.
+    pub source_session: Option<VizierSession>,
+    /// A stored title for a source with no session (a task, when its run ended).
+    pub source_title: Option<String>,
+    /// A short plain-text excerpt (`notifications::excerpt`). Never tool arguments, tool
+    /// results or reasoning.
+    pub excerpt: Option<String>,
+    /// The Workspace a message was written in (spec 053).
+    pub workspace_id: Option<String>,
+    /// Who wrote it: a person's user id or an agent's id. Its author never sees the row.
+    pub author: Option<String>,
+}
+
+/// A row the store has just inserted, as the live stream needs it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InsertedNotification {
+    pub item: NotificationItem,
+    /// The row's `audience_user_id`: `None` means everyone who can view the agent.
+    pub audience: Option<String>,
+    /// The row's author, so a live frame is not sent to them.
+    pub author: Option<String>,
 }
 
 /// One row as the API returns it.
@@ -136,7 +172,7 @@ pub struct NotificationDraft {
 pub struct NotificationItem {
     /// Stable public id; cursors and read marks use it.
     pub id: i64,
-    pub at: DateTime<Utc>,
+    pub at: DateTime<Local>,
     pub agent_id: String,
     pub category: NotificationCategory,
     pub tone: NotificationTone,
@@ -145,6 +181,16 @@ pub struct NotificationItem {
     pub href: String,
     /// This person's read state.
     pub read: bool,
+    /// The conversation's current title or the task's title. Absent when the source has none,
+    /// or when the viewer may not see it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    /// A short plain-text excerpt of what the source said.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub excerpt: Option<String>,
+    /// Used by the service to fill and gate `title`; never sent.
+    #[serde(skip)]
+    pub source_session: Option<VizierSession>,
 }
 
 /// Counts over the whole visible, retained set, independent of the selected page/filter.
@@ -156,6 +202,16 @@ pub struct NotificationCounts {
     pub read: u64,
 }
 
+/// How many replies one person has not read in one of their own WebUI conversations.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+pub struct ChatUnread {
+    pub agent_id: String,
+    /// The conversation's in-app path, as its notifications link to it.
+    pub href: String,
+    pub unread: u64,
+}
+
 /// One page of the inbox plus the counts for its filters.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
@@ -165,19 +221,6 @@ pub struct NotificationPage {
     /// Pass as `before` for the next page; absent on the last one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub next: Option<String>,
-}
-
-/// One agent's replies in one Discord or Telegram conversation within one closed hour, from
-/// which the channel-reply projection makes one notification.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ReplyBatch {
-    pub agent_id: String,
-    pub channel: String,
-    /// Hours since the Unix epoch.
-    pub hour: i64,
-    pub replies: u64,
-    /// The last reply in the bucket; becomes the notification's `created_at`.
-    pub at: DateTime<Utc>,
 }
 
 #[cfg(test)]
@@ -193,7 +236,6 @@ mod tests {
             NotificationCategory::DreamCycle,
             NotificationCategory::BackgroundJob,
             NotificationCategory::Integration,
-            NotificationCategory::ChannelReplies,
             NotificationCategory::ChatReply,
         ] {
             assert_eq!(

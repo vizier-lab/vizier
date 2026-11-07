@@ -58,6 +58,7 @@ async fn smoke(id: &str, needs_key: bool, system: &str) -> Option<Vec<super::Usa
             custom: None,
             credentials,
             http: http.clone(),
+            sso: None,
         },
         &id,
         &model,

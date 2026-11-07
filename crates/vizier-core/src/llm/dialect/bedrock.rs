@@ -170,11 +170,11 @@ impl Dialect for Bedrock {
         model_path(&m.model, "converse")
     }
 
+    /// Only `accept`: `content-type` belongs to the caller, because the SigV4 signer signs it and
+    /// the transport (`HttpModel::send_once`) already sets it exactly once. A second copy on the
+    /// wire makes AWS canonicalise `application/json,application/json` and reject the signature.
     fn headers(&self) -> Vec<(&'static str, String)> {
-        vec![
-            ("content-type", "application/json".into()),
-            ("accept", "application/json".into()),
-        ]
+        vec![("accept", "application/json".into())]
     }
 
     fn encode(&self, req: &PreparedRequest, m: &ResolvedModel) -> Value {

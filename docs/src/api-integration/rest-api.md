@@ -249,11 +249,11 @@ Memory attachments are artifacts too: `POST /agents/{id}/memory/attachments/{bun
 
 ## Home: overview and activity
 
-Limited to the agents the signed-in person can see. `tz` is the person's UTC offset (`+07:00`); encode the `+` as `%2B`.
+Limited to the agents the signed-in person can see. Days follow the [instance's timezone](../configuration/time.md). The old `tz` offset parameter is still accepted and ignored.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/overview?tz=` | `{ agents: { total, live, failed }, cost_today_usd, accounting_since }`. Cost is priced from the catalogue; models without a price add nothing |
+| `GET` | `/overview` | `{ agents: { total, live, failed }, cost_today_usd, accounting_since }`. Cost is priced from the catalogue; models without a price add nothing |
 | `GET` | `/overview/activity?rank=most_active\|mine\|live\|failed` | The last 24 hours: `hours` (24 hour starts, oldest first), `rows` (at most 6) of `{ agent_id, label, turns[24], live }`, an `all` row when there are 7 or more agents, `agent_total`, and `today_by_kind` when there is exactly one agent |
 The Home page no longer carries a "Since you were away" feed: the notification inbox replaces it (see below).
 
@@ -263,12 +263,33 @@ In-app notifications, stored once per event and filtered by the agents the signe
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/notifications?filter=all\|unread\|read&before=&limit=` | Newest first: `items` of `{ id, at, agent_id, category, tone, text, href, read }`, `counts: { all, unread, read }` for the whole visible retained set (independent of `filter`), and `next` (the cursor for `before`, absent on the last page). `limit` 1–50 (default 20) |
+| `GET` | `/notifications?filter=all\|unread\|read&before=&limit=` | Newest first: `items` of `{ id, at, agent_id, category, tone, text, href, read, title?, excerpt? }`, `counts: { all, unread, read }` for the whole visible retained set (independent of `filter`), and `next` (the cursor for `before`, absent on the last page). `limit` 1–50 (default 20) |
 | `GET` | `/notifications/count` | `{ all, unread, read }`, the badge's poll target. Keep the last known counts on failure: never treat it as zero |
 | `PUT` | `/notifications/{id}/read` | `{ "read": true }` marks read, `false` marks unread. Returns the new counts. `400` for a missing/non-boolean body, `404` when the id is missing, invisible, deleted or expired |
 | `POST` | `/notifications/read-all` | Marks every visible unread notification read (including pages not loaded) and returns the counts |
 
-Categories are `agent_start_failure`, `agent_setup_ready`, `task_run`, `dream_cycle`, `background_job`, `integration`, `channel_replies` and `chat_reply`; `tone` is `default`, `failed` or `success`. Every category is visible to anyone who can see its agent except `chat_reply`: a WebUI conversation's reply is addressed to the one person whose conversation it is, and nobody else can list, count or read it. `text` is plain text built from stored facts; render it as text, never HTML or Markdown. Notifications come from the event itself (a completed task run, dream cycle, background job, integration write, or an agent's ready/start-failure outcome) and from a closed-hour projection of Discord/Telegram replies. Live setup progress is not a notification: it is `GET /utils/setup-state`, whose entries now also carry the agent's `name`.
+Categories are `agent_start_failure`, `agent_setup_ready`, `task_run`, `dream_cycle`, `background_job`, `integration` and `chat_reply`; `tone` is `default`, `failed` or `success`. Every category is visible to anyone who can see its agent except `chat_reply`: a WebUI conversation's reply is addressed to the one person whose conversation it is, and nobody else can list, count or read it. `text` is plain text built from stored facts; render it as text, never HTML or Markdown. Notifications come from the event itself (a completed task run, dream cycle, background job, integration write, or an agent's ready/start-failure outcome). Activity on Discord and Telegram never creates a notification, including a background job launched from there (the report still posts in the channel).
+
+`title` is the conversation's current title (a rename shows at once, "New conversation" before one exists) or the task's title; `excerpt` is a short plain-text preview of what the source said, at most 140 characters and an ellipsis, never tool arguments, tool results or reasoning. Both are omitted when there is none, and for a conversation that belongs to another person. Render both as text.
+
+Live setup progress is not a notification. It arrives on the stream below; `GET /utils/setup-state` still answers the same data for older clients.
+
+### Live stream
+
+`GET /api/v1/inbox/stream` is a WebSocket that **only pushes**: notifications, read state and setup progress for the signed-in person, so no client needs to poll. Authenticate like the chat socket (an `Authorization` header, or `?token=`). The socket stays open while quiet (the server pings every 30 s), and closes when the token expires. In the desktop app the same frames arrive through the `inbox_open` command, with no port.
+
+Every frame is a JSON object with a `type`; ignore types you do not know.
+
+| `type` | Meaning |
+|---|---|
+| `hello` | First frame on every connection: `counts`, `latest_id` (the highest notification id you may see) and `setups`. It replaces what you hold. If `latest_id` is above the highest id you have seen, fetch `GET /notifications` and treat the rows above it as new |
+| `notification` | A row was created: `item` (always unread) and `counts` |
+| `read` | Your read state changed on any client: `id` (absent for mark-all), `read`, `counts` |
+| `setup` | One agent's setup changed (`state`, the shape of `/utils/setup-state`). At most about four a second per agent while bytes move; a `ready` or `failed` entry is yours to drop a few seconds after it arrives |
+| `setup_cleared` | That agent's setup is gone (`agent_id`) |
+| `resync` | What you hold may be out of date (a conversation or agent was deleted, a title arrived): reload the first page and the counts |
+
+Each frame is checked against the person's permissions when it is delivered, so losing access to an agent stops its frames at once. A dropped stream means "unknown", never "empty": reconnect with backoff, and read `hello` again. Missed rows are not replayed; the notification list is the record, and `latest_id` tells you whether to read it.
 
 `GET /api/v1/overview/feed` was **removed** by this change (pre-1.0, deliberate): use `/notifications`.
 

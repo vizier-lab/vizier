@@ -3,14 +3,18 @@
 //! first, so a revoked agent's rows disappear on the next read and another agent's row is
 //! never returned.
 
-use chrono::Utc;
+use std::collections::HashMap;
+
+
 
 use crate::{
+    storage::workspace::WorkspaceStorage,
     auth::Principal,
     notifications::cursor,
-    schema::{NotificationCounts, NotificationFilter, NotificationPage},
+    schema::{ChatUnread, NotificationCounts, NotificationFilter, NotificationItem, NotificationPage, VizierSession},
     service::{ServiceError, Services, overview::visible_agents},
-    storage::notification::NotificationStorage,
+    storage::{notification::NotificationStorage, session::SessionStorage},
+    transport::InboxEvent,
 };
 
 const DEFAULT_LIMIT: usize = 20;
@@ -18,17 +22,67 @@ const MAX_LIMIT: usize = 50;
 
 /// The ids the caller may see; none when the agents cannot be listed.
 async fn visible(services: &Services, user: &Principal) -> Vec<String> {
-    visible_agents(services, user)
+    let mut ids: Vec<String> = visible_agents(services, user)
         .await
         .map(|agents| agents.into_iter().map(|(id, _)| id).collect())
-        .unwrap_or_default()
+        .unwrap_or_default();
+    ids.extend(workspace_scopes(services, user).await);
+    ids
 }
 
-/// Bring the channel-reply projection up to date before a read; a failure is logged and the
-/// inbox still answers with what it already has.
-async fn project(services: &Services) {
-    if let Err(e) = services.deps().notifications.project_replies(Utc::now()).await {
-        tracing::warn!("failed to project channel replies into notifications: {e}");
+/// One scope id for each Workspace the person is in now. Their Workspace rows are visible through
+/// it, and revoking membership removes it, so a removal takes effect at once with nothing to
+/// delete (`specs/053-workspace-channel` research R20).
+pub(crate) async fn workspace_scopes(services: &Services, user: &Principal) -> Vec<String> {
+    services
+        .deps()
+        .storage
+        .workspaces_of_person(&user.username)
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .map(|(workspace, _)| crate::schema::workspace_scope(&workspace.id))
+        .collect()
+}
+
+/// The title a row shows, once per distinct conversation on the page: the conversation's
+/// current title (so a rename shows at once), "New conversation" before one is made, or the
+/// task's own title already on the row. A conversation that belongs to another person yields
+/// neither title nor excerpt, even to someone who can view the agent
+/// (`specs/051-realtime-notifications` FR-023).
+pub(crate) async fn fill_titles(services: &Services, user: &Principal, items: &mut [NotificationItem]) {
+    let mut seen: HashMap<VizierSession, Option<String>> = HashMap::new();
+    for item in items.iter_mut() {
+        let Some(session) = item.source_session.clone() else {
+            continue;
+        };
+        let owner = session.1.web_user().map(str::to_string);
+        if owner.as_deref().is_some_and(|name| name != user.username) {
+            item.title = None;
+            item.excerpt = None;
+            continue;
+        }
+        let found = match seen.get(&session) {
+            Some(found) => found.clone(),
+            None => {
+                let found = services
+                    .deps()
+                    .storage
+                    .get_session_detail_by_topic(session.0.clone(), session.1.clone(), session.2.clone())
+                    .await
+                    .ok()
+                    .flatten()
+                    .map(|detail| detail.title)
+                    .filter(|title| !title.trim().is_empty());
+                seen.insert(session, found.clone());
+                found
+            }
+        };
+        match (found, owner) {
+            (Some(title), _) => item.title = Some(title),
+            (None, Some(_)) => item.title = Some("New conversation".to_string()),
+            (None, None) => {}
+        }
     }
 }
 
@@ -57,7 +111,6 @@ pub async fn list(
     };
     let limit = limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT);
 
-    project(services).await;
     let agents = visible(services, user).await;
     let storage = &services.deps().storage;
     // One more than a page, to know whether there is another.
@@ -65,6 +118,7 @@ pub async fn list(
         .list_notifications(&user.user_id, &agents, filter, before, limit + 1)
         .await
         .map_err(internal)?;
+    fill_titles(services, user, &mut items).await;
     let next = (items.len() > limit).then(|| {
         items.truncate(limit);
         cursor::encode(items[limit - 1].at, items[limit - 1].id)
@@ -77,7 +131,6 @@ pub async fn list(
 }
 
 pub async fn count(services: &Services, user: &Principal) -> Result<NotificationCounts, ServiceError> {
-    project(services).await;
     let agents = visible(services, user).await;
     services
         .deps()
@@ -97,12 +150,54 @@ pub async fn set_read(
     let agents = visible(services, user).await;
     let storage = &services.deps().storage;
     match storage
-        .set_notification_read(&user.user_id, id, read, Utc::now(), &agents)
+        .set_notification_read(&user.user_id, id, read, crate::time::now(), &agents)
         .await
     {
         Ok(true) => {}
         Ok(false) => return Err(ServiceError::NotFound("notification not found".into())),
         Err(e) => return Err(internal(e)),
+    }
+    // This person's other clients learn of it at once; nobody else is told.
+    services.deps().transport.publish_inbox_event(InboxEvent::Read {
+        user_id: user.user_id.clone(),
+        id: Some(id),
+        read,
+    });
+    storage
+        .notification_counts(&user.user_id, &agents)
+        .await
+        .map_err(internal)
+}
+
+/// The replies this person has not read, per conversation: the counts on agents and their chats.
+pub async fn chat_unread(services: &Services, user: &Principal) -> Result<Vec<ChatUnread>, ServiceError> {
+    let agents = visible(services, user).await;
+    services
+        .deps()
+        .storage
+        .chat_unread(&user.user_id, &agents)
+        .await
+        .map_err(internal)
+}
+
+/// Marks one conversation's replies read for this person. Opening a chat does this.
+pub async fn mark_chat_read(
+    services: &Services,
+    user: &Principal,
+    href: &str,
+) -> Result<NotificationCounts, ServiceError> {
+    let agents = visible(services, user).await;
+    let storage = &services.deps().storage;
+    let marked = storage
+        .mark_chat_read(&user.user_id, href, crate::time::now(), &agents)
+        .await
+        .map_err(internal)?;
+    if marked > 0 {
+        // Every open tab of theirs counts again.
+        services.deps().transport.publish_inbox_event(InboxEvent::Stale {
+            user: Some(user.user_id.clone()),
+            agent_id: None,
+        });
     }
     storage
         .notification_counts(&user.user_id, &agents)
@@ -111,13 +206,17 @@ pub async fn set_read(
 }
 
 pub async fn read_all(services: &Services, user: &Principal) -> Result<NotificationCounts, ServiceError> {
-    project(services).await;
     let agents = visible(services, user).await;
     let storage = &services.deps().storage;
     storage
-        .mark_all_notifications_read(&user.user_id, Utc::now(), &agents)
+        .mark_all_notifications_read(&user.user_id, crate::time::now(), &agents)
         .await
         .map_err(internal)?;
+    services.deps().transport.publish_inbox_event(InboxEvent::Read {
+        user_id: user.user_id.clone(),
+        id: None,
+        read: true,
+    });
     storage
         .notification_counts(&user.user_id, &agents)
         .await

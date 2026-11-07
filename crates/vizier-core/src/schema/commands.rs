@@ -24,7 +24,7 @@ pub struct AgentHealthStatus {
     #[serde(default)]
     pub failures: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub next_retry_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub next_retry_at: Option<chrono::DateTime<chrono::Local>>,
     /// The agent's Discord and Telegram readers, while it is running (#50).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub channels: Vec<ChannelHealth>,
@@ -34,6 +34,11 @@ pub struct AgentHealthStatus {
     /// Configuration that works but probably isn't what was meant (FR-033).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub warnings: Vec<String>,
+    /// Why the agent's provider is refusing while the agent itself is available: the AWS SSO
+    /// session ended, and signing in again clears it (spec 044, FR-018). Never a token, never a
+    /// key or a model — only the session's own wording (FR-009b).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_failure: Option<String>,
 }
 
 /// The model an agent runs on, with its effective limits and where they came from.
@@ -60,7 +65,7 @@ pub struct ChannelHealth {
     #[serde(default)]
     pub failures: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub next_retry_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub next_retry_at: Option<chrono::DateTime<chrono::Local>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -113,6 +118,9 @@ pub enum CommandRequest {
     Exit,
     Status,
     HealthCheck,
+    /// The roles the running process takes (Fleet, #161). An older daemon answers
+    /// "unsupported command", so a newer CLI prints the roles only when it gets them.
+    Roles,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -150,6 +158,13 @@ pub enum AgentCommand {
     HealthCheck {
         resp: tokio::sync::oneshot::Sender<Vec<AgentHealthStatus>>,
     },
+    /// One agent's health, answered on `agent.{id}.cmd`. The fleet-wide `HealthCheck` is the
+    /// list of every agent the manager holds; this is the one agent the caller named
+    /// (`specs/048-agent-service-seam` contracts/agents-client.md).
+    AgentHealth {
+        agent_id: String,
+        resp: tokio::sync::oneshot::Sender<AgentHealthStatus>,
+    },
     /// Rebuild the running agent's integration tools from storage, without a restart. A
     /// no-op for an agent that isn't running: its next build reads storage.
     RefreshIntegrations { agent_id: String },
@@ -169,12 +184,30 @@ pub enum AgentCommand {
     },
 }
 
+impl AgentCommand {
+    /// The agent the command is about, when it is about one. The fleet-wide health check is
+    /// about every agent, and has none.
+    pub fn agent_id(&self) -> &str {
+        match self {
+            Self::Create { agent_id, .. }
+            | Self::Update { agent_id, .. }
+            | Self::Delete { agent_id, .. }
+            | Self::RefreshIntegrations { agent_id }
+            | Self::IntegrationStatus { agent_id, .. }
+            | Self::Restart { agent_id, .. }
+            | Self::AgentHealth { agent_id, .. } => agent_id,
+            Self::HealthCheck { .. } => "",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum AgentCommandResult {
     Ok(AgentSummary),
     Error(String),
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct AgentSummary {
     pub agent_id: String,
@@ -186,18 +219,6 @@ pub struct AgentSummary {
     pub owner_id: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub shared_to: Vec<String>,
-}
-
-pub enum FileCommand {
-    Upload {
-        filename: String,
-        content: Vec<u8>,
-        response: tokio::sync::oneshot::Sender<anyhow::Result<FileRecord>>,
-    },
-    Resolve {
-        attachment: VizierAttachment,
-        response: tokio::sync::oneshot::Sender<anyhow::Result<Vec<u8>>>,
-    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -337,7 +358,3 @@ impl MemoryOpResponse {
     }
 }
 
-pub struct MemoryOpEnvelope {
-    pub op: MemoryOpRequest,
-    pub response: tokio::sync::oneshot::Sender<anyhow::Result<MemoryOpResponse>>,
-}

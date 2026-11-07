@@ -18,6 +18,7 @@ use tokio::task::JoinHandle;
 
 use crate::channels::readers::{HealthSlot, Reader, supervise};
 use crate::dependencies::VizierDependencies;
+use crate::runtime::Gate;
 use crate::schema::{
     AgentId, ChannelHealth, ChannelState, IntegrationFamily, IntegrationStatus,
 };
@@ -103,22 +104,37 @@ struct RunningReader {
 
 pub struct ChannelConnections {
     deps: VizierDependencies,
+    /// Whether this node owns any reader (Fleet, #161/#167). Closed means "owns none", so the
+    /// next reconcile stops whatever it still runs.
+    gate: Arc<dyn Gate>,
     readers: Mutex<HashMap<String, RunningReader>>,
 }
 
 impl ChannelConnections {
-    pub fn new(deps: VizierDependencies) -> Self {
-        Self { deps, readers: Mutex::new(HashMap::new()) }
+    pub fn new(deps: VizierDependencies, gate: Arc<dyn Gate>) -> Self {
+        Self {
+            deps,
+            gate,
+            readers: Mutex::new(HashMap::new()),
+        }
     }
 
-    /// Bring the running readers in line with storage.
+    /// Bring the running readers in line with storage. With a closed gate the wanted set is
+    /// empty, so every reader this node runs is stopped: a node that lost its leases must not
+    /// keep a bot's reader alive next to the one that took over.
     pub async fn reconcile(&self) {
-        let integrations = match self.deps.storage.list_integrations().await {
-            Ok(integrations) => integrations,
-            Err(e) => {
-                tracing::warn!("cannot read channel connections, leaving readers as they are: {e}");
-                return;
+        let integrations = if self.gate.may_run() {
+            match self.deps.storage.list_integrations().await {
+                Ok(integrations) => integrations,
+                Err(e) => {
+                    tracing::warn!(
+                        "cannot read channel connections, leaving readers as they are: {e}"
+                    );
+                    return;
+                }
             }
+        } else {
+            Vec::new()
         };
         let kinds = &self.deps.integration_kinds;
         let desired: HashMap<String, (Running, crate::schema::Integration)> = integrations

@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use chrono::Utc;
+
 use serde::{Deserialize, Serialize};
 
 use crate::agents::tools::{ToolCategory, ToolContext, VizierTool};
@@ -52,7 +52,7 @@ impl VizierTool for SendWebuiMessage {
         );
 
         let response = VizierResponse {
-            timestamp: Utc::now(),
+            timestamp: crate::time::now(),
             content: VizierResponseContent::Message {
                 content: args.content,
                 stats: None,

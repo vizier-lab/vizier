@@ -487,14 +487,15 @@ mod tests {
 
     /// A user message exactly as a channel frames it (frontmatter + body).
     fn user_message(text: &str) -> Message {
-        VizierRequest {
+        let request = VizierRequest {
             content: VizierRequestContent::Chat(text.into()),
             user: "tester".into(),
             metadata: json!({}),
             ..Default::default()
-        }
-        .to_message("", &crate::schema::NoopAttachmentResolver)
-        .unwrap()
+        };
+        // No attachments, so nothing here awaits real I/O.
+        futures::executor::block_on(request.to_message(&crate::schema::NoopAttachmentResolver))
+            .unwrap()
     }
 
     fn echo_tool() -> ToolDefinition {

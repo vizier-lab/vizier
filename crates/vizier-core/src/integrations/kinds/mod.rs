@@ -1,14 +1,14 @@
 //! One `IntegrationKind` per kind, registered in `IntegrationKinds::builtin()`.
 
 pub mod brave_search;
-#[cfg(feature = "discord")]
+#[cfg(feature = "channel-discord")]
 pub mod discord;
 pub mod http;
 pub mod mcp;
-#[cfg(feature = "documents")]
+#[cfg(feature = "addon-documents")]
 pub mod office;
 pub mod shell;
-#[cfg(feature = "telegram")]
+#[cfg(feature = "channel-telegram")]
 pub mod telegram;
 
 use serde_json::Value;

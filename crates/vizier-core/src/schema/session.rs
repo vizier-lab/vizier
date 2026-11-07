@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Local};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -36,6 +36,9 @@ impl VizierSession {
             VizierChannelId::Project(..) => {
                 format!("project:{}:{}", self.1.to_slug(), self.2.as_deref().unwrap_or(""))
             }
+            VizierChannelId::Workspace(id) => {
+                format!("workspace:{id}:{}", self.2.as_deref().unwrap_or(""))
+            }
             VizierChannelId::Task(slug, _) => format!("task:{slug}"),
             VizierChannelId::Subagent | VizierChannelId::InterAgent(_) => "background".into(),
             VizierChannelId::Dream(..) => "dreams".into(),
@@ -62,7 +65,12 @@ pub enum VizierChannelId {
     /// A project chat (`specs/041-project-coding-workspace` R1): the person's username, then
     /// the project id. The web wire form (`project__<id>`) is unchanged from 040.
     Project(String, String),
-    Task(String, DateTime<Utc>),
+    /// A Workspace topic (`specs/053-workspace-channel`): the Workspace's UUID. One session per
+    /// agent per topic, so a rename never changes a key.
+    Workspace(String),
+    /// The time stays UTC when serialized: the channel's JSON is a text key in several tables, so
+    /// its form must not depend on the instance's zone.
+    Task(String, #[serde(serialize_with = "crate::time::serialize_utc")] DateTime<Local>),
     InterAgent(Vec<String>),
     System,
     Subagent,
@@ -121,6 +129,7 @@ impl VizierChannelId {
         match self {
             Self::DiscordChanel(_) | Self::TelegramChannel(_) | Self::HTTP(..) => UsageActivity::Chat,
             Self::Project(..) => UsageActivity::Project,
+            Self::Workspace(_) => UsageActivity::Workspace,
             Self::Task(..) => UsageActivity::Scheduled,
             Self::Subagent | Self::InterAgent(_) => UsageActivity::Background,
             Self::Dream(..) => UsageActivity::Dreams,
@@ -134,6 +143,7 @@ impl VizierChannelId {
             Self::TelegramChannel(id) => format!("telegram__{}", id),
             Self::HTTP(user, id) => format!("http__{}__{}", user, id),
             Self::Project(user, id) => format!("project__{}__{}", user, id),
+            Self::Workspace(id) => format!("workspace__{id}"),
             Self::Task(id, datetime) => {
                 // The full timestamp, so each firing of a task gets its own
                 // conversation. This used to render `timestamp_subsec_nanos()` of
@@ -182,13 +192,13 @@ pub enum DreamStage {
 pub enum DreamStatus {
     Idle,
     Extracting {
-        started_at: DateTime<Utc>,
+        started_at: DateTime<Local>,
         cycle_id: String,
         total_sessions: usize,
         completed_sessions: usize,
     },
     Consolidating {
-        started_at: DateTime<Utc>,
+        started_at: DateTime<Local>,
         cycle_id: String,
     },
 }
@@ -198,8 +208,8 @@ mod tests {
 
     use super::*;
 
-    fn at(seconds: i64) -> DateTime<Utc> {
-        Utc.timestamp_opt(seconds, 0).single().unwrap()
+    fn at(seconds: i64) -> DateTime<Local> {
+        Local.timestamp_opt(seconds, 0).single().unwrap()
     }
 
     fn task_session(slug: &str, seconds: i64) -> VizierSession {

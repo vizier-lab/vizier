@@ -6,6 +6,7 @@ use reqwest::{
     Method,
     header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE},
 };
+use std::future::Future;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::normalize_path::NormalizePathLayer;
 use utoipa::OpenApi;
@@ -20,19 +21,33 @@ pub mod api;
 pub mod auth;
 pub mod embedded;
 pub mod error;
+pub mod health;
+pub mod inbox;
 mod state;
-pub mod topic;
 #[cfg(test)]
 mod test_support;
+pub mod topic;
+pub mod workspace_topic;
 mod webui;
 
 /// The whole HTTP surface (REST API, WebSocket, OpenAPI and Swagger UI, the embedded WebUI)
 /// over a running engine, for a host that serves it itself.
 pub fn router(runtime: &VizierRuntime, config: &HTTPChannelConfig) -> Router {
+    let health = health::HealthHandle::new();
+    health.mark_started();
+    router_with_health(runtime, config, health)
+}
+
+fn router_with_health(
+    runtime: &VizierRuntime,
+    config: &HTTPChannelConfig,
+    health: health::HealthHandle,
+) -> Router {
     let state = new_state(runtime, state::AuthMode::Network);
     let cors = cors_layer(config.cors_origins.as_deref());
 
     let app = Router::new()
+        .merge(health::routes(health))
         .nest("/api", api::api(state.clone()))
         // webui
         .route("/", get(webui::index))
@@ -67,7 +82,6 @@ pub(crate) fn new_state(runtime: &VizierRuntime, auth: state::AuthMode) -> HTTPS
             1,
             std::time::Duration::from_secs(60),
         )),
-        deferred_client_calls: Default::default(),
     }
 }
 
@@ -95,21 +109,44 @@ fn cors_layer(origins: Option<&[String]>) -> CorsLayer {
 pub fn serve(
     runtime: &VizierRuntime,
     config: HTTPChannelConfig,
-) -> impl std::future::Future<Output = vizier_core::Result<()>> + Send + 'static {
-    let app = router(runtime, &config);
+) -> impl Future<Output = vizier_core::Result<()>> + Send + 'static {
+    serve_with_shutdown(
+        runtime,
+        config,
+        health::HealthHandle::new(),
+        std::future::pending(),
+    )
+}
+
+/// Serves HTTP until `shutdown` resolves, then stops accepting new connections and drains
+/// accepted requests. [`health::HealthHandle::begin_shutdown`] must be called before resolving
+/// `shutdown` so readiness changes before admission closes.
+pub fn serve_with_shutdown<F>(
+    runtime: &VizierRuntime,
+    config: HTTPChannelConfig,
+    health: health::HealthHandle,
+    shutdown: F,
+) -> impl Future<Output = vizier_core::Result<()>> + Send + 'static
+where
+    F: Future<Output = ()> + Send + 'static,
+{
+    let app = router_with_health(runtime, &config, health.clone());
     async move {
         let listener = tokio::net::TcpListener::bind(format!(
             "{}:{}",
             config.host.as_deref().unwrap_or("0.0.0.0"),
             config.port
         ))
-            .await
-            .map_err(|e| VizierError(e.to_string()))?;
+        .await
+        .map_err(|e| VizierError(e.to_string()))?;
 
-        let server = axum::serve(listener, app);
+        health.mark_started();
         tracing::info!("http listening on port {}", config.port);
 
-        server.await.map_err(|e| VizierError(e.to_string()))
+        axum::serve(listener, app)
+            .with_graceful_shutdown(shutdown)
+            .await
+            .map_err(|e| VizierError(e.to_string()))
     }
 }
 
@@ -204,6 +241,30 @@ pub fn serve(
         api::v1::agents::projects::create_worktree,
         api::v1::agents::projects::worktree_detail,
         api::v1::agents::projects::delete_worktree,
+        api::v1::agents::projects::lsp_status,
+        api::v1::agents::projects::lsp_set_override,
+        api::v1::agents::projects::lsp_delete_override,
+        api::v1::agents::projects::lsp_restart,
+        api::v1::workspaces::list,
+        api::v1::workspaces::create,
+        api::v1::workspaces::detail,
+        api::v1::workspaces::create_topic,
+        api::v1::workspaces::rename,
+        api::v1::workspaces::delete_workspace,
+        api::v1::workspaces::rename_topic,
+        api::v1::workspaces::delete_topic,
+        api::v1::workspaces::set_role,
+        api::v1::workspaces::candidates,
+        api::v1::workspaces::add_member,
+        api::v1::workspaces::remove_member,
+        api::v1::workspaces::timeline,
+        api::v1::workspaces::post_entry,
+        api::v1::workspaces::commands,
+        api::v1::workspaces::stop_all,
+        api::v1::workspaces::stop_agent,
+        api::v1::workspaces::stream,
+        api::v1::workspaces::mark_read,
+        api::v1::workspaces::react,
         api::v1::agents::task::get_tasks,
         api::v1::agents::task::get_task,
         api::v1::agents::task::create_task,
@@ -218,6 +279,14 @@ pub fn serve(
         api::v1::providers::upsert_provider,
         api::v1::providers::delete_provider,
         api::v1::providers::test_provider,
+        api::v1::providers::list_entries,
+        api::v1::providers::add_entry,
+        api::v1::providers::update_entry,
+        api::v1::providers::remove_entry,
+        api::v1::providers::sso_sign_in,
+        api::v1::providers::sso_accounts,
+        api::v1::providers::sso_roles,
+        api::v1::providers::sso_sign_out,
         api::v1::providers::custom::list,
         api::v1::providers::custom::create,
         api::v1::providers::custom::update,
@@ -233,10 +302,14 @@ pub fn serve(
         api::v1::catalogue::media_models,
         api::v1::catalogue::refresh_media,
         api::v1::utils::setup_state,
+        api::v1::utils::timezone,
         api::v1::notifications::list,
         api::v1::notifications::count,
         api::v1::notifications::set_read,
         api::v1::notifications::read_all,
+        api::v1::notifications::chats,
+        api::v1::notifications::read_chat,
+        api::v1::notifications::stream,
     ),
     components(
         schemas(
@@ -270,6 +343,7 @@ pub fn serve(
             api::v1::agents::CreateAgentTools,
             api::v1::agents::DeleteAgentQuery,
             api::v1::providers::ProviderResponse,
+            api::v1::providers::ProfileEntryResponse,
             api::v1::providers::UpsertProviderRequest,
             api::v1::providers::InUse,
             api::v1::providers::usage::UsedBy,
@@ -332,6 +406,43 @@ pub fn serve(
             api::v1::agents::secrets::SecretEventItem,
             api::v1::agents::secrets::SecretEventList,
             api::v1::agents::projects::ProjectSummary,
+            api::v1::workspaces::WorkspaceSummary,
+            api::v1::workspaces::WorkspaceDetail,
+            api::v1::workspaces::TopicSummary,
+            api::v1::workspaces::MemberView,
+            api::v1::workspaces::CreateWorkspaceRequest,
+            api::v1::workspaces::CreateTopicRequest,
+            api::v1::workspaces::RenameRequest,
+            api::v1::workspaces::ReactRequest,
+            api::v1::workspaces::SetRoleRequest,
+            api::v1::workspaces::Candidates,
+            api::v1::workspaces::AgentCandidate,
+            api::v1::workspaces::PersonCandidate,
+            api::v1::workspaces::CandidateGroup<api::v1::workspaces::AgentCandidate>,
+            api::v1::workspaces::CandidateGroup<api::v1::workspaces::PersonCandidate>,
+            api::v1::workspaces::AddMemberRequest,
+            api::v1::workspaces::AuthorView,
+            api::v1::workspaces::MentionView,
+            api::v1::workspaces::EntryView,
+            api::v1::workspaces::StepView,
+            api::v1::workspaces::Timeline,
+            api::v1::workspaces::PostRequest,
+            api::v1::workspaces::PostResponse,
+            api::v1::workspaces::StopResponse,
+            api::v1::workspaces::CommandView,
+            api::v1::workspaces::SkillView,
+            api::v1::workspaces::CommandsView,
+            api::v1::workspaces::ReadMarked,
+            crate::models::response::APIResponse<api::v1::workspaces::ReadMarked>,
+            crate::models::response::APIResponse<api::v1::workspaces::Timeline>,
+            crate::models::response::APIResponse<api::v1::workspaces::PostResponse>,
+            crate::models::response::APIResponse<api::v1::workspaces::StopResponse>,
+            crate::models::response::APIResponse<api::v1::workspaces::CommandsView>,
+            crate::models::response::APIResponse<Vec<api::v1::workspaces::WorkspaceSummary>>,
+            crate::models::response::APIResponse<api::v1::workspaces::WorkspaceDetail>,
+            crate::models::response::APIResponse<api::v1::workspaces::TopicSummary>,
+            crate::models::response::APIResponse<api::v1::workspaces::MemberView>,
+            crate::models::response::APIResponse<api::v1::workspaces::Candidates>,
             api::v1::agents::projects::ProjectDetail,
             api::v1::agents::projects::OpenProjectRequest,
             api::v1::agents::projects::UpdateProjectRequest,
@@ -348,6 +459,14 @@ pub fn serve(
             api::v1::agents::projects::CreateWorktreeRequest,
             api::v1::agents::projects::CreateWorktreeResponse,
             api::v1::agents::projects::WorktreeDeleted,
+            api::v1::agents::projects::LspView,
+            api::v1::agents::projects::LanguageInfo,
+            api::v1::agents::projects::OverrideInfo,
+            api::v1::agents::projects::RestartRequest,
+            vizier_core::schema::ServerOverride,
+            vizier_core::schema::LspStatusSnapshot,
+            vizier_core::schema::LspServerStatus,
+            vizier_core::schema::LspCapacity,
             vizier_core::projects::git::GitSummary,
             vizier_core::projects::git::GitChange,
             vizier_core::projects::git::GitChangeKind,
@@ -371,6 +490,7 @@ pub fn serve(
             crate::models::response::APIResponse<api::v1::agents::projects::CreateWorktreeResponse>,
             crate::models::response::APIResponse<api::v1::agents::projects::WorktreeDetail>,
             crate::models::response::APIResponse<api::v1::agents::projects::WorktreeDeleted>,
+            crate::models::response::APIResponse<api::v1::agents::projects::LspView>,
             api::v1::agents::task::GetTasksQuery,
             api::v1::agents::task::CreateTaskRequest,
             api::v1::agents::task::ScheduleRequest,
@@ -431,6 +551,9 @@ pub fn serve(
             vizier_core::schema::NotificationCounts,
             vizier_core::schema::NotificationPage,
             api::v1::notifications::NotificationReadRequest,
+            api::v1::notifications::ChatReadRequest,
+            vizier_core::schema::ChatUnread,
+            crate::models::response::APIResponse<Vec<vizier_core::schema::ChatUnread>>,
             crate::models::response::APIResponse<vizier_core::schema::NotificationPage>,
             crate::models::response::APIResponse<vizier_core::schema::NotificationCounts>,
             crate::models::response::APIResponse<vizier_core::setup::SetupStates>,

@@ -1,29 +1,38 @@
 <!--
 Sync Impact Report
 ==================
-Version change: 1.2.0 → 1.3.0
+Version change: 2.1.0 → 2.2.0
 Modified principles: none
 Added sections: none
+Removed sections: none
 Modified sections:
-  - Development Workflow & Quality Gates — added "Matching submodule
-    branches, driven by `just`" (every spec branch MUST exist under the same
-    name in the workspace and in every submodule; cross-repo git work goes
-    through the Justfile recipes) and widened "Conventional commits" from
-    commits to commit messages AND pull request titles, in every repo
-    (workspace and submodules), including Spec Kit auto-commits.
+  - Development Workflow & Quality Gates — one rule: design before UI code,
+    in whatever medium is available (FigCraft preferred, never required;
+    a dummy .html or ASCII mockup is acceptable). Agents MUST NOT stall or
+    keep retrying when the FigCraft MCP is unreachable.
+  - Development Workflow & Quality Gates — three Fleet rules (issue #160):
+    optional capabilities live behind a feature flag that never changes
+    the API shape; a role or component depends on trait seams only and is
+    testable alone; a change is verified by the jobs of the flags and
+    crates it touches, with the full matrix on develop, master and release.
 Templates requiring updates:
-  - .specify/templates/tasks-template.md ✅ updated (commit guidance names
-    `just commit` and conventional format)
-  - .specify/extensions/git/git-config.yml ✅ updated (auto-commit and init
-    messages were "[Spec Kit] ..."; now conventional commits)
+  - CLAUDE.md ✅ "Design first" section reworded to match
   - .specify/templates/plan-template.md ✅ no change needed (Constitution
     Check reads the gates from this file)
-  - .specify/templates/spec-template.md, checklist-template.md ✅ no change
-  - CLAUDE.md ✅ updated (Commands section lists the branch/commit recipes)
+  - .specify/templates/spec-template.md ✅ no change needed
+  - .specify/templates/tasks-template.md ✅ no change needed
+  - CLAUDE.md ✅ flag names and per-flag test command
+  - docs/src/configuration/build-flavours.md ✅ new page
 Follow-up TODOs:
   - The Spec Kit `speckit.git.feature` hook (create-new-feature.sh) creates
     the branch in the workspace only; run `just checkout <branch>` after it
     to create the submodule branches. Not scripted yet.
+(2.0.0, 2026-11-02: PostgreSQL and S3-compatible storage permitted as strictly
+opt-in server backends under Principle III.)
+(2026-11-03, on 2.1.0: the commit type list under Development Workflow was
+corrected to the Conventional Commits v1.0.0 set - `doc` is not a type,
+`docs:` is - and `[**breaking**]` is git-cliff rendering, not a type;
+git-config.yml, CLAUDE.md and CONTRIBUTING.md follow the same list.)
 -->
 
 # Vizier Constitution
@@ -63,21 +72,24 @@ storage, and tool matrices (`VizierStorageProvider`, `VizierTool`,
 threat to long-term leanness — every duplicated branch is a second place a
 future bug fix or provider quirk must be remembered and applied.
 
-### III. Self-Contained, Zero-Dependency Runtime
+### III. Self-Contained Default, Optional Managed Services
 A built release binary MUST run without requiring the user to install,
 configure, or connect to any external service — no external database,
-message broker, cache, or reverse proxy. Storage MUST remain embedded
-(bundled SQLite); the WebUI's static assets MUST be embedded into the
-binary at build time, not fetched or served from a separate deployment. Configuration MUST have working built-in defaults
-("config-less mode") so `vizier run` with zero setup is always a valid
-starting point. Any feature that inherently needs a network resource at
-runtime (a model provider API, an optional embedding-model download) MUST
-be opt-in and clearly degrade — never a requirement for the default path.
+message broker, cache, or reverse proxy. The default database and file
+backends MUST remain bundled SQLite and the local workspace, and the WebUI's
+static assets MUST remain embedded into the binary. Configuration MUST have
+working built-in defaults ("config-less mode") so `vizier run` with zero
+setup is always a valid starting point. Server operators MAY explicitly
+select managed PostgreSQL and S3-compatible storage; those backends MUST be
+strictly opt-in, independently selectable, and MUST NOT affect the default
+path or the desktop app. Any other feature that inherently needs a network
+resource at runtime (a model provider API, an optional embedding-model
+download) MUST likewise be opt-in and clearly degrade.
 
 **Rationale**: The project ships as `curl | sh` and `cargo install`
-one-binary installs. Any hidden runtime dependency (a required external DB,
-an assumed sidecar process, non-embedded static assets) breaks that promise
-and pushes operational burden onto the user.
+one-binary installs, while server operators also need durable managed
+storage. Preserving embedded defaults protects the zero-operations promise;
+making managed services explicit avoids hidden runtime dependencies.
 
 ### IV. Portability by Default
 Code MUST NOT assume a specific OS, filesystem layout, or CPU
@@ -113,16 +125,14 @@ instead of each module reinventing its own convention.
 
 ## Distribution & Technology Constraints
 
-- **No required external services**: the only supported storage backend is
-  embedded SQLite (`rusqlite` with the `bundled` feature — statically
-  linked, no system SQLite dependency). A prior filesystem-based backend
-  was removed once agent memory itself moved onto a pluggable
-  `DocumentStore` abstraction writing human-readable documents to disk
-  (see `specs/004-memory-open-format/`), leaving no remaining entity that
-  needed a second, flat-file storage backend. Adding a storage backend
-  that requires a running external server (Postgres, Redis, etc.) as the
-  *only* option is out of scope for this project; such a backend, if ever
-  added, MUST remain strictly opt-in and additive.
+- **No required external services**: embedded SQLite (`rusqlite` with the
+  `bundled` feature) and local workspace files are the default and MUST
+  remain fully supported without system services. PostgreSQL with pgvector
+  and S3-compatible object storage are supported only as explicit,
+  additive server choices; neither may become the sole backend or a desktop
+  dependency. The prior flat-file entity backend survives only as a
+  migration source; human-readable memory documents now use the shared
+  `DocumentStore`/`BlobStore` abstraction on either local or S3 storage.
 - **Single-binary output**: `cargo build --release` (with the WebUI
   pre-built or `webui/node_modules` present) MUST produce one self-contained
   executable capable of serving the WebUI, running channels, and persisting
@@ -155,12 +165,16 @@ instead of each module reinventing its own convention.
   considered done; there is no separate `just lint`/`just test` — use these
   directly. WebUI changes MUST pass `cd webui && npm run typecheck`.
 - **Conventional commits everywhere**: every commit message AND every pull
-  request title MUST be in conventional-commit format (`feat:`, `fix:`,
-  `doc:`, `perf:`, `refactor:`, `chore:`, with `[**breaking**]` where
-  applicable), in the workspace and in every submodule. The changelog is
-  generated from history via `git-cliff`, and a squash-merged PR title
-  becomes the commit. Tool-generated messages (Spec Kit auto-commits, bots)
-  are held to the same rule; a `[Spec Kit] ...` style prefix is not allowed.
+  request title MUST be in conventional-commit format — the types of
+  Conventional Commits v1.0.0 (`feat:`, `fix:`, `build:`, `chore:`, `ci:`,
+  `docs:`, `style:`, `refactor:`, `perf:`, `test:`), optionally with a
+  `(scope)` and/or `!` before the colon, in the workspace and in every
+  submodule. `[**breaking**]` is not a commit type: it is how `git-cliff`
+  renders a breaking commit in the changelog, and a breaking change is marked
+  `type!:` in the subject or a `BREAKING CHANGE:` footer. The changelog is
+  generated from history via `git-cliff`, and a squash-merged PR title becomes
+  the commit. Tool-generated messages (Spec Kit auto-commits, bots) are held to
+  the same rule; a `[Spec Kit] ...` style prefix is not allowed.
 - **Matching submodule branches, driven by `just`**: every spec branch
   (`NNN-short-name`) MUST exist under the same name in the workspace and in
   every submodule (`design`, `webui`, `landing`, `dummyplug`), so a feature
@@ -197,6 +211,34 @@ instead of each module reinventing its own convention.
   is sparse and live models are nondeterministic, paid, and need keys;
   dummyplug makes the real pipeline reproducible offline (Principle III).
 
+- **Design before UI code, in whatever medium is available**: a new screen,
+  layout or composition change, component, or visual variant MUST be shown as
+  a mockup and reviewed before any UI code is written. FigCraft
+  (`Vizier.figcraft`, via the `figcraft` MCP) is the preferred medium when it
+  is reachable, but it is NOT required: when the MCP or app is unavailable, an
+  agent MUST NOT block on it or retry it, and MUST fall back at once to a
+  simple dummy `.html` file or an ASCII mockup. Any of the three satisfies
+  this rule; skipping the mockup does not. Pure copy edits, backend work, and
+  a bug fix restoring an already-designed look need no mockup (say so in the
+  summary). *Rationale*: the point is a reviewed visual decision before code,
+  not a particular tool; an unreachable tool must not stop the work.
+
+- **Optional capabilities live behind a feature flag**: an optional channel,
+  addon, provider or gateway MUST sit behind a Cargo feature named
+  `channel-*`, `addon-*`, `provider-*`, `gateway-*`, `bus-nats` or `role-*`
+  (the runtime namespace writes the first `-` as `/`, e.g. `addon/docker`).
+  A flag MUST NOT change the shape of the API: it adds or removes a
+  capability, never a field or a signature. The default build turns the
+  shipped set on; `default = []` for the engine crate.
+- **Roles and components stay independent**: a role or component MUST depend
+  on trait seams only, never on another role's concrete type, and MUST be
+  testable alone (build and run its tests with only its own flag).
+- **Verify what a change touches**: CI runs the jobs of the flags and crates
+  a change touches, plus the single `gate` status; a change to `Cargo.toml`,
+  `Cargo.lock` or a shared crate runs everything. Every flag alone, the
+  default build and `--no-default-features` run on `develop`, `master` and
+  release. A PR MUST NOT depend on a job that path filters skipped.
+
 ## Governance
 
 This constitution supersedes ad hoc practice and prior informal convention
@@ -226,4 +268,4 @@ service or non-embedded runtime dependency). Deviations MUST be justified
 in the PR description (equivalent to the plan template's Complexity
 Tracking table) or the change MUST be revised before merge.
 
-**Version**: 1.3.0 | **Ratified**: 2026-08-13 | **Last Amended**: 2026-10-30
+**Version**: 2.2.0 | **Ratified**: 2026-08-13 | **Last Amended**: 2026-11-06

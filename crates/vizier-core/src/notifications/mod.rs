@@ -1,51 +1,71 @@
 //! The notification inbox (`specs/029-webui-notifications/`). One creation path: every notable
 //! event calls [`Notifications`] at the moment it completes, with a deterministic `event_key`
-//! so a retried transition stores nothing twice. The one aggregate source — replies in a
-//! Discord or Telegram conversation — is projected from `session_history` on read, under a
-//! watermark, because a conversation-hour has no completion code path.
+//! so a retried transition stores nothing twice. Discord and Telegram activity creates no
+//! notification (`specs/051-realtime-notifications`).
 //!
 //! Writing a notification is always best-effort: a failure is logged and never fails the task
 //! run, dream, background job, integration write or turn that caused it.
 
 pub mod cursor;
+pub mod excerpt;
 pub mod text;
 
-use std::sync::Arc;
+use crate::time::Timestamp;
+use std::sync::{Arc, RwLock};
 
 use anyhow::Result;
-use chrono::{DateTime, Utc};
+
 
 use crate::{
     schema::{
-        EventAction, IntegrationFamily, JobKind, JobState, NotificationCategory, NotificationDraft,
-        NotificationTone, Requester, TaskRunState, VizierChannelId, VizierSession,
+        EventAction, InsertedNotification, IntegrationFamily, JobKind, JobState,
+        NotificationCategory, NotificationDraft, NotificationTone, Requester, TaskRunState,
+        SessionHistory, SessionHistoryContent, VizierChannelId, VizierSession,
     },
     storage::{
-        VizierStorage, agent::AgentStorage, notification::NotificationStorage, state::StateStorage,
-        user::UserStorage,
+        VizierStorage, agent::AgentStorage, history::HistoryStorage,
+        notification::NotificationStorage, task_run::TaskRunStorage, user::UserStorage,
     },
+    transport::{InboxEvent, VizierTransport},
 };
-
-/// The state key holding the last closed UTC hour projected into channel-reply notifications.
-pub const REPLIES_THROUGH: &str = "notifications.replies_through";
-
-const HOUR_MS: i64 = 3_600_000;
-
-/// A long downtime catches up only the retained window.
-const CATCH_UP_HOURS: i64 = 30 * 24;
 
 #[derive(Clone)]
 pub struct Notifications {
     storage: Arc<VizierStorage>,
+    /// Where inserted rows are announced for the live inbox stream, once the transport exists.
+    /// A row inserted before then is simply not announced; the table is the replay buffer.
+    transport: Arc<RwLock<Option<VizierTransport>>>,
 }
 
 impl Notifications {
     pub fn new(storage: Arc<VizierStorage>) -> Self {
-        Self { storage }
+        Self { storage, transport: Arc::default() }
     }
 
     pub fn storage(&self) -> &VizierStorage {
         &self.storage
+    }
+
+    /// Announce new rows on the inbox stream from now on. Called once, when the transport
+    /// exists, like `SetupBoard::install_publisher`.
+    pub fn install_transport(&self, transport: VizierTransport) {
+        if let Ok(mut slot) = self.transport.write() {
+            *slot = Some(transport);
+        }
+    }
+
+    /// Tell the inbox stream a row now exists. Publishing never fails the caller.
+    fn announce(&self, inserted: Vec<InsertedNotification>) {
+        if inserted.is_empty() {
+            return;
+        }
+        let Some(transport) = self.transport.read().ok().and_then(|slot| slot.clone()) else {
+            return;
+        };
+        for InsertedNotification { item, audience, author } in inserted {
+            let source_session = item.source_session.clone();
+            transport.publish_inbox_event(InboxEvent::Created { item, audience, source_session, author });
+        }
     }
 
     /// Record one notification, best-effort. A row for an agent that no longer exists is
@@ -62,8 +82,9 @@ impl Notifications {
                 return;
             }
         }
-        if let Err(e) = self.storage.insert_notifications(&[draft]).await {
-            tracing::warn!("failed to record a notification: {e}");
+        match self.storage.insert_notifications(&[draft]).await {
+            Ok(inserted) => self.announce(inserted),
+            Err(e) => tracing::warn!("failed to record a notification: {e}"),
         }
     }
 
@@ -71,7 +92,11 @@ impl Notifications {
     /// writes). Storage skips drafts for missing agents.
     pub async fn record_all(&self, drafts: Vec<NotificationDraft>) -> usize {
         match self.storage.insert_notifications(&drafts).await {
-            Ok(inserted) => inserted,
+            Ok(inserted) => {
+                let count = inserted.len();
+                self.announce(inserted);
+                count
+            }
             Err(e) => {
                 tracing::warn!("failed to record {} notification(s): {e}", drafts.len());
                 0
@@ -91,12 +116,12 @@ impl Notifications {
         title: &str,
         run_id: i64,
         state: TaskRunState,
-        at: DateTime<Utc>,
+        at: Timestamp,
     ) {
         let Some((summary, tone)) = text::task_run(title, state) else {
             return;
         };
-        self.record(draft(
+        let mut draft = draft(
             format!("task_run:{run_id}"),
             agent_id,
             NotificationCategory::TaskRun,
@@ -104,8 +129,23 @@ impl Notifications {
             summary,
             text::task_href(agent_id, task_slug, run_id),
             at,
-        ))
-        .await;
+        );
+        // A task has no conversation to name, so its title is kept as written now.
+        draft.source_title = Some(title.to_string());
+        draft.excerpt = self.task_excerpt(agent_id, task_slug, run_id).await;
+        self.record(draft).await;
+    }
+
+    /// What an answered run said, from the run's own conversation.
+    async fn task_excerpt(&self, agent_id: &str, task_slug: &str, run_id: i64) -> Option<String> {
+        let runs = self
+            .storage
+            .list_task_runs(agent_id.to_string(), task_slug.to_string(), None, None, 10)
+            .await
+            .ok()?;
+        let run = runs.into_iter().find(|run| run.id == run_id)?;
+        let answer = crate::storage::task_run::task_run_response(&self.storage, &run).await?;
+        excerpt::from_markdown(&answer)
     }
 
     pub async fn dream_ended(
@@ -113,7 +153,7 @@ impl Notifications {
         agent_id: &str,
         cycle_id: &str,
         entries: u64,
-        at: DateTime<Utc>,
+        at: Timestamp,
     ) {
         if entries == 0 {
             return;
@@ -130,30 +170,40 @@ impl Notifications {
         .await;
     }
 
-    /// One background job at a terminal state; a job still in flight records nothing.
-    #[allow(clippy::too_many_arguments)]
+    /// One background job at a terminal state; a job still in flight records nothing. `origin`
+    /// is the conversation the job was launched from: one on Discord or Telegram notifies
+    /// nobody (the report still posts in the channel), and any other is kept as the row's
+    /// source so its title can be shown to the person it belongs to.
     pub async fn job_ended(
         &self,
         job_id: &str,
-        agent_id: &str,
+        origin: &VizierSession,
         kind: JobKind,
         state: JobState,
         reason: Option<&str>,
-        at: DateTime<Utc>,
+        at: Timestamp,
     ) {
+        // Discord, Telegram and Workspace topics do not notify about jobs: a Workspace notifies
+        // about its messages instead (spec 053).
+        if origin.1.platform().is_some()
+            || matches!(origin.1, crate::schema::VizierChannelId::Workspace(_))
+        {
+            return;
+        }
         let Some((summary, tone)) = text::background_job(kind, state, reason) else {
             return;
         };
-        self.record(draft(
+        let mut draft = draft(
             format!("job:{job_id}"),
-            agent_id,
+            &origin.0,
             NotificationCategory::BackgroundJob,
             tone,
             summary,
-            text::chat_href(agent_id),
+            text::chat_href(&origin.0),
             at,
-        ))
-        .await;
+        );
+        draft.source_session = Some(origin.clone());
+        self.record(draft).await;
     }
 
     /// One notification per affected agent after an integration write committed. Never
@@ -168,7 +218,7 @@ impl Notifications {
         action: EventAction,
         ordinal: usize,
         agent_ids: &[String],
-        at: DateTime<Utc>,
+        at: Timestamp,
     ) {
         let who = self.actor_name(actor).await;
         let summary = text::integration_changed(&who, action, name);
@@ -201,7 +251,7 @@ impl Notifications {
         family: IntegrationFamily,
         on: bool,
         actor: &Requester,
-        at: DateTime<Utc>,
+        at: Timestamp,
     ) {
         let who = self.actor_name(actor).await;
         self.record(draft(
@@ -223,12 +273,13 @@ impl Notifications {
 
     /// A WebUI conversation's reply, addressed to the person whose conversation it is: the
     /// session's channel carries their username, which resolves to the id read state uses.
-    /// Discord/Telegram keep the hourly `channel_replies` aggregate instead.
+    /// Discord and Telegram conversations never notify: only a WebUI conversation has a
+    /// `web_user`.
     pub async fn chat_replied(
         &self,
         session: &VizierSession,
         history_uid: &str,
-        at: DateTime<Utc>,
+        at: Timestamp,
     ) {
         let Some(username) = session.1.web_user() else {
             return;
@@ -261,10 +312,18 @@ impl Notifications {
             at,
         );
         draft.audience_user_id = Some(audience);
+        draft.source_session = Some(session.clone());
+        // From the saved entry, so only what has been through saving (and redaction) can appear.
+        draft.excerpt = match self.storage.get_session_history_entry(session, history_uid).await {
+            Ok(Some(SessionHistory { content: SessionHistoryContent::Response(reply), .. })) => {
+                excerpt::of_response(&reply)
+            }
+            _ => None,
+        };
         self.record(draft).await;
     }
 
-    pub async fn agent_ready(&self, agent_id: &str, build_id: &str, name: &str, at: DateTime<Utc>) {
+    pub async fn agent_ready(&self, agent_id: &str, build_id: &str, name: &str, at: Timestamp) {
         self.record(draft(
             format!("setup_ready:{agent_id}:{build_id}"),
             agent_id,
@@ -283,7 +342,7 @@ impl Notifications {
         episode_id: &str,
         error: &str,
         retry_secs: Option<i64>,
-        at: DateTime<Utc>,
+        at: Timestamp,
     ) {
         self.record(draft(
             format!("start_failed:{agent_id}:{episode_id}"),
@@ -304,57 +363,11 @@ impl Notifications {
     }
 
     // -----------------------------------------------------------------------------------------
-    // Channel replies and retention
+    // Retention
     // -----------------------------------------------------------------------------------------
 
-    /// Project every closed hour after the watermark into one notification per
-    /// `(agent, channel, hour)`. First activation starts at the last closed hour and imports no
-    /// history, so the inbox begins empty.
-    pub async fn project_replies(&self, now: DateTime<Utc>) -> Result<usize> {
-        let now_hour = now.timestamp_millis() / HOUR_MS;
-        let through = self
-            .storage
-            .get_state(REPLIES_THROUGH.to_string())
-            .await?
-            .and_then(|v| v.as_i64());
-
-        let Some(through) = through else {
-            self.storage
-                .save_state(REPLIES_THROUGH.to_string(), serde_json::json!(now_hour - 1))
-                .await?;
-            return Ok(0);
-        };
-
-        let to = now_hour - 1;
-        let from = (through + 1).max(now_hour - CATCH_UP_HOURS);
-        if from > to {
-            return Ok(0);
-        }
-
-        let batches = self.storage.channel_reply_batches(from, to).await?;
-        let drafts = batches
-            .iter()
-            .map(|batch| {
-                draft(
-                    format!("reply:{}:{}:{}", batch.agent_id, batch.channel, batch.hour),
-                    &batch.agent_id,
-                    NotificationCategory::ChannelReplies,
-                    NotificationTone::Default,
-                    text::channel_replies(&batch.channel, batch.replies),
-                    text::channel_href(&batch.agent_id, &batch.channel),
-                    batch.at,
-                )
-            })
-            .collect();
-        let inserted = self.record_all(drafts).await;
-        self.storage
-            .save_state(REPLIES_THROUGH.to_string(), serde_json::json!(to))
-            .await?;
-        Ok(inserted)
-    }
-
     /// Retention: delete rows older than `at`. Called at startup and once a day.
-    pub async fn purge_before(&self, at: DateTime<Utc>) -> Result<usize> {
+    pub async fn purge_before(&self, at: Timestamp) -> Result<usize> {
         self.storage.purge_notifications_before(at).await
     }
 
@@ -372,7 +385,7 @@ fn draft(
     tone: NotificationTone,
     summary: String,
     href: String,
-    at: DateTime<Utc>,
+    at: Timestamp,
 ) -> NotificationDraft {
     NotificationDraft {
         event_key,
@@ -383,28 +396,29 @@ fn draft(
         summary,
         href,
         created_at: at,
+        source_session: None,
+        source_title: None,
+        excerpt: None,
+        workspace_id: None,
+        author: None,
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use parking_lot::Mutex;
+    use crate::storage::sql::{SqlStore, params};
 
     use super::*;
     use crate::{
-        schema::NotificationFilter,
+        schema::{NotificationFilter, SessionHistoryContent},
         storage::{
-            document::LocalDocumentStore,
+            document::BlobDocumentStore,
             notification::NotificationStorage,
-            sqlite::{SqliteStorage, init_history_schema, init_notification_schema},
+            sqlite::{SqlStorage, init_history_schema, init_notification_schema},
         },
     };
 
-    fn setup() -> (
-        Notifications,
-        Arc<Mutex<rusqlite::Connection>>,
-        tempfile::TempDir,
-    ) {
+    fn setup() -> (Notifications, SqlStore, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
         let conn = rusqlite::Connection::open_in_memory().unwrap();
         init_notification_schema(&conn).unwrap();
@@ -415,15 +429,15 @@ mod tests {
              CREATE TABLE \"user\" (user_id TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE, data TEXT NOT NULL);",
         )
         .unwrap();
-        let conn = Arc::new(Mutex::new(conn));
-        let storage = VizierStorage::new(SqliteStorage::new(
+        let conn = SqlStore::sqlite(conn);
+        let storage = VizierStorage::new(SqlStorage::new(
             conn.clone(),
-            Arc::new(LocalDocumentStore::new(dir.path().to_path_buf())),
+            Arc::new(BlobDocumentStore::local(dir.path().to_path_buf())),
         ));
         (Notifications::new(Arc::new(storage)), conn, dir)
     }
 
-    fn agent(conn: &Arc<Mutex<rusqlite::Connection>>, id: &str) {
+    fn agent(conn: &SqlStore, id: &str) {
         let config = crate::schema::AgentConfig {
             name: format!("Agent {id}"),
             owner_id: None,
@@ -456,9 +470,10 @@ mod tests {
             completion_retry: Default::default(),
         };
         conn.lock()
+            .unwrap()
             .execute(
                 "INSERT OR IGNORE INTO agent_config (agent_id, data) VALUES (?1, ?2)",
-                rusqlite::params![id, serde_json::to_string(&config).unwrap()],
+                params![id, serde_json::to_string(&config).unwrap()],
             )
             .unwrap();
     }
@@ -467,7 +482,7 @@ mod tests {
     async fn a_missing_agent_records_nothing() {
         let (n, conn, _d) = setup();
         agent(&conn, "a");
-        n.task_run_ended("gone", "t", "T", 1, TaskRunState::Answered, Utc::now())
+        n.task_run_ended("gone", "t", "T", 1, TaskRunState::Answered, crate::time::now())
             .await;
         assert_eq!(
             n.storage
@@ -483,7 +498,7 @@ mod tests {
     async fn a_duplicate_event_key_is_one_row() {
         let (n, conn, _d) = setup();
         agent(&conn, "a");
-        let at = Utc::now();
+        let at = crate::time::now();
         n.task_run_ended("a", "brief", "Brief", 7, TaskRunState::Answered, at)
             .await;
         n.task_run_ended("a", "brief", "Brief", 7, TaskRunState::Answered, at)
@@ -499,83 +514,85 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_reply_projection_starts_at_the_last_closed_hour_and_never_backfills() {
-        let (n, _conn, _d) = setup();
-        let now = Utc::now();
-        assert_eq!(n.project_replies(now).await.unwrap(), 0);
-        let through = n
-            .storage
-            .get_state(REPLIES_THROUGH.to_string())
+    async fn a_new_row_is_announced_once_and_a_duplicate_event_key_announces_nothing() {
+        let (n, conn, _d) = setup();
+        agent(&conn, "a");
+        let transport = VizierTransport::new();
+        n.install_transport(transport.clone());
+        let mut rx = transport.subscribe_inbox_events();
+        let at = crate::time::now();
+        n.task_run_ended("a", "brief", "Brief", 7, TaskRunState::Answered, at).await;
+        n.task_run_ended("a", "brief", "Brief", 7, TaskRunState::Answered, at).await;
+
+        let got = tokio::time::timeout(std::time::Duration::from_secs(5), rx.recv())
             .await
-            .unwrap()
-            .and_then(|v| v.as_i64())
+            .expect("an announcement in time")
             .unwrap();
-        assert_eq!(through, now.timestamp_millis() / HOUR_MS - 1);
+        let InboxEvent::Created { item, audience, .. } = got else { panic!("expected created") };
+        assert_eq!(item.agent_id, "a");
+        assert_eq!(item.text, "Task “Brief” answered.");
+        assert!(!item.read);
+        assert!(audience.is_none(), "an agent-wide row has no audience");
+
+        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+        assert!(rx.try_recv().is_err(), "the duplicate was announced");
     }
 
     #[tokio::test]
-    async fn a_closed_hour_becomes_one_row_per_conversation_and_the_current_hour_waits() {
+    async fn a_row_is_stored_even_when_nothing_is_listening() {
         let (n, conn, _d) = setup();
-        let now = Utc::now();
-        let hour = now.timestamp_millis() / HOUR_MS;
         agent(&conn, "a");
-        const HOUR_MS_LOCAL: i64 = 3_600_000;
-        {
-            let c = conn.lock();
-            let mut put = |uid: i64, channel: &str, ts: i64| {
-                c.execute(
-                    "INSERT INTO session_history (uid, agent_id, channel, topic, timestamp, content_type, data, seq) VALUES (?1, 'a', ?2, NULL, ?3, 'Response', '{}', ?4)",
-                    rusqlite::params![format!("h{uid}"), channel, ts, uid],
-                )
-                .unwrap();
-            };
-            // Two hours ago, now closed.
-            put(1, "discord__1", (hour - 2) * HOUR_MS_LOCAL + 5);
-            put(2, "discord__1", (hour - 2) * HOUR_MS_LOCAL + 9);
-            put(3, "telegram__5", (hour - 2) * HOUR_MS_LOCAL + 2);
-            // The current, still-open hour.
-            put(4, "discord__1", hour * HOUR_MS_LOCAL + 1);
+        // No transport installed: the table is still the source of truth.
+        n.task_run_ended("a", "brief", "Brief", 1, TaskRunState::Answered, crate::time::now()).await;
+        assert_eq!(n.storage.notification_counts("u", &["a".into()]).await.unwrap().all, 1);
+    }
+
+    #[tokio::test]
+    async fn a_job_launched_from_discord_or_telegram_notifies_nobody() {
+        let (n, conn, _d) = setup();
+        agent(&conn, "a");
+        for channel in [VizierChannelId::DiscordChanel(1), VizierChannelId::TelegramChannel(2)] {
+            let origin = VizierSession("a".into(), channel, None);
+            n.job_ended("j-ext", &origin, JobKind::Batch, JobState::Reported, None, crate::time::now())
+                .await;
         }
-        // First activation imports nothing, even though replies already exist.
-        n.project_replies(now - chrono::Duration::hours(2))
-            .await
-            .unwrap();
-        assert_eq!(
-            n.storage
-                .notification_counts("u", &["a".into()])
-                .await
-                .unwrap()
-                .all,
-            0
+        assert_eq!(n.storage.notification_counts("u", &["a".into()]).await.unwrap().all, 0);
+    }
+
+    #[tokio::test]
+    async fn a_job_launched_from_the_webui_keeps_its_session_as_the_source() {
+        let (n, conn, _d) = setup();
+        agent(&conn, "a");
+        let origin = VizierSession(
+            "a".into(),
+            VizierChannelId::HTTP("ana".into(), "vizier-webui".into()),
+            Some("topic-1".into()),
         );
-
-        let inserted = n.project_replies(now).await.unwrap();
-        assert_eq!(inserted, 2, "one per conversation-hour");
-        assert_eq!(n.project_replies(now).await.unwrap(), 0, "idempotent");
-
+        n.job_ended("j-web", &origin, JobKind::Delegation, JobState::Reported, None, crate::time::now())
+            .await;
         let items = n
             .storage
             .list_notifications("u", &["a".into()], NotificationFilter::All, None, 10)
             .await
             .unwrap();
-        let texts: Vec<&str> = items.iter().map(|i| i.text.as_str()).collect();
-        assert!(texts.contains(&"Replied 2 times in a Discord conversation."));
-        assert!(texts.contains(&"Replied once in a Telegram conversation."));
-        assert_eq!(items.len(), 2, "the still-open hour is not projected");
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].category, NotificationCategory::BackgroundJob);
+        assert_eq!(items[0].source_session.as_ref(), Some(&origin));
     }
 
-    fn user(conn: &Arc<Mutex<rusqlite::Connection>>, id: &str, username: &str) {
+    fn user(conn: &SqlStore, id: &str, username: &str) {
         let user = crate::storage::user::User {
             user_id: id.into(),
             username: username.into(),
             password_hash: String::new(),
             role_id: "r".into(),
-            created_at: Utc::now(),
+            created_at: crate::time::now(),
         };
         conn.lock()
+            .unwrap()
             .execute(
                 r#"INSERT OR IGNORE INTO "user" (user_id, username, data) VALUES (?1, ?2, ?3)"#,
-                rusqlite::params![id, username, serde_json::to_string(&user).unwrap()],
+                params![id, username, serde_json::to_string(&user).unwrap()],
             )
             .unwrap();
     }
@@ -590,7 +607,7 @@ mod tests {
             VizierChannelId::Project("ana".into(), "p3xY9aQ2mZ".into()),
             Some("topic-1".into()),
         );
-        n.chat_replied(&session, "h-project", Utc::now()).await;
+        n.chat_replied(&session, "h-project", crate::time::now()).await;
         let mine = n
             .storage
             .list_notifications("u-ana", &["a".into()], NotificationFilter::All, None, 10)
@@ -610,7 +627,7 @@ mod tests {
             VizierChannelId::HTTP("ana".into(), "vizier-webui".into()),
             Some("topic-1".into()),
         );
-        n.chat_replied(&session, "h-1", Utc::now()).await;
+        n.chat_replied(&session, "h-1", crate::time::now()).await;
 
         let mine = n
             .storage
@@ -631,9 +648,9 @@ mod tests {
             "only the person whose conversation it is sees it"
         );
 
-        // Discord/Telegram keep the hourly aggregate; no per-turn row.
+        // Discord and Telegram create no conversation notification at all.
         let discord = VizierSession("a".into(), VizierChannelId::DiscordChanel(1), None);
-        n.chat_replied(&discord, "h-2", Utc::now()).await;
+        n.chat_replied(&discord, "h-2", crate::time::now()).await;
         assert_eq!(
             n.storage
                 .list_notifications("u-ana", &["a".into()], NotificationFilter::All, None, 10)
@@ -645,13 +662,91 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_chat_row_carries_its_session_and_an_excerpt_from_the_saved_entry() {
+        use crate::schema::{VizierResponse, VizierResponseContent};
+        let (n, conn, _d) = setup();
+        agent(&conn, "a");
+        user(&conn, "u-ana", "ana");
+        let session = VizierSession(
+            "a".into(),
+            VizierChannelId::HTTP("ana".into(), "vizier-webui".into()),
+            Some("topic-1".into()),
+        );
+        // What is saved is already redacted; the excerpt can only show what was saved.
+        let saved = VizierResponse {
+            content: VizierResponseContent::Message {
+                content: "The key is [redacted]. **Keep** it safe.".into(),
+                stats: None,
+            },
+            ..Default::default()
+        };
+        let uid = n
+            .storage
+            .save_session_history(session.clone(), SessionHistoryContent::Response(saved))
+            .await
+            .unwrap();
+        n.chat_replied(&session, &uid, crate::time::now()).await;
+        let rows = n
+            .storage
+            .list_notifications("u-ana", &["a".into()], NotificationFilter::All, None, 10)
+            .await
+            .unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].excerpt.as_deref(), Some("The key is [redacted]. Keep it safe."));
+        assert_eq!(rows[0].source_session.as_ref(), Some(&session));
+        assert_eq!(rows[0].text, "Replied in your conversation.", "the summary stays free of model output");
+    }
+
+    #[tokio::test]
+    async fn a_task_row_keeps_the_title_it_had_when_the_run_ended() {
+        let (n, conn, _d) = setup();
+        agent(&conn, "a");
+        n.task_run_ended("a", "brief", "Weekly brief", 3, TaskRunState::Answered, crate::time::now()).await;
+        let rows = n
+            .storage
+            .list_notifications("u", &["a".into()], NotificationFilter::All, None, 10)
+            .await
+            .unwrap();
+        assert_eq!(rows[0].title.as_deref(), Some("Weekly brief"));
+    }
+
+    #[tokio::test]
+    async fn rows_are_found_by_their_source_session_so_a_conversation_delete_can_remove_them() {
+        let (n, conn, _d) = setup();
+        agent(&conn, "a");
+        conn.lock()
+            .unwrap()
+            .execute_batch("CREATE TABLE session_detail (agent_id TEXT, channel TEXT, topic TEXT, data TEXT);")
+            .ok();
+        let kept = VizierSession("a".into(), VizierChannelId::HTTP("ana".into(), "x".into()), Some("keep".into()));
+        let gone = VizierSession("a".into(), VizierChannelId::HTTP("ana".into(), "x".into()), Some("gone".into()));
+        for (key, session) in [("k", &kept), ("g", &gone)] {
+            let mut d = draft(key.into(), "a", NotificationCategory::ChatReply, NotificationTone::Default, "r".into(), "/a/chat".into(), crate::time::now());
+            d.source_session = Some(session.clone());
+            n.record(d).await;
+        }
+        let source = serde_json::to_string(&gone).unwrap();
+        conn.lock()
+            .unwrap()
+            .execute("DELETE FROM notification WHERE source_session = ?1", params![source])
+            .unwrap();
+        let rows = n
+            .storage
+            .list_notifications("u", &["a".into()], NotificationFilter::All, None, 10)
+            .await
+            .unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].source_session.as_ref(), Some(&kept));
+    }
+
+    #[tokio::test]
     async fn purge_removes_rows_older_than_the_cutoff() {
         let (n, conn, _d) = setup();
         agent(&conn, "a");
-        n.task_run_ended("a", "t", "T", 1, TaskRunState::Answered, Utc::now())
+        n.task_run_ended("a", "t", "T", 1, TaskRunState::Answered, crate::time::now())
             .await;
         assert_eq!(
-            n.purge_before(Utc::now() + chrono::Duration::days(1))
+            n.purge_before(crate::time::now() + chrono::Duration::days(1))
                 .await
                 .unwrap(),
             1

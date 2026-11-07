@@ -3,8 +3,9 @@
 //! built from the caller's own username, and a job is visible only when it was launched
 //! from that very session — any other id is a 404, so a caller cannot tell it exists.
 
-use chrono::{DateTime, Utc};
 
+
+use crate::time::Timestamp;
 use super::{ServiceError, Services};
 use crate::{
     access::can_view_agent,
@@ -153,7 +154,7 @@ pub async fn piece_history(
     topic_id: &TopicId,
     job_id: &str,
     ordinal: u32,
-    before: Option<DateTime<Utc>>,
+    before: Option<Timestamp>,
     before_seq: Option<i64>,
     limit: Option<usize>,
 ) -> Result<Vec<SessionHistory>, ServiceError> {

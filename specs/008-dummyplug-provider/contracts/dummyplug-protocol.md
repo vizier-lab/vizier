@@ -65,11 +65,12 @@ Send the JSON back (edit the values first) to run the tool.
 **Shape**:
 
 ```json
-{ "tool": "<tool name>", "arguments": { } }
+{ "say": "<text>", "tool": "<tool name>", "arguments": { } }
 ```
 
 - `tool` (string, required)
 - `arguments` (object, optional, defaults to `{}`)
+- `say` (string, optional, spec 053): text the model writes in the same message as the tool call, ahead of it. This is how a test produces a mid-turn message or a mid-turn mention. An empty string is the same as leaving it out.
 - Any other keys are ignored.
 
 **Outcomes**:
@@ -78,7 +79,7 @@ Send the JSON back (edit the values first) to run the tool.
 |------|-------|
 | Valid and known tool | The agent executes the tool through the normal tool path. The tool call and the tool response appear in session history and the UI. The final reply follows §4. |
 | Invalid JSON | `Could not parse tool request: <parser error>` plus the expected shape |
-| Wrong shape | `Invalid tool request: <reason>` plus the expected shape |
+| Wrong shape, including a `say` that is not a string | `Invalid tool request: <reason>` plus the expected shape |
 | Unknown tool | ``Unknown tool `<name>`. Send `tools` to list available tools.`` |
 
 No tool runs in any of the error cases.
