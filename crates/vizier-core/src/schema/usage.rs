@@ -17,6 +17,8 @@ pub enum UsageActivity {
     Chat,
     /// A project chat's coding work (`specs/041-project-coding-workspace` FR-016).
     Project,
+    /// A Workspace topic (`specs/053-workspace-channel`).
+    Workspace,
     Background,
     Scheduled,
     Dreams,
@@ -26,9 +28,10 @@ pub enum UsageActivity {
 }
 
 impl UsageActivity {
-    pub const ALL: [UsageActivity; 8] = [
+    pub const ALL: [UsageActivity; 9] = [
         Self::Chat,
         Self::Project,
+        Self::Workspace,
         Self::Background,
         Self::Scheduled,
         Self::Dreams,
@@ -41,6 +44,7 @@ impl UsageActivity {
         match self {
             Self::Chat => "chat",
             Self::Project => "project",
+            Self::Workspace => "workspace",
             Self::Background => "background",
             Self::Scheduled => "scheduled",
             Self::Dreams => "dreams",
@@ -54,6 +58,7 @@ impl UsageActivity {
         match self {
             Self::Chat => "Chat",
             Self::Project => "Projects",
+            Self::Workspace => "Workspaces",
             Self::Background => "Background",
             Self::Scheduled => "Scheduled",
             Self::Dreams => "Dreams",

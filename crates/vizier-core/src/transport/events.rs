@@ -12,17 +12,19 @@
 use tokio::sync::{broadcast, mpsc};
 use vizier_schema::{Bus, Envelope, Subject, SubjectPattern};
 
-use super::{InboxEvent, SessionEvent};
+use super::{InboxEvent, SessionEvent, WorkspaceEvent};
 use crate::schema::IntegrationChanged;
 
 pub const KIND_SESSION_EVENT: &str = "session_event";
 pub const KIND_INTEGRATION_CHANGED: &str = "integration_changed";
 pub const KIND_INBOX_EVENT: &str = "inbox_event";
+pub const KIND_WORKSPACE_EVENT: &str = "workspace_event";
 
 pub(super) enum Outgoing {
     Session(SessionEvent),
     Integration(IntegrationChanged),
     Inbox(InboxEvent),
+    Workspace(WorkspaceEvent),
 }
 
 /// Start the pump. Needs a running tokio runtime.
@@ -31,9 +33,10 @@ pub(super) fn start(
     session_tx: broadcast::Sender<SessionEvent>,
     integration_tx: broadcast::Sender<IntegrationChanged>,
     inbox_tx: broadcast::Sender<InboxEvent>,
+    workspace_tx: broadcast::Sender<WorkspaceEvent>,
 ) -> mpsc::UnboundedSender<Outgoing> {
     let (outbox, rx) = mpsc::unbounded_channel();
-    tokio::spawn(pump(bus, rx, session_tx, integration_tx, inbox_tx));
+    tokio::spawn(pump(bus, rx, session_tx, integration_tx, inbox_tx, workspace_tx));
     outbox
 }
 
@@ -43,16 +46,19 @@ async fn pump(
     session_tx: broadcast::Sender<SessionEvent>,
     integration_tx: broadcast::Sender<IntegrationChanged>,
     inbox_tx: broadcast::Sender<InboxEvent>,
+    workspace_tx: broadcast::Sender<WorkspaceEvent>,
 ) {
     let sessions = bus.messaging.subscribe(SubjectPattern::parse("session.>").expect("a valid pattern")).await;
     let integrations = bus.messaging.subscribe(SubjectPattern::from(&Subject::integration_changed())).await;
     let inboxes = bus.messaging.subscribe(SubjectPattern::from(&Subject::inbox_events())).await;
-    let (mut sessions, mut integrations, mut inboxes) = match (sessions, integrations, inboxes) {
-        (Ok(s), Ok(i), Ok(b)) => (s, i, b),
-        (s, i, b) => {
+    let workspaces = bus.messaging.subscribe(SubjectPattern::parse("workspace.>").expect("a valid pattern")).await;
+    let (mut sessions, mut integrations, mut inboxes, mut workspaces) =
+        match (sessions, integrations, inboxes, workspaces) {
+        (Ok(s), Ok(i), Ok(b), Ok(w)) => (s, i, b, w),
+        (s, i, b, w) => {
             tracing::error!(
                 "could not subscribe to events on the bus: {:?}",
-                s.err().or(i.err()).or(b.err())
+                s.err().or(i.err()).or(b.err()).or(w.err())
             );
             // Nothing can come back, so deliver what is published here straight to the subscribers.
             while let Some(out) = outbox.recv().await {
@@ -65,6 +71,9 @@ async fn pump(
                     }
                     Outgoing::Inbox(ev) => {
                         let _ = inbox_tx.send(ev);
+                    }
+                    Outgoing::Workspace(ev) => {
+                        let _ = workspace_tx.send(ev);
                     }
                 }
             }
@@ -80,6 +89,17 @@ async fn pump(
                     Outgoing::Session(ev) => publish_session(&bus, &session_tx, ev).await,
                     Outgoing::Integration(ev) => publish_integration(&bus, &integration_tx, ev).await,
                     Outgoing::Inbox(ev) => publish_inbox(&bus, &inbox_tx, ev).await,
+                    Outgoing::Workspace(ev) => publish_workspace(&bus, &workspace_tx, ev).await,
+                }
+            }
+            Some((_, envelope)) = workspaces.recv() => {
+                match envelope.decode::<WorkspaceEvent>() {
+                    Ok(ev) => { let _ = workspace_tx.send(ev); }
+                    Err(e) => tracing::warn!("dropping an undecodable workspace event: {e}"),
+                }
+                let lost = workspaces.lagged();
+                if lost > 0 {
+                    tracing::warn!(lost, "the workspace event pump fell behind and dropped events");
                 }
             }
             Some((_, envelope)) = inboxes.recv() => {
@@ -124,6 +144,22 @@ async fn publish_session(bus: &Bus, local: &broadcast::Sender<SessionEvent>, ev:
         }
         Err(e) => {
             tracing::warn!("a session event cannot go on the bus ({e}); delivering it locally");
+            let _ = local.send(ev);
+        }
+    }
+}
+
+async fn publish_workspace(bus: &Bus, local: &broadcast::Sender<WorkspaceEvent>, ev: WorkspaceEvent) {
+    let subject = Subject::workspace_events(ev.workspace_id());
+    match Envelope::json(KIND_WORKSPACE_EVENT, &ev) {
+        Ok(envelope) => {
+            if let Err(e) = bus.messaging.publish(&subject, envelope).await {
+                tracing::warn!("could not publish a workspace event, delivering it locally: {e}");
+                let _ = local.send(ev);
+            }
+        }
+        Err(e) => {
+            tracing::warn!("a workspace event cannot go on the bus ({e}); delivering it locally");
             let _ = local.send(ev);
         }
     }
@@ -328,9 +364,10 @@ mod tests {
             item,
             audience: Some("u1".into()),
             source_session: Some(session.clone()),
+            author: None,
         });
         let got = tokio::time::timeout(Duration::from_secs(5), rx.recv()).await.unwrap().unwrap();
-        let InboxEvent::Created { item, audience, source_session } = got else { panic!("expected created") };
+        let InboxEvent::Created { item, audience, source_session, .. } = got else { panic!("expected created") };
         assert_eq!(item.id, 9);
         assert_eq!(item.excerpt.as_deref(), Some("hello"));
         assert!(item.source_session.is_none());

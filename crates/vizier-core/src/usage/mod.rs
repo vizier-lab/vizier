@@ -657,6 +657,8 @@ enum SlugKind<'a> {
     Http,
     /// A project chat; the id is the project the conversation belongs to.
     Project(&'a str),
+    /// A Workspace topic: the Workspace id (`specs/053-workspace-channel`).
+    Workspace(&'a str),
     Discord(&'a str),
     Telegram(&'a str),
     Task(&'a str),
@@ -668,6 +670,8 @@ enum SlugKind<'a> {
 fn slug_kind(channel: &str) -> SlugKind<'_> {
     if channel.starts_with(crate::projects::channel::PREFIX) {
         SlugKind::Project(channel.rsplit_once("__").map_or("", |(_, id)| id))
+    } else if let Some(id) = channel.strip_prefix(crate::workspaces::PREFIX) {
+        SlugKind::Workspace(id)
     } else if channel.starts_with("http__") {
         SlugKind::Http
     } else if let Some(id) = channel.strip_prefix("discord__") {
@@ -858,6 +862,21 @@ async fn task_title(storage: &VizierStorage, agent_id: &str, slug: &str) -> Stri
 }
 
 /// Names come from storage only — no platform lookups on a person's read (R9).
+/// `ops / #general`, read from the Workspace tables; a deleted one falls back to `fallback`.
+async fn workspace_label(storage: &VizierStorage, id: &str, topic: Option<&str>, fallback: Option<String>) -> String {
+    use crate::storage::workspace::WorkspaceStorage;
+    let workspace = storage.get_workspace(id).await.ok().flatten();
+    let topic_name = match (&workspace, topic) {
+        (Some(w), Some(t)) => storage.get_topic(&w.id, t).await.ok().flatten().map(|t| t.name),
+        _ => None,
+    };
+    match (workspace, topic_name) {
+        (Some(w), Some(t)) => format!("{} / #{t}", w.name),
+        (Some(w), None) => w.name,
+        _ => fallback.unwrap_or_else(|| "Workspace topic".into()),
+    }
+}
+
 async fn place_label(
     storage: &VizierStorage,
     names: &NameBook,
@@ -876,6 +895,13 @@ async fn place_label(
             (
                 title.unwrap_or_else(|| "WebUI topic".into()),
                 Some("WebUI topic".into()),
+            )
+        }
+        "workspace" => {
+            let (id, topic) = rest.split_once(':').unwrap_or((rest, ""));
+            (
+                workspace_label(storage, id, Some(topic).filter(|t| !t.is_empty()), None).await,
+                Some("Workspace".into()),
             )
         }
         "project" => {
@@ -947,6 +973,10 @@ async fn conversation_label(
                 None => (title, Some("Project".into())),
             }
         }
+        SlugKind::Workspace(id) => (
+            workspace_label(storage, id, topic, title).await,
+            Some("Workspace".into()),
+        ),
         // `Vizier HQ / #general / <topic>`: the live names, then the topic's title once it has one.
         SlugKind::Discord(id) => (
             with_topic(
@@ -1005,6 +1035,10 @@ async fn conversation_link(
                 UsageLinkKind::Topic,
                 format!("/{agent_id}/projects/{id}/chat/{t}"),
             ),
+            None => none(NoLinkReason::NoWebPage),
+        },
+        SlugKind::Workspace(id) => match topic {
+            Some(t) => link(UsageLinkKind::Topic, format!("/workspaces/{id}/{t}")),
             None => none(NoLinkReason::NoWebPage),
         },
         SlugKind::Task(slug) => link(

@@ -6,3 +6,4 @@
 /inbox/stream
 /integrations/kinds/{id}/icon
 /providers/custom/test
+/workspaces/{id}/topics/{tid}/stream

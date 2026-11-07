@@ -2,6 +2,9 @@ set windows-shell := ["powershell.exe", "-NoLogo", "-NoProfile", "-Command"]
 
 install:
   @cargo install cargo-watch
+  @echo -e "\\e[1;34minstalling the public API checker (needs the nightly rustdoc)\\e[0m\n"
+  rustup toolchain install nightly --profile minimal
+  cargo install cargo-public-api --locked
   @echo -e "\\e[1;32minstalling core dependencies\\e[0m\n"
   cargo fetch
   @echo -e "\n\\e[1;32mDone\\e[0m"
@@ -322,6 +325,10 @@ dummyplug-test:
 # (Linux: webkit2gtk and friends through apt; macOS needs only the Xcode command line tools),
 # the Tauri CLI, and the app workspace's crates.
 [unix]
+# Regenerate the stable public API listing of vizier-core after a change to it.
+public-api:
+  cargo public-api -p vizier-core --omit blanket-impls > crates/vizier-core/public-api.txt
+
 install-app:
   #!/usr/bin/env bash
   set -euo pipefail

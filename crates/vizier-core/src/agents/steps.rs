@@ -68,6 +68,17 @@ pub async fn record_step(
 ) -> Option<String> {
     match crate::storage::history::save_with_busy_retry(storage, session, content.clone()).await {
         Ok(uid) => {
+            // A message an agent shows in a Workspace was written to the shared timeline by the
+            // save itself; announce it and wake who it names (spec 053).
+            if matches!(session.1, crate::schema::VizierChannelId::Workspace(_))
+                && matches!(
+                    content,
+                    SessionHistoryContent::AssistantMessage(_) | SessionHistoryContent::Response(_)
+                )
+            {
+                let hub = crate::workspaces::Hub::new(storage.clone(), transport.clone());
+                crate::workspaces::after_save(&hub, &uid).await;
+            }
             // A request keeps the time it was made, not the time it was saved.
             let timestamp = match &content {
                 SessionHistoryContent::Request(request) => request.timestamp,

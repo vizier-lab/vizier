@@ -8,9 +8,10 @@ use std::collections::HashMap;
 
 
 use crate::{
+    storage::workspace::WorkspaceStorage,
     auth::Principal,
     notifications::cursor,
-    schema::{NotificationCounts, NotificationFilter, NotificationItem, NotificationPage, VizierSession},
+    schema::{ChatUnread, NotificationCounts, NotificationFilter, NotificationItem, NotificationPage, VizierSession},
     service::{ServiceError, Services, overview::visible_agents},
     storage::{notification::NotificationStorage, session::SessionStorage},
     transport::InboxEvent,
@@ -21,10 +22,27 @@ const MAX_LIMIT: usize = 50;
 
 /// The ids the caller may see; none when the agents cannot be listed.
 async fn visible(services: &Services, user: &Principal) -> Vec<String> {
-    visible_agents(services, user)
+    let mut ids: Vec<String> = visible_agents(services, user)
         .await
         .map(|agents| agents.into_iter().map(|(id, _)| id).collect())
+        .unwrap_or_default();
+    ids.extend(workspace_scopes(services, user).await);
+    ids
+}
+
+/// One scope id for each Workspace the person is in now. Their Workspace rows are visible through
+/// it, and revoking membership removes it, so a removal takes effect at once with nothing to
+/// delete (`specs/053-workspace-channel` research R20).
+pub(crate) async fn workspace_scopes(services: &Services, user: &Principal) -> Vec<String> {
+    services
+        .deps()
+        .storage
+        .workspaces_of_person(&user.username)
+        .await
         .unwrap_or_default()
+        .into_iter()
+        .map(|(workspace, _)| crate::schema::workspace_scope(&workspace.id))
+        .collect()
 }
 
 /// The title a row shows, once per distinct conversation on the page: the conversation's
@@ -145,6 +163,42 @@ pub async fn set_read(
         id: Some(id),
         read,
     });
+    storage
+        .notification_counts(&user.user_id, &agents)
+        .await
+        .map_err(internal)
+}
+
+/// The replies this person has not read, per conversation: the counts on agents and their chats.
+pub async fn chat_unread(services: &Services, user: &Principal) -> Result<Vec<ChatUnread>, ServiceError> {
+    let agents = visible(services, user).await;
+    services
+        .deps()
+        .storage
+        .chat_unread(&user.user_id, &agents)
+        .await
+        .map_err(internal)
+}
+
+/// Marks one conversation's replies read for this person. Opening a chat does this.
+pub async fn mark_chat_read(
+    services: &Services,
+    user: &Principal,
+    href: &str,
+) -> Result<NotificationCounts, ServiceError> {
+    let agents = visible(services, user).await;
+    let storage = &services.deps().storage;
+    let marked = storage
+        .mark_chat_read(&user.user_id, href, crate::time::now(), &agents)
+        .await
+        .map_err(internal)?;
+    if marked > 0 {
+        // Every open tab of theirs counts again.
+        services.deps().transport.publish_inbox_event(InboxEvent::Stale {
+            user: Some(user.user_id.clone()),
+            agent_id: None,
+        });
+    }
     storage
         .notification_counts(&user.user_id, &agents)
         .await

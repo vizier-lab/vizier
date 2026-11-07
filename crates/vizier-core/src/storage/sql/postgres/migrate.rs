@@ -33,6 +33,11 @@ const MIGRATIONS: &[Migration] = &[
         name: "0003_notification_source",
         sql: include_str!("migrations/0003_notification_source.sql"),
     },
+    Migration {
+        version: 4,
+        name: "0004_workspaces",
+        sql: include_str!("migrations/0004_workspaces.sql"),
+    },
 ];
 
 /// Bring the schema `conn` sees (its `search_path`) up to the newest embedded migration.

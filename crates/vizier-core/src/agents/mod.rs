@@ -153,6 +153,12 @@ impl AgentHost {
             agents.take(agent_id, config).await?;
         }
 
+        // A Workspace mention saved just before the last stop, and never sent, is sent now. Every
+        // held agent's request channel is registered by this point, so it queues like any other
+        // (spec 053 R4).
+        let hub = crate::workspaces::Hub::from(&agents.deps);
+        tokio::spawn(async move { crate::workspaces::redispatch_pending(&hub).await });
+
         Ok(agents)
     }
 

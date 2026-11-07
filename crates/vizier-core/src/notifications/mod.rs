@@ -62,9 +62,9 @@ impl Notifications {
         let Some(transport) = self.transport.read().ok().and_then(|slot| slot.clone()) else {
             return;
         };
-        for InsertedNotification { item, audience } in inserted {
+        for InsertedNotification { item, audience, author } in inserted {
             let source_session = item.source_session.clone();
-            transport.publish_inbox_event(InboxEvent::Created { item, audience, source_session });
+            transport.publish_inbox_event(InboxEvent::Created { item, audience, source_session, author });
         }
     }
 
@@ -183,7 +183,11 @@ impl Notifications {
         reason: Option<&str>,
         at: Timestamp,
     ) {
-        if origin.1.platform().is_some() {
+        // Discord, Telegram and Workspace topics do not notify about jobs: a Workspace notifies
+        // about its messages instead (spec 053).
+        if origin.1.platform().is_some()
+            || matches!(origin.1, crate::schema::VizierChannelId::Workspace(_))
+        {
             return;
         }
         let Some((summary, tone)) = text::background_job(kind, state, reason) else {
@@ -395,6 +399,8 @@ fn draft(
         source_session: None,
         source_title: None,
         excerpt: None,
+        workspace_id: None,
+        author: None,
     }
 }
 

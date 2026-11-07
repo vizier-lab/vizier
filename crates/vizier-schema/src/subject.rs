@@ -154,6 +154,11 @@ impl Subject {
         Self(INTEGRATION_CHANGED.into())
     }
 
+    /// `workspace.{id}.events`
+    pub fn workspace_events(id: &str) -> Self {
+        Self::with_id("workspace", id, Some("events"))
+    }
+
     /// `inbox.events`
     pub fn inbox_events() -> Self {
         Self(INBOX_EVENTS.into())
