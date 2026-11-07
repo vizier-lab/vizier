@@ -516,3 +516,36 @@ export function outcomeDurationMs(outcome?: ChatMessage): number | undefined {
 
   return stats.duration.secs * 1000 + Math.round(stats.duration.nanos / 1_000_000)
 }
+
+/**
+ * How many dots of one state the phone's summary line shows before it counts the rest. A couple of
+ * failures and the newest of the rest fit beside the title in a phone drawer; the row clips the
+ * strip rather than grow, so this is a cap on noise, not on width.
+ */
+export const MINI_DOTS_PER_STATE = 3
+
+export type MiniDot = 'done' | 'running' | 'failed'
+
+/**
+ * The phone trail's dots: at most `per` of each state, taken from the newest calls, and how many
+ * calls went unshown. Proportional dots would stretch the chip with the work done — a hundred
+ * calls is a hundred dots — so the strip is bounded and the remainder is counted instead.
+ */
+export function miniDots(
+    dots: MiniDot[],
+    per = MINI_DOTS_PER_STATE
+): { dots: MiniDot[]; more: number } {
+    const kept: MiniDot[] = []
+    const seen: Record<MiniDot, number> = { done: 0, running: 0, failed: 0 }
+    // Newest first, so a failure or a running call at the end of the turn survives the cap.
+    for (let i = dots.length - 1; i >= 0; i--) {
+        const dot = dots[i]
+        if (seen[dot] < per) {
+            seen[dot] += 1
+            kept.push(dot)
+        }
+    }
+    // Restore the order they happened in.
+    kept.reverse()
+    return { dots: kept, more: dots.length - kept.length }
+}

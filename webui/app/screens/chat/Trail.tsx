@@ -14,7 +14,7 @@ import { Markdown } from '../shared/Markdown'
 import { useThinkingWord } from '../../lib/thinkingWords'
 import type { ExecutionReport, TrailEvent } from '../../api/frames'
 import { duration } from '../../lib/format'
-import { trailSummary } from '../../lib/trail'
+import { miniDots, trailSummary } from '../../lib/trail'
 import { useMobile } from '../../lib/useMobile'
 
 /** Past this many steps a trail shows its newest and folds the rest behind a toggle. */
@@ -225,16 +225,20 @@ export function Trail({
                 trailSummary(trail).replace('Reasoning · ', '')
             }
             defaultExpanded={live}
-            // On a phone the head carries one dot per call instead of the spine.
+            // On a phone the head carries a dot per call instead of the spine, capped so a
+            // hundred calls cannot stretch the line off the screen.
             mini={
                 mobile
                     ? {
-                          dots: trail
-                              .filter(
-                                  (e) =>
-                                      e.kind === 'python' || e.kind === 'tool'
-                              )
-                              .map((e) => miniDot(e, live || !!turnRunning)),
+                          ...miniDots(
+                              trail
+                                  .filter(
+                                      (e) =>
+                                          e.kind === 'python' ||
+                                          e.kind === 'tool'
+                                  )
+                                  .map((e) => miniDot(e, live || !!turnRunning))
+                          ),
                       }
                     : undefined
             }
