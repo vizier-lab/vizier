@@ -484,7 +484,8 @@ pub fn run() {
             });
 
             // The main window is built here, not in tauri.conf.json, to guard navigation (FR-013).
-            let guard = handle.clone();
+            let navigation_opener = handle.clone();
+            let new_window_opener = handle.clone();
             let dev_url = app.config().build.dev_url.as_ref().map(|u| u.to_string());
             // Only Windows reads it back, to paint the caption (as in `desktop_theme`).
             #[allow(unused_variables)]
@@ -498,9 +499,15 @@ pub fn run() {
                         return true;
                     }
                     if matches!(url.scheme(), "http" | "https" | "mailto") {
-                        let _ = guard.opener().open_url(url.as_str(), None::<&str>);
+                        let _ = navigation_opener.opener().open_url(url.as_str(), None::<&str>);
                     }
                     false
+                })
+                .on_new_window(move |url, _features| {
+                    if matches!(url.scheme(), "http" | "https" | "mailto") {
+                        let _ = new_window_opener.opener().open_url(url.as_str(), None::<&str>);
+                    }
+                    tauri::webview::NewWindowResponse::Deny
                 })
                 .build()?;
             // The default look is the dark shell; the WebUI repaints this if its theme is light.

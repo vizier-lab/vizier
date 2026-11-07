@@ -93,6 +93,21 @@ All notable changes to this project will be documented in this file.
 - Bump design and webui submodules (model override picker)
 - Bump webui submodule (quiet model trigger)
 - Bump version to 0.15.0-rc.1
+## [0.15.0-rc.3] - 2026-11-05
+
+### 🐛 Bug Fixes
+
+- *(desktop)* Open target blank links externally (#155)
+## [0.15.0-rc.2] - 2026-11-04
+
+### 🐛 Bug Fixes
+
+- *(test)* Produce the over-cap stream with posix awk, not a bashism
+- *(app)* Do not let the linux build trip -D warnings on the window binding
+
+### ⚙️ Miscellaneous Tasks
+
+- Bump version to 0.15.0-rc.2
 ## [0.14.1] - 2026-11-01
 
 ### 🚀 Features
