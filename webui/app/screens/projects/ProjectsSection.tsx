@@ -75,7 +75,12 @@ export function ProjectsSection({ agentId }: { agentId: string }) {
     )
 }
 
-/** The empty-conversation prompt: a desktop person with no projects is offered one. */
+/** Whether an empty chat should offer the desktop project's stable entry point. */
+export function shouldOfferOpenProject(projectId: string | undefined): boolean {
+    return projectId === undefined
+}
+
+/** The empty-conversation prompt: a desktop person can open another project. */
 export function OpenProjectButton({ agentId }: { agentId: string }) {
     const [open, setOpen] = useState(false)
     if (transport.authMode !== 'desktop') return null
