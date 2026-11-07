@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { ChatMessage } from '../api/frames'
 import type { EntryMention, WorkspaceEntry, WorkspaceStep } from '../api/endpoints/workspaces'
-import { buildTimeline, entriesByUid, mergeEntries, mergeSteps } from './workspaces'
+import { buildTimeline, entriesByUid, mergeEntries, mergeSteps, topicNameProblem } from './workspaces'
 
 const T0 = Date.parse('2026-11-06T10:00:00Z')
 const at = (s: number) => T0 + s * 1000
@@ -131,6 +131,18 @@ describe('a Workspace topic as things to draw', () => {
     it('leaves out an agent’s checkpoint-free internals it does not show', () => {
         const items = buildTimeline([], [step('alpha', 'r', 1, { Recall: { origin: 'auto' as never, passages: [] } })])
         expect(items).toEqual([])
+    })
+})
+
+describe('a topic name', () => {
+    const topics = [{ id: 'a', name: 'general' }, { id: 'b', name: 'release-notes' }]
+    it('is fine when free, and when it is the topic being renamed', () => {
+        expect(topicNameProblem('Daily', topics)).toBeUndefined()
+        expect(topicNameProblem('general', topics, 'a')).toBeUndefined()
+    })
+    it('cannot be taken or break the rule', () => {
+        expect(topicNameProblem(' GENERAL ', topics, 'b')).toMatch(/already exists/)
+        expect(topicNameProblem('not allowed!', topics)).toMatch(/lower-case/)
     })
 })
 

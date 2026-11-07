@@ -1,14 +1,16 @@
-import { Badge, Dialog, IconButton, Menu, MenuDivider, MenuItem, NavItem, NavSection, TextField, useDismiss } from '@vizier/design'
+import { Badge, Dialog, IconButton, Icon, Menu, MenuItem, NavItem, NavSection, TextField, useDismiss } from '@vizier/design'
 import { useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { ApiError } from '../../api/client'
 import { createTopic, deleteTopic, deleteWorkspace, renameTopic, renameWorkspace, type WorkspaceSummary } from '../../api/endpoints/workspaces'
+import { normalizeTopicName, topicNameProblem } from '../../lib/workspaces'
 import { useWorkspaces } from '../../stores/workspaces'
 import { toast } from '../../stores/toasts'
 
-/** A topic name as the server will take it: lower-case letters, digits and dashes. */
-const normalize = (typed: string) => typed.trim().toLowerCase()
-const VALID = /^[a-z0-9][a-z0-9-]*$/
+// The row's small buttons, as in an agent's session list: on hover and focus, and always where
+// there is no hover to reveal them.
+const ROW_BUTTON =
+    'absolute top-1/2 grid size-24 -translate-y-1/2 place-items-center rounded-md text-faint opacity-0 transition-[opacity,color,background-color] hover:bg-raised focus-visible:opacity-100 group-hover/row:opacity-100 group-focus-within/row:opacity-100 [@media(hover:none)]:opacity-100'
 
 /** The column beside the rail in a Workspace: its name, its topics, and a new topic. */
 export function WorkspaceSidebar({ workspace, activeTopic, onMembers }: { workspace: WorkspaceSummary; activeTopic?: string; onMembers: () => void }) {
@@ -18,16 +20,17 @@ export function WorkspaceSidebar({ workspace, activeTopic, onMembers }: { worksp
     const [name, setName] = useState('')
     const [saving, setSaving] = useState(false)
     // Owners manage the Workspace: rename or delete it, or the topic on screen.
-    const [managing, setManaging] = useState<null | 'rename-topic' | 'delete-topic' | 'rename-workspace' | 'delete-workspace'>(null)
+    const [managing, setManaging] = useState<null | 'rename-workspace' | 'delete-workspace'>(null)
     const [menu, setMenu] = useState(false)
     const menuBox = useRef<HTMLDivElement>(null)
     useDismiss(menu, () => setMenu(false), menuBox)
     const isOwner = workspace.role === 'owner' || workspace.role === 'admin'
-    const current = workspace.topics.find((t) => t.id === activeTopic)
-    const key = normalize(name)
-    const taken = workspace.topics.some((t) => t.name === key)
-    const invalid = key.length > 0 && (!VALID.test(key) || key.length > 64)
-    const problem = taken ? 'A topic with that name already exists.' : invalid ? 'Use lower-case letters, digits and dashes, up to 64.' : undefined
+    const [renamingTopic, setRenamingTopic] = useState<string | null>(null)
+    const [draft, setDraft] = useState('')
+    const [deletingTopic, setDeletingTopic] = useState<{ id: string; name: string } | null>(null)
+    const key = normalizeTopicName(name)
+    const problem = topicNameProblem(name, workspace.topics)
+    const draftProblem = topicNameProblem(draft, workspace.topics, renamingTopic ?? undefined)
 
     const add = async () => {
         setSaving(true)
@@ -48,14 +51,7 @@ export function WorkspaceSidebar({ workspace, activeTopic, onMembers }: { worksp
         if (!managing) return
         setSaving(true)
         try {
-            if (managing === 'rename-topic' && current) await renameTopic(workspace.id, current.id, key)
             if (managing === 'rename-workspace') await renameWorkspace(workspace.id, key)
-            if (managing === 'delete-topic' && current) {
-                await deleteTopic(workspace.id, current.id)
-                await load()
-                const other = workspace.topics.find((t) => t.id !== current.id)
-                if (other) navigate(`/workspaces/${workspace.id}/${other.id}`)
-            }
             if (managing === 'delete-workspace') {
                 await deleteWorkspace(workspace.id)
                 await load()
@@ -70,9 +66,41 @@ export function WorkspaceSidebar({ workspace, activeTopic, onMembers }: { worksp
             setSaving(false)
         }
     }
-    const renaming = managing === 'rename-topic' || managing === 'rename-workspace'
-    const clash = managing === 'rename-topic' && workspace.topics.some((t) => t.name === key && t.id !== current?.id)
-    const manageProblem = clash ? 'A topic with that name already exists.' : invalid ? 'Use lower-case letters, digits and dashes, up to 64.' : undefined
+    const renaming = managing === 'rename-workspace'
+    const manageProblem = key && (!/^[a-z0-9][a-z0-9-]*$/.test(key) || key.length > 64) ? 'Use lower-case letters, digits and dashes, up to 64.' : undefined
+
+    // Enter commits and Escape or leaving the row cancels, as when renaming a session.
+    const commitRename = async (id: string, current: string) => {
+        const next = normalizeTopicName(draft)
+        if (!next || next === current) return setRenamingTopic(null)
+        if (draftProblem) return toast.error(draftProblem)
+        setRenamingTopic(null)
+        try {
+            await renameTopic(workspace.id, id, next)
+            await load()
+        } catch (e) {
+            toast.error(e instanceof ApiError ? e.message : "Couldn't rename the topic")
+        }
+    }
+
+    const removeTopic = async () => {
+        if (!deletingTopic) return
+        setSaving(true)
+        try {
+            await deleteTopic(workspace.id, deletingTopic.id)
+            await load()
+            // The topic on screen is gone: go to the first one left.
+            if (deletingTopic.id === activeTopic) {
+                const other = workspace.topics.find((t) => t.id !== deletingTopic.id)
+                if (other) navigate(`/workspaces/${workspace.id}/${other.id}`, { replace: true })
+            }
+            setDeletingTopic(null)
+        } catch (e) {
+            toast.error(e instanceof ApiError ? e.message : "Couldn't delete the topic")
+        } finally {
+            setSaving(false)
+        }
+    }
 
     return (
         <nav aria-label={`${workspace.name} topics`} className="flex h-full w-256 shrink-0 flex-col gap-4 bg-shell pt-12 pr-12 pl-0">
@@ -85,13 +113,6 @@ export function WorkspaceSidebar({ workspace, activeTopic, onMembers }: { worksp
                         {menu && (
                             <div className="absolute top-full right-0 z-30 mt-4">
                                 <Menu aria-label="Manage this Workspace" className="w-192!">
-                                    {current && (
-                                        <MenuItem icon="pencil" label="Rename topic" onClick={() => { setMenu(false); setName(current.name); setManaging('rename-topic') }} />
-                                    )}
-                                    {current && workspace.topics.length > 1 && (
-                                        <MenuItem icon="trash" tone="danger" label="Delete topic" onClick={() => { setMenu(false); setManaging('delete-topic') }} />
-                                    )}
-                                    {current && <MenuDivider />}
                                     <MenuItem icon="pencil" label="Rename Workspace" onClick={() => { setMenu(false); setName(workspace.name); setManaging('rename-workspace') }} />
                                     <MenuItem icon="trash" tone="danger" label="Delete Workspace" onClick={() => { setMenu(false); setManaging('delete-workspace') }} />
                                 </Menu>
@@ -101,30 +122,75 @@ export function WorkspaceSidebar({ workspace, activeTopic, onMembers }: { worksp
                 )}
             </div>
             <NavSection label="Topics">
-                {workspace.topics.map((t) => (
-                    <NavItem
-                        key={t.id}
-                        label={
-                            <span className="flex items-center gap-8">
-                                <span className="min-w-0 flex-1 truncate"># {t.name}</span>
-                                {t.unread > 0 && <Badge tone="rank" aria-label={`${t.unread} unread`}>{t.unread}</Badge>}
-                            </span>
-                        }
-                        href={`/workspaces/${workspace.id}/${t.id}`}
-                        active={t.id === activeTopic}
-                        live={workspace.working && t.id === activeTopic}
-                    />
-                ))}
+                {workspace.topics.map((t) => {
+                    const deletable = isOwner && workspace.topics.length > 1
+                    if (renamingTopic === t.id) {
+                        return (
+                            <input
+                                key={t.id}
+                                autoFocus
+                                aria-label="Topic name"
+                                aria-invalid={!!draftProblem}
+                                title={draftProblem}
+                                value={draft}
+                                maxLength={64}
+                                onChange={(e) => setDraft(e.target.value)}
+                                onBlur={() => setRenamingTopic(null)}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter') void commitRename(t.id, t.name)
+                                    if (e.key === 'Escape') setRenamingTopic(null)
+                                }}
+                                className={`h-31 w-full rounded-md border bg-surface px-10 type-body text-fg outline-none ${draftProblem ? 'border-failed' : 'border-border-hover'}`}
+                            />
+                        )
+                    }
+                    return (
+                        <div key={t.id} className="group/row relative">
+                            <NavItem
+                                className={isOwner ? (deletable ? 'group-hover/row:pr-60 group-focus-within/row:pr-60 [@media(hover:none)]:pr-60' : 'group-hover/row:pr-36 group-focus-within/row:pr-36 [@media(hover:none)]:pr-36') : undefined}
+                                label={
+                                    <span className="flex items-center gap-8">
+                                        <span className="min-w-0 flex-1 truncate"># {t.name}</span>
+                                        {t.unread > 0 && <Badge tone="rank" aria-label={`${t.unread} unread`}>{t.unread}</Badge>}
+                                    </span>
+                                }
+                                href={`/workspaces/${workspace.id}/${t.id}`}
+                                active={t.id === activeTopic}
+                                live={workspace.working && t.id === activeTopic}
+                            />
+                            {isOwner && (
+                                <button
+                                    type="button"
+                                    aria-label={`Rename ${t.name}`}
+                                    title="Rename topic"
+                                    onClick={() => {
+                                        setDraft(t.name)
+                                        setRenamingTopic(t.id)
+                                    }}
+                                    className={`${ROW_BUTTON} hover:text-fg ${deletable ? 'right-30' : 'right-6'}`}
+                                >
+                                    <Icon name="pencil" size={13} />
+                                </button>
+                            )}
+                            {deletable && (
+                                <button
+                                    type="button"
+                                    aria-label={`Delete ${t.name}`}
+                                    title="Delete topic"
+                                    onClick={() => setDeletingTopic({ id: t.id, name: t.name })}
+                                    className={`${ROW_BUTTON} right-6 hover:text-failed`}
+                                >
+                                    <Icon name="trash" size={13} />
+                                </button>
+                            )}
+                        </div>
+                    )
+                })}
                 <NavItem icon="plus" label="New topic" onSelect={() => setAdding(true)} />
             </NavSection>
             <Dialog
                 open={managing !== null}
-                title={
-                    managing === 'rename-topic' ? 'Rename topic'
-                    : managing === 'rename-workspace' ? 'Rename Workspace'
-                    : managing === 'delete-topic' ? `Delete #${current?.name ?? ''}?`
-                    : `Delete ${workspace.name}?`
-                }
+                title={renaming ? 'Rename Workspace' : `Delete ${workspace.name}?`}
                 confirmLabel={renaming ? 'Rename' : 'Delete'}
                 confirmDisabled={renaming && (!key || !!manageProblem)}
                 confirmLoading={saving}
@@ -144,11 +210,19 @@ export function WorkspaceSidebar({ workspace, activeTopic, onMembers }: { worksp
                     />
                 ) : (
                     <p className="type-ui text-fg">
-                        {managing === 'delete-topic'
-                            ? 'Its messages and every agent\'s record of it are removed. This cannot be undone.'
-                            : 'Every topic and message, and every agent\'s record of them, is removed. Running turns are stopped first. This cannot be undone.'}
+                        Every topic and message, and every agent's record of them, is removed. Running turns are stopped first. This cannot be undone.
                     </p>
                 )}
+            </Dialog>
+            <Dialog
+                open={deletingTopic !== null}
+                title={`Delete # ${deletingTopic?.name ?? ''}?`}
+                confirmLabel="Delete"
+                confirmLoading={saving}
+                onConfirm={() => void removeTopic()}
+                onCancel={() => setDeletingTopic(null)}
+            >
+                <p className="type-ui text-fg">Its messages and every agent's record of it are removed. This cannot be undone.</p>
             </Dialog>
             <Dialog
                 open={adding}

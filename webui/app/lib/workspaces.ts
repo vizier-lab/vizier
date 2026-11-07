@@ -170,3 +170,15 @@ export function buildTimeline(entries: readonly WorkspaceEntry[], steps: readonl
 
     return items.sort((a, b) => a.at - b.at || a.key.localeCompare(b.key))
 }
+
+/** A topic name as the server will take it: lower-case letters, digits and dashes. */
+export const normalizeTopicName = (typed: string) => typed.trim().toLowerCase()
+
+/** Why a typed topic name can't be used, or undefined. `except` is the topic being renamed. */
+export function topicNameProblem(typed: string, topics: readonly { id: string; name: string }[], except?: string): string | undefined {
+    const name = normalizeTopicName(typed)
+    if (!name) return undefined
+    if (topics.some((t) => t.name === name && t.id !== except)) return 'A topic with that name already exists.'
+    if (!/^[a-z0-9][a-z0-9-]*$/.test(name) || name.length > 64) return 'Use lower-case letters, digits and dashes, up to 64.'
+    return undefined
+}
