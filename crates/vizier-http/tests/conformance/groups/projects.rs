@@ -51,5 +51,18 @@ pub fn vectors() -> Vec<Vector> {
         ),
         v("GET", "/agents/agent-a/projects/p3xY9aQ2mZ/worktrees/w1", None),
         v("DELETE", "/agents/agent-a/projects/p3xY9aQ2mZ/worktrees/w1", None),
+        // 054: language servers. The fixture has no project row, so these pin the envelope.
+        v("GET", "/agents/agent-a/projects/p3xY9aQ2mZ/lsp", None),
+        v(
+            "PUT",
+            "/agents/agent-a/projects/p3xY9aQ2mZ/lsp/overrides/rust",
+            Some(json!({ "command": "rust-analyzer", "args": [], "env": {} })),
+        ),
+        v("DELETE", "/agents/agent-a/projects/p3xY9aQ2mZ/lsp/overrides/rust", None),
+        v(
+            "POST",
+            "/agents/agent-a/projects/p3xY9aQ2mZ/lsp/restart",
+            Some(json!({ "language": "rust" })),
+        ),
     ]
 }

@@ -84,6 +84,9 @@ pub struct VizierDependencies {
     /// The stale-read guard for project coding tools (`specs/041-project-coding-workspace`
     /// R8): `(session slug, path) → sha256` of what the chat last read or wrote.
     pub project_ledger: Arc<crate::projects::ledger::ProjectReadLedger>,
+    /// Language servers for project chats (`specs/054-project-lsp`), one per (project, root,
+    /// language), started on first use and bounded by `lsp.max_servers`.
+    pub lsp: crate::projects::lsp::LspHost,
     /// Asking the person (`specs/042-agent-asking-question`): each channel's question surfaces and
     /// the sensitive-input asks waiting on somebody. Process-wide, because a surface outlives a
     /// turn and an ask is answered by a socket that is not running one.
@@ -337,12 +340,16 @@ impl VizierDependencies {
                 crate::channels::side_chat::ASK_WINDOW,
             )),
             project_ledger: Default::default(),
+            lsp: crate::projects::lsp::LspHost::new(config.lsp.max_servers),
             questions: Arc::new(crate::questions::Questions::new()),
             client_connections: crate::agents::client::ClientConnections::new(),
             agents,
         };
         #[cfg(feature = "addon-documents")]
         deps.seed_office_defaults().await;
+        // Server changes reach the inbox stream (spec 054).
+        deps.lsp
+            .set_listener(crate::projects::lsp::announce::listener(deps.transport.clone()));
         deps.seed_tool_addons().await;
         Ok(deps)
     }

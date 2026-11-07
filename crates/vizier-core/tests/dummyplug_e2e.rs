@@ -607,6 +607,7 @@ async fn a_project_session_can_run_the_workspace_shell() {
         folder: std::fs::canonicalize(folder.path()).unwrap(),
         owner_id: "u-e2e".into(),
         shell_enabled: true,
+        lsp_enabled: false,
         created_at: 0,
         removed_at: None,
     };
@@ -696,6 +697,192 @@ async fn a_project_session_can_run_the_workspace_shell() {
     )
     .await;
     assert!(!list.contains("workspace_shell"), "ordinary turn has no project shell: {list}");
+
+    runtime.shutdown().await.unwrap();
+}
+
+/// Spec 054 (quickstart §1 and §3): a project chat is offered the `lsp_*` tools, an edit's result
+/// says whether the code still holds together, and switching the feature off takes all of it away.
+/// The server is the `fake_lsp` example, set as the project's override, so nothing needs installing.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_project_edit_learns_what_it_broke_from_a_language_server() {
+    use vizier_core::schema::ServerOverride;
+
+    let Some(dummyplug) = Dummyplug::start() else {
+        return;
+    };
+    dummyplug.ready().await;
+
+    let fake = std::env::current_exe()
+        .unwrap()
+        .parent()
+        .and_then(|p| p.parent())
+        .unwrap()
+        .join("examples")
+        .join("fake_lsp");
+    assert!(fake.exists(), "build the fixture first: cargo build -p vizier-core --example fake_lsp");
+
+    let dir = tempfile::tempdir().unwrap();
+    let runtime = VizierRuntime::start(RuntimeOptions {
+        config: VizierConfig::with_workspace(dir.path().to_path_buf()),
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+    let storage = &runtime.deps().storage;
+    storage
+        .upsert_provider(&ProviderEntry {
+            id: ProviderId::DUMMYPLUG,
+            credentials: ProviderCredentials {
+                base_url: Some(dummyplug.base_url()),
+                ..Default::default()
+            },
+        })
+        .await
+        .unwrap();
+    let role = storage
+        .create_role("projects", vec!["all_agents:view".into(), "all_agents:projects".into()], false)
+        .await
+        .unwrap();
+    storage.create_user("e2e", "", &role.role_id).await.unwrap();
+
+    let folder = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(folder.path().join("src")).unwrap();
+    std::fs::write(folder.path().join("src/lib.rs"), "pub fn greet() -> u32 { 1 }\n").unwrap();
+    storage
+        .open_project(vizier_core::schema::Project {
+            id: "p3xY9aQ2mZ".into(),
+            agent_id: "plug".into(),
+            name: "alpha".into(),
+            folder: std::fs::canonicalize(folder.path()).unwrap(),
+            owner_id: "u-e2e".into(),
+            shell_enabled: true,
+            lsp_enabled: true,
+            created_at: 0,
+            removed_at: None,
+        })
+        .await
+        .unwrap();
+    storage
+        .set_lsp_override(
+            "p3xY9aQ2mZ",
+            "rust",
+            &ServerOverride {
+                command: fake.to_string_lossy().into_owned(),
+                args: vec!["--script".into(), "diagnostics".into()],
+                env: Default::default(),
+            },
+            "u-e2e",
+            0,
+        )
+        .await
+        .unwrap();
+
+    let (resp, created) = tokio::sync::oneshot::channel();
+    runtime
+        .transport()
+        .send_agent_command(AgentCommand::Create {
+            agent_id: "plug".into(),
+            config: agent_config("plug"),
+            resp,
+        })
+        .await
+        .unwrap();
+    match tokio::time::timeout(TURN_TIMEOUT, created).await.unwrap().unwrap() {
+        AgentCommandResult::Ok(_) => {}
+        AgentCommandResult::Error(e) => panic!("create failed: {e}"),
+    }
+    let transport = runtime.transport();
+    let session = VizierSession(
+        "plug".into(),
+        VizierChannelId::Project("e2e".into(), "p3xY9aQ2mZ".into()),
+        Some("project-1".into()),
+    );
+    storage
+        .set_project_chat_mode(
+            "plug",
+            &session.1.to_slug(),
+            "project-1",
+            vizier_core::schema::ProjectMode::Build,
+        )
+        .await
+        .unwrap();
+
+    // §1: the five tools are listed, and the state line reads on.
+    let list = chat(transport, &session, r#"{"tool":"list_tool_functions","arguments":{"category":"coding"}}"#).await;
+    for name in ["lsp_diagnostics", "lsp_definition", "lsp_references", "lsp_hover", "lsp_symbols"] {
+        assert!(list.contains(name), "{name} is listed under coding: {list}");
+    }
+    let context = chat(transport, &session, "context").await;
+    assert!(context.contains("Language servers: on."), "the state line is in the context: {context}");
+
+    // §3: reading the file starts the server in the background; once it is ready the edit's own
+    // result carries what it broke.
+    chat(
+        transport,
+        &session,
+        r#"{"tool":"execute_python","arguments":{"intent":"read","code":"print(read_file(path='src/lib.rs')['total_lines'])"}}"#,
+    )
+    .await;
+    let began = std::time::Instant::now();
+    loop {
+        let ready = runtime.deps().lsp.status("p3xY9aQ2mZ").iter().any(|s| s.state == "ready");
+        if ready {
+            break;
+        }
+        assert!(began.elapsed() < Duration::from_secs(20), "the server never became ready");
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+
+    let broken = chat(
+        transport,
+        &session,
+        r#"{"tool":"execute_python","arguments":{"intent":"break it","code":"r = edit_file(path='src/lib.rs', old_text='{ 1 }', new_text='{ ERROR }')\nprint(r['diagnostics']['status'], r['diagnostics']['errors'], r['diagnostics']['items'][0]['message'], r['diagnostics']['items'][0]['path'], r['diagnostics']['items'][0]['line'])"}}"#,
+    )
+    .await;
+    assert!(broken.contains("current 1 found ERROR src/lib.rs 1"), "the edit reports its error: {broken}");
+
+    let fixed = chat(
+        transport,
+        &session,
+        r#"{"tool":"execute_python","arguments":{"intent":"fix it","code":"r = edit_file(path='src/lib.rs', old_text='{ ERROR }', new_text='{ 2 }')\nprint(r['diagnostics']['status'], r['diagnostics']['errors'])"}}"#,
+    )
+    .await;
+    assert!(fixed.contains("current 0"), "reverting reports no errors: {fixed}");
+
+    // A question by meaning, in the same chat.
+    let hover = chat(
+        transport,
+        &session,
+        r#"{"tool":"execute_python","arguments":{"intent":"hover","code":"print(lsp_hover(path='src/lib.rs', line=1, symbol='greet')['signature'])"}}"#,
+    )
+    .await;
+    assert!(hover.contains("fn resolve()"), "hover answers: {hover}");
+
+    // An ordinary conversation has none of it.
+    let ordinary = VizierSession(
+        "plug".into(),
+        VizierChannelId::HTTP("e2e".into(), "harness".into()),
+        Some("plain-1".into()),
+    );
+    let list = chat(transport, &ordinary, r#"{"tool":"list_tool_functions","arguments":{"category":"coding"}}"#).await;
+    assert!(!list.contains("lsp_definition"), "ordinary turn has no lsp tools: {list}");
+
+    // Off: the tools go, the edit still works and carries no diagnostics, and nothing keeps running.
+    storage.set_project_lsp("p3xY9aQ2mZ", false).await.unwrap();
+    runtime.deps().lsp.close_project("p3xY9aQ2mZ").await;
+    assert!(runtime.deps().lsp.status("p3xY9aQ2mZ").is_empty());
+    let list = chat(transport, &session, r#"{"tool":"list_tool_functions","arguments":{"category":"coding"}}"#).await;
+    assert!(!list.contains("lsp_definition"), "off removes the tools: {list}");
+    let off = chat(
+        transport,
+        &session,
+        r#"{"tool":"execute_python","arguments":{"intent":"edit while off","code":"r = edit_file(path='src/lib.rs', old_text='{ 2 }', new_text='{ 3 }')\nprint('diagnostics' in r, r['replacements'])"}}"#,
+    )
+    .await;
+    assert!(off.contains("False 1"), "an edit while off succeeds without diagnostics: {off}");
+    let context = chat(transport, &session, "context").await;
+    assert!(context.contains("Language servers: off."), "the state line follows the switch: {context}");
 
     runtime.shutdown().await.unwrap();
 }

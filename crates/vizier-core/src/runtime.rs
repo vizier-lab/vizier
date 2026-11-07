@@ -294,6 +294,8 @@ impl VizierRuntime {
         if let Some(readers) = &self.readers {
             readers.shutdown().await;
         }
+        // No language server outlives the engine (spec 054, SC-006).
+        self.deps.lsp.stop_all().await;
         Ok(())
     }
 

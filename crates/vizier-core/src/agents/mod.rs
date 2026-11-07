@@ -705,6 +705,17 @@ impl AgentHost {
             .files_for_agent(agent_id)
             .await
             .unwrap_or_default();
+        // Language servers rooted in this agent's projects stop before their rows go.
+        for project in crate::storage::project::ProjectStorage::list_projects(
+            &*self.deps.storage,
+            agent_id,
+            true,
+        )
+            .await
+            .unwrap_or_default()
+        {
+            self.deps.lsp.close_project(&project.id).await;
+        }
         if let Err(e) = self.deps.storage.delete_agent(agent_id).await {
             return AgentCommandResult::Error(format!("failed to delete agent: {}", e));
         }

@@ -451,6 +451,7 @@ mod tests {
             folder: std::path::PathBuf::from("/tmp/does-not-matter"),
             owner_id: owner.into(),
             shell_enabled: true,
+            lsp_enabled: false,
             created_at: 0,
             removed_at: None,
         }

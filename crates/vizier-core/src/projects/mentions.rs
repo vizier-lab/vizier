@@ -115,6 +115,9 @@ mod tests {
             instructions_truncated: false,
             is_piece: false,
             ledger: Default::default(),
+            lsp_enabled: false,
+            lsp_overrides: Default::default(),
+            lsp: Default::default(),
         };
         ToolContext {
             session: VizierSession(

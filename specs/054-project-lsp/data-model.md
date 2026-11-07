@@ -67,8 +67,11 @@ Rows:
 | Zig | `zls` | `brew install zls` |
 | Bash | `bash-language-server start` | `npm install -g bash-language-server` |
 
-Install hints are shown to people as they are, so check each one when `languages.rs` is written. Only
-clangd and rust-analyzer have been run so far.
+Install hints are shown to people as they are. Checked when `languages.rs` was written: the Homebrew
+formulae (jdtls, kotlin-language-server, elixir-ls, zls, lua-language-server), the npm packages and
+their binaries (typescript-language-server, pyright's `pyright-langserver`, intelephense,
+bash-language-server) and the `ruby-lsp` gem all exist. Only clangd and rust-analyzer have been *run*;
+`gopls`, `csharp-ls`, `sourcekit-lsp` and `dart language-server` could not be installed here.
 
 ## 4. `ServerInstance` (memory only)
 

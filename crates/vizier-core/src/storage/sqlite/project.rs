@@ -5,7 +5,10 @@ use crate::storage::sql::{Connection, params};
 use anyhow::Result;
 
 use crate::{
-    schema::{Project, ProjectMode, ProjectSessionRow, VizierSessionDetail, Worktree, WorktreeRef},
+    schema::{
+        Project, ProjectMode, ProjectSessionRow, ServerOverride, VizierSessionDetail, Worktree,
+        WorktreeRef,
+    },
     storage::{project::ProjectStorage, sqlite::SqlStorage},
 };
 
@@ -55,8 +58,23 @@ pub fn init_project_schema(conn: &rusqlite::Connection) -> Result<()> {
             UNIQUE (project_id, topic)
         );
         CREATE INDEX IF NOT EXISTS idx_worktree_project ON project_worktree(project_id);
+
+        -- A person's server for one language in one project (`specs/054-project-lsp` data-model §2).
+        -- `env` is an encrypted envelope.
+        CREATE TABLE IF NOT EXISTS project_lsp_override (
+            project_id TEXT    NOT NULL REFERENCES project(id) ON DELETE CASCADE,
+            language   TEXT    NOT NULL,
+            command    TEXT    NOT NULL,
+            args       TEXT    NOT NULL,
+            env        TEXT    NOT NULL,
+            updated_by TEXT    NOT NULL,
+            updated_at INTEGER NOT NULL,
+            PRIMARY KEY (project_id, language)
+        );
         ",
     )?;
+    // Spec 054: the language-server switch. Existing rows read off; tracked on #82.
+    super::add_column_if_missing(conn, "project", "lsp_enabled", "INTEGER NOT NULL DEFAULT 0")?;
     Ok(())
 }
 
@@ -91,12 +109,13 @@ fn row_to_project(row: &crate::storage::sql::Row) -> crate::storage::sql::Result
         shell_enabled: row.get::<_, i64>(5)? != 0,
         created_at: row.get(6)?,
         removed_at: row.get(7)?,
+        lsp_enabled: row.get::<_, i64>(8)? != 0,
     })
 }
 
 fn read_project(conn: &Connection, agent_id: &str, project_id: &str) -> Result<Option<Project>> {
     let mut stmt = conn.prepare(
-        "SELECT id, agent_id, name, folder, owner_id, shell_enabled, created_at, removed_at \
+        "SELECT id, agent_id, name, folder, owner_id, shell_enabled, created_at, removed_at, lsp_enabled \
          FROM project WHERE agent_id = ?1 AND id = ?2",
     )?;
     let mut rows = stmt.query_map(params![agent_id, project_id], row_to_project)?;
@@ -105,7 +124,7 @@ fn read_project(conn: &Connection, agent_id: &str, project_id: &str) -> Result<O
 
 fn read_by_folder(conn: &Connection, agent_id: &str, folder: &str) -> Result<Option<Project>> {
     let mut stmt = conn.prepare(
-        "SELECT id, agent_id, name, folder, owner_id, shell_enabled, created_at, removed_at \
+        "SELECT id, agent_id, name, folder, owner_id, shell_enabled, created_at, removed_at, lsp_enabled \
          FROM project WHERE agent_id = ?1 AND folder = ?2",
     )?;
     let mut rows = stmt.query_map(params![agent_id, folder], row_to_project)?;
@@ -127,6 +146,10 @@ pub fn delete_agent_projects(conn: &Connection, agent_id: &str) -> Result<usize>
         "DELETE FROM project_worktree WHERE agent_id = ?1",
         params![agent_id],
     )?;
+    conn.execute(
+        "DELETE FROM project_lsp_override WHERE project_id IN (SELECT id FROM project WHERE agent_id = ?1)",
+        params![agent_id],
+    )?;
     Ok(conn.execute("DELETE FROM project WHERE agent_id = ?1", params![agent_id])?)
 }
 
@@ -136,11 +159,11 @@ impl ProjectStorage for SqlStorage {
         let conn = self.conn.lock()?;
         let sql = match include_removed {
             true => {
-                "SELECT id, agent_id, name, folder, owner_id, shell_enabled, created_at, removed_at \
+                "SELECT id, agent_id, name, folder, owner_id, shell_enabled, created_at, removed_at, lsp_enabled \
                  FROM project WHERE agent_id = ?1 ORDER BY created_at DESC, id"
             }
             false => {
-                "SELECT id, agent_id, name, folder, owner_id, shell_enabled, created_at, removed_at \
+                "SELECT id, agent_id, name, folder, owner_id, shell_enabled, created_at, removed_at, lsp_enabled \
                  FROM project WHERE agent_id = ?1 AND removed_at IS NULL \
                  ORDER BY created_at DESC, id"
             }
@@ -173,8 +196,8 @@ impl ProjectStorage for SqlStorage {
         }
 
         let inserted = conn.execute(
-            "INSERT INTO project (id, agent_id, name, folder, owner_id, shell_enabled, created_at, removed_at) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            "INSERT INTO project (id, agent_id, name, folder, owner_id, shell_enabled, created_at, removed_at, lsp_enabled) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             params![
                 project.id,
                 project.agent_id,
@@ -184,6 +207,7 @@ impl ProjectStorage for SqlStorage {
                 project.shell_enabled as i64,
                 project.created_at,
                 project.removed_at,
+                project.lsp_enabled as i64,
             ],
         );
         match inserted {
@@ -211,6 +235,87 @@ impl ProjectStorage for SqlStorage {
         self.conn.lock()?.execute(
             "UPDATE project SET shell_enabled = ?1 WHERE id = ?2",
             params![enabled as i64, project_id],
+        )?;
+        Ok(())
+    }
+
+    async fn set_project_lsp(&self, project_id: &str, enabled: bool) -> Result<()> {
+        self.conn.lock()?.execute(
+            "UPDATE project SET lsp_enabled = ?1 WHERE id = ?2",
+            params![enabled as i64, project_id],
+        )?;
+        Ok(())
+    }
+
+    async fn lsp_overrides(&self, project_id: &str) -> Result<Vec<(String, ServerOverride)>> {
+        let conn = self.conn.lock()?;
+        let mut stmt = conn.prepare(
+            "SELECT language, command, args, env FROM project_lsp_override \
+             WHERE project_id = ?1 ORDER BY language",
+        )?;
+        let rows = stmt
+            .query_map(params![project_id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                ))
+            })?
+            .collect::<crate::storage::sql::Result<Vec<_>>>()?;
+        let mut out = vec![];
+        for (language, command, args, env) in rows {
+            let env_json =
+                crate::encryption::fields::decrypt_lsp_env(&self.cipher, project_id, &language, &env)?;
+            out.push((
+                language,
+                ServerOverride {
+                    command,
+                    args: serde_json::from_str(&args)?,
+                    env: serde_json::from_str(&env_json)?,
+                },
+            ));
+        }
+        Ok(out)
+    }
+
+    async fn set_lsp_override(
+        &self,
+        project_id: &str,
+        language: &str,
+        server: &ServerOverride,
+        updated_by: &str,
+        updated_at: i64,
+    ) -> Result<()> {
+        let env = crate::encryption::fields::protect_lsp_env(
+            &self.cipher,
+            project_id,
+            language,
+            &serde_json::to_string(&server.env)?,
+        )?;
+        self.conn.lock()?.execute(
+            "INSERT INTO project_lsp_override (project_id, language, command, args, env, updated_by, updated_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7) \
+             ON CONFLICT (project_id, language) DO UPDATE SET command = excluded.command, \
+             args = excluded.args, env = excluded.env, updated_by = excluded.updated_by, \
+             updated_at = excluded.updated_at",
+            params![
+                project_id,
+                language,
+                server.command,
+                serde_json::to_string(&server.args)?,
+                env,
+                updated_by,
+                updated_at,
+            ],
+        )?;
+        Ok(())
+    }
+
+    async fn delete_lsp_override(&self, project_id: &str, language: &str) -> Result<()> {
+        self.conn.lock()?.execute(
+            "DELETE FROM project_lsp_override WHERE project_id = ?1 AND language = ?2",
+            params![project_id, language],
         )?;
         Ok(())
     }
@@ -487,6 +592,7 @@ mod tests {
             folder: folder.to_path_buf(),
             owner_id: "u1".into(),
             shell_enabled: true,
+            lsp_enabled: false,
             created_at: 1,
             removed_at: None,
         }
@@ -512,6 +618,120 @@ mod tests {
             params![format!("u-{topic}-{timestamp}"), topic, timestamp],
         )
         .unwrap();
+    }
+
+    fn sealed_storage() -> SqlStorage {
+        let store = crate::tests_support::test_store(|| {
+            let conn = rusqlite::Connection::open_in_memory().unwrap();
+            init_project_schema(&conn).unwrap();
+            crate::storage::sql::SqlStore::sqlite(conn)
+        });
+        let dir = tempfile::tempdir().unwrap();
+        SqlStorage::with_secrets(
+            store,
+            Arc::new(crate::storage::document::BlobDocumentStore::local(
+                dir.path().to_path_buf(),
+            )),
+            crate::encryption::SecretCipher::from_key_for_test([7; 32]),
+            Arc::new(crate::encryption::NoIntegrationSecretPaths),
+        )
+    }
+
+    #[tokio::test]
+    async fn the_lsp_switch_defaults_off_for_old_rows_and_follows_new_ones() {
+        let storage = storage();
+        let dir = tempfile::tempdir().unwrap();
+        let (opened, _) = storage.open_project(project(dir.path())).await.unwrap();
+        assert!(!opened.lsp_enabled);
+        storage.set_project_lsp(&opened.id, true).await.unwrap();
+        let read = storage.get_project("dp-a", &opened.id).await.unwrap().unwrap();
+        assert!(read.lsp_enabled);
+
+        let other = tempfile::tempdir().unwrap();
+        let mut fresh = project(other.path());
+        fresh.id = "q3xY9aQ2mZ".into();
+        fresh.lsp_enabled = true;
+        let (fresh, _) = storage.open_project(fresh).await.unwrap();
+        assert!(fresh.lsp_enabled);
+
+        // A row from before the column existed keeps reading off.
+        let legacy = tempfile::tempdir().unwrap();
+        storage
+            .conn
+            .lock()
+            .unwrap()
+            .execute(
+                "INSERT INTO project (id, agent_id, name, folder, owner_id, shell_enabled, created_at) \
+                 VALUES ('legacy', 'dp-a', 'old', ?1, 'u1', 1, 1)",
+                params![legacy.path().to_string_lossy().into_owned()],
+            )
+            .unwrap();
+        let old = storage.get_project("dp-a", "legacy").await.unwrap().unwrap();
+        assert!(!old.lsp_enabled);
+    }
+
+    #[tokio::test]
+    async fn overrides_round_trip_with_the_env_sealed_and_cascade_on_delete() {
+        let storage = sealed_storage();
+        let dir = tempfile::tempdir().unwrap();
+        let (opened, _) = storage.open_project(project(dir.path())).await.unwrap();
+        let server = ServerOverride {
+            command: "/opt/ra/rust-analyzer".into(),
+            args: vec!["--log".into()],
+            env: [("RA_LOG".to_string(), "warn".to_string())].into(),
+        };
+        storage
+            .set_lsp_override(&opened.id, "rust", &server, "u1", 5)
+            .await
+            .unwrap();
+
+        let raw: String = storage
+            .conn
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT env FROM project_lsp_override WHERE project_id = ?1",
+                params![opened.id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(raw.starts_with("enc:v1:"), "{raw}");
+        assert!(!raw.contains("RA_LOG"));
+
+        let read = storage.lsp_overrides(&opened.id).await.unwrap();
+        assert_eq!(read, vec![("rust".to_string(), server.clone())]);
+
+        // Saving again replaces.
+        let mut changed = server.clone();
+        changed.command = "ra".into();
+        storage
+            .set_lsp_override(&opened.id, "rust", &changed, "u1", 6)
+            .await
+            .unwrap();
+        assert_eq!(storage.lsp_overrides(&opened.id).await.unwrap()[0].1.command, "ra");
+
+        storage.delete_lsp_override(&opened.id, "rust").await.unwrap();
+        storage.delete_lsp_override(&opened.id, "rust").await.unwrap();
+        assert!(storage.lsp_overrides(&opened.id).await.unwrap().is_empty());
+
+        storage
+            .set_lsp_override(&opened.id, "go", &changed, "u1", 7)
+            .await
+            .unwrap();
+        storage
+            .conn
+            .lock()
+            .unwrap()
+            .execute("PRAGMA foreign_keys = ON", [])
+            .ok();
+        delete_agent_projects(&storage.conn.lock().unwrap(), "dp-a").unwrap();
+        let left: i64 = storage
+            .conn
+            .lock()
+            .unwrap()
+            .query_row("SELECT COUNT(*) FROM project_lsp_override", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(left, 0);
     }
 
     #[tokio::test]

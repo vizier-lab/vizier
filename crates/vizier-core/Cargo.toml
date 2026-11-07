@@ -117,6 +117,7 @@ twilight-http = { workspace = true, optional = true }
 twilight-model = { workspace = true, optional = true }
 twilight-util = { workspace = true, optional = true }
 utoipa = { workspace = true, optional = true }
+url.workspace = true
 uuid.workspace = true
 whisper-rs = { workspace = true, optional = true }
 zeroize.workspace = true
@@ -125,6 +126,10 @@ zip.workspace = true
 # Process-group signalling for the workspace shell's timeout kill (`agents/shell/process_tree.rs`).
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true
+
+# Kill-on-close job object for language servers (`projects/lsp`, `agents/shell/process_tree.rs`).
+[target.'cfg(windows)'.dependencies]
+windows-sys.workspace = true
 
 [build-dependencies]
 flate2.workspace = true

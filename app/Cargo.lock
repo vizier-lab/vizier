@@ -12629,11 +12629,13 @@ dependencies = [
  "twilight-http",
  "twilight-model",
  "twilight-util",
+ "url",
  "utoipa",
  "uuid",
  "vizier-derive",
  "vizier-schema",
  "whisper-rs",
+ "windows-sys 0.61.2",
  "zeroize",
  "zip 9.1.3",
 ]

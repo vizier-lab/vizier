@@ -179,6 +179,12 @@ pub enum InboxEvent {
         user: Option<String>,
         agent_id: Option<String>,
     },
+    /// A project's language servers changed (`specs/054-project-lsp`). Delivered to people who
+    /// can use the project; the snapshot holds no override values.
+    ProjectLsp {
+        agent_id: String,
+        snapshot: crate::schema::LspStatusSnapshot,
+    },
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

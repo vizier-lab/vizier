@@ -13,11 +13,20 @@ mod git_status;
 mod glob;
 mod grep;
 mod list_files;
+mod lsp_common;
+mod lsp_definition;
+mod lsp_diagnostics;
+mod lsp_hover;
+mod lsp_references;
+mod lsp_symbols;
 mod propose_plan;
 mod read_file;
 mod write_file;
 
 pub mod walk;
+
+#[cfg(test)]
+mod lsp_tests;
 
 use std::path::{Path, PathBuf};
 
@@ -44,6 +53,8 @@ pub enum Access {
 pub struct ProjectToolSpec {
     pub access: Access,
     pub needs_git: bool,
+    /// Offered only while the project's language-server switch is on (spec 054).
+    pub needs_lsp: bool,
     pub tool: &'static (dyn VizierToolDyn + Sync),
 }
 
@@ -54,6 +65,11 @@ static GLOB: glob::Glob = glob::Glob;
 static GIT_STATUS: git_status::GitStatus = git_status::GitStatus;
 static GIT_DIFF: git_diff::GitDiff = git_diff::GitDiff;
 static GIT_LOG: git_log::GitLog = git_log::GitLog;
+static LSP_DIAGNOSTICS: lsp_diagnostics::LspDiagnostics = lsp_diagnostics::LspDiagnostics;
+static LSP_DEFINITION: lsp_definition::LspDefinition = lsp_definition::LspDefinition;
+static LSP_REFERENCES: lsp_references::LspReferences = lsp_references::LspReferences;
+static LSP_HOVER: lsp_hover::LspHover = lsp_hover::LspHover;
+static LSP_SYMBOLS: lsp_symbols::LspSymbols = lsp_symbols::LspSymbols;
 static PROPOSE_PLAN: propose_plan::ProposePlan = propose_plan::ProposePlan;
 static WRITE_FILE: write_file::WriteFile = write_file::WriteFile;
 static EDIT_FILE: edit_file::EditFile = edit_file::EditFile;
@@ -63,21 +79,29 @@ static WORKSPACE_SHELL: crate::projects::shell::WorkspaceShell =
 /// Every project tool, in the order the agent should read them. `workspace_shell` stays first
 /// among the commands it shares the category with.
 pub static REGISTRY: &[ProjectToolSpec] = &[
-    ProjectToolSpec { access: Access::Read, needs_git: false, tool: &READ_FILE },
-    ProjectToolSpec { access: Access::Read, needs_git: false, tool: &LIST_FILES },
-    ProjectToolSpec { access: Access::Read, needs_git: false, tool: &GREP },
-    ProjectToolSpec { access: Access::Read, needs_git: false, tool: &GLOB },
-    ProjectToolSpec { access: Access::Read, needs_git: true, tool: &GIT_STATUS },
-    ProjectToolSpec { access: Access::Read, needs_git: true, tool: &GIT_DIFF },
-    ProjectToolSpec { access: Access::Read, needs_git: true, tool: &GIT_LOG },
-    ProjectToolSpec { access: Access::Plan, needs_git: false, tool: &PROPOSE_PLAN },
-    ProjectToolSpec { access: Access::Write, needs_git: false, tool: &WRITE_FILE },
-    ProjectToolSpec { access: Access::Write, needs_git: false, tool: &EDIT_FILE },
-    ProjectToolSpec { access: Access::Command, needs_git: false, tool: &WORKSPACE_SHELL },
+    ProjectToolSpec { access: Access::Read, needs_git: false, needs_lsp: false, tool: &READ_FILE },
+    ProjectToolSpec { access: Access::Read, needs_git: false, needs_lsp: false, tool: &LIST_FILES },
+    ProjectToolSpec { access: Access::Read, needs_git: false, needs_lsp: false, tool: &GREP },
+    ProjectToolSpec { access: Access::Read, needs_git: false, needs_lsp: false, tool: &GLOB },
+    ProjectToolSpec { access: Access::Read, needs_git: true, needs_lsp: false, tool: &GIT_STATUS },
+    ProjectToolSpec { access: Access::Read, needs_git: true, needs_lsp: false, tool: &GIT_DIFF },
+    ProjectToolSpec { access: Access::Read, needs_git: true, needs_lsp: false, tool: &GIT_LOG },
+    ProjectToolSpec { access: Access::Read, needs_git: false, needs_lsp: true, tool: &LSP_DIAGNOSTICS },
+    ProjectToolSpec { access: Access::Read, needs_git: false, needs_lsp: true, tool: &LSP_DEFINITION },
+    ProjectToolSpec { access: Access::Read, needs_git: false, needs_lsp: true, tool: &LSP_REFERENCES },
+    ProjectToolSpec { access: Access::Read, needs_git: false, needs_lsp: true, tool: &LSP_HOVER },
+    ProjectToolSpec { access: Access::Read, needs_git: false, needs_lsp: true, tool: &LSP_SYMBOLS },
+    ProjectToolSpec { access: Access::Plan, needs_git: false, needs_lsp: false, tool: &PROPOSE_PLAN },
+    ProjectToolSpec { access: Access::Write, needs_git: false, needs_lsp: false, tool: &WRITE_FILE },
+    ProjectToolSpec { access: Access::Write, needs_git: false, needs_lsp: false, tool: &EDIT_FILE },
+    ProjectToolSpec { access: Access::Command, needs_git: false, needs_lsp: false, tool: &WORKSPACE_SHELL },
 ];
 
 fn allowed(spec: &ProjectToolSpec, project: &ProjectTurnContext) -> bool {
     if spec.needs_git && project.git.is_none() {
+        return false;
+    }
+    if spec.needs_lsp && !project.lsp_enabled {
         return false;
     }
     match spec.access {
@@ -115,6 +139,7 @@ pub fn offered(project: &ProjectTurnContext) -> Vec<CatalogueEntry> {
 fn refusal(spec: &ProjectToolSpec, project: &ProjectTurnContext) -> VizierError {
     let name = spec.tool.tool_name();
     let reason = match spec.access {
+        Access::Read if spec.needs_lsp => "not available while language servers are off".to_string(),
         Access::Plan => format!("not available in {} mode", project.mode.as_str()),
         Access::Write => format!("not available in {} mode", project.mode.as_str()),
         Access::Command if project.mode != ProjectMode::Build => {
@@ -188,6 +213,72 @@ pub(crate) fn check_read(ctx: &ToolContext, file: &Path, bytes: &[u8]) -> Result
     project
         .ledger
         .check(&ctx.session.to_slug(), file, bytes)
+}
+
+/// What an edit's result says about the code (`specs/054-project-lsp` Story 1): `None` when the
+/// switch is off or no language owns the file, otherwise a `diagnostics` value. It never fails and
+/// never waits more than the 3 s the diagnostics module allows.
+pub(crate) async fn after_write(
+    ctx: &ToolContext,
+    file: &Path,
+    bytes: &[u8],
+) -> Option<serde_json::Value> {
+    use crate::projects::lsp::{Availability, diagnostics, target_for};
+
+    let project = ctx.project.as_ref()?;
+    let target = target_for(&ctx.session.0, project, file)?;
+    let result = match project.lsp.ensure(&target) {
+        Availability::Closed => return None,
+        Availability::Busy => diagnostics::DiagnosticsResult::unavailable(
+            "too many language servers are running right now, so this edit was not checked",
+        ),
+        Availability::Ready(server) => {
+            diagnostics::wait_after_write(
+                &server,
+                &project.cwd,
+                file,
+                bytes,
+                target.language.lsp_language_id(file),
+            )
+            .await
+        }
+        Availability::Starting { detail } => {
+            let mut pending = diagnostics::DiagnosticsResult::pending();
+            pending.message = Some(match detail {
+                Some(detail) => format!("the language server is starting ({detail}); call lsp_diagnostics later"),
+                None => "the language server is starting; call lsp_diagnostics later".into(),
+            });
+            pending
+        }
+        Availability::Missing { command, install_hint, .. } => {
+            diagnostics::DiagnosticsResult::unavailable(format!(
+                "{command} is not installed, so this edit was not checked. Install: {install_hint}"
+            ))
+        }
+        Availability::Failed { reason } => diagnostics::DiagnosticsResult::unavailable(format!(
+            "the {} language server failed: {}",
+            target.language.name,
+            reason.lines().next().unwrap_or("")
+        )),
+    };
+    Some(result.to_value())
+}
+
+/// Begin starting the server for a file the chat just read, so it is usually ready by the first
+/// question or edit (FR-017), and open the document if the server already is. Never waits.
+pub(crate) fn warm_on_read(ctx: &ToolContext, file: &Path, bytes: &[u8]) {
+    use crate::projects::lsp::{Availability, target_for};
+
+    let Some(project) = ctx.project.as_ref() else { return };
+    let Some(target) = target_for(&ctx.session.0, project, file) else { return };
+    if let Availability::Ready(server) = project.lsp.ensure(&target) {
+        let file = file.to_path_buf();
+        let bytes = bytes.to_vec();
+        let language_id = target.language.lsp_language_id(&file);
+        tokio::spawn(async move {
+            let _ = server.sync_document(&file, &bytes, language_id).await;
+        });
+    }
 }
 
 /// Write atomically: a temp file in the same folder, the original's permissions, then a rename.

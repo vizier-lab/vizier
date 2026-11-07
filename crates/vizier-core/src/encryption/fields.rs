@@ -78,6 +78,41 @@ fn decrypt_value(
         .map_err(|e| value_error(table, record, field, e))
 }
 
+// ---------------------------------------------------------------- project language servers
+
+/// Seal the environment of a language-server override (`specs/054-project-lsp` data-model §2).
+pub fn protect_lsp_env(
+    cipher: &SecretCipher,
+    project_id: &str,
+    language: &str,
+    env_json: &str,
+) -> Result<String> {
+    protect_value(
+        cipher,
+        "project_lsp_override",
+        &format!("{project_id}/{language}"),
+        "env",
+        env_json,
+        ProtectMode::Write,
+    )
+    .map(|(stored, _)| stored)
+}
+
+pub fn decrypt_lsp_env(
+    cipher: &SecretCipher,
+    project_id: &str,
+    language: &str,
+    stored: &str,
+) -> Result<String> {
+    decrypt_value(
+        cipher,
+        "project_lsp_override",
+        &format!("{project_id}/{language}"),
+        "env",
+        stored,
+    )
+}
+
 // ---------------------------------------------------------------- agent secrets
 
 pub fn protect_agent_secret(

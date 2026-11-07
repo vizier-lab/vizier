@@ -49,6 +49,11 @@ pub enum InboxFrame {
     SetupCleared { agent_id: String },
     /// What the client holds may be out of date: reload the first page and the counts.
     Resync,
+    /// One project's language servers changed (`specs/054-project-lsp`).
+    Lsp {
+        project_id: String,
+        snapshot: crate::schema::LspStatusSnapshot,
+    },
 }
 
 impl InboxFrame {
@@ -125,6 +130,16 @@ pub fn judge_with(
         InboxEvent::SetupCleared { agent_id } => {
             setup_state::can_see_setup(principal, agents, agent_id, None)
                 .then(|| InboxFrame::SetupCleared { agent_id: agent_id.clone() })
+        }
+        InboxEvent::ProjectLsp { agent_id, snapshot } => {
+            let allowed = agents.iter().any(|(id, config)| {
+                id == agent_id
+                    && crate::projects::access::can_use(crate::access::Caller::from(principal), config)
+            });
+            allowed.then(|| InboxFrame::Lsp {
+                project_id: snapshot.project_id.clone(),
+                snapshot: snapshot.clone(),
+            })
         }
         InboxEvent::Stale { user, agent_id } => {
             let for_me = user.as_deref().is_none_or(mine);
@@ -309,6 +324,37 @@ mod tests {
             downloads: vec![],
             owner_id: None,
         }
+    }
+
+    fn lsp_event(agent_id: &str) -> InboxEvent {
+        InboxEvent::ProjectLsp {
+            agent_id: agent_id.into(),
+            snapshot: crate::schema::LspStatusSnapshot {
+                project_id: "p3xY9aQ2mZ".into(),
+                enabled: true,
+                capacity: crate::schema::LspCapacity { in_use: 1, max: 6 },
+                servers: vec![],
+            },
+        }
+    }
+
+    #[test]
+    fn a_language_server_frame_reaches_those_who_can_use_the_project() {
+        let owner = principal("ana", false, &["owned_agents:view", "owned_agents:projects"]);
+        let frame = judge(&owner, &agents(), &lsp_event("mine")).expect("the owner is told");
+        assert!(matches!(frame, InboxFrame::Lsp { ref project_id, .. } if project_id == "p3xY9aQ2mZ"));
+
+        // Can view the agent but holds no project permission.
+        let viewer = principal("ana", false, &["owned_agents:view"]);
+        assert!(judge(&viewer, &agents(), &lsp_event("mine")).is_none());
+        // Another person's agent.
+        assert!(judge(&owner, &agents(), &lsp_event("theirs")).is_none());
+        // An agent that does not exist.
+        assert!(judge(&owner, &agents(), &lsp_event("gone")).is_none());
+        // The whole-workspace permission and the system role.
+        let all = principal("zed", false, &["all_agents:view", "all_agents:projects"]);
+        assert!(judge(&all, &agents(), &lsp_event("theirs")).is_some());
+        assert!(judge(&principal("root", true, &[]), &agents(), &lsp_event("theirs")).is_some());
     }
 
     #[test]
