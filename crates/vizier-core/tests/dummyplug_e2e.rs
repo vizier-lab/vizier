@@ -522,25 +522,41 @@ async fn a_workspace_wakes_only_who_is_mentioned_and_they_have_read_the_rest() {
     {
         let storage = storage.clone();
         let tid = tid.clone();
+        let wid = wid.clone();
         wait_for("beta woken by alpha's mid-turn text", Box::new(move || {
             let storage = storage.clone();
             let tid = tid.clone();
+            let wid = wid.clone();
             Box::pin(async move {
                 let entries = storage.list_entries(&tid, None, 100).await.unwrap();
-                let said = entries.iter().find(|e| e.author == "alpha" && e.body.contains("asking @beta"));
-                let beta_final = entries.iter().any(|e| e.author == "beta" && e.is_final);
-                match said {
-                    Some(e) => {
-                        let m = storage.mentions_of(&[e.seq]).await.unwrap();
-                        beta_final && m.iter().any(|m| m.target == "beta" && m.state == MentionState::Woken)
-                    }
-                    None => false,
+                if !entries.iter().any(|e| e.author == "beta" && e.is_final) {
+                    return false;
                 }
+                // Alpha's prose between tool rounds is saved but not shown, so the timeline above
+                // cannot carry it: the entry is found through alpha's own record instead.
+                let session =
+                    VizierSession("alpha".into(), VizierChannelId::Workspace(wid), Some(tid));
+                let said = storage
+                    .list_session_history(session, None, None, None)
+                    .await
+                    .unwrap()
+                    .into_iter()
+                    .find(|h| matches!(&h.content,
+                        SessionHistoryContent::AssistantMessage(text) if text.contains("asking @beta")));
+                let Some(said) = said else { return false };
+                let Some(entry) = storage.entry_by_history_uid(&said.uid).await.unwrap() else {
+                    return false;
+                };
+                let m = storage.mentions_of(&[entry.seq]).await.unwrap();
+                m.iter().any(|m| m.target == "beta" && m.state == MentionState::Woken)
             })
         }))
         .await;
     }
-    assert!(storage.list_entries(&tid, None, 100).await.unwrap().len() > before);
+    let timeline = storage.list_entries(&tid, None, 100).await.unwrap();
+    assert!(timeline.len() > before);
+    // It is alpha thinking out loud, so it woke beta without anyone being shown it.
+    assert!(!timeline.iter().any(|e| e.author == "alpha" && e.body.contains("asking @beta")), "{timeline:#?}");
     // Beta now has read alpha's shown messages (and none of its tool calls).
     let beta = history_of("beta").await;
     assert!(beta.iter().any(|h| matches!(&h.content, SessionHistoryContent::Request(r)
