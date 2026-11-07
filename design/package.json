@@ -31,6 +31,7 @@
     "@tiptap/pm": "3.32.0",
     "@tiptap/react": "3.32.0",
     "@tiptap/starter-kit": "3.32.0",
+    "boring-avatars": "2.0.4",
     "clsx": "^2.1.1",
     "d3-force": "^3.0.0",
     "lucide-react": "1.61.0"

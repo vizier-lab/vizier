@@ -1,5 +1,6 @@
 import type { HTMLAttributes, ReactNode } from "react";
 import { motion, type HTMLMotionProps } from "motion/react";
+import { Sigil } from "../../brand/Sigil/Sigil";
 import { Icon } from "../../icons/Icon";
 import type { IconName } from "../../icons/map";
 import type { ToneMode } from "../../tokens/tokens";
@@ -15,6 +16,14 @@ export type ToastProps = {
   /** Makes the toast's content a control: click it to open what it is about. */
   onSelect?: () => void;
   onClose?: () => void;
+  /**
+   * Draws the toast as a notification card (the same shape as `NotificationItem`): this agent's
+   * sigil in place of the tone icon, `title` as the conversation and `message` as what happened.
+   */
+  agentId?: string;
+  agentName?: string;
+  /** A short plain-text excerpt, two lines at most. Only drawn with `agentId`. */
+  excerpt?: string;
 } & Omit<HTMLAttributes<HTMLDivElement>, "title">;
 
 const TONES: Record<ToastTone, { edge: string; title: string; icon: IconName; tone: ToneMode }> = {
@@ -31,9 +40,30 @@ const TONES: Record<ToastTone, { edge: string; title: string; icon: IconName; to
  * it glide up when one is dismissed. Wrap the toasts in `Presence` so the
  * exit can play.
  */
-export function Toast({ tone = "success", title, message, onSelect, onClose, className, ...rest }: ToastProps) {
+export function Toast({
+  tone = "success",
+  title,
+  message,
+  onSelect,
+  onClose,
+  agentId,
+  agentName,
+  excerpt,
+  className,
+  ...rest
+}: ToastProps) {
   const t = TONES[tone];
-  const body = (
+  const card = agentId !== undefined;
+  const body = card ? (
+    <>
+      <Sigil agentId={agentId} size="md" label={agentName ?? agentId} />
+      <div className="flex min-w-0 flex-1 flex-col gap-3">
+        <p className={cx("min-w-0 truncate type-ui-strong", tone === "error" ? t.title : "text-fg")}>{title}</p>
+        {message && <p className={cx("type-small", tone === "error" ? "text-failed-text" : "text-muted")}>{message}</p>}
+        {excerpt && <p className="line-clamp-2 type-small text-faint">{excerpt}</p>}
+      </div>
+    </>
+  ) : (
     <>
       <Icon name={t.icon} tone={t.tone} />
       <div className="flex min-w-0 flex-1 flex-col gap-2">
@@ -57,7 +87,12 @@ export function Toast({ tone = "success", title, message, onSelect, onClose, cla
         x: 8,
         transition: { duration: motionDurations.fast, ease: motionEases.standard },
       }}
-      className={cx("flex w-380 items-start gap-12 rounded-lg border bg-raised px-14 py-12 shadow-popover", t.edge, className)}
+      className={cx(
+        "flex w-380 items-start gap-12 rounded-lg border bg-raised shadow-popover",
+        card ? "px-12 py-12" : "px-14 py-12",
+        card && tone !== "error" ? "border-live" : t.edge,
+        className,
+      )}
       {...(rest as HTMLMotionProps<"div">)}
     >
       {onSelect ? (

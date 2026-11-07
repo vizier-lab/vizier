@@ -14,14 +14,14 @@ export type CodeToken = { text: string; tone?: CodeTone };
 /** One line of a highlighted block: its tokens, in reading order. Empty is a blank line. */
 export type CodeLine = CodeToken[];
 
-// Every tone is an existing token: nothing here invents a colour for code.
+// Code colours are their own tokens, so a scheme can change them without touching a status.
 const TONE: Record<CodeTone, string> = {
-  keyword: "text-rank-text",
-  string: "text-live-text",
-  number: "text-retrying",
-  comment: "text-faint",
-  function: "text-fg",
-  punctuation: "text-muted",
+  keyword: "text-code-keyword",
+  string: "text-code-string",
+  number: "text-code-number",
+  comment: "text-code-comment",
+  function: "text-code-function",
+  punctuation: "text-code-punctuation",
 };
 
 export type CodeBlockProps = {

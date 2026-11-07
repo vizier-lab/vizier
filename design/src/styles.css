@@ -62,6 +62,12 @@
   --color-chart-3: var(--vz-chart-3);
   --color-chart-4: var(--vz-chart-4);
   --color-chart-5: var(--vz-chart-5);
+  --color-code-keyword: var(--vz-code-keyword);
+  --color-code-string: var(--vz-code-string);
+  --color-code-number: var(--vz-code-number);
+  --color-code-comment: var(--vz-code-comment);
+  --color-code-function: var(--vz-code-function);
+  --color-code-punctuation: var(--vz-code-punctuation);
   --radius-*: initial;
   --radius-xs: var(--vz-radius-xs);
   --radius-sm: var(--vz-radius-sm);
@@ -225,4 +231,12 @@
   &::-webkit-scrollbar {
     display: none;
   }
+}
+
+/* The one look of every popup, dropdown and dialog: the surface colour at 80%
+   over a blurred backdrop. Pair it with a border and `shadow-popover`/`shadow-dialog`. */
+@utility surface-float {
+  background-color: color-mix(in srgb, var(--vz-surface) 80%, transparent);
+  -webkit-backdrop-filter: blur(16px) saturate(1.4);
+  backdrop-filter: blur(16px) saturate(1.4);
 }

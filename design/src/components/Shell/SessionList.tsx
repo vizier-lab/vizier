@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { AnimatePresence, LayoutGroup, motion } from "motion/react";
 import { Icon } from "../../icons/Icon";
 import { cx } from "../../lib/cx";
+import { Badge } from "../Badge/Badge";
 import { IconButton } from "../IconButton";
 import { motionDurations, motionEases } from "../../tokens/tokens";
 
@@ -12,6 +13,8 @@ export type SessionItem = {
   time: string;
   /** A turn is running in it. */
   live?: boolean;
+  /** Replies not yet read in it. */
+  unread?: number;
   href: string;
   active?: boolean;
   /** Shows a delete button on hover and focus. */
@@ -160,6 +163,19 @@ export function SessionList({ groups, onNew, newLabel = "New session", onDelete,
                         )}
                         <span className={cx("relative min-w-0 flex-1 truncate type-ui", s.active && "type-ui-medium")}>{s.title}</span>
                         {s.live && <span role="img" aria-label="a turn is running" className="relative size-6 shrink-0 rounded-pill bg-live" />}
+                        {s.unread ? (
+                          <Badge
+                            tone="rank"
+                            aria-label={`${s.unread} unread`}
+                            className={cx(
+                              "relative transition-opacity",
+                              ((onDelete && s.deletable) || (onRename && s.renamable)) &&
+                                "group-hover/row:opacity-0 group-focus-within/row:opacity-0",
+                            )}
+                          >
+                            {s.unread > 99 ? "99+" : s.unread}
+                          </Badge>
+                        ) : null}
                         <span
                           className={cx(
                             "relative shrink-0 type-mono-xs transition-opacity",

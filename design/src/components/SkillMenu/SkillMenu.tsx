@@ -2,7 +2,12 @@ import type { HTMLAttributes } from "react";
 import { cx } from "../../lib/cx";
 import { HighlightMatch } from "../Picker/Picker";
 
-export type SkillMenuItem = { name: string; description: string };
+export type SkillMenuItem = {
+  name: string;
+  description: string;
+  /** In a Workspace: the member agents that have it, so `/name @` offers only those. */
+  agents?: string[];
+};
 
 export type SkillMenuProps = {
   /** Skills matching what was typed after "/". */
@@ -21,7 +26,7 @@ export type SkillMenuProps = {
  */
 export function SkillMenu({ items, query, active, onPick, id, className, ...rest }: SkillMenuProps) {
   return (
-    <div className={cx("flex flex-col rounded-lg border border-border-strong bg-surface p-6 shadow-popover", className)} {...rest}>
+    <div className={cx("flex flex-col rounded-lg border border-border-strong surface-float p-6 shadow-popover", className)} {...rest}>
       <span className="px-8 pt-4 pb-4 type-label uppercase text-faint">Commands and skills</span>
       {items.length === 0 ? (
         <p id={id} role="status" className="px-8 py-8 type-small text-muted">
@@ -55,7 +60,12 @@ export function SkillMenu({ items, query, active, onPick, id, className, ...rest
                 /<HighlightMatch text={s.name} query={query} />
               </span>
               {/* A phone shows the names alone: twenty characters of clipped prose is noise. */}
-              <span className="min-w-0 truncate type-small text-muted max-sm:hidden">{s.description}</span>
+              <span className="flex min-w-0 items-baseline gap-8 max-sm:hidden">
+                <span className="min-w-0 truncate type-small text-muted">{s.description}</span>
+                {s.agents && s.agents.length > 0 && (
+                  <span className="ml-auto shrink-0 type-mono-xs text-faint">{s.agents.map((a) => `@${a}`).join(" ")}</span>
+                )}
+              </span>
             </div>
           ))}
         </div>

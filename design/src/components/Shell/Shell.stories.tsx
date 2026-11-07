@@ -21,7 +21,7 @@ type Story = StoryObj<typeof meta>;
 
 const AGENTS = [
   { agentId: "archivist", name: "Archivist", state: "running", href: "#archivist" },
-  { agentId: "scout", name: "Scout", state: "live", href: "#scout" },
+  { agentId: "scout", name: "Scout", state: "live", href: "#scout", unread: 3 },
   { agentId: "quill", name: "Quill", state: "stopped", href: "#quill" },
   { agentId: "ledger", name: "Ledger", state: "retrying", href: "#ledger" },
   // Still being created: a busy tile, not yet a link.
@@ -33,7 +33,7 @@ const SESSIONS: SessionGroup[] = [
     label: "Today",
     items: [
       { key: "a", title: "vector-db-review", time: "12m", live: true, href: "#a", active: true },
-      { key: "b", title: "release-notes-draft", time: "2h", href: "#b" },
+      { key: "b", title: "release-notes-draft", time: "2h", href: "#b", unread: 3 },
     ],
   },
   { label: "Yesterday", items: [{ key: "c", title: "q4-spend-check", time: "18:40", href: "#c" }, { key: "d", title: "onboarding-flow", time: "11:02", href: "#d" }] },
@@ -91,18 +91,30 @@ function ProjectsAboveSessions() {
   );
 }
 
-function Demo({ view, projects = false }: { view: "home" | "agent" | "settings"; projects?: boolean }) {
-  const [theme, setTheme] = useState(0);
+function Demo({ view, projects = false, startCollapsed = false, workspaces = false }: { view: "home" | "agent" | "settings"; projects?: boolean; startCollapsed?: boolean; workspaces?: boolean }) {
+  const [collapsed, setCollapsed] = useState(startCollapsed);
   const rail = (
     <Rail
       homeHref="#home"
       homeActive={view === "home"}
+      workspaces={
+        workspaces
+          ? [
+              { id: "ops", name: "ops", initials: "OP", href: "#ops", unread: 3, working: true },
+              { id: "design-review", name: "design-review", initials: "DR", href: "#design-review" },
+              { id: "billing", name: "billing", initials: "BI", href: "#billing", unread: 120 },
+            ]
+          : undefined
+      }
+      activeWorkspaceId={workspaces ? "ops" : undefined}
       agents={[...AGENTS]}
       activeAgentId={view === "agent" ? "archivist" : undefined}
-      addHref="#new"
+      {...(workspaces ? { onCreate: () => {}, createLabel: "Create new" } : { addHref: "#new" })}
       settingsHref="#settings"
       settingsActive={view === "settings"}
-      onToggleTheme={() => setTheme(theme + 1)}
+      onToggleTheme={() => {}}
+      agentMenu={{ activePage: "memory", onNew: () => {}, onSelect: () => {} }}
+      sidebarToggle={view === "agent" ? { collapsed, onToggle: () => setCollapsed((c) => !c), shortcut: "Ctrl B" } : undefined}
       user={<UserMenu name="admin" onSignOut={() => {}} collapsed />}
     />
   );
@@ -127,14 +139,17 @@ function Demo({ view, projects = false }: { view: "home" | "agent" | "settings";
       <SettingsNav active="profile" hrefFor={(p) => `#${p}`} />
     ) : undefined;
   return (
-    <ShellFrame rail={rail} sidebar={sidebar} sidebarKey={view}>
+    <ShellFrame rail={rail} sidebar={sidebar} sidebarKey={view} collapsed={view === "agent" && collapsed}>
       <div className="grid flex-1 place-items-center text-faint type-mono-xs">page</div>
     </ShellFrame>
   );
 }
 
+/** Home, a tile for each Workspace with its own separator, the agents, and the one "+" that asks which to make. */
+export const WithWorkspaces: Story = { args: { rail: null, children: null }, render: () => <Demo view="home" workspaces /> };
 export const Home: Story = { args: { rail: null, children: null }, render: () => <Demo view="home" /> };
 export const AgentPage: Story = { args: { rail: null, children: null }, render: () => <Demo view="agent" /> };
+export const AgentPageCollapsed: Story = { args: { rail: null, children: null }, render: () => <Demo view="agent" startCollapsed /> };
 export const Settings: Story = { args: { rail: null, children: null }, render: () => <Demo view="settings" /> };
 export const ProjectsAboveSessionsStory: Story = {
   args: { rail: null, children: null },

@@ -6,10 +6,14 @@ export type FloatingProps = {
   anchor: RefObject<HTMLElement | null>;
   /** Which edge of the anchor the popup lines up with. */
   align?: "start" | "end";
+  /** Which side of the anchor the popup opens on: below (flipping above), or to its right from its top edge. */
+  side?: "below" | "right";
   /** Match the anchor's width at least (a Select's list), or size to its content. */
   matchWidth?: boolean;
   /** A fixed width, or `anchor` for exactly the trigger's width (a menu the size of its card). */
   width?: number | "anchor";
+  /** The gap between the anchor and the popup. A panel above a composer needs the composer's height. */
+  gap?: number;
   children: ReactNode;
   className?: string;
   style?: CSSProperties;
@@ -25,7 +29,7 @@ const MARGIN = 8;
  * their children (overflow) no longer cut a Select or Picker off.
  */
 export const Floating = forwardRef<HTMLDivElement, FloatingProps>(function Floating(
-  { anchor, align = "start", matchWidth, width, children, className, style },
+  { anchor, align = "start", side = "below", matchWidth, width, gap = GAP, children, className, style },
   forwarded,
 ) {
   const own = useRef<HTMLDivElement | null>(null);
@@ -40,10 +44,21 @@ export const Floating = forwardRef<HTMLDivElement, FloatingProps>(function Float
       const r = a.getBoundingClientRect();
       const h = p.offsetHeight;
       const w = p.offsetWidth;
+      if (side === "right") {
+        setPos({
+          position: "fixed",
+          top: Math.max(MARGIN, Math.min(r.top, window.innerHeight - h - MARGIN)),
+          left: Math.max(MARGIN, Math.min(r.right + gap, window.innerWidth - w - MARGIN)),
+          width: width === "anchor" ? r.width : width,
+          maxHeight: window.innerHeight - MARGIN * 2,
+          visibility: "visible",
+        });
+        return;
+      }
       const below = window.innerHeight - r.bottom - MARGIN;
       const above = r.top - MARGIN;
-      const up = h + GAP > below && above > below;
-      const top = up ? Math.max(MARGIN, r.top - GAP - h) : r.bottom + GAP;
+      const up = h + gap > below && above > below;
+      const top = up ? Math.max(MARGIN, r.top - gap - h) : r.bottom + gap;
       let left = align === "end" ? r.right - w : r.left;
       left = Math.max(MARGIN, Math.min(left, window.innerWidth - w - MARGIN));
       setPos({
@@ -52,7 +67,7 @@ export const Floating = forwardRef<HTMLDivElement, FloatingProps>(function Float
         left,
         width: width === "anchor" ? r.width : width,
         minWidth: matchWidth ? r.width : undefined,
-        maxHeight: Math.max(160, (up ? above : below) - GAP),
+        maxHeight: Math.max(160, (up ? above : below) - gap),
         visibility: "visible",
       });
     };
@@ -67,7 +82,7 @@ export const Floating = forwardRef<HTMLDivElement, FloatingProps>(function Float
       window.removeEventListener("scroll", place, true);
       ro.disconnect();
     };
-  }, [anchor, align, matchWidth, width]);
+  }, [anchor, align, side, matchWidth, width, gap]);
 
   return createPortal(
     <div

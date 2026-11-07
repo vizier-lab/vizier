@@ -53,6 +53,8 @@ export type PickerProps<T> = {
   itemHeight?: number;
   /** Panel width in px. */
   width?: number;
+  /** Which edge of the trigger the popup lines up with. */
+  align?: "start" | "end";
   className?: string;
 };
 
@@ -85,6 +87,7 @@ export function Picker<T>({
   onOpenChange,
   itemHeight = 45,
   width = 340,
+  align = "start",
   className,
 }: PickerProps<T>) {
   const id = useId();
@@ -186,8 +189,8 @@ export function Picker<T>({
       // The inline panel is page furniture: it does not arrive, so it does not animate.
       {...(trigger ? popoverMotion : {})}
       className={cx(
-        "flex flex-col overflow-hidden rounded-xl border border-border-strong bg-surface",
-        trigger && "shadow-popover",
+        "flex flex-col overflow-hidden rounded-xl border border-border-strong",
+        trigger ? "surface-float shadow-popover" : "bg-surface",
         className,
       )}
       style={{ width }}
@@ -284,7 +287,7 @@ export function Picker<T>({
       })}
       <Presence>
         {open && (
-          <Floating key="picker" anchor={root}>
+          <Floating key="picker" anchor={root} align={align}>
             {panel}
           </Floating>
         )}

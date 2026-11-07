@@ -9,6 +9,11 @@ export type ShellFrameProps = {
   sidebar?: ReactNode;
   /** Changes when the column's kind changes (agent pages → settings), so its content crossfades. */
   sidebarKey?: string;
+  /**
+   * Shuts the column to leave only the rail. The column stays mounted, so its search, its list and
+   * anything it listens for keep working; `inert` takes its hidden controls out of the tab order.
+   */
+  collapsed?: boolean;
   /** A docked column on the right (notifications): it opens by pushing the page left, not over it. */
   aside?: ReactNode;
   children: ReactNode;
@@ -16,13 +21,15 @@ export type ShellFrameProps = {
 
 const SIDEBAR = 256;
 const ASIDE = 420;
+/** The column's element, for a toggle's `aria-controls`. */
+export const SHELL_SIDEBAR_ID = "shell-sidebar";
 
 /**
  * The app frame: the rail and the context sidebar sit on the shell, and the page is a panel inset
  * from the shell's edge. An `aside` docks on the right and pushes the page left. The column slides open and shut when you move between a page that has one
  * and a page that does not, and crossfades when it changes what it shows.
  */
-export function ShellFrame({ rail, sidebar, sidebarKey = "sidebar", aside, children }: ShellFrameProps) {
+export function ShellFrame({ rail, sidebar, sidebarKey = "sidebar", collapsed = false, aside, children }: ShellFrameProps) {
   return (
     <div className="flex h-dvh bg-shell text-fg">
       {rail}
@@ -30,9 +37,15 @@ export function ShellFrame({ rail, sidebar, sidebarKey = "sidebar", aside, child
         {sidebar && (
           <motion.div
             key="sidebar-slot"
+            id={SHELL_SIDEBAR_ID}
+            inert={collapsed}
             className="shrink-0 overflow-hidden"
             initial={{ width: 0, opacity: 0 }}
-            animate={{ width: SIDEBAR, opacity: 1, transition: { duration: motionDurations.slow, ease: motionEases.arrive } }}
+            animate={
+              collapsed
+                ? { width: 0, opacity: 0, transition: { duration: motionDurations.base, ease: motionEases.standard } }
+                : { width: SIDEBAR, opacity: 1, transition: { duration: motionDurations.slow, ease: motionEases.arrive } }
+            }
             exit={{ width: 0, opacity: 0, transition: { duration: motionDurations.base, ease: motionEases.standard } }}
           >
             <motion.div

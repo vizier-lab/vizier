@@ -4,7 +4,8 @@ import type { IconName } from "../../icons/map";
 import { cx } from "../../lib/cx";
 
 export type NavItemProps = {
-  icon: IconName;
+  /** Absent for a row that is a name only, such as a topic (`# general`). */
+  icon?: IconName;
   label: ReactNode;
   /** The current page. Sets aria-current. */
   active?: boolean;
@@ -32,7 +33,7 @@ export function NavItem({ icon, label, active, collapsed, live, disabled, href, 
   );
   const content = (
     <>
-      <Icon name={icon} className={disabled ? undefined : active ? "text-fg" : "group-hover:text-fg"} />
+      {icon && <Icon name={icon} className={disabled ? undefined : active ? "text-fg" : "group-hover:text-fg"} />}
       <span className={collapsed ? "sr-only" : "min-w-0 flex-1 truncate"}>{label}</span>
       {live && (
         <span

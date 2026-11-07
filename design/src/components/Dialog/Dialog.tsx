@@ -56,7 +56,7 @@ export function DialogPanel({
   return (
     <div
       className={cx(
-        "flex flex-col gap-16 rounded-xl border border-border-strong bg-surface px-24 py-20 shadow-dialog",
+        "flex flex-col gap-16 rounded-xl border border-border-strong surface-float px-24 py-20 shadow-dialog",
         size === "md" ? "w-440" : "w-760",
         "max-w-full",
         className,
