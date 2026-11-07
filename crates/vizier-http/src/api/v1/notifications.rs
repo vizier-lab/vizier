@@ -27,7 +27,7 @@ use crate::{
     state::HTTPState,
 };
 use vizier_core::{
-    schema::{NotificationCounts, NotificationItem, NotificationPage},
+    schema::{ChatUnread, NotificationCounts, NotificationItem, NotificationPage},
     service::notifications,
 };
 
@@ -36,6 +36,8 @@ pub fn notifications() -> Router<HTTPState> {
         .route("/", get(list))
         .route("/count", get(count))
         .route("/read-all", post(read_all))
+        .route("/chats", get(chats))
+        .route("/chats/read", post(read_chat))
         .route("/{id}/read", put(set_read))
 }
 
@@ -239,6 +241,52 @@ pub async fn read_all(
     Extension(user): Extension<Principal>,
 ) -> models::response::Response<NotificationCounts> {
     match notifications::read_all(&auth::services(&state), &user).await {
+        Ok(counts) => api_response(StatusCode::OK, counts),
+        Err(e) => auth::err(e),
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/notifications/chats",
+    responses((status = 200, description = "The caller's unread replies, per conversation of theirs", body = APIResponse<Vec<ChatUnread>>))
+)]
+pub async fn chats(
+    State(state): State<HTTPState>,
+    Extension(user): Extension<Principal>,
+) -> models::response::Response<Vec<ChatUnread>> {
+    match notifications::chat_unread(&auth::services(&state), &user).await {
+        Ok(chats) => api_response(StatusCode::OK, chats),
+        Err(e) => auth::err(e),
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, utoipa::ToSchema)]
+pub struct ChatReadRequest {
+    /// The conversation's `href`, as `GET /notifications/chats` gives it.
+    #[serde(default)]
+    pub href: Option<String>,
+}
+
+#[utoipa::path(
+    post,
+    path = "/notifications/chats/read",
+    request_body = ChatReadRequest,
+    responses(
+        (status = 200, description = "Marks one conversation's replies read for the caller, with the new counts", body = APIResponse<NotificationCounts>),
+        (status = 400, description = "A missing or empty `href`", body = APIResponse<String>)
+    )
+)]
+pub async fn read_chat(
+    State(state): State<HTTPState>,
+    Extension(user): Extension<Principal>,
+    body: Result<Json<ChatReadRequest>, JsonRejection>,
+) -> models::response::Response<NotificationCounts> {
+    let href = match body {
+        Ok(Json(ChatReadRequest { href: Some(href) })) if !href.is_empty() => href,
+        _ => return err_response(StatusCode::BAD_REQUEST, "an `href` is required".into()),
+    };
+    match notifications::mark_chat_read(&auth::services(&state), &user, &href).await {
         Ok(counts) => api_response(StatusCode::OK, counts),
         Err(e) => auth::err(e),
     }

@@ -51,7 +51,7 @@ Changed in `design/` first, with stories, then used in `webui/`.
 
 | Component | Change |
 |---|---|
-| `Rail` | New `workspaces` prop: initials tile, unread count, working dot, marker, separators. One `+` at the end of the agents, replacing `addHref` with an `onCreate` the host decides. An agent tile shows no dot while `live` or `running`, and no lit sigil cell: `StatusDot` draws only `starting`, `retrying`, `failed` and `stopped` |
+| `Rail` | New `workspaces` prop: initials tile, unread count, working dot, marker, separators. One `+` at the end of the agents, replacing `addHref` with an `onCreate` the host decides. An agent tile keeps its `StatusDot` in every state and lights its sigil cell while `live` or `running` |
 | `CreateChooser` | New dialog: Workspace or Agent. The host skips it when the person may create only one |
 | `UserMessage` | New `side="left"`, for other people, with mention highlight |
 | `MentionChip` | New. Tones: resolved, you |

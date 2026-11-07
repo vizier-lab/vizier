@@ -303,6 +303,8 @@ where
         api::v1::notifications::count,
         api::v1::notifications::set_read,
         api::v1::notifications::read_all,
+        api::v1::notifications::chats,
+        api::v1::notifications::read_chat,
         api::v1::notifications::stream,
     ),
     components(
@@ -536,6 +538,9 @@ where
             vizier_core::schema::NotificationCounts,
             vizier_core::schema::NotificationPage,
             api::v1::notifications::NotificationReadRequest,
+            api::v1::notifications::ChatReadRequest,
+            vizier_core::schema::ChatUnread,
+            crate::models::response::APIResponse<Vec<vizier_core::schema::ChatUnread>>,
             crate::models::response::APIResponse<vizier_core::schema::NotificationPage>,
             crate::models::response::APIResponse<vizier_core::schema::NotificationCounts>,
             crate::models::response::APIResponse<vizier_core::setup::SetupStates>,

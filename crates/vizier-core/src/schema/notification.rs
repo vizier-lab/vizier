@@ -202,6 +202,16 @@ pub struct NotificationCounts {
     pub read: u64,
 }
 
+/// How many replies one person has not read in one of their own WebUI conversations.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+pub struct ChatUnread {
+    pub agent_id: String,
+    /// The conversation's in-app path, as its notifications link to it.
+    pub href: String,
+    pub unread: u64,
+}
+
 /// One page of the inbox plus the counts for its filters.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]

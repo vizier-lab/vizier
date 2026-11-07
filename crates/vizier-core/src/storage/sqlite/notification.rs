@@ -5,8 +5,8 @@ use chrono::{TimeZone, Local};
 
 use crate::{
     schema::{
-        InsertedNotification, NotificationCategory, NotificationCounts, NotificationDraft,
-        NotificationFilter, NotificationItem, NotificationTone,
+        ChatUnread, InsertedNotification, NotificationCategory, NotificationCounts,
+        NotificationDraft, NotificationFilter, NotificationItem, NotificationTone,
     },
     storage::{
         notification::NotificationStorage, notification::RETENTION_DAYS, sqlite::SqlStorage,
@@ -407,6 +407,63 @@ impl NotificationStorage for SqlStorage {
              ON CONFLICT DO NOTHING",
             params![user_id, at.timestamp_millis(), workspace_id, format!("/workspaces/{workspace_id}/{topic_id}"), cutoff()],
         )?;
+        Ok(inserted as u64)
+    }
+
+    async fn chat_unread(&self, user_id: &str, agents: &[String]) -> Result<Vec<ChatUnread>> {
+        if agents.is_empty() {
+            return Ok(vec![]);
+        }
+        let sql = format!(
+            "SELECT n.agent_id, n.href, COUNT(*) FROM notification n \
+             LEFT JOIN notification_read r ON r.notification_id = n.id AND r.user_id = ? \
+             WHERE n.agent_id IN ({}) AND n.created_at >= ? AND r.notification_id IS NULL \
+               AND n.category = ? AND n.audience_user_id = ? \
+             GROUP BY n.agent_id, n.href",
+            marks(agents),
+        );
+        let mut params: Vec<Box<dyn ToSql>> = vec![Box::new(user_id.to_string())];
+        params.extend(agents.iter().map(|a| Box::new(a.clone()) as Box<dyn ToSql>));
+        params.push(Box::new(cutoff()));
+        params.push(Box::new(NotificationCategory::ChatReply.as_str().to_string()));
+        params.push(Box::new(user_id.to_string()));
+        let conn = self.conn.lock()?;
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt
+            .query_map(params_from_iter(params.iter()), |row| {
+                Ok(ChatUnread {
+                    agent_id: row.get(0)?,
+                    href: row.get(1)?,
+                    unread: row.get::<_, i64>(2)?.max(0) as u64,
+                })
+            })?
+            .collect::<sql::Result<Vec<_>>>()?;
+        Ok(rows)
+    }
+
+    async fn mark_chat_read(&self, user_id: &str, href: &str, at: Timestamp, agents: &[String]) -> Result<u64> {
+        if agents.is_empty() {
+            return Ok(0);
+        }
+        let sql = format!(
+            "INSERT INTO notification_read (user_id, notification_id, read_at) \
+             SELECT CAST(? AS TEXT), n.id, CAST(? AS BIGINT) FROM notification n \
+             WHERE n.agent_id IN ({}) AND n.created_at >= ? \
+               AND n.category = ? AND n.audience_user_id = ? AND n.href = ? \
+             ON CONFLICT DO NOTHING",
+            marks(agents),
+        );
+        let mut params: Vec<Box<dyn ToSql>> = vec![
+            Box::new(user_id.to_string()),
+            Box::new(at.timestamp_millis()),
+        ];
+        params.extend(agents.iter().map(|a| Box::new(a.clone()) as Box<dyn ToSql>));
+        params.push(Box::new(cutoff()));
+        params.push(Box::new(NotificationCategory::ChatReply.as_str().to_string()));
+        params.push(Box::new(user_id.to_string()));
+        params.push(Box::new(href.to_string()));
+        let conn = self.conn.lock()?;
+        let inserted = conn.execute(&sql, params_from_iter(params.iter()))?;
         Ok(inserted as u64)
     }
 
@@ -916,6 +973,54 @@ mod tests {
             0,
             "the read row cascaded"
         );
+    }
+
+    #[tokio::test]
+    async fn chat_unread_counts_one_persons_replies_per_conversation() {
+        let (s, _d) = setup();
+        agent(&s, "a");
+        agent(&s, "b");
+        let at = crate::time::now();
+        let reply = |key: &str, agent_id: &str, who: &str, href: &str| {
+            let mut row = draft(key, agent_id, at);
+            row.audience_user_id = Some(who.into());
+            row.category = NotificationCategory::ChatReply;
+            row.href = href.into();
+            row
+        };
+        s.insert_notifications(&[
+            reply("chat:1", "a", "ana", "/a/chat/one"),
+            reply("chat:2", "a", "ana", "/a/chat/one"),
+            reply("chat:3", "a", "ana", "/a/chat/two"),
+            reply("chat:4", "b", "ana", "/b/chat/one"),
+            reply("chat:5", "a", "bob", "/a/chat/bobs"),
+            // Not a reply: the bell counts it, a chat does not.
+            draft("task", "a", at),
+        ])
+        .await
+        .unwrap();
+        let visible = ["a".to_string(), "b".to_string()];
+        let count = |rows: &[ChatUnread], href: &str| rows.iter().find(|r| r.href == href).map(|r| r.unread);
+
+        let rows = s.chat_unread("ana", &visible).await.unwrap();
+        assert_eq!(rows.len(), 3, "bob's conversation and the task are not ana's unread chats");
+        assert_eq!(count(&rows, "/a/chat/one"), Some(2));
+        assert_eq!(count(&rows, "/a/chat/two"), Some(1));
+        assert_eq!(count(&rows, "/b/chat/one"), Some(1));
+
+        // An agent no longer visible counts nothing, and cannot be marked.
+        assert_eq!(s.chat_unread("ana", &["a".to_string()]).await.unwrap().len(), 2);
+        assert_eq!(s.chat_unread("ana", &[]).await.unwrap(), vec![]);
+        assert_eq!(s.mark_chat_read("ana", "/b/chat/one", at, &["a".to_string()]).await.unwrap(), 0);
+
+        // Reading a conversation reads only it, only for this person, and once.
+        assert_eq!(s.mark_chat_read("ana", "/a/chat/one", at, &visible).await.unwrap(), 2);
+        assert_eq!(s.mark_chat_read("ana", "/a/chat/one", at, &visible).await.unwrap(), 0);
+        assert_eq!(s.mark_chat_read("ana", "/a/chat/bobs", at, &visible).await.unwrap(), 0);
+        let rows = s.chat_unread("ana", &visible).await.unwrap();
+        assert_eq!(count(&rows, "/a/chat/one"), None);
+        assert_eq!(count(&rows, "/a/chat/two"), Some(1));
+        assert_eq!(s.chat_unread("bob", &visible).await.unwrap().len(), 1);
     }
 
     #[tokio::test]

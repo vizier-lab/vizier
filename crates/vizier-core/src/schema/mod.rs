@@ -57,7 +57,7 @@ pub use integration::{
     IntegrationGrant, IntegrationStatus,
 };
 pub use notification::{
-    InsertedNotification, NotificationCategory, WORKSPACE_SCOPE_PREFIX, workspace_scope, NotificationCounts, NotificationDraft,
+    ChatUnread, InsertedNotification, NotificationCategory, WORKSPACE_SCOPE_PREFIX, workspace_scope, NotificationCounts, NotificationDraft,
     NotificationFilter, NotificationItem, NotificationPage, NotificationTone,
 };
 pub use project::{
