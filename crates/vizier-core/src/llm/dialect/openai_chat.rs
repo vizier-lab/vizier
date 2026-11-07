@@ -79,7 +79,7 @@ impl Dialect for OpenAiChat {
                         .and_then(Value::as_str)
                         .unwrap_or_default()
                         .to_string(),
-                    arguments: parse_arguments(call.pointer("/function/arguments")),
+                    arguments: arguments_in_flight(call.pointer("/function/arguments")),
                     provider_data: None,
                 });
             }
@@ -188,7 +188,10 @@ fn encode_message(message: &Message) -> Option<Value> {
                     } => calls.push(json!({
                         "id": id,
                         "type": "function",
-                        "function": {"name": name, "arguments": arguments.to_string()},
+                        "function": {
+                            "name": name,
+                            "arguments": arguments_as_object(arguments).to_string(),
+                        },
                     })),
                     AssistantPart::Reasoning { text, .. } => reasoning.push_str(text),
                 }
@@ -237,8 +240,30 @@ fn text_parts(content: Option<&Value>) -> Vec<String> {
     }
 }
 
-/// Tool-call arguments arrive as a JSON string (sometimes already as an object).
-pub(crate) fn parse_arguments(raw: Option<&Value>) -> Value {
+/// Arguments as the wire wants them: always an object.
+///
+/// OpenAI's API rejects a call whose `function.arguments` is not a JSON object (400
+/// "Assistant tool call function.arguments must be a JSON object"), and keeps rejecting it
+/// on every later request that replays the call. A call can still reach the encoder holding
+/// arguments that are not an object — see [`arguments_in_flight`] — so it is normalised here
+/// rather than trusted. Empty arguments (`None`, `null`) are how a call with no arguments
+/// travels, and `{}` is what a provider expects for those; any other non-object is wrapped so
+/// no text the model produced is lost.
+pub(crate) fn arguments_as_object(arguments: &Value) -> Value {
+    match arguments {
+        Value::Object(_) => arguments.clone(),
+        Value::Null => json!({}),
+        other => json!({ "arguments": other }),
+    }
+}
+
+/// Tool-call arguments as kept in memory and in history, from a raw `arguments` value.
+///
+/// The normal case is a JSON string, or an object from a server that sends it that way. A
+/// string that is not valid JSON — a reply cut off mid-arguments (a stream that ends early, a
+/// disconnect) — is kept as the raw string rather than decoded into a value: turning it into
+/// an object here would invent arguments the model never sent, and hide the truncation.
+pub(crate) fn arguments_in_flight(raw: Option<&Value>) -> Value {
     match raw {
         Some(Value::String(s)) if s.trim().is_empty() => json!({}),
         Some(Value::String(s)) => serde_json::from_str(s).unwrap_or_else(|_| json!(s)),
@@ -355,6 +380,49 @@ mod tests {
         assert_eq!(msgs[2], json!({"role": "tool", "tool_call_id": "c1", "content": "r1"}));
         assert_eq!(msgs[3]["tool_call_id"], "c2");
         assert!(body.get("tools").is_none());
+    }
+
+    fn replay_call(arguments: serde_json::Value) -> serde_json::Value {
+        let body = encode(CompletionRequest {
+            messages: vec![
+                Message::Assistant(vec![AssistantPart::ToolCall {
+                    id: "c1".into(),
+                    name: "think".into(),
+                    arguments,
+                    provider_data: None,
+                }]),
+                Message::tool_result("c1", "ok"),
+            ],
+            ..Default::default()
+        });
+        body["messages"][0]["tool_calls"][0]["function"]["arguments"].clone()
+    }
+
+    /// A reply cut off mid-arguments is kept raw on the way in, then replayed on every later
+    /// request of the conversation. Sent as `"{\"intent\": \"...` it is a 400 from OpenAI's API
+    /// on every message: "Assistant tool call function.arguments must be a JSON object".
+    #[test]
+    fn truncated_arguments_are_replayed_as_an_object() {
+        let cut_off = "{\"intent\": \"plan the fix\", \"thought\": \"**FOUND A REAL DE";
+        let replayed = replay_call(arguments_in_flight(Some(&json!(cut_off))));
+        let sent: serde_json::Value = serde_json::from_str(replayed.as_str().unwrap()).unwrap();
+        assert!(sent.is_object(), "the API rejects this: {sent}");
+        assert_eq!(sent["arguments"], cut_off, "nothing the model said is lost");
+    }
+
+    /// A call with no arguments is `{}` on the wire, not `null` and not absent.
+    #[test]
+    fn absent_or_null_arguments_are_an_empty_object() {
+        for arguments in [json!({}), serde_json::Value::Null] {
+            assert_eq!(replay_call(arguments), "{}");
+        }
+    }
+
+    #[test]
+    fn valid_arguments_replay_unchanged() {
+        let raw = json!("{\"a\":1}");
+        assert_eq!(arguments_in_flight(Some(&raw)), json!({"a": 1}));
+        assert_eq!(replay_call(arguments_in_flight(Some(&raw))), "{\"a\":1}");
     }
 
     #[test]

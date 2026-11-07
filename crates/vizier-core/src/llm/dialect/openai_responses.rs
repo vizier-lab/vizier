@@ -125,7 +125,7 @@ impl Dialect for OpenAiResponses {
                         .and_then(Value::as_str)
                         .unwrap_or_default()
                         .to_string(),
-                    arguments: super::openai_chat::parse_arguments(item.get("arguments")),
+                    arguments: super::openai_chat::arguments_in_flight(item.get("arguments")),
                     provider_data: None,
                 }),
                 Some("reasoning") => {
@@ -259,7 +259,8 @@ fn encode_message(message: &Message) -> Vec<Value> {
                         "type": "function_call",
                         "call_id": id,
                         "name": name,
-                        "arguments": arguments.to_string(),
+                        "arguments": super::openai_chat::arguments_as_object(arguments)
+                            .to_string(),
                         "status": "completed",
                     })),
                     // Without stored items a reasoning item is only accepted back with its

@@ -97,7 +97,9 @@ impl Dialect for Ollama {
                 // Ollama answers tool results by `tool_name`, so the call id is the name.
                 id: name.clone(),
                 name,
-                arguments: super::openai_chat::parse_arguments(call.pointer("/function/arguments")),
+                arguments: super::openai_chat::arguments_in_flight(
+                    call.pointer("/function/arguments"),
+                ),
                 provider_data: None,
             });
         }
@@ -194,7 +196,10 @@ fn encode_message(message: &Message) -> Value {
                         name, arguments, ..
                     } => calls.push(json!({
                         "type": "function",
-                        "function": {"name": name, "arguments": arguments},
+                        "function": {
+                            "name": name,
+                            "arguments": super::openai_chat::arguments_as_object(arguments),
+                        },
                     })),
                 }
             }
@@ -268,6 +273,27 @@ mod tests {
         );
         assert_eq!(body["stream"], false);
         assert_eq!(body["options"]["num_predict"], 7);
+    }
+
+    /// Arguments are sent as the provider wants them (an object), even when the stored call
+    /// holds a truncated one from a reply that was cut off.
+    #[test]
+    fn truncated_arguments_are_replayed_as_an_object() {
+        let m = ResolvedModel::test("llama3.2");
+        let req = CompletionRequest {
+            messages: vec![Message::Assistant(vec![AssistantPart::ToolCall {
+                id: "f".into(),
+                name: "f".into(),
+                arguments: json!("{\"a\": "),
+                provider_data: None,
+            }])],
+            ..Default::default()
+        };
+        let body = Ollama.encode(&prepare(req, &m, SystemStyle::Inline), &m);
+        assert_eq!(
+            body["messages"][0]["tool_calls"][0]["function"]["arguments"],
+            json!({ "arguments": "{\"a\": " })
+        );
     }
 
     #[test]
