@@ -2,6 +2,34 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.15.0] - 2026-11-07
+
+### 🚀 Features
+
+- *(themes)* Add user color themes (#186)
+- *(office)* Read, render and write PDF files in the Office addon (Phase 2) (#179)
+- *(notifications)* Realtime inbox stream and a small notifications popup (#188)
+- *(time)* [**breaking**] Run on one clock, the host's local timezone (#190)
+- *(webui)* Collapse the sidebar to the rail, add the rail's agent menu, list only WebUI sessions
+- *(channels)* Merge /tool_calls into /thinking on Discord and Telegram
+- *(workspace)* [**breaking**] Add the Workspace channel and replace consult_agent and delegate_agent with mention_agent (#191)
+- *(projects)* Language servers for project chats (#192)
+
+### 🐛 Bug Fixes
+
+- Prevent deleted tasks from firing (#185)
+- Render task newline escapes (#189)
+- *(just)* Mark the install-app recipe as unix only
+
+### 📚 Documentation
+
+- Amend constitution to v2.2.0 (design mockup medium not limited to FigCraft)
+
+### ⚙️ Miscellaneous Tasks
+
+- Bump design and webui to their develop tips
+- Bump design and webui to their develop tips
+- Merge master into develop
 ## [0.15.0-rc.4] - 2026-11-05
 
 ### ⚙️ Miscellaneous Tasks
@@ -10,6 +38,21 @@ All notable changes to this project will be documented in this file.
 - Bump design and webui submodules (user avatar, message meta row)
 - Bump design submodule (square settings avatars)
 - Bump design and webui submodules (copy button, sending avatar seed)
+- Bump version to 0.15.0-rc.4
+## [0.15.0-rc.3] - 2026-11-05
+
+### 🐛 Bug Fixes
+
+- *(desktop)* Open target blank links externally (#155)
+
+### ⚙️ Miscellaneous Tasks
+
+- Bump version to 0.15.0-rc.3
+## [0.15.0-rc.2] - 2026-11-04
+
+### ⚙️ Miscellaneous Tasks
+
+- Bump version to 0.15.0-rc.2
 ## [0.15.0-rc.1] - 2026-11-04
 
 ### 🚀 Features
@@ -35,7 +78,6 @@ All notable changes to this project will be documented in this file.
 
 ### 🐛 Bug Fixes
 
-- Normalize literal `\n` escapes in agent-created task instructions
 - *(test)* Produce the over-cap stream with posix awk, not a bashism
 - *(app)* Do not let the linux build trip -D warnings on the window binding
 - Make managed storage CI reproducible
@@ -93,21 +135,6 @@ All notable changes to this project will be documented in this file.
 - Bump design and webui submodules (model override picker)
 - Bump webui submodule (quiet model trigger)
 - Bump version to 0.15.0-rc.1
-## [0.15.0-rc.3] - 2026-11-05
-
-### 🐛 Bug Fixes
-
-- *(desktop)* Open target blank links externally (#155)
-## [0.15.0-rc.2] - 2026-11-04
-
-### 🐛 Bug Fixes
-
-- *(test)* Produce the over-cap stream with posix awk, not a bashism
-- *(app)* Do not let the linux build trip -D warnings on the window binding
-
-### ⚙️ Miscellaneous Tasks
-
-- Bump version to 0.15.0-rc.2
 ## [0.14.1] - 2026-11-01
 
 ### 🚀 Features
@@ -301,7 +328,6 @@ All notable changes to this project will be documented in this file.
 - Bump webui for reaction undo and a steady memory explorer
 - Bump design for the memory graph background
 - Bump design for the agent card without its status dot
-- Prevent deleted, disabled, or rescheduled tasks from firing from stale scheduler state
 
 ### 💼 Other
 
