@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { ChatMessage } from '../api/frames'
 import type { EntryMention, WorkspaceEntry, WorkspaceStep } from '../api/endpoints/workspaces'
-import { buildTimeline, entriesByUid, mergeEntries, mergeSteps, topicNameProblem } from './workspaces'
+import { buildTimeline, entriesByUid, mergeEntries, mergeSteps, topicNameProblem, waitingAgents } from './workspaces'
 
 const T0 = Date.parse('2026-11-06T10:00:00Z')
 const at = (s: number) => T0 + s * 1000
@@ -131,6 +131,21 @@ describe('a Workspace topic as things to draw', () => {
     it('leaves out an agent’s checkpoint-free internals it does not show', () => {
         const items = buildTimeline([], [step('alpha', 'r', 1, { Recall: { origin: 'auto' as never, passages: [] } })])
         expect(items).toEqual([])
+    })
+})
+
+describe('an agent working before its first step', () => {
+    it('is waiting with no run yet', () => {
+        expect(waitingAgents(buildTimeline([person('@alpha go', 0)], []), { alpha: true })).toEqual(['alpha'])
+    })
+    it('is waiting when its last run is the previous turn, finished', () => {
+        const items = buildTimeline([], [call('alpha', 'c1', 1), result('alpha', 'c1', 2), reply('alpha', 'r1', 3, 'done')])
+        expect(waitingAgents(items, { alpha: true })).toEqual(['alpha'])
+    })
+    it('is not waiting once its turn has a step, or when it is not working', () => {
+        const running = buildTimeline([], [call('alpha', 'c1', 1)])
+        expect(waitingAgents(running, { alpha: true })).toEqual([])
+        expect(waitingAgents(running, {})).toEqual([])
     })
 })
 

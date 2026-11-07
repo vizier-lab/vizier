@@ -109,7 +109,8 @@ export function WorkspaceHeader({ detail, workspaceId, topicId, working, stoppin
                 </span>
                 {!mobile && extra > 0 && <span className="type-mono-xs text-faint">+{extra}</span>}
             </button>
-            <NotificationsBell />
+            {/* On a phone the shell's top bar has the bell. */}
+            {!mobile && <NotificationsBell />}
         </header>
     )
 }

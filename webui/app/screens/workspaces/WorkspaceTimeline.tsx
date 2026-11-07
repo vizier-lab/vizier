@@ -8,7 +8,7 @@ import { usePrices } from '../../lib/prices'
 import { blockDurationMs, outcomeDurationMs } from '../../lib/trail'
 import { mentionsAsCode } from '../../lib/mentions'
 import { isAudioReply, replyAttachments, replyError, replyStats, replyText, statsLine, time } from '../../lib/messages'
-import { buildTimeline, entriesByUid, type Segment, type TimelineItem } from '../../lib/workspaces'
+import { buildTimeline, entriesByUid, waitingAgents, type Segment, type TimelineItem } from '../../lib/workspaces'
 import { Markdown, MentionHandles } from '../shared/Markdown'
 import { Reactions } from '../chat/Reactions'
 import { ReplyMedia } from '../chat/ReplyMedia'
@@ -172,6 +172,18 @@ export function WorkspaceTimeline({ entries, steps, me, names, working, onReact 
                 {items.map((item, i) => (
                     <Enter key={item.key} delay={stagger(i)}>
                         <Item item={item} me={me} byUid={byUid} names={names} working={working} onReact={onReact} />
+                    </Enter>
+                ))}
+                {/* Waiting on the model, with no step saved yet: the live line a direct chat shows. */}
+                {waitingAgents(items, working).map((agent) => (
+                    <Enter key={`waiting-${agent}`}>
+                        <Run
+                            segment={{ agentId: agent, blocks: [], continued: false, last: true }}
+                            byUid={byUid}
+                            names={names}
+                            running
+                            onReact={onReact}
+                        />
                     </Enter>
                 ))}
             </div>

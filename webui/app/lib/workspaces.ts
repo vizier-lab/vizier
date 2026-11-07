@@ -126,6 +126,21 @@ function segmentsOf(
     })
 }
 
+/**
+ * Agents working with nothing on screen to show it: a model that hasn't answered yet has saved no
+ * step, so its turn has no run, and its last run may be the previous turn's finished one.
+ */
+export function waitingAgents(items: readonly TimelineItem[], working: Readonly<Record<string, true>>): string[] {
+    const latest = new Map<string, Segment>()
+    for (const item of items) if (item.kind === 'run') latest.set(item.segment.agentId, item.segment)
+    return Object.keys(working)
+        .filter((agent) => {
+            const run = latest.get(agent)
+            return !run || !!run.outcome || !run.last
+        })
+        .sort()
+}
+
 /** Everything to draw for a page, in order. */
 export function buildTimeline(entries: readonly WorkspaceEntry[], steps: readonly WorkspaceStep[]): TimelineItem[] {
     const items: TimelineItem[] = []
