@@ -8,17 +8,11 @@
 
 export const WAV_SAMPLE_RATE = 16_000
 
-/** Collects the input's first channel and posts each 128-frame block to the page. */
-const WORKLET_SOURCE = `
-class Capture extends AudioWorkletProcessor {
-    process(inputs) {
-        const channel = inputs[0] && inputs[0][0]
-        if (channel) this.port.postMessage(channel.slice())
-        return true
-    }
-}
-registerProcessor('vizier-capture', Capture)
-`
+/**
+ * The capture worklet (`public/`). Served from our own origin, never a `blob:` URL: the desktop
+ * app's CSP allows scripts from 'self' only, so a blob worklet fails to load there.
+ */
+export const WORKLET_URL = '/vizier-capture-worklet.js'
 
 export function encodeWav(samples: Float32Array, sampleRate: number): Blob {
     const buffer = new ArrayBuffer(44 + samples.length * 2)
@@ -64,24 +58,22 @@ export class WavRecorder {
     static async start(stream: MediaStream): Promise<WavRecorder> {
         // The context resamples the microphone to 16 kHz for us.
         const context = new AudioContext({ sampleRate: WAV_SAMPLE_RATE })
-        const url = URL.createObjectURL(
-            new Blob([WORKLET_SOURCE], { type: 'text/javascript' })
-        )
         try {
-            await context.audioWorklet.addModule(url)
-        } finally {
-            URL.revokeObjectURL(url)
+            await context.audioWorklet.addModule(WORKLET_URL)
+
+            const blocks: Float32Array[] = []
+            const node = new AudioWorkletNode(context, 'vizier-capture')
+            node.port.onmessage = (e: MessageEvent<Float32Array>) =>
+                blocks.push(e.data)
+
+            context.createMediaStreamSource(stream).connect(node)
+            // A worklet only runs while it reaches the destination; it outputs silence.
+            node.connect(context.destination)
+            return new WavRecorder(stream, context, node, blocks)
+        } catch (e) {
+            void context.close()
+            throw e
         }
-
-        const blocks: Float32Array[] = []
-        const node = new AudioWorkletNode(context, 'vizier-capture')
-        node.port.onmessage = (e: MessageEvent<Float32Array>) =>
-            blocks.push(e.data)
-
-        context.createMediaStreamSource(stream).connect(node)
-        // A worklet only runs while it reaches the destination; it outputs silence.
-        node.connect(context.destination)
-        return new WavRecorder(stream, context, node, blocks)
     }
 
     /** Stops without producing a recording: the microphone is released and `onstop` never fires. */
