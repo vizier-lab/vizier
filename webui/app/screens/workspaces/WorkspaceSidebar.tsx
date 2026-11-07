@@ -1,4 +1,4 @@
-import { Badge, Dialog, IconButton, Menu, MenuItem, NavItem, NavSection, TextField, useDismiss } from '@vizier/design'
+import { Badge, Dialog, IconButton, Menu, MenuDivider, MenuItem, NavItem, NavSection, TextField, useDismiss } from '@vizier/design'
 import { useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { ApiError } from '../../api/client'
@@ -84,13 +84,14 @@ export function WorkspaceSidebar({ workspace, activeTopic, onMembers }: { worksp
                         <IconButton icon="more" size="sm" aria-label="Manage this Workspace" aria-haspopup="menu" aria-expanded={menu} onClick={() => setMenu((m) => !m)} />
                         {menu && (
                             <div className="absolute top-full right-0 z-30 mt-4">
-                                <Menu aria-label="Manage this Workspace">
+                                <Menu aria-label="Manage this Workspace" className="w-192!">
                                     {current && (
                                         <MenuItem icon="pencil" label="Rename topic" onClick={() => { setMenu(false); setName(current.name); setManaging('rename-topic') }} />
                                     )}
                                     {current && workspace.topics.length > 1 && (
                                         <MenuItem icon="trash" tone="danger" label="Delete topic" onClick={() => { setMenu(false); setManaging('delete-topic') }} />
                                     )}
+                                    {current && <MenuDivider />}
                                     <MenuItem icon="pencil" label="Rename Workspace" onClick={() => { setMenu(false); setName(workspace.name); setManaging('rename-workspace') }} />
                                     <MenuItem icon="trash" tone="danger" label="Delete Workspace" onClick={() => { setMenu(false); setManaging('delete-workspace') }} />
                                 </Menu>
