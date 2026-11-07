@@ -14,7 +14,7 @@ In a project chat, the agent's only view of the code is text search plus whole-f
 
 Language servers already hold these answers. This specification lets the agent use them: it learns right after an edit whether the code still holds together, and it can ask about meaning instead of matching text.
 
-A language server is a program running on the host machine, and it can execute code from the project it opens (for example build scripts). That makes this a deliberate, per-project choice by a person, on the same footing as the project's shell switch.
+A language server is a program running on the host machine, and it can execute code from the project it opens (for example build scripts). It is on by default for new projects, because a person already chose the folder and a server only starts when it is needed. A person can turn it off per project.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -36,18 +36,19 @@ A person in a Build chat asks the agent to change a function's signature. The ag
 
 ---
 
-### User Story 2 - A person turns it on and can see what it is doing (Priority: P1)
+### User Story 2 - A person can see what it is doing and turn it off (Priority: P1)
 
-A person opens a project and turns on language intelligence. The control says what this means: programs will run on this machine and may execute code from the project, even in Plan mode. Later they can see which servers are running for the project and whether each is starting, ready, failed or not installed. If a server is missing, they see which one and how to install it.
+A person opens a new project, and language intelligence is already on. They can turn it off for that project. They can see which servers are running for the project and whether each is starting, ready, failed or not installed. If a server is missing, they see which one and how to install it.
 
-**Why this priority**: Nothing else can happen until a person opts in, and opting in has to be informed. A missing server is the most common first experience, so it has to be clear rather than a silent nothing.
+**Why this priority**: These are programs running on a person's machine, so they must be able to see and stop them. A missing server is the most common first experience, so it has to be clear rather than a silent nothing.
 
 **Independent Test**: With the switch off, confirm no server process starts during a chat. Turn it on in a project containing a language with no server installed, and confirm the status names the missing server and gives an install hint. Turn it off and confirm all of that project's servers stop.
 
 **Acceptance Scenarios**:
 
-1. **Given** a project, **When** it is created, **Then** language intelligence is off and no server runs for it.
-2. **Given** a person who can manage the project, **When** they turn it on, **Then** they have been told what it runs and that this applies in Plan mode too.
+1. **Given** a new project, **When** it is created, **Then** language intelligence is on and no server runs until the agent reads, edits or asks about a file. A project created through the API is on unless the request turns it off.
+1a. **Given** a project created before this feature, **When** Vizier is upgraded, **Then** language intelligence stays off for it until a person turns it on.
+2. **Given** a person who can manage the project, **When** they turn it on, **Then** servers may start the next time the agent reads, edits or asks about a file, with no further step.
 3. **Given** a person who cannot manage the project, **When** they try to change the switch, **Then** the change is refused.
 4. **Given** the switch is on and a server is missing, **When** the agent touches a file of that language, **Then** the agent and the person are both told which server is missing and how to install it, and Vizier installs nothing.
 5. **Given** running servers, **When** the switch is turned off, **Then** those servers stop, and the next turn no longer offers the capability.
@@ -131,8 +132,8 @@ A person wants a different server for a language than the built-in choice, or ha
 
 **Control and consent**
 
-- **FR-001**: Each project MUST have a language intelligence switch, off by default, changeable only by someone who can manage the project.
-- **FR-002**: Turning the switch on MUST tell the person that programs will run on the host machine, that they may execute code from the project, and that this applies in Plan mode too.
+- **FR-001**: Each project MUST have a language intelligence switch, changeable only by someone who can manage the project. It MUST be on for projects created after this feature ships, and off for projects that already exist.
+- **FR-002**: *(Removed by decision: the interface shows no warning when the switch is turned on. See Assumptions and FR-042.)*
 - **FR-003**: With the switch off, no server MUST start for the project and the capability MUST NOT be offered; a script calling it by name MUST get a clear refusal.
 - **FR-004**: Turning the switch off MUST stop that project's servers.
 - **FR-005**: The switch MUST be independent of the shell switch: neither implies the other.
@@ -193,7 +194,7 @@ A person wants a different server for a language than the built-in choice, or ha
 **Status**
 
 - **FR-041**: A person who can use a project MUST be able to see, for each of its servers: language, root, state (starting, ready, failed, not installed) and the reason for a failure.
-- **FR-042**: Project documentation MUST cover installing a server per language, the switch and what it permits, overrides, and the not-installed state.
+- **FR-042**: Project documentation MUST cover installing a server per language, the switch and what it permits (including that a server may execute code from the project, in Plan mode too), overrides, and the not-installed state.
 
 ### Key Entities
 
@@ -221,7 +222,7 @@ A person wants a different server for a language than the built-in choice, or ha
 
 - **Where it runs**: anywhere projects exist today, on the host holding the project folder. No new way of creating projects, and no server is shipped in the Docker image or the desktop app.
 - **Server installation is the person's job**, either by hand or by asking the agent in Build mode with the shell on. A managed download could come later as an opt-in feature.
-- **The switch is the consent**: per-call approval is out of scope and belongs to the guardrails work (#119). Language servers are not sandboxed, and they write their own caches into the project (for example build output), as a build would. This is a stated exception to "Plan mode changes nothing", disclosed at the switch.
+- **Choosing the folder is the consent**: new projects are on by default, by decision, with no separate prompt. Per-call approval is out of scope and belongs to the guardrails work (#119). Language servers are not sandboxed, and they write their own caches into the project (for example build output), as a build would. This is an exception to "Plan mode changes nothing". By decision, it is covered in the project documentation (FR-042) and not shown in the interface.
 - **No cross-language or cross-root answers**: references are searched within the file's own root, so a call from another workspace or language is not found. This is a known limit for repositories like Vizier's.
 - **No code viewer**: the first consumer is the agent. A person sees the switch, overrides and server status only; a problems panel or gutter marks are out of scope.
 - **No hard gate**: an agent is shown problems but is free to finish with them, since a multi-step change is often broken partway.

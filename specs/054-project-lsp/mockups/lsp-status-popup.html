@@ -1,0 +1,393 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LSP Status Popup</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Schibsted+Grotesk:wght@400;500;600&display=swap">
+<style>
+/* Values copied from design/src/tokens/tokens.css. */
+:root {
+  color-scheme: light;
+  --vz-ground:#ffffff; --vz-panel:#ffffff; --vz-surface:#f4f4f5; --vz-raised:#e9e9ec; --vz-pressed:#dcdce0;
+  --vz-border:#e4e4e7; --vz-border-strong:#d4d4d8; --vz-focus:#3f3f46; --vz-unlit:#d4d4da;
+  --vz-text-faint:#6e6e78; --vz-text-muted:#5b5b66; --vz-text-soft:#3f3f46; --vz-text:#111114;
+  --vz-ink:#111114; --vz-ink-hover:#2e2e33; --vz-on-ink:#ffffff;
+  --vz-live:#059669; --vz-live-text:#046c4e; --vz-live-bg:#ecf8f2;
+  --vz-rank-text:#3651c4; --vz-rank-bg:#e6ebfb;
+  --vz-failed:#c8371d; --vz-failed-text:#b4321c; --vz-failed-bg:#fdf1ee; --vz-failed-line:#f5c9c0;
+  --vz-retrying:#a86a12; --vz-retrying-bg:#fbf4e6; --vz-retrying-line:#ebd9b0;
+  --shadow:0 12px 32px -8px rgb(0 0 0 / .22);
+  --sans:"Schibsted Grotesk",ui-sans-serif,system-ui,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --vz-ground:#0b0b0c; --vz-panel:#0b0b0c; --vz-surface:#151518; --vz-raised:#1c1c20; --vz-pressed:#26262b;
+  --vz-border:#242428; --vz-border-strong:#303036; --vz-focus:#d6d6dc; --vz-unlit:#3a3a42;
+  --vz-text-faint:#8b8b96; --vz-text-muted:#a0a0aa; --vz-text-soft:#d6d6dc; --vz-text:#ededef;
+  --vz-ink:#f2f2f5; --vz-ink-hover:#d6d6dc; --vz-on-ink:#111114;
+  --vz-live:#10b981; --vz-live-text:#10b981; --vz-live-bg:#0f2a21;
+  --vz-rank-text:#9db1f5; --vz-rank-bg:#1e2540;
+  --vz-failed:#e5654b; --vz-failed-text:#f0a394; --vz-failed-bg:#2a1714; --vz-failed-line:#4a2a26;
+  --vz-retrying:#e2b04a; --vz-retrying-bg:#2a2213; --vz-retrying-line:#4a3d22;
+  --shadow:0 12px 32px -8px rgb(0 0 0 / .5);
+}
+* { box-sizing:border-box; }
+html,body { margin:0; }
+body { background:var(--vz-ground); color:var(--vz-text); font:400 14px/20px var(--sans); }
+button,input,select { font:inherit; color:inherit; }
+button { cursor:pointer; background:none; border:0; padding:0; }
+:focus-visible { outline:2px solid var(--vz-focus); outline-offset:2px; }
+.mono { font-family:var(--mono); }
+svg { display:block; flex:none; }
+
+/* Mockup controls: not part of the design. */
+.controls { display:flex; flex-wrap:wrap; align-items:center; gap:8px 12px; padding:10px 16px; border-bottom:1px dashed var(--vz-border-strong); }
+.controls b { font-weight:500; font-size:12px; color:var(--vz-text-faint); }
+.seg { display:flex; flex-wrap:wrap; gap:2px; }
+.seg button { padding:4px 10px; border-radius:999px; font-size:12px; line-height:18px; color:var(--vz-text-muted); }
+.seg button:hover { background:var(--vz-raised); color:var(--vz-text); }
+.seg button[aria-pressed="true"] { background:var(--vz-ink); color:var(--vz-on-ink); }
+.spacer { flex:1; }
+
+/* The chat. */
+.screen { min-height:100vh; display:flex; flex-direction:column; }
+.stage { position:relative; flex:1; width:100%; max-width:896px; margin:0 auto; padding:24px 24px 16px; display:flex; flex-direction:column; justify-content:flex-end; }
+.msg { align-self:flex-end; background:var(--vz-surface); border-radius:16px; padding:8px 14px; margin-bottom:16px; }
+.reply { color:var(--vz-text-soft); margin-bottom:20px; max-width:640px; }
+.composer-wrap { position:relative; }
+.composer { border:1px solid var(--vz-border-strong); border-radius:16px; background:var(--vz-panel); padding:12px 12px 8px; }
+.composer .ph { color:var(--vz-text-faint); padding:0 4px 14px; }
+.composer .row { display:flex; align-items:center; gap:6px; }
+.round { width:30px; height:30px; display:grid; place-items:center; border-radius:999px; color:var(--vz-text-muted); }
+.round:hover { background:var(--vz-raised); color:var(--vz-text); }
+.mode { display:inline-flex; padding:2px; border-radius:999px; background:var(--vz-surface); font-size:12px; line-height:18px; }
+.mode span { padding:3px 10px; border-radius:999px; color:var(--vz-text-muted); }
+.mode .on { background:var(--vz-raised); color:var(--vz-text); }
+.send { width:30px; height:30px; border-radius:999px; display:grid; place-items:center; background:var(--vz-ink); color:var(--vz-on-ink); }
+
+/* The status strip. */
+.under { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:6px; }
+.strip { display:flex; align-items:center; gap:4px; }
+.item { display:inline-flex; align-items:center; gap:4px; height:29px; padding:0 8px; border-radius:999px; color:var(--vz-text-muted); font:500 11px/16px var(--mono); }
+.item:hover { background:var(--vz-raised); color:var(--vz-text); }
+.item[aria-expanded="true"] { background:var(--vz-raised); color:var(--vz-text); }
+.item.off { color:var(--vz-text-faint); }
+.dot { width:6px; height:6px; border-radius:999px; background:var(--vz-live); flex:none; }
+.dot.warn { background:var(--vz-retrying); }
+.dot.fail { background:var(--vz-failed); }
+.dot.idle { background:var(--vz-unlit); }
+.dot.pulse { animation:pulse 1.2s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity:.35; } }
+@media (prefers-reduced-motion:reduce) { .dot.pulse { animation:none; } }
+.model { font-size:12px; color:var(--vz-text-muted); padding:4px 8px; }
+
+/* The panel: StatusPanel. */
+.panel { position:absolute; left:0; right:0; bottom:calc(100% + 8px); display:flex; flex-direction:column; max-height:min(436px,calc(100vh - 180px)); overflow:hidden; border:1px solid var(--vz-border-strong); border-radius:12px; background:color-mix(in srgb,var(--vz-surface) 80%,transparent); -webkit-backdrop-filter:blur(16px) saturate(1.4); backdrop-filter:blur(16px) saturate(1.4); box-shadow:var(--shadow); }
+.panel[hidden] { display:none; }
+.p-head { display:flex; align-items:center; gap:8px; padding:14px 16px 10px; }
+.p-head { flex-wrap:wrap; }
+.p-title { flex:1 0 auto; font-weight:600; white-space:nowrap; }
+.p-meta { font:400 11px/16px var(--mono); color:var(--vz-text-faint); white-space:nowrap; }
+@media (max-width:480px) { .p-meta { order:3; flex-basis:100%; } }
+.x { width:26px; height:26px; display:grid; place-items:center; border-radius:6px; color:var(--vz-text-muted); }
+.x:hover { background:var(--vz-raised); color:var(--vz-text); }
+.master { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; padding:0 16px 12px; }
+.master strong { font-weight:500; display:block; }
+.helper { font-size:12px; line-height:17px; color:var(--vz-text-muted); }
+.switch { flex:none; width:34px; height:20px; border-radius:999px; background:var(--vz-unlit); position:relative; transition:background .12s; }
+.switch::after { content:""; position:absolute; top:2px; left:2px; width:16px; height:16px; border-radius:999px; background:#fff; transition:left .18s cubic-bezier(.2,0,0,1); }
+.switch[aria-checked="true"] { background:var(--vz-live); }
+.switch[aria-checked="true"]::after { left:16px; }
+.p-body { flex:1; min-height:0; overflow-y:auto; padding:4px 16px; border-top:1px solid var(--vz-border); }
+.p-foot { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 16px; border-top:1px solid var(--vz-border); }
+
+/* Language groups. */
+.lang { padding:10px 0; }
+.lang + .lang { border-top:1px solid var(--vz-border); }
+.lang-head { display:flex; align-items:center; gap:8px; min-height:26px; }
+.lang-name { font-weight:500; }
+.lang-cmd { font:400 11px/16px var(--mono); color:var(--vz-text-faint); min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.tag { font:500 10px/14px var(--mono); padding:1px 6px; border-radius:4px; background:var(--vz-rank-bg); color:var(--vz-rank-text); flex:none; }
+.link { margin-left:auto; flex:none; font-size:12px; line-height:18px; color:var(--vz-text-muted); padding:3px 8px; border-radius:6px; }
+.link:hover { background:var(--vz-raised); color:var(--vz-text); }
+.link[aria-expanded="true"] { background:var(--vz-raised); color:var(--vz-text); }
+.root { display:flex; align-items:center; gap:10px; padding:3px 0 3px 2px; }
+.root .path { font:400 12px/18px var(--mono); color:var(--vz-text-soft); min-width:0; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.state { display:inline-flex; align-items:center; gap:6px; font-size:12px; line-height:18px; color:var(--vz-text-muted); flex:none; }
+.state.fail { color:var(--vz-failed-text); }
+.state.warn { color:var(--vz-retrying); }
+.note { margin-top:6px; padding:8px 10px; border-radius:8px; font-size:12px; line-height:17px; border:1px solid; }
+.note.warn { background:var(--vz-retrying-bg); border-color:var(--vz-retrying-line); }
+.note.fail { background:var(--vz-failed-bg); border-color:var(--vz-failed-line); }
+.note .acts { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-top:6px; }
+.cmdline { flex:1 1 220px; min-width:0; font:400 12px/18px var(--mono); padding:3px 8px; border-radius:6px; background:var(--vz-panel); border:1px solid var(--vz-border); overflow-x:auto; white-space:nowrap; }
+.btn { display:inline-flex; align-items:center; height:28px; padding:0 10px; border-radius:6px; font-size:12px; border:1px solid var(--vz-border-strong); background:var(--vz-panel); flex:none; }
+.btn:hover { background:var(--vz-raised); }
+.btn.primary { background:var(--vz-ink); color:var(--vz-on-ink); border-color:var(--vz-ink); }
+.btn.primary:hover { background:var(--vz-ink-hover); }
+.empty { padding:18px 0; text-align:center; color:var(--vz-text-muted); font-size:13px; }
+
+/* The override form. */
+.form { display:grid; gap:10px; margin-top:8px; padding:12px; border:1px solid var(--vz-border); border-radius:8px; background:var(--vz-panel); }
+.field { display:grid; gap:4px; }
+.field label { font-size:12px; font-weight:500; line-height:16px; }
+.field input,.field select { width:100%; height:32px; padding:0 10px; border-radius:6px; border:1px solid var(--vz-border-strong); background:var(--vz-ground); font:400 12px/18px var(--mono); }
+.field input::placeholder { color:var(--vz-text-faint); }
+.two { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+.form-foot { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+.form-foot .helper { flex:1 1 200px; }
+
+/* Notes for the reader: not part of the design. */
+.annot { max-width:896px; margin:0 auto; padding:16px 24px 32px; border-top:1px dashed var(--vz-border-strong); font-size:13px; color:var(--vz-text-muted); }
+.annot h2 { font-size:13px; font-weight:600; margin:0 0 6px; color:var(--vz-text); }
+.annot ul { margin:0; padding-left:18px; }
+.annot li { margin:3px 0; }
+
+@media (max-width:640px) {
+  .stage { padding:16px 16px 12px; }
+  .two { grid-template-columns:1fr; }
+  .lang-cmd { display:none; }
+  .model { display:none; }
+  .annot { padding:16px; }
+}
+</style>
+</head>
+<body>
+
+<div class="screen">
+<div class="controls" id="controls">
+  <b>Mockup state</b>
+  <div class="seg" id="scenarios"></div>
+  <span class="spacer"></span>
+  <div class="seg"><button id="theme" aria-pressed="false">Dark</button></div>
+</div>
+
+<div class="stage">
+  <div class="msg">Change <span class="mono">resolve_workdir</span> to take a <span class="mono">&amp;Path</span></div>
+  <div class="reply">Done. The edit broke one call site in <span class="mono">projects/shell.rs:61</span>, which I fixed in the same turn.</div>
+
+  <div class="composer-wrap">
+    <div class="panel" id="panel" role="dialog" aria-label="Language servers"></div>
+    <div class="composer">
+      <div class="ph">Message your agent…</div>
+      <div class="row">
+        <button class="round" aria-label="Attach"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button>
+        <span style="flex:1"></span>
+        <span class="mode"><span>Plan</span><span class="on">Build</span></span>
+        <button class="send" aria-label="Send"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
+      </div>
+    </div>
+    <div class="under">
+      <div class="strip" id="strip"></div>
+      <span class="model">Agent default</span>
+    </div>
+  </div>
+</div>
+
+</div>
+
+<div class="annot">
+  <h2>Design notes</h2>
+  <ul>
+    <li>The new strip item only appears in project chats, after the changes count. Its number is the servers that are ready.</li>
+    <li>The dot shows the worst state: green pulsing while starting, amber for a missing server, red for a failed one.</li>
+    <li>Servers are grouped by language because an override applies to the whole language, across every root.</li>
+    <li>Only roots the agent has touched are listed. Nothing appears until a server is needed.</li>
+    <li>Component changes needed: <span class="mono">StatusStripItemId</span> gains an LSP item, and <span class="mono">busy</span> becomes a dot tone. The panel reuses <span class="mono">StatusPanel</span> and <span class="mono">Switch</span>.</li>
+    <li>Closes on ×, Escape or a press outside, per the dismissal convention.</li>
+  </ul>
+</div>
+
+<script>
+const ICON = {
+  memory:'<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V3H6.5A2.5 2.5 0 0 0 4 5.5z"/><path d="M4 19.5A2.5 2.5 0 0 0 6.5 22H20v-5"/>',
+  layers:'<path d="m12 2 10 5-10 5L2 7z"/><path d="m2 12 10 5 10-5"/><path d="m2 17 10 5 10-5"/>',
+  file:'<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/>',
+  branch:'<path d="M6 3v12"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/>',
+  code:'<path d="m16 18 6-6-6-6"/><path d="m8 6-6 6 6 6"/>',
+  close:'<path d="M18 6 6 18M6 6l12 12"/>',
+};
+const svg = (n, s = 15) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[n]}</svg>`;
+
+const RUST = { id:'rust', name:'Rust', cmd:'rust-analyzer' };
+const TS = { id:'ts', name:'TypeScript', cmd:'typescript-language-server --stdio' };
+const GO = { id:'go', name:'Go', cmd:'gopls' };
+
+const SCENARIOS = {
+  'Working': { on:true, manage:true, langs:[
+    { ...RUST, roots:[{ path:'.', state:'ready' }, { path:'app', state:'ready' }] },
+    { ...TS, roots:[{ path:'webui', state:'starting', detail:'indexing 41%' }] },
+  ]},
+  'Needs attention': { on:true, manage:true, langs:[
+    { ...RUST, roots:[{ path:'.', state:'ready' }] },
+    { ...TS, missing:'npm install -g typescript typescript-language-server' },
+    { ...GO, roots:[{ path:'tools/gen', state:'failed', reason:'Crashed 3 times in 10 minutes: exit code 2. Last line: go.mod requires go 1.25.' }] },
+  ]},
+  'Override': { on:true, manage:true, expand:'rust', langs:[
+    { ...RUST, override:{ cmd:'/opt/rust/nightly/bin/rust-analyzer', args:'', env:'RA_LOG=warn' }, roots:[{ path:'.', state:'ready' }] },
+    { ...TS, roots:[{ path:'webui', state:'ready' }] },
+  ]},
+  'Nothing yet': { on:true, manage:true, langs:[] },
+  'Off': { on:false, manage:true, langs:[] },
+  'View only': { on:true, manage:false, langs:[
+    { ...RUST, roots:[{ path:'.', state:'ready' }] },
+    { ...TS, missing:'npm install -g typescript typescript-language-server' },
+  ]},
+};
+
+let current = 'Working', scen, panelOpen = true, expanded = null, adding = false;
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c]));
+const load = (name) => { current = name; scen = JSON.parse(JSON.stringify(SCENARIOS[name])); expanded = scen.expand || null; adding = false; panelOpen = true; render(); };
+
+function tally() {
+  const roots = scen.langs.flatMap((l) => l.roots || []);
+  return {
+    ready: roots.filter((r) => r.state === 'ready').length,
+    starting: roots.filter((r) => r.state === 'starting').length,
+    failed: roots.filter((r) => r.state === 'failed').length,
+    missing: scen.langs.filter((l) => l.missing).length,
+  };
+}
+
+function worstDot() {
+  const t = tally();
+  if (!scen.on) return '';
+  if (t.failed) return '<span class="dot fail" aria-hidden="true"></span>';
+  if (t.missing) return '<span class="dot warn" aria-hidden="true"></span>';
+  if (t.starting) return '<span class="dot pulse" aria-hidden="true"></span>';
+  return '';
+}
+
+function renderStrip() {
+  const t = tally();
+  const plain = [['memory', 5, 'recalled passages'], ['layers', 0, 'background jobs running'], ['file', 2, 'session files'], ['branch', 3, 'changed files']];
+  document.getElementById('strip').innerHTML =
+    plain.map(([i, n, l]) => `<button class="item" aria-label="${n} ${l}">${svg(i)}<span>${n}</span></button>`).join('') +
+    `<button class="item${scen.on ? '' : ' off'}" id="lsp-item" aria-expanded="${panelOpen}" aria-label="${scen.on ? t.ready + ' language servers ready' : 'Language intelligence off'}">${svg('code')}<span>${scen.on ? t.ready : 'off'}</span>${worstDot()}</button>`;
+}
+
+function stateChip(r) {
+  if (r.state === 'ready') return '<span class="state"><span class="dot"></span>Ready</span>';
+  if (r.state === 'starting') return `<span class="state"><span class="dot pulse"></span>Starting${r.detail ? ' · ' + esc(r.detail) : ''}</span>`;
+  return '<span class="state fail"><span class="dot fail"></span>Failed</span>';
+}
+
+function overrideForm(l) {
+  const o = l.override || { cmd:'', args:'', env:'' };
+  return `<form class="form" data-form="${l.id}" onsubmit="return false">
+    <div class="field"><label for="f-cmd">Command</label><input class="mono" id="f-cmd" value="${esc(o.cmd)}" placeholder="${esc(l.cmd.split(' ')[0])}" spellcheck="false" autocomplete="off"></div>
+    <div class="two">
+      <div class="field"><label for="f-args">Arguments</label><input id="f-args" value="${esc(o.args)}" placeholder="--stdio" spellcheck="false" autocomplete="off"></div>
+      <div class="field"><label for="f-env">Environment</label><input id="f-env" value="${esc(o.env)}" placeholder="KEY=value" spellcheck="false" autocomplete="off"></div>
+    </div>
+    <div class="form-foot">
+      <span class="helper">Saving restarts ${esc(l.name)} servers in this project. Only people who manage the project can change this.</span>
+      ${l.override ? `<button class="btn" data-act="reset" data-lang="${l.id}">Use default</button>` : ''}
+      <button class="btn primary" data-act="save" data-lang="${l.id}">Save and restart</button>
+    </div>
+  </form>`;
+}
+
+function renderLang(l) {
+  const open = expanded === l.id;
+  const cmd = l.override ? l.override.cmd : l.cmd;
+  let body = '';
+  if (l.missing) {
+    body = `<div class="note warn"><b style="font-weight:500">${esc(l.cmd.split(' ')[0])} isn't installed.</b> The agent has been told too, and edits to these files aren't checked.
+      <div class="acts"><span class="cmdline">${esc(l.missing)}</span><button class="btn" data-act="copy">Copy</button>${scen.manage ? '<button class="btn" data-act="recheck" data-lang="' + l.id + '">Check again</button>' : ''}</div></div>`;
+  } else {
+    body = (l.roots || []).map((r) => `<div class="root"><span class="path" title="${esc(r.path)}">${esc(r.path === '.' ? './' : r.path + '/')}</span>${stateChip(r)}</div>${r.state === 'failed' ? `<div class="note fail">${esc(r.reason)}<div class="acts">${scen.manage ? '<button class="btn" data-act="retry" data-lang="' + l.id + '">Restart</button>' : ''}</div></div>` : ''}`).join('');
+  }
+  return `<div class="lang">
+    <div class="lang-head"><span class="lang-name">${esc(l.name)}</span><span class="lang-cmd" title="${esc(cmd)}">${esc(cmd)}</span>${l.override ? '<span class="tag">override</span>' : ''}
+      ${scen.manage ? `<button class="link" data-act="configure" data-lang="${l.id}" aria-expanded="${open}">Configure</button>` : ''}</div>
+    ${body}
+    ${open ? overrideForm(l) : ''}
+  </div>`;
+}
+
+function addForm() {
+  const options = ['Rust', 'TypeScript', 'Python', 'Go', 'C/C++', 'Lua'].map((n) => `<option>${n}</option>`).join('');
+  return `<form class="form" onsubmit="return false" style="margin:10px 0">
+    <div class="field"><label for="a-lang">Language</label><select id="a-lang">${options}</select></div>
+    <div class="field"><label for="a-cmd">Command</label><input id="a-cmd" placeholder="/path/to/server" spellcheck="false" autocomplete="off"></div>
+    <div class="two">
+      <div class="field"><label for="a-args">Arguments</label><input id="a-args" placeholder="--stdio" spellcheck="false" autocomplete="off"></div>
+      <div class="field"><label for="a-env">Environment</label><input id="a-env" placeholder="KEY=value" spellcheck="false" autocomplete="off"></div>
+    </div>
+    <div class="form-foot"><span class="helper">Used the next time the agent opens a file in this language.</span><button class="btn" data-act="cancel-add">Cancel</button><button class="btn primary" data-act="cancel-add">Save</button></div>
+  </form>`;
+}
+
+function renderPanel() {
+  const p = document.getElementById('panel');
+  p.hidden = !panelOpen;
+  if (!panelOpen) return;
+  const t = tally();
+  const meta = !scen.on ? 'off' : [t.ready && `${t.ready} ready`, t.starting && `${t.starting} starting`, t.missing && `${t.missing} missing`, t.failed && `${t.failed} failed`].filter(Boolean).join(' · ') || 'none running';
+  const running = t.ready + t.starting;
+  const master = scen.manage
+    ? ''
+    : `<div class="master"><span class="helper">Someone who manages this project controls these settings.</span></div>`;
+  const toggle = scen.manage ? `<button class="switch" role="switch" id="master" aria-checked="${scen.on}" aria-label="Language intelligence"></button>` : '';
+  let body;
+  if (!scen.on) body = '<div class="empty">Off for this project. The agent uses text search and has no diagnostics after edits.</div>';
+  else if (!scen.langs.length && !adding) body = '<div class="empty">No servers running. One starts when the agent opens a file in a supported language.</div>';
+  else body = scen.langs.map(renderLang).join('');
+  if (adding) body += addForm();
+  const foot = scen.on
+    ? `<span class="helper">${running} of 6 server slots in use · stops after 10 min idle</span>${scen.manage && !adding ? '<button class="link" style="margin-left:0" data-act="add">Add override</button>' : ''}`
+    : '';
+  p.innerHTML = `<div class="p-head"><span class="p-title">Language servers</span><span class="p-meta">${esc(meta)}</span>${toggle}<button class="x" data-act="close" aria-label="Close panel">${svg('close', 14)}</button></div>${master}<div class="p-body">${body}</div>${foot ? `<div class="p-foot">${foot}</div>` : ''}`;
+}
+
+function render() {
+  document.getElementById('scenarios').innerHTML = Object.keys(SCENARIOS).map((n) => `<button data-s="${n}" aria-pressed="${n === current}">${n}</button>`).join('');
+  renderStrip();
+  renderPanel();
+}
+
+document.addEventListener('click', (e) => {
+  const scenario = e.target.closest('[data-s]');
+  if (scenario) return load(scenario.dataset.s);
+  if (e.target.closest('#controls')) return;
+  if (e.target.closest('#lsp-item')) { panelOpen = !panelOpen; return render(); }
+  if (e.target.closest('#master')) { scen.on = !scen.on; if (!scen.on) { scen.langs = []; expanded = null; adding = false; } return render(); }
+  const act = e.target.closest('[data-act]');
+  if (act) {
+    const a = act.dataset.act, lang = scen.langs.find((l) => l.id === act.dataset.lang);
+    if (a === 'close') panelOpen = false;
+    if (a === 'configure') expanded = expanded === lang.id ? null : lang.id;
+    if (a === 'add') adding = true;
+    if (a === 'cancel-add') adding = false;
+    if (a === 'reset') { delete lang.override; expanded = null; }
+    if (a === 'save') {
+      const cmd = document.getElementById('f-cmd').value.trim();
+      const args = document.getElementById('f-args').value.trim();
+      const env = document.getElementById('f-env').value.trim();
+      if (cmd) lang.override = { cmd, args, env }; else delete lang.override;
+      (lang.roots || []).forEach((r) => { r.state = 'starting'; delete r.detail; delete r.reason; });
+      expanded = null;
+    }
+    if (a === 'retry') (lang.roots || []).forEach((r) => { r.state = 'starting'; delete r.reason; });
+    if (a === 'recheck') { delete lang.missing; lang.roots = [{ path:'webui', state:'starting' }]; }
+    if (a === 'copy') { act.textContent = 'Copied'; setTimeout(() => { act.textContent = 'Copy'; }, 1200); return; }
+    return render();
+  }
+  // A press outside closes the panel.
+  if (panelOpen && !e.target.closest('#panel')) { panelOpen = false; render(); }
+});
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && panelOpen) { panelOpen = false; render(); } });
+
+const themeBtn = document.getElementById('theme');
+const setTheme = (t) => { document.documentElement.dataset.theme = t; themeBtn.setAttribute('aria-pressed', t === 'dark'); };
+setTheme(matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+themeBtn.addEventListener('click', () => setTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'));
+
+load(new URLSearchParams(location.search).get('state') || 'Working');
+</script>
+</body>
+</html>
