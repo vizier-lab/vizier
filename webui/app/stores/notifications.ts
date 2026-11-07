@@ -2,14 +2,17 @@ import { create } from 'zustand'
 import {
     listNotifications,
     markAllNotificationsRead,
+    markChatRead,
     notificationCounts,
     setNotificationRead,
+    unreadChats,
+    type ChatUnread,
     type NotificationCounts,
     type NotificationItem,
 } from '../api/endpoints/notifications'
 import { transport, type ConnectionState } from '../api/transport'
 import { absorb, onHello, onRead, parseFrame, type InboxFrame } from '../lib/inboxFrames'
-import { applyAllRead, applyRead, belongs, mergePage, type ViewFilter } from '../lib/notifications'
+import { applyAllRead, applyRead, belongs, mergePage, samePath, type ViewFilter } from '../lib/notifications'
 
 export type { ViewFilter }
 import { useAgents } from './agents'
@@ -40,7 +43,12 @@ type NotificationStore = {
     takeArrived: () => NotificationItem[]
     /** The in-app path on screen, so a reply to that conversation is read on arrival. */
     viewing: string | null
+    /** Moves to a page; opening a conversation reads it. */
     setViewing: (path: string) => void
+    /** Replies not yet read, per conversation: the counts on the rail and the session rows. */
+    chats: ChatUnread[]
+    /** Re-reads `chats`. `readOpen` also reads the conversation on screen (a page just opened on it). */
+    loadChats: (readOpen?: boolean) => Promise<void>
     /** The bell the popup hangs from; null when none is mounted. */
     anchor: HTMLElement | null
     setAnchor: (el: HTMLElement | null) => void
@@ -84,7 +92,29 @@ function optimisticCounts(
         : { ...counts, unread: counts.unread + 1, read: Math.max(0, counts.read - 1) }
 }
 
-export const useNotifications = create<NotificationStore>()((set, get) => ({
+/** Which `unreadChats` answer is the latest asked for, so a slower, older one is dropped. */
+let chatsAsked = 0
+
+export const useNotifications = create<NotificationStore>()((set, get) => {
+    /**
+     * The conversation on screen has been read. Only when it was just opened: pressing "mark
+     * unread" on it from the popup must stick, and a reply that arrives while it is open is
+     * already read by `absorb`.
+     */
+    const readOpenChat = () => {
+        const { chats, viewing } = get()
+        if (!viewing) return
+        const open = chats.filter((chat) => samePath(chat.href, viewing))
+        if (!open.length) return
+        set({ chats: chats.filter((chat) => !open.includes(chat)) })
+        for (const chat of open) {
+            void markChatRead(chat.href)
+                .then((counts) => set({ counts }))
+                .catch(() => {})
+        }
+    }
+
+    return {
     open: false,
     filter: 'unread',
     items: [],
@@ -99,7 +129,24 @@ export const useNotifications = create<NotificationStore>()((set, get) => ({
     arrived: [],
     viewing: null,
 
-    setViewing: (path) => set({ viewing: path }),
+    setViewing: (path) => {
+        set({ viewing: path })
+        readOpenChat()
+    },
+
+    chats: [],
+
+    loadChats: async (readOpen = false) => {
+        const asked = ++chatsAsked
+        try {
+            const chats = await unreadChats()
+            if (asked !== chatsAsked) return
+            set({ chats })
+            if (readOpen) readOpenChat()
+        } catch {
+            // Keep the counts held: a failed read is not "nothing unread".
+        }
+    },
 
     takeArrived: () => {
         const items = get().arrived
@@ -193,6 +240,7 @@ export const useNotifications = create<NotificationStore>()((set, get) => ({
         try {
             const server = await setNotificationRead(id, read)
             set({ counts: server })
+            void get().loadChats()
         } catch {
             set(before)
         }
@@ -208,6 +256,7 @@ export const useNotifications = create<NotificationStore>()((set, get) => ({
         try {
             const server = await markAllNotificationsRead()
             set({ counts: server })
+            void get().loadChats()
         } catch {
             set(before)
         }
@@ -221,16 +270,20 @@ export const useNotifications = create<NotificationStore>()((set, get) => ({
                 set(patch)
                 useAgents.getState().replaceSetups(frame.setups)
                 if (fetchPage) void get().catchUp()
+                void get().loadChats(true)
                 break
             }
             case 'notification': {
                 const { patch, markRead } = absorb(s, [frame.item], frame.counts)
                 set(patch)
                 for (const id of markRead) void setNotificationRead(id, true).catch(() => {})
+                // A reply to the chat on screen is read on arrival: its `read` frame counts again.
+                if (frame.item.category === 'chat_reply' && !markRead.length) void get().loadChats()
                 break
             }
             case 'read':
                 set(onRead(s, frame.id, frame.read, frame.counts))
+                void get().loadChats()
                 break
             case 'setup':
                 useAgents.getState().applySetup(frame.state)
@@ -240,6 +293,7 @@ export const useNotifications = create<NotificationStore>()((set, get) => ({
                 break
             case 'resync':
                 void get().catchUp()
+                void get().loadChats()
                 break
         }
     },
@@ -299,7 +353,9 @@ export const useNotifications = create<NotificationStore>()((set, get) => ({
     },
 
     reset: () => {
+        chatsAsked++
         set({
+            chats: [],
             open: false,
             filter: 'unread',
             items: [],
@@ -317,4 +373,5 @@ export const useNotifications = create<NotificationStore>()((set, get) => ({
         // The previous person's setup progress must not flash either.
         useAgents.getState().resetSetups()
     },
-}))
+    }
+})

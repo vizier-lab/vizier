@@ -10,6 +10,7 @@ import { hasBothVariants, useAppearance } from '../../stores/appearance'
 import { useSession } from '../../stores/session'
 import { canManageSecrets, canViewArtifacts } from '../../lib/access'
 import { assetSrc } from '../../lib/fileUrls'
+import { unreadByAgent } from '../../lib/notifications'
 import { read, write } from '../../lib/remember'
 import { useMobile } from '../../lib/useMobile'
 import { useNav } from '../../stores/nav'
@@ -43,6 +44,7 @@ export function ShellRail({ pathname, view, routeAgent }: { pathname: string; vi
     const toggleMode = useAppearance((s) => s.toggleMode)
     const { agents, health, creating } = useAgents()
     const resetNotifications = useNotifications((s) => s.reset)
+    const unread = unreadByAgent(useNotifications((s) => s.chats))
     const mobile = useMobile()
     const sidebarCollapsed = useNav((s) => s.sidebarCollapsed)
     const toggleSidebar = useNav((s) => s.toggleSidebar)
@@ -70,6 +72,7 @@ export function ShellRail({ pathname, view, routeAgent }: { pathname: string; vi
             name: a.name,
             state: agentState(health[a.agent_id]),
             href: `/${a.agent_id}/chat`,
+            unread: unread[a.agent_id],
             // The same rules as the agent's own column and card.
             hiddenPages: [
                 ...(canViewArtifacts(a) ? [] : (['artifacts'] as const)),

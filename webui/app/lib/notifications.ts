@@ -1,7 +1,35 @@
 import type {
+    ChatUnread,
     NotificationFilter,
     NotificationItem,
 } from '../api/endpoints/notifications'
+
+/** One spelling of an in-app path: no query, no trailing slash, nothing percent-encoded. */
+function pathKey(path: string): string {
+    const bare = path.split('?')[0].replace(/\/+$/, '')
+    try {
+        return decodeURIComponent(bare)
+    } catch {
+        return bare
+    }
+}
+
+/** Do these two in-app paths lead to the same place? */
+export function samePath(a: string, b: string): boolean {
+    return pathKey(a) === pathKey(b)
+}
+
+/** Unread replies per agent, for the rail. */
+export function unreadByAgent(chats: ChatUnread[]): Record<string, number> {
+    const counts: Record<string, number> = {}
+    for (const chat of chats) counts[chat.agent_id] = (counts[chat.agent_id] ?? 0) + chat.unread
+    return counts
+}
+
+/** Unread replies in the conversation at `href`, for its row. */
+export function unreadAt(chats: ChatUnread[], href: string): number {
+    return chats.find((chat) => samePath(chat.href, href))?.unread ?? 0
+}
 
 /** What the popup offers; the REST `read` filter stays for other clients. */
 export type ViewFilter = Exclude<NotificationFilter, 'read'>
@@ -76,6 +104,5 @@ export function isViewing(
 ): boolean {
     // A reply in the open conversation, or a message in the Workspace topic on screen.
     if (!path || (item.category !== 'chat_reply' && item.category !== 'workspace_message')) return false
-    const strip = (value: string) => value.split('?')[0].replace(/\/+$/, '')
-    return strip(item.href) === strip(path)
+    return samePath(item.href, path)
 }
