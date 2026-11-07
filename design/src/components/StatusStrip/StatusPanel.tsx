@@ -7,6 +7,8 @@ export type StatusPanelProps = {
   title: ReactNode;
   /** Right-aligned mono meta: "1,248 passages", "2 running". */
   meta?: ReactNode;
+  /** A control between the meta and the x: the language-server switch. */
+  headerAction?: ReactNode;
   onClose: () => void;
   /** A search field above the list. */
   search?: ReactNode;
@@ -29,6 +31,7 @@ export type StatusPanelProps = {
 export function StatusPanel({
   title,
   meta,
+  headerAction,
   onClose,
   search,
   tabs,
@@ -51,6 +54,7 @@ export function StatusPanel({
       <div className="flex items-center gap-8 px-16 pt-14 pb-10">
         <span className="min-w-0 flex-1 truncate type-ui-strong text-fg">{title}</span>
         {meta != null && <span className="type-mono-xs text-faint whitespace-nowrap">{meta}</span>}
+        {headerAction}
         <IconButton variant="ghost" size="sm" icon="close" aria-label="Close panel" onClick={onClose} />
       </div>
       {search && <div className="px-16 pb-10">{search}</div>}
