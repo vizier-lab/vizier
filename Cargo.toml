@@ -132,6 +132,8 @@ opentelemetry_sdk = { version = "0.33" }
 tracing-opentelemetry = { version = "0.34" }
 opentelemetry-otlp = { version = "0.33", default-features = false, features = ["trace", "metrics", "http-proto", "reqwest-blocking-client"] }
 libc = "0.2"
+url = "2"
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_JobObjects", "Win32_System_Threading"] }
 # The workspace's own crates. One version for all five, bumped in this file only.
 vizier-derive = { path = "crates/vizier-derive", version = "0.15.0-rc.4" }
 vizier-core = { path = "crates/vizier-core", version = "0.15.0-rc.4" }

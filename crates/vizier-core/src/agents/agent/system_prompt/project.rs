@@ -33,6 +33,13 @@ When there is no shell (Plan mode), say the hook was skipped and why. A harness 
 `.gemini/settings.json`) is never executed here, so never report that one ran.\n";
 
 /// The section, after CORE and before the configured documents.
+/// What to do with the `lsp_*` tools, when this turn is offered them (`specs/054-project-lsp`).
+const LSP_GUIDANCE: &str = "When the `lsp_*` tools are offered (see `Language servers` under `## Project state`), \
+    use them for definitions, references, types and symbols and prefer them to `grep`, which cannot tell \
+    two same-named things apart. An edit's result then carries `diagnostics`: read it. `pending` means \
+    the problems are not known yet, not that the code is clean. Run the build before you finish, when \
+    the shell is on, since a language server does not catch everything.\n";
+
 pub fn project_md(project: &ProjectTurnContext) -> String {
     let folder = channel::display_path(&project.cwd);
     let mut out = format!(
@@ -58,6 +65,9 @@ pub fn project_md(project: &ProjectTurnContext) -> String {
              it.\n",
         );
     }
+    // Fixed text, present in every project chat, so the prompt stays byte-stable whatever the
+    // switch says (the switch itself rides in `## Project state`).
+    out.push_str(LSP_GUIDANCE);
 
     if let Some(instructions) = &project.instructions {
         out.push_str("\n## Project Instructions\n\n");
@@ -165,6 +175,12 @@ pub fn project_state_md(project: &ProjectTurnContext) -> String {
             }
         }
     }
+    // The switch is volatile, so it rides with the message and never the cached system prompt
+    // (`specs/054-project-lsp` FR-041).
+    out.push_str(match project.lsp_enabled {
+        true => "\nLanguage servers: on.",
+        false => "\nLanguage servers: off.",
+    });
     out
 }
 
@@ -192,6 +208,9 @@ mod tests {
             instructions_truncated: false,
             is_piece: false,
             ledger: Arc::new(Default::default()),
+            lsp_enabled: false,
+            lsp_overrides: Default::default(),
+            lsp: Default::default(),
         }
     }
 
@@ -226,6 +245,19 @@ mod tests {
         other.worktree = Some(WorktreeRef { id: "w".into(), name: "fix".into(), branch: "fix".into() });
         assert_ne!(project_md(&base), project_md(&other), "a worktree is fixed for the chat");
         assert!(project_md(&other).contains("worktree \"fix\""));
+    }
+
+    #[test]
+    fn the_language_server_switch_is_in_the_state_block_and_never_the_prompt() {
+        let mut project = ctx();
+        project.lsp_enabled = false;
+        let off_state = project_state_md(&project);
+        let off_prompt = project_md(&project);
+        assert!(off_state.ends_with("Language servers: off."));
+        project.lsp_enabled = true;
+        assert!(project_state_md(&project).ends_with("Language servers: on."));
+        assert_eq!(off_prompt, project_md(&project), "the system prompt must not change");
+        assert_ne!(off_state, project_state_md(&project));
     }
 
     #[test]

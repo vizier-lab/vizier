@@ -5,7 +5,9 @@
 use anyhow::Result;
 
 use crate::{
-    schema::{Project, ProjectMode, ProjectSessionRow, VizierSessionDetail, Worktree},
+    schema::{
+        Project, ProjectMode, ProjectSessionRow, ServerOverride, VizierSessionDetail, Worktree,
+    },
     storage::VizierStorage,
 };
 
@@ -24,6 +26,25 @@ pub trait ProjectStorage {
     async fn rename_project(&self, project_id: &str, name: &str) -> Result<()>;
 
     async fn set_project_shell(&self, project_id: &str, enabled: bool) -> Result<()>;
+
+    /// The language-server switch (`specs/054-project-lsp`).
+    async fn set_project_lsp(&self, project_id: &str, enabled: bool) -> Result<()>;
+
+    /// A project's server overrides, by language id.
+    async fn lsp_overrides(&self, project_id: &str) -> Result<Vec<(String, ServerOverride)>>;
+
+    /// Save the override for one language; the environment is stored encrypted.
+    async fn set_lsp_override(
+        &self,
+        project_id: &str,
+        language: &str,
+        server: &ServerOverride,
+        updated_by: &str,
+        updated_at: i64,
+    ) -> Result<()>;
+
+    /// Remove one override. Removing an absent one succeeds.
+    async fn delete_lsp_override(&self, project_id: &str, language: &str) -> Result<()>;
 
     /// Set `removed_at`; nothing else changes.
     async fn remove_project(&self, project_id: &str, removed_at: i64) -> Result<()>;
@@ -102,6 +123,31 @@ impl ProjectStorage for VizierStorage {
 
     async fn set_project_shell(&self, project_id: &str, enabled: bool) -> Result<()> {
         self.0.set_project_shell(project_id, enabled).await
+    }
+
+    async fn set_project_lsp(&self, project_id: &str, enabled: bool) -> Result<()> {
+        self.0.set_project_lsp(project_id, enabled).await
+    }
+
+    async fn lsp_overrides(&self, project_id: &str) -> Result<Vec<(String, ServerOverride)>> {
+        self.0.lsp_overrides(project_id).await
+    }
+
+    async fn set_lsp_override(
+        &self,
+        project_id: &str,
+        language: &str,
+        server: &ServerOverride,
+        updated_by: &str,
+        updated_at: i64,
+    ) -> Result<()> {
+        self.0
+            .set_lsp_override(project_id, language, server, updated_by, updated_at)
+            .await
+    }
+
+    async fn delete_lsp_override(&self, project_id: &str, language: &str) -> Result<()> {
+        self.0.delete_lsp_override(project_id, language).await
     }
 
     async fn remove_project(&self, project_id: &str, removed_at: i64) -> Result<()> {

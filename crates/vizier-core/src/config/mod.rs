@@ -169,6 +169,29 @@ pub struct VizierConfig {
     /// The model catalogue's lazy refresh (spec 015, data-model §10).
     #[serde(default)]
     pub catalogue: CatalogueConfig,
+    /// Language servers for project chats (spec 054).
+    #[serde(default)]
+    pub lsp: LspConfig,
+}
+
+/// Language servers in project chats (`specs/054-project-lsp`).
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct LspConfig {
+    /// Most servers running at once, instance-wide. The least recently used one stops first.
+    #[serde(default = "default_lsp_max_servers")]
+    pub max_servers: usize,
+}
+
+fn default_lsp_max_servers() -> usize {
+    6
+}
+
+impl Default for LspConfig {
+    fn default() -> Self {
+        Self {
+            max_servers: default_lsp_max_servers(),
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -340,6 +363,7 @@ impl Default for VizierConfig {
             },
             worker_threads: 4,
             catalogue: CatalogueConfig::default(),
+            lsp: LspConfig::default(),
         }
     }
 }
@@ -392,5 +416,18 @@ mod memory_limits_tests {
         // An agent config saved before this existed must load unchanged.
         let limits: MemoryLimits = serde_yaml::from_str("{}").unwrap();
         assert_eq!(limits, MemoryLimits::default());
+    }
+}
+
+#[cfg(test)]
+mod lsp_config_tests {
+    use super::*;
+
+    #[test]
+    fn a_config_without_the_section_gets_the_default() {
+        let lsp: LspConfig = serde_yaml::from_str("{}").unwrap();
+        assert_eq!(lsp.max_servers, 6);
+        let set: LspConfig = serde_yaml::from_str("max_servers: 2").unwrap();
+        assert_eq!(set.max_servers, 2);
     }
 }

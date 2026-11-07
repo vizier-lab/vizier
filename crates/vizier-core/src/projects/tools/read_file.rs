@@ -85,6 +85,7 @@ impl VizierTool for ReadFile {
         }
         // The agent has now read the whole file, so a later edit may use any of it.
         super::record_read(ctx, &file, &bytes);
+        super::warm_on_read(ctx, &file, &bytes);
 
         let text = String::from_utf8_lossy(&bytes);
         let total = total_lines(&text);

@@ -11,6 +11,10 @@ vizier:
     refresh: true                     # default true; false = never contact models.dev
     ttl: 24h                          # default 24h
 
+  # ── Language servers in project chats (read every start) ──
+  lsp:
+    max_servers: 6                    # default 6
+
   # ── Storage (read every start) ──
   storage:
     type: sqlite            # the only supported backend
@@ -38,6 +42,14 @@ vizier:
 Agents, tasks and dreams never trigger a check, and startup never does. See [Providers](./providers.md#the-model-catalogue).
 
 > **No `providers` section.** Provider credentials are no longer set here: use **Settings → Providers** or the provider's environment variable (e.g. `ANTHROPIC_API_KEY`). A leftover `providers:` section is ignored, with a warning at startup naming the variable to set. See [Providers](./providers.md).
+
+### `lsp`
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `max_servers` | number | `6` | Most language servers running at once, across the whole instance. When a new one is needed the least recently used stops, unless every running server has a question in flight, in which case the new one answers `lsp_busy`. A rust-analyzer on a large repository can use a few gigabytes, so lower this on a small machine. |
+
+See [Projects](./projects.md#language-intelligence).
 
 ### `storage`
 

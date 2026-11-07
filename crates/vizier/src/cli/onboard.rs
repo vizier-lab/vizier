@@ -110,6 +110,7 @@ pub fn onboard(args: OnboardArgs) -> Result<()> {
         },
         worker_threads,
         catalogue: Default::default(),
+        lsp: Default::default(),
     };
 
     config.save(config_path.clone(), "".into())?;

@@ -60,7 +60,10 @@ impl VizierTool for EditFile {
         "Edit a file in the project folder by replacing exact text. Refused when the chat has not \
          read the file (or it changed on disk since), when the text is absent, or when it occurs \
          more than once without `replace_all`. A refused edit leaves the file byte-identical. \
-         CRLF line endings are preserved."
+         CRLF line endings are preserved. When a language server is running for the file, the \
+         result carries `diagnostics`: `current` lists the errors and warnings this edit caused, \
+         `pending` means they are not known yet (it does not mean the code is clean), and \
+         `unavailable` says why the file was not checked."
             .into()
     }
 
@@ -135,11 +138,15 @@ impl VizierTool for EditFile {
             .await
             .map_err(|err| VizierError(err.to_string()))??;
         record_read(ctx, &file, &bytes);
-        Ok(serde_json::json!({
+        let mut result = serde_json::json!({
             "path": path::display_rel(&cwd, &file),
             "replacements": if replace_all { count } else { 1 },
             "first_line": first_line,
-        }))
+        });
+        if let Some(diagnostics) = super::after_write(ctx, &file, &bytes).await {
+            result["diagnostics"] = diagnostics;
+        }
+        Ok(result)
     }
 }
 
@@ -169,6 +176,9 @@ mod tests {
             instructions_truncated: false,
             is_piece: false,
             ledger: Default::default(),
+            lsp_enabled: false,
+            lsp_overrides: Default::default(),
+            lsp: Default::default(),
         };
         ToolContext {
             session: VizierSession(
