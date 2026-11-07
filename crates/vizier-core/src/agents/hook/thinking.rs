@@ -24,20 +24,18 @@ impl ThinkingHook {
 #[async_trait::async_trait]
 impl VizierSessionHook for ThinkingHook {
     async fn on_tool_call(&self, function_name: String, args: String) -> Result<(String, String)> {
-        if function_name == "think".to_string() {
-            if let Ok(thinking) = serde_json::from_str::<Value>(&args) {
-                let _ = self
-                    .response_tx
-                    .send_async(VizierResponse {
-                        timestamp: crate::time::now(),
-                        content: VizierResponseContent::Thinking(
-                            thinking["thought"].as_str().unwrap().to_string(),
-                        ),
-                        attachments: vec![],
-                        ..Default::default()
-                    })
-                    .await;
-            }
+        if function_name == "think"
+            && let Some(thought) = thought_from_args(&args)
+        {
+            let _ = self
+                .response_tx
+                .send_async(VizierResponse {
+                    timestamp: crate::time::now(),
+                    content: VizierResponseContent::Thinking(thought),
+                    attachments: vec![],
+                    ..Default::default()
+                })
+                .await;
         }
 
         Ok((function_name, args))
@@ -51,5 +49,34 @@ impl VizierSessionHook for ThinkingHook {
         args: String,
     ) -> Result<(String, String)> {
         Ok((function_name, args))
+    }
+}
+
+fn thought_from_args(args: &str) -> Option<String> {
+    serde_json::from_str::<Value>(args)
+        .ok()?
+        .get("thought")?
+        .as_str()
+        .map(str::to_string)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn malformed_thinking_arguments_have_no_streamed_thought() {
+        assert_eq!(
+            thought_from_args(r#"{"thought":"checking the evidence"}"#).as_deref(),
+            Some("checking the evidence")
+        );
+        for args in [
+            r#"{"intent":"missing thought"}"#,
+            r#"{"thought":42}"#,
+            r#""raw model arguments""#,
+            "{",
+        ] {
+            assert_eq!(thought_from_args(args), None, "{args}");
+        }
     }
 }

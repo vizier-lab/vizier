@@ -17,6 +17,7 @@ All notable changes to this project will be documented in this file.
 
 ### 🐛 Bug Fixes
 
+- *(agents)* Avoid panics on malformed thinking calls and multibyte session titles
 - Prevent deleted tasks from firing (#185)
 - Render task newline escapes (#189)
 - *(just)* Mark the install-app recipe as unix only
