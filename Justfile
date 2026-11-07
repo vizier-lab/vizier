@@ -324,8 +324,8 @@ dummyplug-test:
 # Everything the desktop app (app/) needs to build: the system libraries Tauri links against
 # (Linux: webkit2gtk and friends through apt; macOS needs only the Xcode command line tools),
 # the Tauri CLI, and the app workspace's crates.
-[unix]
 # Regenerate the stable public API listing of vizier-core after a change to it.
+[unix]
 public-api:
   cargo public-api -p vizier-core --omit blanket-impls > crates/vizier-core/public-api.txt
 
