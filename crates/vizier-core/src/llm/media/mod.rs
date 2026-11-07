@@ -175,18 +175,29 @@ mod tests {
     }
 
     /// A missing connection is still named as a connection problem, not as a missing API key.
-    #[tokio::test]
-    async fn an_unconfigured_sso_connection_is_not_reported_as_a_missing_key() {
-        let (deps, _dir) = deps().await;
-        let error = endpoint(
-            &deps,
-            &ProviderId::AMAZON_BEDROCK_SSO,
-            crate::llm::media::bedrock::DEFAULT_EMBEDDING_MODEL.to_string(),
-        )
-        .await
-        .err()
-        .expect("an unconfigured connection is refused")
-        .0;
+    ///
+    /// Blocking rather than `#[tokio::test]`, because the region falls back to `AWS_REGION` and
+    /// another test sets it for its own turn: the environment lock has to be held for the whole
+    /// lookup, and a guard cannot be held across an `await`.
+    #[test]
+    fn an_unconfigured_sso_connection_is_not_reported_as_a_missing_key() {
+        let _env = crate::tests_support::env_lock();
+        let error = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(async {
+                let (deps, _dir) = deps().await;
+                endpoint(
+                    &deps,
+                    &ProviderId::AMAZON_BEDROCK_SSO,
+                    crate::llm::media::bedrock::DEFAULT_EMBEDDING_MODEL.to_string(),
+                )
+                .await
+                .err()
+                .expect("an unconfigured connection is refused")
+                .0
+            });
         assert!(error.contains("amazon-bedrock-sso"), "{error}");
         assert!(!error.contains("API key"), "{error}");
     }
