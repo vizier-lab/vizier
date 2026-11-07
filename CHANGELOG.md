@@ -2,6 +2,31 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.15.1] - 2026-11-07
+
+### 🚀 Features
+
+- *(workspace)* Stop showing an agent's prose between rounds
+
+### 🐛 Bug Fixes
+
+- *(llm)* Replay truncated tool-call arguments as an object
+- *(storage)* Save the workspace_shown migration without a byte-order mark
+- *(agents)* Avoid model output panics
+- *(agents)* Avoid model output panics (#194)
+- *(chat)* Cap the activity trail's dots on mobile
+
+### 🧪 Testing
+
+- *(workspace)* Find a mid-turn entry through the agent's record, not the timeline
+- *(llm)* Hold the environment lock while an unconfigured Bedrock SSE connection is refused
+
+### ⚙️ Miscellaneous Tasks
+
+- Bump landing to the launch video hero
+- Bump landing to the launch video hero (#193)
+- Bump webui to the voice capture worklet fix
+- Build the language-server fixture before the managed storage tests
 ## [0.15.0] - 2026-11-07
 
 ### 🚀 Features
@@ -17,7 +42,6 @@ All notable changes to this project will be documented in this file.
 
 ### 🐛 Bug Fixes
 
-- *(agents)* Avoid panics on malformed thinking calls and multibyte session titles
 - Prevent deleted tasks from firing (#185)
 - Render task newline escapes (#189)
 - *(just)* Mark the install-app recipe as unix only
@@ -31,6 +55,7 @@ All notable changes to this project will be documented in this file.
 - Bump design and webui to their develop tips
 - Bump design and webui to their develop tips
 - Merge master into develop
+- Bump version to 0.15.0
 ## [0.15.0-rc.4] - 2026-11-05
 
 ### ⚙️ Miscellaneous Tasks
