@@ -208,7 +208,7 @@ export function Composer({
           )}
           {recording && !voice && <p className="type-body text-fg">Recording · press the mic again to stop</p>}
           <div className="flex items-center gap-8">
-            {/* A host that takes no files (a Workspace topic) passes no handler, so there is no button. */}
+            {/* A host that takes no files passes no handler, so there is no button. */}
             {onAttach && (
               <button type="button" aria-label="Attach files" onClick={onAttach} disabled={disabled} className={toolButton}>
                 <Icon name="attach" />
