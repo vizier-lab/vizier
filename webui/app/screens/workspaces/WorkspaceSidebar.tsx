@@ -146,8 +146,9 @@ export function WorkspaceSidebar({ workspace, activeTopic, onMembers }: { worksp
                     }
                     return (
                         <div key={t.id} className="group/row relative">
+                            {/* The focus outline stays inside the row: the column clips at its left edge. */}
                             <NavItem
-                                className={isOwner ? (deletable ? 'group-hover/row:pr-60 group-focus-within/row:pr-60 [@media(hover:none)]:pr-60' : 'group-hover/row:pr-36 group-focus-within/row:pr-36 [@media(hover:none)]:pr-36') : undefined}
+                                className={`focus-visible:-outline-offset-2 ${isOwner ? (deletable ? 'group-hover/row:pr-60 group-focus-within/row:pr-60 [@media(hover:none)]:pr-60' : 'group-hover/row:pr-36 group-focus-within/row:pr-36 [@media(hover:none)]:pr-36') : ''}`}
                                 label={
                                     <span className="flex items-center gap-8">
                                         <span className="min-w-0 flex-1 truncate"># {t.name}</span>
