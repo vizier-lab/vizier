@@ -64,6 +64,7 @@ pub fn init_workspace_schema(conn: &rusqlite::Connection) -> Result<()> {
             source_session   TEXT,
             origin           TEXT,
             is_final         INTEGER NOT NULL DEFAULT 0,
+            shown            INTEGER NOT NULL DEFAULT 1,
             activated_by_seq INTEGER,
             at               INTEGER NOT NULL
         );
@@ -169,7 +170,7 @@ fn insert_topic(conn: &crate::storage::sql::Connection, t: &WorkspaceTopic) -> R
 }
 
 const ENTRY_COLUMNS: &str = "seq, workspace_id, topic_id, kind, author_kind, author, author_name, \
-                             body, files, history_uid, source_session, origin, is_final, \
+                             body, files, history_uid, source_session, origin, is_final, shown, \
                              activated_by_seq, at";
 
 fn row_to_entry(row: &crate::storage::sql::Row) -> crate::storage::sql::Result<WorkspaceEntry> {
@@ -191,8 +192,9 @@ fn row_to_entry(row: &crate::storage::sql::Row) -> crate::storage::sql::Result<W
         source_session: row.get(10)?,
         origin: origin.and_then(|o| serde_json::from_str(&o).ok()),
         is_final: row.get::<_, i64>(12)? != 0,
-        activated_by_seq: row.get(13)?,
-        at: row.get(14)?,
+        shown: row.get::<_, i64>(13)? != 0,
+        activated_by_seq: row.get(14)?,
+        at: row.get(15)?,
     })
 }
 
@@ -210,8 +212,8 @@ pub(super) fn insert_entry_row(
     let seq: i64 = conn.query_row(
         "INSERT INTO workspace_entry \
          (workspace_id, topic_id, kind, author_kind, author, author_name, body, files, \
-          history_uid, source_session, origin, is_final, activated_by_seq, at) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14) RETURNING seq",
+          history_uid, source_session, origin, is_final, shown, activated_by_seq, at) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15) RETURNING seq",
         params![
             entry.workspace_id,
             entry.topic_id,
@@ -225,6 +227,7 @@ pub(super) fn insert_entry_row(
             entry.source_session,
             origin,
             entry.is_final as i64,
+            entry.shown as i64,
             entry.activated_by_seq,
             entry.at
         ],
@@ -282,11 +285,14 @@ pub(super) fn index_history_entry(
     let Some(topic_id) = session.2.as_deref() else {
         return Ok(());
     };
-    let (body, is_final) = match content {
-        SessionHistoryContent::AssistantMessage(text) => (text.clone(), false),
+    // Only a final reply is a message here. An agent's prose between tool rounds is recorded, so
+    // the timeline keeps its order, but not shown: it is that agent's thinking, and it stays in
+    // its own trail, where nobody else reads it (spec 053 US7, revised).
+    let (body, is_final, shown) = match content {
+        SessionHistoryContent::AssistantMessage(text) => (text.clone(), false, false),
         SessionHistoryContent::Response(response) => match &response.content {
-            VizierResponseContent::Message { content, .. } => (content.clone(), true),
-            VizierResponseContent::AudioReply(_, Some(transcript), _) => (transcript.clone(), true),
+            VizierResponseContent::Message { content, .. } => (content.clone(), true, true),
+            VizierResponseContent::AudioReply(_, Some(transcript), _) => (transcript.clone(), true, true),
             _ => return Ok(()),
         },
         _ => return Ok(()),
@@ -366,6 +372,7 @@ pub(super) fn index_history_entry(
         source_session: Some(session.to_slug()),
         origin: None,
         is_final,
+        shown,
         activated_by_seq,
         at,
     };
@@ -603,6 +610,7 @@ impl WorkspaceStorage for SqlStorage {
             source_session: entry.source_session.clone(),
             origin: entry.origin.clone(),
             is_final: entry.is_final,
+            shown: entry.shown,
             activated_by_seq: entry.activated_by_seq,
             at: entry.at,
         })
@@ -637,7 +645,7 @@ impl WorkspaceStorage for SqlStorage {
             Some(before) => {
                 let mut stmt = conn.prepare(&format!(
                     "SELECT {ENTRY_COLUMNS} FROM workspace_entry \
-                     WHERE topic_id = ?1 AND seq < ?2 ORDER BY seq DESC LIMIT ?3"
+                     WHERE topic_id = ?1 AND seq < ?2 AND shown = 1 ORDER BY seq DESC LIMIT ?3"
                 ))?;
                 let rows = stmt.query_map(params![topic_id, before, limit], row_to_entry)?;
                 rows.collect::<crate::storage::sql::Result<Vec<_>>>()?
@@ -645,7 +653,7 @@ impl WorkspaceStorage for SqlStorage {
             None => {
                 let mut stmt = conn.prepare(&format!(
                     "SELECT {ENTRY_COLUMNS} FROM workspace_entry \
-                     WHERE topic_id = ?1 ORDER BY seq DESC LIMIT ?2"
+                     WHERE topic_id = ?1 AND shown = 1 ORDER BY seq DESC LIMIT ?2"
                 ))?;
                 let rows = stmt.query_map(params![topic_id, limit], row_to_entry)?;
                 rows.collect::<crate::storage::sql::Result<Vec<_>>>()?
@@ -826,8 +834,10 @@ impl WorkspaceStorage for SqlStorage {
             return Ok(CatchUp::default());
         };
 
+        // What another agent was thinking between rounds is not something to read, so an entry
+        // that is not shown is never copied (spec 053 US7, revised).
         const RANGE: &str = "topic_id = ?1 AND seq > ?2 AND seq < ?3 \
-                             AND kind IN ('person', 'agent') \
+                             AND kind IN ('person', 'agent') AND shown = 1 \
                              AND (source_session IS NULL OR source_session <> ?4)";
         let unread: i64 = tx.query_row(
             &format!("SELECT COUNT(*) FROM workspace_entry WHERE {RANGE}"),
@@ -1120,6 +1130,7 @@ mod tests {
             source_session: None,
             origin: None,
             is_final: false,
+            shown: true,
             activated_by_seq: None,
             at,
         }
@@ -1135,7 +1146,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn an_agents_shown_text_joins_the_timeline_and_nothing_else_does() {
+    async fn an_agents_reply_joins_the_timeline_and_its_prose_between_rounds_does_not() {
         let s = storage();
         room(&s).await;
         let alpha = session("alpha");
@@ -1169,14 +1180,15 @@ mod tests {
             .unwrap();
         let done = s.save_session_history(alpha.clone(), reply("done")).await.unwrap();
 
+        // The prose is recorded, so a mention in it still wakes beta, but nobody is shown it:
+        // it is alpha's thinking, and it stays in alpha's own trail (spec 053 US7, revised).
         let entries = s.list_entries("w1-general", None, 50).await.unwrap();
-        assert_eq!(entries.len(), 2, "{entries:#?}");
-        let (mid, last) = (&entries[0], &entries[1]);
-        assert_eq!((mid.kind, mid.author.as_str(), mid.author_name.as_str()), (EntryKind::Agent, "alpha", "Alpha"));
-        assert_eq!((mid.history_uid.as_deref(), mid.is_final, mid.activated_by_seq), (Some(said.as_str()), false, Some(7)));
-        assert_eq!(mid.source_session.as_deref(), Some(alpha.to_slug().as_str()));
-        assert_eq!((last.history_uid.as_deref(), last.is_final, last.body.as_str()), (Some(done.as_str()), true, "done"));
-        assert_eq!(s.entry_by_history_uid(&said).await.unwrap().unwrap().seq, mid.seq);
+        assert_eq!(entries.len(), 1, "{entries:#?}");
+        let last = &entries[0];
+        assert_eq!((last.history_uid.as_deref(), last.is_final, last.shown, last.body.as_str()), (Some(done.as_str()), true, true, "done"));
+        let mid = s.entry_by_history_uid(&said).await.unwrap().unwrap();
+        assert_eq!((mid.kind, mid.is_final, mid.shown, mid.activated_by_seq), (EntryKind::Agent, false, false, Some(7)));
+        assert_eq!((mid.author.as_str(), mid.source_session.as_deref()), ("alpha", Some(alpha.to_slug().as_str())));
 
         // Beta wakes later; rafi is only highlighted; alpha naming itself wakes nobody.
         let mentions = s.mentions_of(&[mid.seq, last.seq]).await.unwrap();
@@ -1247,14 +1259,26 @@ mod tests {
         (by_alpha.kind, by_alpha.author_kind, by_alpha.author) = (EntryKind::Agent, MemberKind::Agent, "alpha".into());
         by_alpha.source_session = Some(session("alpha").to_slug());
         s.insert_entry(&by_alpha, &[]).await.unwrap();
+        // What alpha was thinking between its rounds: recorded, so the timeline keeps its order,
+        // but never read by anyone else.
+        let mut thinking = by_alpha.clone();
+        thinking.body = "alpha thinking out loud".into();
+        thinking.shown = false;
+        s.insert_entry(&thinking, &[]).await.unwrap();
         let activating = s.insert_entry(&person_entry("@beta", 103), &[]).await.unwrap();
 
         let result = s.catch_up(&beta, "w1-general", activating.seq, activating.seq, 500).await.unwrap();
         assert_eq!(result.copied, 1);
         let history = s.list_session_history(beta, None, None, None).await.unwrap();
         assert_eq!(history.len(), 1);
-        // Tool calls and thoughts of the other agent never entered: only its shown text did.
+        // Tool calls and thoughts of the other agent never entered: only its shown text did,
+        // and not the prose it wrote between rounds.
         assert!(matches!(&history[0].content, SessionHistoryContent::Request(r) if r.user == "alpha"));
+        assert!(!history.iter().any(|h| matches!(
+            &h.content,
+            SessionHistoryContent::Request(r)
+                if matches!(&r.content, VizierRequestContent::SilentRead(t) if t.contains("thinking out loud"))
+        )));
     }
 
     #[tokio::test]

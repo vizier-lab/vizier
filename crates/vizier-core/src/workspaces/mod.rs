@@ -155,6 +155,7 @@ pub async fn write_note(
             source_session: None,
             origin: None,
             is_final: false,
+            shown: true,
             activated_by_seq: None,
             at: now_ms(),
         },

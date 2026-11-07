@@ -100,8 +100,22 @@ pub fn path_to_uri(path: &Path) -> Option<String> {
 }
 
 /// Absolute path for a `file://` URI.
+///
+/// A URI with no drive letter (`file:///elsewhere/x.rs`) has no absolute path on Windows, and
+/// `to_file_path` refuses it, which would drop a location a server reported. It is kept as the
+/// rootless path `/elsewhere/x.rs` instead, so it lands outside the project and is named as such
+/// rather than disappearing.
 pub fn uri_to_path(uri: &str) -> Option<PathBuf> {
-    Url::parse(uri).ok()?.to_file_path().ok()
+    let url = Url::parse(uri).ok()?;
+    if let Ok(path) = url.to_file_path() {
+        // The same form a canonicalised folder has: a `\?\` root, so it compares equal to one.
+        return Some(match std::fs::canonicalize(&path) {
+            Ok(canonical) => canonical,
+            Err(_) => path,
+        });
+    }
+    let text = url.path();
+    (!text.is_empty()).then(|| PathBuf::from(text))
 }
 
 /// Where a server's location lands, as the agent sees it.
@@ -123,14 +137,28 @@ pub enum Location {
 }
 
 /// Turn a path inside `cwd` into a `/`-separated relative one.
+///
+/// Compared the way Windows compares: a `file://` URI yields `C:/…/src/a.rs` and a canonicalised
+/// folder yields `\\?\C:\…`, which are the same place and are not equal as paths.
 pub fn relative(cwd: &Path, path: &Path) -> Option<String> {
-    let rel = path.strip_prefix(cwd).ok()?;
+    let cwd = strip_verbatim(cwd);
+    let path = strip_verbatim(path);
+    let rel = path.strip_prefix(&cwd).ok()?;
     let text = rel
         .components()
         .map(|c| c.as_os_str().to_string_lossy().into_owned())
         .collect::<Vec<_>>()
         .join("/");
     Some(if text.is_empty() { ".".into() } else { text })
+}
+
+/// `path` without Windows' verbatim prefix, so `\\?\C:\x` and `C:/x` compare as one folder.
+fn strip_verbatim(path: &Path) -> PathBuf {
+    let text = path.to_string_lossy();
+    match text.strip_prefix(r"\\?\") {
+        Some(rest) => PathBuf::from(rest),
+        None => path.to_path_buf(),
+    }
 }
 
 /// Shorten a source line for a result.

@@ -1087,6 +1087,7 @@ pub async fn post(
             source_session: None,
             origin: None,
             is_final: false,
+            shown: true,
             activated_by_seq: None,
             at: crate::time::now().timestamp_millis(),
         },

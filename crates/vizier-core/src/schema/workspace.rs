@@ -154,6 +154,10 @@ pub struct WorkspaceEntry {
     pub origin: Option<serde_json::Value>,
     /// A turn's final reply. Its stats and reactions live on the history row.
     pub is_final: bool,
+    /// Whether it appears in the topic at all. An agent's prose between tool rounds is saved, so
+    /// the timeline keeps its order, but it is not shown: it is what the agent was thinking, and
+    /// it stays in that agent's own trail (spec 053 US7, revised).
+    pub shown: bool,
     /// The entry that started the turn this one belongs to. Used by the stop guard.
     pub activated_by_seq: Option<i64>,
     /// Unix milliseconds.
@@ -175,6 +179,9 @@ pub struct NewEntry {
     pub source_session: Option<String>,
     pub origin: Option<serde_json::Value>,
     pub is_final: bool,
+    /// Shown in the topic. Everything a person or a tool wrote is; an agent's prose between tool
+    /// rounds is not (spec 053 US7, revised).
+    pub shown: bool,
     pub activated_by_seq: Option<i64>,
     pub at: i64,
 }

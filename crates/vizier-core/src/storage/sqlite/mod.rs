@@ -468,6 +468,10 @@ impl SqlStorage {
         init_notification_schema(conn)?;
         project::init_project_schema(conn)?;
         workspace::init_workspace_schema(conn)?;
+        // Spec 053 US7, revised: an agent's prose between tool rounds is no longer shown, but its
+        // rows stay for the timeline's order. Every existing entry was a message, so the default
+        // keeps them as they were read.
+        add_column_if_missing(conn, "workspace_entry", "shown", "INTEGER NOT NULL DEFAULT 1")?;
 
         Ok(())
     }

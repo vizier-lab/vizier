@@ -112,8 +112,27 @@ fn executable_names(name: &str) -> Vec<String> {
     }
 }
 
-fn is_executable(path: &Path) -> bool {
-    let Ok(meta) = std::fs::metadata(path) else {
+/// The command as a path to look for, or nothing when it is a bare name. A command that names a
+/// path is written whole on Windows (`…/examples/fake_lsp`), while the program itself carries the
+/// extension (`fake_lsp.exe`), so the extension has to be tried on it too.
+fn named_path(command: &str) -> Vec<PathBuf> {
+    let path = Path::new(command);
+    if !path.is_absolute() {
+        return vec![];
+    }
+    let mut paths = vec![path.to_path_buf()];
+    if cfg!(windows) && path.extension().is_none() {
+        let exts = std::env::var("PATHEXT").unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".into());
+        paths.extend(
+            exts.split(';')
+                .filter(|e| !e.is_empty())
+                .map(|e| path.with_extension(e.trim_start_matches('.').to_ascii_lowercase())),
+        );
+    }
+    paths
+}
+
+fn is_executable(path: &Path) -> bool {    let Ok(meta) = std::fs::metadata(path) else {
         return false;
     };
     if !meta.is_file() {
@@ -155,11 +174,8 @@ pub struct Found {
 /// a bare name is searched for, never in the project folder.
 pub async fn resolve(command: &str) -> Option<Found> {
     if command.contains('/') || command.contains('\\') {
-        let p = PathBuf::from(command);
-        return (p.is_absolute() && is_executable(&p)).then_some(Found {
-            program: p,
-            path: None,
-        });
+        let named = named_path(command);
+        return named.into_iter().find(|p| is_executable(p)).map(|program| Found { program, path: None });
     }
     let process_path = std::env::var_os("PATH").unwrap_or_default();
     if let Some(program) = find_in(command, &process_path) {

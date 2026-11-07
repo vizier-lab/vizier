@@ -148,6 +148,9 @@ async fn write_agent_entry(
         source_session: Some(ctx.session.to_slug()),
         origin,
         is_final: false,
+        // A message an agent posts here is a message: everyone sees it, unlike its prose between
+        // rounds, which stays in its own trail.
+        shown: true,
         activated_by_seq: hub.storage.current_activation(&ctx.session).await.map_err(storage_error)?,
         at: now_ms(),
     };
