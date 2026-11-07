@@ -309,7 +309,9 @@ export function Rail({
         <Mark size={26} title="" />
       </RailLink>
       <span aria-hidden className="h-px w-22 bg-border-hover" />
-      <div className="flex min-h-0 w-full flex-1 flex-col items-center gap-10 overflow-y-auto overflow-x-clip [scrollbar-width:none]">
+      {/* The list clips where it scrolls: this room keeps a first tile's badge, which stands 6px
+          above the tile with its ring, inside it without moving anything. */}
+      <div className="-mt-6 flex min-h-0 w-full flex-1 flex-col items-center gap-10 overflow-y-auto overflow-x-clip pt-6 [scrollbar-width:none]">
         {workspaces && workspaces.length > 0 && (
           <>
             <ul className="m-0 flex list-none flex-col items-center gap-10 p-0" aria-label="Workspaces">
