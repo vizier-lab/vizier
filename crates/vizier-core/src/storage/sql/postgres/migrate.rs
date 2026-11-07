@@ -127,6 +127,20 @@ pub fn migrate(conn: &Connection<'_>) -> anyhow::Result<()> {
 mod tests {
     use super::*;
 
+    /// A file saved with a UTF-8 BOM starts with U+FEFF, which PostgreSQL takes as part of the
+    /// first token and refuses (`syntax error at or near "\u{feff}"`). It needs no database to
+    /// catch, and it is invisible in an editor, so it is checked here for every embedded file.
+    #[test]
+    fn no_migration_carries_a_byte_order_mark() {
+        for migration in MIGRATIONS {
+            assert!(
+                !migration.sql.contains('\u{feff}'),
+                "{} carries a UTF-8 BOM: save it as plain UTF-8",
+                migration.name
+            );
+        }
+    }
+
     #[test]
     fn migrating_twice_is_a_no_op_and_a_newer_schema_is_refused() {
         let Some(store) = crate::tests_support::postgres_store() else {
