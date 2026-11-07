@@ -329,6 +329,7 @@ dummyplug-test:
 public-api:
   cargo public-api -p vizier-core --omit blanket-impls > crates/vizier-core/public-api.txt
 
+[unix]
 install-app:
   #!/usr/bin/env bash
   set -euo pipefail
