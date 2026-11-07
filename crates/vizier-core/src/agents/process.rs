@@ -547,6 +547,19 @@ impl Drop for TitlingClaim {
     }
 }
 
+fn session_title(mut title: String) -> String {
+    if let Some((end, _)) = title.char_indices().nth(60) {
+        title.truncate(end);
+    }
+    if title.starts_with('"') {
+        title.remove(0);
+    }
+    if title.ends_with('"') {
+        title.pop();
+    }
+    title
+}
+
 /// Keeps the session's detail in step with an arriving request: created, titled with the
 /// topic slug, if it does not exist yet; given a generated title once it has enough requests.
 ///
@@ -642,14 +655,7 @@ async fn refresh_session_detail(
         return;
     };
 
-    let mut title = title;
-    title.truncate(60);
-    if title.starts_with('"') {
-        title.remove(0);
-    }
-    if title.ends_with('"') {
-        title.pop();
-    }
+    let title = session_title(title);
 
     let detail = VizierSessionDetail {
         agent_id,
@@ -2157,6 +2163,19 @@ mod auto_context_tests {
             crate::agents::agent::system_prompt::context::context_md(&[p], &[], None, None);
         assert!(rendered.contains(r#"truncated="true""#), "{rendered}");
         assert!(rendered.contains("truncated to fit"), "{rendered}");
+    }
+}
+
+#[cfg(test)]
+mod session_title_tests {
+    use super::*;
+
+    #[test]
+    fn multibyte_titles_are_truncated_on_a_character_boundary() {
+        let title = session_title(format!("{}x", "界".repeat(60)));
+        assert_eq!(title, "界".repeat(60));
+        assert_eq!(title.chars().count(), 60);
+        assert_eq!(session_title(r#""short title""#.into()), "short title");
     }
 }
 
