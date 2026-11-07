@@ -1,4 +1,4 @@
-import { Attachment, Composer, DropZone, IconButton } from '@vizier/design'
+import { Attachment, Composer, DropZone, Icon } from '@vizier/design'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ApiError } from '../../api/client'
 import { getCommands, type CommandsMenu, type WorkspaceMember } from '../../api/endpoints/workspaces'
@@ -143,15 +143,14 @@ export function WorkspaceComposer({ workspaceId, topicName, me, members, onPost 
                     ) : undefined
                 }
                 afterTools={
-                    <>
-                        <IconButton
-                            icon="at-sign"
-                            size="sm"
-                            aria-label="Mention someone"
-                            onClick={() => setValue((v) => (v && !/\s$/.test(v) ? `${v} @` : `${v}@`))}
-                        />
-                        <span className="type-mono-xs text-faint">Everyone here reads this</span>
-                    </>
+                    <button
+                        type="button"
+                        aria-label="Mention someone"
+                        onClick={() => setValue((v) => (v && !/\s$/.test(v) ? `${v} @` : `${v}@`))}
+                        className="flex size-28 items-center justify-center rounded-sm text-muted hover:bg-raised hover:text-fg"
+                    >
+                        <Icon name="at-sign" />
+                    </button>
                 }
             />
             <input
