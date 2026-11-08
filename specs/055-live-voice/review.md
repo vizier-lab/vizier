@@ -273,10 +273,13 @@ rewriting the analyst's text wholesale: each row names the file and what it now 
 | C-14 | tasks: T038 keeps the state words English, and `start()` clears the previous session's notice | `tasks.md` | same review — one Indonesian word in a bar of eight English ones widened it 2.3× in the designer's render; `session.ts:112-114` never resets `view.notice`, so an old reason can surface inside a healthy session |
 
 **Canonical baseline for anything quoting counts**: `specs/055-live-voice/tasks.md` at the commit
-being read — `80d60847` at the time of writing — carrying **88 tasks (T001–T088)**, counted with
-`grep -cE '^- \[ \] T[0-9]{3}'`. Any other number in an older message or report is stale, including
-the "85" this line used to say and the "86" two commit messages repeat: T038/T039 were amended in place
-(`20d97316`), and an in-place amendment never changes the count.
+being read — `c760cdb3` at the time of writing — carrying **92 tasks (T001–T092)**, counted with
+`grep -cE '^- \[ \] T[0-9]{3}'` (the id now sits outside the bold so one pattern counts all of them).
+The count moved 88 → 92 with C8–C12: the call screen is a surface of its own (FR-044/FR-045), the
+composer bar is archived, the interrupt control is backlog (T051–T058 marked `[BACKLOG]`), and
+barge-in moved from the start of speech to the end of the utterance. Any other number in an older
+message or report is stale, including the "85" and the "86" this file and two commit messages used to
+repeat.
 
 ---
 
