@@ -15,7 +15,9 @@ use tokio::sync::watch;
 use crate::Result;
 use crate::agents::client::ClientConnection;
 use crate::live_voice::engines::SharedEngines;
-use crate::live_voice::frame::{EndReason, LiveVoiceControl, LiveVoiceSpeech, SessionState};
+use crate::live_voice::frame::{
+    EndReason, InterruptReason, LiveVoiceControl, LiveVoiceSpeech, SessionState,
+};
 use crate::live_voice::segmenter;
 use crate::live_voice::utterance::Utterance;
 use crate::schema::agent::LiveVoiceSettings;
@@ -150,6 +152,61 @@ impl LiveVoiceSession {
             Some(reason),
         ));
     }
+
+    /// A real interruption: stop the audio **and** cancel the turn it was speaking (`FR-027`).
+    ///
+    /// The order is fixed and it matters:
+    ///
+    /// 1. the generation moves, so every segment in flight — synthesised or still to be — is
+    ///    dropped by both sides and nothing further is heard;
+    /// 2. the turn is cancelled with the `Command("abort")` request the `/abort` path already
+    ///    sends (`agents_client.rs`). Without this the agent keeps working: the answer is still
+    ///    written, still saved to history, and the person who interrupted never sees why.
+    ///
+    /// A turn is cancelled only when one is actually running. Interrupting an idle session is a
+    /// no-op on the turn and never sends a request — the button exists for the whole session, so
+    /// pressing it while nothing is happening must cost nothing (`FR-021`).
+    ///
+    /// A failed abort does not end the session: the audio has stopped, which is what the person
+    /// asked for, and the state word tells them the session is still listening.
+    pub async fn abort_turn(&self, reason: InterruptReason) -> u64 {
+        // Audio first (FR-027): the generation moves before the turn is cancelled, so a segment
+        // the synthesiser is still producing is stale by the time the abort lands.
+        let generation = self.interrupt();
+        let was_busy = self.busy.swap(false, Ordering::SeqCst);
+        if was_busy {
+            let request = VizierRequest {
+                timestamp: crate::time::now(),
+                user: "system".into(),
+                content: VizierRequestContent::Command("abort".into()),
+                metadata: serde_json::json!({}),
+                ..Default::default()
+            };
+            if let Err(e) = self
+                .transport
+                .send_request(self.session.clone(), request, None)
+                .await
+            {
+                tracing::warn!(
+                    agent_id = %self.session.0,
+                    "live voice could not cancel the running turn: {e}"
+                );
+            }
+        }
+        // FR-042: the thinking indicator is off from here — the turn it described is gone.
+        if matches!(self.state(), SessionState::Speaking | SessionState::Waiting) {
+            self.set_state(SessionState::Listening);
+        }
+        tracing::debug!(
+            agent_id = %self.session.0,
+            reason = reason.as_str(),
+            cancelled = was_busy,
+            generation,
+            "live voice interrupted"
+        );
+        generation
+    }
+
 
     /// An interruption: stop the audio now, and make every in-flight segment stale.
     ///

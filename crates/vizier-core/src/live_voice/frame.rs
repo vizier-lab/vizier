@@ -242,6 +242,17 @@ pub enum InterruptReason {
     BargeIn,
 }
 
+impl InterruptReason {
+    /// The wire word, the same one the client sends.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Button => "button",
+            Self::Typed => "typed",
+            Self::BargeIn => "barge_in",
+        }
+    }
+}
+
 fn default_sample_rate() -> u32 {
     SAMPLE_RATE
 }

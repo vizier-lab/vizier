@@ -340,21 +340,25 @@ impl TopicConnection {
                 let Some(session) = sessions.get(&self.session).filter(|s| owned(s)) else {
                     return;
                 };
-                // The barge-in signal arrives before any audio (FR-019): stop the audio and make
-                // every in-flight segment stale, then open the utterance it names.
-                session.interrupt();
+                // The barge-in signal arrives before any audio (FR-019): stop the audio, make every
+                // in-flight segment stale, and cancel the turn it was speaking (FR-027), then open
+                // the utterance it names.
+                session
+                    .abort_turn(vizier_core::live_voice::InterruptReason::BargeIn)
+                    .await;
                 session.open_utterance(&start.utterance_id);
                 session.set_state(SessionState::Listening);
             }
-            ClientAction::Interrupt(_) => {
+            ClientAction::Interrupt(interrupt) => {
                 let Some(session) = sessions.get(&self.session).filter(|s| owned(s)) else {
                     return;
                 };
-                // FR-021: with nothing being spoken this changes no state; the session stays live.
-                session.interrupt();
-                if matches!(session.state(), SessionState::Speaking | SessionState::Waiting) {
-                    session.set_state(SessionState::Listening);
-                }
+                // The reason is carried, not guessed: the button and a typed message are different
+                // events even though both stop the same audio (FR-020, FR-025). With nothing being
+                // spoken this changes no state and sends no abort — the session stays live
+                // (FR-021).
+                let reason = interrupt.reason.unwrap_or(vizier_core::live_voice::InterruptReason::Button);
+                session.abort_turn(reason).await;
             }
             ClientAction::Stop => {
                 let Some(session) = sessions.get(&self.session).filter(|s| owned(s)) else {
