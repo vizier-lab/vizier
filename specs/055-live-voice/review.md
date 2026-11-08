@@ -140,6 +140,11 @@ and does not in the long-answer case. **Risk raised to `@bro-pm`, requirement un
 
 * **R-1 (contract)** — `contracts/live-voice-frames.md`: every server frame now carries an explicit
   `"type"` inside `live_voice` (D3). Client frames already have distinct `live_voice_*` keys.
+* **R-2 (tasks)** — `tasks.md`: three tasks added (T017 spoken field, T018 spoken note + badge,
+  T019 inbound copy before `to_string()`), seven made specific (T009, T010, T023, T025, T026, T042),
+  and every ID from the old `T017` up shifted by three, so the list is 77 tasks in execution order
+  (the file was drafted earlier on this branch and is amended, not rewritten — see its own delta
+  table).
 * No other file of the analyst's was edited. Findings that need code-shaped answers (D1, D2, D4-D7)
   live in `architecture.md` and `tasks.md`.
 
