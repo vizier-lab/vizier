@@ -132,7 +132,11 @@ The category stays listed for agents in no Workspace, so `SANDBOX.md` stays byte
 
 **Decision**: A `## Workspace` section in the per-message `context_md` carries the name, topic, member handles, who mentioned the agent, and the rule that an agent wakes only when mentioned. It joins `context_md_with`, like `## Project state`, not the system prompt.
 
+**The rule is a hand-off, and it says so**: the section states that writing `@<agent-id>` is not a way of naming an agent — it wakes that agent, and the woken agent cannot tell a hand-off from a passing remark, so `"@alpha owns the lock"` hands the lock over exactly as much as `"@alpha, take the lock"` does. It then gives the way out (write the name without the `@`, which wakes nobody) and the cost (the agent answers only if it mentions back, so an unneeded mention leaves a thread with no reply). The rule is its own paragraph, not the last sentence of a paragraph carrying four other facts. The same wording shape is in the `mention_agent` and `send_message_to_workspace` tool descriptions, so it reads as one rule rather than three phrasings (FR-009a).
+
 **Rationale**: Membership changes must not invalidate the prompt cache for the history (the same reason as spec 041).
+
+**What it cannot do**: a rule in prose cannot calibrate an action that returns no signal. The author of a free-text mention is never told who it woke (`agents/steps.rs` → `workspaces::after_save` → `dispatch_mentions` is silent), so the rule can only raise the odds; making it self-teaching needs that feedback, which is a behavioural change and not a prompt edit. A bare name already resolves to no mention (`workspaces::mentions::parse` matches only `@handle`), so the way out costs nothing.
 
 ## R15. People search needs its own endpoint
 

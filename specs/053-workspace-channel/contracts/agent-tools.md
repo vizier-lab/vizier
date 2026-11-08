@@ -19,6 +19,8 @@ Posts `@archivist @scribe have we seen this lock before?` to the current topic, 
 | `self_mention` | The caller named itself. Nothing posts | |
 If any named agent is down it still posts, and those agents are listed in `unavailable` (the topic shows a note for each). Nothing is posted only for `not_a_member` and `self_mention`.
 
+A mention is a hand-off, not a name: it wakes the agent, and the agent cannot tell it apart from a passing remark. The tool description says so, and names the way out — refer to an agent by its bare name when only talking about it (FR-009a).
+
 ## `send_message_to_workspace`
 
 Available in every conversation except a `Dream` or `Subagent` session.
@@ -34,6 +36,8 @@ Available in every conversation except a `Dream` or `Subagent` session.
 | `invalid_name` | The topic name breaks the rule, so one can't be created | `rule` |
 
 Origin is set from the caller's own session: a scheduled task's slug, or the kind of channel. A message from one Workspace to another has origin `workspace` and its name. Called from the current topic it behaves like a plain post, with no origin.
+
+This is the one path that wakes an agent from outside a Workspace, and it has no return path, so its tool description carries the same hand-off rule as `mention_agent`: write a mention only when you want that agent to act, and refer to an agent by its bare name otherwise (FR-009a).
 
 No return path: the conversation that sent it is not woken (spec Assumptions).
 
