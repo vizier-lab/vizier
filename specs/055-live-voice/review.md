@@ -19,7 +19,7 @@ reproducible; where a claim failed, the raw output is quoted.
 | `spec.md` 327 lines at the time of the report | `wc -l` | `327` then, `335` after the amendments of §3 |
 | commit `4c38fd73` was the base, local only | `git log --oneline` | `4c38fd73` then `2dfc92c9`, `6357b0c5 docs: add tasks`, `e5ac773a docs(055): correct two citations…` ✅ |
 | working tree clean | `git status --porcelain` | empty ✅ |
-| `tasks.md` absent at the start of this job | `ls` | absent then; it appeared at 15:15 (commit `6357b0c5`, an earlier run on this branch) and was **verified and amended here**, not rewritten (§6, C-2) |
+| `tasks.md` absent at the start of this job | `ls` | absent then; `6357b0c5` (15:15) is **this agent's own previous turn**, not a second writer — one file, one line of history, no parallel copy (§6, C-2) |
 
 ## 2. Code claims re-checked (LANGKAH 2, first half)
 
@@ -161,12 +161,15 @@ and does not in the long-answer case. **Risk raised to `@bro-pm`, requirement un
   separate feature (FR-013 already excludes it). If the User wants real sub-second first-word, that is a
   streaming turn protocol — a different spec.
 
-## 5. Decisions needed from `@bro-pm` / the User (nothing blocks implementation)
+## 5. Decisions raised to the User (not taken here)
 
-| # | Decision | Default used by `tasks.md` |
+Both are raised to the User through `@bro-pm`. Neither blocks a single task: the list is written so
+that the answer changes wording and a config value, not structure.
+
+| # | Decision | Status |
 |---|---|---|
-| D8 | Q4 cap: spec says none, summary says cap | no new cap (3 min idle + 60 s utterance only) |
-| RK-1 | Accept "live = model latency" for long answers? | accepted; FR-017 note asks for spoken-length answers |
+| D8 | Q4 cap: spec says none, the earlier summary said cap | **open — raised to the User via `@bro-pm` (15:23).** Nothing in the task list depends on it; the spec's current default (no extra cap) stands until the User says otherwise |
+| RK-1 | Accept "live = model latency" for long answers? | **open — raised to the User via `@bro-pm` (15:23); no default taken.** The plan's FR-017 note (answer for listening) is a mitigation, not an answer |
 
 ## 6. Delta applied to the reviewed artifacts (mine, dated)
 
