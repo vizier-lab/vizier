@@ -251,6 +251,30 @@ impl LiveVoiceSession {
         }
     }
 
+    /// The person has finished speaking: decide what their utterance becomes (`FR-019`, `FR-024`).
+    ///
+    /// This is where an interruption happens now (C8, User decision 2026-11-08 21:19). The start
+    /// of speech only opens an utterance; the end of it is what stops the reply and cancels the
+    /// turn, because until the person stops talking the agent is meant to keep talking.
+    ///
+    /// A burst too short to be a word is **not** an interruption: the reply is neither cancelled
+    /// nor restarted, nothing is submitted, and the session listens again (`FR-024`). That is why
+    /// the length is decided before the abort rather than inside it.
+    pub async fn close_utterance(&self, id: &str) -> UtteranceOutcome {
+        let Some(utterance) = self.take_utterance(id) else {
+            return UtteranceOutcome::Unknown;
+        };
+        if utterance.too_short() {
+            return UtteranceOutcome::TooShort;
+        }
+        // Audio first, then the turn: `abort_turn` moves the generation before it cancels, and it
+        // cancels only a turn that is still running — a reply that already finished is left alone
+        // (C8, scenario 7).
+        self.abort_turn(InterruptReason::BargeIn).await;
+        UtteranceOutcome::Speak(utterance)
+    }
+
+
     /// Write one segment to the owning socket, and only to it.
     ///
     /// `false` from the lane is **two** events, not one: `try_send` reports `Full` and `Closed`
@@ -446,4 +470,15 @@ impl LiveVoiceSessions {
     pub fn is_empty(&self) -> bool {
         self.map.lock().is_empty()
     }
+}
+
+/// What the end of an utterance turned into, and therefore what the socket does next.
+pub enum UtteranceOutcome {
+    /// No utterance with that id was open: a late or repeated `utterance_end`, which is ignored.
+    Unknown,
+    /// A burst too short to be a word: nothing submitted, nothing cancelled (`FR-024`).
+    TooShort,
+    /// Words worth acting on. The reply has already been stopped and its turn cancelled if one was
+    /// running; the caller recognises the audio and submits the result.
+    Speak(Utterance),
 }

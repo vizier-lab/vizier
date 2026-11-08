@@ -321,43 +321,63 @@ impl TopicConnection {
                     Ok(pcm) => pcm,
                     Err(_) => return,
                 };
-                if let Some(full) = session.push_audio(&audio.utterance_id, &pcm)
-                    && full
-                    && let Some(utterance) = session.take_utterance(&audio.utterance_id)
-                {
-                    self.drive_utterance(session, utterance).await;
+                // The cap closes the utterance the way a spoken end would: the same decision runs,
+                // so a long answer cannot leave the session capturing forever.
+                if session.push_audio(&audio.utterance_id, &pcm) == Some(true) {
+                    match session.close_utterance(&audio.utterance_id).await {
+                        vizier_core::live_voice::UtteranceOutcome::Speak(utterance) => {
+                            self.drive_utterance(session, utterance).await;
+                        }
+                        _ => {}
+                    }
                 }
             }
             ClientAction::UtteranceEnd(end) => {
                 let Some(session) = sessions.get(&self.session).filter(|s| owned(s)) else {
                     return;
                 };
-                if let Some(utterance) = session.take_utterance(&end.utterance_id) {
-                    self.drive_utterance(session, utterance).await;
+                // The end of the utterance is the interruption (C8, FR-019): the reply stops and
+                // its turn is cancelled only now, because while the person speaks the agent is
+                // meant to keep speaking. A burst too short to be a word cancels nothing
+                // (FR-024) — that decision lives in the session, not here.
+                match session.close_utterance(&end.utterance_id).await {
+                    vizier_core::live_voice::UtteranceOutcome::Unknown => {}
+                    vizier_core::live_voice::UtteranceOutcome::TooShort => {
+                        self.send_live_voice(LiveVoiceControl::Transcript {
+                            utterance_id: end.utterance_id.clone(),
+                            text: String::new(),
+                            submitted: false,
+                        });
+                    }
+                    vizier_core::live_voice::UtteranceOutcome::Speak(utterance) => {
+                        self.drive_utterance(session, utterance).await;
+                    }
                 }
             }
             ClientAction::SpeechStart(start) => {
                 let Some(session) = sessions.get(&self.session).filter(|s| owned(s)) else {
                     return;
                 };
-                // The barge-in signal arrives before any audio (FR-019): stop the audio, make every
-                // in-flight segment stale, and cancel the turn it was speaking (FR-027), then open
-                // the utterance it names.
-                session
-                    .abort_turn(vizier_core::live_voice::InterruptReason::BargeIn)
-                    .await;
+                // The start of speech interrupts nothing (C8): it opens the utterance the audio
+                // that follows belongs to, and the agent keeps talking. The interruption happens
+                // when this utterance ends, in the arm above.
                 session.open_utterance(&start.utterance_id);
-                session.set_state(SessionState::Listening);
             }
             ClientAction::Interrupt(interrupt) => {
                 let Some(session) = sessions.get(&self.session).filter(|s| owned(s)) else {
                     return;
                 };
-                // The reason is carried, not guessed: the button and a typed message are different
-                // events even though both stop the same audio (FR-020, FR-025). With nothing being
-                // spoken this changes no state and sends no abort — the session stays live
-                // (FR-021).
-                let reason = interrupt.reason.unwrap_or(vizier_core::live_voice::InterruptReason::Button);
+                // C7 deferred the interrupt *control* to the backlog, so a `button` reason is a
+                // client that has not caught up: it is treated exactly like the spoken
+                // interruption rather than as a third behaviour. `typed` remains, for a surface
+                // that still has a text field: it stops the audio and the session stays live
+                // (FR-025). With nothing running either costs nothing (FR-021).
+                let reason = match interrupt.reason {
+                    Some(vizier_core::live_voice::InterruptReason::Typed) => {
+                        vizier_core::live_voice::InterruptReason::Typed
+                    }
+                    _ => vizier_core::live_voice::InterruptReason::BargeIn,
+                };
                 session.abort_turn(reason).await;
             }
             ClientAction::Stop => {
