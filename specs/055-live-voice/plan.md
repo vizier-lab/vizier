@@ -126,7 +126,7 @@ The decisions that shape the rest of the plan, each with the evidence it rests o
 | R4 | One utterance per recognition call (batch providers) | `stt/mod.rs:10-18` — `transcribe(audio, filename, language)`, whole clip |
 | R5 | Reply spoken in segments, synthesised one ahead | `tts/mod.rs:13-15` — `generate_speech(text, voice, speed) -> Vec<u8>`, whole buffer |
 | R6 | Echo cancelled by the browser, plus a playback guard | `Composer.tsx:295-297` currently asks `audio: true`; constraints are ours to set |
-| R7 | Interruption reuses the existing `Abort` path | `agents_client.rs:415` (`Command::Abort`), `Composer.tsx:38` ("Stop what the agent is doing") |
+| R7 | Interruption reuses the existing abort path | `AgentsClient::abort(agent_id, session)` (`crates/vizier-core/src/agents_client.rs:205-207`, impl `:298-312`), which sends `VizierRequestContent::Command("abort")` — the same thing `Composer.tsx:38`'s `/abort` sends. There is no `AgentCommand::Abort`; `agents_client.rs:415` is a test fake (`review.md` D12) |
 | R8 | No new dependency is mandatory | audit in research.md §Dependency report |
 
 ## Phase A — Capability and configuration (no audio yet)
@@ -189,10 +189,13 @@ The decisions that shape the rest of the plan, each with the evidence it rests o
    (FR-026).
 3. On speech start while audio is playing: stop the player locally (<= 50 ms, SC-002) and send
    `live_voice_speech_start`; the server bumps the generation, abandons synthesis and cancels the
-   turn (FR-019, FR-027). **Onset guard**: the signal is sent only after ~250 ms of voiced energy
-   above the gate, and the gate during `waiting` (the agent is working, nothing is audible) is the
-   same one used during playback — a cough, a door or the room's noise must not cancel a turn that
-   the person never heard (FR-026, SC-008; risk row below).
+   turn (FR-019, FR-027). **Onset guard, and what it does not delay**: `player.stop()` runs the
+   moment the gate opens, so SC-002's 50 ms is measured from the first voiced sample and never waits
+   for the guard; the guard (~250 ms of voiced energy) only decides when the *server* is told, which is
+   what SC-002's 300 ms is measured from. A burst shorter than the guard resumes the segments already
+   queued instead of leaving the reply half-spoken (FR-022) and submits nothing (FR-024), and the gate
+   during `waiting` (nothing audible) is the same one used during playback — a cough or a door must not
+   cancel a turn the person never heard (FR-026, SC-008; risk row below).
 4. On utterance end: send `live_voice_utterance_end`; a burst shorter than a word stops the audio and
    submits nothing (Story 2, scenario 5; FR-024).
 5. **Exit criteria**: `vitest` over `vad.ts` with recorded fixtures — speech over a playback sample
@@ -265,7 +268,7 @@ recorded as open question Q3.
 | Segment boundaries heard as gaps | synthesise one segment ahead and schedule buffers back to back on one `AudioContext` clock |
 | Frame traffic grows with the bus copy | 100 ms chunks (`~4.3 KB` base64) per direction, one session per conversation |
 | A forgotten session listens on | idle stop at 3 min with a visible reason (FR-029) and a microphone indicator (FR-038) |
-| Noise cancels a turn nobody has heard yet | the 250 ms onset guard above, and a higher gate while the state is `waiting`; if it still misfires the fix is a stricter guard, not a spec change |
+| Noise cancels a turn nobody has heard yet | the 250 ms onset guard above, and a higher gate while the state is `waiting`; a burst shorter than the guard only pauses the local playback and resumes it, so a misfire costs a stutter, not a cancelled turn. If it still misfires the fix is a stricter guard, not a spec change |
 | Audio in the session-event ring would evict text (1024 slots shared by the whole process, `transport/mod.rs:29`) | live voice frames bypass `publish_session_event` entirely (`review.md` D9): the ring, its capacity and every existing consumer stay exactly as they are |
 | Desktop CSP blocks a later wasm VAD | the optional upgrade needs a CSP change and self-hosted assets; recorded in research.md so nobody adds it silently |
 

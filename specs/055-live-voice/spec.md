@@ -52,7 +52,7 @@ speech needs a streaming turn protocol and is a separate feature.
 
 ### User Story 1 — A conversation without typing (Priority: P1)
 
-A person opens a conversation, presses Live Voice, and asks a question out loud. The answer starts being spoken while it is still being written into the conversation. They ask a follow-up without touching anything, then press the control again to stop; the whole exchange is in the conversation as ordinary messages, ready to be read, searched and continued by typing.
+A person opens a conversation, presses Live Voice, and asks a question out loud. The answer is spoken in segments as soon as the turn's message exists (FR-012, FR-013: this turn protocol delivers a finished message, not token deltas). They ask a follow-up without touching anything, then press the control again to stop; the whole exchange is in the conversation as ordinary messages, ready to be read, searched and continued by typing.
 
 **Why this priority**: This is the request itself. On its own it already replaces typing for a person who would rather talk, and every other story only makes that loop safer or more controllable.
 
@@ -147,7 +147,7 @@ flowchart TD
     off["Live Voice off"] -->|"press the control"| listen["Microphone open, listening"]
     listen -->|"person speaks"| transc["Speech becomes the person's message"]
     transc --> turn["Agent turn runs, reply text appears"]
-    turn --> speak["Reply spoken while it is written"]
+    turn --> speak["Reply spoken in segments once its message exists"]
     speak -->|"reply ends"| listen
     speak -->|"person speaks over it"| barge["Audio stops at once; their words become the next message"]
     barge --> turn
@@ -221,7 +221,7 @@ Every path that leaves `listen` or `speak` except the two interruptions ends the
 - **FR-024**: The words that caused a barge-in MUST become the person's next message, unless they were too short to be one, in which case no message is sent.
 - **FR-025**: A message typed while the agent is speaking MUST stop the audio, exactly as the interrupt control does.
 - **FR-026**: The session MUST NOT interrupt itself: its own audio coming back through the device's speakers MUST NOT be taken as the person speaking, at any output volume and with or without headphones.
-- **FR-027**: An interruption MUST stop the audio at once and MUST also cancel the running turn, on the same path as the existing stop control: text produced so far stays in the conversation marked interrupted, nothing further is generated or spoken, and a tool call already completed is not undone. When the agent was working rather than speaking, an interruption MUST behave the same way, so "I interrupted while it was editing files" has exactly one answer. *(Decided in Clarifications C3.)*
+- **FR-027**: An interruption MUST stop the audio at once and MUST also cancel the running turn, on the same path as the existing stop control (`AgentsClient::abort`, which is the `/abort` the composer already offers): what the interrupted reply leaves in the conversation is exactly FR-023's two cases and nothing else, nothing further is generated or spoken, and a tool call already completed is not undone. *(Restated in the review delta, 2026-11-08: "text produced so far stays" contradicted FR-023's abort case.)* When the agent was working rather than speaking, an interruption MUST behave the same way, so "I interrupted while it was editing files" has exactly one answer. *(Decided in Clarifications C3.)*
 
 **Ending, silence and failure**
 
@@ -316,7 +316,7 @@ Nothing was deleted.
 | Header: status clarified, "resumed from" note added | Provenance: this file is a resumed draft, not a new specification |
 | New `## Clarifications` section (C1–C5) and the code-constraint note | The three open questions are answered; the transport and echo decisions are recorded where a reviewer will look for them |
 | FR-013 rewritten | The turn protocol has no token streaming (`llm/sse.rs:1-3`), so the requirement now promises segment-by-segment speech and says why |
-| FR-023: "readable in full" → "readable as far as it was produced" | Cancelling the turn (FR-027) means there is no "full" text to keep |
+| ~~FR-023: "readable in full" → "readable as far as it was produced"~~ **superseded below** | Cancelling the turn (FR-027) means there is no "full" text to keep; the later review delta replaced this wording again, because an abort keeps no partial prose at all |
 | FR-027 decided | Interruption stops the audio and cancels the turn |
 | FR-035 decided | Chat interface only; Discord and Telegram excluded |
 | FR-036 decided, FR-036a added | Cascade only in this release; one seam so a realtime pipeline can come later |
@@ -331,5 +331,14 @@ Nothing was deleted.
 | FR-012 reworded | "appear as it is generated" promised token streaming the turn protocol does not have; it now says "as soon as the turn produces its message" |
 | FR-023 clarified | the abort path keeps no partial prose (`response.rs:156-163`); interrupting during speech keeps the whole message, interrupting during generation keeps the interrupted mark and the activity trail |
 | SC-001 restated | the plan's own budget floors at 2.57 s before the model answers, so 2 s p90 was a target the architecture cannot meet; the gate is now p90 3.5 s / p99 5 s with 2 s p50 as the stretch target |
+
+**Consistency delta (Lead, 2026-11-08, after `@teteh-qa`'s `speckit-analyze`)**: three internal
+contradictions removed; no outcome changed.
+
+| Change | Why |
+|---|---|
+| FR-027 now defers to FR-023's two cases | as written it promised "text produced so far stays", which FR-023's abort case forbids; two requirements cannot answer the same event differently |
+| US1 narrative and the flow node say "spoken in segments once its message exists" | they still said "while it is being written", which the non-streaming turn protocol (constraint note) cannot do |
+| FR-023's earlier delta line is marked superseded | the log carried two descriptions of the same requirement |
 
 **Verification**: no open-question marker remains in this file — a `grep -c` for the marker phrase returns `0`, and the only remaining pointer to it is this sentence's description of the delta.

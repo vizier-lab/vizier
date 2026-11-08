@@ -191,7 +191,9 @@ sequenceDiagram
     Note over C: state waiting, no press needed
 ```
 
-Three guards make "no part heard later" true (FR-022): the client stops its sources synchronously,
+Three guards make "no part heard later" true (FR-022): the client stops its sources synchronously —
+and does so on the gate opening, not after the ~250 ms onset guard, which only delays telling the
+server (D13);
 the client refuses any frame below the generation it has seen, and the server's synthesis loop stops
 before it can emit the next segment. FR-019's "before their words are transcribed" holds because
 `player.stop()` and `live_voice_speech_start` are sent on the same tick the VAD fires — recognition

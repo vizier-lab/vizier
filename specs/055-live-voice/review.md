@@ -125,6 +125,41 @@ the connection the same way. Architecture decision, recorded in `architecture.md
 `provider-media` (`plan.md` says so itself). Emitting the header by hand keeps `provider-live-voice`
 independent of `provider-media`, which is what FR-041 wants. Fix in tasks.
 
+**D10 — `ClientConnection::send` returns `false` for two different events.** It is
+`try_send(frame).is_ok()` (`crates/vizier-core/src/agents/client/connection.rs`) and the queue is
+`mpsc::channel::<serde_json::Value>(64)` (`crates/vizier-http/src/topic.rs:143`): `false` means
+**full** or **closed**, and only the second ends a session. The D9 patch as first written read
+`false` as "closed", which would end live sessions on a busy socket — the behaviour D9 exists to
+prevent. Fixed in the contract (C-7) and in T020.
+
+**D10b — the mockup gate is satisfied, and here is the record.** The constitution asks that a new
+control be shown as a mockup before any UI code; `diagrams.md` §5 has the wireframe (one on/off control
+apart from the mic, one always-visible interrupt control, the state bar), and it is **approved by this
+review** — T036/T037 may write `.tsx` against it. Any change to that layout comes back here first.
+
+**D11 — SC-001/002/003 had no measurement points** (raised by `@teteh-qa`). `plan.md` says the
+budget is "measured in Phase F", but nothing said where the clock starts and stops, so "p90 <= 3.5 s"
+was an aspiration rather than a gate. T073 fixes the three marks and `quickstart.md` step 10 is the
+procedure; T074 keeps the server-side spans.
+
+**D12 — `AgentCommand::Abort` does not exist** (raised by `@teteh-qa` H1, and she is right).
+`crates/vizier-core/src/schema/commands.rs:142` lists `Create`/`Update`/`Delete`/`HealthCheck`/
+`AgentHealth`/`RefreshIntegrations`/`IntegrationStatus`/`Restart`; `agents_client.rs:415` is
+`FakeCall::Abort`, a test fake. The real call is `AgentsClient::abort(agent_id, session)`
+(`agents_client.rs:205-207`, impl `:298-312`), which sends `VizierRequestContent::Command("abort")` —
+the same thing `/abort` does. T044 was rewritten; as written it would not have compiled.
+
+**D13 — the 250 ms onset guard ate SC-002's 300 ms budget** (raised as H6/M11). The guard is now split
+from the local stop: `player.stop()` runs the moment the gate opens (SC-002's 50 ms, measured from the
+first voiced sample), and the ~250 ms guard only delays *telling the server*. A burst shorter than the
+guard resumes playback from the segments already queued instead of leaving the reply half-spoken
+(FR-022) and submits nothing (FR-024). SC-002's server-side 300 ms is measured from the guard firing —
+stated in the plan and in T045.
+
+**D14 — FR-037 (configured language) had no task** (raised as H5). T029 now passes
+`stt.settings.language` into `VizierStt::transcribe`, the same value the auto-transcription path uses
+(`crates/vizier-core/src/agents/agent/mod.rs:721`), with a test.
+
 **D8 — Q4 in `@bro-pm`'s summary and in the spec disagree.** The summary says the default is "ada cap
 (angka di spec)"; `spec.md` Q4 says **no extra cap** (deployment socket limits apply), with 3 min
 idle + 60 s utterance as the only limits. Taking the spec's default (no new cap) — it is the one with
@@ -163,12 +198,13 @@ and does not in the long-answer case. **Risk raised to `@bro-pm`, requirement un
 
 ## 5. Decisions raised to the User (not taken here)
 
-Both are raised to the User through `@bro-pm`. Neither blocks a single task: the list is written so
-that the answer changes wording and a config value, not structure.
+D8 is answered on the implementation side (below) so QA can write the test; RK-1 stays a requirement
+question for the User. Neither blocks a task: the answer changes wording and a config value, not
+structure.
 
 | # | Decision | Status |
 |---|---|---|
-| D8 | Q4 cap: spec says none, the earlier summary said cap | **open — raised to the User via `@bro-pm` (15:23).** Nothing in the task list depends on it; the spec's current default (no extra cap) stands until the User says otherwise |
+| D8 | PM's summary asked about a **duration** cap; the spec's **Q4** is a cap on **concurrent sessions** — two different questions (raised as M5) | **answered for the implementation.** No concurrency cap and no duration cap are introduced: the only limits are the spec's idle stop (3 min, FR-029) and utterance cap (60 s, FR-010), which are `quickstart.md` steps 8-9 and T057/T059. A duration cap would be a **new requirement**, not a default; a concurrency cap is one config value. If the User wants either, it is a one-line default and needs no restructure |
 | RK-1 | Accept "live = model latency" for long answers? | **open — raised to the User via `@bro-pm` (15:23); no default taken.** The plan's FR-017 note (answer for listening) is a mitigation, not an answer |
 
 ## 6. Delta applied to the reviewed artifacts (mine, dated)

@@ -98,8 +98,8 @@ be tuned without a rebuild.
 
 | Entity | Change | Constraint |
 |---|---|---|
-| Request / message | a request may be voice-originated; the reply that answers it may be spoken | additive flags only; history, search and deletion unchanged (FR-016) |
-| Reply | may be marked *interrupted*, with how much was spoken | text stays complete-as-produced; nothing is rewritten (FR-023) |
+| Request / message | `VizierRequest.spoken: bool`, `#[serde(default)]` = `false`, so a stored request from before this feature loads unchanged; the reply that answers a `spoken` request may be spoken | additive flag only; history, search and deletion unchanged (FR-016) |
+| Reply | may be marked *interrupted* | the reply's own text is never rewritten; an interruption during generation ends the turn as `Abort`, which keeps no partial prose (FR-023) |
 | Agent detail | gains `live_voice: bool` beside `stt` / `tts` | additive; older clients ignore it |
 | `SessionFrame` | gains `LiveVoice(LiveVoiceFrame)` | additive; unknown top-level keys are ignored by existing clients (`frames.ts:607-630`) |
 

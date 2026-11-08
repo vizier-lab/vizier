@@ -139,8 +139,19 @@ Rules:
   are always written.
 * **One stall notice per episode**: after drops, the first audio frame that fits again is preceded by
   one `live_voice_error { kind: "stall" }`. A stall never ends the session.
-* **A closed socket ends the session** with reason `page_closed` (FR-028): `ClientConnection::send`
-  returning `false` because the connection closed is the signal, not a timeout.
+* **A closed socket ends the session; a full queue does not.** `ClientConnection::send` is
+  `try_send(..).is_ok()`, so it returns `false` **both** when the queue is full (`Full`, capacity 64,
+  `crates/vizier-http/src/topic.rs:143`) and when the connection has closed (`Closed`). Only the second
+  is an ending: the session ends with reason `page_closed` when `!connection.is_open()` (FR-028), and a
+  `false` while the connection is still open is a dropped audio frame, counted, nothing more. Reading
+  `false` as "closed" would end live sessions on a busy socket — the exact opposite of dropping audio
+  (contract delta C-7, `review.md` D10).
+* **Control frames still ride the session broadcast**, and that is deliberate: `live_voice_state`,
+  `live_voice_transcript` and `live_voice_error` are a handful per turn, so the 1024-slot ring
+  (`crates/vizier-core/src/transport/mod.rs:29`) is not reachable by them, and a socket that reconnects
+  inside FR-033's 30 s gets the current state without the session holding a per-socket replay log.
+  Audio is the volume; audio is the only thing moved off it.
+
 * **Client → server is unaffected**: inbound audio still arrives on the topic socket like every other
   client frame, because there is only one socket for it to arrive on.
 
@@ -163,6 +174,10 @@ realtime speech-to-speech pipeline later would add new frame names, not change t
 
 
 ## Review delta (2026-11-08, `@mamang-lead-be`)
+
+**C-7 — full is not closed (D10).** `ClientConnection::send` collapses two cases into one
+`false`; the contract now separates them, because the queue is 64 slots (not a socket timeout) and a
+busy socket must lose audio, not its session.
 
 **C-6 — delivery path (D9).** The contract now says *how* server frames reach the client, not only
 what they contain: per connection, never through the session-event broadcast, with audio droppable and

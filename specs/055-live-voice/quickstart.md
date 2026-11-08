@@ -43,8 +43,9 @@ microphone and the "ask for a spoken reply" toggle, and is off.
 3. **It follows up.** Ask a second question without touching anything (Story 1, scenario 3).
 4. **Barge-in.** Ask something that produces a long answer. While it is speaking, say "no, the other
    one". The voice stops before your words are transcribed (FR-019), your correction becomes the next
-   message, and the interrupted reply is in the conversation marked interrupted, readable as far as
-   it got (FR-023).
+   message, and the interrupted reply is in the conversation marked interrupted — with its whole text
+   when it had already been spoken, or with the interrupted mark and the activity trail when the
+   interruption landed while the model was still working (FR-023, FR-027).
 5. **Interrupt control.** Ask for another long answer and press Interrupt. The audio stops, the
    session stays `listening`, and you can type a correction that is answered and spoken (FR-020,
    FR-021, FR-025).
@@ -57,6 +58,53 @@ microphone and the "ask for a spoken reply" toggle, and is off.
    with a visible reason (FR-029).
 9. **Two tabs.** Start a session in one tab and open the same conversation in another: the second is
    told a session is active and cannot start one (FR-005).
+
+10. **Measure the three gates.** SC-001, SC-002 and SC-003 are only gates if they are measured the
+    same way every time (T073 fixes the marks). With a hosted provider, three turns are enough for a
+    smoke measurement; a release gate wants twenty:
+    * **SC-001** — the clock starts when the utterance closes on the client (the 800 ms hangover
+      fires) and stops at the first `AudioBufferSourceNode.start()` of the reply. Read it from the
+      `live_voice_metric` lines the client logs, or from the browser's Performance panel.
+    * **SC-002** — speak over the agent and read the same log: utterance-close to `player.stop()`
+      returning must be <= 50 ms on the client, and the server span must show the `Abort` delivered
+      within 300 ms.
+    * **SC-003** — press Interrupt and read the click-to-silence time; it must be <= 200 ms in every
+      attempt, which is why `stop()` is synchronous.
+    Record the numbers in the pull request next to the run's provider and machine. A local whisper
+    model is expected to miss SC-001; that is open question Q3, not a bug.
+
+
+## The `dummyplug` half (agent-observable, no keys, no microphone)
+
+The constitution asks every feature's quickstart to script its agent-observable checks as `dummyplug`
+steps (`specs/008-dummyplug-provider/contracts/dummyplug-protocol.md`). Live voice's *audio* half
+cannot run on dummyplug — the offline provider has no recogniser and no voice — so the split is
+explicit: the three steps below are the agent-observable half and run with no keys; the steps above are
+the audio half, and only their step 2 and step 10 need a live provider (marked *live provider* where
+they appear).
+
+**Setup**: `just run`; one agent `voice` on provider `dummyplug`; a conversation with it. Nothing here
+needs a microphone, a key, or the desktop app.
+
+1. **A spoken message reaches the agent as speech.** Send the frame a session would send after
+   recognition — an ordinary request carrying the flag:
+   `{"content":"chat","message":"tools","spoken":true}` on the conversation's socket.
+   **Expect** a `dummyplug` reply, one stored `Request` whose `spoken` is `true`, and the prompt the
+   agent received containing the listening note (FR-017): visible in the session's history entry and,
+   with `RUST_LOG=vizier_core::agents=debug`, in the turn's prompt trace.
+2. **A typed message does not.** Send the same request without `spoken`.
+   **Expect** the same reply, a stored `Request` with `spoken: false`, and **no** listening note — the
+   flag is per turn, never global (FR-017, FR-040).
+3. **The interruption path the session reuses works.** Send `{"content":"command","message":"abort"}`
+   while a turn is running (the frame `/abort` sends).
+   **Expect** the turn ending as `abort`, the conversation showing "Stopped by you", and no partial
+   reply text invented (FR-027, FR-023's abort case) — exactly what T044 calls.
+
+What these three steps **do not** cover, and where it is covered instead: voice activity detection,
+segmentation and playback, and both interruptions driven by sound or by the button. Those are
+`crates/vizier-http/tests/live_voice_*.rs` and `webui/e2e/live-voice-*.spec.ts` with a faked recogniser
+and voice, plus the steps above by hand. A scripted browser run of *both* interruption paths against a
+live provider stays a manual gate, and it is marked as such.
 
 ## The automated half
 
