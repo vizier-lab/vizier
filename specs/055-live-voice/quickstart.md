@@ -86,17 +86,36 @@ they appear).
 **Setup**: `just run`; one agent `voice` on provider `dummyplug`; a conversation with it. Nothing here
 needs a microphone, a key, or the desktop app.
 
-1. **A spoken message reaches the agent as speech.** Send the frame a session would send after
-   recognition — an ordinary request carrying the flag:
-   `{"content":"chat","message":"tools","spoken":true}` on the conversation's socket.
+**The frame shape is the real one.** A request on the conversation socket is the whole `VizierRequest`
+(`crates/vizier-core/src/schema/request.rs:282-350`): `content` is an externally tagged enum
+(`VizierRequestContent`, `#[serde(rename_all = "snake_case")]`, `:40-67`), so it is
+`{"chat": "…"}` — not `{"content": "chat", "message": "…"}`. The repository's own test sends exactly
+this shape (`crates/vizier-http/src/topic.rs:48-53`):
+
+```json
+{"timestamp": "2026-11-08T15:00:00+07:00", "user": "owner",
+ "content": {"chat": "tools"}, "metadata": {}}
+```
+
+`timestamp` must be present but is replaced on receipt (`topic.rs:36-39`); `user` is the sender's name;
+`metadata` may be empty. `spoken` is the field T017 adds, `#[serde(default)]`, so a frame without it
+reads `false`. `curl` cannot send this — it is a WebSocket text frame on
+`/api/v1/agents/{agent_id}/channel/{channel_id}/{topic_id}`. Today that means the WebUI's own socket,
+or `scripts/dummyplug-vizier-e2e.mjs` as a template; the scripted version of these three steps
+(`scripts/live-voice-e2e.mjs`) is **written by T081**, the task that runs this gate, so it does not exist
+yet; until it does, the three steps below are run by hand over the WebUI socket.
+
+1. **A spoken message reaches the agent as speech.** Send
+   `{"timestamp":"2026-11-08T15:00:00+07:00","user":"owner","content":{"chat":"tools"},"spoken":true,"metadata":{}}`.
    **Expect** a `dummyplug` reply, one stored `Request` whose `spoken` is `true`, and the prompt the
    agent received containing the listening note (FR-017): visible in the session's history entry and,
    with `RUST_LOG=vizier_core::agents=debug`, in the turn's prompt trace.
-2. **A typed message does not.** Send the same request without `spoken`.
+2. **A typed message does not.** Send the same frame without `spoken` (or with `"spoken": false`).
    **Expect** the same reply, a stored `Request` with `spoken: false`, and **no** listening note — the
    flag is per turn, never global (FR-017, FR-040).
-3. **The interruption path the session reuses works.** Send `{"content":"command","message":"abort"}`
-   while a turn is running (the frame `/abort` sends).
+3. **The interruption path the session reuses works.** While a turn is running, send
+   `{"timestamp":"2026-11-08T15:00:01+07:00","user":"owner","content":{"command":"abort"},"metadata":{}}`
+   — the same content `/abort` sends (`crates/vizier-core/src/agents_client.rs:298-312`).
    **Expect** the turn ending as `abort`, the conversation showing "Stopped by you", and no partial
    reply text invented (FR-027, FR-023's abort case) — exactly what T044 calls.
 

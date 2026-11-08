@@ -187,3 +187,29 @@ an earlier commit.
 
 **Still open, and not mine to close**: RK-1 (requirement question for the User) and the live-provider
 audio pass (manual by nature). `speckit-implement` still needs the User's go.
+
+---
+
+## 7. Final pass — the `dummyplug` frames were the wrong shape (`@mamang-lead-be`)
+
+One finding survived §6: C1 looked closed because `quickstart.md` had a `dummyplug` section, but the
+frames in it were **not the shape the socket accepts**. `{"content":"chat","message":"tools"}` does not
+deserialise: `VizierRequest.content` is an externally tagged `VizierRequestContent`
+(`#[serde(rename_all = "snake_case")]`, `crates/vizier-core/src/schema/request.rs:40-67`), so it is
+`{"chat": "tools"}`; `VizierRequest` also requires `timestamp`, `user` and `metadata`
+(`request.rs:282-350`), and the repository's own test sends exactly that (`crates/vizier-http/src/topic.rs:48-53`).
+A quickstart that cannot be pasted is not a scripted check — C1 was **still open** and is closed now.
+
+Three consequences fixed in the same pass:
+
+* **C1** — every step now carries a frame that deserialises, with the required fields named, and says
+  plainly that it is a WebSocket text frame rather than a `curl` call.
+* **A reference to a script that does not exist** — the section pointed at `scripts/live-voice-e2e.mjs`,
+  which is T081's output. It now says so, and says what to do until then.
+* **T010's leftover sentence** — it repeated T009's type split mid-sentence and was missing a full stop
+  before the serialiser rule; rewritten so a reader cannot think `speech` passes through the broadcast arm.
+
+Item counts for this pass: `tasks.md` 88 tasks, `grep -cE '^- \[ \] .*Lagged'` = 1 (T022),
+`architecture.md` §11 records both the per-session filter (`topic.rs:533`) that let a second tab receive
+audio and the fact that the `SessionFrame` variant and its outbound arm are **alive** (control only),
+so the section and `tasks.md` no longer contradict each other.
