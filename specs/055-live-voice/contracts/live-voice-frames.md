@@ -84,7 +84,7 @@ Ends the session, releases everything, reason `pressed_again` (FR-028).
 ### `live_voice_state`
 
 ```json
-{ "live_voice": { "state": "interrupted", "generation": 8, "reason": null } }
+{ "live_voice": { "type": "state", "state": "interrupted", "generation": 8, "reason": null } }
 ```
 
 The FR-006 state word. `reason` is present only for `ended` / `failed` / `reconnecting`; it is one of
@@ -95,7 +95,7 @@ provider_failed | unintelligible`.
 ### `live_voice_transcript`
 
 ```json
-{ "live_voice": { "utterance_id": "u-42", "text": "no, the other file", "submitted": true } }
+{ "live_voice": { "type": "transcript", "utterance_id": "u-42", "text": "no, the other file", "submitted": true } }
 ```
 
 `submitted: false` with empty `text` is the too-short outcome (FR-024): the audio stopped and nothing
@@ -104,7 +104,7 @@ was sent.
 ### `live_voice_speech`
 
 ```json
-{ "live_voice": { "generation": 8, "seq": 3, "sample_rate": 16000, "format": "pcm16", "base64": "…", "final": false } }
+{ "live_voice": { "type": "speech", "generation": 8, "seq": 3, "sample_rate": 16000, "format": "pcm16", "base64": "…", "final": false } }
 ```
 
 One segment. `final: true` marks the last of the reply; the client plays the queue and returns the
@@ -113,7 +113,7 @@ state to `listening` (FR-015).
 ### `live_voice_error`
 
 ```json
-{ "live_voice": { "kind": "provider_failed", "message": "the voice provider refused the segment" } }
+{ "live_voice": { "type": "error", "kind": "provider_failed", "message": "the voice provider refused the segment" } }
 ```
 
 `kind` mirrors the `reason` list above. The session's own state is not changed by this frame alone —
@@ -136,3 +136,22 @@ No binary frames, no per-frame acknowledgement (the socket's ordering is enough)
 retransmission (a lost chunk is a syllable, not a state), and no transcript editing. Adding a
 realtime speech-to-speech pipeline later would add new frame names, not change these.
 
+
+## Review delta (2026-11-08, `@mamang-lead-be`)
+
+**R-1 — every server frame carries a `type` discriminator.** As first written, the six server frames
+shared the single top-level key `live_voice` and were distinguished only by which fields they happened
+to contain (`state` vs `utterance_id`+`text` vs `base64`), which a client cannot dispatch on safely
+(`review.md` D3). The type in code is `#[serde(tag = "type", rename_all = "snake_case")]`:
+
+| `type` | Variant | Extra fields |
+|---|---|---|
+| `state` | state word of FR-006 | `state`, `generation`, `reason` |
+| `transcript` | one utterance's outcome | `utterance_id`, `text`, `submitted` |
+| `speech` | one synthesised segment | `generation`, `seq`, `sample_rate`, `format`, `base64`, `final` |
+| `error` | a provider or session failure | `kind`, `message` |
+
+Client frames are unchanged: their top-level keys (`live_voice_start`, `live_voice_audio`,
+`live_voice_utterance_end`, `live_voice_speech_start`, `live_voice_interrupt`, `live_voice_stop`) are
+already distinct. Nothing else in this contract changed; the sizes, limits and "deliberately not in
+the contract" list stand.
