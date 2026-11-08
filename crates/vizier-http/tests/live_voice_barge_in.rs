@@ -272,9 +272,9 @@ fn the_interrupt_reasons_are_not_interchangeable() {
     );
 }
 
-/// An interruption also cancels the utterance being captured, so its audio is never submitted.
+/// An utterance is taken exactly once: a repeated end sees nothing and changes nothing.
 #[test]
-fn an_interruption_cancels_the_open_utterance() {
+fn an_utterance_is_taken_once() {
     let transport = VizierTransport::new();
     let (tx, _rx) = tokio::sync::mpsc::channel::<serde_json::Value>(8);
     let session = LiveVoiceSession::new(
@@ -288,6 +288,126 @@ fn an_interruption_cancels_the_open_utterance() {
     session.open_utterance("u-1");
     session.push_audio("u-1", &[0u8; 3200]);
     let taken: Option<Utterance> = session.take_utterance("u-1");
-    assert!(taken.is_some());
-    assert!(session.take_utterance("u-1").is_none(), "it is taken once");
+    assert!(taken.is_some(), "the open utterance comes back once");
+    assert!(
+        session.take_utterance("u-1").is_none(),
+        "a second take finds nothing"
+    );
+}
+
+/// C8, the trigger: the **start** of speech interrupts nothing. It only opens the utterance the
+/// audio that follows belongs to — the agent is meant to keep talking while the person speaks.
+#[tokio::test]
+async fn the_start_of_speech_does_not_interrupt() {
+    let mut h = Harness::new().await;
+    h.start_turn(Arc::new(SilentEngines)).await;
+
+    let before = h.session.generation();
+    h.session.open_utterance("u-1");
+    assert_eq!(
+        h.session.generation(),
+        before,
+        "opening an utterance must not make the reply stale"
+    );
+
+    let kinds = h.drain_requests().await;
+    assert!(
+        kinds.iter().all(|kind| kind != "command:abort"),
+        "the agent keeps speaking while the person speaks, got {kinds:?}"
+    );
+}
+
+/// C8, the other half: the **end** of the utterance is what stops the reply and cancels the turn.
+#[tokio::test]
+async fn the_end_of_the_utterance_interrupts_exactly_once() {
+    let mut h = Harness::new().await;
+    h.start_turn(Arc::new(SilentEngines)).await;
+
+    // 300 ms of speech: long enough to be a word (FR-024's floor is 250 ms).
+    h.session.open_utterance("u-1");
+    for _ in 0..3 {
+        h.session.push_audio("u-1", &[0u8; 3200]);
+    }
+
+    let before = h.session.generation();
+    let outcome = h.session.close_utterance("u-1").await;
+    assert!(
+        matches!(outcome, vizier_core::live_voice::UtteranceOutcome::Speak(_)),
+        "a real word ends as something to transcribe"
+    );
+    assert_eq!(
+        h.session.generation(),
+        before + 1,
+        "the reply becomes stale at the end of the person's speech"
+    );
+
+    let kinds = h.drain_requests().await;
+    assert_eq!(
+        kinds.iter().filter(|kind| *kind == "command:abort").count(),
+        1,
+        "the running turn is cancelled exactly once, got {kinds:?}"
+    );
+    assert_eq!(h.session.state(), SessionState::Listening);
+    assert!(h.session.take_utterance("u-1").is_none(), "the utterance is closed");
+}
+
+/// FR-024: a burst too short to be a word cancels nothing and submits nothing — which is why the
+/// length is decided before the abort rather than inside it.
+#[tokio::test]
+async fn a_burst_too_short_to_be_a_word_does_not_interrupt() {
+    let mut h = Harness::new().await;
+    h.start_turn(Arc::new(SilentEngines)).await;
+
+    h.session.open_utterance("u-1");
+    h.session.push_audio("u-1", &[0u8; 3200]); // 100 ms, under the 250 ms floor
+
+    let before = h.session.generation();
+    let outcome = h.session.close_utterance("u-1").await;
+    assert!(matches!(
+        outcome,
+        vizier_core::live_voice::UtteranceOutcome::TooShort
+    ));
+    assert_eq!(
+        h.session.generation(),
+        before,
+        "a cough neither cancels nor restarts the reply (C8, scenario 6)"
+    );
+    let kinds = h.drain_requests().await;
+    assert!(
+        kinds.iter().all(|kind| kind != "command:abort"),
+        "nothing is cancelled by a burst, got {kinds:?}"
+    );
+}
+
+/// C8, scenario 7: if the reply finished on its own first, the person's words simply become the
+/// next message — nothing is cancelled, because there is nothing left to cancel.
+#[tokio::test]
+async fn words_after_the_reply_finished_cancel_nothing() {
+    let mut h = Harness::new().await;
+    // No turn was started, so the session is idle when the person finishes speaking.
+    h.session.open_utterance("u-1");
+    for _ in 0..3 {
+        h.session.push_audio("u-1", &[0u8; 3200]);
+    }
+    let outcome = h.session.close_utterance("u-1").await;
+    assert!(matches!(
+        outcome,
+        vizier_core::live_voice::UtteranceOutcome::Speak(_)
+    ));
+
+    let kinds = h.drain_requests().await;
+    assert!(
+        kinds.iter().all(|kind| kind != "command:abort"),
+        "an idle session has no turn to cancel, got {kinds:?}"
+    );
+}
+
+/// A late or repeated `utterance_end` is ignored rather than panicking or closing something else.
+#[tokio::test]
+async fn a_late_utterance_end_is_ignored() {
+    let h = Harness::new().await;
+    assert!(matches!(
+        h.session.close_utterance("never-opened").await,
+        vizier_core::live_voice::UtteranceOutcome::Unknown
+    ));
 }
