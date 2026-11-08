@@ -47,8 +47,8 @@ microphone and the "ask for a spoken reply" toggle, and is off.
    when it had already been spoken, or with the interrupted mark and the activity trail when the
    interruption landed while the model was still working (FR-023, FR-027).
 5. **Interrupt control.** Ask for another long answer and press Interrupt. The audio stops, the
-   session stays `listening`, and you can type a correction that is answered and spoken (FR-020,
-   FR-021, FR-025).
+   session stays `listening`, and you can type a correction: it is answered **as text**, with nothing
+   spoken for it, while the session stays live (FR-020, FR-021, FR-025; FR-018 withdrawn).
 6. **Separation.** Turn the agent's STT and TTS tool switches off in its settings and start Live
    Voice again: it still works (FR-003). Turn them on: the mic and the spoken-reply toggle still work
    as they did (FR-040).

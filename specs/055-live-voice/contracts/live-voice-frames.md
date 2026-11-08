@@ -71,17 +71,11 @@ Also opens the utterance named in it.
 `reason`: `button` | `typed` | `barge_in`. Same effect as `speech_start` on the audio and the turn,
 but opens no utterance: the session stays live and listening (FR-020, FR-021, FR-025).
 
-### `live_voice_text`
-
-```json
-{ "live_voice_text": { "text": "no, the other file", "utterance_id": null } }
-```
-
-A message the person **typed** while a session is live (FR-018). Submitted as an ordinary request with
-`spoken: false` — no listening note, because the person did not speak it (FR-017) — and the session
-keeps the `ResponseSender`, so its reply is spoken like any other turn of the session. The client sends
-`live_voice_interrupt { reason: "typed" }` first (the audio stops as with the button, FR-025), then this.
-Without a live session the composer sends an ordinary request and none of this is used (FR-040).
+**A typed message has no frame here.** Typing during a session sends `live_voice_interrupt { reason:
+"typed" }` (the audio stops, FR-025) and then the text as an ordinary chat request on the same socket,
+exactly as it would with no session at all. Its reply is text and is never spoken (FR-018 withdrawn,
+2026-11-08). The earlier `live_voice_text` frame existed only to route that reply through the session's
+speaker; it is gone with the requirement.
 
 ### `live_voice_stop`
 
@@ -99,7 +93,10 @@ Ends the session, releases everything, reason `pressed_again` (FR-028).
 { "live_voice": { "type": "state", "state": "interrupted", "generation": 8, "reason": null } }
 ```
 
-The FR-006 state word. `reason` is present only for `ended` / `failed` / `reconnecting`; it is one of
+The FR-006 state word. `waiting` is the one that carries FR-042: it is sent as soon as the turn is
+accepted, before any audio exists, and the client must render it as **the agent is thinking** — text or
+an animation in the bar — never as the same thing as `reconnecting`. `reason` is present only for
+`ended` / `failed` / `reconnecting`; it is one of
 `pressed_again | left_conversation | page_closed | permission_withdrawn | conversation_deleted |
 agent_changed | idle | connection_lost | server_restart | no_device | no_recognizer | no_voice |
 provider_failed | unintelligible`.
@@ -216,10 +213,10 @@ realtime speech-to-speech pipeline later would add new frame names, not change t
 
 
 
-**C-12 — `live_voice_text` (D17).** The contract had no way to say "the person typed this while the
-session is live", so FR-018's "answered **and** spoken" had no path: the session speaks only the turns
-it submitted. The frame closes that without widening anything — it is the same request a typed turn
-sends, minus the listening note.
+**C-12 — `live_voice_text` (D17).** ~~The contract had no way to say "the person typed this while the
+session is live", so FR-018's "answered **and** spoken" had no path.~~ **Superseded 2026-11-08 by the
+User's decision:** a typed message is text only, FR-018 is withdrawn, and the frame is removed with it.
+Kept as history so nobody re-adds it from an old branch.
 
 
 ## Review delta (2026-11-08, `@mamang-lead-be`)

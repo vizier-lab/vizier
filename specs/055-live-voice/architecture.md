@@ -120,12 +120,18 @@ marked interrupted; if the abort lands before any `Message`, the turn ends as `A
 (`schema/response.rs:156-166` — a turn that produced nothing) and the conversation shows the existing
 "Stopped by you", with no invented partial text.
 
-**FR-018 — a typed message during a session (D17)**: the session speaks only the turns it submitted,
-so a typed message in a live conversation is routed **through the session** (`live_voice_text`) rather
-than beside it: the session submits it with `spoken: false` (the person typed, so no listening note,
-FR-017) and keeps the `ResponseSender`, which is what makes its reply the one the session speaks. This
-is the same rule as §4's first paragraph, not an exception to it: a background report, a scheduled task
-or another tab's turn still never gets spoken, because the session never submitted it.
+**FR-018 is withdrawn (User, 2026-11-08 17:27) — and §4's rule is the reason it could be.** The session
+speaks only the turns it submitted. A typed message is not one of them: typing during a session sends
+`live_voice_interrupt { reason: "typed" }` (the audio stops, FR-025) and then an ordinary chat request on
+the same socket, answered as text. Making its reply audible would have meant a second submission path
+into the session, which is more surface than the behaviour is worth — the User chose text only.
+
+**FR-042 — the thinking indicator keeps §4's rule honest.** Since the session speaks only its own turns
+and the model is not streaming, the gap between "request accepted" and "first segment" is real and can
+be long (FR-017 lets the agent take that time). The session already emits `live_voice_state` with
+`state: "waiting"` at turn start; FR-042 requires the bar to render that as **thinking** and to keep it
+visually distinct from `reconnecting`. No new frame: `waiting` gains an obligation it did not have
+before, which is why `contracts` documents it under the state word rather than as a new type.
 
 **FR-011/FR-017 (D2)**: the request is an ordinary `VizierRequestContent::Chat(transcript)` with a new
 `#[serde(default)] spoken: bool`. The spoken note for the agent is appended in the block that already
@@ -286,7 +292,8 @@ below is 2.57 s before the model has produced anything.
 * **I7** Every terminal transition emits exactly one `live_voice_state` with a reason and releases
   the microphone track within 2 s (SC-007).
 * **I8** A typed message during a session stops the audio exactly like the button (FR-025) and is
-  answered and spoken (FR-018).
+  answered **as text with nothing spoken** (FR-018 withdrawn, 2026-11-08): the session schedules no
+  audio for a turn it did not submit.
 * **I9** No `live_voice_speech` frame ever reaches `publish_session_event` (control frames do, by
   design); a backlogged socket loses speech frames only, never a `SessionFrame::Response`, and never a
   control frame (§11, D9).

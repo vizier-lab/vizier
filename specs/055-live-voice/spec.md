@@ -93,12 +93,12 @@ In a noisy café, on a bad microphone, or with a quiet voice, the person cannot 
 
 **Why this priority**: A person who cannot out-talk the agent would otherwise have no way to stop a wrong answer without ending the whole session — which makes the feature unusable exactly where it is most wanted.
 
-**Independent Test**: With the agent speaking, press interrupt; the audio stops and the session still listens. Then type a message and confirm it is answered and spoken.
+**Independent Test**: With the agent speaking, press interrupt; the audio stops and the session still listens. Then type a message and confirm it is answered **as text** while the session stays live and silent (FR-018 withdrawn, 2026-11-08).
 
 **Acceptance Scenarios**:
 
 1. **Given** the agent is speaking, **When** the person presses interrupt, **Then** the audio stops at once and the session stays live.
-2. **Given** an interrupted session, **When** the person types a message, **Then** it is answered and the reply is spoken.
+2. **Given** an interrupted session, **When** the person types a message, **Then** it is answered as text, the session stays live, and nothing is spoken for that reply.
 3. **Given** the agent has not started speaking yet, **When** the person presses interrupt, **Then** the session stays live and needs no restart; what happens to the running turn follows FR-027.
 4. **Given** an interrupted but live session, **When** no further speech arrives for the idle period, **Then** the session ends like any other.
 
@@ -170,9 +170,9 @@ Every path that leaves `listen` or `speak` except the two interruptions ends the
 - **A long monologue**: an utterance is cut at the maximum length (default 60 seconds) and submitted, so a person speaking for minutes still gets answers.
 - **Silence in the middle of a sentence**: a pause shorter than the end-of-utterance period does not split the message.
 - **The person speaks while the agent is still thinking**, before any audio: their words become the next message; whether the running turn is also cancelled is the decision in FR-027.
-- **The person types while the agent is speaking**: the audio stops, as with the interrupt control (FR-025).
+- **The person types while the agent is speaking**: the audio stops, as with the interrupt control (FR-025), the session stays live, and the typed turn's reply comes back as text only — speech belongs to the session, and a typed turn is not part of it (FR-018 withdrawn).
 - **An answer full of code, a table or a long URL**: the conversation keeps all of it; the spoken form skips what cannot be read aloud and says the rest is in the conversation.
-- **The provider is slow**: waiting is visible, the session never appears to be listening while an answer is still pending, and a stalled provider ends in a reported failure rather than an endless wait.
+- **The provider is slow**: waiting is visible, the session never appears to be listening while an answer is still pending, and a stalled provider ends in a reported failure rather than an endless wait. Since FR-017 lets the agent think longer, this is the common case rather than the exception, which is what FR-042's indicator is for.
 - **The microphone is unplugged mid-session** or the device is switched: the session reports the lost device and does not silently stay "live".
 - **The page is reloaded mid-session**: the session ends with the page, the microphone is released, and the conversation is intact; a reloaded page starts with the control off.
 - **The person is on a phone browser and the screen locks**: the session must treat the resulting suspension as an end with a reason, not as a live session that stopped hearing.
@@ -208,8 +208,10 @@ Every path that leaves `listen` or `speak` except the two interruptions ends the
 - **FR-014**: The spoken form MUST NOT read formatting marks aloud (punctuation used as markup, code fences, raw URLs). What cannot be spoken MUST be skipped with a short notice that the conversation holds the rest to read.
 - **FR-015**: After a reply ends, or after an interruption, the session MUST return to listening without a press.
 - **FR-016**: Raw audio MUST NOT be stored. Only the transcript and the reply text are kept, as for typed turns, under the same access rules and retention as the conversation.
-- **FR-017**: With each voice message the agent MUST be told that the message came by speech and that its reply will be spoken, so it can answer in a form that suits listening. That indication MUST apply to that turn only and MUST NOT change what a typed turn sees.
-- **FR-018**: Typing MUST stay available during a session: a message typed while a session is live is answered like any other, and its reply is spoken.
+- **FR-017**: With each voice message the agent MUST be told that the message came by speech and that its reply will be spoken, so it can answer in a form that suits listening: **short by default**, because the reply is heard rather than read. That indication MUST apply to that turn only and MUST NOT change what a typed turn sees. **The agent decides how long to take, not the person**: when the question genuinely needs reasoning or a lookup, the agent MAY take longer and answer at length, and there MUST be no user-facing switch, mode or setting that makes that choice. *(Rewritten in the Lead's review, 2026-11-08, on the User's decision of that day: default short answers, longer only when the question needs it, decided by the agent.)*
+- ~~**FR-018**: Typing MUST stay available during a session: a message typed while a session is live is answered like any other, and its reply is spoken.~~ **WITHDRAWN on the User's decision, 2026-11-08 17:27: a typed message is answered as text only.** Speech belongs to the live session alone. Typing during a session still works and still stops the audio (FR-025); what it no longer does is put its reply through the speaker, and nothing in this feature links a typed turn to the session's voice.
+
+- **FR-042**: While the agent is working and nothing is audible — the case FR-017's longer answers make long — the interface MUST show that the agent is thinking, and MUST show it as a different state from `reconnecting` and from `ended`. It MUST appear as soon as the turn is accepted (before the first audio, and before the model's own latency), and MUST clear when the first segment is heard, when the turn ends, or when the session ends. It is a state the session already has (`waiting for the agent`, FR-006); what this requires is that the person can tell "thinking" from "gone", on screen, without waiting for sound. *(Added on the User's decision, 2026-11-08 17:27.)*
 
 **Interruption**
 
@@ -348,5 +350,22 @@ corrections, both about testability rather than outcome.
 |---|---|
 | SC-002 states where its clock starts and stops, and splits "silence" from "the turn is cancelled" | with a 250 ms onset guard, "300 ms" had no start point; the guard delays only the message to the server, so the silence is still inside 50 ms |
 | the third-party edge case no longer promises speaker attribution | an energy gate on one microphone has no speaker identity; promising it would make an acceptance test nobody can pass. Diarization, if wanted, is a separate specification |
+
+**User decisions of 2026-11-08 17:27 (`muruyung`, via `@bro-pm`)**: four answers, two of
+which change this document.
+
+| Decision | What changed here |
+|---|---|
+| Scope is the full feature: US1 + US2 + US3 | nothing to change — the stories and their priorities already carry all three as P1; the "MVP is US1 only" framing is gone from the delivery notes |
+| A thinking indicator when the agent is slow | **new FR-042**; the `waiting` state of FR-006 now has to be *told apart* from `reconnecting` on screen |
+| The **agent** decides whether to think longer — no user toggle | **FR-017 rewritten**: short by default, longer when the question needs it, and explicitly "no user-facing switch" |
+| A typed message is **text only**; voice belongs to the live session | **FR-018 withdrawn**; US3's independent test and scenario 2 no longer expect a spoken reply for typing; the typing edge case says so too |
+
+Why FR-017 changed and not a new requirement: the earlier wording already said "answer in a form that
+suits listening", which the agent interprets per turn. What was missing is that a long, reasoned answer
+is *allowed*, and that the choice is never the person's. Why FR-018 was withdrawn rather than narrowed:
+the session speaks only the turns it submitted (`architecture.md` §4), so a typed turn's reply could
+only be spoken by widening the session into a second submission path — more surface, for a behaviour the
+User does not want.
 
 **Verification**: no open-question marker remains in this file — a `grep -c` for the marker phrase returns `0`, and the only remaining pointer to it is this sentence's description of the delta.
