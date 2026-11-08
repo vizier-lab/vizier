@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### 💥 Breaking Changes
+
+- *(office)* [**breaking**] New agents are created without the Office addon: install it on the agent's
+  Integrations › Addons page. Creation and the upgrade backfill no longer seed it (spec 036 FR-015a)
+
 ## [0.15.1] - 2026-11-07
 
 ### 🚀 Features

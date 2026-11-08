@@ -574,20 +574,8 @@ impl AgentHost {
         // give every new agent a "carried over from the identity record" provenance line
         // describing a record that never held anything of its own.
 
-        // Built-in default addon, before the agent starts (specs/036-office-addon). A failure
-        // is logged and never fails the creation.
-        #[cfg(feature = "addon-documents")]
-        if let Err(e) = crate::integrations::service::seed_default(
-            &self.deps,
-            &agent_id,
-            config.owner_id.as_deref(),
-            crate::integrations::kinds::office::ID,
-            crate::integrations::kinds::office::DEFAULT_NAME,
-        )
-        .await
-        {
-            tracing::warn!("failed to add the Office addon to agent '{}': {}", agent_id, e);
-        }
+        // No addon is seeded here: a new agent starts with no integrations and the Office
+        // addon is installed from its Addons page like any other (specs/036-office-addon R12).
 
         let recv = self.deps.transport.register_agent(agent_id.clone()).await;
         // The new agent is held from here on, so its own command subject is answered by
@@ -600,8 +588,8 @@ impl AgentHost {
         }
         let summary = self.summary(&agent_id, &config).await;
         self.start(agent_id.clone(), config, recv, Some(built));
-        // The change event fired before the agent had a process entry, so it saw nothing:
-        // ask the running instance to re-read its integrations once (research R13).
+        // Reads the integrations left behind by an earlier agent of the same id: the process
+        // did not exist yet when any such change was announced (specs/036-office-addon R13).
         self.refresh_integrations(&agent_id);
         AgentCommandResult::Ok(summary)
     }
