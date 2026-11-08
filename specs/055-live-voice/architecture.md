@@ -50,6 +50,7 @@ flowchart LR
         SOCK["Topic socket<br/>channel.rs:818 JSON only"]
         DISP["topic.rs handle_inbound<br/>live_voice_* branch"]
         OUT["ClientConnection::send<br/>audio only, owner's socket"]
+        BCAST["publish_session_event<br/>control only, broadcast ring"]
         REG["LiveVoiceSessions<br/>registry, shared"]
         SES["LiveVoiceSession<br/>state, watch generation"]
         UTT["Utterance<br/>PCM to WAV"]
@@ -69,6 +70,7 @@ flowchart LR
     TURN -->|"Message on the session's own stream"| SES
     SES --> SEG --> ENG
     SES -->|"live_voice_speech frames"| OUT --> SOCK
+    SES -->|"state, transcript, error, stall"| BCAST --> SOCK
     SOCK --> SM --> PLAY --> SPK
     VAD -->|"speech while audible"| SM
     SES -->|"abort the running turn"| TR
@@ -363,8 +365,12 @@ LiveVoiceSession ──> Arc<ClientConnection> ──send()──> per-connectio
   be alive and mute after a drop and resume. Rule: a `live_voice_start` from the owner while their
   session is live is idempotent and adopts the caller's current connection; a session whose owner
   does not return inside FR-033's 30 s ends with `connection_lost` (task T067).
-* **What this leaves alone.** The broadcast ring, its capacity, `SessionFrame`, the outbound match and
-  every existing consumer are untouched: only the *route* of the new frames is decided here.
+* **What changes, and what does not.** `SessionFrame` gains **one** variant,
+  `LiveVoice(LiveVoiceControl)`, and the hand-written outbound match (`topic.rs:535-600`) gains **one**
+  arm for it — that arm is live, not dead, because control frames really do travel the broadcast. What
+  stays untouched is everything else: the ring's capacity (1024), every existing variant, and every
+  existing consumer. Audio never touches either, and the type split in `frame.rs` is what guarantees it
+  rather than a review rule (T009, T010).
 
 **Honest note on the finding.** The report that prompted this section said a slow socket would hit
 `Lagged` "far more quickly". Re-reading the code, that mechanism is weaker than stated: every arm of
