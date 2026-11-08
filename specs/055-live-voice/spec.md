@@ -55,7 +55,7 @@ loosens a requirement already agreed.
 
 | # | Change | What it replaces | Consequence recorded, not hidden |
 |---|---|---|---|
-| **C6** | **The session has a screen of its own, in the manner of a call** — not a bar inside the conversation | the bar-in-composer surface (its amendment, \`20d97316\`, stays in the history and is marked archived below) | new FR-043 to FR-047 and User Story 6; the entry point stays a control in the conversation |
+| **C6** | **The session has a screen of its own, in the manner of a call** — not a bar inside the conversation | the bar-in-composer surface (its amendment, \`20d97316\`, stays in the history and is marked archived below) | new FR-043 to FR-047 and User Story 6; the entry point stays a control in the conversation. **Superseded in part by C9 (2026-11-09): the surface floats over the conversation instead of replacing it, and there is no route.** |
 | **C7** | **The interrupt control goes to the backlog.** The person interrupts by speaking; there is no button in this release | FR-020, FR-021 and User Story 3, which stay written and are marked deferred | the feature is *less* controllable on purpose: a noisy room, a bad microphone or a quiet voice has no escape hatch until that backlog item lands |
 | **C8** | **Barge-in waits for the person to finish speaking.** The start of speech no longer interrupts; the end of the utterance (the ~800 ms hangover firing) does | FR-019's "at once, before their words have been transcribed", and the ~250 ms onset guard | while the person speaks the agent **keeps talking** — overlapping audio is now the intended behaviour, and SC-002's clock moves to the end of the utterance |
 
@@ -66,6 +66,27 @@ quiet may never arrive and the interruption may never fire. FR-047 therefore mak
 person's speech is detected while the reply is audible" a requirement rather than a hope, SC-008
 measures it, and \`plan.md\` holds the fallback (ducking the reply's volume once the person is
 detected speaking). None of that changes C8 itself.
+
+### Session 2026-11-09 06:52 (the surface floats, and only one session exists)
+
+Two changes from the User. Neither is a preference about pixels: the first removes a navigation
+problem, the second removes an entire class of "which conversation is talking?" bugs.
+
+| # | Change | What it replaces | Consequence recorded, not hidden |
+|---|---|---|---|
+| **C9** | **The call floats.** It is a panel above the conversation that the person can drag, in the manner of a desktop call window — not a full screen, and not a route of its own | C6's *"in place of the conversation view"*, the call-screen layout, and the designer's recommended `/live` route | FR-043 to FR-046 rewritten, **FR-048** and **FR-049** new, US6 rewritten, wireframe replaced. The chat stays behind the panel, readable and scrollable, which is what C6's full screen could not promise |
+| **C10** | **One live session in total.** Starting one in another conversation — or with another agent — does not fail and does not open a second: the call **moves** there and the old session closes | FR-005's per-conversation rule, the edge case that allowed two sessions on two conversations, and open question Q4 | FR-005 rewritten, **FR-050**, **FR-051** and **FR-052** new, **SC-011** new. This is the one place where the feature gets *less* permissive on purpose |
+
+**Why C9 is not just a repaint of C6.** C6 put the call in place of the conversation, and then had to
+answer what happens to the chat — the full-screen render answered it by growing a transcript panel
+beside the call, which is the chat again, in a second layout that must be kept in step forever. A
+floating panel does not replace anything: the conversation is where it was, and the call is a window
+over it. One surface instead of two, and no navigation to design.
+
+**Why C10 is a real simplification.** Before it, every question about the session — who owns it, what a
+second tab sees, what happens to the microphone when two people start one — had a per-conversation
+answer that the person had to keep in their head. With one session, the rule is one sentence: *the call
+is wherever you last started it*, and starting it somewhere else moves it.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -169,29 +190,32 @@ Recognition comes back empty, the voice provider errors in the middle of an answ
 
 ---
 
-### User Story 6 — The call has a screen of its own (Priority: P1)
+### User Story 6 — The call floats over the conversation (Priority: P1)
 
-A person presses Live Voice and the conversation gives way to a call: one screen, the agent's name and
-what it is doing, an open-microphone indicator, and a way out. Nobody has to find a small bar between
-a text box and a paperclip while they are talking, and nobody mistakes the state of the call for the
-state of the conversation.
+A person presses Live Voice and a call opens **over** the conversation they are already in: the agent's
+name, what it is doing, an open microphone, a way out — and a corner to drag it by, so it can be moved
+off whatever they want to read. The chat stays behind it, scrollable and legible; nothing navigates
+away.
 
-**Why this priority**: The User asked for a call, not a strip of chrome. The surface is where a person
-sees that the microphone is open and whether the agent is thinking or gone — which is what FR-006,
-FR-038 and FR-042 are for.
+**Why this priority**: The User asked for a call in the manner of a desktop call window — floating, not
+full screen, and on the same screen. The surface is where a person sees that the microphone is open and
+whether the agent is thinking or gone, which is what FR-006, FR-038 and FR-042 are for.
 
-**Independent Test**: From a conversation, press Live Voice; a screen opens and the conversation view
-gives way to it; ask something and watch the thinking state; end the call; the conversation is back,
-both turns present, and the control off.
+**Independent Test**: From a conversation, press Live Voice; a panel appears over the conversation and
+can be dragged by its header to another corner without leaving it; ask something and watch the thinking
+state; scroll the chat behind it; end the call; the panel is gone, both turns present, the control off.
 
 **Acceptance Scenarios**:
 
-1. **Given** a conversation with Live Voice off, **When** the person presses the control, **Then** the call screen opens in place of the conversation view and the session starts (FR-043).
-2. **Given** the call screen, **When** the person looks at it, **Then** it shows the agent, the state word, the thinking indicator when the agent is working, and that the microphone is open — all without a reload (FR-006, FR-042, FR-038).
-3. **Given** the call screen, **When** the agent is silent for a long time because its answer is slow, **Then** the screen says the agent is thinking and does not read as a disconnected call (FR-042).
-4. **Given** the call screen, **When** the person ends the call, **Then** the microphone is released, the session ends, and the conversation is shown again with every turn in it (FR-028, FR-034, FR-045).
-5. **Given** the call screen, **When** the person leaves the screen or closes the tab, **Then** the session ends and nothing keeps listening (FR-028).
-6. **Given** a call ended by any means, **When** the conversation is opened again, **Then** it is unchanged and the entry control is off (FR-046).
+1. **Given** a conversation with Live Voice off, **When** the person presses the control, **Then** a floating panel appears **over** the conversation — which stays where it is, visible and scrollable behind it — and the session starts (FR-043, FR-049).
+2. **Given** the floating panel, **When** the person looks at it, **Then** it shows the agent, the state word, the thinking indicator when the agent is working, and that the microphone is open — all without a reload (FR-006, FR-042, FR-038).
+3. **Given** the floating panel, **When** the agent is silent for a long time because its answer is slow, **Then** the panel says the agent is thinking and does not read as a disconnected call (FR-042).
+4. **Given** the floating panel, **When** the person drags it by its header, **Then** it moves with the pointer, stays entirely inside the window, and stays where it was put; the conversation does not move (FR-048).
+5. **Given** the floating panel over a conversation, **When** the person scrolls or selects text behind it, **Then** the conversation still responds — the panel takes only the area it covers (FR-049).
+6. **Given** the floating panel, **When** the person ends the call, **Then** the microphone is released, the panel disappears, and the conversation keeps every turn (FR-028, FR-034, FR-045).
+7. **Given** the floating panel, **When** the person closes the tab or the window, **Then** the session ends and nothing keeps listening (FR-028).
+8. **Given** a call ended by any means, **When** the conversation is opened again, **Then** it is unchanged and the entry control is off (FR-046).
+9. **Given** a live call in one conversation, **When** the person starts one in another conversation or with another agent, **Then** the call there starts, the old one closes by itself, and the old conversation says why it closed (FR-050, FR-051).
 
 ---
 
@@ -235,7 +259,9 @@ this diagram because it is deferred (C7).
 - **The page is reloaded mid-session**: the session ends with the page, the microphone is released, and the conversation is intact; a reloaded page starts with the control off.
 - **The person is on a phone browser and the screen locks**: the session must treat the resulting suspension as an end with a reason, not as a live session that stopped hearing.
 - **A person speaking another language** than the conversation's configured one: the transcript may be wrong; the session is expected to follow the configured language, and changing it mid-session is out of scope.
-- **Two live sessions on two conversations at once**: allowed; each has its own audio, and stopping one does not touch the other.
+- **A call started in a second conversation, or with another agent**: the call moves there and the first one closes by itself, with a reason left behind (FR-050, FR-051, FR-052). There is never a moment with two microphones open, and never a refusal that leaves the person with no call at all (C10).
+- **A second tab on the same conversation**: it is the *same* conversation, so the question is whether a press there moves the call to that tab or is refused — open question Q2, default refused. This is the one case C10 does not answer by itself.
+- **The panel dragged over the message being read**: the conversation scrolls and selects behind it, and the panel gives back the area as soon as it is moved (FR-048, FR-049). A panel that pins itself over the newest message and cannot be moved would be worse than no panel.
 - **A dream, a scheduled task or a background report**: no live voice; the capability exists only while a person has a session open.
 - **A conversation in a mode that restricts what the agent may do** (a Plan chat): a voice message follows the same rules as a typed one, including any refusal.
 - **Vizier restarts mid-session**: the session ends; the conversation and every completed turn survive.
@@ -247,12 +273,12 @@ this diagram because it is deferred (C7).
 
 **The control and the session**
 
-- **FR-001**: Every conversation MUST offer a dedicated Live Voice control, visibly separate from the existing attachment/recording and spoken-reply controls; pressing it opens the session's own screen (FR-043). It MUST be off by default in every conversation and on every visit, and its state MUST NOT be remembered between visits.
-- **FR-002**: Pressing the control MUST start a live voice session on that conversation with its agent and open the call screen. Ending it MUST be possible from the call screen for the whole session (FR-045). The control MUST show that pressing it opens a call, not a toggle whose off-state is somewhere else.
+- **FR-001**: Every conversation MUST offer a dedicated Live Voice control, visibly separate from the existing attachment/recording and spoken-reply controls; pressing it opens the floating call panel (FR-043). It MUST be off by default in every conversation and on every visit, and its state MUST NOT be remembered between visits — except that starting a call **moves** it (FR-050).
+- **FR-002**: Pressing the control MUST start a live voice session on that conversation with its agent and open the floating panel. Ending it MUST be possible from the panel for the whole session (FR-045). Where a call is already live elsewhere, pressing it MUST move the call here rather than refuse (FR-050); the control MUST show which of the two a press will do.
 - **FR-003**: Live Voice MUST be independent of the existing speech-to-text and text-to-speech tools in both directions: starting it MUST NOT enable, disable or reconfigure those tools, and their switches MUST neither start it nor block it.
 - **FR-004**: Starting MUST require both a usable recognizer and a usable voice for that agent. When one is missing, the control MUST name what is missing and how to set it, and MUST NOT start; a session that can only listen, or only speak, MUST NOT be presented as live voice.
-- **FR-005**: A session MUST belong to one person in one conversation. Only someone allowed to chat there may start or end it. Anyone else opening the conversation MUST be told that a session is active and MUST NOT be able to start a second one on it.
-- **FR-006**: The **call screen** MUST show, without a page reload: connecting, listening, waiting for the agent, speaking, interrupted, reconnecting, ended with a reason, failed with a reason. (`off` is the absence of the screen.)
+- **FR-005**: A session MUST belong to one person, and there MUST be **at most one** live session for that person across every conversation and every agent (C10). Only someone allowed to chat in a conversation may start or end a call there. Starting a call anywhere closes the previous one and says why in the conversation it leaves (FR-050, FR-051); it MUST never fail with "a session is already active" and MUST never leave two of them running.
+- **FR-006**: The **floating panel** MUST show, without a page reload: connecting, listening, waiting for the agent, speaking, interrupted, reconnecting, ended with a reason, failed with a reason. (`off` is the absence of the panel.)
 - **FR-007**: A voice message MUST run the same turn as a typed one: same conversation history, same mode rules, same tools, same permissions, same memory, same usage accounting. Live Voice MUST NOT add, remove or alter the agent's tools, memory or permissions.
 - **FR-008**: A session MUST use the agent's own model and speech configuration. Live Voice MUST NOT silently change what typed turns use.
 
@@ -307,13 +333,18 @@ this diagram because it is deferred (C7).
 - **FR-040**: With Live Voice never used, every existing behaviour MUST be unchanged: the speech tools, automatic transcription of uploaded audio, requested spoken replies, text chat, and the HTTP and WebSocket surface as existing clients see it.
 - **FR-041**: Live Voice MUST NOT be required by any existing capability; a build without it MUST leave every existing speech and chat feature working.
 
-**The call screen (C6)**
+**The floating panel (C9)**
 
-- **FR-043**: Starting a session MUST open a screen of its own for the call, in place of the conversation view, and the conversation MUST be reachable again when the call ends. The screen MUST be a real surface of the interface (its own view or route), not a strip of chrome inside the composer, and the entry point MUST stay a control in the conversation (FR-001).
-- **FR-044**: The screen MUST show, for the whole session: the agent the call is with, the state word of FR-006, the thinking indicator of FR-042 when the agent is working, and that the microphone is open (FR-038). These four are the minimum; what else it shows is open question Q6.
-- **FR-045**: The screen MUST offer a way to end the call for the whole session, reachable without leaving the screen, which stops the audio, releases the microphone and ends the session (FR-028). With the interrupt control deferred (C7), this is the only control on the screen.
-- **FR-046**: Opening and leaving the screen MUST NOT change the conversation: the same messages, the same text, nothing rewritten, reordered or re-timed (FR-034).
+- **FR-043**: Starting a session MUST open the call as a **floating panel over the conversation that is already on screen** (C9). It MUST NOT replace or navigate away from the conversation, MUST NOT be a route of its own, and MUST NOT be a strip of chrome inside the composer; the entry point MUST stay a control in the conversation (FR-001).
+- **FR-044**: The panel MUST show, for the whole session: the agent the call is with, the state word of FR-006, the thinking indicator of FR-042 when the agent is working, that the microphone is open (FR-038), and something to drag it by (FR-048). These five are the minimum; what else it shows is open question Q6.
+- **FR-045**: The panel MUST offer a way to end the call for the whole session, reachable without moving it, which stops the audio, releases the microphone and ends the session (FR-028). With the interrupt control deferred (C7), ending the call is the only action the panel offers — and the panel MUST NOT present a second control whose only effect is the same thing.
+- **FR-046**: Opening, moving and closing the panel MUST NOT change the conversation: the same messages, the same text, nothing rewritten, reordered or re-timed (FR-034).
 - **FR-047**: The session MUST detect the end of the person's speech **while the agent's reply is audible** (C8): the reply continuing MUST NOT prevent the end-of-utterance period from elapsing. Echo cancellation alone MAY be the mechanism; where it is not enough, the reply's audibility to the microphone (not to the person) MUST be reduced once the person is detected speaking, so that the interruption still fires. The measured form of this is SC-008.
+- **FR-048**: The panel MUST be draggable by its header with a pointer, MUST keep its whole area inside the window at every position (no edge can be dragged out of reach), MUST remain usable when the window is resized smaller than where it was left, and MUST keep its position while the call lives. Whether the position survives the call is open question Q9. Its size MUST NOT change when it is moved or when the conversation behind it is scrolled.
+- **FR-049**: The conversation behind the panel MUST stay readable and usable: scrolling, selecting text and pressing the existing controls MUST still work everywhere the panel does not cover, and the panel MUST NOT dim, block or replace the conversation (C9). Only the area the panel covers is taken.
+- **FR-050**: Starting a call while one is live **elsewhere** — another conversation, or another agent — MUST move the call there rather than fail: the new panel opens on the new conversation, the old session ends by itself, and the old panel disappears (C10). The move MUST be one event, not two sessions that briefly overlap; the microphone MUST end up open once, on the new call.
+- **FR-051**: The conversation a call is taken *from* MUST say why it stopped — a visible reason, recorded where the session's other endings are, so a person who comes back to it is not left wondering whether it is still listening (FR-029, FR-030). Whether that reason is a message in the conversation or only a notice is open question Q10.
+- **FR-052**: A move MUST NOT strand a turn: if the agent was answering when the call was taken, that turn MUST be cancelled and its partial text kept, exactly as any other interruption (FR-027); it MUST NOT keep generating into a conversation nobody is listening to, and its reply MUST NOT be spoken into the new call.
 
 ### Key Entities
 
@@ -336,14 +367,15 @@ this diagram because it is deferred (C7).
 - **SC-007**: A session left with no speech ends within its idle period in 100% of cases, and the operating system's microphone indicator is off within 2 seconds of any ending.
 - **SC-008**: With the device's speakers at 80% volume and no headphones, a 10-minute conversation produces no self-interruption — and, with the reply audible throughout, the end of the person's speech is detected within the end-of-utterance period in 95 of 100 attempts. A session that only notices the person once the reply happens to end fails this criterion.
 - **SC-009**: A failed call never leaves the session looking live: in every scenario of FR-030 to FR-033 the person sees a reason within 5 seconds and the microphone is released or the session is ended.
-- **SC-010**: Pressing the control shows an interactive call screen within 500 ms on the first attempt, on a fresh profile, with microphone permission granted at the system prompt — in at least 90% of tries. The clock stops at the screen, not at the first answer (SC-005 keeps the wider "talking within 20 seconds").A failed call never leaves the session looking live: in every scenario of FR-030 to FR-033 the person sees a reason within 5 seconds and the microphone is released or the session is ended.
+- **SC-010**: Pressing the control shows an interactive floating panel within 500 ms on the first attempt, on a fresh profile, with microphone permission granted at the system prompt — in at least 90% of tries. The clock stops at the panel, not at the first answer (SC-005 keeps the wider "talking within 20 seconds").
+- **SC-011**: A call taken by another conversation leaves no second session behind: in 100 of 100 tries exactly one microphone is open after the move, the old conversation carries a reason, and no turn keeps generating or is spoken into the new call (FR-050, FR-051, FR-052).A failed call never leaves the session looking live: in every scenario of FR-030 to FR-033 the person sees a reason within 5 seconds and the microphone is released or the session is ended.
 
 ## Assumptions
 
 - **Surface**: settled — the chat interface only, the WebUI in a browser and the desktop app (FR-035, Clarifications C1).
 - **Provider strategy**: settled — the cascade in FR-036 (Clarifications C2), with the pipeline interchangeable behind one seam.
 - **Interruption semantics**: settled — the audio stops and the turn is cancelled (FR-027, Clarifications C3).
-- **Defaults chosen here** (800 ms end-of-utterance, 60-second longest utterance, 3-minute idle stop, 30-second reconnect, one session per conversation, off by default): all are defaults, may be tuned during planning, and do not change the intent.
+- **Defaults chosen here** (800 ms end-of-utterance, 60-second longest utterance, 3-minute idle stop, 30-second reconnect, **one session in total** across conversations and agents, off by default): all are defaults, may be tuned during planning, and do not change the intent.
 - **Nothing is stored beyond text**: audio is never written to disk, so a person can read a session but not re-listen to it. Keeping audio would be a separate decision with its own retention and access rules.
 - **The device is the one running the interface**: microphone and speakers are on the person's machine, which is also where the desktop app runs. Headphones improve the experience; echo cancellation is expected to make them optional, and a session that interrupts itself is a hard failure (SC-008).
 - **Speech quality is the provider's**: recognition mistakes are not corrected by this feature; a person fixes a bad transcript by speaking again or by typing. Editing a sent message is out of scope.
@@ -364,7 +396,7 @@ the state words and their English copy, the rule that the microphone indicator i
 that gives way (FR-038), and the treatment of `ended`/`failed` — the reason stays on screen, no
 5-second timer, no interrupt control beside it.
 **Do not take the bar's pixel floor, its narrowing order or its placement as requirements for the
-call screen.**
+floating panel.**
 
 ## Open Questions (for the User — five, each with a default)
 
@@ -374,14 +406,17 @@ already follow. Changing one is a change of scope, not a rewrite.
 | # | Question | Default taken now | What changes if the answer differs |
 |---|---|---|---|
 | **Q1** | When the person interrupts, should the agent stop **talking only**, or stop talking **and stop working**? | Stop both: the audio stops and the running turn is cancelled on the existing stop path (FR-027, C3). | "Talking only" keeps a long tool-using turn alive in the background; it needs a way to show that the turn is still running while the person speaks, and the reply's text keeps growing after they cut in. |
-| **Q2** | One live session per conversation, and a second tab refused — or should the second tab take the session over? | Refused, and the second tab is told a session is active (FR-005). | "Take over" needs a hand-off rule (what happens to audio already sent) and is a new failure mode; "refused" is one line of state. |
+| **Q2** | A second tab on the **same** conversation: move the call to that tab, or refuse? (Every *other* conversation and agent now moves — C10.) | Refused: the second tab is told the call is already open here, and the panel stays where it is (FR-005). | Moving would need a rule for what happens to audio already captured in the first tab; refusing is one line of state, and the person can end the call in the tab that has it. |
 | **Q3** | Is the 2-second target (SC-001) measured only with hosted speech, with local models excluded? | Yes: hosted only, local measured separately. | Requiring it for a local whisper model means either accepting a slower target or dropping local models from the live path. |
-| **Q4** | A hard cap on concurrent live sessions per agent or per server? | No extra cap: the deployment's existing socket limits apply (contract, limits table). | A cap is one config value and one refusal reason, but it is a policy the User should set, not the plan. |
+| ~~**Q4**~~ | A hard cap on concurrent live sessions? | **Answered by the User, 2026-11-09 06:52: exactly one — per person, across every conversation and agent (C10, FR-005).** | — |
 | **Q5** | How visible should "this message was spoken" and "this reply was interrupted" be in the conversation? | A small badge with a tooltip, nothing more (FR-011, FR-023). | Hiding the badges makes the conversation read like typing; making them loud makes voice turns look like errors. |
 
-| **Q6** | What else does the call screen show besides the four required things (agent, state, thinking, microphone)? | Only those four, plus the agent's name, the level of the person's voice, and the transcript of the current turn. | Hiding the transcript makes a mis-recognition hard to notice until the answer is wrong; showing an avatar or a waveform is design work that would block the code. |
-| **Q7** | Can the person reach the conversation (and type in it) while the call screen is open? | Yes — the call screen is left by ending the call, and typing is done after it ends. A typed message during a call therefore belongs to the previous surface, not this one. | Allowing typing inside the call adds a second input path on a screen built for one, and reopens what FR-025 means while the screen is up. |
-| **Q8** | Is the call screen a route of its own (its own URL, survives a reload) or a view over the conversation? | A view over the conversation: reloading the page ends the session like any other reload (FR-028), and the control starts off. | A route would let a reload re-enter a call whose session is gone, which is a new failure mode with no owner. |
+| **Q6** | What else does the floating panel show besides the five required things (agent, state, thinking, microphone, drag header)? | Only those four, plus the agent's name, the level of the person's voice, and the transcript of the current turn. | Hiding the transcript makes a mis-recognition hard to notice until the answer is wrong; showing an avatar or a waveform is design work that would block the code. |
+| **Q7** | Can the person reach the conversation (and type in it) while the call is open? | Yes naturally — the panel floats over it and does not take it away (FR-049); typing in the composer behind it works and is text-only (FR-018 withdrawn). A typed message during a call therefore belongs to the previous surface, not this one. | Allowing typing inside the call adds a second input path on a screen built for one, and reopens what FR-025 means while the screen is up. |
+| ~~**Q8**~~ | Is the call a route of its own, or a view over the conversation? | **Answered by the User, 2026-11-09 06:52: neither — it floats over the conversation and there is no route (C9, FR-043).** The designer's `/live` proposal is superseded. | — |
+
+| **Q9** | Does the floating panel remember where it was put, between calls or between visits? | Remembered **within one call** (FR-048) and reset to its default corner on the next one. | Remembering across calls is a stored preference and one more thing that can be wrong on a different window size; forgetting it costs one drag. |
+| **Q10** | When a call is taken by another conversation, is the reason left in the old conversation as a **message**, or only as a notice on the panel? | Only a notice: the panel there shows "moved to another conversation" until it closes, and nothing is written into the conversation's history. | Writing a message puts a line nobody said into the transcript; a notice disappears with the panel and leaves the history clean. | 
 
 ## Delta Log — changes made when this draft was resumed (2026-11-08)
 
@@ -475,3 +510,31 @@ after all, that is one sentence to change in FR-024.
 from `reconnecting`; FR-017's "short by default, the agent decides, no user-facing switch"; FR-018
 withdrawn (a typed message is text only); no total duration cap (C-series D8); audio never on the
 session broadcast; no new dependency; FR-035's surface limit to WebUI and desktop.
+
+## Delta Log — 2026-11-09 06:52 (the surface floats, and there is one call)
+
+Source: the User's message of 2026-11-09 06:52 in the `vizier-dev` workspace, quoted verbatim in the
+job that produced this delta: *"kaya style desktop whatsapp ini, jadi dia floating ga full screen ...
+jangan nambah screen baru juga, dia floating nya di screen yang sama aja, tapi bisa di-drag"* and
+*"fitur ini cuma bisa aktif di 1 topic aja, kalo dia nyalain ini di topic lain atau bahkan agent lain
+maka voice call nya bakal pindah ke topic yang dipilih dan session voice call yang lama otomatis
+ditutup"*. Two changes; nothing else was touched.
+
+| Change | Where | What it says now |
+|---|---|---|
+| **C9 — the call floats, no route** | new `### Session 2026-11-09 06:52` · **US6 rewritten** (title, narrative, independent test, 6 → 9 scenarios) · **FR-043, FR-044, FR-045, FR-046** rewritten · **FR-048**, **FR-049** new · FR-001, FR-002 · edge cases · **SC-010** reworded · wireframe | a draggable panel over the conversation that is already on screen; the chat behind it stays readable and scrollable |
+| **C10 — one call in total, and it moves** | Clarifications **C10** · **FR-005** rewritten · **FR-050**, **FR-051**, **FR-052** new · **Q4** and **Q8** closed · **Q2** narrowed · **SC-011** new · edge cases · Assumptions | starting a call anywhere closes the one that was live, with a reason left behind and the turn cancelled — never a refusal, never two microphones |
+
+**Kept exactly as they were** (checked, not assumed): the thinking indicator and its difference from
+`reconnecting` (FR-042); "short by default, the agent decides, no user-facing switch" (FR-017); the
+typed message being text only (FR-018 withdrawn); **no interrupt button** (C7 — and FR-045 now says so
+in the requirement: one action on the panel, and no second control that does the same thing); the
+interruption firing at the end of the utterance (C8, FR-019); no total duration cap; audio never on the
+session broadcast; no new dependency; WebUI and desktop only (FR-035).
+
+**Two things the plan must now answer, recorded so they are not discovered in code.** First, the panel
+is the second surface over a live conversation in this app, and the earlier one is the side-chat panel:
+whether they share a positioning mechanism is @mamang-lead-be's call, not this document's. Second,
+`LiveVoiceCall.tsx` was written into the task list as a screen; a floating panel is a different
+component with different geometry, and the tasks are corrected below rather than left to be
+interpreted.

@@ -98,9 +98,9 @@ reasons are in `architecture.md` §11 — do not build both.
 - [ ] T035 [US1] `webui/app/lib/liveVoice/session.ts`: the client loop — start/stop, chunked send, frame handling, state transitions, `waiting` while the turn runs
 - [ ] T036 [US1] `webui/app/lib/liveVoice/player.ts`: one `AudioContext`, an ordered queue of `AudioBufferSourceNode`s scheduled back to back, `stop()` that closes every source and drains the queue (FR-022 groundwork)
 - [ ] T037 [US1] `webui/app/screens/chat/LiveVoiceButton.tsx`: the single entry control, separate from the mic and the spoken-reply toggle, rendered only when the capability is true, off on every visit, and showing that pressing it **opens a call** (FR-001, FR-002). It is the only thing the conversation gains (C6)
-- [ ] T038 [US1] `webui/app/screens/livevoice/LiveVoiceCall.tsx`: **the call screen** — in place of the conversation view, showing the agent, the FR-006 state word, the FR-042 thinking indicator, the microphone-open indicator including an unfocused window (FR-038), and the end control of FR-045 (FR-043, FR-044). The archived bar amendment (`20d97316`) is not a specification for this screen: its pixel floor, narrowing order and placement do **not** carry over | **C6**
-- [ ] T039 [US1] Test the FR-042 indicator on the call screen in `webui/app/lib/liveVoice/session.test.ts` and `webui/e2e/live-voice-thinking.spec.ts`: a turn that produces no audio for 4 s shows the thinking state within 100 ms of the request being accepted, its wording differs from `reconnecting`, and it clears at the first segment / `interrupted` / `ended` / `failed` (FR-042)
-- [ ] T040 [US1] Mount the entry control from `webui/app/screens/chat/Composer.tsx` next to the existing mic and spoken-reply controls, without changing either, and navigate to the call screen on press; returning from the screen shows the same conversation, not a reload (FR-043, FR-046)
+- [ ] T038 [US1] `webui/app/screens/livevoice/LiveVoicePanel.tsx`: **the floating panel** — an overlay over the conversation, never in place of it, showing the agent, the FR-006 state word, the FR-042 thinking indicator, the microphone-open indicator including an unfocused window (FR-038), a drag header (FR-048) and the single End action of FR-045 (FR-043, FR-044, FR-049). Neither the archived bar (`20d97316`) nor the retired full call screen is a specification for it: no pixel floor, no narrowing order, no destination layout | **C9**
+- [ ] T039 [US1] Test the FR-042 indicator on the panel in `webui/app/lib/liveVoice/session.test.ts` and `webui/e2e/live-voice-thinking.spec.ts`: a turn that produces no audio for 4 s shows the thinking state within 100 ms of the request being accepted, its wording differs from `reconnecting`, and it clears at the first segment / `interrupted` / `ended` / `failed` (FR-042)
+- [ ] T040 [US1] Mount the entry control from `webui/app/screens/chat/Composer.tsx` next to the existing mic and spoken-reply controls, without changing either, and open the floating panel on press without navigating: the conversation stays mounted behind it, and closing the panel shows the same conversation, not a reload (FR-043, FR-046, FR-049)
 - [ ] T041 [US1] Expose the per-agent `live_voice` switch in `webui/app/lib/agentForm.ts` and its field in `webui/app/screens/agents/ModelsFields.tsx`, defaulting off
 - [ ] T042 [US1] Keep exactly **one** counter: `backlog` is incremented and reset by T021's gate in `crates/vizier-http/src/topic.rs` and reported there as one `stall` control frame per episode (via `publish_session_event`), never by the session. The session's `ClientConnection::send` returning `false` while the connection is open is a **backstop** — `tracing::warn!` with a metric, no user-facing frame — and a test in `crates/vizier-http/tests/live_voice_delivery.rs` asserts the 64-slot queue never fills when the outbound loop runs (a healthy pair cannot produce a `Full`)
 
@@ -140,12 +140,12 @@ reasons are in `architecture.md` §11 — do not build both.
 **Independent Test**: with the agent speaking, press interrupt; the audio stops, the session stays live, and a typed correction is answered **as text** with no audio scheduled for it.
 
 - [ ] T051 [BACKLOG] [P] [US3] Server test in `crates/vizier-http/tests/live_voice_interrupt.rs`: the interrupt frame bumps the generation, submits nothing, and leaves the session live (FR-020, FR-021)
-- [ ] T052 [BACKLOG] [US3] Add an always-visible interrupt control to the **call screen** (`webui/app/screens/livevoice/LiveVoiceCall.tsx`, FR-044's surface), distinct from the end control of FR-045. **When this backlog item lands, the control belongs on the call screen; the composer bar it was written for is archived (C6)**
+- [ ] T052 [BACKLOG] [US3] Add an always-visible interrupt control to the **floating panel** (`webui/app/screens/livevoice/LiveVoicePanel.tsx`, FR-044's surface), distinct from the end action of FR-045. **When this backlog item lands, the control belongs on the panel; the composer bar it was written for (C6) and the full call screen that replaced it (C9) are both archived**
 - [ ] T053 [BACKLOG] [US3] Implement the interrupt path in `webui/app/lib/liveVoice/session.ts` and `player.ts`: `player.stop()`, send `live_voice_interrupt` with `reason: "button"`, move `interrupted → listening` (SC-003)
 - [ ] T054 [BACKLOG] [US3] Typing during a session in `webui/app/screens/chat/Composer.tsx`: the send path first sends `live_voice_interrupt { reason: "typed" }` so the audio stops like the button (FR-025), then sends the text as an **ordinary chat request on the same socket** — not through the session, and the session gains no frame for typed text. Its reply is text only (FR-018 withdrawn, 2026-11-08). With no session live the composer behaves exactly as today (FR-040)
 - [ ] T055 [BACKLOG] [US3] Interrupt while nothing is being spoken is a no-op on state in `crates/vizier-core/src/live_voice/session.rs` (FR-021)
 - [ ] T056 [BACKLOG] [US3] End-to-end check in `webui/e2e/live-voice-interrupt.spec.ts`: one press silences the agent, the session stays live and listening, and a typed message is answered **as text with no audio scheduled** — assert the `AudioBufferSourceNode` count stays zero after the typed turn (FR-025, FR-018 withdrawn)
-- [ ] T057 [BACKLOG] [US3] Keep the interrupt control reachable without hiding it inside a live session — disabled with a reason only when the capability is false (FR-020). **Placed on the call screen, not on the archived bar (C6)**
+- [ ] T057 [BACKLOG] [US3] Keep the interrupt control reachable without hiding it inside a live session — disabled with a reason only when the capability is false (FR-020). **Placed on the floating panel, not on the archived bar (C6) nor the retired call screen (C9)**
 
 **Checkpoint**: not part of this release. The only interruption path in scope is US2's (speaking). US3 is deferred (C7) and its tasks must not be implemented or tested now.
 
@@ -189,19 +189,25 @@ reasons are in `architecture.md` §11 — do not build both.
 
 ---
 
-## Phase 8: User Story 6 — The call has a screen of its own (Priority: P1, C6)
+## Phase 8: User Story 6 — The call floats over the conversation (Priority: P1, C9)
 
-**Goal**: pressing the control opens a call, not a strip of chrome: the agent, its state, the
-thinking indicator, the open microphone and a way out — and the conversation unchanged underneath.
+**Goal**: pressing the control opens a **draggable panel over the conversation that is already on
+screen** — the agent, its state, the thinking indicator, the open microphone, a header to drag it by
+and one way out — and the chat behind it stays readable, scrollable and unchanged.
 
-**Independent Test**: from a conversation, press the control; the call screen opens in place of the
-conversation view; ask something and watch the thinking state; end the call; the conversation is back
-with both turns and the control off.
+**Independent Test**: from a conversation, press the control; a panel appears over the conversation and
+can be dragged by its header without leaving it; ask something and watch the thinking state; scroll the
+chat behind it; end the call; the panel is gone, both turns present, the control off.
 
-- [ ] T089 [P] [US6] Navigation for the call screen in `webui/app/routes/chat.tsx`: entering it replaces the conversation view (a view over the conversation, not a route of its own — open question Q8's default), and ending the call returns to the same conversation without a reload (FR-043, FR-046)
-- [ ] T090 [US6] Release on leaving in `webui/app/screens/livevoice/LiveVoiceCall.tsx` and `webui/app/lib/liveVoice/session.ts`: leaving the screen by any means runs the one release path of T059 — every track stopped, `AudioContext` closed, queue dropped (FR-028, FR-045)
-- [ ] T091 [P] [US6] Assert FR-046 in `webui/e2e/live-voice-screen.spec.ts`: a session with three turns, opened and left, leaves the conversation's messages, order and timestamps identical to a session that was never opened
-- [ ] T092 [US6] Script SC-010 in `webui/e2e/live-voice-screen.spec.ts`: pressing the control shows an interactive screen within 500 ms on the first attempt, on a fresh profile, with microphone permission granted at the system prompt (SC-005's clock stops here, not at the first answer)
+- [ ] T089 [P] [US6] Mount the panel in `webui/app/routes/chat.tsx` as an **overlay over the conversation**, not a route and not a replacement: the conversation stays mounted, visible and scrollable behind it, and nothing navigates (FR-043, FR-049; C9 supersedes the call-screen layout)
+- [ ] T090 [US6] Release on leaving in `webui/app/screens/livevoice/LiveVoicePanel.tsx` and `webui/app/lib/liveVoice/session.ts`: closing the panel by any means runs the one release path of T059 — every track stopped, `AudioContext` closed, queue dropped (FR-028, FR-045)
+- [ ] T091 [P] [US6] Assert FR-046 in `webui/e2e/live-voice-panel.spec.ts`: a session with three turns, opened, dragged and closed, leaves the conversation's messages, order and timestamps identical to a session that was never opened
+- [ ] T092 [US6] Script SC-010 in `webui/e2e/live-voice-panel.spec.ts`: pressing the control shows an interactive panel within 500 ms on the first attempt, on a fresh profile, with microphone permission granted at the system prompt (SC-005's clock stops here, not at the first answer)
+- [ ] T093 [P] [US6] Drag in `webui/app/screens/livevoice/LiveVoicePanel.tsx`: pointer-drag by the header, clamped so no edge leaves the window, re-clamped on window resize, position kept for the life of the call and reset on the next one (FR-048, open question Q9's default). Test the clamp arithmetic in a unit test, not only by hand
+- [ ] T094 [P] [US6] Assert FR-049 in `webui/e2e/live-voice-panel.spec.ts`: with the panel open, the conversation scrolls, text selects and the existing composer controls respond everywhere the panel does not cover; the panel does not dim or block the chat behind it
+- [ ] T095 [US6] One session in total, in `crates/vizier-core/src/live_voice/registry.rs` and `session.rs`: the registry is keyed by **person**, not by (agent, conversation). Starting a call while one is live ends the old one through the normal release path and adopts the new conversation; a test asserts exactly one live session after a move, and that the microphone is open once (FR-005, FR-050, SC-011)
+- [ ] T096 [US6] The reason left behind, in `crates/vizier-core/src/live_voice/session.rs` and `webui/app/lib/liveVoice/session.ts`: a session ended by a move carries its own reason (`moved`), the old panel shows it until it disappears, and nothing is written into the old conversation's history (FR-051, open question Q10's default)
+- [ ] T097 [US6] A turn at the moment of a move, in `crates/vizier-core/src/live_voice/session.rs`: the running turn is cancelled on the existing abort path with its partial text kept, its reply is never spoken into the new call, and a test proves no segment from the old session reaches the new panel (FR-052, SC-011)
 
 **Checkpoint**: a person can hold a conversation without ever seeing the chat layout, and can leave it without losing a word of it.
 
@@ -211,7 +217,7 @@ with both turns and the control off.
 
 **Purpose**: the documentation, the measurement, and the gates the constitution asks for.
 
-- [ ] T074 [P] Write the user documentation page `docs/src/configuration/live-voice.md` (how to start and end a call, the call screen, what audio goes to which provider, what is stored, how to interrupt by speaking **and that there is no interrupt button in this release** — spec C7 — plus the limits) and add it to `docs/src/SUMMARY.md` (FR-039)
+- [ ] T074 [P] Write the user documentation page `docs/src/configuration/live-voice.md` (how to start, move and end a call, the floating panel and how to drag it, that only one call exists at a time, what audio goes to which provider, what is stored, how to interrupt by speaking **and that there is no interrupt button in this release** — spec C7 — plus the limits) and add it to `docs/src/SUMMARY.md` (FR-039)
 - [ ] T075 [P] Add the build-flavour note for `provider-live-voice` beside the other optional features in `docs/src/deployment/` (whichever page lists the `full` build)
 - [ ] T076 Define the three measured gates before anything is measured, in `webui/app/lib/liveVoice/session.ts` (marks) and `crates/vizier-core/src/live_voice/session.rs` (spans): **SC-001** = `performance.now()` at the client's end-of-utterance (hangover fired) to the **first sample that is actually audible**, computed as the `AudioBufferSourceNode.start()` timestamp plus the `AudioContext.baseLatency + outputLatency` (or the scheduled `when`, if the first segment was queued ahead) — never the frame's arrival at the socket, and never a server span, or the gate measures a different event than "first audible word"; **SC-002** = the same end-of-utterance mark to `player.stop()` returning (client) and to `Abort` reaching the agent (server span); **SC-003** = the interrupt click handler entry to `player.stop()` returning. Emit one `live_voice_metric` line per turn with the stage durations, and write the procedure into `specs/055-live-voice/latency.md` — without fixed marks the numbers in the plan are not a gate (`review.md` D11)
 - [ ] T077 Instrument the stages in `crates/vizier-core/src/live_voice/session.rs` (end of utterance, recognition, turn start, first segment, first frame) with `tracing` spans and record p50/p90/p99 in `specs/055-live-voice/latency.md`
@@ -284,11 +290,11 @@ Task: "webui/app/lib/liveVoice/{capture,vad,session,player}.ts"                 
 
 1. Phase 1 and Phase 2 to completion (the flag, the frames, the capability).
 2. Phase 3 to completion.
-3. Stop and validate with `quickstart.md` steps 1–3, then demo. The demo is the **call screen** (US6), not a composer bar.
+3. Stop and validate with `quickstart.md` steps 1–3, then demo. The demo is the **floating panel** (US6), not a composer bar and not a full screen.
 
 ### Incremental delivery
 
-US1 → demo (talk and hear) → **US6 (the call screen)** → US2 (barge-in, now triggered by the end of the
+US1 → demo (talk and hear) → **US6 (the floating panel)** → US2 (barge-in, now triggered by the end of the
 person's speech) → US4 (microphone discipline) → US5 (failures) → Polish. **US3 is not in this sequence:
 it is backlog (C7).** Every story leaves the previous one working, and a flag-off build stays
 untouched throughout.
@@ -318,6 +324,14 @@ stale 84 here and the stale phase count below).
 
 **Why this delta exists**: `review.md` re-checked every citation in `research.md`/`plan.md` against the
 tree. Seven findings change what a task must say; `architecture.md` is the shape they take.
+
+**Delta 2026-11-09 06:52 (User: the panel floats, one call in total — spec C9/C10).** 92 → **97** tasks
+(T001–T097), no ID renumbered: five appended. Changed in place: **T089** (a panel mounted as an overlay,
+not a call screen and not a route), **T090** (`LiveVoicePanel.tsx`), **T091**, **T092** (`live-voice-panel.spec.ts`).
+New: **T093** drag and clamping (FR-048), **T094** the chat behind stays usable (FR-049), **T095** the
+registry keyed by person with a move (FR-005/FR-050), **T096** the reason left behind (FR-051), **T097**
+a turn cancelled by a move (FR-052). `LiveVoiceCall.tsx` no longer exists as a task target — a floating
+panel is a different component, not a renamed one.
 
 **Delta 2026-11-08 21:19 (User: surface, scope, trigger — spec C6/C7/C8).** 88 → **92** tasks
 (T001–T092), no ID renumbered: four were **appended** for the call screen (T089–T092) and the seven US3

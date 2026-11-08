@@ -133,7 +133,7 @@ marked as such.
 | Server frames | `cargo test -p vizier-http` | a session accepts the frames, one utterance produces one request, an interrupt bumps the generation and cancels, flag-off rejects them harmlessly |
 | Engine | `cargo test -p vizier-core --features provider-live-voice` | segments are ordered and complete, the first frame is emitted before the last segment is requested, an interruption stops the stream |
 | Client | `cd webui && npm test -- liveVoice` | the VAD fires on speech over playback and not on playback alone; stale generations are dropped; `stop()` drains the queue |
-| End to end | `cd webui && npm run e2e` | the interruption path and the call screen, with a faked provider |
+| End to end | `cd webui && npm run e2e` | the interruption path and the floating panel, with a faked provider |
 
 Speech providers are faked in every automated test. One test is marked as needing a live provider;
 run it with credentials before calling the feature done.

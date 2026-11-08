@@ -58,7 +58,7 @@ Web: `AudioContext`, `AudioWorklet` (already used by `webui/public/vizier-captur
 | **I. Lean by default** | No new mandatory dependency in Rust or in the web bundle. The one seam (a trait between the session and its speech) exists because FR-036a requires a second implementation to be possible later; the session itself is a concrete type. The existing worklet, player and recogniser are reused rather than duplicated. |
 | **II. DRY via trait seams** | Speech enters through `VizierStt`/`VizierTts` behind one `LiveVoiceEngines` trait, never through `match` over providers. Recognition and synthesis stay one implementation per provider, as they are today. |
 | **III. Optional capability behind a flag** | `provider-live-voice` in `vizier-core` (`default = []`, added to `full`). With the flag off, no frame is ever emitted, the capability reads false, the control is hidden, and the existing speech tools are unchanged (FR-040, FR-041). Adding a `SessionFrame` variant is additive: the client's `classifyFrame` returns `null` for an unknown top-level key (`webui/app/api/frames.ts:607-630`), so an older client ignores the new frames instead of failing. |
-| **Design before UI code** | The call screen's states and the interruption by speech are drawn in [diagrams.md](./diagrams.md) (wireframe + Mermaid) before any `.tsx` is written. The archived bar is not the design; the screen is (spec C6). |
+| **Design before UI code** | The floating panel's states and the interruption by speech are drawn in [diagrams.md](./diagrams.md) (wireframe + Mermaid) before any `.tsx` is written. The archived bar is not the design; the screen is (spec C6). |
 | **Verification per flag and crate** | Every phase below names the job that proves it: `vizier-core` on/off the flag, `vizier-http`, `webui` vitest, Playwright, and the documented full matrix on develop/master/release. |
 
 No violations, so the complexity table at the end stays empty.
@@ -73,7 +73,7 @@ specs/055-live-voice/
 ├── plan.md                     # This file
 ├── research.md                 # Phase 0: findings, decisions, dependency report
 ├── data-model.md               # Phase 1: entities, states, frame payloads
-├── diagrams.md                 # Architecture, the interruption sequence, the call screen wireframe
+├── diagrams.md                 # Architecture, the interruption sequence, the floating-panel wireframe
 ├── quickstart.md               # Phase 1: how to run and verify it by hand
 ├── contracts/
 │   └── live-voice-frames.md    # Phase 1: the wire contract
@@ -107,7 +107,9 @@ webui/app/
 ├── screens/chat/
 │   └── LiveVoiceButton.tsx # the entry control, next to the mic and the spoken toggle
 └── screens/livevoice/
-    └── LiveVoiceCall.tsx   # the call screen: agent, state word, thinking, mic open, end control
+    └── LiveVoicePanel.tsx  # the floating panel: drag header, agent, state word, thinking, mic
+                            # open, one End action. Overlay over the conversation, never a route
+                            # (spec C9, 2026-11-09 — supersedes the call screen)
 # The composer bar of the earlier draft is archived (spec C6): the call is a screen, and no
 # interrupt control ships in this release (spec C7).
 ```
@@ -226,23 +228,25 @@ The decisions that shape the rest of the plan, each with the evidence it rests o
 
 ## Phase E — Client playback, interrupt control and UI
 
-**Goal**: the call screen exists, the state is visible on it, and one interruption path (speech) works end to end.
+**Goal**: the floating panel exists and can be dragged, the state is visible on it, and one interruption path (speech) works end to end.
 
 1. `player.ts`: one `AudioContext` resumed on the control press, an ordered queue of
    `AudioBufferSourceNode`s scheduled back to back, `stop()` that closes every source at once and
    drains the queue, and stale-generation frames dropped on arrival (FR-022).
-2. **The call screen** (spec C6): `LiveVoiceCall.tsx`, opened by the entry control and shown in place
-   of the conversation view — the agent, the FR-006 state word, the FR-042 thinking indicator, the
-   microphone-open indicator including when the window is unfocused (FR-038), and the end control
-   (FR-045). **No interrupt control**: it is deferred to the backlog (C7), and a button that exists in
-   the code but not in the specification is worse than an absent one. The composer bar of the earlier
-   draft is archived with the spec; its pixel floor, narrowing order and placement do not carry over.
+2. **The floating panel** (spec C9, superseding C6): `LiveVoicePanel.tsx`, opened by the entry control as
+   an **overlay over the conversation that is already on screen** — a drag header (FR-048), the agent,
+   the FR-006 state word, the FR-042 thinking indicator, the microphone-open indicator including when
+   the window is unfocused (FR-038), and one End action (FR-045). The conversation behind stays mounted,
+   readable and scrollable (FR-049); nothing navigates, there is no route. **No interrupt control**: it
+   is deferred to the backlog (C7), and a button that exists in the code but not in the specification is
+   worse than an absent one. The composer bar and the full call screen are both archived with the spec;
+   neither their geometry nor their placement carries over.
 3. Typing during a session stops the audio and cancels the turn (FR-025), on the same path as any
-   other interruption. Whether typing is reachable while the call screen is up is open question Q7
+   other interruption. Typing stays reachable because the conversation is still behind the panel (FR-049, Q7)
    (default: no — the conversation view is what the call replaces).
 4. Ends: press again, leave the page, permission withdrawn, conversation or agent gone, idle, reload
    (FR-028, FR-034) — every one releases the microphone and leaves the text (SC-007).
-5. **Exit criteria**: Playwright with a faked provider — the control opens the call screen, the
+5. **Exit criteria**: Playwright with a faked provider — the control opens the floating panel and it drags within bounds, the
    thinking indicator shows while a slow turn runs and is distinguishable from `reconnecting`, the
    interruption by speech silences the audio and the session stays live, ending the call returns to the
    unchanged conversation, closing the tab releases the track, and a second tab is refused (FR-005,

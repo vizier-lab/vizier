@@ -19,7 +19,7 @@ flowchart LR
         SESSION["session.ts<br/>state machine + generation"]
         PLAYER["player.ts<br/>AudioContext queue"]
         SPEAKERS["Speakers"]
-        UI["LiveVoiceButton<br/>LiveVoiceCall screen + End"]
+        UI["LiveVoiceButton<br/>LiveVoicePanel (floating, draggable) + End"]
     end
     subgraph Server["Vizier server"]
         SOCKET["Topic WebSocket<br/>channel.rs"]
@@ -128,7 +128,7 @@ sequenceDiagram
 ```
 
 **None of this ships in this release.** There is no interrupt control (spec C7): the sequence is kept so
-the backlog item does not have to rediscover it. When it lands, the button goes on the call screen, and
+the backlog item does not have to rediscover it. When it lands, the button goes on the floating panel, and
 the difference from barge-in stays as described: the control submits nothing, so the session returns to
 `listening` and waits — which is why it is worth having in a loud room or on a bad microphone, where
 speaking over the agent does not work.
@@ -158,36 +158,39 @@ stateDiagram-v2
 Every arrow that leaves `listening` or `speaking` for `ended` releases the microphone (FR-028,
 FR-034, SC-007). `interrupted` is a state, not an end: the session is still live and still listening.
 
-## 5. Wireframe — the call screen (design gate, spec C6)
+## 5. Wireframe — the floating panel (design gate, spec C9)
 
-The surface changed on 2026-11-08 21:19: the session is a **screen of its own**, in the manner of a
-call, not a strip of chrome in the composer. The composer-bar wireframe of the earlier draft (and the
-designed bar v2 with its 210 px floor and `transcript → level → elapsed → mic label` narrowing order)
-is **archived with the spec** and is not a design for this screen.
+The surface changed twice. On 2026-11-08 21:19 it stopped being a strip of chrome in the composer; on
+2026-11-09 06:52 it stopped being a full screen as well. It is now a **draggable panel over the
+conversation that is already on screen** — the manner of a desktop call window, not a route and not a
+replacement. The composer-bar wireframe and the call-screen wireframe are both **archived with the
+spec** (C6, C9); neither is a design for this panel.
 
 ```text
-+--------------------------------------------------------------+
-|  <- end                                   Deploy notes agent |
-+--------------------------------------------------------------+
-|                                                              |
-|                      (  Archivist  )                         |
-|                                                              |
-|                        listening                             |
-|                                                              |
-|            the microphone is open  ●                         |
-|                                                              |
-|   you   what is the disk usage on the build host?            |
-|   agent It is 61 percent used, and the largest ...           |
-|         (marked: interrupted at 14:32)                       |
-|                                                              |
-|  ~~~~~~~~~~~~~~~~~~~~ level of your voice ~~~~~~~~~~~~~~~~~  |
-|                                                              |
-+--------------------------------------------------------------+
-|                    [  End call  ]                            |
-+--------------------------------------------------------------+
++---------------------------------------------------------------+
+| Deploy notes                                        [agent ▾] |
++---------------------------------------------------------------+
+|  +-----------------------------+                              |
+|  | ⠿ Archivist        ●  2:14 |  <- drag by the header         |
+|  |        listening            |     (⠿ = grip, FR-048)       |
+|  |  the microphone is open  ●  |                              |
+|  |  ~~~~~ level ~~~~~          |                              |
+|  |       [  End call  ]        |                              |
+|  +-----------------------------+                              |
+|                                                               |
+|   you   what is the disk usage on the build host?             |
+|   agent It is 61 percent used, and the largest ...            |
+|         (marked: interrupted at 14:32)                        |
+|                                                               |
+|   ... the conversation continues and scrolls behind the       |
+|       panel, readable everywhere the panel does not cover     |
+|                                                               |
++---------------------------------------------------------------+
+| [ type a message...                              ] [mic][tts] |
++---------------------------------------------------------------+
 ```
 
-States the screen must be able to show (FR-006), with the thinking state visibly different from the
+States the panel must be able to show (FR-006), with the thinking state visibly different from the
 reconnecting one (FR-042):
 
 ```text
@@ -201,13 +204,19 @@ ended           call ended · idle for 3 minutes                 <- reason stays
 failed          call failed · no voice configured
 ```
 
-* The screen **replaces the conversation view** while the call is live and gives it back unchanged when
-  the call ends (FR-043, FR-046). The conversation gains exactly one thing: the entry control (FR-001).
-* The **microphone indicator is never the element that gives way** at narrow widths, and the level meter
-  is decorative (`aria-hidden`) — that rule survives from the archived bar because FR-038 requires it.
-* There is **one control on this screen: End** (FR-045). No interrupt button ships in this release
-  (spec C7); the interruption is done by speaking, and the screen therefore does not hint at a control
-  that does not exist.
-* `ended` and `failed` keep their reason on screen with no 5-second timer and no buttons but End —
+* The panel **floats over the conversation**, which stays mounted, readable and scrollable behind it; it
+  is not a route and nothing navigates (FR-043, FR-049). The conversation gains exactly one thing: the
+  entry control (FR-001).
+* **The header is the drag target** (FR-048): pointer-drag moves the panel, no edge may leave the window,
+  and a window resize re-clamps it rather than losing it. The conversation behind does not move.
+* The **microphone indicator is never the element that gives way**, and the level meter is decorative
+  (`aria-hidden`) — that rule survives from the archived bar because FR-038 requires it.
+* There is **one action on this panel: End** (FR-045), and no second control that means the same thing.
+  No interrupt button ships in this release (spec C7); the interruption is done by speaking, so the panel
+  does not hint at a control that does not exist.
+* `ended` and `failed` keep their reason on the panel with no 5-second timer and no action but End —
   carried over from the archived bar decision, because the commonest ending is the idle stop, when the
   person has already walked away.
+* **One panel, one call.** Starting a call in another conversation moves it there: the panel closes with
+  the reason `moved`, a reason is left in the conversation it left, and the running turn is cancelled
+  rather than spoken into the new call (FR-050, FR-051, FR-052, SC-011).

@@ -80,7 +80,8 @@ this release, so a client MUST NOT send it; a server that receives it MUST treat
 `barge_in` rather than fail, so the backlog item needs no protocol change when it lands.
 
 **`typed` exists only where the conversation is reachable during a session** — spec open question Q7's
-default says it is not, since the call screen replaces the conversation view. The reason stays in the
+default says it is not, since the floating panel leaves the conversation behind it in place (C9) and a
+call is moved rather than duplicated (C10). The reason stays in the
 contract because FR-025 (typing stops the reply) is a requirement even when the surface that allows it
 is not on screen.
 
@@ -112,7 +113,15 @@ an animation in the bar — never as the same thing as `reconnecting`. `reason` 
 `ended` / `failed` / `reconnecting`; it is one of
 `pressed_again | left_conversation | page_closed | permission_withdrawn | conversation_deleted |
 agent_changed | idle | connection_lost | server_restart | no_device | no_recognizer | no_voice |
-provider_failed | unintelligible`.
+provider_failed | unintelligible | moved`.
+
+**`moved` is new (spec C10, 2026-11-09).** There is exactly one live session per person, so a
+`live_voice_start` that arrives for a *different* conversation or agent is not a second session: the
+server ends the old one with `reason: "moved"` and starts the new one. The old client shows that reason
+until its panel closes; nothing is written into the old conversation's history (open question Q10's
+default), and the old session's running turn is cancelled on the normal abort path rather than spoken
+into the new call (FR-052). A `live_voice_start` for the **same** conversation is still refused when
+another connection holds it (open question Q2's default).
 
 ### `live_voice_transcript`
 
@@ -215,7 +224,7 @@ Rules:
 | One utterance | 60 s (default) | FR-010 |
 | One frame | far below the 1 MiB bus envelope (`envelope.rs:11`) | measured at 4.3 KB |
 | Backlog to one socket | 16 audio frames (~1.6 s), then audio frames are dropped and one stall is reported | this contract, Delivery path |
-| Sessions per conversation | 1 | FR-005 |
+| Sessions in total, per person | **1**, across every conversation and agent (a start elsewhere moves it, reason `moved`) | FR-005, FR-050, C10 |
 | Sessions per agent | unbounded in this release; the deployment's socket limits apply | open question Q4 |
 
 ## What is deliberately *not* in the contract
@@ -262,6 +271,6 @@ Client frames keep their top-level keys (`live_voice_start`, `live_voice_audio`,
 `live_voice_utterance_end`, `live_voice_speech_start`, `live_voice_interrupt`, `live_voice_stop`); what
 changed on 2026-11-08 21:19 is *when* two of them are sent and what one of them does — see
 `live_voice_speech_start` above (opens an utterance, no longer interrupts) and `live_voice_interrupt`
-(`button` deferred). The call screen of spec C6 needs **no new frame**: it is a surface over the same
+(`button` deferred). The floating panel of spec C9 needs **no new frame**: it is a surface over the same
 session, and its state word comes from `live_voice_state`. Nothing else in this contract changed; the sizes, limits and "deliberately not in
 the contract" list stand.
