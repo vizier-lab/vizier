@@ -255,23 +255,35 @@ structure.
 
 ## 6. Delta applied to the reviewed artifacts (mine, dated)
 
-* **C-1 (contract change)** — `contracts/live-voice-frames.md`: every server frame now carries an explicit
-  `"type"` inside `live_voice` (D3). Client frames already have distinct `live_voice_*` keys.
-* **C-2 (tasks change)** — `tasks.md`: three tasks added (T017 spoken field, T018 spoken note + badge,
-  T019 inbound copy before `to_string()`), seven made specific (T009, T010, T023, T025, T026, T042),
-  and every ID from the old `T017` up shifted by three, so the list is 77 tasks in execution order
-  (the file was drafted earlier on this branch and is amended, not rewritten — see its own delta
-  table).
-* No other file of the analyst's was edited. Findings that need code-shaped answers (D1, D2, D4-D7)
-  live in `architecture.md` and `tasks.md`.
-| D16 | one counter for drops, owned by the outbound loop; `channel.rs`/`embedded.rs` untouched | `data-model.md` `backlog`, `contracts` §Delivery path + `stall` frame, `architecture.md` §11, `tasks.md` T021/T041 |
-| D9 | delivery path: per connection, not the session broadcast | `plan.md` Phase C + fallbacks + risks, `contracts` §Delivery path + C-6, `architecture.md` §11 + I9, `tasks.md` T020/T021/T041 (77 → 79, then 85 with D13's reconnect task) |
-| D13 | delivery lane: mechanism recorded, reconnect re-bind added, second-queue alternative rejected | `architecture.md` §11, `contracts` §Delivery path, `data-model.md` backlog row, `plan.md` WS-drop fallback, `tasks.md` new T067 (84 → 85 tasks) |
+Every change made **in this review**, with the finding that forced it. Nothing here was made by
+rewriting the analyst's text wholesale: each row names the file and what it now says.
+
+| # | Change | Files | Finding |
+|---|---|---|---|
+| C-1 | every server frame carries an explicit `"type"` inside `live_voice` | `contracts` | D3 — six frames under one key, no discriminator |
+| C-2 | tasks: T017/T018/T019 added, seven made specific, IDs renumbered | `tasks.md` | D1, D2, D5, D6, D7 |
+| C-6 | the contract states the delivery path, not only the payload | `contracts` | D9 — audio on the broadcast cannot be dropped per kind |
+| C-7 | `Full` and `Closed` separated; only `Closed` ends a session | `contracts`, `tasks.md` T020 | D10 |
+| C-8 | control frames stay on the broadcast, audio does not; one counter owned by the outbound loop | `contracts`, `data-model.md`, `architecture.md` §11, `tasks.md` T021/T041 | D15, D16 |
+| C-9 | the reconnect re-binds the session to the new connection | `architecture.md` §11, `tasks.md` T067 | D13 |
+| C-10 | spec: FR-012, FR-023, FR-027, SC-001 restated; FR-027 now defers to FR-023 | `spec.md` | D1, plus the analyst's own SC-001 error |
+| C-11 | spec: SC-002 names where its clock starts and stops; the third-party edge case stops promising attribution | `spec.md` | H6, H7 (`@teteh-qa`) |
+| C-12 | `quickstart.md` gains a scripted `dummyplug` half and a measurement step | `quickstart.md` | C1 — the constitution's e2e gate had nothing to run |
+
+**Canonical baseline for anything quoting counts**: `specs/055-live-voice/tasks.md`, commit
+`e48e1d03`, **85 tasks (T001–T085)**. Any other number in an older message or report is stale.
+
+---
 
 ## 7. Verdict
 
-**Spec and plan are implementable, with D2/D4/D5/D6/D7 folded into the task list.** No requirement was
-loosened. The two interruptions converge on one mechanism (generation counter), the separation from
-STT/TTS is real, and the transport decision survives contact with the code. Proceeding to
-`architecture.md` and `tasks.md`; implementation stays with `@sepuh-be`.
+**Spec, plan, architecture, contract and tasks are implementable, and the analyzable objections are
+closed.** Every "requirement" objection that turned out to be an impossible promise (FR-012, FR-023,
+FR-027, SC-001, the third-party edge case) is corrected in the spec with a delta entry; every
+code-shaped finding (D2, D4–D16) is a task or an invariant. C1 — the one finding that actually blocked
+`speckit-implement` — is closed by `quickstart.md`'s `dummyplug` half.
 
+What is **not** closed and cannot be closed here: RK-1 (long answers are silent until the model
+finishes) is a requirement question for the User, and the live-provider audio pass stays manual.
+
+Implementation belongs to `@sepuh-be`; verification of the result belongs to `@teteh-qa`.

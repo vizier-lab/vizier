@@ -165,7 +165,7 @@ Every path that leaves `listen` or `speak` except the two interruptions ends the
 ### Edge Cases
 
 - **The person speaks over the agent without headphones**: the device's speakers feed the microphone. The session must not treat its own voice as the person, at any output volume; the person's real voice still interrupts immediately.
-- **A second person in the room, or a television**: background speech is not the person using the device. It must not become a message on its own; only speech the session can attribute to the person may be submitted, and noise must not stop the agent mid-answer beyond what a real interruption would.
+- **A second person in the room, or a television**: the session cannot tell one voice from another — the detector is an energy gate on one microphone, with no speaker identity. So background speech above the gate may be transcribed and may interrupt, exactly as it would over any voice assistant; what the session must not do is treat ambient noise below the gate as speech, and what the person must be able to do is correct it by speaking again or by typing. **Real attribution (diarization) is not promised here and would be its own specification.** *(Corrected in the Lead's review, 2026-11-08: the earlier wording promised a capability the chosen detector does not have.)*
 - **A very short utterance** ("yes", "no", "stop"): recognised and submitted as a message rather than discarded as noise. Anything shorter than a word stops the audio and sends nothing (Story 2, scenario 5).
 - **A long monologue**: an utterance is cut at the maximum length (default 60 seconds) and submitted, so a person speaking for minutes still gets answers.
 - **Silence in the middle of a sentence**: a pause shorter than the end-of-utterance period does not split the message.
@@ -260,7 +260,7 @@ Every path that leaves `listen` or `speak` except the two interruptions ends the
 ### Measurable Outcomes
 
 - **SC-001**: From the person finishing a short question to the first audible word of the answer, on an ordinary laptop and ordinary broadband, with a hosted recogniser and voice: **p90 <= 3.5 s and p99 <= 5 s is the release gate**; 2.0 s at p50 is the stretch target. The reason for the gate, not the aspiration: the plan's budget floors at 2.57 s before the model has produced anything (800 ms end-of-utterance + 120 ms to the wire + 900 ms hosted recognition + 100 ms turn start + 600 ms first segment + 50 ms to sound), and the turn protocol delivers the model's whole message rather than token deltas, so the model's own latency sits on top of that floor. A local-only recogniser or voice is CPU-bound, is expected to be slower still, and is measured separately (open question Q3). *(Restated in the Lead's review, 2026-11-08: the earlier 2 s p90 could not be met by the architecture the plan itself describes.)*
-- **SC-002**: Speaking over the agent silences it within 300 ms in at least 95% of attempts, and the next answer addresses the interrupting message in at least 90% of those attempts.
+- **SC-002**: Speaking over the agent silences it within 300 ms in at least 95% of attempts, and the next answer addresses the interrupting message in at least 90% of those attempts. The clock starts at the first voiced sample the session accepts and stops when the audio is silent; the local stop must land inside 50 ms of that start, because the onset guard delays only the message to the server and never the silence (see plan Phase D). The turn's cancellation is a separate internal budget: 300 ms from the guard firing. *(Measurement points fixed in the Lead's review, 2026-11-08; the outcome is unchanged.)*
 - **SC-003**: The interrupt control silences the agent within 200 ms in every attempt, in 100 of 100 tries.
 - **SC-004**: In a 10-minute session of at least 15 turns, at least 90% of turns need no interaction other than speaking, and every spoken message appears in the conversation — no lost turns in 100%.
 - **SC-005**: A person who has never used the feature is talking to the agent within 20 seconds of first seeing the control, permission prompt included, on the first attempt, in at least 90% of tries and without reading documentation.
@@ -340,5 +340,13 @@ contradictions removed; no outcome changed.
 | FR-027 now defers to FR-023's two cases | as written it promised "text produced so far stays", which FR-023's abort case forbids; two requirements cannot answer the same event differently |
 | US1 narrative and the flow node say "spoken in segments once its message exists" | they still said "while it is being written", which the non-streaming turn protocol (constraint note) cannot do |
 | FR-023's earlier delta line is marked superseded | the log carried two descriptions of the same requirement |
+
+**Consistency delta (Lead, 2026-11-08, from `@teteh-qa`'s analysis)**: two more
+corrections, both about testability rather than outcome.
+
+| Change | Why |
+|---|---|
+| SC-002 states where its clock starts and stops, and splits "silence" from "the turn is cancelled" | with a 250 ms onset guard, "300 ms" had no start point; the guard delays only the message to the server, so the silence is still inside 50 ms |
+| the third-party edge case no longer promises speaker attribution | an energy gate on one microphone has no speaker identity; promising it would make an acceptance test nobody can pass. Diarization, if wanted, is a separate specification |
 
 **Verification**: no open-question marker remains in this file — a `grep -c` for the marker phrase returns `0`, and the only remaining pointer to it is this sentence's description of the delta.
