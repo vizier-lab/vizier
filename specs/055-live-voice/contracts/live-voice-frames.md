@@ -210,9 +210,11 @@ realtime speech-to-speech pipeline later would add new frame names, not change t
 busy socket must lose audio, not its session.
 
 **C-6 — delivery path (D9).** The contract now says *how* server frames reach the client, not only
-what they contain: per connection, never through the session-event broadcast, with audio droppable and
-control never dropped. Before this, the document implied the existing broadcast forwarded live voice
-like any other frame, which would have let audio evict reply text from a lagging subscriber.
+what they contain: **audio** goes per connection and may be dropped; **control** keeps the session
+broadcast and is never dropped, which is also how a second tab learns a session is active (FR-005).
+Before this, the document implied the broadcast forwarded all of live voice like any other frame,
+which would have let audio evict reply text from a lagging subscriber — and sent one person's audio
+to every socket on the conversation.
 
 **C-1 — every server frame carries a `type` discriminator.** As first written, the six server frames
 shared the single top-level key `live_voice` and were distinguished only by which fields they happened
