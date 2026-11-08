@@ -377,6 +377,11 @@ export default function Chat() {
                     }
                     current={{ topic: topicId }}
                     agentName={agentName}
+                    share={
+                        topicId
+                            ? { topicId, agent, agentName, empty: state.entries.length === 0 && state.phase === 'idle' }
+                            : undefined
+                    }
                     status={{
                         // This topic's turn, not any of the agent's, decides running.
                         state:

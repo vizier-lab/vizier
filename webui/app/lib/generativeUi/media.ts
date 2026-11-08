@@ -6,6 +6,9 @@ import { transport } from '../../api/transport'
 
 export const IMAGE_MIME = /^image\//
 
+/** The only `data:` address `fileUrl` returns as is: a raster image from the allow-list, base64. */
+const SNAPSHOT_IMAGE = /^data:image\/(?:png|jpeg|webp|gif);base64,[A-Za-z0-9+/]*={0,2}$/
+
 /** The file called `name`; of several with that name, the newest. */
 export function findFile(files: readonly SessionFileRecord[], name: string): SessionFileRecord | undefined {
     return files.filter((f) => f.filename === name).sort((a, b) => (a.added_at < b.added_at ? 1 : a.added_at > b.added_at ? -1 : 0))[0]
@@ -13,6 +16,9 @@ export function findFile(files: readonly SessionFileRecord[], name: string): Ses
 
 /** Where a file is served from, as the transport addresses it for elements that cannot send headers. */
 export function fileUrl(file: SessionFileRecord): string {
+    // A shared copy carries its images inside the document: the viewer builds a `data:` address
+    // from the snapshot's media map (raster allow-list, base64 only) and puts it in `file_id`.
+    if (SNAPSHOT_IMAGE.test(file.file_id)) return file.file_id
     return transport.assetUrl(`/files/${encodeURIComponent(file.file_id)}`)
 }
 

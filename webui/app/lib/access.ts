@@ -79,3 +79,11 @@ export function canViewUsage(): boolean {
 export function useCan(permission: string): boolean {
     return useSession((s) => s.user?.permissions.includes(permission) ?? false)
 }
+
+/** Whether the current person may share conversations of `agent`: the owned or the all-agents
+ * permission (`owned_agents:` needs ownership). Hides the Share button; the server decides. */
+export function canShareConversations(agent: { owner_id?: string } | undefined): boolean {
+    const { user, can } = useSession.getState()
+    if (!user || !agent) return false
+    return can('all_agents:share_conversations') || (can('owned_agents:share_conversations') && agent.owner_id === user.user_id)
+}

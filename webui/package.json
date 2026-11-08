@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "react-router build",
+    "build": "react-router build && vite build -c vite.viewer.config.ts && node -e \"require('fs').renameSync('build/client/viewer.html','build/client/viewer-template.html')\"",
     "dev": "react-router dev",
     "typecheck": "react-router typegen && tsc",
     "test": "vitest run",
@@ -56,6 +56,7 @@
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.56.1",
     "vite": "^7.1.7",
+    "vite-plugin-singlefile": "^2.3.4",
     "vite-tsconfig-paths": "^5.1.4",
     "vitest": "^3.2.4"
   }

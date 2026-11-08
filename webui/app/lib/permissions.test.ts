@@ -13,6 +13,19 @@ describe('groupsFor', () => {
             { title: 'Chat', items: [{ permission: 'model_override', label: 'Choose a model for chat' }] },
         ])
     })
+
+    it('shows the two sharing permissions under Sharing, between Chat and Account', () => {
+        const groups = groupsFor(['owned_agents:share_conversations', 'all_agents:share_conversations', 'settings:password', 'model_override'])
+        expect(groups.map((g) => g.title)).toEqual(['Chat', 'Sharing', 'Account'])
+        expect(groups[1].items).toEqual([
+            { permission: 'owned_agents:share_conversations', label: 'Share conversations with agents they own' },
+            { permission: 'all_agents:share_conversations', label: 'Share conversations with any agent they can see' },
+        ])
+    })
+
+    it('does not put a sharing permission under Other once the server offers it', () => {
+        expect(groupsFor(['all_agents:share_conversations']).some((g) => g.title === 'Other')).toBe(false)
+    })
 })
 
 describe('permissionCount', () => {

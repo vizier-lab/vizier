@@ -7,6 +7,9 @@ export default [
         route('onboarding', 'routes/onboarding.tsx'),
     ]),
 
+    // Public, read only: a shared conversation. No sign-in gate, no app shell.
+    layout('layouts/ShareLayout.tsx', [route('share/:shareId', 'routes/share.tsx')]),
+
     // Signed in
     layout('layouts/RequireAuth.tsx', [
         layout('layouts/AppShell.tsx', [

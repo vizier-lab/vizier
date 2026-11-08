@@ -77,3 +77,16 @@ test('a project is managed by its owner or the whole-workspace permission', () =
     assert.equal(canManageProject({ owner_id: 'user-1' }), true)
     assert.equal(canManageProject({ owner_id: 'user-2' }), false)
 })
+
+test('sharing needs the owned permission on an owned agent, or the all-agents one', async () => {
+    const { canShareConversations } = await import('./access.ts')
+    assert.equal(canShareConversations(agent()), false) // signed out
+    useSession.setState({ user: person([]) })
+    assert.equal(canShareConversations(agent('user-1')), false)
+    useSession.setState({ user: person(['owned_agents:share_conversations']) })
+    assert.equal(canShareConversations(agent('user-1')), true)
+    assert.equal(canShareConversations(agent('user-2')), false)
+    assert.equal(canShareConversations(undefined), false)
+    useSession.setState({ user: person(['all_agents:share_conversations']) })
+    assert.equal(canShareConversations(agent('user-2')), true)
+})

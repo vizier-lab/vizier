@@ -1,0 +1,25 @@
+{
+ "format_version": 1,
+ "generator": "test",
+ "created_at": 1790000000000,
+ "title": "a b c",
+ "source": {
+  "agent_name": "Ada"
+ },
+ "include_trail": false,
+ "turns": [
+  {
+   "id": "t1",
+   "role": "agent",
+   "at": 1,
+   "parts": [
+    {
+     "kind": "text",
+     "markdown": "line sep para"
+    }
+   ]
+  }
+ ],
+ "media": {},
+ "rehydration": null
+}
