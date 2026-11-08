@@ -2,8 +2,10 @@
 
 **Reviewer**: `@mamang-lead-be` | **Date**: 2026-11-08 | **Branch**: `055-live-voice`
 **Reviewing**: `spec.md` (327 lines at `4c38fd73`, 335 now), `plan.md` (276 → 281), `research.md` (165),
-`data-model.md` (105), `contracts/live-voice-frames.md` (138 → 157 after this review), `diagrams.md`
-(179), `quickstart.md` (82 → 83). Three of them moved **during** this review — see the note below §1.
+`data-model.md` (105), `contracts/live-voice-frames.md` (138 → 187 after this review and D9),
+`diagrams.md` (179), `quickstart.md` (82 → 83), `architecture.md` (338), `tasks.md` (290 → 292,
+77 → 79 tasks). Four of them moved **during** this review — see the note below §1, and D9 for the
+last one.
 
 Everything below was run against the working tree, not accepted from the author's report. Commands are
 reproducible; where a claim failed, the raw output is quoted.
@@ -64,6 +66,29 @@ on this branch at 15:14-15:16 (FR-012 reworded, FR-023 clarified, SC-001 restate
 with 2 s p50 as a stretch target, a 250 ms onset guard added to Phase D, and the 2.57 s latency floor
 written into the budget). This review was read against `4c38fd73`; where a number here differs from the
 spec, **the spec wins** and this file has been aligned.
+
+**D9 — the audio path (raised by `@system-analyst` after this review was written; my call).**
+`SessionEvent` travels a `broadcast::channel(1024)` shared by the process
+(`crates/vizier-core/src/transport/mod.rs:29,270`), and a subscriber that falls behind receives
+`Lagged` and loses **every** frame in between (`crates/vizier-http/src/topic.rs:609-613`). Putting
+10 audio frames/s into that ring would let audio evict a reply's text, and the plan's promised
+fallback ("drop audio frames beyond a small backlog") is unimplementable there, because a broadcast
+drops all-or-nothing per subscriber.
+
+*Mechanism check, corrected:* the report said a slow socket lags "far more quickly". It does not,
+strictly: every arm of the outbound match is synchronous and `self.out` is `flume::unbounded()`
+(`channel.rs:374`), so a slow network grows the flume queue instead of starving the subscriber. The
+decision still holds for three grounds that do hold — all-or-nothing loss, ring eviction cost
+(~4.4 MB, text pushed out of the replay window), and a socket queue that this feature would otherwise
+feed at 43 KB/s with no ceiling at all.
+
+*Decision:* live voice frames bypass the broadcast and are written to the owner's socket through
+`ClientConnection::send` — a path the repo already uses for client tool calls, and whose own module
+doc gives the same reason. Audio is dropped above `LIVE_VOICE_SOCKET_BACKLOG = 16` at the one place
+that can see the real queue (`TopicOutbound::run`), control frames never are, and a closed connection
+ends the session with `page_closed`. Applied to `plan.md` (Phase C, fallbacks, risks),
+`contracts/live-voice-frames.md` (§Delivery path, C-6), `architecture.md` (§11, invariant I9) and
+`tasks.md` (T020, T021; the old backlog task is now T040 and no longer invents a second queue).
 
 **D2 — "marked as spoken" has no server-side field.** FR-011/FR-017 need the stored message to carry
 "came by speech"; today `spoken?: boolean` exists only in the WebUI queue (`frames.ts:36`) and
@@ -154,6 +179,7 @@ and does not in the long-answer case. **Risk raised to `@bro-pm`, requirement un
   table).
 * No other file of the analyst's was edited. Findings that need code-shaped answers (D1, D2, D4-D7)
   live in `architecture.md` and `tasks.md`.
+| D9 | delivery path: per connection, not the session broadcast | `plan.md` Phase C + fallbacks + risks, `contracts` §Delivery path + C-6, `architecture.md` §11 + I9, `tasks.md` T020/T021/T040 (77 → 79 tasks) |
 
 ## 7. Verdict
 

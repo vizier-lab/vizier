@@ -119,6 +119,31 @@ state to `listening` (FR-015).
 `kind` mirrors the `reason` list above. The session's own state is not changed by this frame alone —
 a `live_voice_state` always follows, so the client has one source of truth (FR-032, SC-009).
 
+## Delivery path (not the session-event broadcast)
+
+Live voice frames do **not** travel through `publish_session_event` and the session-event broadcast.
+They are written to the one socket that owns the session, through `ClientConnection::send`
+(`crates/vizier-core/src/agents/client/connection.rs`), for three reasons:
+
+| Why | What it means on the wire |
+|---|---|
+| the broadcast drops **all or nothing** per subscriber (`topic.rs:609-613`, `Lagged`) | a lagging socket would lose reply text because of audio; on a per-connection queue audio alone can be dropped |
+| the broadcast ring holds 1024 events for the whole process (`transport/mod.rs:29`) | 10 audio frames/s at 4.3 KB would evict text from every behind subscriber's window and cost ~4.4 MB |
+| a session belongs to one person (FR-005) | the audio must reach that socket, not every socket open on the conversation |
+
+Rules:
+
+* **Audio may be dropped; control may not.** `live_voice_speech` is written only while the socket's
+  own queue is below `LIVE_VOICE_SOCKET_BACKLOG` (16 frames, about 1.6 s of audio); beyond it the
+  frame is dropped and counted. `live_voice_state`, `live_voice_transcript` and `live_voice_error`
+  are always written.
+* **One stall notice per episode**: after drops, the first audio frame that fits again is preceded by
+  one `live_voice_error { kind: "stall" }`. A stall never ends the session.
+* **A closed socket ends the session** with reason `page_closed` (FR-028): `ClientConnection::send`
+  returning `false` because the connection closed is the signal, not a timeout.
+* **Client → server is unaffected**: inbound audio still arrives on the topic socket like every other
+  client frame, because there is only one socket for it to arrive on.
+
 ## Limits and budgets
 
 | Limit | Value | Where |
@@ -126,7 +151,7 @@ a `live_voice_state` always follows, so the client has one source of truth (FR-0
 | Audio chunk | 100 ms, 3.2 KB raw / ~4.3 KB base64 | this contract |
 | One utterance | 60 s (default) | FR-010 |
 | One frame | far below the 1 MiB bus envelope (`envelope.rs:11`) | measured at 4.3 KB |
-| Backlog to one socket | a few seconds of audio, then frames are dropped and a stall is reported | plan, fallbacks |
+| Backlog to one socket | 16 audio frames (~1.6 s), then audio frames are dropped and one stall is reported | this contract, Delivery path |
 | Sessions per conversation | 1 | FR-005 |
 | Sessions per agent | unbounded in this release; the deployment's socket limits apply | open question Q4 |
 
@@ -138,6 +163,11 @@ realtime speech-to-speech pipeline later would add new frame names, not change t
 
 
 ## Review delta (2026-11-08, `@mamang-lead-be`)
+
+**C-6 — delivery path (D9).** The contract now says *how* server frames reach the client, not only
+what they contain: per connection, never through the session-event broadcast, with audio droppable and
+control never dropped. Before this, the document implied the existing broadcast forwarded live voice
+like any other frame, which would have let audio evict reply text from a lagging subscriber.
 
 **C-1 — every server frame carries a `type` discriminator.** As first written, the six server frames
 shared the single top-level key `live_voice` and were distinguished only by which fields they happened

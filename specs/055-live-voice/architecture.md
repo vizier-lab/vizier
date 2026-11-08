@@ -23,6 +23,7 @@ D3 correction, and the invariants QA can test. No code here.
 | `SessionFrame::LiveVoice(..)` | `crates/vizier-core/src/transport/mod.rs:58` | existing enum | additive variant; **no** existing variant touched |
 | inbound dispatch | `crates/vizier-http/src/topic.rs:209` `handle_inbound` | per socket | `live_voice_*` branch **before** the `frame.to_string()` copy (D5) |
 | outbound arm | `crates/vizier-http/src/topic.rs:535-600` | per socket | `SessionFrame::LiveVoice(f) => Some(json!({"live_voice": f}))` (D4) |
+| delivery (server → client) | `ClientConnection::send` (`crates/vizier-core/src/agents/client/connection.rs`) | per socket, bounded (64) | live voice frames go to the **owner's** socket, never the session-event broadcast (§11, D9); audio is dropped before control |
 | audio chunking, VAD, player, state machine | `webui/app/lib/liveVoice/{capture,vad,player,session}.ts` | client | capture 100 ms PCM16, energy VAD, gapless playback, generation guard |
 | the two controls | `webui/app/screens/chat/LiveVoiceButton.tsx`, `LiveVoiceBar.tsx` | client | one on/off control, one always-visible interrupt control |
 
@@ -48,7 +49,7 @@ flowchart LR
     subgraph Server["Vizier server"]
         SOCK["Topic socket<br/>channel.rs:818 JSON only"]
         DISP["topic.rs handle_inbound<br/>live_voice_* branch"]
-        OUT["topic.rs outbound match<br/>SessionFrame::LiveVoice"]
+        OUT["ClientConnection::send<br/>owner's socket only, not the broadcast"]
         REG["LiveVoiceSessions<br/>registry, shared"]
         SES["LiveVoiceSession<br/>state, watch generation"]
         UTT["Utterance<br/>PCM to WAV"]
@@ -273,8 +274,50 @@ below is 2.57 s before the model has produced anything.
   the microphone track within 2 s (SC-007).
 * **I8** A typed message during a session stops the audio exactly like the button (FR-025) and is
   answered and spoken (FR-018).
+* **I9** No `live_voice` frame ever reaches `publish_session_event`; a backlogged socket loses
+  `live_voice_speech` frames only, never a `SessionFrame::Response` (§11, D9).
 
-## 11. Test shape per layer
+## 11. Delivery path for server frames (`review.md` D9)
+
+The session's frames do **not** go through `publish_session_event`. They are written to the one socket
+that owns the session:
+
+```text
+LiveVoiceSession ──> Arc<ClientConnection> ──send()──> per-connection mpsc(64) ──> TopicOutbound ──> flume (socket)
+                        (owner, core type)              bounded, try_send            depth check          writer
+```
+
+* **Why not the broadcast.** `SessionEvent` travels a `broadcast::channel(1024)` shared by the whole
+  process (`crates/vizier-core/src/transport/mod.rs:29,270`), and a subscriber that falls behind gets
+  `Lagged` and loses **every** frame in between (`crates/vizier-http/src/topic.rs:609-613`). Audio at
+  10 frames/s is far more traffic than text; in that ring it would evict text from the replay window of
+  any behind subscriber and lose it all-or-nothing. A per-connection queue can drop audio alone.
+* **The precedent is already in the repo.** `ClientConnection`'s own module doc says it: *"A call's
+  frame is written straight to the socket, never through the session-event broadcast, which may drop
+  frames when a subscriber lags"* (`crates/vizier-core/src/agents/client/connection.rs:1-6`). Live
+  voice reuses that decision, not a new one.
+* **The bound has to be where the queue actually grows.** The socket's writer queue is
+  `flume::unbounded()` (`crates/vizier-http/src/api/v1/agents/channel.rs:374`), so neither the 64-slot
+  mpsc nor `broadcast` is the real ceiling. The only place that can see the truth is the outbound
+  loop: before writing a `live_voice_speech` frame, compare `self.out.len()` with
+  `LIVE_VOICE_SOCKET_BACKLOG` (16). Above it, drop the audio frame; never drop `state`, `transcript`
+  or `error`.
+* **Signal, not timeout.** `ClientConnection::send` returns `false` once `close()` has taken the
+  sender, so a closed tab ends the session with `page_closed` immediately; `false` while the queue is
+  full is a stall, and a stall never ends a session.
+* **What this leaves alone.** The broadcast ring, its capacity, `SessionFrame`, the outbound match and
+  every existing consumer are untouched: only the *route* of the new frames is decided here.
+
+**Honest note on the finding.** The report that prompted this section said a slow socket would hit
+`Lagged` "far more quickly". Re-reading the code, that mechanism is weaker than stated: every arm of
+the outbound match is synchronous (no `.await` inside), and `self.out` is an unbounded `flume`, so a
+slow *network* grows the flume queue instead of lagging the broadcast subscriber. `Lagged` needs a
+consumer 1024 events behind, which is possible (a subscriber task scheduled late, or a different
+conversation sharing the ring) but not the everyday path. The decision above stands on the three
+grounds that do hold — all-or-nothing loss, ring eviction cost, and the unbounded socket queue that
+this feature would otherwise feed at 43 KB/s — and it costs no new dependency.
+
+## 12. Test shape per layer
 
 | Layer | Where | What proves it |
 |---|---|---|
@@ -285,7 +328,7 @@ below is 2.57 s before the model has produced anything.
 
 No live provider in CI; the manual pass is `quickstart.md`.
 
-## 12. What would change the design (recorded, not built)
+## 13. What would change the design (recorded, not built)
 
 * Token streaming in the turn protocol → segmenter replaced by deltas, frames unchanged.
 * A realtime speech-to-speech provider → implements `LiveVoiceEngines`; frames, controls and
