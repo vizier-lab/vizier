@@ -1,6 +1,6 @@
 # Office addon
 
-The **Office** addon lets an agent read and create Word (`.docx`), Excel (`.xlsx`, `.xls` for reading) and PDF (`.pdf`) files. It has no settings and is on by default: every new agent gets it, and agents that existed when it shipped were given it once, on first start. Turn it off or remove it from the agent's **Integrations › Addons** page; nothing turns it back on.
+The **Office** addon lets an agent read and create Word (`.docx`), Excel (`.xlsx`, `.xls` for reading) and PDF (`.pdf`) files. It has no settings. It is not installed by default: add it on the agent's **Integrations › Addons** page, and turn it off or remove it there; nothing turns it back on. Agents that existed when it first shipped were given it once, on the next start.
 
 Files are session files: the agent reads what a person uploaded and delivers what it writes with `send_attachment`.
 

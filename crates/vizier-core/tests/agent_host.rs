@@ -143,6 +143,54 @@ async fn a_command_for_an_agent_the_host_does_not_hold_is_not_answered() {
     running.abort();
 }
 
+/// Creating an agent adds no addon to it: what it can use is chosen from its Addons page, not
+/// seeded by creation (`specs/036-office-addon` US3, R12). The enrolled Office addon is one
+/// another agent already holds, so the create is the only thing that could add one.
+#[cfg(feature = "addon-documents")]
+#[tokio::test]
+async fn a_created_agent_gets_no_addon_of_its_own() {
+    use vizier_core::schema::{EventAction, EventDraft, Integration, IntegrationFamily, Requester};
+    use vizier_core::storage::integration::IntegrationStorage;
+
+    let (deps, _dir) = deps_with("alpha").await;
+    deps.storage
+        .save_integration(
+            &Integration {
+                id: "office-1".into(),
+                kind: "office".into(),
+                family: IntegrationFamily::Addon,
+                name: "Office".into(),
+                settings: serde_json::json!({}),
+                enabled: true,
+                creator: Some(Requester::User("p".into())),
+                agents: vec![],
+                created_at: vizier_core::time::now(),
+                updated_at: vizier_core::time::now(),
+            },
+            Some("alpha"),
+            &[EventDraft::new(Requester::User("p".into()), EventAction::Created)],
+        )
+        .await
+        .unwrap();
+
+    let mut host = AgentHost::new(deps.clone(), vec!["alpha".into()]).await.unwrap();
+    let running = tokio::spawn(async move { host.run().await });
+
+    let client = LocalAgentsClient::new(deps.transport.clone());
+    client
+        .create("beta", config_for("beta"))
+        .await
+        .expect("the host creates the agent");
+
+    let added = deps.storage.list_agent_integrations("beta").await.unwrap();
+    assert!(added.is_empty(), "a new agent starts with no addons: {added:?}");
+    // The other agent's addon is untouched by the create.
+    let kept = deps.storage.list_agent_integrations("alpha").await.unwrap();
+    assert_eq!(kept.len(), 1, "{kept:?}");
+
+    running.abort();
+}
+
 /// The health the host answers with is the agent's own.
 #[tokio::test]
 async fn the_health_the_host_answers_carries_that_agents_id() {

@@ -64,7 +64,12 @@ A person asks the agent for a report, a letter, a budget or a data export. The a
 
 ---
 
-### User Story 3 - Every agent has the capability without setup (Priority: P1)
+### User Story 3 - Every agent can have the capability without setup (Priority: P1)
+
+> **Amended 2026-11-08 (repository owner).** The addon is no longer installed on creation or on upgrade: a
+> person adds it from the agent's Addons page and it behaves like every other addon (FR-015a, FR-016). The
+> scenarios below describe the original on-by-default decision and are kept as history.
+
 
 A person creating an agent, or one who already has agents, finds that the Office tools are simply there. Nothing to install, no credentials, no settings. Agents created from now on get the addon as part of creation. Agents that already exist receive it once, automatically.
 
@@ -155,8 +160,9 @@ Until now the generic `read_document_file` tool also converted Word and Excel fi
 
 **On by default**
 
-- **FR-015**: Every newly created agent MUST receive the `office` addon as part of creation, and its first running instance MUST already offer the tools, without needing a restart.
-- **FR-016**: Every agent that existed before this feature MUST receive the addon exactly once, through a one-time step recorded by a persisted marker so it never runs again.
+- **FR-015**: *(Amended 2026-11-08, repository owner: superseded by FR-015a.)* ~~Every newly created agent MUST receive the `office` addon as part of creation, and its first running instance MUST already offer the tools, without needing a restart.~~
+- **FR-015a**: Creating an agent MUST NOT install any addon on it. The `office` addon is installed the way every other addon is, from the agent's **Integrations › Addons** page (FR-029), and nothing installs it on our behalf: not creation, not an agent update, not a restart, not an upgrade.
+- **FR-016**: *(Amended 2026-11-08, repository owner: retired with FR-015. The one-time step it asked for was removed with the creation seed, so no build seeds the addon at all; an agent that existed before the feature keeps whatever its Addons page says.)* ~~Every agent that existed before this feature MUST receive the addon exactly once, through a one-time step recorded by a persisted marker so it never runs again.~~
 - **FR-017**: Removing the addon from an agent MUST be permanent. Nothing re-adds it on restart, upgrade, agent update or the one-time step.
 - **FR-018**: Seeding MUST be a system action that does not require the agent's owner to hold permission to manage integrations, yet MUST still pass through the same integration management path as any other change: validation, a recorded history entry naming who made the change, and a change notification to the running agent.
 - **FR-019**: The history entry's actor MUST be the agent's owner when one is known, otherwise a system actor. No new kind of actor is introduced for this.
