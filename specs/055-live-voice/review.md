@@ -1,8 +1,9 @@
 # Review: SPEC-055 Live Voice — verification and gate decisions
 
 **Reviewer**: `@mamang-lead-be` | **Date**: 2026-11-08 | **Branch**: `055-live-voice`
-**Reviewing**: `spec.md` (327 lines), `plan.md` (276), `research.md` (165), `data-model.md` (105),
-`contracts/live-voice-frames.md` (138), `diagrams.md` (179), `quickstart.md` (82) — commit `4c38fd73`.
+**Reviewing**: `spec.md` (327 lines at `4c38fd73`, 335 now), `plan.md` (276 → 281), `research.md` (165),
+`data-model.md` (105), `contracts/live-voice-frames.md` (138 → 157 after this review), `diagrams.md`
+(179), `quickstart.md` (82 → 83). Three of them moved **during** this review — see the note below §1.
 
 Everything below was run against the working tree, not accepted from the author's report. Commands are
 reproducible; where a claim failed, the raw output is quoted.
@@ -13,10 +14,10 @@ reproducible; where a claim failed, the raw output is quoted.
 |---|---|---|
 | branch `055-live-voice` exists and is checked out | `git rev-parse --abbrev-ref HEAD` | `055-live-voice` ✅ |
 | 7 files in `specs/055-live-voice/` (incl. `contracts/`) | `ls -la` | 6 `.md` + `contracts/live-voice-frames.md` ✅ |
-| `spec.md` 327 lines | `wc -l` | `327` ✅ |
-| commit `4c38fd73`, local only | `git log --oneline -5` | `4c38fd73 chore: save progress before planning` ✅ |
+| `spec.md` 327 lines at the time of the report | `wc -l` | `327` then, `335` after the amendments of §3 |
+| commit `4c38fd73` was the base, local only | `git log --oneline` | `4c38fd73` then `2dfc92c9`, `6357b0c5 docs: add tasks`, `e5ac773a docs(055): correct two citations…` ✅ |
 | working tree clean | `git status --porcelain` | empty ✅ |
-| `tasks.md` absent | `ls` | absent ✅ (generated in this job, §4) |
+| `tasks.md` absent at the start of this job | `ls` | absent then; it appeared at 15:15 (commit `6357b0c5`, an earlier run on this branch) and was **verified and amended here**, not rewritten (§6, C-2) |
 
 ## 2. Code claims re-checked (LANGKAH 2, first half)
 
@@ -53,9 +54,16 @@ There are only two reachable cases, and the spec's wording ("readable as far as 
   to mark. The UI must say "Stopped by you" (the existing behaviour, `MessageList.tsx`) and the
   session must not claim a partial reply exists.
 
-*Recommendation*: split FR-023 into `a`/`b` along those lines. **Not changed unilaterally** — it is a
-requirement wording change, so it is raised to `@bro-pm` (see §5, needs a yes/no). `tasks.md` is
-written so case 2 is handled correctly either way.
+**Status: already closed in the spec.** `spec.md:220` now states exactly this split — FR-023 was
+clarified in the review delta committed on this branch while this review was being written — and
+**T042** is worded to implement it. Nothing here is left for the User to answer; the finding is kept
+because it is the reason T042 says *first the audio, then the abort, and no invented partial*.
+
+**Note on the files moving under this review**: `spec.md`, `plan.md` and `quickstart.md` were amended
+on this branch at 15:14-15:16 (FR-012 reworded, FR-023 clarified, SC-001 restated to p90 3.5 s / p99 5 s
+with 2 s p50 as a stretch target, a 250 ms onset guard added to Phase D, and the 2.57 s latency floor
+written into the budget). This review was read against `4c38fd73`; where a number here differs from the
+spec, **the spec wins** and this file has been aligned.
 
 **D2 — "marked as spoken" has no server-side field.** FR-011/FR-017 need the stored message to carry
 "came by speech"; today `spoken?: boolean` exists only in the WebUI queue (`frames.ts:36`) and
@@ -69,7 +77,7 @@ voice preprocessing (`agents/agent/mod.rs:712-750`). Added to `tasks.md` as T0xx
 frames all under the single key `live_voice` distinguished only by which fields they happen to carry
 (`state` vs `utterance_id`+`text` vs `base64`). A client cannot dispatch on that safely. Fix:
 `LiveVoiceFrame` is `#[serde(tag = "type", rename_all = "snake_case")]`, i.e.
-`{"live_voice": {"type": "state", …}}`. Applied to the contract in this review (see §6, delta R-1).
+`{"live_voice": {"type": "state", …}}`. Applied to the contract in this review (see §6, delta C-1).
 
 **D4 — outbound frames are a hand-written `match`, not automatic.** `plan.md` Phase C step 3 says the
 topic "forwards it like any other frame". In fact every variant is mapped by hand:
@@ -122,7 +130,7 @@ For an ordinary spoken answer (2-4 sentences) that is fine. For a long answer (a
 person hears nothing until the model finishes: the feature still feels live in the short-answer case
 and does not in the long-answer case. **Risk raised to `@bro-pm`, requirement untouched:**
 
-* R-1: live voice is only as live as the model's whole-response latency. Mitigations that do **not**
+* **RK-1**: live voice is only as live as the model's whole-response latency. Mitigations that do **not**
   change the requirement: (a) instruct the agent, per FR-017, to answer briefly when spoken to; (b)
   show "agent is thinking" text immediately so the pause is explained; (c) token-level speech stays a
   separate feature (FR-013 already excludes it). If the User wants real sub-second first-word, that is a
@@ -132,15 +140,14 @@ and does not in the long-answer case. **Risk raised to `@bro-pm`, requirement un
 
 | # | Decision | Default used by `tasks.md` |
 |---|---|---|
-| D1 | FR-023 split into "reply already arrived → keep + mark interrupted" and "turn aborted before any text → nothing to mark, UI says stopped" | implemented as the split; spec wording left as authored pending a yes |
 | D8 | Q4 cap: spec says none, summary says cap | no new cap (3 min idle + 60 s utterance only) |
-| R-1 | Accept "live = model latency" for long answers? | accepted; FR-017 note asks for spoken-length answers |
+| RK-1 | Accept "live = model latency" for long answers? | accepted; FR-017 note asks for spoken-length answers |
 
 ## 6. Delta applied to the reviewed artifacts (mine, dated)
 
-* **R-1 (contract)** — `contracts/live-voice-frames.md`: every server frame now carries an explicit
+* **C-1 (contract change)** — `contracts/live-voice-frames.md`: every server frame now carries an explicit
   `"type"` inside `live_voice` (D3). Client frames already have distinct `live_voice_*` keys.
-* **R-2 (tasks)** — `tasks.md`: three tasks added (T017 spoken field, T018 spoken note + badge,
+* **C-2 (tasks change)** — `tasks.md`: three tasks added (T017 spoken field, T018 spoken note + badge,
   T019 inbound copy before `to_string()`), seven made specific (T009, T010, T023, T025, T026, T042),
   and every ID from the old `T017` up shifted by three, so the list is 77 tasks in execution order
   (the file was drafted earlier on this branch and is amended, not rewritten — see its own delta

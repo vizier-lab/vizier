@@ -139,7 +139,7 @@ realtime speech-to-speech pipeline later would add new frame names, not change t
 
 ## Review delta (2026-11-08, `@mamang-lead-be`)
 
-**R-1 — every server frame carries a `type` discriminator.** As first written, the six server frames
+**C-1 — every server frame carries a `type` discriminator.** As first written, the six server frames
 shared the single top-level key `live_voice` and were distinguished only by which fields they happened
 to contain (`state` vs `utterance_id`+`text` vs `base64`), which a client cannot dispatch on safely
 (`review.md` D3). The type in code is `#[serde(tag = "type", rename_all = "snake_case")]`:

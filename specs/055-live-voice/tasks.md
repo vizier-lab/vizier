@@ -47,7 +47,7 @@ listens or speaks yet, and no user story can start until this phase is done.
 
 - [ ] T007 Add `LiveVoiceSettings` (`stt: Option<…>`, `tts: Option<…>`, `idle_stop_seconds`, `max_utterance_seconds`, `end_of_utterance_ms`, all defaulted) and `live_voice: ToolConfig<LiveVoiceSettings>` in `crates/vizier-core/src/schema/agent.rs`
 - [ ] T008 Serde test in `crates/vizier-core/src/schema/agent.rs`: an agent JSON **without** the block loads and reads `enabled: false`; one **with** a partial block loads with the documented defaults (FR-040)
-- [ ] T009 Add `LiveVoiceFrame` and `SessionFrame::LiveVoice(LiveVoiceFrame)` in `crates/vizier-core/src/transport/mod.rs`, matching the shapes in `contracts/live-voice-frames.md`; the server frame is `#[serde(tag = "type", rename_all = "snake_case")]` (`state` / `transcript` / `speech` / `error`), per the contract's review delta R-1
+- [ ] T009 Add `LiveVoiceFrame` and `SessionFrame::LiveVoice(LiveVoiceFrame)` in `crates/vizier-core/src/transport/mod.rs`, matching the shapes in `contracts/live-voice-frames.md`; the server frame is `#[serde(tag = "type", rename_all = "snake_case")]` (`state` / `transcript` / `speech` / `error`), per the contract's review delta C-1
 - [ ] T010 Map the new variant to a top-level `live_voice` JSON object in the outbound match of `crates/vizier-http/src/topic.rs:535-600` — every variant is mapped by hand there, so this is an explicit arm, not free serialisation (`review.md` D4); the match is exhaustive, so the compiler is the check
 - [ ] T011 Add `live_voice: bool` beside `tts`/`stt` in the agent detail type at `crates/vizier-core/src/service/agents.rs:69-71`; it reads true only when the flag is on **and** the agent has a usable recogniser and voice (FR-004)
 - [ ] T012 [P] Read `detail.live_voice` in `webui/app/routes/chat.tsx:104-119` beside the existing `stt`/`tts` and pass it to the composer's control state
@@ -274,7 +274,7 @@ tree. Six findings change what a task must say; `architecture.md` is the shape t
 |---|---|---|
 | **D1** — an abort before any reply text is an `Abort` turn that produced nothing (`schema/response.rs:156-166`), so "readable as far as it was produced" has no text to read | T042 | interruption marks the reply only when its `Message` had already arrived; otherwise "Stopped by you", no invented partial |
 | **D2** — nothing server-side records that a message came by speech (`grep -rn "spoken" crates/` is empty) | **new T017, T018**; T026 | `#[serde(default)] spoken: bool` + the FR-017 note in `agents/agent/mod.rs:712-750`; the submission task now names the field |
-| **D3** — the frame contract had no discriminator inside `live_voice` (contract delta R-1) | T009 | `#[serde(tag = "type", rename_all = "snake_case")]` |
+| **D3** — the frame contract had no discriminator inside `live_voice` (contract delta C-1) | T009 | `#[serde(tag = "type", rename_all = "snake_case")]` |
 | **D4** — outbound frames are a hand-written `match` (`topic.rs:535-600`), not free serialisation | T010 | the task names the match and its line range |
 | **D5** — `handle_inbound` stringifies every inbound frame before dispatch (`topic.rs:216`) | **new T019** | the `live_voice_*` branch must be taken before that copy |
 | **D6** — the registry cannot live on `TopicConnection` (per socket) and still refuse a second tab | T023 | one process-wide registry handed over like `Arc<Questions>` (`topic.rs:79-81`) |

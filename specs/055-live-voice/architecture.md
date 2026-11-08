@@ -240,17 +240,22 @@ session returns to `listening` and waits. That is why it works where speaking ov
 `stop()` must be synchronous with the click: `SC-003` (200 ms) is measured from the press to silence,
 and a `Promise` chain that awaits the socket would blow it.
 
-## 9. Latency budget (unchanged from plan, with the split made explicit)
+## 9. Latency budget
+
+Same numbers as `plan.md`, with the stage this feature cannot shorten named separately. SC-001 was
+restated in the spec during this review (p90 3.5 s gate, 2 s p50 stretch) precisely because the floor
+below is 2.57 s before the model has produced anything.
 
 | Hop | Budget p90 | Owner |
 |---|---|---|
 | end of speech → utterance closed | 800 ms | client hangover (tunable) |
 | utterance → recogniser called | 80 ms | server (WAV header by hand) |
 | recognition | 900 ms hosted | provider |
-| turn start → `Message` frame | model latency | unchanged by this feature (R-1) |
+| turn start → `Message` frame | model latency | unchanged by this feature (see RK-1) |
 | `Message` → first segment synthesised | 600 ms hosted | one short first segment |
 | frame → audible | 50 ms | `AudioContext` already resumed |
-| **speech end → first word** | **≤ 2.0 s** hosted (SC-001) | |
+| **the model produces the whole message** | not budgeted: the model's own latency | nothing can be spoken before the message exists (`llm/sse.rs:1-3`); the one stage this feature cannot shorten |
+| **speech end → first word** | **floor 2.57 s + model latency**; gate p90 ≤ 3.5 s, p99 ≤ 5 s; stretch 2 s at p50 (SC-001 as restated) | 800 + 120 + 900 + 100 + 600 + 50 ms before the model answers |
 | barge-in → silence | ≤ 50 ms client, ≤ 300 ms server (SC-002) | |
 | interrupt press → silence | ≤ 200 ms (SC-003) | |
 
