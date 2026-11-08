@@ -38,7 +38,8 @@ microphone and the "ask for a spoken reply" toggle, and is off.
    then `listening`, and the state word is visible without a reload (FR-006, FR-038).
 2. **It answers.** Ask a short question and stop speaking. Within ~800 ms the utterance closes, the
    question appears as your message marked spoken, the reply appears, and you hear its first words
-   within about two seconds (SC-001).
+   within SC-001's gate: p90 under 3.5 s with a hosted recogniser and voice (2 s at p50 is the
+   stretch target, not the gate — the budget's floor is 2.57 s before the model answers).
 3. **It follows up.** Ask a second question without touching anything (Story 1, scenario 3).
 4. **Barge-in.** Ask something that produces a long answer. While it is speaking, say "no, the other
    one". The voice stops before your words are transcribed (FR-019), your correction becomes the next

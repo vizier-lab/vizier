@@ -203,7 +203,7 @@ Every path that leaves `listen` or `speak` except the two interruptions ends the
 - **FR-009**: The session MUST decide on its own when the person starts and stops speaking; the person MUST NOT press anything between turns.
 - **FR-010**: When the person stops speaking for a short pause (default 800 ms), or an utterance reaches the maximum length (default 60 seconds), the utterance MUST be transcribed and submitted as a message in that conversation.
 - **FR-011**: Each submitted message MUST appear in the conversation as that person's message, marked as spoken, with the transcript as its content. The session MUST NOT add anything else to the conversation on the person's behalf.
-- **FR-012**: The agent's reply text MUST appear in the conversation as it is generated and MUST be spoken aloud in the same session; the spoken words MUST correspond to the text shown.
+- **FR-012**: The agent's reply text MUST appear in the conversation and MUST be spoken aloud in the same session; the spoken words MUST correspond to the text shown. Because a turn delivers a finished message rather than token deltas (constraint note under Clarifications), "appear" means as soon as the turn produces its message, not character by character. *(Reworded in the Lead's review, 2026-11-08: the original said "as it is generated", which this turn protocol cannot do.)*
 - **FR-013**: Speaking a reply MUST begin at its first speakable segment, and each further segment MUST be synthesised while the previous one is being heard, so that a long answer is preceded by no long silence and does not wait for its own last sentence. (Token-by-token speech is excluded: the turn protocol delivers a finished message — see the constraint note under Clarifications.)
 - **FR-014**: The spoken form MUST NOT read formatting marks aloud (punctuation used as markup, code fences, raw URLs). What cannot be spoken MUST be skipped with a short notice that the conversation holds the rest to read.
 - **FR-015**: After a reply ends, or after an interruption, the session MUST return to listening without a press.
@@ -217,7 +217,7 @@ Every path that leaves `listen` or `speak` except the two interruptions ends the
 - **FR-020**: A dedicated interrupt control MUST be available for the whole of a live session. Pressing it MUST stop the agent's audio at once and MUST NOT end the session.
 - **FR-021**: The interrupt control MUST work at any moment of a session; pressed while nothing is being spoken, it MUST leave the session live and unchanged.
 - **FR-022**: After an interruption, no part of the interrupted reply MUST be heard later, and the session MUST NOT resume speaking it on its own.
-- **FR-023**: An interrupted reply MUST remain in the conversation as the agent's message, marked as interrupted and readable as far as it was produced, so the person can see what they did not hear.
+- **FR-023**: An interrupted reply MUST remain in the conversation as the agent's message, marked as interrupted, so the person can see what they did not hear. How much text there is depends on when the interruption lands: interrupting while the reply is being spoken keeps the whole message, which was already stored before its first word was heard; interrupting while the model is still producing it ends the turn as an abort (`VizierResponseContent::Abort` is a turn that produced nothing, `crates/vizier-core/src/schema/response.rs:156-163`), so the person sees the interrupted mark and the turn's saved activity trail, not partial prose. *(Clarified in the Lead's review, 2026-11-08: "readable as far as it was produced" promised partial text the abort path does not keep.)*
 - **FR-024**: The words that caused a barge-in MUST become the person's next message, unless they were too short to be one, in which case no message is sent.
 - **FR-025**: A message typed while the agent is speaking MUST stop the audio, exactly as the interrupt control does.
 - **FR-026**: The session MUST NOT interrupt itself: its own audio coming back through the device's speakers MUST NOT be taken as the person speaking, at any output volume and with or without headphones.
@@ -259,7 +259,7 @@ Every path that leaves `listen` or `speak` except the two interruptions ends the
 
 ### Measurable Outcomes
 
-- **SC-001**: From the person finishing a short question to the first audible word of the answer: under 2 seconds in at least 90% of turns and under 3 seconds in at least 99%, on an ordinary laptop and ordinary broadband, with a hosted recogniser and voice. A local-only recogniser or voice is CPU-bound, is expected to be slower, and is measured separately (open question Q3).
+- **SC-001**: From the person finishing a short question to the first audible word of the answer, on an ordinary laptop and ordinary broadband, with a hosted recogniser and voice: **p90 <= 3.5 s and p99 <= 5 s is the release gate**; 2.0 s at p50 is the stretch target. The reason for the gate, not the aspiration: the plan's budget floors at 2.57 s before the model has produced anything (800 ms end-of-utterance + 120 ms to the wire + 900 ms hosted recognition + 100 ms turn start + 600 ms first segment + 50 ms to sound), and the turn protocol delivers the model's whole message rather than token deltas, so the model's own latency sits on top of that floor. A local-only recogniser or voice is CPU-bound, is expected to be slower still, and is measured separately (open question Q3). *(Restated in the Lead's review, 2026-11-08: the earlier 2 s p90 could not be met by the architecture the plan itself describes.)*
 - **SC-002**: Speaking over the agent silences it within 300 ms in at least 95% of attempts, and the next answer addresses the interrupting message in at least 90% of those attempts.
 - **SC-003**: The interrupt control silences the agent within 200 ms in every attempt, in 100 of 100 tries.
 - **SC-004**: In a 10-minute session of at least 15 turns, at least 90% of turns need no interaction other than speaking, and every spoken message appears in the conversation — no lost turns in 100%.
@@ -323,5 +323,13 @@ Nothing was deleted.
 | Three Assumptions lines replaced | They described the questions as open; they now record the answers |
 | SC-001 scoped to hosted speech | A local recogniser cannot meet 2 s; measuring it as if it could would make the criterion meaningless |
 | New `## Open Questions` section | Five questions for the User, each with the default the plan already follows |
+
+**Review delta (Lead, 2026-11-08, before `speckit_tasks`)**: three corrections, all in this file.
+
+| Change | Why |
+|---|---|
+| FR-012 reworded | "appear as it is generated" promised token streaming the turn protocol does not have; it now says "as soon as the turn produces its message" |
+| FR-023 clarified | the abort path keeps no partial prose (`response.rs:156-163`); interrupting during speech keeps the whole message, interrupting during generation keeps the interrupted mark and the activity trail |
+| SC-001 restated | the plan's own budget floors at 2.57 s before the model answers, so 2 s p90 was a target the architecture cannot meet; the gate is now p90 3.5 s / p99 5 s with 2 s p50 as the stretch target |
 
 **Verification**: no open-question marker remains in this file — a `grep -c` for the marker phrase returns `0`, and the only remaining pointer to it is this sentence's description of the delta.

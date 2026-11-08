@@ -42,7 +42,7 @@ Web: `AudioContext`, `AudioWorklet` (already used by `webui/public/vizier-captur
 
 **Target Platform**: the chat interface only — the WebUI in a browser and the desktop app's WebView (FR-035, Clarifications C1). Discord and Telegram are out of scope.
 
-**Performance Goals**: end of the person's speech to the first audible word of the answer: p90 <= 2.0 s with a hosted recogniser and voice (SC-001); barge-in silences the audio on the client in <= 50 ms and server-side in <= 300 ms (SC-002); the interrupt control silences it in <= 200 ms (SC-003).
+**Performance Goals**: end of the person's speech to the first audible word of the answer, with a hosted recogniser and voice: p90 <= 3.5 s and p99 <= 5 s is the release gate, 2.0 s at p50 is the stretch target (SC-001 as restated in the Lead's review; the table below shows why 2 s p90 was not reachable); barge-in silences the audio on the client in <= 50 ms and server-side in <= 300 ms (SC-002); the interrupt control silences it in <= 200 ms (SC-003).
 
 **Constraints**: the variable-size bus envelope is capped at 1 MiB (`crates/vizier-schema/src/envelope.rs:11`), so audio is chunked; frames are JSON text (binary frames are ignored today, `crates/vizier-http/src/api/v1/agents/channel.rs:818`); the turn protocol delivers finished messages, not token deltas (`crates/vizier-core/src/llm/sse.rs:1-3`); the desktop app's CSP is `default-src 'self'` with no wasm allowance (`app/src-tauri/tauri.conf.json:14`), which rules out a wasm VAD worker as shipped.
 
@@ -186,7 +186,10 @@ The decisions that shape the rest of the plan, each with the evidence it rests o
    (FR-026).
 3. On speech start while audio is playing: stop the player locally (<= 50 ms, SC-002) and send
    `live_voice_speech_start`; the server bumps the generation, abandons synthesis and cancels the
-   turn (FR-019, FR-027).
+   turn (FR-019, FR-027). **Onset guard**: the signal is sent only after ~250 ms of voiced energy
+   above the gate, and the gate during `waiting` (the agent is working, nothing is audible) is the
+   same one used during playback — a cough, a door or the room's noise must not cancel a turn that
+   the person never heard (FR-026, SC-008; risk row below).
 4. On utterance end: send `live_voice_utterance_end`; a burst shorter than a word stops the audio and
    submits nothing (Story 2, scenario 5; FR-024).
 5. **Exit criteria**: `vitest` over `vad.ts` with recorded fixtures — speech over a playback sample
@@ -230,7 +233,8 @@ The decisions that shape the rest of the plan, each with the evidence it rests o
 | First `Message` frame | the model's own latency, not ours | unchanged by this feature |
 | First segment synthesised | 600 ms hosted | one short segment, not the whole reply |
 | First audio frame -> sound | 50 ms | `AudioContext` already resumed |
-| **End of speech -> first word of the answer** | **<= 2.0 s** | SC-001, hosted speech only |
+| **The model produces the whole message** | **not budgeted: the model's own latency** | the turn protocol has no token deltas (`llm/sse.rs:1-3`), so nothing can be spoken before the message exists; this is the one stage this feature cannot shorten |
+| **End of speech -> first word of the answer** | **floor 2.57 s + the model's latency** | 800 + 120 + 900 + 100 + 600 + 50 ms; SC-001's release gate (p90 3.5 s) leaves ~0.9 s of model time, and its 2 s stretch target needs a model that answers in ~0 ms, which is why it is a stretch target and not a gate |
 
 Local-only recognisers and local voices (whisper + Kokoro) are expected to miss SC-001; the
 specification's success criterion is therefore measured with the agent's hosted provider, which is
@@ -258,6 +262,7 @@ recorded as open question Q3.
 | Segment boundaries heard as gaps | synthesise one segment ahead and schedule buffers back to back on one `AudioContext` clock |
 | Frame traffic grows with the bus copy | 100 ms chunks (`~4.3 KB` base64) per direction, one session per conversation |
 | A forgotten session listens on | idle stop at 3 min with a visible reason (FR-029) and a microphone indicator (FR-038) |
+| Noise cancels a turn nobody has heard yet | the 250 ms onset guard above, and a higher gate while the state is `waiting`; if it still misfires the fix is a stricter guard, not a spec change |
 | Desktop CSP blocks a later wasm VAD | the optional upgrade needs a CSP change and self-hosted assets; recorded in research.md so nobody adds it silently |
 
 ## Out of scope
