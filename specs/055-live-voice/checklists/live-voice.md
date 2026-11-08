@@ -94,7 +94,7 @@ in the working tree between the first read and the last:
 - **CHK012** — now **passes** (uncommitted): FR-027 defers to FR-023's two cases.
 - **CHK014** — now **passes** (uncommitted): the flow node reads "Reply spoken in segments once its
   message exists".
-- **CHK047** — now **passes**: T073 defines the three gates with client marks and server spans.
+- **CHK047** — now **passes**: T074 defines the three gates with client marks and server spans.
 - **CHK048** — still **fails**: `quickstart.md` has no dummyplug steps.
 - Everything else is unchanged from first read.
 
@@ -116,27 +116,27 @@ own, because a decision nobody wrote a requirement-quality question about is a d
 | CHK012 (FR-027 vs FR-023) | fails, then passing | **passes, committed** | `spec.md:224` defers to FR-023's two cases in the requirement itself |
 | CHK014 (story says "spoken while it is still being written") | fails, then passing | **passes, committed** | `spec.md:55` and the flow node now say "in segments as soon as the turn's message exists" |
 | CHK044 (the abort path exists) | fails, then passing | **passes, committed** | T044 calls `AgentsClient::abort`; the earlier symbol was a test fake |
-| CHK047 (measurement is an owned task) | fails, then passing | **passes, committed** | T073 names the three marks; T074 the spans |
+| CHK047 (measurement is an owned task) | fails, then passing | **passes, committed** | T074 names the three marks; T075 the spans |
 
 ### Added items
 
 - [ ] CHK049 - Is it stated, in the requirement and not only in the plan, that the reply's audio is delivered to **one** connection and never through the session broadcast, with the reason (a broadcast drops all-or-nothing per subscriber)? [Consistency, Ambiguity, Spec §FR-012/FR-019 + Contract §Delivery path]
 - [ ] CHK050 - Does the contract say which frame types may be dropped and which may never be (audio yes, `state`/`transcript`/`error` no), and what the person observes when a drop happens (`stall`)? [Completeness, Edge Case, Contract §Delivery path]
 - [ ] CHK051 - Is the difference between "the queue is full" and "the socket is closed" defined, so that a busy socket cannot be mistaken for a closed tab? [Edge Case, Clarity, Contract §Delivery path, `review.md` D10]
-- [ ] CHK052 - Are the measurement points for SC-001/SC-002/SC-003 named precisely enough that two people measuring the same run get the same number (which event starts the clock, which event stops it, on which side)? [Measurability, Clarity, `latency.md` via T073]
+- [ ] CHK052 - Are the measurement points for SC-001/SC-002/SC-003 named precisely enough that two people measuring the same run get the same number (which event starts the clock, which event stops it, on which side)? [Measurability, Clarity, `latency.md` via T074]
 - [ ] CHK053 - Is it stated which leg of SC-002's "within 300 ms" is meant — the audible stop on the client or the abort reaching the agent — given that the onset guard consumes 250 ms of the server leg? [Ambiguity, Consistency, Spec §SC-002 vs T045]
-- [ ] CHK054 - Is "raw audio is never stored" expressed as an observable outcome (no attachment, no history entry, nothing on disk) rather than as an intention? [Completeness, Spec §FR-016, T080]
-- [ ] CHK055 - Is "the chat surface only" written as something a test can fail on — no `live_voice` frame and no control on the Discord/Telegram paths — rather than as a scope note? [Completeness, Spec §FR-035, T081]
-- [ ] CHK056 - Does the spec define what "no lost turns" means for SC-004 in observable terms (how many turns, how long, what counts as lost), so a soak test can be written against it? [Measurability, Spec §SC-004, T082]
+- [ ] CHK054 - Is "raw audio is never stored" expressed as an observable outcome (no attachment, no history entry, nothing on disk) rather than as an intention? [Completeness, Spec §FR-016, T081]
+- [ ] CHK055 - Is "the chat surface only" written as something a test can fail on — no `live_voice` frame and no control on the Discord/Telegram paths — rather than as a scope note? [Completeness, Spec §FR-035, T082]
+- [ ] CHK056 - Does the spec define what "no lost turns" means for SC-004 in observable terms (how many turns, how long, what counts as lost), so a soak test can be written against it? [Measurability, Spec §SC-004, T083]
 - [ ] CHK057 - Is the resume window after a reconnect (30 s) bound to a rule about the message in flight — may it be re-submitted, must it be deduplicated, who decides? [Consistency, Edge Case, Spec §FR-033, T012/T065]
 - [ ] CHK058 - Are the two interruption paths distinguishable in the requirement text by *who starts them* and *what follows* (a message, or nothing), rather than only by which control was used? [Clarity, Spec §FR-019/FR-020/FR-024]
 
 ### How these were checked
 
 Each item is answered by a sentence, not by code: CHK049-CHK051 by `contracts/live-voice-frames.md` §Delivery
-path (answered, passes); CHK052 by T073's marks (passes as a plan item, but see CHK053); CHK053 is
+path (answered, passes); CHK052 by T074's marks (passes as a plan item, but see CHK053); CHK053 is
 **open** — the spec says "within 300 ms" and nothing there says which leg, so it stays a request to the
-spec owner (recorded as X3 in `analysis.md` §6.2); CHK054-CHK056 pass because T080-T082 exist as of this
+spec owner (recorded as X3 in `analysis.md` §6.2); CHK054-CHK056 pass because T081-T083 exist as of this
 pass; CHK057 passes on FR-033 plus T012/T065; CHK058 passes on FR-024's "unless they were too short to
 be one".
 
@@ -161,14 +161,14 @@ patch left behind and renumbers nothing.
 
 | Item | Status | Why |
 |---|---|---|
-| CHK020 (SC-003 measurable without a start event) | **passes** | T074 names the click and the silence; T052 makes `stop()` synchronous |
-| CHK045 (counts inside the artifacts) | **still fails** | T078 says "nine steps" against ten in `quickstart.md`, and `tasks.md:299` says Phase 2 is 15 tasks while it is 16 after T022 |
-| CHK046 (every requirement traceable to a task) | **partially passes** | FR-016 → T081, FR-035 → T082, SC-004 → T083; FR-018 still has no task (CHK059) |
+| CHK020 (SC-003 measurable without a start event) | **passes** | T075 names the click and the silence; T052 makes `stop()` synchronous |
+| CHK045 (counts inside the artifacts) | **still fails** | T079 says "nine steps" against ten in `quickstart.md`, and `tasks.md:299` says Phase 2 is 15 tasks while it is 16 after T022 |
+| CHK046 (every requirement traceable to a task) | **partially passes** | FR-016 → T082, FR-035 → T083, SC-004 → T084; FR-018 still has no task (CHK059) |
 | CHK049–CHK052 (delivery path, drop policy, full-vs-closed) | **pass** | contract §Delivery path + T020/T021/T022; T022 now owns the `Lagged` arm explicitly |
-| CHK053 (which leg of SC-002) | **still open at the requirement** | the convention is in T046/T074, the spec sentence is unchanged (`analysis.md` M14) |
-| CHK054 (no stored audio as an observable outcome) | **passes** | T081 |
-| CHK055 (chat surface only as a failing test) | **passes** | T082 |
-| CHK056 (SC-004 in observable terms) | **passes** | T083 |
+| CHK053 (which leg of SC-002) | **still open at the requirement** | the convention is in T046/T075, the spec sentence is unchanged (`analysis.md` M14) |
+| CHK054 (no stored audio as an observable outcome) | **passes** | T082 |
+| CHK055 (chat surface only as a failing test) | **passes** | T083 |
+| CHK056 (SC-004 in observable terms) | **passes** | T084 |
 | CHK057 (reconnect bound to a rule about the message in flight) | **passes** | FR-033 plus T066's "never re-submit a message already in flight" |
 | CHK059–CHK064 | **new**: CHK059, CHK061, CHK062, CHK063, CHK064 fail; CHK060 fails because CHK059 does | `analysis.md` H9, M16, M15, M11, M1 |
 
