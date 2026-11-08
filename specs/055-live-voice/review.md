@@ -269,6 +269,8 @@ rewriting the analyst's text wholesale: each row names the file and what it now 
 | C-10 | spec: FR-012, FR-023, FR-027, SC-001 restated; FR-027 now defers to FR-023 | `spec.md` | D1, plus the analyst's own SC-001 error |
 | C-11 | spec: SC-002 names where its clock starts and stops; the third-party edge case stops promising attribution | `spec.md` | H6, H7 (`@teteh-qa`) |
 | C-12 | `quickstart.md` gains a scripted `dummyplug` half and a measurement step | `quickstart.md` | C1 — the constitution's e2e gate had nothing to run |
+| C-13 | tasks: T038/T039 now render the terminal states with their reason and no interrupt control, move the elapsed counter out of the announced text, and require the design system instead of a stylesheet | `tasks.md` | Lead's review, 2026-11-08 — `LiveVoiceBar.tsx:46-47` drops `ended` and `failed` while `session.ts:314-316` and `:324` already hold the reason: FR-006, FR-029, FR-030 |
+| C-14 | tasks: T038 keeps the state words English, and `start()` clears the previous session's notice | `tasks.md` | same review — one Indonesian word in a bar of eight English ones widened it 2.3× in the designer's render; `session.ts:112-114` never resets `view.notice`, so an old reason can surface inside a healthy session |
 
 **Canonical baseline for anything quoting counts**: `specs/055-live-voice/tasks.md`, commit
 `e48e1d03`, **85 tasks (T001–T085)**. Any other number in an older message or report is stale.
