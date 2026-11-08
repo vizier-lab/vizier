@@ -256,7 +256,7 @@ recorded as open question Q3.
 | Person declines the microphone | the session fails with a reason and is retryable without reloading (FR-030) |
 | Browser does not honour echo cancellation | the playback guard is raised (longer ignore window, higher threshold); if self-interruption is still detected the session says so once and suggests headphones, instead of looping |
 | Voice provider fails mid-reply | the rest of the reply still appears as text, the failure is reported, the session listens again (FR-032) |
-| WebSocket drops | state reads reconnecting and audio stops within 2 s; the same session resumes within 30 s or ends with the reason (FR-033) |
+| WebSocket drops | state reads reconnecting and audio stops within 2 s; the same session resumes within 30 s or ends with the reason (FR-033). Resuming re-binds the audio lane to the **new** socket handle (`TopicConnection::open` makes one per socket, `topic.rs:144`), otherwise the session would be live and mute (`review.md` D13) |
 | Agent restarts, conversation deleted | session ends, in-flight reply finishes as text and is never spoken (FR-028, FR-034) |
 | Slow client (frames pile up) | audio is dropped and text never is: the socket's own queue is checked before an audio frame is written (`LIVE_VOICE_SOCKET_BACKLOG = 16` frames), the drop is counted, and one `live_voice_error { kind: "stall" }` follows when the backlog clears; the session is not ended. The socket queue is `flume::unbounded()` (`channel.rs:374`), so this check is the only memory bound there — it is enforced, not assumed (`review.md` D9) |
 

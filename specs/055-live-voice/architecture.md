@@ -55,7 +55,7 @@ flowchart LR
         UTT["Utterance<br/>PCM to WAV"]
         ENG["LiveVoiceEngines<br/>VizierStt / VizierTts"]
         SEG["segmenter<br/>text to segments"]
-        TR["VizierTransport<br/>send_request / send_agent_command"]
+        TR["VizierTransport<br/>send_request / AgentsClient::abort"]
         TURN["Agent turn<br/>existing pipeline"]
     end
     MIC --> WORKLET --> CAP --> VAD --> SM
@@ -106,10 +106,12 @@ message uses. Because the session passes **its own** `ResponseSender`, the reply
 sender and nowhere else: it is provably the answer to the transcript. No broadcast subscription, no
 "guess which Message frame is mine".
 
-Interrupt → cancel: `transport.send_agent_command(AgentCommand::Abort { agent_id, session })`
-(`crates/vizier-core/src/agents_client.rs:415`), which is what `/abort` already becomes
-(`agents_client.rs:305`). Order is fixed: **stop the audio, then abort** (FR-027), so no further words
-are heard while the turn unwinds.
+Interrupt → cancel: `AgentsClient::abort(agent_id, session)`
+(`crates/vizier-core/src/agents_client.rs:205-207`, impl `:298-312`), which sends
+`VizierRequestContent::Command("abort")` — the same thing the Composer's `/abort` sends. There is **no**
+`AgentCommand::Abort` (`crates/vizier-core/src/schema/commands.rs:142`); `agents_client.rs:415` is
+`FakeCall::Abort`, a test fake (`review.md` D12). Order is fixed: **stop the audio, then abort**
+(FR-027), so no further words are heard while the turn unwinds.
 
 **FR-023, two cases (D1)**: if the `Message` frame had already arrived, its text is saved and is kept,
 marked interrupted; if the abort lands before any `Message`, the turn ends as `Abort`
@@ -307,15 +309,42 @@ LiveVoiceSession ──> Arc<ClientConnection> ──send()──> per-connectio
   frame is written straight to the socket, never through the session-event broadcast, which may drop
   frames when a subscriber lags"* (`crates/vizier-core/src/agents/client/connection.rs:1-6`). Live
   voice reuses that decision, not a new one.
-* **The bound has to be where the queue actually grows.** The socket's writer queue is
-  `flume::unbounded()` (`crates/vizier-http/src/api/v1/agents/channel.rs:374`), so neither the 64-slot
-  mpsc nor `broadcast` is the real ceiling. The only place that can see the truth is the outbound
-  loop: before writing a `live_voice_speech` frame, compare `self.out.len()` with
+* **The bound has to be where the queue actually grows.** The whole chain, each link verified in the
+  tree:
+
+  | Link | Fact |
+  |---|---|
+  | socket writer | `mpsc::channel::<Message>(64)` (`crates/vizier-http/src/api/v1/agents/channel.rs:780`) |
+  | `handle_socket` | its `select!` arms `await` `write_tx.send(..)`; while the writer is behind, that arm waits and the loop stops draining `out_rx` (`:790-825`) |
+  | `out_rx` | `flume::unbounded()` (`:374`) — no backpressure at all, so a stalled writer grows it without limit |
+  | `TopicOutbound::run` | the only place that can see the depth: `self.out.len()` (flume 0.12 `Sender::len`) |
+
+  So the gate is there: before writing a `live_voice_speech` frame, compare `self.out.len()` with
   `LIVE_VOICE_SOCKET_BACKLOG` (16). Above it, drop the audio frame; never drop `state`, `transcript`
-  or `error`.
+  or `error`. That is what bounds this feature's memory: 16 × 4.3 KB ≈ 69 KB per socket, instead of a
+  queue that would otherwise accept 43 KB/s forever.
+* **What a stalled writer does *not* do.** It does not starve the broadcast: `events.recv()` runs in
+  `TopicOutbound::run`, spawned as its own task (`crates/vizier-http/src/api/v1/agents/channel.rs:787`
+  — `tokio::spawn(o.run())`), so the subscriber keeps draining and pushing into the flume. `Lagged` is
+  therefore not the everyday consequence of a slow socket (the flume is); it remains a real risk for
+  the *control* ring when a subscriber task is scheduled late or many conversations share it, which is
+  exactly why the volume stayed off it.
+* **Alternative considered and rejected (`@sepuh-be`'s proposal, 15:25).** A second
+  `flume::bounded(20)` audio lane threaded through `TopicConnection::open` (two call sites:
+  `crates/vizier-http/src/api/v1/agents/channel.rs:375` and `crates/vizier-http/src/embedded.rs:56`)
+  plus a priority arm in `handle_socket`. It works, but it buys nothing this does not: a second queue
+  whose depth must be kept in sync with the first, a signature change at two call sites including the
+  desktop IPC path, and a priority arm that can put audio ahead of the `live_voice_state` that must
+  reach the client *before* the speech it describes. `out.len()` measures the same depth at the same
+  moment, with no new plumbing and no dependency.
 * **Signal, not timeout.** `ClientConnection::send` returns `false` once `close()` has taken the
   sender, so a closed tab ends the session with `page_closed` immediately; `false` while the queue is
   full is a stall, and a stall never ends a session.
+* **The lane is re-bound on reconnect.** `TopicConnection::open` builds a **new** `ClientConnection`
+  for every socket (`crates/vizier-http/src/topic.rs:144`), so a session holding the old `Arc` would
+  be alive and mute after a drop and resume. Rule: a `live_voice_start` from the owner while their
+  session is live is idempotent and adopts the caller's current connection; a session whose owner
+  does not return inside FR-033's 30 s ends with `connection_lost` (task T067).
 * **What this leaves alone.** The broadcast ring, its capacity, `SessionFrame`, the outbound match and
   every existing consumer are untouched: only the *route* of the new frames is decided here.
 

@@ -132,6 +132,33 @@ independent of `provider-media`, which is what FR-041 wants. Fix in tasks.
 `false` as "closed", which would end live sessions on a busy socket — the behaviour D9 exists to
 prevent. Fixed in the contract (C-7) and in T020.
 
+**D13 — the delivery lane, after `@sepuh-be` looked for the task that makes it real (15:25).** His
+review of the plan found two things worth acting on and one claim that does not hold. All three were
+re-checked in the tree:
+
+* **Right, and now recorded where the code is:** the socket's `out` is `flume::unbounded()`
+  (`crates/vizier-http/src/api/v1/agents/channel.rs:374`) and the writer is `mpsc::channel::<Message>(64)`
+  (`:780`); a stalled writer makes `handle_socket` wait inside its `write_tx.send(..)` arm (`:790-825`),
+  so `out_rx` stops draining and grows without limit. That chain is why the gate belongs in
+  `TopicOutbound::run` on `self.out.len()`, and `architecture.md` §11 now spells it out link by link.
+* **Wrong, and corrected:** he read the stall as also starving `self.events.recv()` and therefore
+  producing `Lagged`. It does not: `events.recv()` lives in `TopicOutbound::run`, spawned as its own
+  task (`channel.rs:787`), which keeps draining the broadcast into the flume. A slow socket costs
+  memory, not broadcast lag; `Lagged` stays a risk of the *control* ring for other reasons.
+* **A real hole, now a task:** `TopicConnection::open` builds a **new** `ClientConnection` per socket
+  (`topic.rs:144`). Since the session holds the owner's `Arc`, a reconnect inside FR-033's window
+  would leave the session alive and **mute**. New task **T067** re-binds the lane on an idempotent
+  `live_voice_start` from the owner, and ends with `connection_lost` if the owner never returns.
+* **His proposal, decided against:** a second `flume::bounded(20)` audio lane threaded through
+  `TopicConnection::open` (two call sites: `channel.rs:375`, `embedded.rs:56`) plus a priority arm in
+  `handle_socket`. It would work, but it adds a second queue to keep in sync with the first, changes a
+  signature used by the desktop IPC path, and can put audio ahead of the `live_voice_state` that must
+  arrive before the speech it describes. `out.len()` measures the same depth at the same moment.
+  No task touches `channel.rs` **by decision**, not by omission.
+* **Already covered, not re-opened:** his question whether T010 narrows — it was already written to
+  carry control types only, with `speech` impossible to publish through `publish_session_event` by
+  construction (T009/T010).
+
 **D10b — the mockup gate is satisfied, and here is the record.** The constitution asks that a new
 control be shown as a mockup before any UI code; `diagrams.md` §5 has the wireframe (one on/off control
 apart from the mic, one always-visible interrupt control, the state bar), and it is **approved by this
@@ -219,6 +246,7 @@ structure.
 * No other file of the analyst's was edited. Findings that need code-shaped answers (D1, D2, D4-D7)
   live in `architecture.md` and `tasks.md`.
 | D9 | delivery path: per connection, not the session broadcast | `plan.md` Phase C + fallbacks + risks, `contracts` §Delivery path + C-6, `architecture.md` §11 + I9, `tasks.md` T020/T021/T040 (77 → 79 tasks) |
+| D13 | delivery lane: mechanism recorded, reconnect re-bind added, second-queue alternative rejected | `architecture.md` §11, `contracts` §Delivery path, `data-model.md` backlog row, `plan.md` WS-drop fallback, `tasks.md` new T067 (84 → 85 tasks) |
 
 ## 7. Verdict
 

@@ -155,6 +155,12 @@ Rules:
   inside FR-033's 30 s gets the current state without the session holding a per-socket replay log.
   Audio is the volume; audio is the only thing moved off it.
 
+* **The lane follows the socket.** Every socket gets a fresh connection handle
+  (`crates/vizier-http/src/topic.rs:144`), so after a drop and resume the session must adopt the new
+  one: `live_voice_start` from the owner while their session is live is **idempotent** and re-binds
+  the audio lane to the caller's current socket (FR-033). The client sends it again on reconnect; it
+  does not resend the utterance in flight. A session whose owner does not return inside 30 s ends with
+  `connection_lost`.
 * **Client → server is unaffected**: inbound audio still arrives on the topic socket like every other
   client frame, because there is only one socket for it to arrive on.
 

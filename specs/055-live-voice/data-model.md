@@ -23,7 +23,7 @@ restart ends every session (FR-028) and loses nothing but the session.
 | `started_at` | Timestamp | |
 | `last_speech_at` | Timestamp | drives the idle stop (FR-029) |
 | `end_reason` | Option<EndReason> | set once, then the session is gone |
-| `backlog` | usize | frames queued to a slow socket, dropped beyond the cap (plan, fallbacks) |
+| `backlog` | usize | audio frames dropped for a slow socket, counted, not queued: the queue itself is the socket's (`TopicOutbound::run` drops a `speech` frame while `out.len() > LIVE_VOICE_SOCKET_BACKLOG`, contract §Delivery path). One counter per session, surfaced as a single `live_voice_error { kind: "stall" }` per episode |
 
 `EndReason` = `pressed_again | left_conversation | page_closed | permission_withdrawn |
 conversation_deleted | agent_changed | idle | connection_lost | server_restart`.

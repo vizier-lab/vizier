@@ -141,3 +141,37 @@ pass; CHK057 passes on FR-033 plus T012/T065; CHK058 passes on FR-024's "unless 
 be one".
 
 One open item out of ten added, and it is the one that only the spec owner can close.
+
+---
+
+## Third pass — `HEAD f29f3f0d`, appended by `@teteh-qa`
+
+Added after `f29f3f0d` inserted T022 and renumbered every task from the old T022 upward. Task numbers
+below are the `f29f3f0d` ones; the commit, not the number, is the anchor. This pass adds only what the
+patch left behind and renumbers nothing.
+
+- [ ] CHK059 - Is the execution path for a reply to a message the session did **not** submit written down — which component sets the speech flag, and which route carries that reply's audio to the session's speaker? [Coverage, Gap, Spec §FR-018, Architecture §I8]
+- [ ] CHK060 - Does every end-to-end check assert only outcomes that some non-test task implements, so an acceptance test cannot be satisfied by another test? [Consistency, Tasks §T055 vs §T053]
+- [ ] CHK061 - Are the frame names in the task list the same set as the frame names in the contract, including how a stall is expressed (`type: stall` vs `type: error` with `kind: stall`)? [Consistency, Tasks §T009 vs Contract §Delivery path]
+- [ ] CHK062 - Is it stated that control frames and audio frames are serialised once, so the two delivery routes cannot drift into two wire shapes? [Consistency, Tasks §T009/T010 vs §T020]
+- [ ] CHK063 - Is the minimum length that makes a very short utterance a message defined in the same unit as the onset guard, so "no" is either always a message or always noise? [Ambiguity, Spec §Edge Cases vs Tasks §T046]
+- [ ] CHK064 - Is FR-004's refusal expressed as an observable message naming the missing piece and where to set it, rather than only as a boolean the control reads? [Completeness, Spec §FR-004, Tasks §T011]
+
+### Status of the earlier items at this commit
+
+| Item | Status | Why |
+|---|---|---|
+| CHK020 (SC-003 measurable without a start event) | **passes** | T074 names the click and the silence; T052 makes `stop()` synchronous |
+| CHK045 (counts inside the artifacts) | **still fails** | T078 says "nine steps" against ten in `quickstart.md`, and `tasks.md:299` says Phase 2 is 15 tasks while it is 16 after T022 |
+| CHK046 (every requirement traceable to a task) | **partially passes** | FR-016 → T081, FR-035 → T082, SC-004 → T083; FR-018 still has no task (CHK059) |
+| CHK049–CHK052 (delivery path, drop policy, full-vs-closed) | **pass** | contract §Delivery path + T020/T021/T022; T022 now owns the `Lagged` arm explicitly |
+| CHK053 (which leg of SC-002) | **still open at the requirement** | the convention is in T046/T074, the spec sentence is unchanged (`analysis.md` M14) |
+| CHK054 (no stored audio as an observable outcome) | **passes** | T081 |
+| CHK055 (chat surface only as a failing test) | **passes** | T082 |
+| CHK056 (SC-004 in observable terms) | **passes** | T083 |
+| CHK057 (reconnect bound to a rule about the message in flight) | **passes** | FR-033 plus T066's "never re-submit a message already in flight" |
+| CHK059–CHK064 | **new**: CHK059, CHK061, CHK062, CHK063, CHK064 fail; CHK060 fails because CHK059 does | `analysis.md` H9, M16, M15, M11, M1 |
+
+An item failing here is a request to the owner of the sentence, not a bug report. Nothing in this pass
+changes a requirement; there is still no implementation to test.
+
