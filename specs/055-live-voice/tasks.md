@@ -265,12 +265,14 @@ untouched throughout.
 ## Delta of this review (2026-11-08, `@mamang-lead-be`)
 
 This file was drafted on this branch earlier the same day (in the working tree at 15:15, committed as
-`6357b0c5 docs: add tasks`) and is **verified and amended here**, not rewritten: all 74 original tasks
-were checked against the code and kept, three were added, seven were made more specific, and every ID
-from the old `T017` upward moved by three to keep the sequence in execution order.
+`6357b0c5 docs: add tasks`) and is **verified and amended here twice**, not rewritten: all 74 original
+tasks were checked against the code and kept; **five** were added (T017, T018, T019 for the findings
+below, T020 and T021 for the delivery path), seven were made more specific, and the ID sequence was
+renumbered twice (old `T017` and up moved by three, then old `T040` and up by two) so the list stays in
+execution order.
 
 **Why this delta exists**: `review.md` re-checked every citation in `research.md`/`plan.md` against the
-tree. Six findings change what a task must say; `architecture.md` is the shape they take.
+tree. Seven findings change what a task must say; `architecture.md` is the shape they take.
 
 | Finding | Task touched | What changed |
 |---|---|---|
@@ -281,6 +283,7 @@ tree. Six findings change what a task must say; `architecture.md` is the shape t
 | **D5** — `handle_inbound` stringifies every inbound frame before dispatch (`topic.rs:216`) | **new T019** | the `live_voice_*` branch must be taken before that copy |
 | **D6** — the registry cannot live on `TopicConnection` (per socket) and still refuse a second tab | T025 | one process-wide registry handed over like `Arc<Questions>` (`topic.rs:79-81`) |
 | **D7** — `hound` sits behind `provider-media`; using it would couple the new flag | T027 | 44-byte WAV header by hand |
+| **D9** — audio on the session-event broadcast: `Lagged` drops all-or-nothing (`topic.rs:609-613`), the ring is 1024 slots for the whole process (`transport/mod.rs:29`), and the socket itself is an unbounded `flume` (`channel.rs:374`), so "drop only audio" was unimplementable and the real memory bound was missing | **new T020, T021**; the old backlog task is now T040 | frames go to the owner's socket through `ClientConnection::send`, never `publish_session_event`; audio is dropped above `LIVE_VOICE_SOCKET_BACKLOG = 16` at the one place that can see the queue, control frames never are; a closed socket ends the session with `page_closed`. `plan.md` Phase C/fallbacks/risks, the contract (`§Delivery path`, C-6) and `architecture.md` (§11, I9) carry the same decision |
 
 **Also recorded, no task changed**: the author's claim "no new mandatory dependency" holds
 (`Cargo.lock`: `base64 0.23.1`, `tokio` `sync` feature, `serde`, `AudioContext`/`AudioWorklet` already
