@@ -101,5 +101,5 @@ be tuned without a rebuild.
 | Request / message | a request may be voice-originated; the reply that answers it may be spoken | additive flags only; history, search and deletion unchanged (FR-016) |
 | Reply | may be marked *interrupted*, with how much was spoken | text stays complete-as-produced; nothing is rewritten (FR-023) |
 | Agent detail | gains `live_voice: bool` beside `stt` / `tts` | additive; older clients ignore it |
-| `SessionFrame` | gains `LiveVoice(LiveVoiceFrame)` | additive; unknown top-level keys are ignored by existing clients (`frames.ts:619-621`) |
+| `SessionFrame` | gains `LiveVoice(LiveVoiceFrame)` | additive; unknown top-level keys are ignored by existing clients (`frames.ts:607-630`) |
 

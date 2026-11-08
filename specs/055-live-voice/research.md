@@ -23,7 +23,7 @@ latency figure in `plan.md` is a budget, not a result.
 | The WebSocket writes JSON text and ignores binary | `crates/vizier-http/src/api/v1/agents/channel.rs:804` (outbound `Message::Text`), `:818` — `Some(Ok(Message::Pong(_))) \| Some(Ok(Message::Binary(_))) => {}` | Audio in binary frames would be a protocol change; JSON + base64 is not |
 | The bus envelope is capped at 1 MiB | `crates/vizier-schema/src/envelope.rs:11` — `pub const MAX_PAYLOAD: usize = 1_048_576` | 100 ms of PCM16 at 16 kHz is 3.2 KB (4.3 KB base64): a 240x margin |
 | Outbound frames are one enum | `crates/vizier-core/src/transport/mod.rs:57-72` — `enum SessionFrame { Response, Job, Reactions, ClientToolCall, ... }` | One variant carries all live voice traffic |
-| Clients already ignore unknown frames | `webui/app/api/frames.ts:619-621` — `classifyFrame` returns `null` when no known top-level key matches | An older client sees no change (supports FR-040) |
+| Clients already ignore unknown frames | `webui/app/api/frames.ts:607-630` — `classifyFrame` returns `null` when no known top-level key matches | An older client sees no change (supports FR-040) |
 | The recording path captures PCM through a worklet | `webui/app/lib/wavRecorder.ts:1-16`, `:14` — `WORKLET_URL = '/vizier-capture-worklet.js'` | The capture tap for live voice already exists and is CSP-safe |
 | The microphone is requested without constraints | `webui/app/screens/chat/Composer.tsx:295-297` — `getUserMedia({ audio: true })` | Echo cancellation has to be asked for explicitly (FR-026) |
 | Playback is a plain `<audio>` element today | `webui/app/screens/chat/ReplyMedia.tsx` (`AudioPlayer`, attachment URLs) | Not reusable for gapless segments: needs an `AudioContext` queue |
@@ -112,7 +112,7 @@ Constitution Principle I.
 ### R9 — Compatible by construction
 
 The new frames carry a distinct top-level key (`live_voice`), so the existing client's
-`classifyFrame` returns `null` and ignores them (`frames.ts:619-621`); the new `SessionFrame` variant
+`classifyFrame` returns `null` and ignores them (`frames.ts:607-630`); the new `SessionFrame` variant
 is additive; the new agent setting is `#[serde(default)]`. With the flag off, no frame is emitted and
 the capability reads false.
 
@@ -135,7 +135,7 @@ install time.
 
 | Crate | Version | Already in the workspace | Why | Verdict |
 |---|---|---|---|---|
-| `tokio` | 1.49.0 | yes (`sync` feature) | `watch` for the generation counter, `time` for the idle stop and the hangover | already present |
+| `tokio` | 1.53.3 resolved (`Cargo.lock:9741-9742`; the manifest's floor is `1.49.0`, `Cargo.toml:45`) | yes (`sync` feature) | `watch` for the generation counter, `time` for the idle stop and the hangover | already present |
 | `serde` / `serde_json` | workspace | yes | Frame encoding | already present |
 | `base64` | 0.23 | yes | PCM chunk encoding on the frame | already present |
 | `hound` | 3.5 | yes, behind `provider-media` | WAV header for the utterance handed to `transcribe` | already present (or a 44-byte header by hand, if the flag must not imply `provider-media`) |

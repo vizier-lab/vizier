@@ -8,7 +8,7 @@ text. No new endpoint, no new authentication, no binary frames (they are dropped
 `channel.rs:818`).
 
 **Compatibility rule**: every server frame carries a distinct top-level key, `live_voice`, so a client
-that does not know it ignores it (`webui/app/api/frames.ts:619-621`). With `provider-live-voice` off,
+that does not know it ignores it (`webui/app/api/frames.ts:607-630`). With `provider-live-voice` off,
 no `live_voice` frame is ever emitted. Client frames carry `live_voice_*` action names; a server
 without the feature ignores them (its inbound handler drops unknown keys) and the client never sends
 them, because the capability reads false.
