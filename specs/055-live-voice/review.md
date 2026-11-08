@@ -4,7 +4,7 @@
 **Reviewing**: `spec.md` (327 lines at `4c38fd73`, 335 now), `plan.md` (276 → 281), `research.md` (165),
 `data-model.md` (105), `contracts/live-voice-frames.md` (138 → 187 after this review and D9),
 `diagrams.md` (179), `quickstart.md` (82 → 83), `architecture.md` (338), `tasks.md` (290 → 292,
-77 → 79 tasks). Four of them moved **during** this review — see the note below §1, and D9 for the
+77 → 85 tasks). Four of them moved **during** this review — see the note below §1, and D9 for the
 last one.
 
 Everything below was run against the working tree, not accepted from the author's report. Commands are
@@ -176,7 +176,9 @@ procedure; T074 keeps the server-side spans.
 (`agents_client.rs:205-207`, impl `:298-312`), which sends `VizierRequestContent::Command("abort")` —
 the same thing `/abort` does. T044 was rewritten; as written it would not have compiled.
 
-**D13 — the 250 ms onset guard ate SC-002's 300 ms budget** (raised as H6/M11). The guard is now split
+**D15 — the 250 ms onset guard ate SC-002's 300 ms budget** (raised as H6/M11). *(Numbered D15 here:
+D13 in this file is the delivery lane, raised by `@sepuh-be` at 15:25; the colliding heading is
+`analysis.md` M12's finding, fixed without changing what either says.)* The guard is now split
 from the local stop: `player.stop()` runs the moment the gate opens (SC-002's 50 ms, measured from the
 first voiced sample), and the ~250 ms guard only delays *telling the server*. A burst shorter than the
 guard resumes playback from the segments already queued instead of leaving the reply half-spoken
@@ -245,7 +247,7 @@ structure.
   table).
 * No other file of the analyst's was edited. Findings that need code-shaped answers (D1, D2, D4-D7)
   live in `architecture.md` and `tasks.md`.
-| D9 | delivery path: per connection, not the session broadcast | `plan.md` Phase C + fallbacks + risks, `contracts` §Delivery path + C-6, `architecture.md` §11 + I9, `tasks.md` T020/T021/T040 (77 → 79 tasks) |
+| D9 | delivery path: per connection, not the session broadcast | `plan.md` Phase C + fallbacks + risks, `contracts` §Delivery path + C-6, `architecture.md` §11 + I9, `tasks.md` T020/T021/T041 (77 → 79, then 85 with D13's reconnect task) |
 | D13 | delivery lane: mechanism recorded, reconnect re-bind added, second-queue alternative rejected | `architecture.md` §11, `contracts` §Delivery path, `data-model.md` backlog row, `plan.md` WS-drop fallback, `tasks.md` new T067 (84 → 85 tasks) |
 
 ## 7. Verdict

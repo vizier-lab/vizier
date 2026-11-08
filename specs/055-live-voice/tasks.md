@@ -43,7 +43,7 @@ Repository root `/home/muruyung/ngoding/pribadi/vizier`: Rust crates under `crat
 **Purpose**: the setting, the frame family, the capability, and the client's ability to see it. Nothing
 listens or speaks yet, and no user story can start until this phase is done.
 
-**⚠️ CRITICAL**: no user story work begins before T021.
+**⚠️ CRITICAL**: no user story work begins before T022.
 
 - [ ] T007 Add `LiveVoiceSettings` (`stt: Option<…>`, `tts: Option<…>`, `idle_stop_seconds`, `max_utterance_seconds`, `end_of_utterance_ms`, all defaulted) and `live_voice: ToolConfig<LiveVoiceSettings>` in `crates/vizier-core/src/schema/agent.rs`
 - [ ] T008 Serde test in `crates/vizier-core/src/schema/agent.rs`: an agent JSON **without** the block loads and reads `enabled: false`; one **with** a partial block loads with the documented defaults (FR-040)
@@ -111,7 +111,7 @@ listens or speaks yet, and no user story can start until this phase is done.
 - [ ] T043 [P] [US2] Server test in `crates/vizier-http/tests/live_voice_barge_in.rs`: `live_voice_speech_start` bumps the generation, the running turn takes the existing abort path, a synthesised segment from the old generation is dropped
 - [ ] T044 [US2] Client barge-in in `webui/app/lib/liveVoice/session.ts`: on speech start while the reply is audible call `player.stop()` (<= 50 ms) and send `live_voice_speech_start` (FR-019)
 - [ ] T045 [US2] Server barge-in in `crates/vizier-core/src/live_voice/session.rs`: bump the generation, abandon synthesis, then cancel the turn through **`AgentsClient::abort(agent_id, session)`** (`crates/vizier-core/src/agents_client.rs:205-207`, impl `:298-312`) — the same `VizierRequestContent::Command("abort")` the Composer's `/abort` already sends. There is **no** `AgentCommand::Abort` (`crates/vizier-core/src/schema/commands.rs:142` lists `Create`/`Update`/`Delete`/`HealthCheck`/`AgentHealth`/`RefreshIntegrations`/`IntegrationStatus`/`Restart`); `agents_client.rs:415` is `FakeCall::Abort`, a test fake (`review.md` D12, raised by `@teteh-qa` H1) — audio first, abort second; mark the reply interrupted **only when its `Message` had already arrived**, because an abort before any text is an `Abort` turn that produced nothing (`crates/vizier-core/src/schema/response.rs:156-166`) and the UI then shows the existing "Stopped by you" instead of an invented partial (`review.md` D1)
-- [ ] T046 [US2] Playback guard, onset guard and short-burst rule in `webui/app/lib/liveVoice/vad.ts` + `session.ts`: raised gate while the reply is audible, the first 150 ms after each segment ignored, and ~250 ms of voiced energy before `live_voice_speech_start` is sent. **Local silence is not delayed by the guard**: `player.stop()` runs the moment the gate opens (SC-002's client leg, <= 50 ms, is measured from the first voiced sample), and the segments already queued stay in `player.ts` so a burst shorter than the guard **resumes** playback instead of leaving the reply half-spoken (FR-022) and submits nothing (FR-024). The guard does consume most of SC-002's server leg: the abort leaves 250 ms after the guard fires and 300 ms is the ceiling, so server-side 300 ms counts from the guard firing, not from the first sample, and this is recorded as the measurement convention in T075 (`review.md` D13)
+- [ ] T046 [US2] Playback guard, onset guard and short-burst rule in `webui/app/lib/liveVoice/vad.ts` + `session.ts`: raised gate while the reply is audible, the first 150 ms after each segment ignored, and ~250 ms of voiced energy before `live_voice_speech_start` is sent. **Local silence is not delayed by the guard**: `player.stop()` runs the moment the gate opens (SC-002's client leg, <= 50 ms, is measured from the first voiced sample), and the segments already queued stay in `player.ts` so a burst shorter than the guard **resumes** playback instead of leaving the reply half-spoken (FR-022) and submits nothing (FR-024). The guard does consume most of SC-002's server leg: the abort leaves 250 ms after the guard fires and 300 ms is the ceiling, so server-side 300 ms counts from the guard firing, not from the first sample, and this is recorded as the measurement convention in T075 (`review.md` D15)
 - [ ] T047 [US2] Too-short burst in `webui/app/lib/liveVoice/session.ts` and `crates/vizier-core/src/live_voice/utterance.rs`: the audio stops, nothing is submitted, the session listens again (FR-024)
 - [ ] T048 [US2] End-to-end check in `webui/e2e/live-voice-barge-in.spec.ts` with a faked provider: audio stops, the correction is submitted, the interrupted reply keeps its mark
 - [ ] T049 [US2] Confirm stale-generation frames are dropped by the client on arrival in `webui/app/lib/liveVoice/player.ts`, with a unit test in `webui/app/lib/liveVoice/session.test.ts`
@@ -186,7 +186,7 @@ listens or speaks yet, and no user story can start until this phase is done.
 - [ ] T076 Instrument the stages in `crates/vizier-core/src/live_voice/session.rs` (end of utterance, recognition, turn start, first segment, first frame) with `tracing` spans and record p50/p90/p99 in `specs/055-live-voice/latency.md`
 - [ ] T077 Run the flag matrix and record it: `cargo test -p vizier-core`, `cargo test -p vizier-core --features provider-live-voice`, `cargo test -p vizier-http`, `cd webui && npm test`, `cd webui && npm run e2e`
 - [ ] T078 Run `cargo clippy --all-targets` for both flag states and `cd webui && npm run lint`; fix everything new
-- [ ] T079 Walk `quickstart.md` by hand with a hosted provider and record the result of each of its nine steps in the pull request
+- [ ] T079 Walk `quickstart.md` by hand with a hosted provider and record the result of every step in the pull request
 - [ ] T080 Run the `dummyplug` agent-observable e2e gate from the constitution against a running binary (message in, history out) with the speech providers faked
 - [ ] T081 Remove dead code and leftover TODOs from the new modules (`crates/vizier-core/src/live_voice/*`, `webui/app/lib/liveVoice/*`) before the review gate
 - [ ] T082 [P] Assert FR-016 in `crates/vizier-core/src/live_voice/utterance.rs`: the raw audio never reaches storage — the PCM buffer is dropped once the recogniser returns, no `SessionFile`/attachment is created for it, and a test drives one full turn then reads the conversation's stored requests and files to prove only text is there (FR-016; no task asserted this before, `analysis.md` M1)
@@ -276,7 +276,8 @@ raised at 15:25 — and is **verified and amended here three times**, not rewrit
 tasks were checked against the code and kept; **six** were added (T017, T018, T019 for the findings
 below; T020, T021, T022 for the delivery path), eight were made more specific, and the ID sequence was
 renumbered three times (old `T017` and up moved by three, old `T038`/`T040` and up by two, old `T022`
-and up by one) so the list stays in execution order. Total: 84 tasks, T001–T085.
+and up by one) so the list stays in execution order. Total: 85 tasks, T001–T085 (`analysis.md` M12 caught the
+stale 84 here and the stale phase count below).
 
 **Why this delta exists**: `review.md` re-checked every citation in `research.md`/`plan.md` against the
 tree. Seven findings change what a task must say; `architecture.md` is the shape they take.
@@ -297,6 +298,6 @@ tree. Seven findings change what a task must say; `architecture.md` is the shape
 shipped); `tokio` is `1.53.3`, not the `1.49.0` written in `research.md` §C; `classifyFrame` lives at
 `webui/app/api/frames.ts:606-630`, not `:619-621` (already corrected in the analyst's `e5ac773a`).
 
-**Execution order is unchanged**: Phase 1 → Phase 2 (now 15 tasks, T007–T021) → US1..US5 →
+**Execution order is unchanged**: Phase 1 → Phase 2 (16 tasks, T007–T022) → US1..US5 →
 Polish. `@sepuh-be` implements; `@teteh-qa` verifies with `speckit-analyze` + `speckit-checklist`
 after T082.
