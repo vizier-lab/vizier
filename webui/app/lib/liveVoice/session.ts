@@ -90,7 +90,8 @@ export class LiveVoiceClient {
     private utteranceId = 0
     private seq = 0
     private generation = 0
-    private startedAt = 0
+    /** When this turn was accepted: the elapsed counter starts here, per turn (FR-042). */
+    private thinkingStartedAt = 0
     /** Whether a reply is audible: what raises the gate and arms the barge-in (FR-019, FR-026). */
     private replyAudible = false
     /** Set once a barge-in or button stop has silenced the current reply, so it is sent once. */
@@ -125,7 +126,6 @@ export class LiveVoiceClient {
             this.view.micOpen = this.capture.open
             await this.deps.player.resume()
             this.move('listening')
-            this.startedAt = this.now()
             this.tick = setInterval(() => this.render(), 100)
             this.render()
         } catch (e) {
@@ -300,7 +300,13 @@ export class LiveVoiceClient {
         this.view.state = next
         // FR-042: `waiting` is the agent thinking, and it must never look like `reconnecting`.
         const thinking = next === 'waiting'
-        if (thinking && !this.view.thinking) this.view.thinkingMs = 0
+        if (thinking && !this.view.thinking) {
+            // A new turn's silence is counted from its own start, so a second question never
+            // shows the elapsed time of the first.
+            this.thinkingStartedAt = this.now()
+            this.view.thinkingMs = 0
+        }
+        if (!thinking) this.view.thinkingMs = 0
         this.view.thinking = thinking
         if (reason === 'connection_lost' && next === 'reconnecting') {
             this.view.notice = 'connection lost, reconnecting'
@@ -321,7 +327,7 @@ export class LiveVoiceClient {
 
     private render(): void {
         if (this.view.thinking) {
-            this.view.thinkingMs = this.now() - (this.startedAt || this.now())
+            this.view.thinkingMs = Math.max(0, this.now() - this.thinkingStartedAt)
         }
         this.deps.onView({ ...this.view })
     }
