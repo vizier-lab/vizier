@@ -209,7 +209,7 @@ impl VizierTool for MentionAgent {
     }
 
     fn description(&self) -> String {
-        "Wake other agents in this Workspace by mentioning them: it posts `@<agent-id> <message>` to the current topic, exactly as if you had written the mention yourself. They read what you say here, not your tool calls, and answer you only if they mention you back. Mention an agent only when you want it to act. Returns {status: \"posted\", seq, woken, unavailable}, {status: \"not_a_member\", members} listing who can be mentioned, or {status: \"self_mention\"}; nothing is posted unless the status is posted. A message that starts with a skill (`/status-note outage`) gets the mentions after it.".to_string()
+        "Wake other agents in this Workspace by mentioning them: it posts `@<agent-id> <message>` to the current topic, exactly as if you had written the mention yourself. They read what you say here, not your tool calls, and answer you only if they mention you back. A mention is a hand-off, not a name: it wakes that agent to act, and the agent cannot tell that apart from a passing remark. Mention an agent only when you want it to act, and refer to an agent by its bare name when you only mean to talk about it. Returns {status: \"posted\", seq, woken, unavailable}, {status: \"not_a_member\", members} listing who can be mentioned, or {status: \"self_mention\"}; nothing is posted unless the status is posted. A message that starts with a skill (`/status-note outage`) gets the mentions after it.".to_string()
     }
 
     async fn call(&self, args: Self::Input, ctx: &ToolContext) -> Result<Self::Output, VizierError> {
@@ -297,7 +297,7 @@ impl VizierTool for SendMessageToWorkspace {
     }
 
     fn description(&self) -> String {
-        "Post a message to a topic of a Workspace you are a member of, from any conversation, including a scheduled task. `@<agent-id>` in the message wakes that member agent, so a task can orchestrate a Workspace. The topic is created when it does not exist. The message shows where it came from. There is no return path: this conversation is not woken by the replies. Returns {status: \"posted\", seq, woken, unavailable, topic_created}, {status: \"not_found\"} (a missing Workspace and one you are not in answer the same), or {status: \"invalid_name\", rule}.".to_string()
+        "Post a message to a topic of a Workspace you are a member of, from any conversation, including a scheduled task. `@<agent-id>` in the message wakes that member agent, so a task can orchestrate a Workspace. A mention is a hand-off, not a name: the agent cannot tell it apart from a passing remark, so write it only when you want that agent to act, and refer to an agent by its bare name otherwise. The topic is created when it does not exist. The message shows where it came from. There is no return path: this conversation is not woken by the replies. Returns {status: \"posted\", seq, woken, unavailable, topic_created}, {status: \"not_found\"} (a missing Workspace and one you are not in answer the same), or {status: \"invalid_name\", rule}.".to_string()
     }
 
     async fn call(&self, args: Self::Input, ctx: &ToolContext) -> Result<Self::Output, VizierError> {

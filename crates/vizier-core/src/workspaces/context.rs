@@ -36,9 +36,18 @@ pub fn render(facts: &Facts) -> String {
          - People: {people}\n\
          - Agents: {agents}\n\n\
          You read everything said here, and you are woken only when someone writes @{me}. \
-         {by} mentioned you. To bring another agent in, write @<agent-id> in your message: it \
-         wakes them, and they see what you said here, not your tool calls. They answer you only \
-         if they mention you back. Write a mention only when you want that agent to act.",
+         {by} mentioned you.\n\n\
+         Writing @<agent-id> is not a way of naming an agent. It wakes that agent, right now, \
+         with a request to act, and the agent cannot tell that apart from a passing remark: \
+         \"@alpha owns the lock\" hands the lock to alpha exactly as much as \"@alpha, take the \
+         lock\" does. The agent sees only what you wrote here, not your tool calls or your \
+         reasoning.\n\n\
+         So mention an agent for one reason: you want it to do something. If you are only \
+         talking about an agent, write its name without the @ - \"alpha owns the lock\" tells \
+         the room and wakes nobody. If you want it to act, mention it and say what you want \
+         done.\n\n\
+         An agent answers you only if it mentions you back, so a mention nobody needed leaves \
+         a thread with no reply.",
         ws = facts.workspace,
         topic = facts.topic,
         me = facts.me,
@@ -107,6 +116,46 @@ mod tests {
         assert!(text.contains("woken only when someone writes @beta"));
         assert!(text.contains("alpha mentioned you"));
         assert!(!text.contains("older unread"));
+    }
+
+    /// A mention wakes an agent; the agent cannot tell a hand-off from a passing remark. The
+    /// rule has to say so, and has to offer the way out, or an agent that merely names another
+    /// agent in prose wakes it anyway (`specs/053-workspace-channel/spec.md`, edge case
+    /// "an agent named in passing").
+    #[test]
+    fn it_says_a_mention_is_a_hand_off_and_offers_the_bare_name() {
+        let text = render(&facts());
+        assert!(
+            text.contains("is not a way of naming an agent"),
+            "{text}"
+        );
+        assert!(
+            text.contains("cannot tell that apart from a passing remark"),
+            "{text}"
+        );
+        assert!(
+            text.contains("write its name without the @"),
+            "{text}"
+        );
+        assert!(text.contains("wakes nobody"), "{text}");
+        assert!(
+            text.contains("leaves a thread with no reply"),
+            "{text}"
+        );
+    }
+
+    /// The rule is its own paragraph, not the last sentence of a paragraph that also carries
+    /// four other facts: buried in prose it is the part a model is most likely to skim.
+    #[test]
+    fn the_rule_is_a_paragraph_of_its_own() {
+        let text = render(&facts());
+        let paragraphs: Vec<&str> = text.split("\n\n").collect();
+        let rule = paragraphs
+            .iter()
+            .find(|p| p.contains("is not a way of naming an agent"))
+            .unwrap_or_else(|| panic!("no rule paragraph in {text}"));
+        assert!(!rule.contains("- People:"), "{rule}");
+        assert!(!rule.contains("woken only when"), "{rule}");
     }
 
     #[test]
