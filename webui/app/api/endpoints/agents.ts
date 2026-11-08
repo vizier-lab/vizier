@@ -93,6 +93,9 @@ export type AgentDetail = {
     tts_settings?: Record<string, unknown> | null
     stt: boolean
     stt_settings?: Record<string, unknown> | null
+    /** On only when the agent's own switch is on and it has both a recogniser and a voice
+     * (spec 055 FR-004). */
+    live_voice?: boolean
     read_image: boolean
     read_image_settings?: ReadImageSettings | null
     image_gen: boolean

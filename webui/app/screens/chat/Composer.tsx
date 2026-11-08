@@ -22,6 +22,7 @@ import { skillDescription } from '../../lib/skillDescription'
 import { abbreviate } from '../../lib/format'
 import { useMobile } from '../../lib/useMobile'
 import { toast } from '../../stores/toasts'
+import { LiveVoiceControl } from './LiveVoiceControl'
 import { fileSize, MAX_UPLOAD_BYTES, uploadFile } from '../../lib/upload'
 import { WavRecorder } from '../../lib/wavRecorder'
 import type { VizierAttachment } from '../../api/frames'
@@ -54,6 +55,10 @@ type Props = {
     sttEnabled: boolean
     /** The agent has Text-to-Speech, so "Ask for a spoken reply" is offered. */
     ttsEnabled: boolean
+    /** The agent can hold a live voice session (spec 055 FR-004): its own, separate control. */
+    liveVoiceEnabled?: boolean
+    /** Which half is missing when it cannot, so the disabled control can say so. */
+    liveVoiceMissing?: 'recognizer' | 'voice' | null
     busy: boolean
     /** Why it can't send (the agent is down), in place of the placeholder. */
     disabledReason?: string
@@ -83,6 +88,8 @@ export function Composer({
     agentName,
     sttEnabled,
     ttsEnabled,
+    liveVoiceEnabled,
+    liveVoiceMissing,
     busy,
     disabledReason,
     context,
@@ -443,22 +450,35 @@ export function Composer({
                     />
                 }
                 afterTools={
-                    // A spoken reply needs the agent's Text-to-Speech: without it, no toggle.
-                    ttsEnabled && (
-                        <Tooltip label="Ask for a spoken reply">
-                            <button
-                                type="button"
-                                aria-label="Ask for a spoken reply"
-                                aria-pressed={spoken}
-                                onClick={() => setSpoken((on) => !on)}
-                                className={`flex size-28 items-center justify-center rounded-sm hover:bg-raised ${
-                                    spoken ? 'text-live hover:text-live' : 'text-muted hover:text-fg'
-                                }`}
-                            >
-                                <Icon name="volume-2" />
-                            </button>
-                        </Tooltip>
-                    )
+                    <>
+                        {/* Live voice is its own control, separate from the mic and the
+                            spoken-reply toggle (spec 055 FR-001..FR-003), and says why it is
+                            disabled when the agent cannot hold a session (FR-004). */}
+                        {topicId && (
+                            <LiveVoiceControl
+                                agentId={agentId}
+                                topicId={topicId}
+                                capability={liveVoiceEnabled ?? false}
+                                missing={liveVoiceMissing ?? null}
+                            />
+                        )}
+                        {/* A spoken reply needs the agent's Text-to-Speech: without it, no toggle. */}
+                        {ttsEnabled && (
+                            <Tooltip label="Ask for a spoken reply">
+                                <button
+                                    type="button"
+                                    aria-label="Ask for a spoken reply"
+                                    aria-pressed={spoken}
+                                    onClick={() => setSpoken((on) => !on)}
+                                    className={`flex size-28 items-center justify-center rounded-sm hover:bg-raised ${
+                                        spoken ? 'text-live hover:text-live' : 'text-muted hover:text-fg'
+                                    }`}
+                                >
+                                    <Icon name="volume-2" />
+                                </button>
+                            </Tooltip>
+                        )}
+                    </>
                 }
                 beforeSend={
                     project && (

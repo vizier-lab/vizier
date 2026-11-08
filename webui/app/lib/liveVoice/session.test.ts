@@ -5,7 +5,7 @@ import type { SessionState } from './frames'
 
 /** A client wired to a fake socket and a silent player, so every transition is observable. */
 function harness(options: { captureFails?: string } = {}) {
-    const sent: Record<string, unknown>[] = []
+    const sent: object[] = []
     const views: LiveVoiceView[] = []
     const player = new SilentPlayer()
     let clock = 1000

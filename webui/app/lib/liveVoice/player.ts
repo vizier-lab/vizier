@@ -39,7 +39,8 @@ export class WebAudioPlayer implements Player {
     enqueue(samples: Float32Array, sampleRate: number, _final: boolean): void {
         if (samples.length === 0) return
         const buffer = this.context.createBuffer(1, samples.length, sampleRate)
-        buffer.copyToChannel(samples, 0)
+        // Copied into a plain Float32Array:  does not take a possibly-shared view.
+        buffer.copyToChannel(new Float32Array(samples), 0)
         const source = this.context.createBufferSource()
         source.buffer = buffer
         source.connect(this.context.destination)

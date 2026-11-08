@@ -6,6 +6,7 @@ import {
     topicHistory,
     topicJobs,
 } from '../api/endpoints/chat'
+import { forwardLiveVoiceFrame } from '../lib/liveVoice/control'
 import { classifyFrame, type ChatMessage, type ModelOverride, type QuestionAnswerPayload, type VizierRequestContent } from '../api/frames'
 import { emptyTopic, reduce, type Action, type TopicState } from '../lib/frames'
 import { modelOverridePayload } from '../lib/modelOverride'
@@ -159,6 +160,8 @@ export const useTurns = create<TurnStore>()((set, get) => {
 
             useConnection.getState().open(agentId, topicId, {
                 onFrame: (raw) => {
+                    // A live voice frame is the session's, not the transcript's.
+                    if (forwardLiveVoiceFrame(agentId, topicId, raw)) return
                     const frame = classifyFrame(raw)
                     if (!frame) return
                     // An agent's reply arrived (a streamed step or an error is not one).

@@ -543,6 +543,7 @@ export default function Chat() {
                         }}
                         sttEnabled={voice?.stt ?? false}
                         ttsEnabled={voice?.tts ?? false}
+                        liveVoiceEnabled={voice?.liveVoice ?? false}
                         busy={state.phase !== 'idle'}
                         disabledReason={
                             failed
