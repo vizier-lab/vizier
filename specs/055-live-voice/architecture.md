@@ -25,7 +25,7 @@ D3 correction, and the invariants QA can test. No code here.
 | outbound arm | `crates/vizier-http/src/topic.rs:535-600` | per socket | `SessionFrame::LiveVoice(f) => Some(json!({"live_voice": f}))` — control only, the match never sees audio (D4) |
 | delivery (server → client) | `ClientConnection::send` (`crates/vizier-core/src/agents/client/connection.rs`) | per socket, bounded (64) | live voice frames go to the **owner's** socket, never the session-event broadcast (§11, D9); audio is dropped before control |
 | audio chunking, VAD, player, state machine | `webui/app/lib/liveVoice/{capture,vad,player,session}.ts` | client | capture 100 ms PCM16, energy VAD, gapless playback, generation guard |
-| the two controls | `webui/app/screens/chat/LiveVoiceButton.tsx`, `LiveVoiceBar.tsx` | client | one on/off control, one always-visible interrupt control |
+| the control and the call screen | `webui/app/screens/chat/LiveVoiceButton.tsx` (starts/ends the call), `webui/app/screens/livevoice/LiveVoiceCall.tsx` (the call itself, FR-043) | client | one on/off control in the conversation; the call screen replaces that conversation view for the session and shows the agent, the FR-006 state word, FR-042's thinking indicator, the open microphone (FR-038) and the way out (FR-045). **There is no interrupt control** — C7 moved it to the backlog |
 
 `vizier-http` must build **with the feature off**: every reference to `live_voice` in that crate is
 behind `#[cfg(feature = "provider-live-voice")]` (FR-041), and the inbound branch falls through to
@@ -43,8 +43,8 @@ flowchart LR
         SM["session.ts<br/>state machine + generation guard"]
         PLAY["player.ts<br/>AudioContext, one queue"]
         SPK["Speakers"]
-        BTN["LiveVoiceButton<br/>on / off"]
-        BAR["LiveVoiceBar<br/>state, meter, Interrupt"]
+        BTN["LiveVoiceButton<br/>starts and ends the call"]
+        BAR["LiveVoiceCall<br/>state, thinking, mic, hang up"]
     end
     subgraph Server["Vizier server"]
         SOCK["Topic socket<br/>channel.rs:818 JSON only"]
@@ -192,31 +192,61 @@ sequenceDiagram
     S->>C: live_voice_speech gen 7 seq 3
     C->>C: play segment 3
     P->>C: "no, the other file"
-    C->>C: player.stop now, queue drained
     C->>S: live_voice_speech_start u-42
     S->>L: speech_start
+    L->>L: open utterance u-42, generation stays 7
+    Note over L,C: the agent keeps speaking (C8, FR-019)
+    P->>C: finishes speaking
+    C->>C: the 800 ms hangover elapses
+    C->>S: live_voice_utterance_end u-42
+    S->>L: utterance_end
+    L->>L: too short? nothing is cancelled (FR-024)
     L->>L: generation 8, synthesis loop exits
     L->>T: Abort the running turn
-    L->>S: live_voice_state interrupted gen 8
-    S->>C: state interrupted
+    L->>S: live_voice_state waiting gen 8
+    S->>C: state waiting
+    C->>C: every queued segment of gen 7 is dropped
     L->>S: live_voice_speech gen 7 seq 4 late
     C->>C: dropped, generation is 8
-    P->>C: finishes speaking
-    C->>S: live_voice_utterance_end u-42
-    S->>L: recognise u-42
+    L->>T: recognise u-42
     L->>T: new request, transcript as content
-    Note over C: state waiting, no press needed
+    Note over C: the answer to the correction, no press needed
 ```
 
-Three guards make "no part heard later" true (FR-022): the client stops its sources synchronously —
-and does so on the gate opening, not after the ~250 ms onset guard, which only delays telling the
-server (D15);
-the client refuses any frame below the generation it has seen, and the server's synthesis loop stops
-before it can emit the next segment. FR-019's "before their words are transcribed" holds because
-`player.stop()` and `live_voice_speech_start` are sent on the same tick the VAD fires — recognition
-starts only at `utterance_end`, hundreds of milliseconds later.
+**Who stops the audio, and when (C8, FR-019).** Not the client on the first voiced sample: the person
+speaking does not silence the agent by itself. The session opens the utterance and lets the reply run on.
+The stop comes from the **end** of that utterance — the 800 ms hangover of FR-010 — and it travels as a
+generation bump, so three things happen in one order:
 
-## 7. Sequence — the interrupt control
+1. the session moves the generation (the synthesis loop exits between segments, and the caller sees
+   `waiting` on the new generation),
+2. the turn is cancelled on the existing stop path (`Command("abort")`, FR-027),
+3. the client drops every queued segment whose generation is below the one it has seen (FR-022).
+
+Nothing is heard from the interrupted reply after that, because nothing of the old generation is played
+again — the client's queue is filtered by generation on arrival, not by a timer.
+
+**Why the onset guard is retired (D15 → C8).** The ~250 ms voiced-energy guard existed to stop a cough
+from cancelling a reply that the person had not heard. With the trigger at the *end* of speech that job
+is done by FR-024 instead: an utterance too short to be a word cancels nothing and submits nothing, so a
+cough costs neither the reply nor a message. Keeping both would mean a cough had to survive two
+thresholds to be ignored.
+
+**What C8 costs, stated plainly (FR-047, SC-008).** While the person talks, the agent talks — so the
+microphone hears the agent. The hangover that ends the utterance can therefore never elapse, and the
+agent can never be interrupted at all. `FR-047` requires the end of speech to be detected *while the
+reply is audible*; the mechanisms are the browser's echo cancellation, a raised gate (or ducking the
+playback's contribution to the microphone, not the volume the person hears), and SC-008 is the release
+gate — a reply at 80 % volume, no headphones, ten minutes, no self-interruption.
+
+## 7. Sequence — the interrupt control (deferred, C7)
+
+**Out of scope for this release.** The User moved the interrupt control to the backlog on
+2026-11-08 (Clarifications C7, `spec.md` US3 `Priority: backlog`, FR-020/FR-021 struck as deferred,
+`tasks.md` T051–T057 `[BACKLOG]`). The sequence below is kept because the mechanism it uses is the one
+barge-in already needs — `interrupt` moves the generation, cancels the turn, and ends no session — so
+reinstating the control later is a screen and a frame, not a new design. Nothing here is built now, and
+no checkpoint waits on it.
 
 ```mermaid
 sequenceDiagram
