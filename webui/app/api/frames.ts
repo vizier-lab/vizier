@@ -1,7 +1,10 @@
 // The wire types of a chat topic: requests, replies, history entries, jobs, client tools and
 // the frames the socket carries (specs/024-webui-rewrite/contracts/websocket.md). Hand-typed:
 // the socket protocol is not in the OpenAPI document. Carried over from the previous WebUI,
-// plus the `Recall` entry and the `session_file` frame.
+// plus the `Recall` entry, the `session_file` frame, and the live voice frames of
+// specs/055-live-voice.
+
+import { decodeServerFrame, type ServerFrame } from '../lib/liveVoice/frames'
 
 
 // ============================================================================
@@ -591,6 +594,7 @@ export type Frame =
     | { kind: 'question_set'; update: QuestionSetUpdate }
     | { kind: 'sensitive_ask'; ask: SensitiveAsk }
     | { kind: 'sensitive_ask_closed'; askId: string; outcome: SensitiveAskOutcome }
+    | { kind: 'live_voice'; frame: ServerFrame }
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
 
@@ -623,6 +627,11 @@ export function classifyFrame(raw: unknown): Frame | null {
     if ('sensitive_ask_closed' in raw && isObj(raw.sensitive_ask_closed)) {
         const closed = raw.sensitive_ask_closed as { ask_id: string; outcome: SensitiveAskOutcome }
         return { kind: 'sensitive_ask_closed', askId: closed.ask_id, outcome: closed.outcome }
+    }
+    if ('live_voice' in raw) {
+        const frame = decodeServerFrame(raw)
+        // An older payload under the same key is ignored rather than half-rendered.
+        if (frame) return { kind: 'live_voice', frame }
     }
     if (CLIENT_KEYS.some((k) => k in raw)) return { kind: 'client', frame: raw as unknown as ClientFrame }
     if ('content' in raw) return { kind: 'response', response: raw as unknown as WebSocketResponse }
