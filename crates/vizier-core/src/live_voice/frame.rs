@@ -17,6 +17,13 @@ pub const CHUNK_SAMPLES: usize = (SAMPLE_RATE as usize) / 10;
 pub const CHUNK_BYTES: usize = CHUNK_SAMPLES * 2;
 /// Base64 of one chunk is 4/3 of the bytes, rounded up to a multiple of four.
 pub const CHUNK_BASE64: usize = CHUNK_BYTES.div_ceil(3) * 4;
+/// The largest `base64` a client may send in one `live_voice_audio` frame: one chunk plus half of
+/// another, about 6.3 KB of text.
+///
+/// T015 asks for "larger than one chunk (~6 KB of base64)" to be refused. One chunk is 4 268
+/// characters, so two chunks (8 536) is twice the task's bound and would let a client drift; this
+/// is the bound a client with a slightly different resampler still fits inside.
+pub const MAX_AUDIO_FRAME_BASE64: usize = CHUNK_BASE64 + CHUNK_BASE64 / 2;
 
 /// The FR-006 state word, one for one, so the client never invents a state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

@@ -304,8 +304,10 @@ impl TopicConnection {
                 let Some(session) = sessions.get(&self.session).filter(|s| owned(s)) else {
                     return;
                 };
-                // T015: one chunk is ~6 KB of base64. Anything larger is refused, never buffered.
-                if audio.base64.len() > vizier_core::live_voice::CHUNK_BASE64 * 2 {
+                // T015: a little over one chunk (~6.3 KB of base64) is the most a frame may carry.
+                // Anything larger is refused outright rather than buffered, so a client cannot make
+                // the server hold an unbounded utterance one frame at a time.
+                if audio.base64.len() > vizier_core::live_voice::MAX_AUDIO_FRAME_BASE64 {
                     self.send_live_voice(LiveVoiceControl::Error {
                         kind: EndReason::ProviderFailed,
                         message: "an audio chunk was larger than one chunk of the contract".into(),

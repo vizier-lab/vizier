@@ -22,7 +22,7 @@ pub mod utterance;
 
 pub use frame::{
     CHUNK_BASE64, CHUNK_BYTES, CHUNK_SAMPLES, ClientAction, EndReason, FORMAT, InterruptReason,
-    LiveVoiceControl, LiveVoiceSpeech, SAMPLE_RATE, SessionState, SpeechKind,
+    LiveVoiceControl, LiveVoiceSpeech, MAX_AUDIO_FRAME_BASE64, SAMPLE_RATE, SessionState, SpeechKind,
 };
 pub use engines::{CascadeEngines, LiveVoiceEngines, SharedEngines};
 pub use segmenter::{Segment, segment};
