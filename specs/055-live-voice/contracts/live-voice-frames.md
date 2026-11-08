@@ -141,7 +141,7 @@ Rules:
   one `live_voice_error { kind: "stall" }`. A stall never ends the session.
 * **A closed socket ends the session; a full queue does not.** `ClientConnection::send` is
   `try_send(..).is_ok()`, so it returns `false` **both** when the queue is full (`Full`, capacity 64,
-  `crates/vizier-http/src/topic.rs:143`) and when the connection has closed (`Closed`). Only the second
+  `crates/vizier-http/src/topic.rs:141`) and when the connection has closed (`Closed`). Only the second
   is an ending: the session ends with reason `page_closed` when `!connection.is_open()` (FR-028), and a
   `false` while the connection is still open is a dropped audio frame, counted, nothing more. Reading
   `false` as "closed" would end live sessions on a busy socket — the exact opposite of dropping audio

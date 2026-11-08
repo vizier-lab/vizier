@@ -127,7 +127,7 @@ independent of `provider-media`, which is what FR-041 wants. Fix in tasks.
 
 **D10 — `ClientConnection::send` returns `false` for two different events.** It is
 `try_send(frame).is_ok()` (`crates/vizier-core/src/agents/client/connection.rs`) and the queue is
-`mpsc::channel::<serde_json::Value>(64)` (`crates/vizier-http/src/topic.rs:143`): `false` means
+`mpsc::channel::<serde_json::Value>(64)` (`crates/vizier-http/src/topic.rs:141`): `false` means
 **full** or **closed**, and only the second ends a session. The D9 patch as first written read
 `false` as "closed", which would end live sessions on a busy socket — the behaviour D9 exists to
 prevent. Fixed in the contract (C-7) and in T020.
