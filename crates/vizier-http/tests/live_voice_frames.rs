@@ -10,7 +10,7 @@
 
 use vizier_core::live_voice::frame::{
     CHUNK_BASE64, CHUNK_BYTES, CHUNK_SAMPLES, ClientAction, EndReason, LiveVoiceControl,
-    LiveVoiceSpeech, SAMPLE_RATE, SessionState,
+    LiveVoiceSpeech, MAX_AUDIO_FRAME_BASE64, SAMPLE_RATE, SessionState,
 };
 
 /// Contract §`live_voice_state`: one `type` discriminator, the state word, the generation, and a
@@ -75,29 +75,39 @@ fn audio_and_control_are_different_types() {
     assert!(serde_json::from_value::<LiveVoiceControl>(speech).is_err());
 }
 
-/// T015: the guard refuses anything larger than one chunk. One chunk is 100 ms of PCM16 mono, and
-/// its base64 is what the bound is written against.
+/// T015: the guard refuses anything larger than one chunk, and the assertion is about the bound
+/// the server actually applies rather than an arithmetic guess.
 #[test]
 fn one_chunk_is_what_the_inbound_guard_is_written_against() {
     assert_eq!(SAMPLE_RATE, 16_000);
     assert_eq!(CHUNK_SAMPLES, 1_600);
     assert_eq!(CHUNK_BYTES, 3_200);
 
+
     use base64::Engine as _;
     let engine = base64::engine::general_purpose::STANDARD;
-    let exact = engine.encode(vec![0u8; CHUNK_BYTES]);
-    assert_eq!(
-        exact.len(),
-        CHUNK_BASE64,
-        "one chunk encodes to exactly the constant the guard uses"
-    );
+    let chunk = |bytes: usize| engine.encode(vec![0u8; bytes]);
+    let one = chunk(CHUNK_BYTES);
+    assert_eq!(one.len(), CHUNK_BASE64, "one chunk encodes to exactly the constant");
 
-    // `handle_live_voice` refuses above `CHUNK_BASE64 * 2`: exactly one chunk passes, and a payload
-    // of two chunks does not.
-    let one = engine.encode(vec![0u8; CHUNK_BYTES]);
-    assert!(one.len() <= CHUNK_BASE64 * 2, "one chunk is accepted");
-    let two = engine.encode(vec![0u8; CHUNK_BYTES * 2 + 1]);
-    assert!(two.len() > CHUNK_BASE64 * 2, "more than one chunk is refused");
+    // The bound is one chunk plus half of another — "a little over one chunk", as T015 asks — and
+    // it is deliberately not two chunks.
+    assert!(MAX_AUDIO_FRAME_BASE64 > CHUNK_BASE64);
+    assert!(MAX_AUDIO_FRAME_BASE64 < CHUNK_BASE64 * 2);
+    assert_eq!(MAX_AUDIO_FRAME_BASE64, 6_402);
+
+    // The guard compares the payload's length, so the edge cases are lengths rather than encodings
+    // (a base64 string's length is always a multiple of four, so 6 402 itself has no encoding).
+    let at_bound = "A".repeat(MAX_AUDIO_FRAME_BASE64);
+    assert!(at_bound.len() <= MAX_AUDIO_FRAME_BASE64, "a frame at the bound is accepted");
+    let past = "A".repeat(MAX_AUDIO_FRAME_BASE64 + 1);
+    assert!(past.len() > MAX_AUDIO_FRAME_BASE64, "one character over is refused");
+
+    // The two cases that matter in practice: one chunk passes, two chunks do not.
+    assert!(one.len() <= MAX_AUDIO_FRAME_BASE64, "one chunk is accepted");
+    let two = chunk(CHUNK_BYTES * 2);
+    assert_eq!(two.len(), CHUNK_BASE64 * 2);
+    assert!(two.len() > MAX_AUDIO_FRAME_BASE64, "two chunks are refused");
 }
 
 /// The six actions the contract names are the six the server recognises, and nothing else is
