@@ -159,3 +159,31 @@ grep -n 'stall' specs/055-live-voice/contracts/live-voice-frames.md   # M16: kin
 grep -n 'SessionFrame::LiveVoice' specs/055-live-voice/tasks.md       # M15: T009/T010
 ```
 
+
+
+## 6. Lead's re-check after the fixes (`@mamang-lead-be`, 2026-11-08, at `0ae103ba`)
+
+Everything in §1-§3 was verified against the commit named there (`f29f3f0d`/`ea21843f`). Since then the
+tree moved and **every ID in this file shifted by one from T054 upward** (a task was inserted for
+FR-018). Re-read §1-§3 through this table, not the ids in them.
+
+| Was | Is now | What changed |
+|---|---|---|
+| H9 open (FR-018 has no mechanism) | **closed** | **T054** accepts `live_voice_text`, submits it with `spoken: false` and keeps the `ResponseSender`; T053 sends it; `contracts` C-12 and `architecture.md` §4 record the rule |
+| M1 open (FR-004 message) | **closed** | T037 now says which half is missing and links to the agent's speech settings |
+| M11 open (short utterance vs guard) | **closed** | T047 + `plan.md` Phase D: the guard governs *barge-in* only; the utterance path governs *messages*; "too short" is a duration, never a character count |
+| M15 open (two serialisers) | **closed** | T010 uses `serde_json::to_value` for the control lane, the same serialiser as T020 |
+| M16 open (`stall` as a type) | **already closed** | the contract has `{ "type": "stall", "dropped": N }` and T009 lists it |
+| M12 open (two stale counts) | **closed** | no occurrence of "nine steps" or the Phase 2 count remains |
+| H6 / M14 (which leg of SC-002) | **closed by the spec** | SC-002 now names its clock: 50 ms to silence on the client, 300 ms to the cancelled turn measured from the guard firing |
+| H7 (third-party attribution) | **closed by the spec** | the edge case no longer promises attribution; it says the detector has no speaker identity and diarization would be its own specification |
+| M5 (Q4 concurrency vs D8 duration) | **closed** | `review.md` §5 keeps them as two questions and takes neither for the User |
+| L2 / L4 | **accepted as they stand** | SC-005 is manual by nature; traceability churn is not worth the edits |
+| id examples: T067 reconnect, T082 FR-016, T083 FR-035, T084 SC-004 | T068, T083, T084, T085 | +1 from T054 up |
+
+**Counts at `0ae103ba`**, counted from the file rather than quoted: 86 tasks (T001–T086) — Phase 1 6 ·
+Phase 2 16 · US1 19 · US2 8 · US3 8 · US4 8 · US5 8 · Polish 13. Anything quoting 84, 85 or 79 is from
+an earlier commit.
+
+**Still open, and not mine to close**: RK-1 (requirement question for the User) and the live-provider
+audio pass (manual by nature). `speckit-implement` still needs the User's go.

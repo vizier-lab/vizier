@@ -175,3 +175,10 @@ patch left behind and renumbers nothing.
 An item failing here is a request to the owner of the sentence, not a bug report. Nothing in this pass
 changes a requirement; there is still no implementation to test.
 
+
+## Re-check at `0ae103ba` (`@mamang-lead-be`)
+
+**CHK045 (counts)** now **passes**: no "nine steps", no stale Phase 2 count; the canonical figure is
+**86 tasks, T001–T086**.
+**CHK046 (traceability)** now **passes for FR-018**: T054 implements it, T056 asserts it.
+Every `T0xx` id in this file from T054 upward is **one lower than the truth** — add one when reading.
