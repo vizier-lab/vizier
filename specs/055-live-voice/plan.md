@@ -204,7 +204,12 @@ The decisions that shape the rest of the plan, each with the evidence it rests o
    during `waiting` (nothing audible) is the same one used during playback — a cough or a door must not
    cancel a turn the person never heard (FR-026, SC-008; risk row below).
 4. On utterance end: send `live_voice_utterance_end`; a burst shorter than a word stops the audio and
-   submits nothing (Story 2, scenario 5; FR-024).
+   submits nothing (Story 2, scenario 5; FR-024). **The precedence**: the ~250 ms onset guard governs
+   *barge-in only* — a burst under it never reaches the server and playback resumes; the
+   end-of-utterance path governs *what becomes a message* — any utterance the VAD closes is recognised,
+   and "no"/"stop" is submitted however short it is. "Too short" is a duration (the guard), never a
+   character count, and an empty transcript is `unintelligible` (FR-031), not too short (`analysis.md`
+   M11).
 5. **Exit criteria**: `vitest` over `vad.ts` with recorded fixtures — speech over a playback sample
    triggers, playback alone at 80% volume does not; `session.ts` never emits `start` twice.
 
