@@ -198,6 +198,11 @@ pub struct AgentToolsConfig {
     pub tts: ToolConfig<TtsToolSettings>,
     #[serde(default)]
     pub stt: ToolConfig<SttToolSettings>,
+    /// Live voice (`specs/055-live-voice`): its own switch, independent of `stt.enabled` and
+    /// `tts.enabled` (FR-003). Absent from a stored agent, it reads `enabled: false` and the
+    /// defaults below, so that agent behaves exactly as it does today (FR-040).
+    #[serde(default)]
+    pub live_voice: ToolConfig<LiveVoiceSettings>,
     #[serde(default)]
     pub read_image: ToolConfig<ReadImageToolSettings>,
     #[serde(default)]
@@ -208,6 +213,37 @@ pub struct AgentToolsConfig {
 pub struct ToolConfig<Settings> {
     pub enabled: bool,
     pub settings: Settings,
+}
+
+/// The live voice session's settings (`specs/055-live-voice` data model §5).
+///
+/// Both speech fields are `None` by default, and `None` means "use this agent's own `stt` / `tts`
+/// settings, whatever their tool flags say": those flags gate the *tools*, not the session
+/// (FR-003, FR-036a). The three numbers are the spec's defaults, exposed so the plan's budgets can
+/// be tuned without a rebuild.
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(default)]
+pub struct LiveVoiceSettings {
+    pub stt: Option<SttToolSettings>,
+    pub tts: Option<TtsToolSettings>,
+    /// FR-029: a session with no utterance for this long ends itself.
+    pub idle_stop_seconds: u64,
+    /// FR-010: one utterance is capped here; the server enforces it.
+    pub max_utterance_seconds: u32,
+    /// FR-010: the client's end-of-utterance hangover.
+    pub end_of_utterance_ms: u32,
+}
+
+impl Default for LiveVoiceSettings {
+    fn default() -> Self {
+        Self {
+            stt: None,
+            tts: None,
+            idle_stop_seconds: 180,
+            max_utterance_seconds: 60,
+            end_of_utterance_ms: 800,
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default, JsonSchema)]
@@ -568,6 +604,43 @@ mod media_provider_tests {
         let json = serde_json::to_string(&image).unwrap();
         assert!(json.contains(r#""provider":"openrouter""#), "{json}");
         assert_eq!(serde_json::from_str::<SttProvider>(r#""openai""#).unwrap(), SttProvider::Openai);
+    }
+
+    /// FR-040: a stored agent without the block behaves exactly as it does today, and a partial
+    /// block fills in the spec's documented defaults.
+    #[test]
+    fn live_voice_is_off_and_defaulted_until_it_is_configured() {
+        let without: AgentToolsConfig =
+            serde_json::from_str(r#"{"timeout": "60s"}"#).unwrap();
+        assert!(!without.live_voice.enabled, "absent means off");
+        assert_eq!(without.live_voice.settings.idle_stop_seconds, 180);
+        assert_eq!(without.live_voice.settings.max_utterance_seconds, 60);
+        assert_eq!(without.live_voice.settings.end_of_utterance_ms, 800);
+        assert!(without.live_voice.settings.stt.is_none());
+        assert!(without.live_voice.settings.tts.is_none());
+
+        let partial: AgentToolsConfig = serde_json::from_str(
+            r#"{"timeout": "60s", "live_voice": {"enabled": true, "settings": {"idle_stop_seconds": 30}}}"#,
+        )
+        .unwrap();
+        assert!(partial.live_voice.enabled);
+        assert_eq!(partial.live_voice.settings.idle_stop_seconds, 30);
+        // The fields the block did not name keep their defaults.
+        assert_eq!(partial.live_voice.settings.max_utterance_seconds, 60);
+        assert_eq!(partial.live_voice.settings.end_of_utterance_ms, 800);
+
+        // Its own switch: the speech tools stay off, and the session is on regardless (FR-003).
+        assert!(!partial.stt.enabled);
+        assert!(!partial.tts.enabled);
+
+        // An agent with a recogniser named for the session keeps it, and the tool flag is untouched.
+        let explicit: AgentToolsConfig = serde_json::from_str(
+            r#"{"timeout": "60s", "live_voice": {"enabled": true, "settings": {"stt": {"provider": "openrouter", "language": "id"}}}}"#,
+        )
+        .unwrap();
+        let stt = explicit.live_voice.settings.stt.as_ref().unwrap();
+        assert_eq!(stt.provider, SttProvider::Openrouter);
+        assert_eq!(stt.language.as_deref(), Some("id"));
     }
 
     #[test]

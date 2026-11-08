@@ -295,6 +295,13 @@ pub struct VizierRequest {
     pub attachments: Vec<VizierAttachment>,
     #[serde(default)]
     pub expect_audio_reply: Option<bool>,
+    /// The request came from speech in a live voice session (`specs/055-live-voice` FR-011).
+    ///
+    /// `#[serde(default)]` so a stored request from before this feature loads as `false`, and a
+    /// typed turn is unchanged: the only thing it changes is the note the turn is given about how
+    /// its answer will be heard (FR-017). It is never set by the client — the session sets it.
+    #[serde(default)]
+    pub spoken: bool,
     /// The slug of the task this request is a scheduled run of.
     ///
     /// Set by the scheduler and by nothing else, which is what makes it safe where the

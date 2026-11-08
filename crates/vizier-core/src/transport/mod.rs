@@ -106,6 +106,12 @@ pub enum SessionFrame {
         ask_id: String,
         outcome: crate::questions::model::AskState,
     },
+    /// A live voice **control** frame (`specs/055-live-voice`): `state`, `transcript`, `error` or
+    /// `stall`. Audio is deliberately not here — `LiveVoiceSpeech` travels the owner's own
+    /// connection, and this variant's payload type is what makes publishing audio as a session
+    /// event a compile error rather than a review rule.
+    #[cfg(feature = "provider-live-voice")]
+    LiveVoice(crate::live_voice::LiveVoiceControl),
 }
 
 /// Something that happened in a Workspace (`specs/053-workspace-channel/contracts/socket-frames.md`).

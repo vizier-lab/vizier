@@ -70,6 +70,9 @@ pub struct AgentDetail {
     pub tts_settings: Option<TtsToolSettings>,
     pub stt: bool,
     pub stt_settings: Option<SttToolSettings>,
+    /// Whether this agent can hold a live voice conversation (FR-004): the switch is on **and**
+    /// it has a usable recogniser and voice. Additive: an older client ignores it.
+    pub live_voice: bool,
     pub read_image: bool,
     pub read_image_settings: Option<ReadImageToolSettings>,
     pub image_gen: bool,
@@ -197,6 +200,12 @@ impl CreateAgentRequest {
                 stt: ToolConfig {
                     enabled: tools.stt.unwrap_or(false),
                     settings: tools.stt_settings.unwrap_or_default(),
+                },
+                // Its own switch, and never turned on by the speech tools: a created agent
+                // starts with live voice off (FR-003).
+                live_voice: ToolConfig {
+                    enabled: false,
+                    settings: crate::schema::agent::LiveVoiceSettings::default(),
                 },
                 read_image: ToolConfig {
                     enabled: tools.read_image.unwrap_or(false),
@@ -440,6 +449,19 @@ pub async fn detail(
         return Err(ServiceError::Forbidden("Access denied".into()));
     }
 
+    // FR-004: the session is offered only when the agent can actually hear and speak. Each half is
+    // its own setting when the live voice block names one, and otherwise the agent's speech tool
+    // setting — "configured" in the same sense the detail already reports for `stt` / `tts`.
+    let has_recogniser = config.tools.live_voice.settings.stt.is_some()
+        || config.tools.stt.settings.provider != crate::schema::agent::SttProvider::default()
+        || config.tools.stt.settings.model.is_some()
+        || config.tools.stt.settings.language.is_some();
+    let has_voice = config.tools.live_voice.settings.tts.is_some()
+        || config.tools.tts.settings.provider != crate::schema::agent::TtsProvider::default()
+        || config.tools.tts.settings.model.is_some()
+        || config.tools.tts.settings.voice.is_some()
+        || config.tools.tts.settings.speed.is_some();
+
     Ok(AgentDetail {
         agent_id: agent_id.to_string(),
         name: config.name,
@@ -483,6 +505,8 @@ pub async fn detail(
         } else {
             None
         },
+        // FR-004: on only when the switch is on and both halves exist.
+        live_voice: config.tools.live_voice.enabled && has_recogniser && has_voice,
         read_image: config.tools.read_image.enabled,
         read_image_settings: if config.tools.read_image.settings.provider.is_some()
             || config.tools.read_image.settings.model.is_some()

@@ -521,10 +521,35 @@ impl TopicConnection {
 impl TopicOutbound {
     pub async fn run(mut self) {
         let mut events_open = true;
+        // Audio frames this socket dropped in the current stall episode (T021, T042).
+        let mut dropped: u64 = 0;
         loop {
             tokio::select! {
                 Some(frame) = self.client_rx.recv() => {
-                    if self.out.send_async(frame).await.is_err() {
+                    // The one place a live voice frame may be dropped (`specs/055-live-voice`
+                    // contract §Delivery path): **audio**, and only audio, when this socket is
+                    // behind. Every other frame — `live_voice_state`, `transcript`, `error`,
+                    // `stall`, a reply's `Response` — is written whatever the depth, so a reply's
+                    // text can never be lost to a session that is talking too fast.
+                    //
+                    // `dropped` is this loop's own counter: the session keeps none (T042), so
+                    // there is exactly one number and exactly one report.
+                    let mut write = true;
+                    if vizier_core::live_voice::frame::is_speech_frame(&frame) {
+                        if self.out.len() > vizier_core::live_voice::LIVE_VOICE_SOCKET_BACKLOG {
+                            dropped += 1;
+                            write = false;
+                        } else if dropped > 0 {
+                            self.transport.publish_session_event(SessionEvent {
+                                session: self.session.clone(),
+                                frame: SessionFrame::LiveVoice(
+                                    vizier_core::live_voice::LiveVoiceControl::Stall { dropped },
+                                ),
+                            });
+                            dropped = 0;
+                        }
+                    }
+                    if write && self.out.send_async(frame).await.is_err() {
                         return;
                     }
                 }
@@ -600,15 +625,30 @@ impl TopicOutbound {
                                     "sensitive_ask_closed": { "ask_id": ask_id, "outcome": outcome }
                                 }))
                             }
+                            // Live voice **control** only (`specs/055-live-voice`, contract
+                            // §Delivery path): `state`, `transcript`, `error`, `stall`. Audio is
+                            // never here — `live_voice_speech` is written per connection by the
+                            // session, and the payload type makes sending it here a compile error.
+                            // The same serialiser serves both lanes, so their field names cannot
+                            // drift (`analysis.md` M15).
+                            SessionFrame::LiveVoice(control) => serde_json::to_value(&control)
+                                .ok()
+                                .map(|control| serde_json::json!({ "live_voice": control })),
                         };
                         if let Some(json) = json {
                             if self.out.send_async(json).await.is_err() { return; }
                         }
                     }
+                    // Another session's event, or one this socket does not handle.
                     Ok(_) => {}
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
-                        // The client re-reads the job list on reconnect, so a dropped frame
-                        // never leaves the tray wrong for good.
+                        // A lagging subscriber cannot be repaired mid-burst, so this arm still
+                        // drops the frames it skipped. What it can no longer drop is live voice
+                        // **audio**: `live_voice_speech` never enters this ring (it is written to
+                        // the owning socket's own queue, contract §Delivery path), so a lost
+                        // `SessionFrame::Response` — the reply text — can never be caused by a
+                        // session talking. The client re-reads the job list on reconnect, so a
+                        // dropped job frame never leaves the tray wrong for good.
                         tracing::warn!("websocket for {:?} lagged, {} session event(s) dropped", self.session, skipped);
                     }
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => {

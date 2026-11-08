@@ -749,6 +749,14 @@ impl VizierAgent {
             }
         }
 
+        // FR-017: a turn that came from speech is answered to be *heard*. The note rides the
+        // turn's client-context block, which is rendered for this turn only and never stored in
+        // the person's message, so history still shows exactly what they said. A typed turn is
+        // untouched — `spoken` is false for every one of them.
+        if req.spoken && !req.client_context.iter().any(|note| note == SPOKEN_TURN_NOTE) {
+            req.client_context.push(SPOKEN_TURN_NOTE.to_string());
+        }
+
         let mut rng = StdRng::seed_from_u64(crate::time::now().timestamp() as u64);
         let initiative_factor = rng.random_range(0_f32..=1_f32);
 
@@ -2292,6 +2300,14 @@ fn completion_request(
 /// The result a timed-out tool call hands the model. The call is abandoned, but whatever it
 /// did before the deadline may already have happened.
 /// Said when the wrap-up completion offered nothing to say.
+/// The note a spoken turn is given (`specs/055-live-voice` FR-017).
+///
+/// FR-017 as decided on 2026-11-08: short by default, longer only when the question genuinely
+/// needs it, and **the agent decides** — there is no user-facing switch, mode or setting. The
+/// second sentence is the honest consequence the person accepted: the engine does not stream
+/// tokens, so a long answer is silence first, then speech.
+const SPOKEN_TURN_NOTE: &str = "This message came by speech in a live voice session, and your answer is read aloud as it is spoken. Answer for listening: keep it short and direct by default — a sentence or two — because a long answer is silence in the person's ear while you write it. If the question genuinely needs research or careful reasoning, take the time you need; the person is shown that you are thinking. Never ask them to pick a mode.";
+
 const DEPTH_EXHAUSTED_FALLBACK: &str = "I ran out of steps for this turn before I could finish. Ask me to continue and I'll pick \
      up from here.";
 

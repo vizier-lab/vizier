@@ -26,8 +26,8 @@ pub mod usage;
 
 pub use agent::{
     AgentConfig, AgentToolsConfig, EmbeddingConfig, EmbeddingProvider, ImageGenProvider,
-    ImageGenToolSettings, IndexerConfig, IndexerKind, ReadImageToolSettings, SttToolSettings,
-    ToolConfig, TtsToolSettings,
+    ImageGenToolSettings, IndexerConfig, IndexerKind, LiveVoiceSettings, ReadImageToolSettings,
+    SttToolSettings, ToolConfig, TtsToolSettings,
 };
 pub use artifact::{
     Artifact, ArtifactCursor, ArtifactDeleteResult, ArtifactEvent, ArtifactEventAction,

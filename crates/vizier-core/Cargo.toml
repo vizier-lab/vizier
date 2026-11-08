@@ -32,9 +32,13 @@ channel-telegram = ["dep:teloxide"]
 provider-media = ["dep:whisper-rs", "dep:any-tts", "dep:symphonia", "dep:symphonia-adapter-opus-rs", "dep:hound"]
 addon-docker = ["dep:bollard", "dep:indicatif"]
 addon-documents = ["dep:pdf-extract", "dep:docx-rs", "dep:calamine", "dep:rust_xlsxwriter", "dep:ironcalc", "dep:pdf-agent"]
+# Gates the live voice conversation (`specs/055-live-voice`): the session manager, the frame
+# types and the cascade engines. It reuses the STT and TTS providers, so it adds no
+# dependency, and a build without it behaves exactly as it does today (FR-041).
+provider-live-voice = []
 utoipa = ["dep:utoipa"]
 telemetry = ["dep:opentelemetry", "dep:tracing-opentelemetry"]
-full = ["channel-discord", "channel-telegram", "provider-media", "addon-docker", "addon-documents", "utoipa", "telemetry"]
+full = ["channel-discord", "channel-telegram", "provider-media", "provider-live-voice", "addon-docker", "addon-documents", "utoipa", "telemetry"]
 
 [dependencies]
 vizier-derive.workspace = true

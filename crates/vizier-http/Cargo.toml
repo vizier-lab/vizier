@@ -20,7 +20,9 @@ include = [
 ]
 
 [dependencies]
-vizier-core = { workspace = true, features = ["utoipa"] }
+# The socket adapter must know the live voice **control** frames it forwards, so it turns the
+# engine feature on: that gates whether a session can run, not whether the frame type exists.
+vizier-core = { workspace = true, features = ["utoipa", "provider-live-voice"] }
 anyhow.workspace = true
 axum.workspace = true
 axum-extra.workspace = true
