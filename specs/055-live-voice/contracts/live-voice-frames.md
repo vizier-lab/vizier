@@ -119,6 +119,19 @@ state to `listening` (FR-015).
 `kind` mirrors the `reason` list above. The session's own state is not changed by this frame alone —
 a `live_voice_state` always follows, so the client has one source of truth (FR-032, SC-009).
 
+### `live_voice` `stall`
+
+```json
+{ "live_voice": { "type": "stall", "dropped": 23 } }
+```
+
+The one report of a socket that fell behind: `dropped` is how many `live_voice_speech` frames were
+discarded in that episode (contract §Delivery path). It is emitted **once** per episode by the
+socket's outbound loop, carries no `generation`, and changes no state: the session is still live and
+the next segment plays whenever the queue drains. It is a control frame, so it rides the session
+broadcast like `state` and `transcript` — a person whose audio stalled hears about it on the same
+channel that tells them the session is live.
+
 ## Delivery path (not the session-event broadcast)
 
 **Audio** frames (`live_voice_speech`) do **not** travel through `publish_session_event` and the
@@ -140,8 +153,16 @@ Rules:
   own queue is below `LIVE_VOICE_SOCKET_BACKLOG` (16 frames, about 1.6 s of audio); beyond it the
   frame is dropped and counted. `live_voice_state`, `live_voice_transcript` and `live_voice_error`
   are always written.
-* **One stall notice per episode**: after drops, the first audio frame that fits again is preceded by
-  one `live_voice_error { kind: "stall" }`. A stall never ends the session.
+* **One counter, one reporter.** The socket's outbound loop performs the drop, so it owns the count:
+  `backlog` rises on each discarded `speech` frame, resets when the queue falls back below the gate,
+  and is reported **once per episode** as one `stall` frame (`{ "type": "stall", "dropped": N }`). The
+  session keeps no second counter; a `false` from `ClientConnection::send` while the connection is
+  open (its 64-slot queue full) is a backstop that is logged, never shown as a stall — a healthy pair
+  drains that queue at flume speed.
+* **The gate sits in the outbound loop, not in `channel.rs`.** No new channel, no
+  `TopicConnection::open` signature change: `self.out.len()` is `flume`'s own `Sender::len`
+  (`crates/vizier-http/src/api/v1/agents/channel.rs:374` creates an unbounded queue, `topic.rs`'s
+  `TopicOutbound::run` is the only place that can see its depth). A stall never ends the session.
 * **A closed socket ends the session; a full queue does not.** `ClientConnection::send` is
   `try_send(..).is_ok()`, so it returns `false` **both** when the queue is full (`Full`, capacity 64,
   `crates/vizier-http/src/topic.rs:141`) and when the connection has closed (`Closed`). Only the second
@@ -203,6 +224,7 @@ to contain (`state` vs `utterance_id`+`text` vs `base64`), which a client cannot
 | `state` | state word of FR-006 | `state`, `generation`, `reason` |
 | `transcript` | one utterance's outcome | `utterance_id`, `text`, `submitted` |
 | `speech` | one synthesised segment | `generation`, `seq`, `sample_rate`, `format`, `base64`, `final` |
+| `stall` | the socket fell behind and audio was dropped (control lane) | `dropped` |
 | `error` | a provider or session failure | `kind`, `message` |
 
 Client frames are unchanged: their top-level keys (`live_voice_start`, `live_voice_audio`,

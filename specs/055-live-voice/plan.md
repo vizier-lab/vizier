@@ -172,6 +172,12 @@ The decisions that shape the rest of the plan, each with the evidence it rests o
    (`ClientConnection::send`, `crates/vizier-core/src/agents/client/connection.rs`) and never enters
    the broadcast, so it can be dropped without ever dropping a reply's text (`review.md` D9). One
    socket, one auth, one queue that already exists.
+   **Where the drop actually happens**: not in `channel.rs` (there is no room there — its outbound
+   queue is `flume::unbounded()`, `channel.rs:374`, and its writer is `mpsc(64)`, `:780`), but in the
+   socket's own outbound loop, `TopicOutbound::run`: it sees the depth (`self.out.len()`) and skips a
+   `speech` frame above `LIVE_VOICE_SOCKET_BACKLOG = 16`, reporting one `stall` frame per episode. No
+   new channel and no `TopicConnection::open` signature change (`architecture.md` §11, `tasks.md`
+   T020–T022).
 4. Honest limit: a single long message is segmented only after its text exists (Clarifications,
    constraint note), so latency is "first segment", not "first token".
 5. **Exit criteria**: `cargo test -p vizier-core --features provider-live-voice` — a three-segment

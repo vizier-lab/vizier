@@ -185,7 +185,7 @@ guard resumes playback from the segments already queued instead of leaving the r
 (FR-022) and submits nothing (FR-024). SC-002's server-side 300 ms is measured from the guard firing —
 stated in the plan and in T045.
 
-**D14 — FR-037 (configured language) had no task** (raised as H5). T029 now passes
+**D14 — FR-037 (configured language) had no task** (raised as H5). T030 now passes
 `stt.settings.language` into `VizierStt::transcribe`, the same value the auto-transcription path uses
 (`crates/vizier-core/src/agents/agent/mod.rs:721`), with a test.
 
@@ -193,6 +193,23 @@ stated in the plan and in T045.
 (angka di spec)"; `spec.md` Q4 says **no extra cap** (deployment socket limits apply), with 3 min
 idle + 60 s utterance as the only limits. Taking the spec's default (no new cap) — it is the one with
 the reasoning attached, and adding a cap later is one config value.
+
+**D16 — where the lane drops, and who counts (the ambiguity D9 left).** *(D15 above took the number
+this finding would have had; `D14` is the language finding T030 cites, so the lane decision is D16.)*
+D9 moved audio to a
+per-connection queue but left two counter-owners standing: T020 (the session counting a `try_send`
+failure) and T021 (the outbound loop counting a depth drop). Two counters for one behaviour is how a
+stall gets reported twice, or never. One rule now: the **outbound loop** owns `backlog`, because that
+is where the drop happens and the only place that can see the socket's real depth; the session's
+queue-full is a logged backstop (a healthy pair never fills 64 slots) and never becomes a user-facing
+frame. It is reported as one control frame per episode, `{ "type": "stall", "dropped": N }`.
+
+*Consequence, stated so nobody looks for it:* **no task touches `channel.rs` or `embedded.rs`, and
+`TopicConnection::open` keeps its signature.** `@sepuh-be`'s bounded-lane proposal
+(`flume::bounded(20)` + a priority arm in `handle_socket`) is recorded as considered and rejected in
+`architecture.md` §11: a second queue whose depth must be kept in sync with the first, two call sites
+changed (including desktop IPC), and a priority arm that can put audio ahead of the `live_voice_state`
+that has to reach the client *before* the speech it describes.
 
 ## 4. The three checks the brief named (LANGKAH 2, second half)
 
@@ -247,6 +264,7 @@ structure.
   table).
 * No other file of the analyst's was edited. Findings that need code-shaped answers (D1, D2, D4-D7)
   live in `architecture.md` and `tasks.md`.
+| D16 | one counter for drops, owned by the outbound loop; `channel.rs`/`embedded.rs` untouched | `data-model.md` `backlog`, `contracts` §Delivery path + `stall` frame, `architecture.md` §11, `tasks.md` T021/T041 |
 | D9 | delivery path: per connection, not the session broadcast | `plan.md` Phase C + fallbacks + risks, `contracts` §Delivery path + C-6, `architecture.md` §11 + I9, `tasks.md` T020/T021/T041 (77 → 79, then 85 with D13's reconnect task) |
 | D13 | delivery lane: mechanism recorded, reconnect re-bind added, second-queue alternative rejected | `architecture.md` §11, `contracts` §Delivery path, `data-model.md` backlog row, `plan.md` WS-drop fallback, `tasks.md` new T067 (84 → 85 tasks) |
 

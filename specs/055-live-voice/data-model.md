@@ -23,7 +23,7 @@ restart ends every session (FR-028) and loses nothing but the session.
 | `started_at` | Timestamp | |
 | `last_speech_at` | Timestamp | drives the idle stop (FR-029) |
 | `end_reason` | Option<EndReason> | set once, then the session is gone |
-| `backlog` | usize | audio frames dropped for a slow socket, counted, not queued: the queue itself is the socket's (`TopicOutbound::run` drops a `speech` frame while `out.len() > LIVE_VOICE_SOCKET_BACKLOG`, contract §Delivery path). One counter per session, surfaced as a single `live_voice_error { kind: "stall" }` per episode |
+| `backlog` | usize | audio frames dropped in the **current** episode, counted where the drop happens: the socket's outbound loop (`TopicOutbound::run`) increments it before discarding a `live_voice_speech` frame whose `self.out.len() > LIVE_VOICE_SOCKET_BACKLOG`. It rises only while that socket is behind, is reset to 0 when the queue drains below the gate, and is reported **once per episode** as one control frame (`live_voice` `type: stall`, `dropped: N`) through `publish_session_event`. The session's own `try_send` on the per-connection queue (64 slots) is a **backstop**, not a second counter: if it ever returns `Full` while the connection is open, that is a defect — log it at `warn` with the count and keep going, never turn it into a user-facing stall |
 
 `EndReason` = `pressed_again | left_conversation | page_closed | permission_withdrawn |
 conversation_deleted | agent_changed | idle | connection_lost | server_restart`.

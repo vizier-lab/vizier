@@ -323,6 +323,21 @@ LiveVoiceSession ──> Arc<ClientConnection> ──send()──> per-connectio
   `LIVE_VOICE_SOCKET_BACKLOG` (16). Above it, drop the audio frame; never drop `state`, `transcript`
   or `error`. That is what bounds this feature's memory: 16 × 4.3 KB ≈ 69 KB per socket, instead of a
   queue that would otherwise accept 43 KB/s forever.
+
+  **One counter, one reporter.** The drop happens in the outbound loop, so the count lives there: the
+  loop increments `backlog` when it discards a `speech` frame, resets it when the depth falls back
+  below the gate, and emits exactly one control frame (`{ "type": "stall", "dropped": N }`) for the episode,
+  through `publish_session_event` — the control lane it already has. The session does **not** keep a
+  second counter; its `ClientConnection::send` returning `false` while the connection is open is a
+  backstop that logs, because a healthy pair drains the 64-slot queue at flume speed and never fills it.
+* **Known limitation, recorded rather than fixed.** `handle_socket`'s `select!` awaits
+  `write_tx.send(..)`, so when the socket writer is stuck the same loop stops polling `reader.next()`:
+  the person's **inbound** frames wait behind the outgoing jam. Barge-in stays instant where it is
+  measured (the client stops its own audio before sending anything, SC-002's 50 ms) and the server's
+  abort may arrive late on a socket that is already failing; FR-033's reconnect and the 16-frame gate
+  (which caps audio queued ahead of any control frame at ~1.6 s) are the bounds. Fixing the shared
+  `select!` is a transport change, not this feature's, and doing it here would widen the blast radius
+  for no behaviour this spec promises.
 * **What a stalled writer does *not* do.** It does not starve the broadcast: `events.recv()` runs in
   `TopicOutbound::run`, spawned as its own task (`crates/vizier-http/src/api/v1/agents/channel.rs:787`
   — `tokio::spawn(o.run())`), so the subscriber keeps draining and pushing into the flume. `Lagged` is
@@ -336,7 +351,10 @@ LiveVoiceSession ──> Arc<ClientConnection> ──send()──> per-connectio
   whose depth must be kept in sync with the first, a signature change at two call sites including the
   desktop IPC path, and a priority arm that can put audio ahead of the `live_voice_state` that must
   reach the client *before* the speech it describes. `out.len()` measures the same depth at the same
-  moment, with no new plumbing and no dependency.
+  moment, with no new plumbing and no dependency. **Consequence for the task list: no task touches
+  `channel.rs` or `embedded.rs`, and `TopicConnection::open` keeps its signature** — if a future
+  measurement shows control frames queueing behind audio for longer than the 1.6 s this gate allows,
+  the fix is a priority arm at that point, not a second queue guessed at now.
 * **Signal, not timeout.** `ClientConnection::send` returns `false` once `close()` has taken the
   sender, so a closed tab ends the session with `page_closed` immediately; `false` while the queue is
   full is a stall, and a stall never ends a session.
