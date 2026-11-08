@@ -48,6 +48,25 @@ speakable segment while the later ones are still being synthesised.** For a sing
 first words are heard once that message's text exists, not while it is being generated. Token-level
 speech needs a streaming turn protocol and is a separate feature.
 
+### Session 2026-11-08 21:19 (the User changed the surface, the trigger and the scope)
+
+Three changes from the User, all binding. One **reduces** scope, one **moves** a cost; neither
+loosens a requirement already agreed.
+
+| # | Change | What it replaces | Consequence recorded, not hidden |
+|---|---|---|---|
+| **C6** | **The session has a screen of its own, in the manner of a call** — not a bar inside the conversation | the bar-in-composer surface (its amendment, \`20d97316\`, stays in the history and is marked archived below) | new FR-043 to FR-047 and User Story 6; the entry point stays a control in the conversation |
+| **C7** | **The interrupt control goes to the backlog.** The person interrupts by speaking; there is no button in this release | FR-020, FR-021 and User Story 3, which stay written and are marked deferred | the feature is *less* controllable on purpose: a noisy room, a bad microphone or a quiet voice has no escape hatch until that backlog item lands |
+| **C8** | **Barge-in waits for the person to finish speaking.** The start of speech no longer interrupts; the end of the utterance (the ~800 ms hangover firing) does | FR-019's "at once, before their words have been transcribed", and the ~250 ms onset guard | while the person speaks the agent **keeps talking** — overlapping audio is now the intended behaviour, and SC-002's clock moves to the end of the utterance |
+
+**The consequence the plan has to answer (C8), stated plainly.** The session decides the person has
+finished by hearing ~800 ms of quiet on the microphone. Under C8 the agent is *still speaking*
+during that window, so the microphone also hears the agent. On speakers without headphones that
+quiet may never arrive and the interruption may never fire. FR-047 therefore makes "the end of the
+person's speech is detected while the reply is audible" a requirement rather than a hope, SC-008
+measures it, and \`plan.md\` holds the fallback (ducking the reply's volume once the person is
+detected speaking). None of that changes C8 itself.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 — A conversation without typing (Priority: P1)
@@ -71,23 +90,33 @@ A person opens a conversation, presses Live Voice, and asks a question out loud.
 
 ### User Story 2 — Stopping the agent by speaking (Priority: P1)
 
-The agent is halfway through an answer that has gone the wrong way. The person says "no, the other file" out loud, and the voice stops in the middle of the sentence. Their correction is now the next message, and the answer that follows picks it up. They never reach for the interface.
+The agent is halfway through an answer that has gone the wrong way. The person says "no, the other file" out loud. The agent keeps talking for as long as they are talking — and the moment they stop, it stops. Their correction is now the next message, and the answer that follows picks it up. They never reach for the interface.
 
 **Why this priority**: Talking over someone is the natural way to stop them. Without it, live voice is an announcement that cannot be argued with.
 
-**Independent Test**: Have the agent speak a long answer, start speaking over it, and confirm the audio stops before the interrupting words are transcribed, that those words arrive as the person's message, and that the interrupted answer is marked as interrupted.
+**Independent Test**: Have the agent speak a long answer, speak over it, and confirm that (a) the agent is still audible while the person speaks, (b) the audio stops once the end-of-utterance period passes, before the transcript arrives, (c) those words arrive as the person's message, and (d) the interrupted answer is marked as interrupted.
 
 **Acceptance Scenarios**:
 
-1. **Given** the agent is speaking, **When** the person begins to speak, **Then** the audio stops at once, before their first word has been transcribed.
-2. **Given** that interruption, **When** transcription finishes, **Then** the words appear as the person's message and are answered, and the interrupted reply stays in the conversation marked as interrupted.
-3. **Given** an interrupted reply, **When** the next reply is spoken, **Then** no part of the interrupted one is heard again.
-4. **Given** the device's own speakers and no headphones, **When** the agent speaks at high volume, **Then** the session does not stop itself; only the person's voice interrupts it.
-5. **Given** the person makes a short sound too brief to be a message, **When** it ends, **Then** the agent's speech has stopped, no message is sent, and the session is listening again.
+1. **Given** the agent is speaking, **When** the person begins to speak, **Then** the agent keeps speaking (C8) and the session is already capturing their words — no silence is expected yet.
+2. **Given** the person has finished speaking, **When** the end-of-utterance period passes (default 800 ms), **Then** the audio stops and the running turn is cancelled (FR-019, FR-027), before the transcript has arrived.
+3. **Given** that interruption, **When** transcription finishes, **Then** the words appear as the person's message and are answered, and the interrupted reply stays in the conversation marked as interrupted.
+4. **Given** an interrupted reply, **When** the next reply is spoken, **Then** no part of the interrupted one is heard again.
+5. **Given** the device's own speakers and no headphones, **When** the agent speaks at high volume, **Then** the session does not treat its own voice as the person, and the end of the person's speech is still detected while the reply is audible (FR-026, FR-047).
+6. **Given** the person makes a sound too brief to be a word, **When** the end-of-utterance period passes, **Then** the reply is neither cancelled nor resumed-in-two-pieces, no message is sent, and the session is listening again (FR-024).
+7. **Given** the person speaks and the reply happens to finish on its own first, **When** the end-of-utterance period passes, **Then** nothing is cancelled, and their words simply become the next message.
 
 ---
 
-### User Story 3 — Stopping the agent with a control (Priority: P1)
+### User Story 3 — Stopping the agent with a control (Priority: backlog — deferred 2026-11-08)
+
+> **Deferred to the backlog (User decision, 2026-11-08 21:19, C7).** This release has **no interrupt
+> control**: the person interrupts by speaking (FR-019). The story is kept in full so the requirement
+> is not lost, and it is **not** part of the gate for this feature — no acceptance scenario below is
+> required for this release to be finished, and its task block in `tasks.md` is marked `[BACKLOG]`.
+> The stated cost, accepted by the User: where speaking over the agent does not work — a noisy room,
+> a poor microphone, a quiet voice — there is no way to stop the reply in this release except ending
+> the session.
 
 In a noisy café, on a bad microphone, or with a quiet voice, the person cannot speak over the agent. They press the interrupt control beside the Live Voice control. The voice stops at once, the session stays live, and they can type the correction, or say it once the room is quieter.
 
@@ -140,37 +169,66 @@ Recognition comes back empty, the voice provider errors in the middle of an answ
 
 ---
 
-### Interaction Flow (both interruption modes)
+### User Story 6 — The call has a screen of its own (Priority: P1)
+
+A person presses Live Voice and the conversation gives way to a call: one screen, the agent's name and
+what it is doing, an open-microphone indicator, and a way out. Nobody has to find a small bar between
+a text box and a paperclip while they are talking, and nobody mistakes the state of the call for the
+state of the conversation.
+
+**Why this priority**: The User asked for a call, not a strip of chrome. The surface is where a person
+sees that the microphone is open and whether the agent is thinking or gone — which is what FR-006,
+FR-038 and FR-042 are for.
+
+**Independent Test**: From a conversation, press Live Voice; a screen opens and the conversation view
+gives way to it; ask something and watch the thinking state; end the call; the conversation is back,
+both turns present, and the control off.
+
+**Acceptance Scenarios**:
+
+1. **Given** a conversation with Live Voice off, **When** the person presses the control, **Then** the call screen opens in place of the conversation view and the session starts (FR-043).
+2. **Given** the call screen, **When** the person looks at it, **Then** it shows the agent, the state word, the thinking indicator when the agent is working, and that the microphone is open — all without a reload (FR-006, FR-042, FR-038).
+3. **Given** the call screen, **When** the agent is silent for a long time because its answer is slow, **Then** the screen says the agent is thinking and does not read as a disconnected call (FR-042).
+4. **Given** the call screen, **When** the person ends the call, **Then** the microphone is released, the session ends, and the conversation is shown again with every turn in it (FR-028, FR-034, FR-045).
+5. **Given** the call screen, **When** the person leaves the screen or closes the tab, **Then** the session ends and nothing keeps listening (FR-028).
+6. **Given** a call ended by any means, **When** the conversation is opened again, **Then** it is unchanged and the entry control is off (FR-046).
+
+---
+
+### Interaction Flow (interruption by speech, C8; the control is deferred, C7)
 
 ```mermaid
 flowchart TD
-    off["Live Voice off"] -->|"press the control"| listen["Microphone open, listening"]
+    off["Live Voice off"] -->|"press the control"| screen["Call screen opens, microphone open"]
+    screen --> listen["Listening"]
     listen -->|"person speaks"| transc["Speech becomes the person's message"]
     transc --> turn["Agent turn runs, reply text appears"]
     turn --> speak["Reply spoken in segments once its message exists"]
     speak -->|"reply ends"| listen
-    speak -->|"person speaks over it"| barge["Audio stops at once; their words become the next message"]
-    barge --> turn
-    speak -->|"interrupt control"| stop["Audio stops at once; session stays live"]
-    stop --> listen
-    speak -->|"interrupt while the turn is running"| running["Effect on the running turn follows FR-027"]
-    running --> listen
-    listen -->|"press the control again"| off
-    listen -->|"silence past the idle period"| ended["Session ended, microphone released"]
+    speak -->|"person speaks over it, the agent keeps talking"| talkover["Their words are captured while the reply plays on"]
+    talkover -->|"they finish: end-of-utterance period passes"| barge["Audio stops, the running turn is cancelled"]
+    barge --> transc
+    listen -->|"press end on the screen"| ended["Session ended, microphone released, conversation back"]
+    speak -->|"press end on the screen"| ended
+    listen -->|"silence past the idle period"| ended
     speak -->|"page closed or permission withdrawn"| ended
 ```
 
-Every path that leaves `listen` or `speak` except the two interruptions ends the session, and every ending releases the microphone (FR-028, FR-029).
+Every path that leaves `listen` or `speak` except the interruption by speech ends the session, and every
+ending releases the microphone (FR-028, FR-029). The interrupt control of the earlier drafts is not in
+this diagram because it is deferred (C7).
 
 ### Edge Cases
 
-- **The person speaks over the agent without headphones**: the device's speakers feed the microphone. The session must not treat its own voice as the person, at any output volume; the person's real voice still interrupts immediately.
+- **The person speaks over the agent without headphones**: the device's speakers feed the microphone, and under C8 the agent is *still talking* while the person talks. Two things must hold at once: the session must not treat its own voice as the person at any output volume, and it must still hear the end of the person's speech over that voice (FR-026, FR-047). A session that needs silence to notice the person has finished is a broken session here, not a tuning problem.
 - **A second person in the room, or a television**: the session cannot tell one voice from another — the detector is an energy gate on one microphone, with no speaker identity. So background speech above the gate may be transcribed and may interrupt, exactly as it would over any voice assistant; what the session must not do is treat ambient noise below the gate as speech, and what the person must be able to do is correct it by speaking again or by typing. **Real attribution (diarization) is not promised here and would be its own specification.** *(Corrected in the Lead's review, 2026-11-08: the earlier wording promised a capability the chosen detector does not have.)*
-- **A very short utterance** ("yes", "no", "stop"): recognised and submitted as a message rather than discarded as noise. Anything shorter than a word stops the audio and sends nothing (Story 2, scenario 5).
+- **A very short utterance** ("yes", "no", "stop"): recognised and submitted as a message rather than discarded as noise. A sound too brief to be a word neither cancels the reply nor becomes a message (FR-024, Story 2 scenario 6) — the threshold is the length that makes a barge-in, not a character count.
+- **The reply finishes while the person is still talking**: nothing is left to cancel; their words become the next message and the session returns to listening (Story 2 scenario 7).
+- **The person talks over the agent for a long time**: the reply plays on underneath until the person stops, which is the cost C8 accepted; nothing queues up afterwards, because the reply is cancelled once, not paused.
 - **A long monologue**: an utterance is cut at the maximum length (default 60 seconds) and submitted, so a person speaking for minutes still gets answers.
 - **Silence in the middle of a sentence**: a pause shorter than the end-of-utterance period does not split the message.
 - **The person speaks while the agent is still thinking**, before any audio: their words become the next message; whether the running turn is also cancelled is the decision in FR-027.
-- **The person types while the agent is speaking**: the audio stops, as with the interrupt control (FR-025), the session stays live, and the typed turn's reply comes back as text only — speech belongs to the session, and a typed turn is not part of it (FR-018 withdrawn).
+- **The person types while the agent is speaking**: the audio stops and the turn is cancelled on the same path FR-025 names, the session stays live, and the typed turn's reply comes back as text only — speech belongs to the session, and a typed turn is not part of it (FR-018 withdrawn). Where the person types from is the open question Q7 below.
 - **An answer full of code, a table or a long URL**: the conversation keeps all of it; the spoken form skips what cannot be read aloud and says the rest is in the conversation.
 - **The provider is slow**: waiting is visible, the session never appears to be listening while an answer is still pending, and a stalled provider ends in a reported failure rather than an endless wait. Since FR-017 lets the agent think longer, this is the common case rather than the exception, which is what FR-042's indicator is for.
 - **The microphone is unplugged mid-session** or the device is switched: the session reports the lost device and does not silently stay "live".
@@ -189,12 +247,12 @@ Every path that leaves `listen` or `speak` except the two interruptions ends the
 
 **The control and the session**
 
-- **FR-001**: Every conversation MUST offer a dedicated Live Voice control, visibly separate from the existing attachment/recording and spoken-reply controls. It MUST be off by default in every conversation and on every visit, and its state MUST NOT be remembered between visits.
-- **FR-002**: Pressing the control MUST start a live voice session on that conversation with its agent; pressing it while a session is live MUST end it. The control MUST show which of the two the next press does.
+- **FR-001**: Every conversation MUST offer a dedicated Live Voice control, visibly separate from the existing attachment/recording and spoken-reply controls; pressing it opens the session's own screen (FR-043). It MUST be off by default in every conversation and on every visit, and its state MUST NOT be remembered between visits.
+- **FR-002**: Pressing the control MUST start a live voice session on that conversation with its agent and open the call screen. Ending it MUST be possible from the call screen for the whole session (FR-045). The control MUST show that pressing it opens a call, not a toggle whose off-state is somewhere else.
 - **FR-003**: Live Voice MUST be independent of the existing speech-to-text and text-to-speech tools in both directions: starting it MUST NOT enable, disable or reconfigure those tools, and their switches MUST neither start it nor block it.
 - **FR-004**: Starting MUST require both a usable recognizer and a usable voice for that agent. When one is missing, the control MUST name what is missing and how to set it, and MUST NOT start; a session that can only listen, or only speak, MUST NOT be presented as live voice.
 - **FR-005**: A session MUST belong to one person in one conversation. Only someone allowed to chat there may start or end it. Anyone else opening the conversation MUST be told that a session is active and MUST NOT be able to start a second one on it.
-- **FR-006**: The control MUST show, without a page reload: off, connecting, listening, waiting for the agent, speaking, interrupted, reconnecting, ended with a reason, failed with a reason.
+- **FR-006**: The **call screen** MUST show, without a page reload: connecting, listening, waiting for the agent, speaking, interrupted, reconnecting, ended with a reason, failed with a reason. (`off` is the absence of the screen.)
 - **FR-007**: A voice message MUST run the same turn as a typed one: same conversation history, same mode rules, same tools, same permissions, same memory, same usage accounting. Live Voice MUST NOT add, remove or alter the agent's tools, memory or permissions.
 - **FR-008**: A session MUST use the agent's own model and speech configuration. Live Voice MUST NOT silently change what typed turns use.
 
@@ -215,15 +273,15 @@ Every path that leaves `listen` or `speak` except the two interruptions ends the
 
 **Interruption**
 
-- **FR-019**: While the agent is speaking, the person beginning to speak MUST stop the audio at once — before their words have been transcribed — and the session MUST move to listening.
-- **FR-020**: A dedicated interrupt control MUST be available for the whole of a live session. Pressing it MUST stop the agent's audio at once and MUST NOT end the session.
-- **FR-021**: The interrupt control MUST work at any moment of a session; pressed while nothing is being spoken, it MUST leave the session live and unchanged.
-- **FR-022**: After an interruption, no part of the interrupted reply MUST be heard later, and the session MUST NOT resume speaking it on its own.
+- **FR-019**: While the agent is speaking, the person's speech MUST NOT stop the audio by itself. When the person has **finished** speaking — the end-of-utterance period elapsing, default 800 ms (FR-010) — the audio MUST stop and the running turn MUST be cancelled (FR-027), before their words have been transcribed. Overlap while the person speaks is intended (C8), and the end of their speech MUST still be detected while the reply is audible (FR-047).
+- ~~**FR-020**: A dedicated interrupt control MUST be available for the whole of a live session. Pressing it MUST stop the agent's audio at once and MUST NOT end the session.~~ **DEFERRED to the backlog on the User's decision, 2026-11-08 21:19 (C7).** This release has no interrupt control; FR-019 is the only way to interrupt. Kept here so the requirement is not lost, and it is not part of this release's gate.
+- ~~**FR-021**: The interrupt control MUST work at any moment of a session; pressed while nothing is being spoken, it MUST leave the session live and unchanged.~~ **DEFERRED with FR-020 (C7).**
+- **FR-022**: After an interruption, no part of the interrupted reply MUST be heard later, and the session MUST NOT resume speaking it on its own. The reply's remaining segments are abandoned, not paused: a later reply starts from its own first segment.
 - **FR-023**: An interrupted reply MUST remain in the conversation as the agent's message, marked as interrupted, so the person can see what they did not hear. How much text there is depends on when the interruption lands: interrupting while the reply is being spoken keeps the whole message, which was already stored before its first word was heard; interrupting while the model is still producing it ends the turn as an abort (`VizierResponseContent::Abort` is a turn that produced nothing, `crates/vizier-core/src/schema/response.rs:156-163`), so the person sees the interrupted mark and the turn's saved activity trail, not partial prose. *(Clarified in the Lead's review, 2026-11-08: "readable as far as it was produced" promised partial text the abort path does not keep.)*
-- **FR-024**: The words that caused a barge-in MUST become the person's next message, unless they were too short to be one, in which case no message is sent.
-- **FR-025**: A message typed while the agent is speaking MUST stop the audio, exactly as the interrupt control does.
+- **FR-024**: The utterance that caused an interruption MUST become the person's next message, unless it was too short to be one, in which case nothing is sent **and the reply is not cancelled for it** — the threshold is the length that makes a barge-in, not a character count (Story 2 scenario 6).
+- **FR-025**: A message typed while the agent is speaking MUST stop the audio and cancel the running turn, on the same path as any other interruption.
 - **FR-026**: The session MUST NOT interrupt itself: its own audio coming back through the device's speakers MUST NOT be taken as the person speaking, at any output volume and with or without headphones.
-- **FR-027**: An interruption MUST stop the audio at once and MUST also cancel the running turn, on the same path as the existing stop control (`AgentsClient::abort`, which is the `/abort` the composer already offers): what the interrupted reply leaves in the conversation is exactly FR-023's two cases and nothing else, nothing further is generated or spoken, and a tool call already completed is not undone. *(Restated in the review delta, 2026-11-08: "text produced so far stays" contradicted FR-023's abort case.)* When the agent was working rather than speaking, an interruption MUST behave the same way, so "I interrupted while it was editing files" has exactly one answer. *(Decided in Clarifications C3.)*
+- **FR-027**: An interruption MUST stop the audio at once and MUST also cancel the running turn, on the same path as the existing stop control: text produced so far stays in the conversation marked interrupted, nothing further is generated or spoken, and a tool call already completed is not undone. When the agent was working rather than speaking, an interruption MUST behave the same way, so "I interrupted while it was editing files" has exactly one answer. The trigger in this release is the end of the person's utterance (FR-019), never its start. *(Decided in Clarifications C3; trigger moved by C8.)*
 
 **Ending, silence and failure**
 
@@ -249,12 +307,20 @@ Every path that leaves `listen` or `speak` except the two interruptions ends the
 - **FR-040**: With Live Voice never used, every existing behaviour MUST be unchanged: the speech tools, automatic transcription of uploaded audio, requested spoken replies, text chat, and the HTTP and WebSocket surface as existing clients see it.
 - **FR-041**: Live Voice MUST NOT be required by any existing capability; a build without it MUST leave every existing speech and chat feature working.
 
+**The call screen (C6)**
+
+- **FR-043**: Starting a session MUST open a screen of its own for the call, in place of the conversation view, and the conversation MUST be reachable again when the call ends. The screen MUST be a real surface of the interface (its own view or route), not a strip of chrome inside the composer, and the entry point MUST stay a control in the conversation (FR-001).
+- **FR-044**: The screen MUST show, for the whole session: the agent the call is with, the state word of FR-006, the thinking indicator of FR-042 when the agent is working, and that the microphone is open (FR-038). These four are the minimum; what else it shows is open question Q6.
+- **FR-045**: The screen MUST offer a way to end the call for the whole session, reachable without leaving the screen, which stops the audio, releases the microphone and ends the session (FR-028). With the interrupt control deferred (C7), this is the only control on the screen.
+- **FR-046**: Opening and leaving the screen MUST NOT change the conversation: the same messages, the same text, nothing rewritten, reordered or re-timed (FR-034).
+- **FR-047**: The session MUST detect the end of the person's speech **while the agent's reply is audible** (C8): the reply continuing MUST NOT prevent the end-of-utterance period from elapsing. Echo cancellation alone MAY be the mechanism; where it is not enough, the reply's audibility to the microphone (not to the person) MUST be reduced once the person is detected speaking, so that the interruption still fires. The measured form of this is SC-008.
+
 ### Key Entities
 
 - **Live voice session**: one person, one conversation, one agent. Has a state, a start time, an end reason, and the recognizer and voice it used. Exists only while live.
 - **Voice message**: a conversation message that came from speech or was spoken. Carries whether it was voice-originated, whether it was interrupted, and how much of it was spoken. Read, searched and deleted like any other message.
 - **Utterance**: one continuous stretch of the person's speech inside a session, from the pause before it to the pause after it. Produces at most one message, or none when it is noise.
-- **Interruption**: one event, caused by the person speaking, a typed message, or the interrupt control. Records when it happened and how far into the reply, and whether the turn continued (FR-027).
+- **Interruption**: one event, caused by the person finishing an utterance (FR-019) or by a typed message (FR-025); the interrupt control would be a third cause and is deferred (FR-020, C7). Records when it happened and how far into the reply, and whether the turn continued (FR-027).
 - **Live voice setting**: per agent — which recognizer and which voice a session uses. Separate from the speech tools' own enablement.
 
 ## Success Criteria *(mandatory)*
@@ -262,14 +328,15 @@ Every path that leaves `listen` or `speak` except the two interruptions ends the
 ### Measurable Outcomes
 
 - **SC-001**: From the person finishing a short question to the first audible word of the answer, on an ordinary laptop and ordinary broadband, with a hosted recogniser and voice: **p90 <= 3.5 s and p99 <= 5 s is the release gate**; 2.0 s at p50 is the stretch target. The reason for the gate, not the aspiration: the plan's budget floors at 2.57 s before the model has produced anything (800 ms end-of-utterance + 120 ms to the wire + 900 ms hosted recognition + 100 ms turn start + 600 ms first segment + 50 ms to sound), and the turn protocol delivers the model's whole message rather than token deltas, so the model's own latency sits on top of that floor. A local-only recogniser or voice is CPU-bound, is expected to be slower still, and is measured separately (open question Q3). *(Restated in the Lead's review, 2026-11-08: the earlier 2 s p90 could not be met by the architecture the plan itself describes.)*
-- **SC-002**: Speaking over the agent silences it within 300 ms in at least 95% of attempts, and the next answer addresses the interrupting message in at least 90% of those attempts. The clock starts at the first voiced sample the session accepts and stops when the audio is silent; the local stop must land inside 50 ms of that start, because the onset guard delays only the message to the server and never the silence (see plan Phase D). The turn's cancellation is a separate internal budget: 300 ms from the guard firing. *(Measurement points fixed in the Lead's review, 2026-11-08; the outcome is unchanged.)*
-- **SC-003**: The interrupt control silences the agent within 200 ms in every attempt, in 100 of 100 tries.
+- **SC-002**: From the **end** of the person's speech (the end-of-utterance period firing) to silence: within 300 ms in at least 95% of attempts, and the next answer addresses the interrupting message in at least 90% of those attempts. The agent being audible *during* the person's speech is not a failure — it is the behaviour C8 asks for, so the clock starts when they stop, not when they start, and it is measured on the client (first audible sample of the reply to silence).
+- ~~**SC-003**: The interrupt control silences the agent within 200 ms in every attempt, in 100 of 100 tries.~~ **Not measured in this release: the control is deferred (C7).** Kept so the criterion returns with the backlog item.
 - **SC-004**: In a 10-minute session of at least 15 turns, at least 90% of turns need no interaction other than speaking, and every spoken message appears in the conversation — no lost turns in 100%.
 - **SC-005**: A person who has never used the feature is talking to the agent within 20 seconds of first seeing the control, permission prompt included, on the first attempt, in at least 90% of tries and without reading documentation.
 - **SC-006**: With Live Voice never used, every existing speech behaviour is unchanged, verified by the existing checks for those features.
 - **SC-007**: A session left with no speech ends within its idle period in 100% of cases, and the operating system's microphone indicator is off within 2 seconds of any ending.
-- **SC-008**: With the device's speakers at 80% volume and no headphones, a 10-minute conversation produces no self-interruption, and no part of an interrupted reply is ever heard after the interruption, in 100 of 100 tries.
+- **SC-008**: With the device's speakers at 80% volume and no headphones, a 10-minute conversation produces no self-interruption — and, with the reply audible throughout, the end of the person's speech is detected within the end-of-utterance period in 95 of 100 attempts. A session that only notices the person once the reply happens to end fails this criterion.
 - **SC-009**: A failed call never leaves the session looking live: in every scenario of FR-030 to FR-033 the person sees a reason within 5 seconds and the microphone is released or the session is ended.
+- **SC-010**: Pressing the control shows an interactive call screen within 500 ms on the first attempt, on a fresh profile, with microphone permission granted at the system prompt — in at least 90% of tries. The clock stops at the screen, not at the first answer (SC-005 keeps the wider "talking within 20 seconds").A failed call never leaves the session looking live: in every scenario of FR-030 to FR-033 the person sees a reason within 5 seconds and the microphone is released or the session is ended.
 
 ## Assumptions
 
@@ -287,6 +354,18 @@ Every path that leaves `listen` or `speak` except the two interruptions ends the
 - **Optional capability**: per the constitution the feature sits behind an optional build capability, added without changing the shape of the existing API, and a build that leaves it out keeps everything else working (FR-041).
 - **Verification**: like every agent-observable change, the checks are scripted against the offline provider for the turn side (message in, history out) with the speech providers faked, plus one live-provider check marked as such for real audio; the plan turns that into concrete steps.
 
+### Superseded surface: the bar in the composer (archived, not deleted)
+
+The amendment `20d97316` specified a **bar inside the composer** — state word, level, elapsed time
+and an interrupt control, with a narrowing order of `transcript → level → elapsed → mic label` and a
+210 px floor. Under C6 that surface is **not** this release's surface: the call is a screen.
+It is archived here because three parts of it survive the move and should not be re-derived:
+the state words and their English copy, the rule that the microphone indicator is never the element
+that gives way (FR-038), and the treatment of `ended`/`failed` — the reason stays on screen, no
+5-second timer, no interrupt control beside it.
+**Do not take the bar's pixel floor, its narrowing order or its placement as requirements for the
+call screen.**
+
 ## Open Questions (for the User — five, each with a default)
 
 Nothing here blocks the plan: each has a decision taken in planning that the plan and the contracts
@@ -299,6 +378,10 @@ already follow. Changing one is a change of scope, not a rewrite.
 | **Q3** | Is the 2-second target (SC-001) measured only with hosted speech, with local models excluded? | Yes: hosted only, local measured separately. | Requiring it for a local whisper model means either accepting a slower target or dropping local models from the live path. |
 | **Q4** | A hard cap on concurrent live sessions per agent or per server? | No extra cap: the deployment's existing socket limits apply (contract, limits table). | A cap is one config value and one refusal reason, but it is a policy the User should set, not the plan. |
 | **Q5** | How visible should "this message was spoken" and "this reply was interrupted" be in the conversation? | A small badge with a tooltip, nothing more (FR-011, FR-023). | Hiding the badges makes the conversation read like typing; making them loud makes voice turns look like errors. |
+
+| **Q6** | What else does the call screen show besides the four required things (agent, state, thinking, microphone)? | Only those four, plus the agent's name, the level of the person's voice, and the transcript of the current turn. | Hiding the transcript makes a mis-recognition hard to notice until the answer is wrong; showing an avatar or a waveform is design work that would block the code. |
+| **Q7** | Can the person reach the conversation (and type in it) while the call screen is open? | Yes — the call screen is left by ending the call, and typing is done after it ends. A typed message during a call therefore belongs to the previous surface, not this one. | Allowing typing inside the call adds a second input path on a screen built for one, and reopens what FR-025 means while the screen is up. |
+| **Q8** | Is the call screen a route of its own (its own URL, survives a reload) or a view over the conversation? | A view over the conversation: reloading the page ends the session like any other reload (FR-028), and the control starts off. | A route would let a reload re-enter a call whose session is gone, which is a new failure mode with no owner. |
 
 ## Delta Log — changes made when this draft was resumed (2026-11-08)
 
@@ -369,3 +452,26 @@ only be spoken by widening the session into a second submission path — more su
 User does not want.
 
 **Verification**: no open-question marker remains in this file — a `grep -c` for the marker phrase returns `0`, and the only remaining pointer to it is this sentence's description of the delta.
+
+## Delta Log — 2026-11-08 21:19 (surface, scope and trigger changed by the User)
+
+Source: the User's message of 2026-11-08 21:19 in the `vizier-dev` workspace, quoted verbatim in the
+job that produced this delta. Three changes, applied here in one pass; nothing else was touched.
+
+| Change | Where | What it says now |
+|---|---|---|
+| **C6 — the call is a screen of its own** | new `### Session 2026-11-08 21:19` in Clarifications · new **US6** · **FR-043 to FR-047** · FR-001, FR-002, FR-006 · Interaction Flow · Assumptions · the archived-bar note | the session opens its own screen in place of the conversation view; the bar-in-composer surface is archived, not deleted |
+| **C7 — the interrupt control is deferred to the backlog** | US3 heading + banner · **FR-020**, **FR-021** struck through as deferred · FR-025 reworded so it no longer refers to a control · Interaction Flow · Non-goals | no button in this release; the cost (no escape hatch in a noisy room) is written down and accepted by the User |
+| **C8 — barge-in waits for the person to finish** | **FR-019** rewritten · **FR-024**, **FR-027** follow the new trigger · US2 narrative + scenarios (5 → 7) · edge cases · **SC-002** restated · **SC-008** restated · **FR-047** new | the agent keeps talking while the person talks; the end-of-utterance period (default 800 ms) stops the audio and cancels the turn; the onset guard is no longer the mechanism |
+
+**One rule derived from C8, flagged rather than assumed silently.** Because the trigger moved from the
+start of speech to its end, the old "a burst too short to be a message stops the audio and sends
+nothing" would now cancel a reply for a cough. FR-024 and Story 2 scenario 6 therefore say the
+opposite: a sub-word burst **neither** cancels the reply **nor** becomes a message. That preserves the
+intent of the original scenario under the new trigger; if the User wants a cough to stop the reply
+after all, that is one sentence to change in FR-024.
+
+**Kept exactly as they were** (checked, not assumed): FR-042's thinking indicator and its difference
+from `reconnecting`; FR-017's "short by default, the agent decides, no user-facing switch"; FR-018
+withdrawn (a typed message is text only); no total duration cap (C-series D8); audio never on the
+session broadcast; no new dependency; FR-035's surface limit to WebUI and desktop.

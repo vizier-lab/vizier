@@ -97,10 +97,10 @@ reasons are in `architecture.md` §11 — do not build both.
 - [ ] T034 [US1] `webui/app/lib/liveVoice/vad.ts`: energy gate over a 20 ms window, adaptive noise floor, 800 ms end-of-utterance hangover (FR-009, FR-010)
 - [ ] T035 [US1] `webui/app/lib/liveVoice/session.ts`: the client loop — start/stop, chunked send, frame handling, state transitions, `waiting` while the turn runs
 - [ ] T036 [US1] `webui/app/lib/liveVoice/player.ts`: one `AudioContext`, an ordered queue of `AudioBufferSourceNode`s scheduled back to back, `stop()` that closes every source and drains the queue (FR-022 groundwork)
-- [ ] T037 [US1] `webui/app/screens/chat/LiveVoiceButton.tsx`: the single off/on control, separate from the mic and the spoken-reply toggle, rendered only when the capability is true, off on every visit (FR-001, FR-002, FR-003). When the capability reads false, the disabled control says **which** half is missing and where to set it — "a recogniser is not configured for this agent" or "a voice is not configured", linking to the agent's speech settings — instead of a bare tooltip (FR-004; `analysis.md` M1)
-- [ ] T038 [US1] `webui/app/screens/chat/LiveVoiceBar.tsx`: the FR-006 state word, the input level, the microphone-open indicator including an unfocused window (FR-038), and the **thinking indicator** of FR-042 — `waiting` renders as "thinking" with the elapsed time, visually distinct from `reconnecting` (different wording and colour), appearing as soon as the turn is accepted and clearing on the first audible segment. The state words are English like the other seven and like the interrupt control; copy language decided in the Lead's review, 2026-11-08. The terminal states render too, with their reason (FR-006 "ended with a reason", FR-029, FR-030 — today `if (!live) return null` drops both, and the reason the session already holds in `view.notice` never reaches the screen): `ended` and `failed` keep the bar with the state word and the reason and no interrupt control, clearing on the next `start()` or the first typed message — no timer, because the commonest `ended` cause is the idle end, whose person has walked away (Lead's decision, 2026-11-08); a previous session's `notice` is cleared on `start()`. The elapsed counter is `aria-hidden` inside the `aria-live` region, so a screen reader announces the state and not every second; under `prefers-reduced-motion` (`motion-reduce:animate-none` is already on `DotLoader`) it is the only sign of life. Styled with the design system's components and tokens only — no `lv-*` stylesheet (`app.css` imports `@vizier/design/styles.css`, and `lint:tokens` rejects raw colour and size); `reconnecting` needs the text token the design system lacks (`state/retrying` #a86a12 is 4.03:1 on `bg/surface`): `--vz-retrying-text` #8a560e light, dark reusing `--vz-retrying` #e2b04a
-- [ ] T039 [US1] Test the FR-042 indicator in `webui/app/lib/liveVoice/session.test.ts` and `webui/e2e/live-voice-thinking.spec.ts`: a turn that produces no audio for 4 s shows the thinking state within 100 ms of the request being accepted, keeps showing it while `waiting`, switches to `reconnecting` (different wording) when the socket drops, and clears on the first audible segment — the same state word must never render as two different things. Also assert the terminal states: `ended` and `failed` render the bar with a reason taken from `view.notice` and no interrupt control, stay until `start()` or a typed message, and a `start()` after an ended session shows no stale reason. Assert the elapsed counter is outside the announced text
-- [ ] T040 [US1] Mount both controls from `webui/app/screens/chat/Composer.tsx` next to the existing mic and spoken-reply controls, without changing either
+- [ ] T037 [US1] `webui/app/screens/chat/LiveVoiceButton.tsx`: the single entry control, separate from the mic and the spoken-reply toggle, rendered only when the capability is true, off on every visit, and showing that pressing it **opens a call** (FR-001, FR-002). It is the only thing the conversation gains (C6)
+- [ ] T038 [US1] `webui/app/screens/livevoice/LiveVoiceCall.tsx`: **the call screen** — in place of the conversation view, showing the agent, the FR-006 state word, the FR-042 thinking indicator, the microphone-open indicator including an unfocused window (FR-038), and the end control of FR-045 (FR-043, FR-044). The archived bar amendment (`20d97316`) is not a specification for this screen: its pixel floor, narrowing order and placement do **not** carry over | **C6**
+- [ ] T039 [US1] Test the FR-042 indicator on the call screen in `webui/app/lib/liveVoice/session.test.ts` and `webui/e2e/live-voice-thinking.spec.ts`: a turn that produces no audio for 4 s shows the thinking state within 100 ms of the request being accepted, its wording differs from `reconnecting`, and it clears at the first segment / `interrupted` / `ended` / `failed` (FR-042)
+- [ ] T040 [US1] Mount the entry control from `webui/app/screens/chat/Composer.tsx` next to the existing mic and spoken-reply controls, without changing either, and navigate to the call screen on press; returning from the screen shows the same conversation, not a reload (FR-043, FR-046)
 - [ ] T041 [US1] Expose the per-agent `live_voice` switch in `webui/app/lib/agentForm.ts` and its field in `webui/app/screens/agents/ModelsFields.tsx`, defaulting off
 - [ ] T042 [US1] Keep exactly **one** counter: `backlog` is incremented and reset by T021's gate in `crates/vizier-http/src/topic.rs` and reported there as one `stall` control frame per episode (via `publish_session_event`), never by the session. The session's `ClientConnection::send` returning `false` while the connection is open is a **backstop** — `tracing::warn!` with a metric, no user-facing frame — and a test in `crates/vizier-http/tests/live_voice_delivery.rs` asserts the 64-slot queue never fills when the outbound loop runs (a healthy pair cannot produce a `Full`)
 
@@ -115,11 +115,11 @@ reasons are in `architecture.md` §11 — do not build both.
 **Independent Test**: a long answer, spoken over mid-sentence, silences the audio; the interrupting words become a message; the interrupted reply is marked interrupted.
 
 - [ ] T043 [P] [US2] VAD tests in `webui/app/lib/liveVoice/vad.test.ts` with the T004 fixtures: speech over playback triggers, playback alone at 80% volume does not (FR-026, SC-008)
-- [ ] T044 [P] [US2] Server test in `crates/vizier-http/tests/live_voice_barge_in.rs`: `live_voice_speech_start` bumps the generation, the running turn takes the existing abort path, a synthesised segment from the old generation is dropped
-- [ ] T045 [US2] Client barge-in in `webui/app/lib/liveVoice/session.ts`: on speech start while the reply is audible call `player.stop()` (<= 50 ms) and send `live_voice_speech_start` (FR-019)
+- [ ] T044 [P] [US2] Server test in `crates/vizier-http/tests/live_voice_barge_in.rs`, with the trigger C8 asks for: `live_voice_utterance_end` (not `speech_start`) bumps the generation, the running turn takes the existing abort path, a synthesised segment from the old generation is dropped, and an interruption that arrives while the reply was audible still lands — the test sends audio while a `live_voice_speech` frame is in flight
+- [ ] T045 [US2] Client barge-in in `webui/app/lib/liveVoice/session.ts`: the reply **keeps playing while the person speaks** (C8); when the VAD closes the utterance, call `player.stop()` and send `live_voice_utterance_end` in the same tick, so audio stops at the end of their speech and not before it (FR-019). `live_voice_speech_start` stays what it is — the signal that opens an utterance — and no longer interrupts anything
 - [ ] T046 [US2] Server barge-in in `crates/vizier-core/src/live_voice/session.rs`: bump the generation, abandon synthesis, then cancel the turn through **`AgentsClient::abort(agent_id, session)`** (`crates/vizier-core/src/agents_client.rs:205-207`, impl `:298-312`) — the same `VizierRequestContent::Command("abort")` the Composer's `/abort` already sends. There is **no** `AgentCommand::Abort` (`crates/vizier-core/src/schema/commands.rs:142` lists `Create`/`Update`/`Delete`/`HealthCheck`/`AgentHealth`/`RefreshIntegrations`/`IntegrationStatus`/`Restart`); `agents_client.rs:415` is `FakeCall::Abort`, a test fake (`review.md` D12, raised by `@teteh-qa` H1) — audio first, abort second; mark the reply interrupted **only when its `Message` had already arrived**, because an abort before any text is an `Abort` turn that produced nothing (`crates/vizier-core/src/schema/response.rs:156-166`) and the UI then shows the existing "Stopped by you" instead of an invented partial (`review.md` D1)
-- [ ] T047 [US2] Playback guard, onset guard and short-burst rule in `webui/app/lib/liveVoice/vad.ts` + `session.ts`: raised gate while the reply is audible, the first 150 ms after each segment ignored, and ~250 ms of voiced energy before `live_voice_speech_start` is sent. **Local silence is not delayed by the guard**: `player.stop()` runs the moment the gate opens (SC-002's client leg, <= 50 ms, is measured from the first voiced sample), and the segments already queued stay in `player.ts` so a burst shorter than the guard **resumes** playback instead of leaving the reply half-spoken (FR-022) and submits nothing (FR-024). The guard does consume most of SC-002's server leg: the abort leaves 250 ms after the guard fires and 300 ms is the ceiling, so server-side 300 ms counts from the guard firing, not from the first sample, and this is recorded as the measurement convention in T076 (`review.md` D15)
-- [ ] T048 [US2] Too-short burst in `webui/app/lib/liveVoice/session.ts` and `crates/vizier-core/src/live_voice/utterance.rs`: the precedence is fixed here so QA can test it. **Two thresholds, two jobs**: the ~250 ms onset guard decides only whether a **barge-in** reaches the server — below it nothing is sent and playback resumes (Story 2 scenario 5); the **end-of-utterance** path decides whether words become a message — any utterance the VAD closes is recognised, and a transcript like "no"/"stop" is submitted however short it is (the edge case). "Too short to be a message" therefore means *under the guard's 250 ms of voiced energy*, never a character count, and an empty transcript is `unintelligible` (FR-031), not `too_short` (`analysis.md` M11)
+- [ ] T047 [US2] Playback guard and reply ducking in `webui/app/lib/liveVoice/vad.ts` + `session.ts`: a raised gate while the reply is audible and the first 150 ms after each segment ignored, so the session does not hear itself (FR-026); and, because the agent now talks **through** the person's speech (C8), the reply's contribution to the microphone must be reduced once the person is detected speaking — the mechanism is `getUserMedia` echo cancellation plus, where that is not enough, lowering the playback gain rather than the audible level the person hears (FR-047). **The ~250 ms onset guard no longer applies**: with the trigger at the end of the utterance it has nothing to gate, and it is recorded here as replaced rather than merely unused (`review.md` D15, superseded by C8)
+- [ ] T048 [US2] Too-short burst in `webui/app/lib/liveVoice/session.ts` and `crates/vizier-core/src/live_voice/utterance.rs`: under C8 the old rule would cancel a reply for a cough, so the precedence is fixed the other way here and must be testable. **A sub-word burst neither cancels the reply nor becomes a message** (FR-024, Story 2 scenario 6): the length that decides is the one that makes a barge-in, measured as voiced energy, never a character count; a transcript that is empty after recognition is `unintelligible` (FR-031), not `too_short` (`analysis.md` M11, re-derived for C8)
 - [ ] T049 [US2] End-to-end check in `webui/e2e/live-voice-barge-in.spec.ts` with a faked provider: audio stops, the correction is submitted, the interrupted reply keeps its mark
 - [ ] T050 [US2] Confirm stale-generation frames are dropped by the client on arrival in `webui/app/lib/liveVoice/player.ts`, with a unit test in `webui/app/lib/liveVoice/session.test.ts`
 
@@ -127,21 +127,27 @@ reasons are in `architecture.md` §11 — do not build both.
 
 ---
 
-## Phase 5: User Story 3 — Stopping the agent with a control (Priority: P1)
+## Phase 5: User Story 3 — Stopping the agent with a control — **[BACKLOG, deferred 2026-11-08]**
 
 **Goal**: one button stops the voice at any moment and never ends the session.
 
+> **Not in this release (User decision 2026-11-08 21:19, spec C7).** T051–T057 are kept, marked
+> `[BACKLOG]`, and are **not** part of any checkpoint, gate or definition of done for this feature.
+> Do not implement them, do not test them, and do not let US1/US2 depend on them. The reason they are
+> kept rather than deleted is that the requirement is real and will come back: without a control,
+> a person in a noisy room or with a quiet voice cannot stop a reply at all.
+
 **Independent Test**: with the agent speaking, press interrupt; the audio stops, the session stays live, and a typed correction is answered **as text** with no audio scheduled for it.
 
-- [ ] T051 [P] [US3] Server test in `crates/vizier-http/tests/live_voice_interrupt.rs`: the interrupt frame bumps the generation, submits nothing, and leaves the session live (FR-020, FR-021)
-- [ ] T052 [US3] Add the always-visible interrupt control to `webui/app/screens/chat/LiveVoiceBar.tsx` (present for the whole session, distinct from the on/off control)
-- [ ] T053 [US3] Implement the interrupt path in `webui/app/lib/liveVoice/session.ts` and `player.ts`: `player.stop()`, send `live_voice_interrupt` with `reason: "button"`, move `interrupted → listening` (SC-003)
-- [ ] T054 [US3] Typing during a session in `webui/app/screens/chat/Composer.tsx`: the send path first sends `live_voice_interrupt { reason: "typed" }` so the audio stops like the button (FR-025), then sends the text as an **ordinary chat request on the same socket** — not through the session, and the session gains no frame for typed text. Its reply is text only (FR-018 withdrawn, 2026-11-08). With no session live the composer behaves exactly as today (FR-040)
-- [ ] T055 [US3] Interrupt while nothing is being spoken is a no-op on state in `crates/vizier-core/src/live_voice/session.rs` (FR-021)
-- [ ] T056 [US3] End-to-end check in `webui/e2e/live-voice-interrupt.spec.ts`: one press silences the agent, the session stays live and listening, and a typed message is answered **as text with no audio scheduled** — assert the `AudioBufferSourceNode` count stays zero after the typed turn (FR-025, FR-018 withdrawn)
-- [ ] T057 [US3] In `webui/app/screens/chat/LiveVoiceBar.tsx`, show the interrupt control disabled with a reason only when the capability is false; never hide it inside a live session (FR-020)
+- [ ] **T051 [BACKLOG]** [P] [US3] Server test in `crates/vizier-http/tests/live_voice_interrupt.rs`: the interrupt frame bumps the generation, submits nothing, and leaves the session live (FR-020, FR-021)
+- [ ] **T052 [BACKLOG]** [US3] Add an always-visible interrupt control to the **call screen** (`webui/app/screens/livevoice/LiveVoiceCall.tsx`, FR-044's surface), distinct from the end control of FR-045. **When this backlog item lands, the control belongs on the call screen; the composer bar it was written for is archived (C6)**
+- [ ] **T053 [BACKLOG]** [US3] Implement the interrupt path in `webui/app/lib/liveVoice/session.ts` and `player.ts`: `player.stop()`, send `live_voice_interrupt` with `reason: "button"`, move `interrupted → listening` (SC-003)
+- [ ] **T054 [BACKLOG]** [US3] Typing during a session in `webui/app/screens/chat/Composer.tsx`: the send path first sends `live_voice_interrupt { reason: "typed" }` so the audio stops like the button (FR-025), then sends the text as an **ordinary chat request on the same socket** — not through the session, and the session gains no frame for typed text. Its reply is text only (FR-018 withdrawn, 2026-11-08). With no session live the composer behaves exactly as today (FR-040)
+- [ ] **T055 [BACKLOG]** [US3] Interrupt while nothing is being spoken is a no-op on state in `crates/vizier-core/src/live_voice/session.rs` (FR-021)
+- [ ] **T056 [BACKLOG]** [US3] End-to-end check in `webui/e2e/live-voice-interrupt.spec.ts`: one press silences the agent, the session stays live and listening, and a typed message is answered **as text with no audio scheduled** — assert the `AudioBufferSourceNode` count stays zero after the typed turn (FR-025, FR-018 withdrawn)
+- [ ] **T057 [BACKLOG]** [US3] Keep the interrupt control reachable without hiding it inside a live session — disabled with a reason only when the capability is false (FR-020). **Placed on the call screen, not on the archived bar (C6)**
 
-**Checkpoint**: both interruption paths usable; US3 does not depend on US2.
+**Checkpoint**: not part of this release. The only interruption path in scope is US2's (speaking). US3 is deferred (C7) and its tasks must not be implemented or tested now.
 
 ---
 
@@ -183,11 +189,29 @@ reasons are in `architecture.md` §11 — do not build both.
 
 ---
 
-## Phase 8: Polish & Cross-Cutting Concerns
+## Phase 8: User Story 6 — The call has a screen of its own (Priority: P1, C6)
+
+**Goal**: pressing the control opens a call, not a strip of chrome: the agent, its state, the
+thinking indicator, the open microphone and a way out — and the conversation unchanged underneath.
+
+**Independent Test**: from a conversation, press the control; the call screen opens in place of the
+conversation view; ask something and watch the thinking state; end the call; the conversation is back
+with both turns and the control off.
+
+- [ ] T089 [P] [US6] Navigation for the call screen in `webui/app/routes/chat.tsx`: entering it replaces the conversation view (a view over the conversation, not a route of its own — open question Q8's default), and ending the call returns to the same conversation without a reload (FR-043, FR-046)
+- [ ] T090 [US6] Release on leaving in `webui/app/screens/livevoice/LiveVoiceCall.tsx` and `webui/app/lib/liveVoice/session.ts`: leaving the screen by any means runs the one release path of T059 — every track stopped, `AudioContext` closed, queue dropped (FR-028, FR-045)
+- [ ] T091 [P] [US6] Assert FR-046 in `webui/e2e/live-voice-screen.spec.ts`: a session with three turns, opened and left, leaves the conversation's messages, order and timestamps identical to a session that was never opened
+- [ ] T092 [US6] Script SC-010 in `webui/e2e/live-voice-screen.spec.ts`: pressing the control shows an interactive screen within 500 ms on the first attempt, on a fresh profile, with microphone permission granted at the system prompt (SC-005's clock stops here, not at the first answer)
+
+**Checkpoint**: a person can hold a conversation without ever seeing the chat layout, and can leave it without losing a word of it.
+
+---
+
+## Phase 9: Polish & Cross-Cutting Concerns
 
 **Purpose**: the documentation, the measurement, and the gates the constitution asks for.
 
-- [ ] T074 [P] Write the user documentation page `docs/src/configuration/live-voice.md` (start/end, what audio goes to which provider, what is stored, both interruptions, the limits) and add it to `docs/src/SUMMARY.md` (FR-039)
+- [ ] T074 [P] Write the user documentation page `docs/src/configuration/live-voice.md` (how to start and end a call, the call screen, what audio goes to which provider, what is stored, how to interrupt by speaking **and that there is no interrupt button in this release** — spec C7 — plus the limits) and add it to `docs/src/SUMMARY.md` (FR-039)
 - [ ] T075 [P] Add the build-flavour note for `provider-live-voice` beside the other optional features in `docs/src/deployment/` (whichever page lists the `full` build)
 - [ ] T076 Define the three measured gates before anything is measured, in `webui/app/lib/liveVoice/session.ts` (marks) and `crates/vizier-core/src/live_voice/session.rs` (spans): **SC-001** = `performance.now()` at the client's end-of-utterance (hangover fired) to the **first sample that is actually audible**, computed as the `AudioBufferSourceNode.start()` timestamp plus the `AudioContext.baseLatency + outputLatency` (or the scheduled `when`, if the first segment was queued ahead) — never the frame's arrival at the socket, and never a server span, or the gate measures a different event than "first audible word"; **SC-002** = the same end-of-utterance mark to `player.stop()` returning (client) and to `Abort` reaching the agent (server span); **SC-003** = the interrupt click handler entry to `player.stop()` returning. Emit one `live_voice_metric` line per turn with the stage durations, and write the procedure into `specs/055-live-voice/latency.md` — without fixed marks the numbers in the plan are not a gate (`review.md` D11)
 - [ ] T077 Instrument the stages in `crates/vizier-core/src/live_voice/session.rs` (end of utterance, recognition, turn start, first segment, first frame) with `tracing` spans and record p50/p90/p99 in `specs/055-live-voice/latency.md`
@@ -213,16 +237,18 @@ reasons are in `architecture.md` §11 — do not build both.
 - **Foundational (Phase 2)**: needs Setup; **blocks every story**
 - **US1 (Phase 3)**: needs Foundational
 - **US2 (Phase 4)**: needs Foundational; its barge-in is only observable once US1 can speak, so in practice after US1
-- **US3 (Phase 5)**: needs Foundational and US1's player; independent of US2
+- **US3 (Phase 5)**: **backlog — not built, not gated (C7)**
 - **US4 (Phase 6)**: needs US1 (a session to release)
 - **US5 (Phase 7)**: needs US1 and US4 (an ending to report)
-- **Polish (Phase 8)**: after the stories that are in scope
+- **US6 (Phase 8)**: needs US1's client session and T037's entry control; independent of US2
+- **Polish (Phase 9)**: after the stories that are in scope
 
 ### User Story Dependencies
 
 - **US1** — no story dependency. MVP.
 - **US2** — depends on US1's playback path; the interruption logic itself is independent of US3.
-- **US3** — depends on US1's playback path; independent of US2 (each proves a different interruption).
+- **US3** — **deferred to the backlog (C7)**; its acceptance criteria are not part of this release.
+- **US6** — depends on US1 (a session to put on a screen); independent of US2, and its screen is where US2's interruption is observed by the person.
 - **US4** — depends on US1.
 - **US5** — depends on US1 and US4.
 
@@ -258,12 +284,13 @@ Task: "webui/app/lib/liveVoice/{capture,vad,session,player}.ts"                 
 
 1. Phase 1 and Phase 2 to completion (the flag, the frames, the capability).
 2. Phase 3 to completion.
-3. Stop and validate with `quickstart.md` steps 1–3, then demo.
+3. Stop and validate with `quickstart.md` steps 1–3, then demo. The demo is the **call screen** (US6), not a composer bar.
 
 ### Incremental delivery
 
-US1 → demo (talk and hear) → US2 (barge-in) → US3 (interrupt control) → US4 (microphone discipline) →
-US5 (failures) → Polish. Every story leaves the previous one working, and a flag-off build stays
+US1 → demo (talk and hear) → **US6 (the call screen)** → US2 (barge-in, now triggered by the end of the
+person's speech) → US4 (microphone discipline) → US5 (failures) → Polish. **US3 is not in this sequence:
+it is backlog (C7).** Every story leaves the previous one working, and a flag-off build stays
 untouched throughout.
 
 ## Notes
@@ -291,6 +318,16 @@ stale 84 here and the stale phase count below).
 
 **Why this delta exists**: `review.md` re-checked every citation in `research.md`/`plan.md` against the
 tree. Seven findings change what a task must say; `architecture.md` is the shape they take.
+
+**Delta 2026-11-08 21:19 (User: surface, scope, trigger — spec C6/C7/C8).** 88 → **92** tasks
+(T001–T092), no ID renumbered: four were **appended** for the call screen (T089–T092) and the seven US3
+tasks are kept, tagged `[BACKLOG]`, and excluded from every checkpoint. Changed in place: **T037**
+(entry control opens a call, not a toggle), **T038** (the composer bar became the call screen;
+the `20d97316` bar amendment is archived, so its 210 px floor and narrowing order are **not**
+requirements), **T039**, **T040**, **T044** and **T045** (the interruption trigger moved from
+`speech_start` to `utterance_end`), **T047** (the onset guard is replaced, and reply ducking is
+added), **T048** (a sub-word burst now cancels nothing), **T074** (the docs page must say there is no
+interrupt button). The phase list grew one story: US6 is Phase 8 and Polish moved to Phase 9.
 
 | Finding | Task touched | What changed |
 |---|---|---|

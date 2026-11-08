@@ -58,7 +58,7 @@ Web: `AudioContext`, `AudioWorklet` (already used by `webui/public/vizier-captur
 | **I. Lean by default** | No new mandatory dependency in Rust or in the web bundle. The one seam (a trait between the session and its speech) exists because FR-036a requires a second implementation to be possible later; the session itself is a concrete type. The existing worklet, player and recogniser are reused rather than duplicated. |
 | **II. DRY via trait seams** | Speech enters through `VizierStt`/`VizierTts` behind one `LiveVoiceEngines` trait, never through `match` over providers. Recognition and synthesis stay one implementation per provider, as they are today. |
 | **III. Optional capability behind a flag** | `provider-live-voice` in `vizier-core` (`default = []`, added to `full`). With the flag off, no frame is ever emitted, the capability reads false, the control is hidden, and the existing speech tools are unchanged (FR-040, FR-041). Adding a `SessionFrame` variant is additive: the client's `classifyFrame` returns `null` for an unknown top-level key (`webui/app/api/frames.ts:607-630`), so an older client ignores the new frames instead of failing. |
-| **Design before UI code** | The control layout, states and both interruption paths are drawn in [diagrams.md](./diagrams.md) (wireframe + Mermaid) before any `.tsx` is written. |
+| **Design before UI code** | The call screen's states and the interruption by speech are drawn in [diagrams.md](./diagrams.md) (wireframe + Mermaid) before any `.tsx` is written. The archived bar is not the design; the screen is (spec C6). |
 | **Verification per flag and crate** | Every phase below names the job that proves it: `vizier-core` on/off the flag, `vizier-http`, `webui` vitest, Playwright, and the documented full matrix on develop/master/release. |
 
 No violations, so the complexity table at the end stays empty.
@@ -73,7 +73,7 @@ specs/055-live-voice/
 ├── plan.md                     # This file
 ├── research.md                 # Phase 0: findings, decisions, dependency report
 ├── data-model.md               # Phase 1: entities, states, frame payloads
-├── diagrams.md                 # Architecture, both interruption sequences, wireframe
+├── diagrams.md                 # Architecture, the interruption sequence, the call screen wireframe
 ├── quickstart.md               # Phase 1: how to run and verify it by hand
 ├── contracts/
 │   └── live-voice-frames.md    # Phase 1: the wire contract
@@ -104,9 +104,12 @@ webui/app/
 │   ├── session.ts          # client state machine + frame codec (pure, unit-tested)
 │   ├── player.ts           # AudioContext queue, gapless segments, immediate stop()
 │   └── segmenter.test.ts   # mirrors the server segmenter's expectations
-└── screens/chat/
-    ├── LiveVoiceButton.tsx # the one control (off/on), next to the mic and the spoken toggle
-    └── LiveVoiceBar.tsx    # state, level meter, the interrupt control, the reason when ended
+├── screens/chat/
+│   └── LiveVoiceButton.tsx # the entry control, next to the mic and the spoken toggle
+└── screens/livevoice/
+    └── LiveVoiceCall.tsx   # the call screen: agent, state word, thinking, mic open, end control
+# The composer bar of the earlier draft is archived (spec C6): the call is a screen, and no
+# interrupt control ships in this release (spec C7).
 ```
 
 **Structure Decision**: the engine stays in `vizier-core` (it must run without the web layer, per spec
@@ -194,40 +197,56 @@ The decisions that shape the rest of the plan, each with the evidence it rests o
    hangover 800 ms (FR-010), and a **playback guard**: while the reply is audible, the gate is raised
    and ignores the first 150 ms after each segment starts, so the session does not interrupt itself
    (FR-026).
-3. On speech start while audio is playing: stop the player locally (<= 50 ms, SC-002) and send
-   `live_voice_speech_start`; the server bumps the generation, abandons synthesis and cancels the
-   turn (FR-019, FR-027). **Onset guard, and what it does not delay**: `player.stop()` runs the
-   moment the gate opens, so SC-002's 50 ms is measured from the first voiced sample and never waits
-   for the guard; the guard (~250 ms of voiced energy) only decides when the *server* is told, which is
-   what SC-002's 300 ms is measured from. A burst shorter than the guard resumes the segments already
-   queued instead of leaving the reply half-spoken (FR-022) and submits nothing (FR-024), and the gate
-   during `waiting` (nothing audible) is the same one used during playback — a cough or a door must not
-   cancel a turn the person never heard (FR-026, SC-008; risk row below).
-4. On utterance end: send `live_voice_utterance_end`; a burst shorter than a word stops the audio and
-   submits nothing (Story 2, scenario 5; FR-024). **The precedence**: the ~250 ms onset guard governs
-   *barge-in only* — a burst under it never reaches the server and playback resumes; the
-   end-of-utterance path governs *what becomes a message* — any utterance the VAD closes is recognised,
-   and "no"/"stop" is submitted however short it is. "Too short" is a duration (the guard), never a
-   character count, and an empty transcript is `unintelligible` (FR-031), not too short (`analysis.md`
-   M11).
+3. **Speech start no longer interrupts (spec C8).** While the person is speaking the agent keeps
+   talking; the client only sends `live_voice_speech_start`, which opens the utterance and nothing
+   else. This is the part of the older design that must not survive: an `speech_start` that bumps the
+   generation makes the reply stop the moment somebody says "mm", which is exactly what C8 removed.
+4. **On utterance end, the interruption happens**: send `live_voice_utterance_end` and call
+   `player.stop()` in the same tick. `player.stop()` is what the person hears, so it must not wait for
+   the server; the server bumps the generation, abandons synthesis and cancels the turn on
+   `utterance_end` (FR-019, FR-027). SC-002 is measured from the moment the hangover fires, on the
+   client, to silence — 300 ms ceiling, and the send plus the socket hop is what it has to fit in.
+5. **A sub-word burst cancels nothing** (FR-024, Story 2 scenario 6). Under the new trigger the old
+   "stop the audio, send nothing" would cancel a reply for a cough, so the rule is the other way: too
+   short to be a word means neither an interruption nor a message. The threshold is voiced energy, not
+   a character count, and an empty transcript after recognition is `unintelligible` (FR-031).
+6. **The onset guard is gone, and this is why** (`review.md` D15, superseded). It existed to keep a
+   burst from reaching the server *before* a word had been said; with the trigger at the end of the
+   utterance there is nothing left for it to gate. What replaces it is the hangover itself, which is
+   also what decides the end of a message — so a cough and a word are told apart by length, once,
+   instead of by two thresholds that disagree.
+7. **The hard case C8 creates**: the microphone hears the reply while the person speaks, so the
+   hangover may never fire (FR-047). Echo cancellation is the first mechanism; where it is not
+   enough, the reply's **contribution to the microphone** must drop once the person is detected
+   speaking — lowering the playback gain, not the level the person hears, so the agent stays audible
+   to them and quieter to the detector. This is the one fallback that makes C8 work on speakers
+   without headphones, and SC-008 measures it.
 5. **Exit criteria**: `vitest` over `vad.ts` with recorded fixtures — speech over a playback sample
    triggers, playback alone at 80% volume does not; `session.ts` never emits `start` twice.
 
 ## Phase E — Client playback, interrupt control and UI
 
-**Goal**: both interruption paths are usable, and the state is visible.
+**Goal**: the call screen exists, the state is visible on it, and one interruption path (speech) works end to end.
 
 1. `player.ts`: one `AudioContext` resumed on the control press, an ordered queue of
    `AudioBufferSourceNode`s scheduled back to back, `stop()` that closes every source at once and
    drains the queue, and stale-generation frames dropped on arrival (FR-022).
-2. `LiveVoiceButton.tsx` + `LiveVoiceBar.tsx` as drawn in [diagrams.md](./diagrams.md): one control
-   to start and stop, the interrupt control present for the whole session, the state text from FR-006,
-   the microphone-open indicator including when the window is unfocused (FR-038).
-3. Typing during a session stops the audio like the interrupt control (FR-025).
+2. **The call screen** (spec C6): `LiveVoiceCall.tsx`, opened by the entry control and shown in place
+   of the conversation view — the agent, the FR-006 state word, the FR-042 thinking indicator, the
+   microphone-open indicator including when the window is unfocused (FR-038), and the end control
+   (FR-045). **No interrupt control**: it is deferred to the backlog (C7), and a button that exists in
+   the code but not in the specification is worse than an absent one. The composer bar of the earlier
+   draft is archived with the spec; its pixel floor, narrowing order and placement do not carry over.
+3. Typing during a session stops the audio and cancels the turn (FR-025), on the same path as any
+   other interruption. Whether typing is reachable while the call screen is up is open question Q7
+   (default: no — the conversation view is what the call replaces).
 4. Ends: press again, leave the page, permission withdrawn, conversation or agent gone, idle, reload
    (FR-028, FR-034) — every one releases the microphone and leaves the text (SC-007).
-5. **Exit criteria**: Playwright with a faked provider — both interruption paths silence the audio and
-   the session stays live; closing the tab releases the track; a second tab is refused (FR-005).
+5. **Exit criteria**: Playwright with a faked provider — the control opens the call screen, the
+   thinking indicator shows while a slow turn runs and is distinguishable from `reconnecting`, the
+   interruption by speech silences the audio and the session stays live, ending the call returns to the
+   unchanged conversation, closing the tab releases the track, and a second tab is refused (FR-005,
+   FR-043 to FR-047, SC-010).
 
 ## Phase F — Hardening and documentation
 
@@ -280,6 +299,7 @@ recorded as open question Q3.
 | Segment boundaries heard as gaps | synthesise one segment ahead and schedule buffers back to back on one `AudioContext` clock |
 | Frame traffic grows with the bus copy | 100 ms chunks (`~4.3 KB` base64) per direction, one session per conversation |
 | A forgotten session listens on | idle stop at 3 min with a visible reason (FR-029) and a microphone indicator (FR-038) |
+| The reply drowns out the end of the person's speech (C8) | echo cancellation first, then ducking the reply's contribution to the microphone once the person is detected speaking (FR-047); SC-008 fails the release if it does not work on speakers without headphones |
 | Noise cancels a turn nobody has heard yet | the 250 ms onset guard above, and a higher gate while the state is `waiting`; a burst shorter than the guard only pauses the local playback and resumes it, so a misfire costs a stutter, not a cancelled turn. If it still misfires the fix is a stricter guard, not a spec change |
 | Audio in the session-event ring would evict text (1024 slots shared by the whole process, `transport/mod.rs:29`) | audio frames bypass `publish_session_event` entirely while control frames keep using it (a handful per turn); the ring, its capacity and every existing consumer stay exactly as they are (`review.md` D9) |
 | Desktop CSP blocks a later wasm VAD | the optional upgrade needs a CSP change and self-hosted assets; recorded in research.md so nobody adds it silently |

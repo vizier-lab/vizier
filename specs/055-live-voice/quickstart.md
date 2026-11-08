@@ -120,10 +120,11 @@ yet; until it does, the three steps below are run by hand over the WebUI socket.
    reply text invented (FR-027, FR-023's abort case) — exactly what T044 calls.
 
 What these three steps **do not** cover, and where it is covered instead: voice activity detection,
-segmentation and playback, and both interruptions driven by sound or by the button. Those are
-`crates/vizier-http/tests/live_voice_*.rs` and `webui/e2e/live-voice-*.spec.ts` with a faked recogniser
-and voice, plus the steps above by hand. A scripted browser run of *both* interruption paths against a
-live provider stays a manual gate, and it is marked as such.
+segmentation and playback, and the interruption by speech — there is **no interrupt button** in this
+release (spec C7), so there is one path to test, not two. Those are `crates/vizier-http/tests/live_voice_*.rs`
+and `webui/e2e/live-voice-*.spec.ts` with a faked recogniser and voice, plus the steps above by hand.
+A scripted browser run of the interruption path against a live provider stays a manual gate, and it is
+marked as such.
 
 ## The automated half
 
@@ -132,7 +133,7 @@ live provider stays a manual gate, and it is marked as such.
 | Server frames | `cargo test -p vizier-http` | a session accepts the frames, one utterance produces one request, an interrupt bumps the generation and cancels, flag-off rejects them harmlessly |
 | Engine | `cargo test -p vizier-core --features provider-live-voice` | segments are ordered and complete, the first frame is emitted before the last segment is requested, an interruption stops the stream |
 | Client | `cd webui && npm test -- liveVoice` | the VAD fires on speech over playback and not on playback alone; stale generations are dropped; `stop()` drains the queue |
-| End to end | `cd webui && npm run e2e` | both interruption paths with a faked provider |
+| End to end | `cd webui && npm run e2e` | the interruption path and the call screen, with a faked provider |
 
 Speech providers are faked in every automated test. One test is marked as needing a live provider;
 run it with credentials before calling the feature done.

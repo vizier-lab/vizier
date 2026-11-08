@@ -58,9 +58,13 @@ Closes the utterance and starts recognition. Exactly one of: a transcript submit
 { "live_voice_speech_start": { "utterance_id": "u-42" } }
 ```
 
-Sent the moment the client's VAD registers the person speaking — **before** any audio, because this
-is the barge-in signal (FR-019). Bumps the generation, abandons synthesis, cancels the running turn.
-Also opens the utterance named in it.
+Sent the moment the client's VAD registers the person speaking — **before** any audio — and it now
+does exactly one thing: it **opens the utterance** named in it. It does **not** interrupt.
+
+The interruption moved to the end of the utterance (spec C8, 2026-11-08 21:19): `live_voice_utterance_end`
+bumps the generation, abandons synthesis and cancels the running turn. Between the two frames the agent
+**keeps speaking**, which is the behaviour the User asked for; the client stops its own playback when it
+sends `utterance_end`, so the person hears silence as soon as they stop talking.
 
 ### `live_voice_interrupt`
 
@@ -68,8 +72,17 @@ Also opens the utterance named in it.
 { "live_voice_interrupt": { "reason": "button" } }
 ```
 
-`reason`: `button` | `typed` | `barge_in`. Same effect as `speech_start` on the audio and the turn,
-but opens no utterance: the session stays live and listening (FR-020, FR-021, FR-025).
+`reason`: `typed` | `barge_in`. It stops the audio and cancels the turn without opening an utterance: the
+session stays live and listening (FR-025, FR-027).
+
+**`button` is deferred to the backlog (spec C7, 2026-11-08 21:19).** There is no interrupt control in
+this release, so a client MUST NOT send it; a server that receives it MUST treat it exactly like
+`barge_in` rather than fail, so the backlog item needs no protocol change when it lands.
+
+**`typed` exists only where the conversation is reachable during a session** — spec open question Q7's
+default says it is not, since the call screen replaces the conversation view. The reason stays in the
+contract because FR-025 (typing stops the reply) is a requirement even when the surface that allows it
+is not on screen.
 
 **A typed message has no frame here.** Typing during a session sends `live_voice_interrupt { reason:
 "typed" }` (the audio stops, FR-025) and then the text as an ordinary chat request on the same socket,
@@ -245,7 +258,10 @@ to contain (`state` vs `utterance_id`+`text` vs `base64`), which a client cannot
 | `stall` | the socket fell behind and audio was dropped (control lane) | `dropped` |
 | `error` | a provider or session failure | `kind`, `message` |
 
-Client frames are unchanged: their top-level keys (`live_voice_start`, `live_voice_audio`,
-`live_voice_utterance_end`, `live_voice_speech_start`, `live_voice_interrupt`, `live_voice_stop`) are
-already distinct. Nothing else in this contract changed; the sizes, limits and "deliberately not in
+Client frames keep their top-level keys (`live_voice_start`, `live_voice_audio`,
+`live_voice_utterance_end`, `live_voice_speech_start`, `live_voice_interrupt`, `live_voice_stop`); what
+changed on 2026-11-08 21:19 is *when* two of them are sent and what one of them does — see
+`live_voice_speech_start` above (opens an utterance, no longer interrupts) and `live_voice_interrupt`
+(`button` deferred). The call screen of spec C6 needs **no new frame**: it is a surface over the same
+session, and its state word comes from `live_voice_state`. Nothing else in this contract changed; the sizes, limits and "deliberately not in
 the contract" list stand.
