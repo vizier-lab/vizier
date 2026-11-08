@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { LiveVoiceClient, humanReason, type LiveVoiceDeps, type LiveVoiceView } from './session'
 import { SilentPlayer } from './player'
+import { stateWord } from '../../screens/chat/LiveVoiceBar'
 import type { SessionState } from './frames'
 
 /** A client wired to a fake socket and a silent player, so every transition is observable. */
@@ -196,3 +197,195 @@ describe('the reason wording', () => {
     })
 })
 
+
+/** The composer's own harness, with the capture callbacks exposed so a test can drive audio. */
+function driven(options: { sendReturns?: (frame: object) => boolean } = {}) {
+    const sent: object[] = []
+    const views: LiveVoiceView[] = []
+    const player = new SilentPlayer()
+    let clock = 1000
+    let capture: {
+        onChunk(samples: Int16Array): void
+        onWindow(samples: Float32Array): void
+        onLost(reason: string): void
+    } | null = null
+    const client = new LiveVoiceClient({
+        send: (frame) => {
+            sent.push(frame)
+            return options.sendReturns ? options.sendReturns(frame) : true
+        },
+        player,
+        openCapture: async (callbacks) => {
+            capture = callbacks
+            return { stop: () => {}, open: true }
+        },
+        onView: (view) => views.push(view),
+        now: () => clock,
+    })
+    return {
+        client,
+        sent,
+        player,
+        views,
+        last: () => views[views.length - 1],
+        advance: (ms: number) => {
+            clock += ms
+        },
+        /** One 20 ms window of voice, which is what the gate decides on. */
+        speak: (ms = 200) => {
+            const window = new Float32Array(320)
+            for (let i = 0; i < window.length; i++) window[i] = i % 2 === 0 ? 0.2 : -0.2
+            for (let elapsed = 0; elapsed < ms; elapsed += 20) capture?.onWindow(window)
+        },
+        /** Silence for the hangover, which ends the utterance. */
+        stopSpeaking: () => {
+            const silent = new Float32Array(320)
+            for (let elapsed = 0; elapsed < 900; elapsed += 20) capture?.onWindow(silent)
+        },
+    }
+}
+
+describe('FR-042 — the thinking indicator', () => {
+    it('says thinking on waiting, and never in the reconnecting wording', async () => {
+        const h = driven()
+        await h.client.start()
+        h.client.onFrame({ live_voice: { type: 'state', state: 'waiting', generation: 1 } })
+        expect(h.last().thinking).toBe(true)
+        expect(stateWord(h.last())).toBe('agent sedang berpikir')
+
+        h.client.onSocketState('reconnecting')
+        expect(h.last().thinking).toBe(false)
+        expect(stateWord(h.last())).toBe('reconnecting')
+        // The two words are never the same string, which is what keeps them apart on screen.
+        expect(stateWord({ ...h.last(), state: 'waiting' })).not.toBe(stateWord({ ...h.last(), state: 'reconnecting' }))
+    })
+
+    it('the elapsed time runs while the agent thinks, and starts from zero each turn', async () => {
+        const h = driven()
+        await h.client.start()
+        h.client.onFrame({ live_voice: { type: 'state', state: 'waiting', generation: 1 } })
+        h.advance(3000)
+        h.client.onFrame({ live_voice: { type: 'state', state: 'waiting', generation: 1 } })
+        expect(h.last().thinkingMs).toBeGreaterThanOrEqual(3000)
+
+        h.client.onFrame({ live_voice: { type: 'state', state: 'listening', generation: 1 } })
+        h.client.onFrame({ live_voice: { type: 'state', state: 'waiting', generation: 2 } })
+        expect(h.last().thinkingMs).toBe(0)
+    })
+
+    it('clears on the first audible segment', async () => {
+        const h = driven()
+        await h.client.start()
+        h.client.onFrame({ live_voice: { type: 'state', state: 'waiting', generation: 1 } })
+        expect(h.last().thinking).toBe(true)
+        h.client.onFrame({
+            live_voice: {
+                type: 'speech',
+                generation: 1,
+                seq: 0,
+                sample_rate: 16000,
+                format: 'pcm16',
+                base64: 'AAECAw==',
+                final: false,
+            },
+        })
+        expect(h.last().thinking).toBe(false)
+        expect(h.last().state).toBe('speaking')
+    })
+
+    it('leaves nothing lit when an interruption or an ending follows', async () => {
+        const h = driven()
+        await h.client.start()
+        h.client.onFrame({ live_voice: { type: 'state', state: 'waiting', generation: 1 } })
+        h.client.interrupt('button')
+        expect(h.last().thinking).toBe(false)
+        expect(h.last().state).toBe('listening')
+
+        h.client.onFrame({ live_voice: { type: 'state', state: 'waiting', generation: 2 } })
+        h.client.onFrame({
+            live_voice: { type: 'state', state: 'ended', generation: 2, reason: 'idle' },
+        })
+        expect(h.last().thinking).toBe(false)
+        expect(h.last().state).toBe('ended')
+    })
+
+    it('is off on a failure reached from thinking', async () => {
+        const h = driven()
+        await h.client.start()
+        h.client.onFrame({ live_voice: { type: 'state', state: 'waiting', generation: 1 } })
+        h.client.onFrame({
+            live_voice: { type: 'state', state: 'failed', generation: 1, reason: 'provider_failed' },
+        })
+        expect(h.last().thinking).toBe(false)
+        expect(h.last().state).toBe('failed')
+    })
+
+    it('every state word is its own word', () => {
+        const words = (
+            [
+                'off',
+                'connecting',
+                'listening',
+                'waiting',
+                'speaking',
+                'interrupted',
+                'reconnecting',
+                'ended',
+                'failed',
+            ] as const
+        ).map((state) => stateWord({ ...h0(), state }))
+        expect(new Set(words).size).toBe(words.length)
+    })
+})
+
+function h0(): LiveVoiceView {
+    return {
+        state: 'off',
+        thinking: false,
+        thinkingMs: 0,
+        level: 0,
+        transcript: '',
+        notice: null,
+        micOpen: false,
+    }
+}
+
+describe('T042 — a refused frame is not an ending', () => {
+    it('keeps the session alive when the socket refuses audio but is still open', async () => {
+        // `ClientConnection::send` says `false` for a full queue and a closed socket alike; only
+        // the second ends a session (D10). Here every audio frame is refused, the socket is open.
+        const h = driven({
+            sendReturns: (frame) => !('live_voice_audio' in frame) && !('live_voice_speech_start' in frame),
+        })
+        await h.client.start()
+        expect(h.client.currentState).toBe('listening')
+
+        h.speak()
+        h.stopSpeaking()
+
+        expect(h.client.currentState).toBe('listening')
+        expect(h.last().notice).toBeNull()
+        expect(h.last().state).not.toBe('failed')
+        expect(h.last().state).not.toBe('ended')
+    })
+
+    it('never turns a dropped audio frame into a stall notice on the client', async () => {
+        const h = driven({ sendReturns: (frame) => !('live_voice_audio' in frame) })
+        await h.client.start()
+        h.speak()
+        h.stopSpeaking()
+        // The stall is reported by the socket's own loop, once per episode, not invented here.
+        expect(h.last().notice).toBeNull()
+        expect(h.sent.some((frame) => JSON.stringify(frame).includes('stall'))).toBe(false)
+    })
+
+    it('end, and only end, is what a closed socket produces', async () => {
+        const h = driven()
+        await h.client.start()
+        h.client.onFrame({
+            live_voice: { type: 'state', state: 'ended', generation: 1, reason: 'page_closed' },
+        })
+        expect(h.client.currentState).toBe('ended')
+        expect(h.last().state).toBe('ended')
+    })
+})
