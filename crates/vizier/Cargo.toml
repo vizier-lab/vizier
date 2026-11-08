@@ -29,7 +29,7 @@ role-control = []
 [dependencies]
 vizier-core = { workspace = true, features = ["full"] }
 vizier-fleet.workspace = true
-vizier-http.workspace = true
+vizier-http = { workspace = true, features = ["live-voice"] }
 anyhow.workspace = true
 chrono.workspace = true
 clap.workspace = true

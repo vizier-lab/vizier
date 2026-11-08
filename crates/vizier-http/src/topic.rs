@@ -16,6 +16,7 @@ use vizier_core::{
         VizierAttachmentContent, VizierChannelId, VizierRequest, VizierRequestContent, VizierSession,
     },
     service::ServiceError,
+    storage::agent::AgentStorage,
     transport::{SessionEvent, SessionFrame, VizierTransport},
 };
 
@@ -206,6 +207,224 @@ impl TopicConnection {
         self.connections.remove(&self.connection.id);
     }
 
+    /// One live voice action (`specs/055-live-voice`).
+    ///
+    /// Everything here is authorised exactly like a chat message on the same socket: the session
+    /// belongs to the principal that started it, and everybody else is told it is active rather
+    /// than being allowed to end it (FR-005).
+    #[cfg(feature = "live-voice")]
+    pub async fn handle_live_voice(&self, key: &str, frame: serde_json::Value) {
+        use vizier_core::live_voice::frame::{ClientAction, EndReason, LiveVoiceControl, SessionState};
+
+        let Some(action) = ClientAction::parse(key, &frame) else {
+            self.send_live_voice(LiveVoiceControl::Error {
+                kind: EndReason::ProviderFailed,
+                message: "the frame did not match the live voice contract".into(),
+            });
+            return;
+        };
+        let sessions = vizier_core::live_voice::sessions();
+
+        // Every action but `start` needs the session the caller owns.
+        let owned = |session: &vizier_core::live_voice::LiveVoiceSession| {
+            session.owner == self.principal.username
+        };
+
+        match action {
+            ClientAction::Start(_) => {
+                if let Some(existing) = sessions.get(&self.session) {
+                    if owned(&existing) && !existing.is_stopped() {
+                        // Idempotent: the same person pressing start on a reconnected socket
+                        // re-binds the lane, which is what keeps the session from going silent
+                        // (T067).
+                        existing.rebind(self.connection.clone());
+                        existing.set_state(SessionState::Listening);
+                        return;
+                    }
+                    self.send_live_voice(LiveVoiceControl::Error {
+                        kind: EndReason::ProviderFailed,
+                        message: "a live voice session is already active on this conversation".into(),
+                    });
+                    return;
+                }
+
+                let config = match self.services.deps().storage.get_agent(&self.session.0).await {
+                    Ok(Some(config)) => config,
+                    _ => {
+                        self.send_live_voice(LiveVoiceControl::Error {
+                            kind: EndReason::AgentChanged,
+                            message: "the agent is not available".into(),
+                        });
+                        return;
+                    }
+                };
+                if !config.tools.live_voice.enabled {
+                    // FR-041: with the switch off the frame is ignored and the socket stays open.
+                    return;
+                }
+                let settings = config.tools.live_voice.settings.clone();
+                let stt = settings.stt.clone().unwrap_or_else(|| config.tools.stt.settings.clone());
+                let tts = settings.tts.clone().unwrap_or_else(|| config.tools.tts.settings.clone());
+                let engines = match vizier_core::live_voice::CascadeEngines::new(
+                    &stt,
+                    &tts,
+                    self.services.deps(),
+                    &self.services.deps().config.workspace,
+                    &self.session.0,
+                )
+                .await
+                {
+                    Ok(engines) => std::sync::Arc::new(engines)
+                        as std::sync::Arc<dyn vizier_core::live_voice::LiveVoiceEngines>,
+                    Err(e) => {
+                        self.send_live_voice(LiveVoiceControl::Error {
+                            kind: EndReason::ProviderFailed,
+                            message: format!("the speech providers could not start: {e}"),
+                        });
+                        return;
+                    }
+                };
+                let language = stt.language.clone();
+                let session = sessions
+                    .start(self.session.clone(), || {
+                        vizier_core::live_voice::LiveVoiceSession::new(
+                            self.session.clone(),
+                            self.principal.username.clone(),
+                            language,
+                            settings,
+                            self.connection.clone(),
+                            self.transport.clone(),
+                        )
+                    })
+                    .unwrap_or_else(|existing| existing);
+                session.set_engines(engines);
+                session.set_state(SessionState::Listening);
+            }
+            ClientAction::Audio(audio) => {
+                let Some(session) = sessions.get(&self.session).filter(|s| owned(s)) else {
+                    return;
+                };
+                // T015: one chunk is ~6 KB of base64. Anything larger is refused, never buffered.
+                if audio.base64.len() > vizier_core::live_voice::CHUNK_BASE64 * 2 {
+                    self.send_live_voice(LiveVoiceControl::Error {
+                        kind: EndReason::ProviderFailed,
+                        message: "an audio chunk was larger than one chunk of the contract".into(),
+                    });
+                    return;
+                }
+                let pcm = match base64::Engine::decode(
+                    &base64::engine::general_purpose::STANDARD,
+                    &audio.base64,
+                ) {
+                    Ok(pcm) => pcm,
+                    Err(_) => return,
+                };
+                if let Some(full) = session.push_audio(&audio.utterance_id, &pcm)
+                    && full
+                    && let Some(utterance) = session.take_utterance(&audio.utterance_id)
+                {
+                    self.drive_utterance(session, utterance).await;
+                }
+            }
+            ClientAction::UtteranceEnd(end) => {
+                let Some(session) = sessions.get(&self.session).filter(|s| owned(s)) else {
+                    return;
+                };
+                if let Some(utterance) = session.take_utterance(&end.utterance_id) {
+                    self.drive_utterance(session, utterance).await;
+                }
+            }
+            ClientAction::SpeechStart(start) => {
+                let Some(session) = sessions.get(&self.session).filter(|s| owned(s)) else {
+                    return;
+                };
+                // The barge-in signal arrives before any audio (FR-019): stop the audio and make
+                // every in-flight segment stale, then open the utterance it names.
+                session.interrupt();
+                session.open_utterance(&start.utterance_id);
+                session.set_state(SessionState::Listening);
+            }
+            ClientAction::Interrupt(_) => {
+                let Some(session) = sessions.get(&self.session).filter(|s| owned(s)) else {
+                    return;
+                };
+                // FR-021: with nothing being spoken this changes no state; the session stays live.
+                session.interrupt();
+                if matches!(session.state(), SessionState::Speaking | SessionState::Waiting) {
+                    session.set_state(SessionState::Listening);
+                }
+            }
+            ClientAction::Stop => {
+                let Some(session) = sessions.get(&self.session).filter(|s| owned(s)) else {
+                    return;
+                };
+                session.end(EndReason::PressedAgain);
+                sessions.remove(&self.session, &session);
+            }
+        }
+    }
+
+    #[cfg(feature = "live-voice")]
+    /// Recognise one closed utterance and, if it said anything, drive a spoken turn.
+    async fn drive_utterance(
+        &self,
+        session: std::sync::Arc<vizier_core::live_voice::LiveVoiceSession>,
+        utterance: vizier_core::live_voice::Utterance,
+    ) {
+        use vizier_core::live_voice::frame::{EndReason, LiveVoiceControl};
+
+        if utterance.too_short() {
+            // FR-024: the audio stopped, nothing is submitted, the session listens again.
+            self.send_live_voice(LiveVoiceControl::Transcript {
+                utterance_id: utterance.id.clone(),
+                text: String::new(),
+                submitted: false,
+            });
+            return;
+        }
+        let Some(engines) = session.engines() else {
+            return;
+        };
+        let text = match engines
+            .transcribe(&utterance.wav(), &utterance.filename(), session.language.as_deref())
+            .await
+        {
+            Ok(text) => text,
+            Err(e) => {
+                self.send_live_voice(LiveVoiceControl::Error {
+                    kind: EndReason::ProviderFailed,
+                    message: format!("recognition failed: {e}"),
+                });
+                return;
+            }
+        };
+        if text.is_empty() {
+            // FR-031: told, nothing submitted, listening again.
+            self.send_live_voice(LiveVoiceControl::Error {
+                kind: EndReason::Unintelligible,
+                message: "that was not intelligible; say it again".into(),
+            });
+            return;
+        }
+        self.send_live_voice(LiveVoiceControl::Transcript {
+            utterance_id: utterance.id.clone(),
+            text: text.clone(),
+            submitted: true,
+        });
+        let engines = engines.clone();
+        tokio::spawn(async move { session.run_turn(engines, text).await });
+    }
+
+    #[cfg(feature = "live-voice")]
+    /// Control frames go to this socket straight away (they are also on the broadcast, which is
+    /// how the other tabs learn about the session).
+    fn send_live_voice(&self, control: vizier_core::live_voice::LiveVoiceControl) {
+        let json = serde_json::json!({ "live_voice": control });
+        if let Err(e) = self.out.try_send(json) {
+            tracing::debug!("live voice control frame not queued: {e}");
+        }
+    }
+
     pub async fn handle_inbound(&self, frame: serde_json::Value) {
         let send_frame = |frame: serde_json::Value| {
             let out = self.out.clone();
@@ -213,6 +432,16 @@ impl TopicConnection {
                 let _ = out.send_async(frame).await;
             }
         };
+
+        #[cfg(feature = "live-voice")]
+        // Live voice takes its own branch **before** the frame is stringified below: an audio
+        // chunk is 4.3 KB and arrives ten times a second, and copying it once more per chunk on
+        // the way in is a cost with nothing to show for it (`review.md` D5).
+        if let Some(key) = vizier_core::live_voice::frame::client_key(&frame) {
+            self.handle_live_voice(key, frame).await;
+            return;
+        }
+
         {
                         let text_str = frame.to_string();
                         let frame = Some(frame);
@@ -535,6 +764,7 @@ impl TopicOutbound {
                     // `dropped` is this loop's own counter: the session keeps none (T042), so
                     // there is exactly one number and exactly one report.
                     let mut write = true;
+                    #[cfg(feature = "live-voice")]
                     if vizier_core::live_voice::frame::is_speech_frame(&frame) {
                         if self.out.len() > vizier_core::live_voice::LIVE_VOICE_SOCKET_BACKLOG {
                             dropped += 1;
@@ -631,6 +861,7 @@ impl TopicOutbound {
                             // session, and the payload type makes sending it here a compile error.
                             // The same serialiser serves both lanes, so their field names cannot
                             // drift (`analysis.md` M15).
+                            #[cfg(feature = "live-voice")]
                             SessionFrame::LiveVoice(control) => serde_json::to_value(&control)
                                 .ok()
                                 .map(|control| serde_json::json!({ "live_voice": control })),
