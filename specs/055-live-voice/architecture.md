@@ -120,6 +120,13 @@ marked interrupted; if the abort lands before any `Message`, the turn ends as `A
 (`schema/response.rs:156-166` — a turn that produced nothing) and the conversation shows the existing
 "Stopped by you", with no invented partial text.
 
+**FR-018 — a typed message during a session (D17)**: the session speaks only the turns it submitted,
+so a typed message in a live conversation is routed **through the session** (`live_voice_text`) rather
+than beside it: the session submits it with `spoken: false` (the person typed, so no listening note,
+FR-017) and keeps the `ResponseSender`, which is what makes its reply the one the session speaks. This
+is the same rule as §4's first paragraph, not an exception to it: a background report, a scheduled task
+or another tab's turn still never gets spoken, because the session never submitted it.
+
 **FR-011/FR-017 (D2)**: the request is an ordinary `VizierRequestContent::Chat(transcript)` with a new
 `#[serde(default)] spoken: bool`. The spoken note for the agent is appended in the block that already
 handles voice input (`crates/vizier-core/src/agents/agent/mod.rs:712-750`), gated on `spoken`, so no

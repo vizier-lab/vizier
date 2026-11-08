@@ -71,6 +71,18 @@ Also opens the utterance named in it.
 `reason`: `button` | `typed` | `barge_in`. Same effect as `speech_start` on the audio and the turn,
 but opens no utterance: the session stays live and listening (FR-020, FR-021, FR-025).
 
+### `live_voice_text`
+
+```json
+{ "live_voice_text": { "text": "no, the other file", "utterance_id": null } }
+```
+
+A message the person **typed** while a session is live (FR-018). Submitted as an ordinary request with
+`spoken: false` — no listening note, because the person did not speak it (FR-017) — and the session
+keeps the `ResponseSender`, so its reply is spoken like any other turn of the session. The client sends
+`live_voice_interrupt { reason: "typed" }` first (the audio stops as with the button, FR-025), then this.
+Without a live session the composer sends an ordinary request and none of this is used (FR-040).
+
 ### `live_voice_stop`
 
 ```json
@@ -201,6 +213,13 @@ Rules:
 No binary frames, no per-frame acknowledgement (the socket's ordering is enough), no audio
 retransmission (a lost chunk is a syllable, not a state), and no transcript editing. Adding a
 realtime speech-to-speech pipeline later would add new frame names, not change these.
+
+
+
+**C-12 — `live_voice_text` (D17).** The contract had no way to say "the person typed this while the
+session is live", so FR-018's "answered **and** spoken" had no path: the session speaks only the turns
+it submitted. The frame closes that without widening anything — it is the same request a typed turn
+sends, minus the listening note.
 
 
 ## Review delta (2026-11-08, `@mamang-lead-be`)

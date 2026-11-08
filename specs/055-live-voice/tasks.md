@@ -117,7 +117,7 @@ reasons are in `architecture.md` §11 — do not build both.
 - [ ] T043 [P] [US2] Server test in `crates/vizier-http/tests/live_voice_barge_in.rs`: `live_voice_speech_start` bumps the generation, the running turn takes the existing abort path, a synthesised segment from the old generation is dropped
 - [ ] T044 [US2] Client barge-in in `webui/app/lib/liveVoice/session.ts`: on speech start while the reply is audible call `player.stop()` (<= 50 ms) and send `live_voice_speech_start` (FR-019)
 - [ ] T045 [US2] Server barge-in in `crates/vizier-core/src/live_voice/session.rs`: bump the generation, abandon synthesis, then cancel the turn through **`AgentsClient::abort(agent_id, session)`** (`crates/vizier-core/src/agents_client.rs:205-207`, impl `:298-312`) — the same `VizierRequestContent::Command("abort")` the Composer's `/abort` already sends. There is **no** `AgentCommand::Abort` (`crates/vizier-core/src/schema/commands.rs:142` lists `Create`/`Update`/`Delete`/`HealthCheck`/`AgentHealth`/`RefreshIntegrations`/`IntegrationStatus`/`Restart`); `agents_client.rs:415` is `FakeCall::Abort`, a test fake (`review.md` D12, raised by `@teteh-qa` H1) — audio first, abort second; mark the reply interrupted **only when its `Message` had already arrived**, because an abort before any text is an `Abort` turn that produced nothing (`crates/vizier-core/src/schema/response.rs:156-166`) and the UI then shows the existing "Stopped by you" instead of an invented partial (`review.md` D1)
-- [ ] T046 [US2] Playback guard, onset guard and short-burst rule in `webui/app/lib/liveVoice/vad.ts` + `session.ts`: raised gate while the reply is audible, the first 150 ms after each segment ignored, and ~250 ms of voiced energy before `live_voice_speech_start` is sent. **Local silence is not delayed by the guard**: `player.stop()` runs the moment the gate opens (SC-002's client leg, <= 50 ms, is measured from the first voiced sample), and the segments already queued stay in `player.ts` so a burst shorter than the guard **resumes** playback instead of leaving the reply half-spoken (FR-022) and submits nothing (FR-024). The guard does consume most of SC-002's server leg: the abort leaves 250 ms after the guard fires and 300 ms is the ceiling, so server-side 300 ms counts from the guard firing, not from the first sample, and this is recorded as the measurement convention in T075 (`review.md` D15)
+- [ ] T046 [US2] Playback guard, onset guard and short-burst rule in `webui/app/lib/liveVoice/vad.ts` + `session.ts`: raised gate while the reply is audible, the first 150 ms after each segment ignored, and ~250 ms of voiced energy before `live_voice_speech_start` is sent. **Local silence is not delayed by the guard**: `player.stop()` runs the moment the gate opens (SC-002's client leg, <= 50 ms, is measured from the first voiced sample), and the segments already queued stay in `player.ts` so a burst shorter than the guard **resumes** playback instead of leaving the reply half-spoken (FR-022) and submits nothing (FR-024). The guard does consume most of SC-002's server leg: the abort leaves 250 ms after the guard fires and 300 ms is the ceiling, so server-side 300 ms counts from the guard firing, not from the first sample, and this is recorded as the measurement convention in T076 (`review.md` D15)
 - [ ] T047 [US2] Too-short burst in `webui/app/lib/liveVoice/session.ts` and `crates/vizier-core/src/live_voice/utterance.rs`: the audio stops, nothing is submitted, the session listens again (FR-024)
 - [ ] T048 [US2] End-to-end check in `webui/e2e/live-voice-barge-in.spec.ts` with a faked provider: audio stops, the correction is submitted, the interrupted reply keeps its mark
 - [ ] T049 [US2] Confirm stale-generation frames are dropped by the client on arrival in `webui/app/lib/liveVoice/player.ts`, with a unit test in `webui/app/lib/liveVoice/session.test.ts`
@@ -135,10 +135,11 @@ reasons are in `architecture.md` §11 — do not build both.
 - [ ] T050 [P] [US3] Server test in `crates/vizier-http/tests/live_voice_interrupt.rs`: the interrupt frame bumps the generation, submits nothing, and leaves the session live (FR-020, FR-021)
 - [ ] T051 [US3] Add the always-visible interrupt control to `webui/app/screens/chat/LiveVoiceBar.tsx` (present for the whole session, distinct from the on/off control)
 - [ ] T052 [US3] Implement the interrupt path in `webui/app/lib/liveVoice/session.ts` and `player.ts`: `player.stop()`, send `live_voice_interrupt` with `reason: "button"`, move `interrupted → listening` (SC-003)
-- [ ] T053 [US3] Typing during playback stops the audio in `webui/app/screens/chat/Composer.tsx`'s send path, sending `reason: "typed"` (FR-025)
-- [ ] T054 [US3] Interrupt while nothing is being spoken is a no-op on state in `crates/vizier-core/src/live_voice/session.rs` (FR-021)
-- [ ] T055 [US3] End-to-end check in `webui/e2e/live-voice-interrupt.spec.ts`: one press silences, the session stays live, a typed message is answered and spoken
-- [ ] T056 [US3] In `webui/app/screens/chat/LiveVoiceBar.tsx`, show the interrupt control disabled with a reason only when the capability is false; never hide it inside a live session (FR-020)
+- [ ] T053 [US3] Typing while a session is live goes **through the session**, in `webui/app/screens/chat/Composer.tsx` and `webui/app/lib/liveVoice/session.ts`: the send path first sends `live_voice_interrupt { reason: "typed" }` (audio stops like the button, FR-025) and then the typed text as `live_voice_text`; with no session live the composer behaves exactly as today (FR-018, FR-040)
+- [ ] T054 [US3] Accept `live_voice_text` in `crates/vizier-core/src/live_voice/session.rs` and submit it as an **ordinary request with `spoken: false`** (no listening note — the person typed, FR-017) while the session keeps the `ResponseSender`, so the reply it produces is the one the session speaks (FR-018). Writing is not a new capability: mode, tools, permissions and history are those of a typed turn (FR-007). Background reports and other sessions' turns are still never spoken — the session speaks only the turns it submitted (`architecture.md` §4). Test in `crates/vizier-http/tests/live_voice_session.rs`: a typed message during a session produces one request with `spoken: false` and its reply is spoken; a background report arriving meanwhile produces no speech
+- [ ] T055 [US3] Interrupt while nothing is being spoken is a no-op on state in `crates/vizier-core/src/live_voice/session.rs` (FR-021)
+- [ ] T056 [US3] End-to-end check in `webui/e2e/live-voice-interrupt.spec.ts`: one press silences, the session stays live, a typed message is answered and spoken
+- [ ] T057 [US3] In `webui/app/screens/chat/LiveVoiceBar.tsx`, show the interrupt control disabled with a reason only when the capability is false; never hide it inside a live session (FR-020)
 
 **Checkpoint**: both interruption paths usable; US3 does not depend on US2.
 
@@ -150,14 +151,14 @@ reasons are in `architecture.md` §11 — do not build both.
 
 **Independent Test**: close the tab mid-answer; the OS microphone indicator goes out within 2 s and the reply text is kept; a silent session ends after the idle period with a reason.
 
-- [ ] T057 [P] [US4] Tests in `webui/app/lib/liveVoice/session.test.ts` and `crates/vizier-http/tests/live_voice_session.rs`: page close releases tracks, idle stop ends with a reason, a second start on the same conversation is refused
-- [ ] T058 [US4] One release path in `webui/app/lib/liveVoice/session.ts` — stop every track, close the `AudioContext`, drop the queue — called by every terminal transition
-- [ ] T059 [US4] Wire `pagehide`/unmount handling in `webui/app/routes/chat.tsx` and `webui/app/screens/chat/Composer.tsx` so leaving the conversation ends the session (FR-028)
-- [ ] T060 [US4] Refuse a second session on the same conversation in `crates/vizier-core/src/live_voice/session.rs` with `live_voice_error` reason `session_active`, and show it in `webui/app/screens/chat/LiveVoiceBar.tsx` (FR-005)
-- [ ] T061 [US4] Idle stop and owner-gone ends in `crates/vizier-core/src/live_voice/session.rs`: idle timer (FR-029), agent reconfigured/deleted, conversation deleted, server restart
-- [ ] T062 [US4] Ending leaves the control off and remembers nothing between visits in `webui/app/screens/chat/LiveVoiceButton.tsx` (no storage)
-- [ ] T063 [US4] End-to-end check in `webui/e2e/live-voice-lifecycle.spec.ts`: close mid-answer, track `readyState` becomes `ended`, text kept, control off on reload
-- [ ] T064 [US4] Mobile/desktop suspension (screen lock, WebView background) ends the session with a reason rather than staying "live" in `webui/app/lib/liveVoice/session.ts`
+- [ ] T058 [P] [US4] Tests in `webui/app/lib/liveVoice/session.test.ts` and `crates/vizier-http/tests/live_voice_session.rs`: page close releases tracks, idle stop ends with a reason, a second start on the same conversation is refused
+- [ ] T059 [US4] One release path in `webui/app/lib/liveVoice/session.ts` — stop every track, close the `AudioContext`, drop the queue — called by every terminal transition
+- [ ] T060 [US4] Wire `pagehide`/unmount handling in `webui/app/routes/chat.tsx` and `webui/app/screens/chat/Composer.tsx` so leaving the conversation ends the session (FR-028)
+- [ ] T061 [US4] Refuse a second session on the same conversation in `crates/vizier-core/src/live_voice/session.rs` with `live_voice_error` reason `session_active`, and show it in `webui/app/screens/chat/LiveVoiceBar.tsx` (FR-005)
+- [ ] T062 [US4] Idle stop and owner-gone ends in `crates/vizier-core/src/live_voice/session.rs`: idle timer (FR-029), agent reconfigured/deleted, conversation deleted, server restart
+- [ ] T063 [US4] Ending leaves the control off and remembers nothing between visits in `webui/app/screens/chat/LiveVoiceButton.tsx` (no storage)
+- [ ] T064 [US4] End-to-end check in `webui/e2e/live-voice-lifecycle.spec.ts`: close mid-answer, track `readyState` becomes `ended`, text kept, control off on reload
+- [ ] T065 [US4] Mobile/desktop suspension (screen lock, WebView background) ends the session with a reason rather than staying "live" in `webui/app/lib/liveVoice/session.ts`
 
 **Checkpoint**: SC-007 holds; no code path can leave listening.
 
@@ -169,14 +170,14 @@ reasons are in `architecture.md` §11 — do not build both.
 
 **Independent Test**: cut the connection mid-answer; the state reads reconnecting within 2 s and the audio stops; restore within 30 s and the same session continues without a duplicate message.
 
-- [ ] T065 [P] [US5] Tests in `crates/vizier-http/tests/live_voice_failures.rs`: empty recognition, voice provider failing mid-reply, socket drop then reconnect inside the window, no device (FR-030–FR-033)
-- [ ] T066 [US5] Reconnect in `webui/app/lib/liveVoice/session.ts` and `crates/vizier-core/src/live_voice/session.rs`: resume the same session within 30 s, never re-submit a message already in flight
-- [ ] T067 [US5] Re-bind the audio lane on reconnect in `crates/vizier-core/src/live_voice/session.rs` and `.../registry.rs`: `TopicConnection::open` builds a **new** `ClientConnection` per socket (`crates/vizier-http/src/topic.rs:144`), so a session that kept the old `Arc` would stay live and go mute. A `live_voice_start` from the owner while their session is live is idempotent and adopts the caller's current connection; a session whose owner never comes back inside FR-033's 30 s ends with `connection_lost`. Test in `crates/vizier-http/tests/live_voice_failures.rs`: drop the socket, reconnect, the next `live_voice_speech` reaches the **new** connection (`review.md` D13)
-- [ ] T068 [US5] Failure surfaces in `webui/app/screens/chat/LiveVoiceBar.tsx`: one reason line within 5 s and the microphone released (SC-009)
-- [ ] T069 [US5] Voice provider failure mid-reply in `crates/vizier-core/src/live_voice/engines.rs`: the rest of the reply still appears as text, the failure is reported, the session listens again (FR-032)
-- [ ] T070 [US5] No device and refused permission in `webui/app/lib/liveVoice/capture.ts`: fail with a reason, retryable without a reload (FR-030)
-- [ ] T071 [US5] End-to-end check in `webui/e2e/live-voice-failures.spec.ts` using route interception to drop and restore the socket
-- [ ] T072 [US5] Unintelligible transcript in `crates/vizier-core/src/live_voice/utterance.rs`: tell the person, send nothing, listen again (FR-031)
+- [ ] T066 [P] [US5] Tests in `crates/vizier-http/tests/live_voice_failures.rs`: empty recognition, voice provider failing mid-reply, socket drop then reconnect inside the window, no device (FR-030–FR-033)
+- [ ] T067 [US5] Reconnect in `webui/app/lib/liveVoice/session.ts` and `crates/vizier-core/src/live_voice/session.rs`: resume the same session within 30 s, never re-submit a message already in flight
+- [ ] T068 [US5] Re-bind the audio lane on reconnect in `crates/vizier-core/src/live_voice/session.rs` and `.../registry.rs`: `TopicConnection::open` builds a **new** `ClientConnection` per socket (`crates/vizier-http/src/topic.rs:144`), so a session that kept the old `Arc` would stay live and go mute. A `live_voice_start` from the owner while their session is live is idempotent and adopts the caller's current connection; a session whose owner never comes back inside FR-033's 30 s ends with `connection_lost`. Test in `crates/vizier-http/tests/live_voice_failures.rs`: drop the socket, reconnect, the next `live_voice_speech` reaches the **new** connection (`review.md` D13)
+- [ ] T069 [US5] Failure surfaces in `webui/app/screens/chat/LiveVoiceBar.tsx`: one reason line within 5 s and the microphone released (SC-009)
+- [ ] T070 [US5] Voice provider failure mid-reply in `crates/vizier-core/src/live_voice/engines.rs`: the rest of the reply still appears as text, the failure is reported, the session listens again (FR-032)
+- [ ] T071 [US5] No device and refused permission in `webui/app/lib/liveVoice/capture.ts`: fail with a reason, retryable without a reload (FR-030)
+- [ ] T072 [US5] End-to-end check in `webui/e2e/live-voice-failures.spec.ts` using route interception to drop and restore the socket
+- [ ] T073 [US5] Unintelligible transcript in `crates/vizier-core/src/live_voice/utterance.rs`: tell the person, send nothing, listen again (FR-031)
 
 **Checkpoint**: every failure path in SC-009 is demonstrated.
 
@@ -186,19 +187,19 @@ reasons are in `architecture.md` §11 — do not build both.
 
 **Purpose**: the documentation, the measurement, and the gates the constitution asks for.
 
-- [ ] T073 [P] Write the user documentation page `docs/src/configuration/live-voice.md` (start/end, what audio goes to which provider, what is stored, both interruptions, the limits) and add it to `docs/src/SUMMARY.md` (FR-039)
-- [ ] T074 [P] Add the build-flavour note for `provider-live-voice` beside the other optional features in `docs/src/deployment/` (whichever page lists the `full` build)
-- [ ] T075 Define the three measured gates before anything is measured, in `webui/app/lib/liveVoice/session.ts` (marks) and `crates/vizier-core/src/live_voice/session.rs` (spans): **SC-001** = `performance.now()` at the client's end-of-utterance (hangover fired) to the **first sample that is actually audible**, computed as the `AudioBufferSourceNode.start()` timestamp plus the `AudioContext.baseLatency + outputLatency` (or the scheduled `when`, if the first segment was queued ahead) — never the frame's arrival at the socket, and never a server span, or the gate measures a different event than "first audible word"; **SC-002** = the same end-of-utterance mark to `player.stop()` returning (client) and to `Abort` reaching the agent (server span); **SC-003** = the interrupt click handler entry to `player.stop()` returning. Emit one `live_voice_metric` line per turn with the stage durations, and write the procedure into `specs/055-live-voice/latency.md` — without fixed marks the numbers in the plan are not a gate (`review.md` D11)
-- [ ] T076 Instrument the stages in `crates/vizier-core/src/live_voice/session.rs` (end of utterance, recognition, turn start, first segment, first frame) with `tracing` spans and record p50/p90/p99 in `specs/055-live-voice/latency.md`
-- [ ] T077 Run the flag matrix and record it: `cargo test -p vizier-core`, `cargo test -p vizier-core --features provider-live-voice`, `cargo test -p vizier-http`, `cd webui && npm test`, `cd webui && npm run e2e`
-- [ ] T078 Run `cargo clippy --all-targets` for both flag states and `cd webui && npm run lint`; fix everything new
-- [ ] T079 Walk `quickstart.md` by hand with a hosted provider and record the result of every step in the pull request
-- [ ] T080 Run the `dummyplug` agent-observable e2e gate from the constitution against a running binary (message in, history out) with the speech providers faked
-- [ ] T081 Remove dead code and leftover TODOs from the new modules (`crates/vizier-core/src/live_voice/*`, `webui/app/lib/liveVoice/*`) before the review gate
-- [ ] T082 [P] Assert FR-016 in `crates/vizier-core/src/live_voice/utterance.rs`: the raw audio never reaches storage — the PCM buffer is dropped once the recogniser returns, no `SessionFile`/attachment is created for it, and a test drives one full turn then reads the conversation's stored requests and files to prove only text is there (FR-016; no task asserted this before, `analysis.md` M1)
-- [ ] T083 [P] Assert FR-035 in `crates/vizier-http/tests/live_voice_frames.rs`: the Discord and Telegram paths never emit a `live_voice` frame and never gain a control, because the feature is offered on the chat surface only — a session started from the WebUI leaves those readers exactly as they are today (`analysis.md` M2)
-- [ ] T084 [P] Soak the loop in `webui/e2e/live-voice-soak.spec.ts`: 10 minutes, 15 turns, no interaction other than speaking, every spoken message present in the conversation — SC-004's "no lost turns in 100%" is the one criterion nothing in the plan measured (`analysis.md` M3)
-- [ ] T085 Hand the branch to `@teteh-qa` for `speckit-analyze` and `speckit-checklist`
+- [ ] T074 [P] Write the user documentation page `docs/src/configuration/live-voice.md` (start/end, what audio goes to which provider, what is stored, both interruptions, the limits) and add it to `docs/src/SUMMARY.md` (FR-039)
+- [ ] T075 [P] Add the build-flavour note for `provider-live-voice` beside the other optional features in `docs/src/deployment/` (whichever page lists the `full` build)
+- [ ] T076 Define the three measured gates before anything is measured, in `webui/app/lib/liveVoice/session.ts` (marks) and `crates/vizier-core/src/live_voice/session.rs` (spans): **SC-001** = `performance.now()` at the client's end-of-utterance (hangover fired) to the **first sample that is actually audible**, computed as the `AudioBufferSourceNode.start()` timestamp plus the `AudioContext.baseLatency + outputLatency` (or the scheduled `when`, if the first segment was queued ahead) — never the frame's arrival at the socket, and never a server span, or the gate measures a different event than "first audible word"; **SC-002** = the same end-of-utterance mark to `player.stop()` returning (client) and to `Abort` reaching the agent (server span); **SC-003** = the interrupt click handler entry to `player.stop()` returning. Emit one `live_voice_metric` line per turn with the stage durations, and write the procedure into `specs/055-live-voice/latency.md` — without fixed marks the numbers in the plan are not a gate (`review.md` D11)
+- [ ] T077 Instrument the stages in `crates/vizier-core/src/live_voice/session.rs` (end of utterance, recognition, turn start, first segment, first frame) with `tracing` spans and record p50/p90/p99 in `specs/055-live-voice/latency.md`
+- [ ] T078 Run the flag matrix and record it: `cargo test -p vizier-core`, `cargo test -p vizier-core --features provider-live-voice`, `cargo test -p vizier-http`, `cd webui && npm test`, `cd webui && npm run e2e`
+- [ ] T079 Run `cargo clippy --all-targets` for both flag states and `cd webui && npm run lint`; fix everything new
+- [ ] T080 Walk `quickstart.md` by hand with a hosted provider and record the result of every step in the pull request
+- [ ] T081 Run the `dummyplug` agent-observable e2e gate from the constitution against a running binary (message in, history out) with the speech providers faked
+- [ ] T082 Remove dead code and leftover TODOs from the new modules (`crates/vizier-core/src/live_voice/*`, `webui/app/lib/liveVoice/*`) before the review gate
+- [ ] T083 [P] Assert FR-016 in `crates/vizier-core/src/live_voice/utterance.rs`: the raw audio never reaches storage — the PCM buffer is dropped once the recogniser returns, no `SessionFile`/attachment is created for it, and a test drives one full turn then reads the conversation's stored requests and files to prove only text is there (FR-016; no task asserted this before, `analysis.md` M1)
+- [ ] T084 [P] Assert FR-035 in `crates/vizier-http/tests/live_voice_frames.rs`: the Discord and Telegram paths never emit a `live_voice` frame and never gain a control, because the feature is offered on the chat surface only — a session started from the WebUI leaves those readers exactly as they are today (`analysis.md` M2)
+- [ ] T085 [P] Soak the loop in `webui/e2e/live-voice-soak.spec.ts`: 10 minutes, 15 turns, no interaction other than speaking, every spoken message present in the conversation — SC-004's "no lost turns in 100%" is the one criterion nothing in the plan measured (`analysis.md` M3)
+- [ ] T086 Hand the branch to `@teteh-qa` for `speckit-analyze` and `speckit-checklist`
 
 ---
 
@@ -282,7 +283,7 @@ raised at 15:25 — and is **verified and amended here three times**, not rewrit
 tasks were checked against the code and kept; **six** were added (T017, T018, T019 for the findings
 below; T020, T021, T022 for the delivery path), eight were made more specific, and the ID sequence was
 renumbered three times (old `T017` and up moved by three, old `T038`/`T040` and up by two, old `T022`
-and up by one) so the list stays in execution order. Total: 85 tasks, T001–T085 (`analysis.md` M12 caught the
+and up by one) so the list stays in execution order. Total: 86 tasks, T001–T086 (`analysis.md` M12 caught the
 stale 84 here and the stale phase count below).
 
 **Why this delta exists**: `review.md` re-checked every citation in `research.md`/`plan.md` against the
@@ -300,6 +301,8 @@ tree. Seven findings change what a task must say; `architecture.md` is the shape
 | **D9** — audio on the session-event broadcast: `Lagged` drops all-or-nothing (`topic.rs:609-613`), the ring is 1024 slots for the whole process (`transport/mod.rs:29`), and the socket itself is an unbounded `flume` (`channel.rs:374`), so "drop only audio" was unimplementable and the real memory bound was missing | **new T020, T021**; the old backlog task is now T041 | frames go to the owner's socket through `ClientConnection::send`, never `publish_session_event`; audio is dropped above `LIVE_VOICE_SOCKET_BACKLOG = 16` at the one place that can see the queue, control frames never are; a closed socket ends the session with `page_closed`; **T022** makes the `Lagged` arm state its own rule (it can drop control and text, never audio, because audio is not in the ring) and proves a 2 000-frame audio burst cannot make a subscriber lag. `plan.md` Phase C/fallbacks/risks, the contract (`§Delivery path`, C-6) and `architecture.md` (§11, I9) carry the same decision |
 | **D16** — where the audio lane drops and who counts | T021, T041 | one counter (`backlog`), owned by the outbound loop that performs the drop, reported as one `stall` control frame per episode; the session's queue-full is a logged backstop; `channel.rs`/`embedded.rs` untouched, no `open()` signature change (`architecture.md` §11) |
 
+| **D17** — FR-018 (a typed message during a session is answered **and spoken**) had no mechanism, so T055's own independent test could not pass | **new T054**; T053 rewritten | typing goes through the session as `live_voice_text`, submitted with `spoken: false` (no listening note) and with the session holding the `ResponseSender`, so the reply it produces is the reply it speaks; background reports stay unspoken (`architecture.md` §4) |
+
 **Also recorded, no task changed**: the author's claim "no new mandatory dependency" holds
 (`Cargo.lock`: `base64 0.23.1`, `tokio` `sync` feature, `serde`, `AudioContext`/`AudioWorklet` already
 shipped); `tokio` is `1.53.3`, not the `1.49.0` written in `research.md` §C; `classifyFrame` lives at
@@ -307,4 +310,4 @@ shipped); `tokio` is `1.53.3`, not the `1.49.0` written in `research.md` §C; `c
 
 **Execution order is unchanged**: Phase 1 → Phase 2 (16 tasks, T007–T022) → US1..US5 →
 Polish. `@sepuh-be` implements; `@teteh-qa` verifies with `speckit-analyze` + `speckit-checklist`
-after T082.
+after T086.
