@@ -272,8 +272,11 @@ rewriting the analyst's text wholesale: each row names the file and what it now 
 | C-13 | tasks: T038/T039 now render the terminal states with their reason and no interrupt control, move the elapsed counter out of the announced text, and require the design system instead of a stylesheet | `tasks.md` | Lead's review, 2026-11-08 — `LiveVoiceBar.tsx:46-47` drops `ended` and `failed` while `session.ts:314-316` and `:324` already hold the reason: FR-006, FR-029, FR-030 |
 | C-14 | tasks: T038 keeps the state words English, and `start()` clears the previous session's notice | `tasks.md` | same review — one Indonesian word in a bar of eight English ones widened it 2.3× in the designer's render; `session.ts:112-114` never resets `view.notice`, so an old reason can surface inside a healthy session |
 
-**Canonical baseline for anything quoting counts**: `specs/055-live-voice/tasks.md`, commit
-`e48e1d03`, **85 tasks (T001–T085)**. Any other number in an older message or report is stale.
+**Canonical baseline for anything quoting counts**: `specs/055-live-voice/tasks.md` at the commit
+being read — `80d60847` at the time of writing — carrying **88 tasks (T001–T088)**, counted with
+`grep -cE '^- \[ \] T[0-9]{3}'`. Any other number in an older message or report is stale, including
+the "85" this line used to say and the "86" two commit messages repeat: T038/T039 were amended in place
+(`20d97316`), and an in-place amendment never changes the count.
 
 ---
 
