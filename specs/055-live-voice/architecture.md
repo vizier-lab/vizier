@@ -49,7 +49,7 @@ flowchart LR
     subgraph Server["Vizier server"]
         SOCK["Topic socket<br/>channel.rs:818 JSON only"]
         DISP["topic.rs handle_inbound<br/>live_voice_* branch"]
-        OUT["ClientConnection::send<br/>owner's socket only, not the broadcast"]
+        OUT["ClientConnection::send<br/>audio only, owner's socket"]
         REG["LiveVoiceSessions<br/>registry, shared"]
         SES["LiveVoiceSession<br/>state, watch generation"]
         UTT["Utterance<br/>PCM to WAV"]
@@ -276,20 +276,29 @@ below is 2.57 s before the model has produced anything.
   the microphone track within 2 s (SC-007).
 * **I8** A typed message during a session stops the audio exactly like the button (FR-025) and is
   answered and spoken (FR-018).
-* **I9** No `live_voice` frame ever reaches `publish_session_event`; a backlogged socket loses
-  `live_voice_speech` frames only, never a `SessionFrame::Response` (§11, D9).
+* **I9** No `live_voice_speech` frame ever reaches `publish_session_event` (control frames do, by
+  design); a backlogged socket loses speech frames only, never a `SessionFrame::Response`, and never a
+  control frame (§11, D9).
 
 ## 11. Delivery path for server frames (`review.md` D9)
 
-The session's frames do **not** go through `publish_session_event`. They are written to the one socket
-that owns the session:
+**Audio** (`live_voice_speech`) never goes through `publish_session_event`: it is written to the one
+socket that owns the session. **Control** (`state`, `transcript`, `error`, `stall`) keeps the broadcast,
+because it is a handful of frames per turn and it is how other sockets on the conversation learn that a
+session is active (FR-005).
 
 ```text
 LiveVoiceSession ──> Arc<ClientConnection> ──send()──> per-connection mpsc(64) ──> TopicOutbound ──> flume (socket)
                         (owner, core type)              bounded, try_send            depth check          writer
 ```
 
-* **Why not the broadcast.** `SessionEvent` travels a `broadcast::channel(1024)` shared by the whole
+* **A second tab was receiving the audio.** The broadcast is filtered per **session**, not per socket
+  (`crates/vizier-http/src/topic.rs:533` — `ev.session == self.session`), so every socket open on the
+  conversation got every audio frame, including a tab that FR-005 says may not hold a session. Moving
+  audio to the owner's connection closes that leak and the text-eviction risk in one change; the low
+  volume control frames stay on the broadcast precisely so that tab can still be *told* a session is
+  active, which is what FR-005 asks for.
+* **Why audio must not use the broadcast.** `SessionEvent` travels a `broadcast::channel(1024)` shared by the whole
   process (`crates/vizier-core/src/transport/mod.rs:29,270`), and a subscriber that falls behind gets
   `Lagged` and loses **every** frame in between (`crates/vizier-http/src/topic.rs:609-613`). Audio at
   10 frames/s is far more traffic than text; in that ring it would evict text from the replay window of

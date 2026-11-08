@@ -121,15 +121,18 @@ a `live_voice_state` always follows, so the client has one source of truth (FR-0
 
 ## Delivery path (not the session-event broadcast)
 
-Live voice frames do **not** travel through `publish_session_event` and the session-event broadcast.
-They are written to the one socket that owns the session, through `ClientConnection::send`
-(`crates/vizier-core/src/agents/client/connection.rs`), for three reasons:
+**Audio** frames (`live_voice_speech`) do **not** travel through `publish_session_event` and the
+session-event broadcast: they are written to the one socket that owns the session, through
+`ClientConnection::send` (`crates/vizier-core/src/agents/client/connection.rs`). **Control** frames
+(`state`, `transcript`, `error`, `stall`) keep the broadcast they already use — a handful per turn, and
+it is how a second tab on the conversation is told a session is active (FR-005) without a per-socket
+replay log. Three reasons the audio had to move:
 
 | Why | What it means on the wire |
 |---|---|
 | the broadcast drops **all or nothing** per subscriber (`topic.rs:609-613`, `Lagged`) | a lagging socket would lose reply text because of audio; on a per-connection queue audio alone can be dropped |
 | the broadcast ring holds 1024 events for the whole process (`transport/mod.rs:29`) | 10 audio frames/s at 4.3 KB would evict text from every behind subscriber's window and cost ~4.4 MB |
-| a session belongs to one person (FR-005) | the audio must reach that socket, not every socket open on the conversation |
+| a session belongs to one person (FR-005) | the broadcast is filtered **per session**, not per socket (`crates/vizier-http/src/topic.rs:533` — `ev.session == self.session`), so a second tab on the same conversation was receiving the audio of a session it may not have; per-connection delivery closes that leak, while the control frames above remain what tells that tab a session is active |
 
 Rules:
 

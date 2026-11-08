@@ -95,7 +95,7 @@ crates/vizier-core/src/
 
 crates/vizier-http/src/
 ├── api/v1/agents/channel.rs  # inbound `live_voice_*` frames -> session; existing auth reused
-└── topic.rs                  # live voice frames go to the owning connection, never the session broadcast
+└── topic.rs                  # audio to the owning connection; control frames keep the session broadcast
 
 webui/app/
 ├── lib/liveVoice/
@@ -166,11 +166,12 @@ The decisions that shape the rest of the plan, each with the evidence it rests o
 2. `engines.rs`: `LiveVoiceEngines` trait; the cascade implementation synthesises segment *n+1* while
    *n* is being sent, converts to PCM16 16 kHz mono, and emits `live_voice_speech` frames carrying
    `generation`, `seq`, `final`.
-3. `transport/mod.rs`: `SessionFrame::LiveVoice(LiveVoiceFrame)`; the topic writes it to **the socket
-   that owns the session** (`ClientConnection::send`,
-   `crates/vizier-core/src/agents/client/connection.rs`) and **not** to the session-event broadcast,
-   so audio can be dropped without ever dropping a reply's text (`review.md` D9). One socket, one
-   auth, one queue that already exists.
+3. `transport/mod.rs`: `SessionFrame::LiveVoice(LiveVoiceFrame)` carries the control frames (`state`,
+   `transcript`, `error`, `stall`) and rides the session broadcast like the rest; **audio**
+   (`live_voice_speech`) is written to the socket that owns the session
+   (`ClientConnection::send`, `crates/vizier-core/src/agents/client/connection.rs`) and never enters
+   the broadcast, so it can be dropped without ever dropping a reply's text (`review.md` D9). One
+   socket, one auth, one queue that already exists.
 4. Honest limit: a single long message is segmented only after its text exists (Clarifications,
    constraint note), so latency is "first segment", not "first token".
 5. **Exit criteria**: `cargo test -p vizier-core --features provider-live-voice` — a three-segment
@@ -269,7 +270,7 @@ recorded as open question Q3.
 | Frame traffic grows with the bus copy | 100 ms chunks (`~4.3 KB` base64) per direction, one session per conversation |
 | A forgotten session listens on | idle stop at 3 min with a visible reason (FR-029) and a microphone indicator (FR-038) |
 | Noise cancels a turn nobody has heard yet | the 250 ms onset guard above, and a higher gate while the state is `waiting`; a burst shorter than the guard only pauses the local playback and resumes it, so a misfire costs a stutter, not a cancelled turn. If it still misfires the fix is a stricter guard, not a spec change |
-| Audio in the session-event ring would evict text (1024 slots shared by the whole process, `transport/mod.rs:29`) | live voice frames bypass `publish_session_event` entirely (`review.md` D9): the ring, its capacity and every existing consumer stay exactly as they are |
+| Audio in the session-event ring would evict text (1024 slots shared by the whole process, `transport/mod.rs:29`) | audio frames bypass `publish_session_event` entirely while control frames keep using it (a handful per turn); the ring, its capacity and every existing consumer stay exactly as they are (`review.md` D9) |
 | Desktop CSP blocks a later wasm VAD | the optional upgrade needs a CSP change and self-hosted assets; recorded in research.md so nobody adds it silently |
 
 ## Out of scope
