@@ -19,10 +19,10 @@ D3 correction, and the invariants QA can test. No code here.
 | `Utterance` | `.../live_voice/utterance.rs` | inside its session | accumulate PCM16, 60 s cap, 44-byte WAV header by hand, call `VizierStt` (D7) |
 | `LiveVoiceEngines` (trait) + cascade impl | `.../live_voice/engines.rs` | built per session from agent config | `transcribe(utterance)`, `speak(segment) -> PCM16`; the only seam (FR-036a) |
 | `segmenter` | `.../live_voice/segmenter.rs` | pure function + unit tests | reply text → ordered speakable segments (FR-013, FR-014) |
-| `LiveVoiceFrame` | `.../live_voice/frame.rs` | wire type | `#[serde(tag = "type", rename_all = "snake_case")]` (D3) |
-| `SessionFrame::LiveVoice(..)` | `crates/vizier-core/src/transport/mod.rs:58` | existing enum | additive variant; **no** existing variant touched |
+| wire types | `.../live_voice/frame.rs` | wire types | `LiveVoiceControl` (`state`, `transcript`, `error`, `stall`) and `LiveVoiceSpeech`, both `#[serde(tag = "type", rename_all = "snake_case")]` (D3). Two types, not one, so the lane is enforced by the compiler |
+| `SessionFrame::LiveVoice(LiveVoiceControl)` | `crates/vizier-core/src/transport/mod.rs:58` | existing enum | additive variant, **control only** — audio has no path into the broadcast (§11); no existing variant touched |
 | inbound dispatch | `crates/vizier-http/src/topic.rs:209` `handle_inbound` | per socket | `live_voice_*` branch **before** the `frame.to_string()` copy (D5) |
-| outbound arm | `crates/vizier-http/src/topic.rs:535-600` | per socket | `SessionFrame::LiveVoice(f) => Some(json!({"live_voice": f}))` (D4) |
+| outbound arm | `crates/vizier-http/src/topic.rs:535-600` | per socket | `SessionFrame::LiveVoice(f) => Some(json!({"live_voice": f}))` — control only, the match never sees audio (D4) |
 | delivery (server → client) | `ClientConnection::send` (`crates/vizier-core/src/agents/client/connection.rs`) | per socket, bounded (64) | live voice frames go to the **owner's** socket, never the session-event broadcast (§11, D9); audio is dropped before control |
 | audio chunking, VAD, player, state machine | `webui/app/lib/liveVoice/{capture,vad,player,session}.ts` | client | capture 100 ms PCM16, energy VAD, gapless playback, generation guard |
 | the two controls | `webui/app/screens/chat/LiveVoiceButton.tsx`, `LiveVoiceBar.tsx` | client | one on/off control, one always-visible interrupt control |
