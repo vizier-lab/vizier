@@ -191,7 +191,7 @@ reasons are in `architecture.md` §11 — do not build both.
 - [ ] T075 [P] Add the build-flavour note for `provider-live-voice` beside the other optional features in `docs/src/deployment/` (whichever page lists the `full` build)
 - [ ] T076 Define the three measured gates before anything is measured, in `webui/app/lib/liveVoice/session.ts` (marks) and `crates/vizier-core/src/live_voice/session.rs` (spans): **SC-001** = `performance.now()` at the client's end-of-utterance (hangover fired) to the **first sample that is actually audible**, computed as the `AudioBufferSourceNode.start()` timestamp plus the `AudioContext.baseLatency + outputLatency` (or the scheduled `when`, if the first segment was queued ahead) — never the frame's arrival at the socket, and never a server span, or the gate measures a different event than "first audible word"; **SC-002** = the same end-of-utterance mark to `player.stop()` returning (client) and to `Abort` reaching the agent (server span); **SC-003** = the interrupt click handler entry to `player.stop()` returning. Emit one `live_voice_metric` line per turn with the stage durations, and write the procedure into `specs/055-live-voice/latency.md` — without fixed marks the numbers in the plan are not a gate (`review.md` D11)
 - [ ] T077 Instrument the stages in `crates/vizier-core/src/live_voice/session.rs` (end of utterance, recognition, turn start, first segment, first frame) with `tracing` spans and record p50/p90/p99 in `specs/055-live-voice/latency.md`
-- [ ] T078 Run the flag matrix and record it: `cargo test -p vizier-core`, `cargo test -p vizier-core --features provider-live-voice`, `cargo test -p vizier-http`, `cd webui && npm test`, `cd webui && npm run e2e`
+- [ ] T078 Run the flag matrix and record it: `cargo test -p vizier-core`, `cargo test -p vizier-core --features provider-live-voice`, `cargo test -p vizier-http`, `cd webui && npm test`, `cd webui && npm run e2e`. **SC-006 lives here**: the flag-off build must pass the *existing* speech checks unchanged — the suites that already cover the mic/`stt_transcribe`, the spoken-reply/`tts_generate`, auto-transcription of an uploaded clip, and `ReplyMedia` playback — so the row records those four by name, not just "everything is green" (`analysis.md` M4)
 - [ ] T079 Run `cargo clippy --all-targets` for both flag states and `cd webui && npm run lint`; fix everything new
 - [ ] T080 Walk `quickstart.md` by hand with a hosted provider and record the result of every step in the pull request
 - [ ] T081 Run the `dummyplug` agent-observable e2e gate from the constitution against a running binary (message in, history out) with the speech providers faked
@@ -199,7 +199,9 @@ reasons are in `architecture.md` §11 — do not build both.
 - [ ] T083 [P] Assert FR-016 in `crates/vizier-core/src/live_voice/utterance.rs`: the raw audio never reaches storage — the PCM buffer is dropped once the recogniser returns, no `SessionFile`/attachment is created for it, and a test drives one full turn then reads the conversation's stored requests and files to prove only text is there (FR-016; no task asserted this before, `analysis.md` M1)
 - [ ] T084 [P] Assert FR-035 in `crates/vizier-http/tests/live_voice_frames.rs`: the Discord and Telegram paths never emit a `live_voice` frame and never gain a control, because the feature is offered on the chat surface only — a session started from the WebUI leaves those readers exactly as they are today (`analysis.md` M2)
 - [ ] T085 [P] Soak the loop in `webui/e2e/live-voice-soak.spec.ts`: 10 minutes, 15 turns, no interaction other than speaking, every spoken message present in the conversation — SC-004's "no lost turns in 100%" is the one criterion nothing in the plan measured (`analysis.md` M3)
-- [ ] T086 Hand the branch to `@teteh-qa` for `speckit-analyze` and `speckit-checklist`
+- [ ] T086 [P] Script SC-005 in `webui/e2e/live-voice-first-use.spec.ts`: a session on a fresh browser profile, no prior knowledge of the feature — the clock runs from the first paint of the chat screen to the first audible reply, and the test fails above 20 s including the microphone permission prompt. The permission dialog is stubbed (`grantPermissions`) so the measurement is the product's, not the browser's dialog (`analysis.md` M4)
+- [ ] T087 [P] Assert FR-008 in `crates/vizier-core/src/live_voice/session.rs` and `crates/vizier-http/tests/live_voice_session.rs`: a session reads the agent's configured model and speech settings and writes none of them — after a full turn the agent config is byte-identical, and a typed turn started in the same conversation uses the same model the voice turn did (`analysis.md` M2)
+- [ ] T088 Hand the branch to `@teteh-qa` for `speckit-analyze` and `speckit-checklist`
 
 ---
 
@@ -283,7 +285,8 @@ raised at 15:25 — and is **verified and amended here three times**, not rewrit
 tasks were checked against the code and kept; **six** were added (T017, T018, T019 for the findings
 below; T020, T021, T022 for the delivery path), eight were made more specific, and the ID sequence was
 renumbered three times (old `T017` and up moved by three, old `T038`/`T040` and up by two, old `T022`
-and up by one) so the list stays in execution order. Total: 86 tasks, T001–T086 (`analysis.md` M12 caught the
+and up by one, and again by two for SC-005/FR-008) so the list stays in execution order. Total: 88 tasks,
+T001–T088 (`analysis.md` M12 caught the
 stale 84 here and the stale phase count below).
 
 **Why this delta exists**: `review.md` re-checked every citation in `research.md`/`plan.md` against the
@@ -310,4 +313,4 @@ shipped); `tokio` is `1.53.3`, not the `1.49.0` written in `research.md` §C; `c
 
 **Execution order is unchanged**: Phase 1 → Phase 2 (16 tasks, T007–T022) → US1..US5 →
 Polish. `@sepuh-be` implements; `@teteh-qa` verifies with `speckit-analyze` + `speckit-checklist`
-after T086.
+after T088.
