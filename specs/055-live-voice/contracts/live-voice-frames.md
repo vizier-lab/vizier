@@ -34,14 +34,40 @@ them, because the capability reads false.
 Refused with `live_voice_error` when the agent has no usable recogniser or voice (FR-004), or when
 another person holds the session (FR-005). Idempotent while the caller's own session is live.
 
-### `live_voice_audio`
+### `live_voice_audio` — **PROVISIONAL, pending Q11 (C13, 2026-11-09)**
+
+> The spec now requires the sound to travel on a path of its own (FR-054) and leaves **which transport**
+> to Q11. This frame is the socket transport: it is the one already implemented and tested, so it stays
+> in the contract as the **leading fallback**, not as a decision. If Q11 lands on a media transport,
+> this frame is superseded and kept — the same way every other retired decision in this feature is kept.
 
 ```json
-{ "live_voice_audio": { "utterance_id": "u-42", "seq": 7, "sample_rate": 16000, "format": "pcm16", "base64": "…" } }
+{ "live_voice_audio": { "utterance_id": "u-42", "seq": 7, "sample_rate": 16000, "format": "pcm16", "base64": "..." } }
 ```
 
 100 ms of PCM16 mono (3 200 bytes, 4 268 base64 characters). The server drops chunks that would take
 one utterance past `max_utterance_seconds`, closes it, and says so once.
+
+**If Q11 chooses a media transport, a server MUST refuse this frame rather than mix two audio paths in
+one session.** Two sources for one utterance have no correct ordering, and `utterance_id` cannot tell
+them apart. That refusal is part of every candidate, not of one.
+
+### The audio path's setup — required by FR-058, shaped by Q11
+
+Whatever carries the sound, three things have to be true and public, because a third-party client
+cannot guess them (FR-058):
+
+| Public surface | What it must say | Fixed now, or by Q11 |
+|---|---|---|
+| **How a call is set up** | what the client sends before sound can move, in what order, and what a refusal looks like | **Q11**: an SDP offer/answer and ICE candidates on a media transport; an open and a first frame on a socket |
+| **The audio description** | sample rate, channels, frame duration, acceptable codec or format (FR-057) | **now** — these are the numbers a non-browser client needs, and they are cheap to publish whatever the transport |
+| **The identity binding** | which conversation and which session the audio belongs to, and that audio for anything else is refused (FR-056) | **now** — this does not depend on the transport at all |
+
+**Why this section exists before the transport is chosen.** The alternative was to publish the
+signalling shapes for a transport we may not use, and then republish them — the exact churn this
+document has already been through three times on the surface. So the contract publishes the *questions
+a client must be able to answer* now, and the wire shapes once Q11 has evidence.
+
 
 ### `live_voice_utterance_end`
 
@@ -169,6 +195,12 @@ channel that tells them the session is live.
 
 ## Delivery path (not the session-event broadcast)
 
+> **PROVISIONAL for audio, pending Q11 (C13, 2026-11-09).** What follows describes how **audio**
+> frames travel when the transport is the topic socket: a per-connection lane, a bounded queue and a
+> `stall` frame. It is the implemented candidate and the leading fallback, not a decision — if Q11
+> lands on a media transport, the sound leaves this path and only the control frames keep the
+> session broadcast, which is the half of this section that holds either way.
+
 **Audio** frames (`live_voice_speech`) do **not** travel through `publish_session_event` and the
 session-event broadcast: they are written to the one socket that owns the session, through
 `ClientConnection::send` (`crates/vizier-core/src/agents/client/connection.rs`). **Control** frames
@@ -224,10 +256,10 @@ Rules:
 
 | Limit | Value | Where |
 |---|---|---|
-| Audio chunk | 100 ms, 3.2 KB raw / ~4.3 KB base64 | this contract |
+| Audio chunk (socket path, provisional) | 100 ms, 3.2 KB raw / ~4.3 KB base64 | the implemented candidate, kept while Q11 is open |
 | One utterance | 60 s (default) | FR-010 |
 | One frame | far below the 1 MiB bus envelope (`envelope.rs:11`) | measured at 4.3 KB |
-| Backlog to one socket | 16 audio frames (~1.6 s), then audio frames are dropped and one stall is reported | this contract, Delivery path |
+| Backlog to one socket (socket path, provisional) | 16 audio frames (~1.6 s), then audio frames are dropped and one stall is reported | the implemented candidate, kept while Q11 is open; a media transport would replace this bound with its own |
 | Sessions in total, per person | **1**, across every conversation and agent (a start elsewhere moves it, reason `moved`) | FR-005, FR-050, C10 |
 | Sessions per agent | unbounded in this release; the deployment's socket limits apply | open question Q4 |
 
@@ -278,3 +310,43 @@ changed on 2026-11-08 21:19 is *when* two of them are sent and what one of them 
 (`button` deferred). The floating panel of spec C9 needs **no new frame**: it is a surface over the same
 session, and its state word comes from `live_voice_state`. Nothing else in this contract changed; the sizes, limits and "deliberately not in
 the contract" list stand.
+
+## The audio contract as a public surface (C14)
+
+Everything above was written for one client: ours. This section is the part that has to survive a
+client we have never seen (FR-058) — this is the **standalone** part the User asked for, and it is the
+section a third party reads first.
+
+**What a third-party client needs, in the order it will need it:**
+
+1. **A socket, and a way in.** The conversation's existing authenticated connection. No second login,
+   no token invented for this feature (FR-054).
+2. **The identity of the call.** Which conversation, which session — and the guarantee that audio
+   belonging to one cannot join another (FR-056). Without this a client cannot safely reconnect,
+   because it cannot tell *my call* from *a call*.
+3. **The audio it may send.** Sample rate, channels, frame duration, and the fact that these are
+   required rather than observed (FR-057). This is the single most useful line in the whole contract
+   for anyone not using a browser.
+4. **The lifecycle.** Start, speak, hear, interrupt by speaking, move, end, and what a reconnect means
+   (FR-033, FR-050). Expressed as steps and states, not as one client's internal events.
+5. **The words for failure.** `live_voice_error`'s `kind` values, so the client can say something true
+   instead of "something went wrong".
+6. **Nothing else.** The segmenter, the generation counter, the registry and the provider credentials
+   are ours (FR-059). A client that needs to know them is a client we failed to specify.
+
+**The three surfaces that stay ours on purpose**, and why the line is drawn there:
+
+| Internal | Why it is not public |
+|---|---|
+| the segmenter and its chunking | a client that reimplemented it would drift from the text the conversation stores (FR-055) |
+| the generation counter | it is how *we* make an interruption safe; a client only needs the guarantee, not the mechanism |
+| the session registry | it is how *we* enforce one call per person; publishing it would make an implementation detail contractual |
+
+**What publishing this costs.** Six surfaces become promises: how a call is set up, identity, the auth
+rule, the audio description, the lifecycle and the failure words. None of them can be renamed quietly
+once a third party depends on them. That is the price of the User's request, and the mitigation is the
+one FR-058 already names — **our own WebUI is a client of this contract too**, so breaking it breaks us
+first. If that price is not worth paying, the honest move is to withdraw C14 explicitly rather than
+publish and drift.
+
+

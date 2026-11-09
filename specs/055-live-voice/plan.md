@@ -17,8 +17,12 @@ interrupt control. The feature is separate from the existing speech tools and is
 
 The technical shape is fixed by what the repository already is:
 
-* Audio travels over the **existing per-agent WebSocket** as JSON frames with base64 PCM16, 100 ms
-  per chunk. No WebRTC, no second socket, no new HTTP endpoint.
+* **The sound travels on a path of its own; the transcript does not move** (spec C13, 2026-11-09).
+  Everything a person reads — the state word, the transcript, the reply's text, errors — stays on the
+  per-agent WebSocket that is already open, so no second connection and no second credential. **Which
+  transport carries the sound is Q11 and is not assumed here**: the plan is written so that the socket
+  path (base64 PCM16, 100 ms chunks, already built and tested) and a media path both fit, and T099
+  records the decision with its numbers before any of it is coded.
 * Voice activity detection runs **in the browser**, on the AudioWorklet capture path that already
   exists, using an energy gate with an adaptive noise floor. No model, no new dependency.
 * Speech goes through the **existing recogniser and voice** (`VizierStt`, `VizierTts`). Both are
@@ -107,9 +111,9 @@ webui/app/
 ├── screens/chat/
 │   └── LiveVoiceButton.tsx # the entry control, next to the mic and the spoken toggle
 └── screens/livevoice/
-    └── LiveVoicePanel.tsx  # the floating panel: drag header, agent, state word, thinking, mic
-                            # open, one End action. Overlay over the conversation, never a route
-                            # (spec C9, 2026-11-09 — supersedes the call screen)
+    └── LiveVoiceRow.tsx    # the live row: agent, state word, thinking, mic open, one End action.
+                            # Above the composer, one line, covers nothing (spec C11, 2026-11-09 —
+                            # supersedes the floating panel, the call screen and the composer bar)
 # The composer bar of the earlier draft is archived (spec C6): the call is a screen, and no
 # interrupt control ships in this release (spec C7).
 ```
@@ -125,7 +129,7 @@ The decisions that shape the rest of the plan, each with the evidence it rests o
 
 | # | Decision | Evidence |
 |---|---|---|
-| R1 | Reuse the topic WebSocket, JSON + base64 PCM16, 100 ms chunks | `channel.rs:799-820` (write half is JSON text; binary is dropped), `envelope.rs:11` (1 MiB) |
+| R1 | Reuse the topic WebSocket, JSON + base64 PCM16, 100 ms chunks — **for the socket path, which stays the implemented candidate until Q11 says otherwise**. Evidence below describes a socket we proved writes JSON text and drops binary (`channel.rs:799-820`), and the 1 MiB envelope (`envelope.rs:11`) that made 4.3 KB chunks comfortable. It is the measurement a media path has to beat, not a decision that was overturned | `channel.rs:799-820` (write half is JSON text; binary is dropped), `envelope.rs:11` (1 MiB) |
 | R2 | Client-side energy VAD, no model | CSP `default-src 'self'`, no wasm allowance (`tauri.conf.json:14`); worklet already shipped |
 | R3 | Server-authoritative interruption with a generation counter | inbound frames arrive over the same socket, so a stale synth task must be told to stop by the server, not trusted to notice |
 | R4 | One utterance per recognition call (batch providers) | `stt/mod.rs:10-18` — `transcribe(audio, filename, language)`, whole clip |
@@ -233,15 +237,16 @@ The decisions that shape the rest of the plan, each with the evidence it rests o
 1. `player.ts`: one `AudioContext` resumed on the control press, an ordered queue of
    `AudioBufferSourceNode`s scheduled back to back, `stop()` that closes every source at once and
    drains the queue, and stale-generation frames dropped on arrival (FR-022).
-2. **The floating panel** (spec C9, superseding C6): `LiveVoicePanel.tsx`, opened by the entry control as
-   an **overlay over the conversation that is already on screen** — a drag header (FR-048), the agent,
-   the FR-006 state word, the FR-042 thinking indicator, the microphone-open indicator including when
-   the window is unfocused (FR-038), and one End action (FR-045). The conversation behind stays mounted,
-   readable and scrollable (FR-049); nothing navigates, there is no route. **No interrupt control**: it
-   is deferred to the backlog (C7), and a button that exists in the code but not in the specification is
-   worse than an absent one. The composer bar and the full call screen are both archived with the spec;
-   neither their geometry nor their placement carries over.
-3. Typing during a session stops the audio and cancels the turn (FR-025), on the same path as any
+2. **The live row** (spec C11, superseding the panel, the screen and the bar): `LiveVoiceRow.tsx`, shown
+   by the entry control **above the composer, at the conversation's own width** — the agent, the FR-006
+   state word, the FR-042 thinking indicator, the microphone-open indicator including when the window is
+   unfocused (FR-038), and one End action (FR-045). It costs one line (FR-049), covers no message, and
+   gives up its own detail before it gives up the microphone or the state word. **No interrupt control**:
+   it is deferred to the backlog (C7), and a button that exists in the code but not in the specification
+   is worse than an absent one. The three earlier surfaces are archived with the spec; none of their
+   geometry, dragging or placement carries over.
+3. Typing during a session leaves the reply playing (FR-025 is deferred with C7); the typed turn queues
+   as ordinary chat, on the same path as any
    other interruption. Typing stays reachable because the conversation is still behind the panel (FR-049, Q7)
    (default: no — the conversation view is what the call replaces).
 4. Ends: press again, leave the page, permission withdrawn, conversation or agent gone, idle, reload

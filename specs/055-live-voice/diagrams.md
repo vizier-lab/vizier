@@ -15,11 +15,11 @@ flowchart LR
         MIC["getUserMedia<br/>echoCancellation on"]
         WORKLET["Capture worklet<br/>PCM16 16 kHz mono"]
         VAD["Energy VAD<br/>adaptive floor, 800 ms hangover"]
-        CAPTURE["capture.ts<br/>100 ms chunks"]
+        CAPTURE["capture.ts<br/>the sound's client end"]
         SESSION["session.ts<br/>state machine + generation"]
         PLAYER["player.ts<br/>AudioContext queue"]
         SPEAKERS["Speakers"]
-        UI["LiveVoiceButton<br/>LiveVoicePanel (floating, draggable) + End"]
+        UI["LiveVoiceButton<br/>LiveVoiceRow (one line, above composer) + End"]
     end
     subgraph Server["Vizier server"]
         SOCKET["Topic WebSocket<br/>channel.rs"]
@@ -33,18 +33,22 @@ flowchart LR
     end
     MIC --> WORKLET --> VAD --> CAPTURE --> SESSION
     UI --> SESSION
-    SESSION -->|"live_voice_audio, utterance_end"| SOCKET
+    SESSION -->|"the sound"| AUDIO["Audio path<br/>socket today — Q11 decides"]
+    AUDIO -->|"live_voice_audio, utterance_end"| SOCKET
     SOCKET --> LIVE --> UTTER --> STT
     UTTER -->|"transcript as a normal request"| TURN
     TURN -->|"Message frame"| SEGMENT --> ENGINES --> TTS
     ENGINES -->|"live_voice_speech frames"| SOCKET
-    SOCKET --> SESSION --> PLAYER --> SPEAKERS
+    SOCKET -->|"the sound (Q11)"| SESSION
+    SESSION --> PLAYER --> SPEAKERS
     VAD -->|"speech_start while the reply is audible"| SESSION
     SESSION -->|"live_voice_utterance_end when they stop"| SOCKET
 ```
 
-Reading it: the person's audio never leaves the client un-chunked, the transcript enters the ordinary
-turn path (so tools, memory, permissions and accounting are the same), and the reply's text is
+Reading it: **the box marked "Audio path" is the only part Q11 can move.** Today the sound leaves as
+100 ms base64 chunks on the topic socket; if the Lead's numbers favour a media transport, that one box
+becomes a peer connection and nothing else in this picture changes — which is the whole point of
+writing FR-054 as a shape rather than as plumbing. The transcript enters the ordinary turn path (so tools, memory, permissions and accounting are the same), and the reply's text is
 segmented on the server before any synthesis. The generation counter, held in `session.rs`, is what
 makes an interruption — now a single path, the end of the person's utterance (spec C8) — safe against
 segments already in flight.
@@ -128,7 +132,7 @@ sequenceDiagram
 ```
 
 **None of this ships in this release.** There is no interrupt control (spec C7): the sequence is kept so
-the backlog item does not have to rediscover it. When it lands, the button goes on the floating panel, and
+the backlog item does not have to rediscover it. When it lands, the button goes on the live row, and
 the difference from barge-in stays as described: the control submits nothing, so the session returns to
 `listening` and waits — which is why it is worth having in a loud room or on a bad microphone, where
 speaking over the agent does not work.
@@ -158,65 +162,59 @@ stateDiagram-v2
 Every arrow that leaves `listening` or `speaking` for `ended` releases the microphone (FR-028,
 FR-034, SC-007). `interrupted` is a state, not an end: the session is still live and still listening.
 
-## 5. Wireframe — the floating panel (design gate, spec C9)
+## 5. Wireframe — the live row (design gate, spec C11)
 
-The surface changed twice. On 2026-11-08 21:19 it stopped being a strip of chrome in the composer; on
-2026-11-09 06:52 it stopped being a full screen as well. It is now a **draggable panel over the
-conversation that is already on screen** — the manner of a desktop call window, not a route and not a
-replacement. The composer-bar wireframe and the call-screen wireframe are both **archived with the
-spec** (C6, C9); neither is a design for this panel.
+The surface has changed four times and each change is archived rather than deleted: a **bar in the
+composer** (`20d97316`), a **full screen** (C6), a **draggable floating panel** (C9), and now **one row
+in the conversation** (C11). Only the last is a design gate; the others are history that explains why
+each of the row's rules exists.
 
 ```text
 +---------------------------------------------------------------+
 | Deploy notes                                        [agent ▾] |
 +---------------------------------------------------------------+
-|  +-----------------------------+                              |
-|  | ⠿ Archivist        ●  2:14 |  <- drag by the header         |
-|  |        listening            |     (⠿ = grip, FR-048)       |
-|  |  the microphone is open  ●  |                              |
-|  |  ~~~~~ level ~~~~~          |                              |
-|  |       [  End call  ]        |                              |
-|  +-----------------------------+                              |
-|                                                               |
 |   you   what is the disk usage on the build host?             |
 |   agent It is 61 percent used, and the largest ...            |
 |         (marked: interrupted at 14:32)                        |
 |                                                               |
-|   ... the conversation continues and scrolls behind the       |
-|       panel, readable everywhere the panel does not cover     |
+|   ... the conversation, full width, nothing covered           |
 |                                                               |
 +---------------------------------------------------------------+
-| [ type a message...                              ] [mic][tts] |
+| ●  Vizier · Speaking            thinking?  01:24   [ End ]    |  <- the live row, one line
++---------------------------------------------------------------+
+| [ type a message...                              ] [attach]   |
+| 10 tok · $0 · $0            opencode-go/deepseek-v4.1-flash   |
 +---------------------------------------------------------------+
 ```
 
-States the panel must be able to show (FR-006), with the thinking state visibly different from the
+States the row must be able to show (FR-006), with the thinking state visibly different from the
 reconnecting one (FR-042):
 
 ```text
-connecting      connecting…
-listening       listening                 ● microphone open
-waiting         thinking                  ● microphone open      <- FR-042, never confused with the line below
-speaking        speaking                  ● microphone open
-interrupted     interrupted               ● microphone open
-reconnecting    reconnecting…             ● microphone open      <- "gone", not "thinking"
-ended           call ended · idle for 3 minutes                 <- reason stays, no timer, no buttons but End
-failed          call failed · no voice configured
+connecting      Connecting…            ● mic open
+listening       Listening              ● mic open
+waiting         Thinking · 3 dots      ● mic open     <- FR-042, never confused with the line below
+speaking        Speaking               ● mic open
+interrupted     Interrupted            ● mic open
+reconnecting    Reconnecting…          ● mic open     <- "gone", not "thinking"
+ended           Ended · idle for 3 minutes              <- reason stays, no timer, no action but End
+failed          Failed · no voice configured
 ```
 
-* The panel **floats over the conversation**, which stays mounted, readable and scrollable behind it; it
-  is not a route and nothing navigates (FR-043, FR-049). The conversation gains exactly one thing: the
-  entry control (FR-001).
-* **The header is the drag target** (FR-048): pointer-drag moves the panel, no edge may leave the window,
-  and a window resize re-clamps it rather than losing it. The conversation behind does not move.
-* The **microphone indicator is never the element that gives way**, and the level meter is decorative
-  (`aria-hidden`) — that rule survives from the archived bar because FR-038 requires it.
-* There is **one action on this panel: End** (FR-045), and no second control that means the same thing.
-  No interrupt button ships in this release (spec C7); the interruption is done by speaking, so the panel
+* The row sits **above the composer, at the conversation's width**, and covers nothing (FR-043,
+  FR-049). There is no drag handle: there is no position (FR-048 superseded).
+* **What it gives up when space is short**, in order: the level meter, then the elapsed time, then the
+  agent's name. **Never the microphone indicator** (FR-038) and **never the state word** (FR-042). A
+  row that wraps to two lines has become a panel again — the failure mode to watch in review.
+* There is **one action on the row: End** (FR-045), and no second control that means the same thing.
+  No interrupt button ships in this release (spec C7); the interruption is done by speaking, so the row
   does not hint at a control that does not exist.
-* `ended` and `failed` keep their reason on the panel with no 5-second timer and no action but End —
-  carried over from the archived bar decision, because the commonest ending is the idle stop, when the
-  person has already walked away.
-* **One panel, one call.** Starting a call in another conversation moves it there: the panel closes with
-  the reason `moved`, a reason is left in the conversation it left, and the running turn is cancelled
-  rather than spoken into the new call (FR-050, FR-051, FR-052, SC-011).
+* `ended` and `failed` keep their reason in the row with no five-second timer and no action but End —
+  the commonest ending is the idle stop, when the person has already walked away.
+* **One call, one row.** Starting a call in another conversation moves it there: this row shows the
+  reason `moved` and disappears, the other conversation's row appears, and the running turn is
+  cancelled rather than spoken into the new call (FR-050, FR-051, FR-052, SC-011).
+* The composer's own recording control and spoken-reply toggle **retire** with C12 (FR-053); during
+  the overlap they may still be drawn, but they are no longer the design's subject.
+
+
