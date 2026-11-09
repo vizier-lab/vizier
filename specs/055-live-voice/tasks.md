@@ -36,6 +36,11 @@ Two markers, and they are not the same claim:
 `AQ-001` only reconciled the checkboxes with `git log`; it did not run a gate for any task it
 ticked. Gating is still `@teteh-qa`'s signature at `gate` in `specs/_antrean.md`.
 
+**Baseline for implementers (9 Nov 2026, Lead):** this file at **`3648f421`** — 110 tasks,
+T001–T110, no renumbering. A DoD cites its commit as **`repo@hash`** (`vizier@…`, `webui@…`,
+`design@…`): a bare hash is ambiguous across the submodules, and `grep` from the root reports a
+perfectly good `webui` commit as missing.
+
 ## Phase 1: Setup (Shared Infrastructure)
 
 **Purpose**: the flag, the module skeleton, the empty client folder — no behaviour yet.
