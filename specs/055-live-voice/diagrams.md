@@ -19,7 +19,7 @@ flowchart LR
         SESSION["session.ts<br/>state machine + generation"]
         PLAYER["player.ts<br/>AudioContext queue"]
         SPEAKERS["Speakers"]
-        UI["LiveVoiceButton<br/>LiveVoiceRow (one line, above composer) + End"]
+        UI["LiveVoiceButton<br/>LiveVoiceRow (the composer's meta line) + End"]
     end
     subgraph Server["Vizier server"]
         SOCKET["Topic WebSocket<br/>channel.rs"]
@@ -164,28 +164,34 @@ FR-034, SC-007). `interrupted` is a state, not an end: the session is still live
 
 ## 5. Wireframe — the live row (design gate, spec C11)
 
-The surface has changed four times and each change is archived rather than deleted: a **bar in the
-composer** (`20d97316`), a **full screen** (C6), a **draggable floating panel** (C9), and now **one row
-in the conversation** (C11). Only the last is a design gate; the others are history that explains why
-each of the row's rules exists.
+The surface has changed five times and each change is archived rather than deleted: a **bar in the
+composer** (`20d97316`), a **full screen** (C6), a **draggable floating panel** (C9), a **rail above the
+composer** (B2, drawn and not chosen), and now **the composer's own meta line** (C11 as amended 17:31,
+surface **B1-1**). Only the last is a design gate; the others are history that explains why each of the
+row's rules exists.
 
 ```text
+IDLE — today's composer, unchanged. The only addition is the pill.
 +---------------------------------------------------------------+
 | Deploy notes                                        [agent ▾] |
 +---------------------------------------------------------------+
 |   you   what is the disk usage on the build host?             |
 |   agent It is 61 percent used, and the largest ...            |
-|         (marked: interrupted at 14:32)                        |
 |                                                               |
 |   ... the conversation, full width, nothing covered           |
 |                                                               |
 +---------------------------------------------------------------+
-| ●  Vizier · Speaking            thinking?  01:24   [ End ]    |  <- the live row, one line
+| [ type a message...                              ] [attach]   |
+| (18px) [mic] Live voice   opencode-go/deepseek-v4.1-flash     |  <- meta line, 24 px
++---------------------------------------------------------------+
+
+A SESSION — the same line, taken over. Nothing moves; 0 px added.
 +---------------------------------------------------------------+
 | [ type a message...                              ] [attach]   |
-| 10 tok · $0 · $0            opencode-go/deepseek-v4.1-flash   |
+| speaking  ·  mic on  ~~~~~~~~~~  0:24  [ End ]  ...flash      |  <- the live row
 +---------------------------------------------------------------+
 ```
+
 
 States the row must be able to show (FR-006), with the thinking state visibly different from the
 reconnecting one (FR-042):
@@ -201,11 +207,17 @@ ended           Ended · idle for 3 minutes              <- reason stays, no tim
 failed          Failed · no voice configured
 ```
 
-* The row sits **above the composer, at the conversation's width**, and covers nothing (FR-043,
-  FR-049). There is no drag handle: there is no position (FR-048 superseded).
-* **What it gives up when space is short**, in order: the level meter, then the elapsed time, then the
-  agent's name. **Never the microphone indicator** (FR-038) and **never the state word** (FR-042). A
-  row that wraps to two lines has become a panel again — the failure mode to watch in review.
+* The row **is** the composer's meta line — 24 px, **0 px added** to a 156 px composer — and covers
+  nothing (FR-043, FR-049). There is no drag handle: there is no position (FR-048 superseded).
+* **What it gives up when space is short**, in this order and no other (FR-049): the **model chip**
+  shrinks to 96 px and then goes (cut to its last segment), the **waveform** 39 → 12 bars → gone, the
+  **context ring** goes whole. **Never** the microphone indicator (FR-038), the state word (FR-042), the
+  elapsed time or the End action — all `nowrap`, and no ellipsis ever in the state word. Floor **240 px**;
+  a row that wraps to two lines has become a panel again — the failure mode to watch in review.
+* **The idle line is not the session line.** Before a session the meta line carries the context ring and
+  the model chip, and the only addition is one pill: `[mic] Live voice`, labelled rather than a bare
+  microphone glyph, because a bare glyph in that slot reads as the old record-once-and-send control.
+  After `ended`/`failed` the line goes back to exactly that.
 * There is **one action on the row: End** (FR-045), and no second control that means the same thing.
   No interrupt button ships in this release (spec C7); the interruption is done by speaking, so the row
   does not hint at a control that does not exist.

@@ -174,6 +174,40 @@ the key and a check at every route, and until it exists, third-party access MUST
 the one place in this delta where a security requirement is written against code that is not there yet,
 and it is written that way on purpose.
 
+### Session 2026-11-09 17:31 (which row, and what a token count actually is)
+
+**The surface is chosen: the composer's own meta line.** The User picked **B1-1** — *"lebih enak liatnya"* —
+from the variants drawn for them. So the call is not a rail above the composer (that was B2, drawn and not
+chosen) and not a row in the thread (B3): the line that today carries the context ring and the model chip
+becomes the call's row, at **0 px** added height. FR-043 is reworded to say exactly that, and **B1-2 is
+retired** — it lost, and it is recorded here so nobody rebuilds it from a sheet that is still on disk.
+
+**The User then asked a question that changed the requirement.** *"itu tuh token count apaan ya bro?
+Bukannya existing tuh count token tuh ada di dalem setiap chat ya bukan di dalem text box?"* They were
+right, and the sheet was wrong. What the sheets drew as a **124 px block of `222k in · 4.7k out`** is the
+per-message stats line under an agent's reply (`webui/app/lib/messages.ts:88`, rendered by
+`MessageList.tsx:167`). The composer's meta line does **not** carry that: it carries a **context ring,
+18×18 px** (`design/src/components/ContextRing/ContextRing.tsx:26,37`, mounted at
+`design/src/components/Composer/Composer.tsx:238`) whose label is `222k of 200k tokens`, and the model
+chip at **223,3 px** (`webui/app/screens/chat/ModelOverridePicker.tsx:19,94`). Text token counts appear in
+the composer only on mobile (`webui/app/screens/chat/Composer.tsx:411-415`).
+
+**What that means for the requirement, stated rather than smoothed over.** During a session the row gives
+up the **context ring (18 px) and the model chip (223,3 px)** — not a metrics block that never existed.
+The row therefore has **106 px more free space** than the sheets assumed, so the sheet's `waveform 379 px`
+is **not a contract value** and MUST be recomputed from real geometry when the row is built. Two
+consequences are recorded instead of being quietly dropped: the sacrificed set is smaller than drawn, and
+one number in the handoff is void.
+
+**The surrender order is now one order.** Four different orders were in play — FR-049's vague "its own
+detail first", T038's `level → elapsed → agent name`, the sheet's `chip → waveform`, and the Lead's
+`nowrap` ruling — and T094 has to test "in the stated order", which cannot be written against four
+answers. The Lead settled it (2026-11-09, measured from the source, not from the sheet): **model chip**
+shrinks to 96 px then goes (cut to its last segment), **waveform** 39 → 12 bars → gone, **context ring**
+goes whole; and **never** shrink: the microphone indicator, the state word, the elapsed time, the end
+action, the idle control — all `nowrap`, with no ellipsis ever in the state word. Floor **240 px**, and
+the row never wraps to a second line. FR-049 carries the order, T038 implements it, T094 tests it.
+
 ### What "standalone" means here, and what it costs
 
 The User asked for the media part to be able to stand alone so that someone else could implement their
@@ -324,17 +358,17 @@ floats over the transcript, nothing has to be dragged out of the way, and no mes
 still answers the two questions a person actually asks — *is it hearing me?* and *is it thinking or
 gone?* — which is what FR-006, FR-038 and FR-042 exist for.
 
-**Independent Test**: From a conversation, press Live Voice; one row appears above the composer
+**Independent Test**: From a conversation, press Live Voice; the composer's meta line becomes the row
 carrying the state word, the microphone indicator and one End control; ask something and watch it read
 `thinking`; end the call; the row is gone, both turns present, the control off, and no message was
 covered at any window width.
 
 **Acceptance Scenarios**:
 
-1. **Given** a conversation with Live Voice off, **When** the person presses the control, **Then** a single row appears in the conversation — above the composer, at the conversation's width — and the session starts (FR-043).
+1. **Given** a conversation with Live Voice off, **When** the person presses the control, **Then** the composer's meta line becomes the call's row — no line added, nothing above the composer moving — and the session starts (FR-043).
 2. **Given** the live row, **When** the person looks at it, **Then** it shows the agent, the state word, the thinking indicator when the agent is working, and that the microphone is open — all without a reload (FR-006, FR-042, FR-038).
 3. **Given** the live row, **When** the agent is silent for a long time because its answer is slow, **Then** the row says the agent is thinking and does not read as a disconnected call (FR-042).
-4. **Given** the live row in a narrow window, **When** the row runs out of room, **Then** it drops its own detail before it drops the microphone indicator or the state word, and it never covers a message (FR-049, FR-038, FR-042).
+4. **Given** the live row in a narrow window, **When** the row runs out of room, **Then** it drops the model chip first, then shortens the waveform, and keeps the microphone indicator, the state word, the elapsed time and the End action whole down to its 240 px floor — and it never covers a message (FR-049, FR-038, FR-042).
 5. **Given** the live row, **When** the person ends the call, **Then** the microphone is released, the row disappears, and the conversation keeps every turn (FR-028, FR-034, FR-045).
 6. **Given** the live row, **When** the person closes the tab or the window, **Then** the session ends and nothing keeps listening (FR-028).
 7. **Given** a call ended by any means, **When** the conversation is opened again, **Then** it is unchanged and the entry control is off (FR-046).
@@ -346,7 +380,7 @@ covered at any window width.
 
 ```mermaid
 flowchart TD
-    off["Live Voice off"] -->|"press the control"| row["Live row appears above the composer, microphone open"]
+    off["Live Voice off"] -->|"press the control"| row["Composer meta line becomes the live row, microphone open"]
     row --> listen["Listening"]
     listen -->|"person speaks"| transc["Speech becomes the person's message"]
     transc --> turn["Agent turn runs, reply text appears"]
@@ -384,7 +418,7 @@ this diagram because it is deferred (C7).
 - **A person speaking another language** than the conversation's configured one: the transcript may be wrong; the session is expected to follow the configured language, and changing it mid-session is out of scope.
 - **A call started in a second conversation, or with another agent**: the call moves there and the first one closes by itself, with a reason left behind (FR-050, FR-051, FR-052). There is never a moment with two microphones open, and never a refusal that leaves the person with no call at all (C10).
 - **A second tab on the same conversation**: it is the *same* conversation, so the question is whether a press there moves the call to that tab or is refused — open question Q2, default refused. This is the one case C10 does not answer by itself.
-- **The row in a narrow window or a long conversation**: the row gives up its own detail in a fixed order — level first, then elapsed time, then the agent's name — and never gives up the microphone indicator (FR-038) or the state word (FR-042). It does not overlap a message, does not push the composer off screen, and does not turn into two lines: a row that grows is a panel again.
+- **The row in a narrow window or a long conversation**: the row gives up its own detail in FR-049's order and no other — the model chip to its floor and then gone, the waveform 39 → 12 bars and gone, the context ring whole — and never gives up the microphone indicator (FR-038), the state word (FR-042), the elapsed time or the End action. It does not overlap a message, does not change the composer's height, and does not turn into two lines down to its 240 px floor: a row that grows is a panel again.
 - **A dream, a scheduled task or a background report**: no live voice; the capability exists only while a person has a session open.
 - **A conversation in a mode that restricts what the agent may do** (a Plan chat): a voice message follows the same rules as a typed one, including any refusal.
 - **Vizier restarts mid-session**: the session ends; the conversation and every completed turn survive.
@@ -458,13 +492,13 @@ this diagram because it is deferred (C7).
 
 **The row in the conversation (C11)**
 
-- **FR-043**: Starting a session MUST show the call as **one row inside the conversation**, above the composer and at the conversation's own width (C11). It MUST NOT float over the conversation, MUST NOT be a movable panel, MUST NOT be a route of its own, and MUST NOT cover a message or the composer; the entry point MUST stay a control in the conversation (FR-001).
+- **FR-043**: Starting a session MUST turn the composer's **own meta line** into the call's row — the line that today carries the context ring and the model chip — at **0 px** added height (C11, surface B1-1). It MUST NOT float over the conversation, MUST NOT be a movable panel, MUST NOT be a separate rail above the composer, MUST NOT be a route of its own, and MUST NOT cover a message; the entry point MUST stay a control in the composer (FR-001). When the session ends the line goes back to what it was, with nothing left behind.
 - **FR-044**: The row MUST show, for the whole session: the agent the call is with, the state word of FR-006, the thinking indicator of FR-042 when the agent is working, that the microphone is open (FR-038), and the one action of FR-045. These are the row's minimum; what else it carries is open question Q6.
 - **FR-045**: The row MUST offer a way to end the call for the whole session, reachable without leaving the conversation, which stops the audio, releases the microphone and ends the session (FR-028). With the interrupt control deferred (C7), ending the call is the only action the row offers — and the row MUST NOT present a second control whose only effect is the same thing.
 - **FR-046**: Showing and ending the row MUST NOT change the conversation: the same messages, the same text, nothing rewritten, reordered or re-timed (FR-034).
 - **FR-047**: The session MUST detect the end of the person's speech **while the agent's reply is audible** (C8): the reply continuing MUST NOT prevent the end-of-utterance period from elapsing. Echo cancellation alone MAY be the mechanism; where it is not enough, the reply's audibility to the microphone (not to the person) MUST be reduced once the person is detected speaking, so that the interruption still fires. The measured form of this is SC-008.
 - ~~**FR-048**: The panel MUST be draggable by its header with a pointer, MUST keep its whole area inside the window at every position (no edge can be dragged out of reach), MUST remain usable when the window is resized smaller than where it was left, and MUST keep its position while the call lives. Whether the position survives the call is open question Q9. Its size MUST NOT change when it is moved or when the conversation behind it is scrolled.~~ **SUPERSEDED by C11, 2026-11-09 16:07: the call is a row.** A row has no position to clamp, no edge to drag out of reach and nothing to resize, so this requirement and Q9 retire together. Kept because the panel remains the fallback if the row is rejected.
-- **FR-049**: The row MUST cost at most one line of the conversation's height and MUST NOT cover, clip or reorder any message: the conversation scrolls to its own end exactly as it does with no session, and the composer stays usable at every width (C11). When space runs short the row gives up its own detail first — never the microphone indicator (FR-038) and never the state word (FR-042).
+- **FR-049**: The row MUST cost **no extra height**: it takes over the composer's existing meta line — **24 px, 0 px added** to a 156 px composer — so the conversation and the input do not move when a session starts or ends (C11, surface B1-1). It MUST NOT cover, clip or reorder any message: the conversation scrolls to its own end exactly as it does with no session, and the composer stays usable at every width. When space runs short the row gives up its own detail **in this order and only this order**: (1) the **model chip** shrinks to **96 px** and then goes, cut to its last segment — the provider prefix is not the informative half; (2) the **waveform** shortens from 39 bars to 12 and then goes, never below 6 px between bars; (3) the **context ring** goes whole, never partially drawn. **The microphone indicator (FR-038), the state word (FR-042), the elapsed time, the end action (FR-045) and the idle control MUST NOT shrink, truncate or wrap at any width**: they are `nowrap`, and no ellipsis may ever appear in the state word. The row's floor is **240 px** — at the minimum window (900 px) the pane leaves it far above that, so the floor guards a pane narrowed by surrounding chrome; if it is ever crossed the row keeps the never-shrink set and drops everything else rather than wrapping, because a row that grows to two lines is a panel again. In the chosen surface the context ring is already given up for the session — the state word takes its slot — so the path in practice begins at the chip; the three steps are stated in full so the test has one answer and a surface that keeps the ring does not need a new rule.
 - **FR-050**: Starting a call while one is live **elsewhere** — another conversation, or another agent — MUST move the call there rather than fail: the new panel opens on the new conversation, the old session ends by itself, and the old panel disappears (C10). The move MUST be one event, not two sessions that briefly overlap; the microphone MUST end up open once, on the new call.
 - **FR-051**: The conversation a call is taken *from* MUST say why it stopped — a visible reason, recorded where the session's other endings are, so a person who comes back to it is not left wondering whether it is still listening (FR-029, FR-030). Whether that reason is a message in the conversation or only a notice is open question Q10.
 - **FR-052**: A move MUST NOT strand a turn: if the agent was answering when the call was taken, that turn MUST be cancelled and its partial text kept, exactly as any other interruption (FR-027); it MUST NOT keep generating into a conversation nobody is listening to, and its reply MUST NOT be spoken into the new call.
@@ -576,7 +610,7 @@ already follow. Changing one is a change of scope, not a rewrite.
 | ~~**Q11**~~ | Which transport carries the audio path (FR-054)? | **Answered by the User, 2026-11-09 16:35: the WebSocket.** *"kalo liat concern yang disampein SA sama lead sih gw setuju pake websocket dulu aja kalo gitu."* The carrier is **`ws-json-pcm16`** — the path already implemented and tested. The media track stays in the contract as the **reserved** value `media-track`, not as the shipped one, and nothing built for it (setup frames, peer registry, Opus decoder, relay) is written. *The numbers that made this a real choice are kept in `plan.md` so a future decision does not start from zero: str0m +22 crates, 36 s probe build, 583 MB `target`, 1,25 GB peak RSS, Opus decoder + relay required.* | The socket path inherits the work already done: the 46 green client tests, the per-connection lane, the backlog bound and `stall`. What it does **not** do is hide packet loss — no jitter buffer, no PLC, no FEC — so packet loss is a hole in the sound, not a retry. T047's ducking and the 150 ms guard carry the echo and talk-over cases, and the speaker sweep decides whether they are enough (SC-008). |
 | ~~**Q4**~~ | A hard cap on concurrent live sessions? | **Answered by the User, 2026-11-09 06:52: exactly one — per person, across every conversation and agent (C10, FR-005).** | — |
 | ~~**Q6**~~ | What else does the live row carry besides the four required things? | **Closed 2026-11-09 as design's call within a stated bound**: the level of the person's voice and the elapsed time, and nothing that survives FR-049's order of surrender. Reopening it means a fourth thing competing for one line, which is why it is not a question but a constraint. | — |
-| ~~**Q7**~~ | Can the person reach the conversation (and type in it) while the call is open? | **Closed by C11 (2026-11-09 16:07): yes, structurally.** A row above the composer covers nothing, so the conversation and its input are reachable by construction rather than by an answer (FR-049); typed messages stay text-only (FR-025 deferred). | — |
+| ~~**Q7**~~ | Can the person reach the conversation (and type in it) while the call is open? | **Closed by C11 (2026-11-09 16:07): yes, structurally.** A row inside the composer's meta line adds no height and covers nothing, so the conversation and its input are reachable by construction rather than by an answer (FR-049); typed messages stay text-only (FR-025 deferred). | — |
 | ~~**Q8**~~ | Is the call a route of its own, or a view over the conversation? | **Answered by the User, 2026-11-09 06:52: neither — it floats over the conversation and there is no route (C9, FR-043).** Superseded in form by C11: it is a row in the conversation, and there is still no route. | — |
 | ~~**Q9**~~ | Does the floating panel remember where it was put, between calls or between visits? | **Closed by C11 (2026-11-09 16:07): there is no floating surface, so there is no position to remember.** It was answered while the panel still existed — remembered within one call, reset on the next — and that answer is archived with FR-048. | — |
 | ~~**Q10**~~ | When a call is taken by another conversation, is the reason left in the old conversation as a **message**, or only as a notice? | **Closed 2026-11-09: a notice only — a visible reason that is not written into the history**, then the row disappears (FR-051). A message would make a move look like a turn the person did not take, and the conversation is history, not a system log. | — |
@@ -730,7 +764,7 @@ rather than as an answer because that is what the owner said it was.
 
 | Change | Where | What it says now |
 |---|---|---|
-| **C11 — one row in the conversation** | new `### Session 2026-11-09 16:07` · **US6 rewritten** (title, narrative, why, independent test, 8 scenarios) · **FR-043, FR-044, FR-045, FR-046, FR-049** rewritten · **FR-001, FR-002, FR-006, SC-010** reworded · **FR-048** and **Q9** struck as superseded · **Q6** reworded · the panel edge case rewritten · the archived-surface note now covers all three retired surfaces | the call is one row above the composer, at the conversation's width; it covers nothing, floats over nothing and has no position to remember |
+| **C11 — one row, and it is the composer's own meta line** | new `### Session 2026-11-09 16:07`, amended 17:31 · **US6 rewritten** (title, narrative, why, independent test, 8 scenarios) · **FR-043, FR-044, FR-045, FR-046, FR-049** rewritten · **FR-001, FR-002, FR-006, SC-010** reworded · **FR-048** and **Q9** struck as superseded · **Q6** reworded · the panel edge case rewritten · the archived-surface note covers all three retired surfaces | the call takes over the composer's meta line at **0 px** added height (surface **B1-1**); it covers nothing, floats over nothing, is not a rail above the composer and has no position to remember |
 | **C12 — the manual speech *surfaces* retire** | **FR-053** new · the record and spoken-reply controls leave the composer UI · **FR-003 and FR-041 left exactly as they were**, deliberately | live voice becomes the only speech surface on screen; the providers, tools, flags and build capability stay in the code for another surface later (User, 2026-11-09 16:16), so a build without live voice still has every speech feature |
 | **C13 — audio gets a lane of its own; the carrier is the socket (Q11, closed 16:35)** | **FR-054, FR-055, FR-056, FR-057, FR-060** new · **Q11** opened and then closed on `ws-json-pcm16` · SC-001/002/003 scoped to the path that carries the sound · the plan's R1 and the contract's delivery path marked as the shipped path, `media-track` reserved | the sound travels on the conversation's socket as base64 PCM16, everything a person reads stays on the same socket, and the audio is bound to one session; the media option's measured cost stays in `plan.md` as the record of what lost |
 | **C15 — third-party access by scoped API key** | **FR-061, FR-062, FR-063, FR-064** new · **SC-013** new · `### Session 2026-11-09 16:35` · contract's Authentication section rewritten | a client that is not Vizier's gets in with a **key that grants live voice and nothing else**; a running session ends when its key is revoked or expires; a key that cannot be narrowed must not be offered at all. The code gap is stated: keys exist (`storage/user.rs:69-81`) but carry no scope (`auth/middleware.rs:200`) |

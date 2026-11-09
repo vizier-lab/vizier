@@ -106,7 +106,8 @@ receives it anyway MUST treat it exactly like `barge_in` rather than fail, so th
 protocol change when it lands.
 
 **`typed` exists only where the conversation is reachable during a session** — spec open question Q7's
-default says it is yes — a row above the composer covers nothing (C11, FR-049) — and a call is moved
+default says it is yes — a row inside the composer's meta line adds no height and covers nothing (C11,
+FR-049, surface B1-1) — and a call is moved
 rather than duplicated (C10). The reason stays in the contract so the backlog item needs
 no protocol change when it returns — but **`typed` is not sent by this release's client**: FR-025 is
 deferred with the interrupt control (C7, 2026-11-08 21:19), and although the two client helpers for it

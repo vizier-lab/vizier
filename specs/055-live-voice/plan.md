@@ -239,11 +239,13 @@ The decisions that shape the rest of the plan, each with the evidence it rests o
 1. `player.ts`: one `AudioContext` resumed on the control press, an ordered queue of
    `AudioBufferSourceNode`s scheduled back to back, `stop()` that closes every source at once and
    drains the queue, and stale-generation frames dropped on arrival (FR-022).
-2. **The live row** (spec C11, superseding the panel, the screen and the bar): `LiveVoiceRow.tsx`, shown
-   by the entry control **above the composer, at the conversation's own width** — the agent, the FR-006
-   state word, the FR-042 thinking indicator, the microphone-open indicator including when the window is
-   unfocused (FR-038), and one End action (FR-045). It costs one line (FR-049), covers no message, and
-   gives up its own detail before it gives up the microphone or the state word. **No interrupt control**:
+2. **The live row** (spec C11 as amended 17:31, superseding the panel, the screen, the bar and the rail):
+   `LiveVoiceRow.tsx`, which **takes over the composer's own meta line** — the 24 px line carrying the
+   context ring and the model chip — at **0 px** added height (surface B1-1). It shows the agent, the
+   FR-006 state word in the ring's slot, the FR-042 thinking indicator, the microphone-open indicator
+   including when the window is unfocused (FR-038), the elapsed time and one End action (FR-045). It
+   covers no message, and gives up its own detail in FR-049's fixed order — model chip, then waveform,
+   then the context ring — never the microphone, the state word, the elapsed time or End. **No interrupt control**:
    it is deferred to the backlog (C7), and a button that exists in the code but not in the specification
    is worse than an absent one. The three earlier surfaces are archived with the spec; none of their
    geometry, dragging or placement carries over.
