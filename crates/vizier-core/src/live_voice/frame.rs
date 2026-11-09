@@ -88,6 +88,11 @@ pub enum EndReason {
     /// The client asked for audio this release cannot carry (T102). Its own reason, not a provider
     /// failure: nothing was wrong with the recogniser or the voice, the declared description was.
     UnsupportedAudio,
+    /// The API key that opened this session was deleted (T110, FR-063). The call ends because the
+    /// credential behind it is gone — the contract promises this within a second of the revocation.
+    KeyRevoked,
+    /// The API key that opened this session lapsed while the call was running (T110, FR-063).
+    KeyExpired,
 }
 
 impl EndReason {
@@ -108,6 +113,8 @@ impl EndReason {
             Self::ProviderFailed => "provider_failed",
             Self::Unintelligible => "unintelligible",
             Self::UnsupportedAudio => "unsupported_audio",
+            Self::KeyRevoked => "key_revoked",
+            Self::KeyExpired => "key_expired",
         }
     }
 }

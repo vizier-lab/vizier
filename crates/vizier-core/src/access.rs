@@ -71,7 +71,7 @@ pub fn require(user: &Principal, permission: &str) -> Result<(), ServiceError> {
 /// and lookups. Without this line a scoped key belonging to an administrator would pass every
 /// check in the codebase, which is the one outcome the scope exists to prevent.
 fn is_system(user: &crate::auth::Principal) -> bool {
-    user.role.is_system && !matches!(user.method, crate::auth::AuthMethod::ApiKey { scoped: true })
+    user.role.is_system && !matches!(&user.method, crate::auth::AuthMethod::ApiKey { scoped: true, .. })
 }
 
 impl<'a> From<&'a crate::auth::Principal> for Caller<'a> {

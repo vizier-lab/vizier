@@ -26,7 +26,7 @@ pub use frame::{
 };
 pub use engines::{CascadeEngines, LiveVoiceEngines, SharedEngines};
 pub use segmenter::{Segment, segment};
-pub use session::{LiveVoiceSession, LiveVoiceSessions, UtteranceOutcome};
+pub use session::{KeyOrigin, LiveVoiceSession, LiveVoiceSessions, UtteranceOutcome};
 pub use utterance::{MIN_UTTERANCE_MS, Utterance, wav_header};
 
 /// How many audio frames may sit in one socket's outbound queue before the rest of that episode is

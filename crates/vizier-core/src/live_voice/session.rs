@@ -24,6 +24,18 @@ use crate::schema::agent::LiveVoiceSettings;
 use crate::schema::{VizierRequest, VizierRequestContent, VizierResponseContent, VizierSession};
 use crate::transport::{SessionEvent, SessionFrame, VizierTransport};
 
+/// The API key a session was opened with (T110, FR-063).
+///
+/// `None` on the session is a person signed in through the WebUI or the desktop app: their session
+/// ends when they end it, not when a credential lapses. Keeping the id and the expiry here means the
+/// revoke path can find the session, and the frame path can notice a lapse, without a storage read
+/// per frame.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct KeyOrigin {
+    pub key_id: String,
+    pub expires_at: Option<crate::time::Timestamp>,
+}
+
 /// The session's shared state. One per (agent, conversation), held by the registry.
 pub struct LiveVoiceSession {
     pub session: VizierSession,
@@ -49,6 +61,8 @@ pub struct LiveVoiceSession {
     /// The audio this conversation carries, as the client declared it at start (T102). Every
     /// incoming chunk is checked against it rather than assumed to match.
     description: Mutex<crate::live_voice::frame::AudioDescription>,
+    /// Which API key opened this session, or `None` for a person's own session (T110).
+    key: Mutex<Option<KeyOrigin>>,
     transport: VizierTransport,
 }
 
@@ -75,6 +89,7 @@ impl LiveVoiceSession {
             stopped: AtomicBool::new(false),
             engines: Mutex::new(None),
             description: Mutex::new(crate::live_voice::frame::AudioDescription::default()),
+            key: Mutex::new(None),
             transport,
         })
     }
@@ -101,6 +116,15 @@ impl LiveVoiceSession {
     /// session never holds one the server cannot carry.
     pub fn set_description(&self, description: crate::live_voice::frame::AudioDescription) {
         *self.description.lock() = description;
+    }
+
+    /// Record which key opened this session, if one did (T110).
+    pub fn set_key_origin(&self, origin: Option<KeyOrigin>) {
+        *self.key.lock() = origin;
+    }
+
+    pub fn key_origin(&self) -> Option<KeyOrigin> {
+        self.key.lock().clone()
     }
 
     pub fn generation(&self) -> u64 {
@@ -478,6 +502,46 @@ impl LiveVoiceSessions {
         }
     }
 
+    /// End every session that was opened with this API key, and say why (T110, FR-063).
+    ///
+    /// The contract promises a live session ends within a second of the key being revoked, and this
+    /// is the line that keeps that promise. It goes through the paths that already exist rather than
+    /// inventing a third: `abort_turn` cancels a running turn the way any interruption does
+    /// (FR-052), `end` stops the session and publishes the reason, and the entry leaves the map so
+    /// no later frame can resolve to a session that is over.
+    ///
+    /// The lock is dropped before any session is touched: `end` publishes, and a publish must never
+    /// happen while the registry is held. A session that already stopped is skipped — its reason is
+    /// the first one that won, which is what `end`'s idempotence means everywhere else.
+    ///
+    /// Returns how many sessions it ended, so a caller can log a revocation that mattered and stay
+    /// quiet about one that did not.
+    pub async fn end_owned_by_key(&self, key_id: &str, reason: EndReason) -> usize {
+        let targets: Vec<(VizierSession, Arc<LiveVoiceSession>)> = {
+            let map = self.map.lock();
+            map.iter()
+                .filter(|(_, session)| {
+                    session
+                        .key_origin()
+                        .is_some_and(|origin| origin.key_id == key_id)
+                })
+                .map(|(conversation, session)| (conversation.clone(), session.clone()))
+                .collect()
+        };
+        let mut ended = 0;
+        for (conversation, session) in targets {
+            if session.is_stopped() {
+                self.remove(&conversation, &session);
+                continue;
+            }
+            session.abort_turn(InterruptReason::BargeIn).await;
+            session.end(reason);
+            self.remove(&conversation, &session);
+            ended += 1;
+        }
+        ended
+    }
+
     pub fn len(&self) -> usize {
         self.map.lock().len()
     }
@@ -608,5 +672,154 @@ mod tests {
             all.contains("ProviderFailed") || session.state() == SessionState::Listening,
             "the failure is published, then the state follows: {all}"
         );
+    }
+}
+
+#[cfg(test)]
+mod key_tests {
+    //! T110/FR-063 — revoking or lapsing an API key ends the call it opened, and only that call.
+    //!
+    //! The registry is the whole subject here: the contract promises a session ends within a second
+    //! of the revocation, and this is the code that keeps it. The HTTP hook that calls it and the
+    //! middleware that supplies the key id are asserted one layer up.
+
+    use super::*;
+    use crate::schema::agent::LiveVoiceSettings;
+    use crate::schema::{VizierChannelId, VizierSession};
+    use crate::transport::VizierTransport;
+
+    fn session_on(topic: &str) -> Arc<LiveVoiceSession> {
+        session_on_transport(topic, VizierTransport::new())
+    }
+
+    /// The same, on a transport the test already holds, so it can watch what was published.
+    fn session_on_transport(topic: &str, transport: VizierTransport) -> Arc<LiveVoiceSession> {
+        let (out_tx, _lane) = tokio::sync::mpsc::channel::<serde_json::Value>(64);
+        let session = LiveVoiceSession::new(
+            VizierSession(
+                "helper".into(),
+                VizierChannelId::from_web("olive", "web"),
+                Some(topic.into()),
+            ),
+            "olive".into(),
+            None,
+            LiveVoiceSettings::default(),
+            ClientConnection::new(out_tx),
+            transport,
+        );
+        session.set_state(SessionState::Listening);
+        session
+    }
+
+    fn origin(key_id: &str, expires_at: Option<crate::time::Timestamp>) -> Option<KeyOrigin> {
+        Some(KeyOrigin {
+            key_id: key_id.into(),
+            expires_at,
+        })
+    }
+
+    /// Three sessions in one registry: one opened by key A, one by key B, one by a person.
+    fn registry() -> (LiveVoiceSessions, VizierSession, VizierSession, VizierSession) {
+        let registry = LiveVoiceSessions::default();
+        let a = session_on("topic-a");
+        let b = session_on("topic-b");
+        let person = session_on("topic-person");
+        a.set_key_origin(origin("key-a", None));
+        b.set_key_origin(origin("key-b", None));
+        let (ka, kb, kp) = (a.session.clone(), b.session.clone(), person.session.clone());
+        registry.start(ka.clone(), || a);
+        registry.start(kb.clone(), || b);
+        registry.start(kp.clone(), || person);
+        (registry, ka, kb, kp)
+    }
+
+    #[tokio::test]
+    async fn revoking_a_key_ends_its_call_and_leaves_the_others_alone() {
+        let (registry, ka, kb, kp) = registry();
+        assert_eq!(registry.len(), 3);
+
+        let ended = registry.end_owned_by_key("key-a", EndReason::KeyRevoked).await;
+        assert_eq!(ended, 1, "one session was opened with that key");
+
+        let a = registry.get(&ka);
+        assert!(a.is_none(), "the ended session is gone, so no later frame resolves to it");
+        assert_eq!(registry.get(&kb).map(|s| s.state()), Some(SessionState::Listening));
+        assert_eq!(registry.get(&kp).map(|s| s.state()), Some(SessionState::Listening));
+        assert_eq!(registry.len(), 2, "the two other calls are still live");
+    }
+
+    #[tokio::test]
+    async fn the_ended_session_says_why_and_stays_ended() {
+        let transport = VizierTransport::new();
+        let mut events = transport.subscribe_session_events();
+        let registry = LiveVoiceSessions::default();
+        let session = session_on_transport("topic-a", transport.clone());
+        session.set_key_origin(origin("key-a", None));
+        let key = session.session.clone();
+        registry.start(key.clone(), || session.clone());
+
+        registry.end_owned_by_key("key-a", EndReason::KeyRevoked).await;
+
+        // The reason reaches the client as a state frame, and it is the one the contract names.
+        // Under a runtime the event goes through the pump, so it is awaited rather than read on
+        // the next line — a bare `try_recv` here would be a race, not a test.
+        let mut reason = None;
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_millis(500);
+        while reason.is_none() && tokio::time::Instant::now() < deadline {
+            let left = deadline.saturating_duration_since(tokio::time::Instant::now());
+            let Ok(Ok(event)) = tokio::time::timeout(left, events.recv()).await else {
+                break;
+            };
+            if let SessionFrame::LiveVoice(LiveVoiceControl::State {
+                state: SessionState::Ended,
+                reason: Some(why),
+                ..
+            }) = event.frame
+            {
+                reason = Some(why);
+            }
+        }
+        assert_eq!(reason, Some(EndReason::KeyRevoked));
+        assert_eq!(session.state(), SessionState::Ended);
+
+        // And a second revocation is not a second ending.
+        assert_eq!(registry.end_owned_by_key("key-a", EndReason::KeyRevoked).await, 0);
+    }
+
+    #[tokio::test]
+    async fn a_key_with_no_session_ends_nothing() {
+        let (registry, ka, kb, kp) = registry();
+        assert_eq!(registry.end_owned_by_key("key-nobody-used", EndReason::KeyRevoked).await, 0);
+        assert_eq!(registry.len(), 3);
+        for key in [ka, kb, kp] {
+            assert_eq!(registry.get(&key).map(|s| s.state()), Some(SessionState::Listening));
+        }
+    }
+
+    #[tokio::test]
+    async fn a_lapsed_key_ends_its_call_with_its_own_reason() {
+        let registry = LiveVoiceSessions::default();
+        let session = session_on("topic-a");
+        let past = crate::time::now() - chrono::Duration::seconds(30);
+        session.set_key_origin(origin("key-a", Some(past)));
+        let key = session.session.clone();
+        registry.start(key.clone(), || session.clone());
+
+        // The expiry path is the caller's: it notices the lapse and ends the session it opened.
+        assert_eq!(registry.end_owned_by_key("key-a", EndReason::KeyExpired).await, 1);
+        assert_eq!(session.state(), SessionState::Ended);
+        assert!(registry.get(&key).is_none());
+    }
+
+    #[tokio::test]
+    async fn a_session_a_person_opened_has_no_key_to_revoke() {
+        let registry = LiveVoiceSessions::default();
+        let person = session_on("topic-person");
+        assert_eq!(person.key_origin(), None, "no credential, nothing to lapse");
+        let key = person.session.clone();
+        registry.start(key, || person);
+        // Nothing in the map matches any key id, so a revocation elsewhere cannot touch it.
+        assert_eq!(registry.end_owned_by_key("key-a", EndReason::KeyRevoked).await, 0);
+        assert_eq!(LiveVoiceSessions::len(&registry), 1);
     }
 }

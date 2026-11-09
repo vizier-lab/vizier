@@ -45,9 +45,37 @@ fn stamp_on_receipt(request: &mut vizier_core::schema::VizierRequest) {
 /// and is not affected, which is what keeps every key made before scopes existed working. A person
 /// signed in normally is not an API key at all and is allowed here — the surface is gated by the
 /// agent's own `live_voice` switch, not by a permission a person would have to be granted.
+/// Whether this caller owns that call (T110, FR-063).
+///
+/// The name alone is not enough: every API key presents an empty username, so two different keys —
+/// of one person or of two — would look like the same owner and could interrupt and end each
+/// other's session in a shared conversation. The key id is what separates them, and a person signed
+/// in normally has none, so a person's session and a key's session can never be confused either way
+/// round. Extracted from the socket arm so this rule can be asserted without an `HTTPState`.
+fn owns_session(
+    session: &vizier_core::live_voice::LiveVoiceSession,
+    principal: &vizier_core::auth::Principal,
+) -> bool {
+    session.owner == principal.username
+        && session.key_origin().map(|origin| origin.key_id)
+            == principal.method.key_id().map(str::to_string)
+}
+
+/// Whether the key behind this caller has passed its expiry (T110, FR-063).
+///
+/// Only an API key can lapse; a person's session has no expiry to pass.
+fn key_lapsed(principal: &vizier_core::auth::Principal) -> bool {
+    match &principal.method {
+        vizier_core::auth::AuthMethod::ApiKey { expires_at, .. } => {
+            expires_at.is_some_and(|at| at <= vizier_core::time::now())
+        }
+        _ => false,
+    }
+}
+
 fn may_start_live_voice(principal: &vizier_core::auth::Principal) -> bool {
     match principal.method {
-        vizier_core::auth::AuthMethod::ApiKey { scoped: true } => principal
+        vizier_core::auth::AuthMethod::ApiKey { scoped: true, .. } => principal
             .permissions
             .iter()
             .any(|c| c == vizier_core::service::api_keys::CAPABILITY_LIVE_VOICE),
@@ -57,7 +85,7 @@ fn may_start_live_voice(principal: &vizier_core::auth::Principal) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{may_start_live_voice, stamp_on_receipt};
+    use super::{key_lapsed, may_start_live_voice, owns_session, stamp_on_receipt};
     use vizier_core::schema::{VizierRequest, VizierRequestContent};
 
     /// T109/FR-062: who may open a live voice session, and the three cases that matter.
@@ -76,7 +104,11 @@ mod tests {
             permissions: permissions.iter().map(|p| p.to_string()).collect(),
             method,
         };
-        let api_key = |scoped| vizier_core::auth::AuthMethod::ApiKey { scoped };
+        let api_key = |scoped| vizier_core::auth::AuthMethod::ApiKey {
+            scoped,
+            key_id: Some("k1".into()),
+            expires_at: None,
+        };
 
         // A scoped key that names the capability: allowed.
         assert!(may_start_live_voice(&principal(&["live_voice"], api_key(true))));
@@ -90,6 +122,97 @@ mod tests {
             &[],
             vizier_core::auth::AuthMethod::Jwt
         )));
+    }
+
+    /// T110: two keys on one conversation are two owners. Without the key id, both present an empty
+    /// username and either could interrupt and end the other's call.
+    #[test]
+    fn only_the_key_that_opened_a_call_owns_it() {
+        let transport = vizier_core::transport::VizierTransport::new();
+        let (out_tx, _rx) = tokio::sync::mpsc::channel(8);
+        let session = vizier_core::live_voice::LiveVoiceSession::new(
+            vizier_core::schema::VizierSession(
+                "helper".into(),
+                vizier_core::schema::VizierChannelId::from_web("olive", "web"),
+                Some("topic-1".into()),
+            ),
+            String::new(),
+            None,
+            vizier_core::schema::agent::LiveVoiceSettings::default(),
+            vizier_core::agents::client::ClientConnection::new(out_tx),
+            transport,
+        );
+        let who = |method| vizier_core::auth::Principal {
+            user_id: "olive".into(),
+            username: String::new(),
+            role: vizier_core::storage::user::Role {
+                role_id: "r".into(),
+                name: "role".into(),
+                permissions: vec![],
+                is_system: false,
+                created_at: vizier_core::time::now(),
+            },
+            permissions: vec![],
+            method,
+        };
+        let key = |id: &str| {
+            who(vizier_core::auth::AuthMethod::ApiKey {
+                scoped: true,
+                key_id: Some(id.into()),
+                expires_at: None,
+            })
+        };
+
+        // Opened with key A: key A owns it, key B does not.
+        session.set_key_origin(Some(vizier_core::live_voice::KeyOrigin {
+            key_id: "key-a".into(),
+            expires_at: None,
+        }));
+        assert!(owns_session(&session, &key("key-a")));
+        assert!(!owns_session(&session, &key("key-b")), "another key is not the owner");
+        // A person signed in normally is not either, and never will be for a key's session.
+        assert!(!owns_session(
+            &session,
+            &who(vizier_core::auth::AuthMethod::Jwt)
+        ));
+
+        // A person's own session: theirs, and no key's.
+        session.set_key_origin(None);
+        assert!(owns_session(&session, &who(vizier_core::auth::AuthMethod::Jwt)));
+        assert!(!owns_session(&session, &key("key-a")));
+    }
+
+    /// T110/FR-063: only a key can lapse, and a lapsed key ends the call it opened.
+    #[test]
+    fn a_key_that_has_lapsed_is_noticed_and_a_persons_session_never_is() {
+        let principal = |method| vizier_core::auth::Principal {
+            user_id: "olive".into(),
+            username: "olive".into(),
+            role: vizier_core::storage::user::Role {
+                role_id: "r".into(),
+                name: "role".into(),
+                permissions: vec![],
+                is_system: false,
+                created_at: vizier_core::time::now(),
+            },
+            permissions: vec![],
+            method,
+        };
+        let key = |expires_at| vizier_core::auth::AuthMethod::ApiKey {
+            scoped: true,
+            key_id: Some("k1".into()),
+            expires_at,
+        };
+        let past = vizier_core::time::now() - chrono::Duration::seconds(5);
+        let future = vizier_core::time::now() + chrono::Duration::hours(1);
+
+        assert!(key_lapsed(&principal(key(Some(past)))), "a key past its expiry has lapsed");
+        assert!(!key_lapsed(&principal(key(Some(future)))), "a key with time left has not");
+        assert!(!key_lapsed(&principal(key(None))), "a key that never expires never lapses");
+        assert!(
+            !key_lapsed(&principal(vizier_core::auth::AuthMethod::Jwt)),
+            "a person's session has no expiry to pass"
+        );
     }
 
     #[test]
@@ -274,9 +397,29 @@ impl TopicConnection {
         let sessions = vizier_core::live_voice::sessions();
 
         // Every action but `start` needs the session the caller owns.
+        // Who owns this call (T110). The name alone is not enough: every API key presents an empty
+        // username, so two different keys — of the same person or of two people — would look like
+        // the same owner and could interrupt and end each other's session in a shared conversation.
+        // The key id is what separates them, and a person signed in normally has none, so their
+        // session and a key's session can never be confused either way round.
         let owned = |session: &vizier_core::live_voice::LiveVoiceSession| {
-            session.owner == self.principal.username
+            owns_session(session, &self.principal)
         };
+
+        // T110/FR-063: a key past its expiry ends the call it opened. The door already refuses an
+        // expired key — the storage lookup filters them — so what is left is a session opened while
+        // the key was valid and still running when it lapses. Checked when a frame arrives rather
+        // than by a timer, so the call ends at the next frame rather than on the exact second: the
+        // alternative is a timer per session for a rare event, and a client that has gone quiet is
+        // not talking to anyone anyway.
+        if key_lapsed(&self.principal) {
+            if let Some(session) = sessions.get(&self.session).filter(|s| owned(s)) {
+                if session.key_origin().is_some() {
+                    session.end(EndReason::KeyExpired);
+                    sessions.remove(&self.session, &session);
+                }
+            }
+        }
 
         match action {
             ClientAction::Start(start) => {
@@ -377,6 +520,17 @@ impl TopicConnection {
                     .unwrap_or_else(|existing| existing);
                 session.set_engines(engines);
                 session.set_description(description);
+                // T110: remember which key opened this call, so revoking or lapsing it can end the
+                // call later. `None` for a person signed in through the WebUI or the desktop app.
+                session.set_key_origin(match &self.principal.method {
+                    vizier_core::auth::AuthMethod::ApiKey { key_id, expires_at, .. } => {
+                        Some(vizier_core::live_voice::KeyOrigin {
+                            key_id: key_id.clone().unwrap_or_default(),
+                            expires_at: *expires_at,
+                        })
+                    }
+                    _ => None,
+                });
                 session.set_state(SessionState::Listening);
             }
             ClientAction::Audio(audio) => {
@@ -670,7 +824,7 @@ impl TopicConnection {
                                 }
                                 let principal = match self
                                     .services
-                                    .resolve(&self.principal.user_id, self.principal.method)
+                                    .resolve(&self.principal.user_id, self.principal.method.clone())
                                     .await
                                 {
                                     Ok(principal) => principal,
@@ -716,7 +870,7 @@ impl TopicConnection {
                             // (FR-018), so a revocation between two frames refuses the next one.
                             if self.session.1.project_id().is_some() {
                                 let current_principal = if request.model_override.is_some() {
-                                    match self.services.resolve(&self.principal.user_id, self.principal.method).await {
+                                    match self.services.resolve(&self.principal.user_id, self.principal.method.clone()).await {
                                         Ok(principal) => principal,
                                         Err(error) => {
                                             send_frame(client_error("forbidden", None, error.message())).await;

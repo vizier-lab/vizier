@@ -898,7 +898,7 @@ pub async fn chat(
 ) -> Result<ChatResponse, ServiceError> {
     let deps = s.deps();
     let who = if body.model_override.is_some() {
-        s.resolve(&who.user_id, who.method).await?
+        s.resolve(&who.user_id, who.method.clone()).await?
     } else {
         who.clone()
     };

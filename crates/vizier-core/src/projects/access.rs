@@ -143,7 +143,7 @@ mod tests {
         let alice = principal(false, "alice", &[USE_OWNED]);
         assert!(can_create(caller(&alice), &a, AuthMethod::Desktop));
         assert!(!can_create(caller(&alice), &a, AuthMethod::Jwt));
-        assert!(!can_create(caller(&alice), &a, AuthMethod::ApiKey { scoped: false }));
+        assert!(!can_create(caller(&alice), &a, AuthMethod::ApiKey { scoped: false, key_id: Some("k1".into()), expires_at: None }));
     }
 
     #[test]

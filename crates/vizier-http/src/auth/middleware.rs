@@ -226,7 +226,13 @@ pub async fn require_auth(
                 username: String::new(),
                 role,
                 permissions,
-                method: AuthMethod::ApiKey { scoped },
+                method: AuthMethod::ApiKey {
+                    scoped,
+                    // T110: the session this key opens must be findable when the key is
+                    // revoked or lapses, and both facts are known here and nowhere cheaper.
+                    key_id: Some(api_key.id),
+                    expires_at: api_key.expires_at,
+                },
             }
         }
         _ => return Err(AuthError::MissingCredentials),
@@ -313,7 +319,7 @@ mod tests {
                 created_at: vizier_core::time::now(),
             },
             permissions,
-            method: AuthMethod::ApiKey { scoped },
+            method: AuthMethod::ApiKey { scoped, key_id: Some("k-test".into()), expires_at: None },
         }
     }
 
