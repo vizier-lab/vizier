@@ -81,6 +81,7 @@ problem, the second removes an entire class of "which conversation is talking?" 
 | **C13** | **Audio travels in a lane of its own on the conversation's transport** — droppable under backpressure, while everything a person reads keeps the ordered broadcast. *Which* transport carried it was **Q11**, opened here and **closed on the socket** at 16:35 | R1 (audio as base64 PCM16 JSON on the topic socket) *as the final answer* | **FR-054, FR-055, FR-056, FR-057, FR-060** new. The per-connection lane, `LIVE_VOICE_SOCKET_BACKLOG = 16` and `stall` are the shipped path, not a candidate. The latency criteria are measured on the path that carries the sound. Choosing the transport was the Lead's call on measured numbers, and **Q11** records both the question and the answer |
 | **C14** | **The audio capability is standalone**: a documented contract a third party can implement without our client | the assumption that the audio path is a private detail of the WebUI | **FR-058** and **FR-059** new, **SC-012** new, and a public-contract section in the frame contract. It also binds our own WebUI to the same contract, or the contract rots. **Narrowed by C15**: a document is not enough — access needs a scoped API key |
 | **C15** | **Third-party access is by API key, scoped to live voice** — the User's reading of "standalone": not only a document, but a feature another system can actually call, kept safe by a key | C14's "the conversation's own credential", which would have handed an outside system a person's whole account | **FR-061 to FR-064** new, **SC-013** new, and the contract's Authentication section rewritten. The gap is named, not glossed: API keys exist but carry no scope (`middleware.rs:200` grants the owner's full permissions), so this is code, not prose |
+| **C16** | **The reply arrives as it is made, not when it is finished** — and starting it *before* the person stops talking is a separate, larger question (Q12) | the constraint note of 2026-11-08, FR-012's "not character by character", and FR-013's exclusion of anything finer than a segment | **FR-065 to FR-068** new and **PROVISIONAL** (not in this release's gate), **SC-014** new, **Q12** opened. FR-012/FR-013 are amended in place, and **FR-023's premise is broken and must be restated** — its justification ("already stored before its first word was heard") is true only while replies arrive whole |
 
 **Why C9 is not just a repaint of C6.** C6 put the call in place of the conversation, and then had to
 answer what happens to the chat — the full-screen render answered it by growing a transcript panel
@@ -208,6 +209,60 @@ goes whole; and **never** shrink: the microphone indicator, the state word, the 
 action, the idle control — all `nowrap`, with no ellipsis ever in the state word. Floor **240 px**, and
 the row never wraps to a second line. FR-049 carries the order, T038 implements it, T094 tests it.
 
+### Session 2026-11-10 06:35 (the reply no longer has to arrive whole)
+
+The person used the feature and said what the numbers had not: *"berarti possible kalo gw pengen dibikin
+jadi streaming LLM nya? Jadi ga perlu kalimat utuh, cuma dia tetep nahan buat kasih respon selama user
+masih berbicara tapi dia sendiri sembari streaming udah ada konteks untuk balasannya."* Two ideas are in
+that sentence, and they are not the same size. Separating them is the whole point of this entry.
+
+**First idea: the reply is delivered as it is made.** Today a turn delivers a finished message
+(`VizierResponseContent::Message`, `crates/vizier-core/src/schema/response.rs:129-132`), and the
+project's LLM client reads every provider body whole (`crates/vizier-core/src/llm/sse.rs:1-3`). So the
+first word cannot be heard until the last word exists. That is the constraint this document recorded on
+2026-11-08 (constraint note, `spec.md:38-49`), and it is why FR-013 promises segment-by-segment
+*synthesis* rather than segment-by-segment *arrival*. The person is asking for the second thing:
+segments that **reach them** while later ones are still being written. That needs a turn protocol that
+can carry a reply in pieces, and it is what FR-065 to FR-068 write down.
+
+**Second idea: the reply is started before the person stops talking.** That needs partial recognition —
+the recogniser seen through the conversation rather than as one clip — because the cascade recognises a
+whole utterance at a time (`stt/mod.rs`, `transcribe(&[u8], …)`). It also needs a rule for what to do
+when the person changes direction mid-sentence: a partial answer built on a half-heard question is
+either thrown away (paying for tokens nobody reads) or kept (answering the question they abandoned). That
+is **Q12**, with "not in this release" as its default, because it is a different feature from streaming
+the reply out, and bundling them would hide the larger one behind the smaller.
+
+**What this does to requirements already written.** Three of them assumed a whole message:
+
+- **FR-012** (`spec.md:447`) says the reply appears "as soon as the turn produces its message, not
+  character by character". That stays true of characters and stops being true of segments: with FR-065 a
+  reply can appear in pieces. The sentence is amended, not withdrawn.
+- **FR-013** (`spec.md:448`) excludes token-by-token speech *because* the turn delivers a finished
+  message. FR-065 removes that reason for segments; per-token speech remains out, because speaking
+  punctuation fragments is worse listening, not better.
+- **FR-023** (`spec.md:463`) is the sharp one, and it is easy to miss: it justifies keeping the whole
+  interrupted reply by saying the message "was already stored before its first word was heard". With
+  segments arriving as they are made, that premise is gone — an interruption can now land when only the
+  first third exists. The requirement must say what is kept when what was produced is all there is, and
+  that is why FR-066 and FR-067 exist.
+- **FR-027** (`spec.md:467`) and **FR-022** (`spec.md:462`) already forbid speaking a cancelled reply
+  afterwards; they now have to cover segments **in flight** and not only segments queued.
+- **T076**'s marks (`tasks.md:281`) survive unchanged. Its clock starts at the end of the utterance and
+  stops at the first sample that is actually audible; a streamed reply makes that stop earlier, and does
+  not redefine it. What it cannot measure is the tail — how long until the reply *finishes* — and that is
+  why SC-014 is a shape criterion rather than a new latency number.
+- **RK-1** (`review.md:239, 254`, the Lead's file) recorded the risk that live voice is only as live as
+  the model's whole-response latency, with no default taken. FR-065 is the answer to that risk, which
+  makes this a **revision of a User decision**, not a contradiction to be resolved later. The line
+  itself stays the Lead's to update.
+
+**Status: provisional, and honestly so.** These four requirements are written now so the behaviour is
+testable the moment the Lead's assessment says it is worth building — they are **not part of this
+release's gate**, and no latency number is attached to them until the assessment arrives and the User
+decides (Q12). Writing them as prose-only would have repeated the mistake this feature has already paid
+for twice: a promise in a sentence, no carrier, nothing to test.
+
 ### What "standalone" means here, and what it costs
 
 The User asked for the media part to be able to stand alone so that someone else could implement their
@@ -244,7 +299,6 @@ FR-058 also binds **our own WebUI to the same contract** — the one client that
 building, so a contract we break shows up as our own breakage first. If the reviewer prefers not to
 carry that burden, the honest alternative is to say so and drop C14 explicitly, not to publish a
 contract and then drift from it.
-
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -444,8 +498,8 @@ this diagram because it is deferred (C7).
 - **FR-009**: The session MUST decide on its own when the person starts and stops speaking; the person MUST NOT press anything between turns.
 - **FR-010**: When the person stops speaking for a short pause (default 800 ms), or an utterance reaches the maximum length (default 60 seconds), the utterance MUST be transcribed and submitted as a message in that conversation.
 - **FR-011**: Each submitted message MUST appear in the conversation as that person's message, marked as spoken, with the transcript as its content. The session MUST NOT add anything else to the conversation on the person's behalf.
-- **FR-012**: The agent's reply text MUST appear in the conversation and MUST be spoken aloud in the same session; the spoken words MUST correspond to the text shown. Because a turn delivers a finished message rather than token deltas (constraint note under Clarifications), "appear" means as soon as the turn produces its message, not character by character. *(Reworded in the Lead's review, 2026-11-08: the original said "as it is generated", which this turn protocol cannot do.)*
-- **FR-013**: Speaking a reply MUST begin at its first speakable segment, and each further segment MUST be synthesised while the previous one is being heard, so that a long answer is preceded by no long silence and does not wait for its own last sentence. (Token-by-token speech is excluded: the turn protocol delivers a finished message — see the constraint note under Clarifications.)
+- **FR-012**: The agent's reply text MUST appear in the conversation and MUST be spoken aloud in the same session; the spoken words MUST correspond to the text shown. "Appear" means as soon as the turn produces that part of it, and never character by character. *(Reworded in the Lead's review, 2026-11-08: the original said "as it is generated", which this turn protocol cannot do. Amended 2026-11-10 by C16: while a turn delivers a finished message the whole reply appears at once, and if FR-065 is built the reply appears in segments — either way the unit is a segment, never a character.)*
+- **FR-013**: Speaking a reply MUST begin at its first speakable segment, and each further segment MUST be synthesised while the previous one is being heard, so that a long answer is preceded by no long silence and does not wait for its own last sentence. (What is excluded is speech finer than a segment: a character or a half-clause is worse to listen to, not faster to understand. The 2026-11-08 reason for that exclusion — that a turn delivers a finished message — is about *arrival*, and C16's FR-065 removes it for segments while leaving token-by-token speech out.)
 - **FR-014**: The spoken form MUST NOT read formatting marks aloud (punctuation used as markup, code fences, raw URLs). What cannot be spoken MUST be skipped with a short notice that the conversation holds the rest to read.
 - **FR-015**: After a reply ends, or after an interruption, the session MUST return to listening without a press.
 - **FR-016**: Raw audio MUST NOT be stored. Only the transcript and the reply text are kept, as for typed turns, under the same access rules and retention as the conversation.
@@ -460,7 +514,7 @@ this diagram because it is deferred (C7).
 - ~~**FR-020**: A dedicated interrupt control MUST be available for the whole of a live session. Pressing it MUST stop the agent's audio at once and MUST NOT end the session.~~ **DEFERRED to the backlog on the User's decision, 2026-11-08 21:19 (C7).** This release has no interrupt control; FR-019 is the only way to interrupt. Kept here so the requirement is not lost, and it is not part of this release's gate.
 - ~~**FR-021**: The interrupt control MUST work at any moment of a session; pressed while nothing is being spoken, it MUST leave the session live and unchanged.~~ **DEFERRED with FR-020 (C7).**
 - **FR-022**: After an interruption, no part of the interrupted reply MUST be heard later, and the session MUST NOT resume speaking it on its own. The reply's remaining segments are abandoned, not paused: a later reply starts from its own first segment.
-- **FR-023**: An interrupted reply MUST remain in the conversation as the agent's message, marked as interrupted, so the person can see what they did not hear. How much text there is depends on when the interruption lands: interrupting while the reply is being spoken keeps the whole message, which was already stored before its first word was heard; interrupting while the model is still producing it ends the turn as an abort (`VizierResponseContent::Abort` is a turn that produced nothing, `crates/vizier-core/src/schema/response.rs:156-163`), so the person sees the interrupted mark and the turn's saved activity trail, not partial prose. *(Clarified in the Lead's review, 2026-11-08: "readable as far as it was produced" promised partial text the abort path does not keep.)*
+- **FR-023**: An interrupted reply MUST remain in the conversation as the agent's message, marked as interrupted, so the person can see what they did not hear. How much text there is depends on when the interruption lands: interrupting while the reply is being spoken keeps the whole message, which was already stored before its first word was heard — **and that reason holds only while a reply arrives whole** (C16): once segments arrive as they are made, an interruption can land with only part of the reply produced, and then what is kept is what was produced, marked interrupted. Interrupting while the model is still producing it ends the turn as an abort (`VizierResponseContent::Abort` is a turn that produced nothing, `crates/vizier-core/src/schema/response.rs:156-163`), so the person sees the interrupted mark and the turn's saved activity trail, not partial prose. *(Clarified in the Lead's review, 2026-11-08: "readable as far as it was produced" promised partial text the abort path does not keep.)*
 - **FR-024**: The utterance that caused an interruption MUST become the person's next message, unless it was too short to be one, in which case nothing is sent **and the reply is not cancelled for it** — the threshold is the length that makes a barge-in, not a character count (Story 2 scenario 6).
 - ~~**FR-025**: A message typed while the agent is speaking MUST stop the audio and cancel the running turn, on the same path as any other interruption.~~ **DEFERRED with FR-020 (C7), User's decision 2026-11-08 21:19.** This release has no interrupt by typing either: the only way to stop the audio is to stop speaking (FR-019) — not a button, not a keystroke. Typing during a session is ordinary chat (FR-040) and does not stop the audio. Its only carrier, T054, sits in the deferred US3, and the composer surface is frozen until the User picks a panel, so a live requirement would have been a promise with no one to keep it. *(Deferred in the Lead's review, 2026-11-09: a requirement whose only task is in the backlog must not read as a release promise.)*
 - **FR-026**: The session MUST NOT interrupt itself: its own audio coming back through the device's speakers MUST NOT be taken as the person speaking, at any output volume and with or without headphones.
@@ -519,6 +573,13 @@ this diagram because it is deferred (C7).
 - **FR-063**: The key MUST have a lifecycle that a person can act on: it is created with a name, may expire, can be rotated, and can be revoked. Revoking or expiry MUST take effect on a **running** session — the session ends with a reason from the contract's vocabulary, the microphone is released (FR-028) and the turn in flight is cancelled — rather than being honoured only at the next connection.
 - **FR-064**: A request whose key is missing, revoked, expired or scoped away from live voice MUST be **refused before any session state is created**, with a reason a client can show. The refusal MUST NOT reveal whether a session, a conversation or an agent exists to a caller who is not allowed to use it.
 
+**The reply as it is made (C16, 2026-11-10 — provisional, not in this release's gate)**
+
+- **FR-065**: The reply MUST NOT be required to arrive whole. Its text and its speech MUST reach the person **as segments**, the first leaving the server as soon as it exists, and the client MUST begin playing a segment as soon as that segment arrives rather than after the last one does. A reply that is still being produced MUST NOT hold the words already produced. *(PROVISIONAL: recorded so it is testable when the Lead's assessment says it is worth building; not part of this release's gate — see Q12 and C16.)*
+- **FR-066**: An interruption MUST stop the **remainder**, not only the queue: when the person interrupts while segments are still arriving, no segment that had not already reached them may be heard afterwards, and the reply stops where it stopped. This extends FR-022 and FR-027 to a reply still in flight — an interruption is a stop, never a pause.
+- **FR-067**: What is stored MUST be the reply that was made, once: no text duplicated by re-delivery, no truncated tail because the last segment arrived after the session ended, and the same text after a reload as the person heard. What they read later MUST NOT disagree with what they heard.
+- **FR-068**: If a session ends or fails while segments are still arriving, the row MUST say something that stays true afterwards: the reason, and that the reply stops where it stopped. It MUST NOT present a partial reply as complete, and MUST NOT present a reply that was heard as failed.
+
 *(Code reality behind FR-062, verified 2026-11-09: API keys exist — `crates/vizier-core/src/storage/user.rs:69-81` — but carry **no scope**: `crates/vizier-http/src/auth/middleware.rs:200` resolves a key to the owner's full role and permissions. So the scoping this requirement demands is **not built**, and calling it a documentation change would be wrong.)*
 - **FR-055**: Everything that is not audio MUST stay on the conversation's existing transport — the state word, the transcript, the reply's text, errors and endings. What a person reads in the conversation MUST be the transcript the conversation stores, never a parallel copy carried by the audio path.
 - **FR-056**: The audio path MUST be correlated with exactly one session (FR-005) in exactly one conversation. Audio belonging to a session that has ended, or arriving for a conversation where no session is live, MUST be refused rather than adopted by whatever session is live there now.
@@ -543,7 +604,7 @@ this diagram because it is deferred (C7).
 
 *Every latency figure below is measured on the **path that carries the sound** — the conversation's socket, `ws-json-pcm16` — with the marks taken in the client, not on the message hop. A number taken from a path that is not carrying audio describes nothing.*
 
-- **SC-001**: From the person finishing a short question to the first audible word of the answer, on an ordinary laptop and ordinary broadband, with a hosted recogniser and voice: **p90 <= 3.5 s and p99 <= 5 s is the release gate**; 2.0 s at p50 is the stretch target. The reason for the gate, not the aspiration: the plan's budget floors at 2.57 s before the model has produced anything (800 ms end-of-utterance + 120 ms to the wire + 900 ms hosted recognition + 100 ms turn start + 600 ms first segment + 50 ms to sound), and the turn protocol delivers the model's whole message rather than token deltas, so the model's own latency sits on top of that floor. A local-only recogniser or voice is CPU-bound, is expected to be slower still, and is measured separately (open question Q3). *(Restated in the Lead's review, 2026-11-08: the earlier 2 s p90 could not be met by the architecture the plan itself describes.)*
+- **SC-001**: From the person finishing a short question to the first audible word of the answer, on an ordinary laptop and ordinary broadband, with a hosted recogniser and voice: **p90 <= 3.5 s and p99 <= 5 s is the figure this document records, and it is not a release gate** (User, 2026-11-09 19:16: there is no baseline from a real provider yet, so a gate would pass or fail by luck — the recorder in `latency.md` measures and does not judge); 2.0 s at p50 is the stretch target. The reason for the figure, not the aspiration: the plan's budget floors at 2.57 s before the model has produced anything (800 ms end-of-utterance + 120 ms to the wire + 900 ms hosted recognition + 100 ms turn start + 600 ms first segment + 50 ms to sound), and the turn protocol delivers the model's whole message rather than token deltas, so the model's own latency sits on top of that floor. A local-only recogniser or voice is CPU-bound, is expected to be slower still, and is measured separately (open question Q3). *(Restated in the Lead's review, 2026-11-08: the earlier 2 s p90 could not be met by the architecture the plan itself describes.)*
 - **SC-002**: From the **end** of the person's speech (the end-of-utterance period firing) to silence: within 300 ms in at least 95% of attempts, and the next answer addresses the interrupting message in at least 90% of those attempts. The agent being audible *during* the person's speech is not a failure — it is the behaviour C8 asks for, so the clock starts when they stop, not when they start, and it is measured on the client (first audible sample of the reply to silence).
 - ~~**SC-003**: The interrupt control silences the agent within 200 ms in every attempt, in 100 of 100 tries.~~ **Not measured in this release: the control is deferred (C7).** Kept so the criterion returns with the backlog item.
 - **SC-004**: In a 10-minute session of at least 15 turns, at least 90% of turns need no interaction other than speaking, and every spoken message appears in the conversation — no lost turns in 100%.
@@ -556,6 +617,7 @@ this diagram because it is deferred (C7).
 - **SC-011**: A call taken by another conversation leaves no second session behind: in 100 of 100 tries exactly one microphone is open after the move, the old conversation carries a reason, and no turn keeps generating or is spoken into the new call (FR-050, FR-051, FR-052).
 - **SC-012**: A client written against the published contract alone — no code from this repository — completes a full session (start, speak, hear the reply, end) in 100 of 100 attempts, on a machine that has never held this repository. This WebUI is one such client: same contract, same test.
 - **SC-013**: A key issued for live voice starts a session and speaks through it in 100 of 100 tries, and is refused by **every** endpoint outside live voice — checked against an explicit list of the other routes, not a sample — in 100 of 100 tries. A key that is revoked mid-session ends that session within 1 s with its reason, in 100 of 100 tries.
+- **SC-014**: For a reply long enough to be more than one segment, the first segment is audible **before the last segment is produced** — in 100 of 100 tries with a hosted provider, with both marks taken on the client (first sample audible, last segment received). This is a shape, not a speed: it says the reply arrives while it is being made, and it holds even on a slow model. *(Belongs to FR-065, and therefore to Q12's answer rather than to this release's gate.)*
 
 ## Assumptions
 
@@ -595,7 +657,6 @@ colour **and** marker (FR-042).
 **Do not take any retired surface's pixel floor, narrowing order or placement as a requirement for
 the row.** The row's own constraints are FR-043, FR-044 and FR-049 and nothing else.
 
-
 ## Open Questions (for the User — five live, each with a default; the closed ones kept as a record)
 
 Nothing here blocks the plan: each has a decision taken in planning that the plan and the contracts
@@ -608,6 +669,7 @@ already follow. Changing one is a change of scope, not a rewrite.
 | **Q3** | Is the 2-second target (SC-001) measured only with hosted speech, with local models excluded? | Yes: hosted only, local measured separately. | Requiring it for a local whisper model means either accepting a slower target or dropping local models from the live path. |
 | **Q5** | How visible should "this message was spoken" and "this reply was interrupted" be in the conversation? | A small badge with a tooltip, nothing more (FR-011, FR-023). | Hiding the badges makes the conversation read like typing; making them loud makes voice turns look like errors. |
 | ~~**Q11**~~ | Which transport carries the audio path (FR-054)? | **Answered by the User, 2026-11-09 16:35: the WebSocket.** *"kalo liat concern yang disampein SA sama lead sih gw setuju pake websocket dulu aja kalo gitu."* The carrier is **`ws-json-pcm16`** — the path already implemented and tested. The media track stays in the contract as the **reserved** value `media-track`, not as the shipped one, and nothing built for it (setup frames, peer registry, Opus decoder, relay) is written. *The numbers that made this a real choice are kept in `plan.md` so a future decision does not start from zero: str0m +22 crates, 36 s probe build, 583 MB `target`, 1,25 GB peak RSS, Opus decoder + relay required.* | The socket path inherits the work already done: the 46 green client tests, the per-connection lane, the backlog bound and `stall`. What it does **not** do is hide packet loss — no jitter buffer, no PLC, no FEC — so packet loss is a hole in the sound, not a retry. T047's ducking and the 150 ms guard carry the echo and talk-over cases, and the speaker sweep decides whether they are enough (SC-008). |
+| **Q12** | Does the reply start being built **before** the person stops talking — a speculative answer to a half-heard question — or does it start when they stop? | **Not in this release; reply-as-it-is-made first (FR-065 to FR-068).** Speculation needs partial recognition, which the cascade cannot produce today: the recogniser takes a whole utterance (`stt/mod.rs`). It also needs a rule for a person who changes direction mid-sentence, and both answers cost something — discard a half-built answer and the tokens are paid for nothing, keep it and the agent answers a question that was abandoned. | If the User wants it, it is its own change: streaming recognition, a speculative turn with a discard rule, and a frame contract for a reply that may be abandoned. The size is what decides the order, not the appeal. |
 | ~~**Q4**~~ | A hard cap on concurrent live sessions? | **Answered by the User, 2026-11-09 06:52: exactly one — per person, across every conversation and agent (C10, FR-005).** | — |
 | ~~**Q6**~~ | What else does the live row carry besides the four required things? | **Closed 2026-11-09 as design's call within a stated bound**: the level of the person's voice and the elapsed time, and nothing that survives FR-049's order of surrender. Reopening it means a fourth thing competing for one line, which is why it is not a question but a constraint. | — |
 | ~~**Q7**~~ | Can the person reach the conversation (and type in it) while the call is open? | **Closed by C11 (2026-11-09 16:07): yes, structurally.** A row inside the composer's meta line adds no height and covers nothing, so the conversation and its input are reachable by construction rather than by an answer (FR-049); typed messages stay text-only (FR-025 deferred). | — |
@@ -798,3 +860,24 @@ already asking about: *if a cheaper way gets the same result, say so first.* The
 written as *decide on evidence, and record why* followed by *implement against the record*, so the
 choice is made once, in one place, with its rationale attached rather than implied.
 
+## Delta Log — 2026-11-10 06:35 (the reply arrives as it is made, and one premise under FR-023 collapses)
+
+Source: the person who used the feature, quoted in full in the 2026-11-10 06:35 session entry. Their
+question contained two ideas of different sizes — delivering the reply in pieces, and starting it before
+they stop talking — and this delta separates them: the first is written as requirements, the second as
+Q12 with "not in this release" as its default.
+
+| Change | Where | What it says now |
+|---|---|---|
+| **C16 — the reply arrives as it is made** | new `### Session 2026-11-10 06:35` · **FR-065, FR-066, FR-067, FR-068** new · **SC-014** new | a reply need not arrive whole: segments reach the person as they are produced, an interruption stops the remainder, what is stored is what was made, and an ending mid-reply says where it stopped |
+| **A premise removed, not a clause rewritten** | **FR-023** (`spec.md:463`) · **FR-012** (`:447`) · **FR-013** (`:448`) · the constraint note (`:38-49`) | FR-023 justified keeping the whole interrupted reply because it was "already stored before its first word was heard". That is true only while replies arrive whole; with FR-065 an interruption can land with a third of the reply produced. FR-012 and FR-013 keep their rule (a segment, never a character) and lose their reason, and the note now says which of its two claims C16 changes and which it leaves |
+| **RK-1 becomes an answered risk** | `review.md:239, 254` (the Lead's file — **not edited here**) | RK-1 recorded that live voice is only as live as the model's whole-response latency, with no default taken. FR-065 is the answer to it. Recorded as a **revision of a User decision**, not as a contradiction, and the line itself stays the Lead's to update |
+| **SC-001 stops calling itself a gate** | `spec.md:546` | It said "p90 ≤ 3.5 s and p99 ≤ 5 s **is the release gate**". The User decided on 2026-11-09 19:16 that the figure is **recorded, not gated**, because no sample from a real provider exists yet. Fixed here rather than left as a contradiction the next reader has to catch — a correction found while writing this delta, not part of it |
+| **One carrier, and it is provisional** | **T111** appended to `tasks.md` (no task renumbered, no task retitled) | The requirements above have exactly one carrier, marked `[PROVISIONAL]`, which says in its own text that it must not start before the Lead's assessment and the User's answer to Q12. This is rule 8 applied to a promise that has no schedule yet |
+
+**What this delta does not do.** It attaches **no latency number** to a streamed reply — not because one
+would be hard to invent, but because the numbers that decide it (whisper's per-clip time, the two LLM
+hops measured at 10.66 s and 2.42 s, the first segment's synthesis time) belong to the Lead's assessment
+and are not mine to assume. It also does not touch the four fixes already in hand (F1 to F4): those are
+implementation against requirements that already exist, and this delta is about the requirement they will
+eventually need.
