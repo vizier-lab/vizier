@@ -209,6 +209,8 @@ function driven(options: { sendReturns?: (frame: object) => boolean } = {}) {
         onWindow(samples: Float32Array): void
         onLost(reason: string): void
     } | null = null
+    /** How many times the session released the microphone; more than one is a leak. */
+    let microphones = 0
     const client = new LiveVoiceClient({
         send: (frame) => {
             sent.push(frame)
@@ -217,7 +219,12 @@ function driven(options: { sendReturns?: (frame: object) => boolean } = {}) {
         player,
         openCapture: async (callbacks) => {
             capture = callbacks
-            return { stop: () => {}, open: true }
+            return {
+                stop: () => {
+                    microphones += 1
+                },
+                open: true,
+            }
         },
         onView: (view) => views.push(view),
         now: () => clock,
@@ -227,6 +234,9 @@ function driven(options: { sendReturns?: (frame: object) => boolean } = {}) {
         sent,
         player,
         views,
+        microphones: () => microphones,
+        /** The device is taken away mid-session, which is a local failure. */
+        lost: (reason: string) => capture?.onLost(reason),
         last: () => views[views.length - 1],
         advance: (ms: number) => {
             clock += ms
@@ -603,5 +613,123 @@ describe('T045 — the word follows the audio', () => {
         expect(h.client.currentState, 'the next reply is allowed to say it is speaking').toBe(
             'speaking'
         )
+    })
+})
+
+describe('C2 — every ending lets go of the microphone and the audio context', () => {
+    /** A session that has started and is listening, with one segment playing. */
+    async function live() {
+        const h = driven()
+        await h.client.start()
+        h.client.onFrame({
+            live_voice: {
+                type: 'speech',
+                generation: 1,
+                seq: 0,
+                sample_rate: 16000,
+                format: 'pcm16',
+                base64: 'AAECAw==',
+                final: false,
+            },
+        })
+        expect(h.client.currentState).toBe('speaking')
+        return h
+    }
+
+    it('the End control releases once and closes the context', async () => {
+        const h = await live()
+        h.client.stop('pressed_again')
+        expect(h.client.currentState).toBe('ended')
+        expect(h.microphones(), 'the tracks are stopped exactly once').toBe(1)
+        expect(h.player.closed, 'the audio context is closed, not left running').toBe(1)
+        expect(h.player.playing).toBe(false)
+        expect(h.last().micOpen).toBe(false)
+        // The control is offered again from an ending, and a second stop is free.
+        h.client.stop('pressed_again')
+        expect(h.microphones()).toBe(1)
+        expect(h.player.closed).toBe(1)
+    })
+
+    it('leaving the conversation releases the same way', async () => {
+        const h = await live()
+        h.client.stop('left_conversation')
+        expect(h.client.currentState).toBe('ended')
+        expect(h.last().notice).toBe('you left the conversation, so live voice ended')
+        expect(h.microphones()).toBe(1)
+        expect(h.player.closed).toBe(1)
+        expect(h.last().micOpen).toBe(false)
+    })
+
+    it('a local failure releases too — the microphone is never left open by an error', async () => {
+        const h = await live()
+        // The device is taken away while the reply plays: `fail()` is the local path, not a frame.
+        h.lost('the microphone was taken away')
+        expect(h.client.currentState).toBe('failed')
+        expect(h.last().notice).toBe('the microphone was taken away')
+        expect(h.microphones(), 'the tracks are stopped once').toBe(1)
+        expect(h.player.closed, 'the context is closed').toBe(1)
+        expect(h.last().micOpen).toBe(false)
+    })
+
+    it('a failure the server reports releases the same way', async () => {
+        const h = await live()
+        h.client.onFrame({
+            live_voice: { type: 'state', state: 'failed', generation: 1, reason: 'provider_failed' },
+        })
+        expect(h.client.currentState).toBe('failed')
+        expect(h.microphones()).toBe(1)
+        expect(h.player.closed).toBe(1)
+        expect(h.last().micOpen).toBe(false)
+    })
+    it('an ending the server decides releases the same way', async () => {
+        const h = await live()
+        h.client.onFrame({
+            live_voice: { type: 'state', state: 'ended', generation: 1, reason: 'idle' },
+        })
+        expect(h.client.currentState).toBe('ended')
+        expect(h.last().notice).toBe('live voice ended after a while with nothing said')
+        expect(h.microphones()).toBe(1)
+        expect(h.player.closed).toBe(1)
+        expect(h.last().micOpen).toBe(false)
+    })
+
+    it('an ending frame after a local stop does not release twice', async () => {
+        const h = await live()
+        h.client.stop('pressed_again')
+        h.client.onFrame({
+            live_voice: { type: 'state', state: 'ended', generation: 1, reason: 'idle' },
+        })
+        expect(h.microphones(), 'two endings, one release').toBe(1)
+        expect(h.player.closed).toBe(1)
+    })
+
+    it('the tick stops with the session, so nothing keeps rendering after it ends', async () => {
+        const h = await live()
+        const before = h.views.length
+        h.client.stop('pressed_again')
+        const afterStop = h.views.length
+        // The 100 ms tick would add a view on every interval; none arrives after the release.
+        await new Promise((resolve) => setTimeout(resolve, 250))
+        expect(h.views.length).toBe(afterStop)
+        expect(afterStop).toBeGreaterThan(before)
+    })
+})
+
+describe('C2 — a session that ends can be started again', () => {
+    it('starts a second session after an ending, with a fresh microphone and player', async () => {
+        const h = driven()
+        await h.client.start()
+        expect(h.client.currentState).toBe('listening')
+        h.client.stop('pressed_again')
+        expect(h.player.closed).toBe(1)
+
+        await h.client.start()
+        expect(h.client.currentState).toBe('listening')
+        expect(h.microphones(), 'the first session released its tracks').toBe(1)
+        expect(h.last().micOpen).toBe(true)
+
+        h.client.stop('pressed_again')
+        expect(h.microphones(), 'and the second released its own').toBe(2)
+        expect(h.player.closed).toBe(2)
     })
 })

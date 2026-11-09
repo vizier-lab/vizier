@@ -109,6 +109,8 @@ export class LiveVoiceClient {
      */
     private mutedGeneration = -1
     private tick: ReturnType<typeof setInterval> | null = null
+    /** Whether this session has already let go of the microphone and the audio context. */
+    private released = false
 
     constructor(private readonly deps: LiveVoiceDeps) {}
 
@@ -123,6 +125,7 @@ export class LiveVoiceClient {
     /** Start a session: the one control, separate from the mic and the spoken-reply toggle. */
     async start(): Promise<void> {
         if (this.state !== 'off' && this.state !== 'ended' && this.state !== 'failed') return
+        this.released = false
         this.move('connecting')
         const sent = this.deps.send(startFrame(this.deps.language))
         if (!sent) {
@@ -287,18 +290,28 @@ export class LiveVoiceClient {
         }
     }
 
-    private stopAudio(): void {
-        this.deps.player.stop()
-        this.replyAudible = false
-        // Segments of this reply are still on their way; they must not restart it.
-        this.mutedGeneration = this.generation
-    }
-
+    /**
+     * Let go of everything a session holds: the microphone tracks, the audio context, the queued
+     * segments, the render tick and the utterance in flight.
+     *
+     * Every terminal transition comes through here — the End control, leaving the conversation or
+     * closing the page, a failure from either side, and an ending the server decides (idle, owner
+     * gone). One path is the point: a second one would be a second chance to leave the microphone
+     * open, and `AudioContext` keeps a device alive until it is closed.
+     *
+     * Idempotent: the first call does the work, and a later one costs nothing. `stop()` twice, an
+     * ending frame after a local stop, and a failure racing a page close all land here exactly once.
+     */
     private release(): void {
+        if (this.released) return
+        this.released = true
         this.capture?.stop()
         this.capture = null
         this.view.micOpen = false
         this.stopAudio()
+        // Closing is asynchronous and its outcome changes nothing the person can act on; the
+        // player is finished with either way.
+        void this.deps.player.close()
         if (this.tick) {
             clearInterval(this.tick)
             this.tick = null
@@ -307,6 +320,14 @@ export class LiveVoiceClient {
         this.utteranceId = 0
         this.seq = 0
     }
+
+    private stopAudio(): void {
+        this.deps.player.stop()
+        this.replyAudible = false
+        // Segments of this reply are still on their way; they must not restart it.
+        this.mutedGeneration = this.generation
+    }
+
 
     private applyState(next: SessionState, reason?: EndReason): void {
         if (next === 'ended' || next === 'failed') {
