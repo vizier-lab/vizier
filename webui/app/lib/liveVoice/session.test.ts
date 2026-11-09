@@ -118,7 +118,9 @@ describe('the live voice state machine', () => {
         expect(h.client.currentState).toBe('listening')
     })
 
-    it('a typed message interrupts with its own reason and is not spoken (FR-018 withdrawn)', async () => {
+    // FR-025 is deferred (C7, spec.md) — this asserts a path the surface does not call;
+    // re-enable with US3/T054.
+    it.skip('a typed message interrupts with its own reason and is not spoken (FR-018 withdrawn)', async () => {
         const h = harness()
         await h.client.start()
         h.client.onFrame({ live_voice: { type: 'state', state: 'speaking', generation: 1 } })
