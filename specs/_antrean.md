@@ -127,14 +127,14 @@ Dicatat terpisah dari status task, sesuai permintaan `@bro-pm`:
 | ID | Judul | Status | Pemilik | Sejak | R: | Diblokir oleh |
 |---|---|---|---|---|---|---|
 | `AQ-001` | Rekonsiliasi checkbox `specs/055-live-voice/tasks.md` dengan riwayat git (label `docs`) | `siap-kirim` | Lead | 9 Nov 2026 20:45 WIB | `tanpa-spec:docs` — allowlist `specs/**` | - |
-| `T110` | Kunci yang dicabut/kedaluwarsa mengakhiri sesi live yang ia buka (FR-063, SC-013) | `gate` | `@sepuh-be` | 9 Nov 2026 21:32 WIB | `FR-063` | DoD + gate belum ada; kode sudah mendarat di `vizier@449aca26` + `webui@7b7c9a3`, brief belum terlacak |
+| `T110` | Kunci yang dicabut/kedaluwarsa mengakhiri sesi live yang ia buka (FR-063, SC-013) | `gate` | `@sepuh-be` | 9 Nov 2026 21:32 WIB | `FR-063` | DoD **sudah ditulis** (lihat §DoD — T110 di bawah); yang belum: gate teknis saya, lalu tanda tangan QA. Kode mendarat di `vizier@449aca26` + `webui@7b7c9a3` **sebelum** brief — dicatat sebagai insiden, bukan dilewati |
 
 ## Tanda tangan — AQ-001
 
 | Tanda tangan | Pemilik | Status | Bukti |
 |---|---|---|---|
 | Teknis | Lead | ✅ 9 Nov 2026 | di bawah |
-| Perilaku vs spec | `@teteh-qa` | `qa-plan: N/A` — ditetapkan Lead | label `docs`, tidak menyentuh kode (qa-plan bertingkat: hanya task perilaku/API yang wajib 3-5 skenario). QA boleh membantah dengan bukti; kalau dibantah, status kembali ke `gate` |
+| Perilaku vs spec | `@teteh-qa` | `qa-plan: N/A` — **diterima QA 21:23, tanpa tanda tangan** | label `docs`, tidak menyentuh kode (qa-plan bertingkat: hanya task perilaku/API yang wajib 3-5 skenario). QA boleh membantah dengan bukti; kalau dibantah, status kembali ke `gate` |
 | Visual vs handoff | `@teteh-desener` | tidak diminta | label `docs`, bukan `ui` (aturan papan sendiri) |
 
 **Catatan tanda tangan:** tidak ada tanda tangan yang saya tulis atas nama agen lain. Tanda tangan teknis di baris ini milik saya setelah saya periksa sendiri: 110 task utuh, `[x]` 9 -> 65, `[ ]` 101 -> 45, rujukan `screens/livevoice/` 6 -> 0, dan 22 dari 22 anotasi `repo@hash` resolve di repo yang disebut (`git cat-file -t`; satu-satunya yang gagal adalah placeholder `<hash>` di kepala `tasks.md`).
@@ -148,4 +148,25 @@ Dicatat terpisah dari status task, sesuai permintaan `@bro-pm`:
 
 **Batas yang harus dibaca sebelum mengutip angka 65**: 56 centang baru hanya membuktikan **kode ada di HEAD** (`git grep … HEAD -- <file>`) dan menyebut commit yang memperkenalkannya. **Tidak ada tes yang dijalankan** di rekonsiliasi ini. Karena itu dua penanda dibedakan di kepala `tasks.md`: `Landed … gate passed` (gate dijalankan) vs `In the tree … not gated in AQ-001` (hanya keberadaan). Gate tetap tanda tangan QA.
 
+- **Aturan kutipan (diminta `@teteh-qa` 21:23):** angka **65** tidak boleh dikutip tanpa kalimat batas di atas. Tanpa itu 65 beredar sebagai "sudah dites" di brief berikutnya, dan QA yang diminta mempertanggungjawabkannya di gate.
+- **Rincian 22 anotasi `repo@hash`** (diukur ulang 21:35 dengan `grep -oE` + `sort -u`): **vizier 11 · webui 10 · design 1**. Sebutan "vizier 13" di percakapan 21:16 salah hitung; totalnya tetap 22 dan tetap 22/22 resolve.
 **45 yang sengaja masih `[ ]`**: fixture VAD (T004), baseline (T006), indikator FR-042 e2e (T039), tombol arsip yang bukan lagi pintu masuk (T037), saklar per-agen (T041), counter backlog (T042), ducking & burst pendek (T047, T048), e2e barge-in/interrupt (T049, T056), seluruh backlog interrupt (T051–T057), siklus & penolakan koneksi kedua (T061–T065), tes kegagalan server (T066), superseded (T093), registri & alasan tertinggal (T095–T097), instrumentasi server (T077), dan seluruh gerbang rilis (T078–T088) serta fase kunci pihak ketiga (T100–T110).
+
+
+## DoD — T110 (ditulis 9 Nov 2026 21:36, setelah kode mendarat)
+
+Urutannya salah dan saya catat begitu: DoD seharusnya mendahului kode. Isinya tetap wajib lulus sebelum baris ini boleh `siap-kirim`.
+
+**Perintah + output harapan** (fitur minimum, satu crate sekali jalan):
+
+| # | Perintah | Output harapan |
+|---|---|---|
+| 1 | `cargo test -p vizier-core --features provider-live-voice revoking_a_key_ends_its_call_and_leaves_the_others_alone` | 1 lulus, 0 gagal; sesi milik kunci lain **tidak** ikut berakhir |
+| 2 | `cargo test -p vizier-core --features provider-live-voice a_session_a_person_opened_has_no_key_to_revoke` | 1 lulus — sesi yang dibuka orang (bukan kunci) tidak punya kunci untuk dicabut |
+| 3 | `cargo test -p vizier-core --features provider-live-voice end_owned_by_key` | lulus untuk `KeyRevoked` **dan** `KeyExpired`; `key-nobody-used` mengembalikan 0 |
+| 4 | `cargo test -p vizier-core` (tanpa fitur) | lulus — build tanpa `provider-live-voice` tidak melihat kode ini (FR-041) |
+| 5 | `cd webui && npm test -- session` | `humanReason('key_revoked')` beda dari `key_expired` dan dari `pressed_again`; keduanya memuat "revoked"/"expired" |
+
+**Yang DoD ini belum buktikan, dan wajib disebut di laporan gate:** SC-013 menuntut sesi berakhir **dalam 1 detik** setelah pencabutan. Tes #1–#3 membuktikan *jalur* dan *alasan*, bukan *jeda waktunya*. Bukti 1 detik butuh uji waktu nyata (server hidup, kunci dicabut saat jawaban berjalan) — belum ada, dan tidak boleh diklaim ada.
+
+**Pemilik:** gate teknis saya · tanda tangan perilaku `@teteh-qa` (task perilaku → `qa-plan` wajib 3–5 skenario, bukan `N/A`).
