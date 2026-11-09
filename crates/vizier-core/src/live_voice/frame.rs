@@ -85,6 +85,9 @@ pub enum EndReason {
     NoVoice,
     ProviderFailed,
     Unintelligible,
+    /// The client asked for audio this release cannot carry (T102). Its own reason, not a provider
+    /// failure: nothing was wrong with the recogniser or the voice, the declared description was.
+    UnsupportedAudio,
 }
 
 impl EndReason {
@@ -104,6 +107,7 @@ impl EndReason {
             Self::NoVoice => "no_voice",
             Self::ProviderFailed => "provider_failed",
             Self::Unintelligible => "unintelligible",
+            Self::UnsupportedAudio => "unsupported_audio",
         }
     }
 }
@@ -520,6 +524,26 @@ mod tests {
             ..AudioDescription::default()
         };
         assert!(wrong_frame.check().is_err(), "100 ms chunks only");
+    }
+
+    /// T102: the refusal has its own reason. `provider_failed` sends a client author to the
+    /// credentials when the bug is a wrong number in their own start frame, and this vocabulary is
+    /// public (FR-058).
+    #[test]
+    fn a_carrier_the_server_cannot_carry_is_its_own_reason() {
+        assert_eq!(EndReason::UnsupportedAudio.as_str(), "unsupported_audio");
+        assert_ne!(
+            EndReason::UnsupportedAudio.as_str(),
+            EndReason::ProviderFailed.as_str(),
+            "a wrong description is not a provider failure"
+        );
+        // The wire form is the snake_case name, so a third-party client reads what the server means.
+        let json = serde_json::to_value(EndReason::UnsupportedAudio).unwrap();
+        assert_eq!(json, serde_json::json!("unsupported_audio"));
+        assert!(
+            !EndReason::UnsupportedAudio.as_str().contains("provider"),
+            "the name must not send anyone to the provider"
+        );
     }
 
     #[test]

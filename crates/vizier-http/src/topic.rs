@@ -244,7 +244,7 @@ impl TopicConnection {
                 let description = start.description();
                 if let Err(reason) = description.check() {
                     self.send_live_voice(LiveVoiceControl::Error {
-                        kind: EndReason::ProviderFailed,
+                        kind: EndReason::UnsupportedAudio,
                         message: reason,
                     });
                     return;
@@ -331,7 +331,7 @@ impl TopicConnection {
                 if let Err(reason) = session.description().accepts(audio.sample_rate, &audio.format)
                 {
                     self.send_live_voice(LiveVoiceControl::Error {
-                        kind: EndReason::ProviderFailed,
+                        kind: EndReason::UnsupportedAudio,
                         message: reason,
                     });
                     return;

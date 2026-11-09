@@ -206,6 +206,12 @@ mod the_audio_description {
         let reason = description.check().expect_err("44.1 kHz is not carried");
         assert!(reason.contains("16000"), "expected: {reason}");
         assert!(reason.contains("44100"), "received: {reason}");
+        // And the refusal carries its own reason, not a provider failure (T102): the message is
+        // public vocabulary a third-party client reads.
+        assert_eq!(
+            vizier_core::live_voice::frame::EndReason::UnsupportedAudio.as_str(),
+            "unsupported_audio"
+        );
         // The refusal is what `topic.rs` sends and then returns from, before `sessions.start`:
         // nothing was registered, so a fresh registry is still empty.
         let registry = LiveVoiceSessions::default();
