@@ -75,7 +75,10 @@ export function rowTone(view: LiveVoiceView): string {
         case 'speaking':
         case 'interrupted':
         case 'connecting':
-            return 'text-live'
+            // The word, not the mark: state/live is 3.77:1 on white and 3.43:1 on bg-surface,
+            // under the 4.5:1 a 10.5 px word needs. state/live-text is 6.44:1 and 5.86:1, and the
+            // dark theme resolves both to the same emerald, so nothing changes there.
+            return 'text-live-text'
         default:
             return 'text-faint'
     }

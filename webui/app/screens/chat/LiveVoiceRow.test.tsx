@@ -77,7 +77,8 @@ describe('the live row', () => {
         const thinking = render({ state: 'waiting', thinking: true, micOpen: true })
         const reconnecting = render({ state: 'reconnecting', micOpen: true })
 
-        expect(rowTone(view({ state: 'waiting' }))).toBe('text-live')
+        // The word carries the text shade; `state/live` is for marks and fails 4.5:1 as type.
+        expect(rowTone(view({ state: 'waiting' }))).toBe('text-live-text')
         expect(rowTone(view({ state: 'reconnecting' }))).toBe('text-retrying-text')
         expect(rowTone(view({ state: 'waiting' }))).not.toBe(rowTone(view({ state: 'reconnecting' })))
 
@@ -131,5 +132,17 @@ describe('the live row', () => {
         // State, mic, timer and the End control each carry the rule.
         expect(html.match(/whitespace-nowrap/g)?.length ?? 0).toBeGreaterThanOrEqual(4)
         expect(html).not.toContain('text-ellipsis')
+    })
+
+    it('the state word never uses the mark token, which fails as small type', () => {
+        // `state/live` is 3.77:1 on white and 3.43:1 on bg-surface, under the 4.5:1 a 10.5 px word
+        // needs; `state/live-text` is 6.44:1 and 5.86:1. Both resolve to the same emerald in the
+        // dark theme, so the change costs nothing there.
+        for (const state of ['connecting', 'listening', 'waiting', 'speaking', 'interrupted'] as const) {
+            expect(rowTone(view({ state })), state).toBe('text-live-text')
+        }
+        // The microphone glyph is a graphic, not type: the 3:1 mark threshold applies, so it keeps
+        // the mark token it was drawn for.
+        expect(render({ state: 'speaking', micOpen: true })).toContain('text-live')
     })
 })
