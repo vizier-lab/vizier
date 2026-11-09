@@ -83,6 +83,13 @@ Kalau **2 dari 3** task diblokir "spec belum siap", atau **>2 dari 5** baris pak
 ## Format baris
 `ID . judul . status . pemilik . sejak . R: <FR-### | tanpa-spec:<alasan>> . diblokir oleh`
 
+**Koreksi bukti, 9 Nov 2026 (gate teknis Lead, setelah commit):** bukti di atas sempat menyebut commit **`5a8b3f0f`** yang **tidak ada di repo** (`git cat-file -t 5a8b3f0f` -> `fatal: Not a valid object name`). Yang benar adalah **`4ca56796`**. Tiga cacat bukti lain ditemukan dan diperbaiki di commit koreksi ini, semuanya di `tasks.md`:
+- **T074, T075** dicentang **tanpa hash sama sekali** -> ditambah `vizier@5eba4226`.
+- **Enam anotasi `Landed`** menyebut hash **tanpa repo** (`fbb204f` x3, `0c9c89c`, `3bf44a7`, `cc1d648`). Keempatnya **hanya ada di repo `webui`**; dicek dari root vizier hasilnya "missing" padahal sah. Semua diberi prefix `webui@`.
+- Semua anotasi `vizier` kini berprefix `vizier@` supaya `grep` yang jujur sama dengan `grep` yang gampang.
+
+Hasil cek ulang: **65 `[x]`, 65 beranotasi, 22 referensi `repo@hash` unik, 22/22 resolve** (`git cat-file -t`). Tidak ada tes yang dijalankan; penanda `In the tree` tetap berarti "kode ada + ada commit", bukan gate lulus.
+
 ## Papan
 
 | ID | Judul | Status | Pemilik | Sejak | R: | Diblokir oleh |
@@ -101,7 +108,7 @@ Kalau **2 dari 3** task diblokir "spec belum siap", atau **>2 dari 5** baris pak
 - `grep -cE '^- \[[ x]\] T[0-9]{3}' specs/055-live-voice/tasks.md` → `110` sebelum **dan** sesudah: tidak ada task ditambah atau dihapus, hanya status yang berubah.
 - `grep -c '^- \[ \] T' …` → `101` → **`45`**; `grep -c '^- \[x\] T' …` → `9` → **`65`**.
 - `grep -c 'app/screens/livevoice/' specs/055-live-voice/tasks.md` → `6` → **`0`** (barisnya ada di `webui/app/screens/chat/LiveVoiceRow.tsx`, bukan `screens/livevoice/`).
-- Commit: **`aa27590e`** (rekonsiliasi) + **`5a8b3f0f`** (koreksi T037/T040/T089 setelah bukti mount ditemukan), path-scoped ke `specs/055-live-voice/tasks.md` saja.
+- Commit: **`aa27590e`** (rekonsiliasi, `specs/055-live-voice/tasks.md` saja) + **`4ca56796`** (koreksi path `screens/livevoice/` -> `screens/chat/` di `plan.md`/`architecture.md`/`tasks.md`, plus T037/T040/T089).
 
 **Batas yang harus dibaca sebelum mengutip angka 65**: 56 centang baru hanya membuktikan **kode ada di HEAD** (`git grep … HEAD -- <file>`) dan menyebut commit yang memperkenalkannya. **Tidak ada tes yang dijalankan** di rekonsiliasi ini. Karena itu dua penanda dibedakan di kepala `tasks.md`: `Landed … gate passed` (gate dijalankan) vs `In the tree … not gated in AQ-001` (hanya keberadaan). Gate tetap tanda tangan QA.
 
