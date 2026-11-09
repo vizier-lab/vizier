@@ -169,6 +169,18 @@ export class LiveVoiceClient {
             case 'state': {
                 // A stale generation is a segment of a reply that was already interrupted.
                 if (frame.generation && frame.generation < this.generation) return
+                // `speaking` describes a reply that is being played. The generation we silenced is
+                // not playing any more, so a `speaking` frame from it — still in the queue when the
+                // person cut in — would put the word back with nothing behind it. The other words
+                // from that same generation are the server's answer to the cut (`interrupted`,
+                // `listening`) and are wanted, so only `speaking` is refused.
+                if (
+                    frame.state === 'speaking' &&
+                    this.mutedGeneration >= 0 &&
+                    frame.generation <= this.mutedGeneration
+                ) {
+                    return
+                }
                 const arrived = frame.generation || this.generation
                 // A newer generation is a new reply: the silence that covered the old one no
                 // longer applies to it.

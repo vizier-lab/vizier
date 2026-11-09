@@ -568,3 +568,40 @@ describe('T045 — a silenced reply cannot come back to life', () => {
         expect(h.player.playing, 'a reconnected session still speaks').toBe(true)
     })
 })
+
+describe('T045 — the word follows the audio', () => {
+    it('refuses a stale speaking word after the cut, and keeps the answer to it', async () => {
+        const h = ordered()
+        await h.client.start()
+        h.client.onFrame(audible) // generation 1 audible
+        h.voice(400)
+        h.chunk()
+        h.silence(900)
+        // The cut happened: audio stopped and the session is listening again.
+        expect(h.player.stopped).toBeGreaterThan(0)
+        expect(h.client.currentState).toBe('listening')
+
+        // A `speaking` frame of the generation we silenced is still in the queue. Taking it would
+        // say the agent is talking with no audio behind it.
+        h.client.onFrame({ live_voice: { type: 'state', state: 'speaking', generation: 1 } })
+        expect(h.client.currentState, 'a cut reply does not claim to be speaking').toBe('listening')
+
+        // The same generation's real answer — the interruption — is wanted.
+        h.client.onFrame({ live_voice: { type: 'state', state: 'interrupted', generation: 1 } })
+        expect(h.client.currentState).toBe('interrupted')
+    })
+
+    it('accepts speaking again once a newer generation arrives', async () => {
+        const h = ordered()
+        await h.client.start()
+        h.client.onFrame(audible)
+        h.voice(400)
+        h.chunk()
+        h.silence(900)
+        h.client.onFrame({ live_voice: { type: 'state', state: 'listening', generation: 2 } })
+        h.client.onFrame({ live_voice: { type: 'state', state: 'speaking', generation: 2 } })
+        expect(h.client.currentState, 'the next reply is allowed to say it is speaking').toBe(
+            'speaking'
+        )
+    })
+})
