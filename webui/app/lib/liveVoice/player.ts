@@ -6,9 +6,20 @@
  * SC-002 the client owns, and it is why the audio stops before the server is told anything.
  */
 
+/** When a queued segment will be heard, from the moment it was handed over (T076, SC-001). */
+export interface Queued {
+    /**
+     * Milliseconds from this call until the first sample reaches the speaker: the wait for its
+     * turn on the context clock plus the context's own output latency. It is a *forecast* the
+     * context gives us — `baseLatency` and `outputLatency` — not a stopwatch reading, because the
+     * page cannot observe the speaker itself.
+     */
+    audibleInMs: number
+}
+
 export interface Player {
-    /** Queue one segment; it plays after everything already queued. */
-    enqueue(samples: Float32Array, sampleRate: number, final: boolean): void
+    /** Queue one segment; it plays after everything already queued, and says when it starts. */
+    enqueue(samples: Float32Array, sampleRate: number, final: boolean): Queued
     /** Stop now: every queued and playing source is closed and the queue is drained. */
     stop(): void
     /** Whether anything is queued or playing. */
@@ -54,8 +65,8 @@ export class WebAudioPlayer implements Player {
         if (context.state !== 'running') await context.resume()
     }
 
-    enqueue(samples: Float32Array, sampleRate: number, _final: boolean): void {
-        if (samples.length === 0) return
+    enqueue(samples: Float32Array, sampleRate: number, _final: boolean): Queued {
+        if (samples.length === 0) return { audibleInMs: 0 }
         const context = this.liveContext()
         const buffer = context.createBuffer(1, samples.length, sampleRate)
         // Copied into a plain Float32Array: `copyToChannel` does not take a possibly-shared view.
@@ -76,6 +87,11 @@ export class WebAudioPlayer implements Player {
             if (at >= 0) this.pending.splice(at, 1)
             if (this.pending.length === 0) this.nextStart = 0
         }
+        // The wait for this segment's turn on the context clock, plus what the context says its
+        // own output costs. Both latency figures are absent in some browsers; absent means
+        // unknown, and zero is the honest floor rather than a guess.
+        const latency = (context.baseLatency ?? 0) + (context.outputLatency ?? 0)
+        return { audibleInMs: Math.max(0, (startAt - now) * 1000 + latency * 1000) }
     }
 
     stop(): void {
@@ -103,9 +119,13 @@ export class SilentPlayer implements Player {
     closed = 0
     playing = false
 
-    enqueue(): void {
+    /** What a fake player reports as the wait before sound: a test sets it to check the sum. */
+    audibleMs = 0
+
+    enqueue(): Queued {
         this.queued += 1
         this.playing = true
+        return { audibleInMs: this.audibleMs }
     }
 
     stop(): void {

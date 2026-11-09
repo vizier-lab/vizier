@@ -1,8 +1,9 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { LiveVoiceClient, humanReason, type LiveVoiceDeps, type LiveVoiceView } from './session'
 import { SilentPlayer } from './player'
 import { stateWord } from '../../screens/chat/LiveVoiceBar'
 import type { SessionState } from './frames'
+import { liveVoiceReport, resetLiveVoiceMetrics, setLiveVoiceMetrics } from './metrics'
 
 /** A client wired to a fake socket and a silent player, so every transition is observable. */
 function harness(options: { captureFails?: string } = {}) {
@@ -946,5 +947,129 @@ describe('T090 — a hidden row ends the session once, and stays ended', () => {
         expect(h.client.currentState).toBe('listening')
         expect(h.last().micOpen).toBe(true)
         expect(h.microphones(), 'the old microphone was released, the new one is open').toBe(1)
+    })
+})
+
+/**
+ * T076 — the latency marks. Two timestamps taken at two different events, and the test says so by
+ * moving the clock between them: a single number read twice would produce 0, and a mark taken at
+ * the wrong event would produce 300 without the player's share.
+ */
+describe('T076 — the latency marks are two events', () => {
+    beforeEach(() => {
+        resetLiveVoiceMetrics()
+        setLiveVoiceMetrics(true)
+    })
+
+    afterEach(() => {
+        setLiveVoiceMetrics(false)
+        resetLiveVoiceMetrics()
+        vi.restoreAllMocks()
+    })
+
+    /** The reply's first segment, as the socket delivers it. */
+    const segment = (generation = 1, seq = 0) => ({
+        live_voice: {
+            type: 'speech' as const,
+            generation,
+            seq,
+            sample_rate: 16000,
+            format: 'pcm16' as const,
+            base64: 'AAECAw==',
+            final: false,
+        },
+    })
+
+    it('counts from the utterance closing to the first audible sample, not to the frame', async () => {
+        vi.spyOn(console, 'info').mockImplementation(() => {})
+        const h = driven()
+        await h.client.start()
+        h.player.audibleMs = 200
+
+        // The 800 ms hangover fires at clock 1000: that is the zero.
+        h.speak(200)
+        h.stopSpeaking()
+        // The reply's first segment arrives 300 ms later and will be heard 200 ms after that.
+        h.advance(300)
+        h.client.onFrame(segment())
+
+        const report = liveVoiceReport()
+        expect(report.n).toBe(1)
+        expect(report.firstAudible.p50).toBe(500)
+        // Not 0 (one event read twice) and not 300 (the frame's arrival, the player's share lost).
+        expect(report.firstAudible.p50).not.toBe(0)
+        expect(report.firstAudible.p50).not.toBe(300)
+    })
+
+    it('one turn, one sample: the reply\'s second segment does not overwrite it', async () => {
+        vi.spyOn(console, 'info').mockImplementation(() => {})
+        const h = driven()
+        await h.client.start()
+        h.player.audibleMs = 200
+        h.speak(200)
+        h.stopSpeaking()
+        h.advance(300)
+        h.client.onFrame(segment(1, 0))
+        expect(liveVoiceReport().firstAudible.p50).toBe(500)
+
+        // A later segment of the same reply would measure 900 + 200 = 1100 if it were allowed.
+        h.advance(600)
+        h.client.onFrame(segment(1, 1))
+        expect(liveVoiceReport().n, 'still one turn').toBe(1)
+        expect(liveVoiceReport().firstAudible.p50).toBe(500)
+    })
+
+    it('the two numbers in a sample come from two different measurements', async () => {
+        vi.spyOn(console, 'info').mockImplementation(() => {})
+        const h = driven()
+        await h.client.start()
+        h.player.audibleMs = 200
+        // Stopping the audio costs 40 ms: the silence mark must see that, and the audible mark
+        // must not be the same number.
+        const stop = h.player.stop.bind(h.player)
+        h.player.stop = () => {
+            h.advance(40)
+            stop()
+        }
+        h.speak(200)
+        h.stopSpeaking()
+        h.advance(300)
+        h.client.onFrame(segment())
+
+        const report = liveVoiceReport()
+        expect(report.silence.p50, 'measured around stopAudio').toBe(40)
+        expect(report.firstAudible.p50, 'measured to the first audible sample').toBe(540)
+        expect(report.firstAudible.p50).not.toBe(report.silence.p50)
+    })
+
+    it('with the recorder off, a whole turn keeps no sample and logs nothing', async () => {
+        const spy = vi.spyOn(console, 'info').mockImplementation(() => {})
+        setLiveVoiceMetrics(false)
+        const h = driven()
+        await h.client.start()
+        h.player.audibleMs = 200
+        h.speak(200)
+        h.stopSpeaking()
+        h.advance(300)
+        h.client.onFrame(segment())
+
+        expect(liveVoiceReport().n).toBe(0)
+        expect(spy).not.toHaveBeenCalled()
+    })
+
+    it('a turn cut off by the session ending spends no mark on the next session', async () => {
+        vi.spyOn(console, 'info').mockImplementation(() => {})
+        const h = driven()
+        await h.client.start()
+        h.player.audibleMs = 200
+        h.speak(200)
+        h.stopSpeaking()
+        // The row goes before the reply arrives: that turn is never measured.
+        h.client.stop('left_conversation')
+
+        await h.client.start()
+        h.advance(5000)
+        h.client.onFrame(segment(2, 0))
+        expect(liveVoiceReport().n, 'the stale mark was dropped with the session').toBe(0)
     })
 })

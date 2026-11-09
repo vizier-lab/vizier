@@ -21,6 +21,7 @@ import {
 } from './frames'
 import { EnergyVad } from './vad'
 import type { Player } from './player'
+import { liveVoiceMetricsEnabled, recordTurn } from './metrics'
 
 /** What the UI renders. */
 export interface LiveVoiceView {
@@ -131,6 +132,12 @@ export class LiveVoiceClient {
     private droppedAt: number | null = null
     /** The timer that ends a session whose socket never came back. */
     private reconnectTimer: ReturnType<typeof setTimeout> | null = null
+    /**
+     * The turn waiting for its first audible sample (T076). Set when the utterance closes and
+     * cleared by the first segment that follows it, so a reply's second segment cannot overwrite
+     * the sample its first one produced.
+     */
+    private pendingMetric: { endOfUtterance: number; silenceMs: number } | null = null
 
     constructor(private readonly deps: LiveVoiceDeps) {}
 
@@ -244,7 +251,12 @@ export class LiveVoiceClient {
                 if (frame.generation < this.generation) return
                 this.generation = frame.generation
                 this.replyAudible = true
-                this.deps.player.enqueue(decodePcm16Base64(frame.base64), frame.sample_rate, frame.final)
+                const queued = this.deps.player.enqueue(
+                    decodePcm16Base64(frame.base64),
+                    frame.sample_rate,
+                    frame.final
+                )
+                this.markFirstAudible(queued.audibleInMs)
                 if (this.state !== 'speaking') this.move('speaking')
                 if (frame.final) {
                     // The last segment only *starts* here; the player finishes it, and the session
@@ -354,7 +366,15 @@ export class LiveVoiceClient {
             // the audio stops locally *before* the frame leaves, so the person hears silence
             // immediately rather than after a round trip (FR-019, SC-002). The server then
             // cancels the turn and answers with the state word.
+            //
+            // Both latency marks start here, and only here (T076): the utterance closing is the
+            // event SC-001 and SC-002 time from, not the server's answer arriving. When the
+            // recorder is off this is one boolean read and no allocation.
+            const marking = liveVoiceMetricsEnabled()
+            const endOfUtterance = marking ? this.now() : 0
+            const stopping = this.now()
             this.stopAudio()
+            if (marking) this.pendingMetric = { endOfUtterance, silenceMs: this.now() - stopping }
             if (this.utteranceId) this.deps.send(utteranceEndFrame(`u-${this.utteranceId}`))
             // The same tick: the person hears silence now, not after the server answers.
             if (this.state === 'speaking' || this.state === 'waiting') this.move('listening')
@@ -362,6 +382,23 @@ export class LiveVoiceClient {
             this.seq = 0
             this.vad.resetUtterance()
         }
+    }
+
+    /**
+     * The reply's first audible sample closes the turn's latency sample (T076, SC-001).
+     *
+     * The player says how long until this segment is heard; the wait since the utterance closed
+     * comes from this client's clock. Adding them is the whole measurement — and the mark is
+     * consumed, not read, so the reply's remaining segments cannot each overwrite it.
+     */
+    private markFirstAudible(audibleInMs: number): void {
+        const pending = this.pendingMetric
+        if (!pending) return
+        this.pendingMetric = null
+        recordTurn({
+            firstAudibleMs: this.now() - pending.endOfUtterance + audibleInMs,
+            silenceMs: pending.silenceMs,
+        })
     }
 
     /**
@@ -379,6 +416,9 @@ export class LiveVoiceClient {
     private release(): void {
         if (this.released) return
         this.released = true
+        // No reply is coming for the turn that was in flight: its mark would otherwise be spent on
+        // the first segment of the next session.
+        this.pendingMetric = null
         this.clearReconnectDeadline()
         this.capture?.stop()
         this.capture = null
