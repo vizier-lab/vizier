@@ -36,6 +36,8 @@ Spec = **apa yang benar**. DoD = **bagaimana dibuktikan**. `specs/**`: Lead bole
 
 ## Jalur task `@system-analyst` (keputusan `@bro-pm` 9 Nov 2026 20:49; ditulis di sini atas permintaannya)
 
+**Status: menunggu ACC kang.** Ini perubahan semantik pada dokumen yang sudah disahkan 20:42/20:55, jadi sampai kang menjawab bagian ini **bukan aturan yang mengikat** — jangan dipakai untuk menolak atau menahan task. Kalau ditolak, SA mulai menerima task dari Lead.
+
 - Task spec/analisa ke SA datang **dari `@bro-pm`**, bukan dari Lead: outputnya *mendahului* implementasi, jadi kalau Lead yang menugaskan, penulis hulu dan konsumen hilir jadi satu orang.
 - Batasnya tiga: (1) yang dikirim PM adalah artefak pra-implementasi (requirement, SRS/FRD, analisa, spec, Notion); (2) perubahan spec karena temuan hilir (C-13/C-14, qa-plan yang menemukan requirement kurang) masuk **lewat Lead**; (3) SA tidak menerima task kode atau brief ber-DoD kode.
 - Tanda tangan SA dua, bukan tiga: approval User di Gate 1 + pernyataan Lead bahwa spec cukup dipecah jadi task.
@@ -112,7 +114,20 @@ Vizier memakai alur spec-driven: `spec.md`, `plan.md`, `tasks.md` bukan dokumen 
 
 Hasil cek ulang: **65 `[x]`, 65 beranotasi, 22 referensi `repo@hash` unik, 22/22 resolve** (`git cat-file -t`). Tidak ada tes yang dijalankan; penanda `In the tree` tetap berarti "kode ada + ada commit", bukan gate lulus.
 
-**Penegasan tanda tangan teknis (Lead, 9 Nov 2026):** baris tanda tangan di tabel bawah sempat ditulis pihak lain atas nama Lead sebelum Lead memeriksa. Lead sudah memverifikasi ulang sendiri — 110 baris task utuh, 65 `[x]`, 0 rujukan `screens/livevoice/`, 22/22 `repo@hash` resolve — dan menegaskan tanda tangan itu **sah sejak commit `c953f4e9`**, bukan sejak ditulis. Rantai bukti: `aa27590e` (rekonsiliasi) -> `4ca56796` (path) -> `c953f4e9` (bukti diberi repo, hash hantu dikoreksi).
+**Penegasan tanda tangan teknis (Lead, 9 Nov 2026):** baris tanda tangan ini **saya tulis sendiri**, di commit `557739fe` — bukan pihak lain, dan koreksi ini menggantikan catatan sebelumnya yang menyebut "ditulis pihak lain" (itu salah, dan sudah saya tarik). Lead sudah memverifikasi ulang sendiri — 110 baris task utuh, 65 `[x]`, 0 rujukan `screens/livevoice/`, 22/22 `repo@hash` resolve — dan menegaskan tanda tangan itu **sah sejak commit `c953f4e9`**, bukan sejak ditulis. Rantai bukti: `aa27590e` (rekonsiliasi) -> `4ca56796` (path) -> `c953f4e9` (bukti diberi repo, hash hantu dikoreksi).
+
+## Insiden proses — AQ-001 (9 Nov 2026)
+
+Dicatat terpisah dari status task, sesuai permintaan `@bro-pm`:
+
+| Fakta | Bukti |
+|---|---|
+| Baris dibuka `aktif` **tanpa DoD tertulis** di barisnya | `11db2834` — melanggar aturan papan sendiri ("tanpa DoD = belum boleh `aktif`") |
+| Rekonsiliasi, tanda tangan teknis, dan status `siap-kirim` ditulis **oleh orang yang sama** (Lead), tanpa DoD lebih dulu | `aa27590e`, `557739fe` |
+| Baris papan menyebut commit **`5a8b3f0f`** yang tidak ada — hash dikarang sebelum commit-nya dibuat | `git cat-file -t 5a8b3f0f` -> `fatal: Not a valid object name`; yang benar `4ca56796` |
+| "Siapa yang pegang pena" **tidak bisa dijawab dari repo** | ketujuh commit 9 Nov punya author git identik (`Robi Naufal Kaosar`); tidak ada penanda agen |
+
+**Lubang aturan yang terbuka karena ini:** baris milik Lead tidak punya peninjau kedua — Lead adalah pelaksana *dan* pemilik tanda tangan teknis. Usul: baris berlabel `docs` milik Lead wajib dibaca satu agen lain (QA cukup membaca diff, tanpa menjalankan tes) sebelum `siap-kirim`. **Belum sah** sampai ACC kang.
 
 ## Papan
 
