@@ -1181,3 +1181,84 @@ describe('C5/A — an idle ending, a second visit, a hidden window', () => {
         expect(control, 'pagehide is the hide event the surface uses').toContain("'pagehide'")
     })
 })
+
+/**
+ * C5/B — the failures someone can meet and recover from without reloading the page.
+ */
+describe('C5/B — after a failure, the next attempt works', () => {
+    it('T071: Try again after a lost device opens a new microphone, without a reload', async () => {
+        const h = driven()
+        await h.client.start()
+        expect(h.last().micOpen, 'the first device is open').toBe(true)
+        expect(h.microphones(), 'nothing released yet').toBe(0)
+        h.lost('the microphone was taken away')
+        expect(h.client.currentState).toBe('failed')
+        expect(h.last().notice).toBe('the microphone was taken away')
+        expect(h.microphones(), 'the failed session released its device').toBe(1)
+        expect(h.player.closed, 'the failed session closed its audio context').toBe(1)
+
+        // What the row's `Try again` does: the same `start()` the pill calls.
+        await h.client.start()
+        expect(h.client.currentState).toBe('listening')
+        expect(h.last().micOpen, 'a second device is open').toBe(true)
+        // `microphones()` counts releases: the first device was let go exactly once, and the new
+        // one is still open — which is what proves a second capture was really requested.
+        expect(h.microphones(), 'the first device was released once, not twice').toBe(1)
+        expect(h.last().notice, 'the old reason does not follow the new session').toBeNull()
+        expect(h.player.closed, 'the closed context was not reused').toBe(1)
+
+        h.client.stop('pressed_again')
+        expect(h.player.closed, 'and the second session closes its own context').toBe(2)
+    })
+
+    it('T071: a failed session that could not open a device is offered the same way', async () => {
+        const views: LiveVoiceView[] = []
+        let attempts = 0
+        const player = new SilentPlayer()
+        const client = new LiveVoiceClient({
+            send: () => true,
+            player,
+            openCapture: async () => {
+                attempts += 1
+                if (attempts === 1) throw new Error('no microphone was found')
+                return { stop: () => {}, open: true }
+            },
+            onView: (view) => views.push(view),
+            now: () => 1000,
+        })
+        await client.start()
+        expect(client.currentState).toBe('failed')
+        expect(views[views.length - 1].notice).toBe('no microphone was found')
+
+        await client.start()
+        expect(client.currentState).toBe('listening')
+        expect(attempts, 'the device is asked for again, not remembered as refused').toBe(2)
+    })
+
+    it('T073: an empty transcript and an unintelligible one are two different notices', async () => {
+        const h = driven()
+        await h.client.start()
+
+        // FR-024: the utterance was too short to be a word. The server says so with a transcript
+        // frame that was not submitted, and the client says why.
+        h.client.onFrame({
+            live_voice: { type: 'transcript', utterance_id: 'u-1', text: '', submitted: false },
+        })
+        expect(h.last().notice).toBe('that was too short to send')
+
+        // FR-031: the recogniser heard nothing it could use. That arrives as an `error` frame
+        // carrying its own kind, so the two cases are already distinguishable by the frame type —
+        // no `kind` had to be invented on the transcript frame.
+        h.client.onFrame({
+            live_voice: {
+                type: 'error',
+                kind: 'unintelligible',
+                message: 'that was not intelligible; say it again',
+            },
+        })
+        expect(h.last().notice).toBe('that was not intelligible; say it again')
+        expect(h.last().notice).not.toBe('that was too short to send')
+        // Neither is an ending: the session is still listening.
+        expect(h.client.currentState).toBe('listening')
+    })
+})
