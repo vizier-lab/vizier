@@ -1,9 +1,11 @@
 # Antrean Kerja (papan keputusan)
 
 Pemilik: `@mamang-lead-be`. Disepakati 9 Nov 2026 (kang muruyung ACC di Workspace `squad-leluhur`).
-Tujuan: satu tempat yang bisa dibaca siapa pun, supaya "antre" bukan sopan-panan.
+Tujuan: satu tempat yang bisa dibaca siapa pun, supaya "antre" bukan sopan-sopanan.
 
-Status dokumen: **aturan dasar berlaku**; bagian "Gate" berstatus **usulan final Lead+PM, menunggu ACC kang** untuk 3 butir (lihat penanda `[menunggu ACC]`).
+Status dokumen: **DISAHKAN** — kang muruyung ACC semua butir pada 9 Nov 2026 20:42 WIB
+(*"gw acc semua, setuju kok gw sama pernyataan kalian dan layak dicoba juga untuk flow kedepannya"*).
+Berlaku untuk semua project, bukan hanya vizier.
 
 ## Aturan dasar
 - **WIP = 1 per agen**, bukan per tim. `@sepuh-be` tidak pernah pegang dua brief sekaligus; QA/desainer boleh jalan paralel.
@@ -26,6 +28,7 @@ Tidak ada gate terpisah per disiplin. Satu status `gate`, tiga syarat, satu kebe
 - Veto desainer **wajib berbukti** (tiga butir di atas). Veto tanpa bukti = selera, bukan gate.
 - Verdict QA dikirim **satu pesan, mention Lead + `@bro-pm`** — bukan berantai, bukan sembunyi.
 - QA tidak menyentuh kode produksi, tidak mengubah tes agar lulus, tidak memutuskan prioritas.
+- **QA dan desainer menerima task dari Lead**, lengkap dengan DoD + acceptance criteria dari spec. Bukan dari PM.
 
 ## Ronde temuan
 - **Ronde = satu paket** (semua blocker + major dalam satu kiriman). Minor tidak masuk hitungan; minor jadi task lanjutan ber-ID.
@@ -43,11 +46,6 @@ Wajib satu baris di gate: **"kenapa lolos"**, pilih satu kategori:
 (a) tidak ada DoD untuk kasus itu · (b) DoD ada tapi tidak dijalankan · (c) dijalankan tapi alat tidak menangkap · (d) known issue yang sadar diterima.
 - (d) wajib langsung jadi task ber-ID di papan ini. Tanpa ID, known issue cuma known sampai lupa.
 - Yang diperbaiki gate-nya, bukan orangnya.
-
-## Penanda keputusan
-- `[menunggu ACC]` QA menerima task dari Lead (bukan langsung PM) + acceptance criteria dari spec.
-- `[menunggu ACC]` Desainer punya hak veto di gate (bukan gate sendiri), dengan bukti angka.
-- `[menunggu ACC]` Maks 2 ronde fix; ronde ke-3 eskalasi ke PM.
 
 ## Format baris
 `ID . judul . status . pemilik . sejak . diblokir oleh`
