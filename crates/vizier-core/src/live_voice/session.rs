@@ -46,6 +46,9 @@ pub struct LiveVoiceSession {
     stopped: AtomicBool,
     /// The recogniser and voice this session speaks through; set once at start (FR-036).
     engines: Mutex<Option<SharedEngines>>,
+    /// The audio this conversation carries, as the client declared it at start (T102). Every
+    /// incoming chunk is checked against it rather than assumed to match.
+    description: Mutex<crate::live_voice::frame::AudioDescription>,
     transport: VizierTransport,
 }
 
@@ -71,6 +74,7 @@ impl LiveVoiceSession {
             busy: AtomicBool::new(false),
             stopped: AtomicBool::new(false),
             engines: Mutex::new(None),
+            description: Mutex::new(crate::live_voice::frame::AudioDescription::default()),
             transport,
         })
     }
@@ -86,6 +90,17 @@ impl LiveVoiceSession {
 
     pub fn state(&self) -> SessionState {
         *self.state.lock()
+    }
+
+    /// The audio description this session declared, or the release's default.
+    pub fn description(&self) -> crate::live_voice::frame::AudioDescription {
+        self.description.lock().clone()
+    }
+
+    /// Record the description a start frame asked for. Called after it has been checked, so the
+    /// session never holds one the server cannot carry.
+    pub fn set_description(&self, description: crate::live_voice::frame::AudioDescription) {
+        *self.description.lock() = description;
     }
 
     pub fn generation(&self) -> u64 {

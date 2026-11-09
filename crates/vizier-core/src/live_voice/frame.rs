@@ -11,6 +11,10 @@ use serde::{Deserialize, Serialize};
 pub const SAMPLE_RATE: u32 = 16_000;
 /// The only `format` value in this release.
 pub const FORMAT: &str = "pcm16";
+/// Mono. A second channel is not a feature, it is a bug with more bytes.
+pub const CHANNELS: u8 = 1;
+/// How much audio one client chunk carries.
+pub const FRAME_MS: u32 = 100;
 /// One client audio chunk: 100 ms of PCM16 mono at 16 kHz.
 pub const CHUNK_SAMPLES: usize = (SAMPLE_RATE as usize) / 10;
 /// The bytes one chunk carries before base64.
@@ -206,10 +210,99 @@ pub fn client_key(frame: &serde_json::Value) -> Option<&'static str> {
     CLIENT_KEYS.iter().copied().find(|key| frame.get(*key).is_some())
 }
 
+/// The audio a client says it is about to send (T102, `contracts/live-voice-frames.md`).
+///
+/// The release carries one description — 16 kHz, mono, 100 ms, PCM16 — and this is how a client
+/// asks for it instead of the server assuming it. A client that says nothing gets the default,
+/// which is what keeps a client written before this field existed working.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AudioDescription {
+    pub sample_rate: u32,
+    pub channels: u8,
+    pub frame_ms: u32,
+    pub format: String,
+}
+
+impl Default for AudioDescription {
+    fn default() -> Self {
+        Self {
+            sample_rate: SAMPLE_RATE,
+            channels: CHANNELS,
+            frame_ms: FRAME_MS,
+            format: FORMAT.into(),
+        }
+    }
+}
+
+impl AudioDescription {
+    /// Whether this is the carrier the release speaks, and if not, which number is wrong.
+    ///
+    /// The message names both numbers, because "unsupported audio" leaves a client author guessing
+    /// and a pair of numbers does not.
+    pub fn check(&self) -> Result<(), String> {
+        let ours = AudioDescription::default();
+        if self.sample_rate != ours.sample_rate {
+            return Err(format!(
+                "this release carries {} Hz audio, and the start frame declared {} Hz",
+                ours.sample_rate, self.sample_rate
+            ));
+        }
+        if self.channels != ours.channels {
+            return Err(format!(
+                "this release carries {} channel(s), and the start frame declared {}",
+                ours.channels, self.channels
+            ));
+        }
+        if self.frame_ms != ours.frame_ms {
+            return Err(format!(
+                "this release carries {} ms chunks, and the start frame declared {} ms",
+                ours.frame_ms, self.frame_ms
+            ));
+        }
+        if self.format != ours.format {
+            return Err(format!(
+                "this release carries {:?}, and the start frame declared {:?}",
+                ours.format, self.format
+            ));
+        }
+        Ok(())
+    }
+
+    /// One incoming chunk must be in the description the session started with.
+    ///
+    /// Only the two fields a chunk carries are compared; `channels` and `frame_ms` were settled by
+    /// the start frame and are not repeated on every frame.
+    pub fn accepts(&self, sample_rate: u32, format: &str) -> Result<(), String> {
+        if sample_rate != self.sample_rate {
+            return Err(format!(
+                "this session carries {} Hz audio, and the frame declared {} Hz",
+                self.sample_rate, sample_rate
+            ));
+        }
+        if format != self.format {
+            return Err(format!(
+                "this session carries {:?}, and the frame declared {:?}",
+                self.format, format
+            ));
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct StartFrame {
     #[serde(default)]
     pub language: Option<String>,
+    /// Absent means the release's own description, so an older client is still valid.
+    #[serde(default)]
+    pub audio: Option<AudioDescription>,
+}
+
+impl StartFrame {
+    /// The description this start asks for, defaulted when the client named none.
+    pub fn description(&self) -> AudioDescription {
+        self.audio.clone().unwrap_or_default()
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -371,5 +464,72 @@ mod tests {
         }
         // A frame from an older client carries none of the keys.
         assert_eq!(client_key(&serde_json::json!({ "chat": "hello" })), None);
+    }
+
+    /// T102: the audio description is what the client declares, and the server checks it instead
+    /// of assuming it. These are the four rules the socket applies.
+    #[test]
+    fn the_default_description_is_the_release_carrier() {
+        let description = AudioDescription::default();
+        assert_eq!(description.sample_rate, 16_000);
+        assert_eq!(description.channels, 1);
+        assert_eq!(description.frame_ms, 100);
+        assert_eq!(description.format, "pcm16");
+        assert!(description.check().is_ok());
+    }
+
+    #[test]
+    fn a_start_without_a_description_gets_the_default() {
+        // The shape an older client sends: no `audio` key at all.
+        let start: StartFrame = serde_json::from_value(serde_json::json!({ "language": "id" })).unwrap();
+        assert_eq!(start.description(), AudioDescription::default());
+
+        // And one that names it keeps what it asked for.
+        let named: StartFrame = serde_json::from_value(serde_json::json!({
+            "audio": { "sample_rate": 44100, "channels": 1, "frame_ms": 100, "format": "pcm16" }
+        }))
+        .unwrap();
+        assert_eq!(named.description().sample_rate, 44_100);
+    }
+
+    #[test]
+    fn a_description_the_release_cannot_carry_is_refused_with_both_numbers() {
+        let wrong_rate = AudioDescription {
+            sample_rate: 44_100,
+            ..AudioDescription::default()
+        };
+        let reason = wrong_rate.check().expect_err("44.1 kHz is not this release's carrier");
+        assert!(reason.contains("16000"), "says what it expected: {reason}");
+        assert!(reason.contains("44100"), "and what it was given: {reason}");
+
+        let wrong_format = AudioDescription {
+            format: "opus".into(),
+            ..AudioDescription::default()
+        };
+        let reason = wrong_format.check().expect_err("opus is reserved, not carried");
+        assert!(reason.contains("opus"), "{reason}");
+
+        let wrong_channels = AudioDescription {
+            channels: 2,
+            ..AudioDescription::default()
+        };
+        assert!(wrong_channels.check().is_err(), "mono only");
+
+        let wrong_frame = AudioDescription {
+            frame_ms: 20,
+            ..AudioDescription::default()
+        };
+        assert!(wrong_frame.check().is_err(), "100 ms chunks only");
+    }
+
+    #[test]
+    fn a_chunk_outside_the_declared_description_is_refused() {
+        let description = AudioDescription::default();
+        assert!(description.accepts(16_000, "pcm16").is_ok());
+        let reason = description
+            .accepts(44_100, "pcm16")
+            .expect_err("a chunk from another rate is not this session's audio");
+        assert!(reason.contains("16000") && reason.contains("44100"), "{reason}");
+        assert!(description.accepts(16_000, "opus").is_err(), "and neither is another format");
     }
 }

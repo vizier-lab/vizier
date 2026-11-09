@@ -162,3 +162,74 @@ async fn a_rebind_does_not_revive_an_ended_session() {
     assert!(!Arc::ptr_eq(&fresh, &session));
     assert_eq!(fresh.generation(), 1, "a new session starts at generation 1");
 }
+
+/// T102: the audio description is asked for and enforced, not assumed.
+///
+/// **What is not here, and why.** The four cases the ticket asks for end in the socket — a start
+/// with a bad description leaves `LiveVoiceSessions::len() == 0`, and a bad audio frame mid-session
+/// leaves the session `listening`. Both need `TopicConnection`, which is built only through
+/// `TopicConnection::open`, which needs an `HTTPState` and a topic that passes `authorize_topic`.
+/// That harness does not exist yet; `live_voice_frames.rs` carries the same `TODO(C5)` for the same
+/// reason. So what follows asserts the two facts the socket's arm is made of — the rule, and the
+/// session's own state — and the ordering (checked before the registry is touched) is enforced in
+/// `topic.rs` by running the check as the arm's first statement, not by a test.
+mod the_audio_description {
+    use super::*;
+    use vizier_core::live_voice::frame::{AudioDescription, StartFrame};
+
+    fn start(json: serde_json::Value) -> StartFrame {
+        serde_json::from_value(json).expect("a start frame")
+    }
+
+    #[test]
+    fn a_start_in_the_release_carrier_is_accepted() {
+        let description = start(serde_json::json!({
+            "audio": { "sample_rate": 16000, "channels": 1, "frame_ms": 100, "format": "pcm16" }
+        }))
+        .description();
+        assert!(description.check().is_ok(), "16 kHz mono pcm16 is what we carry");
+    }
+
+    #[test]
+    fn a_start_without_a_description_is_accepted_with_the_default() {
+        let description = start(serde_json::json!({ "language": "id" })).description();
+        assert_eq!(description, AudioDescription::default());
+        assert!(description.check().is_ok());
+    }
+
+    #[test]
+    fn a_start_at_the_wrong_rate_is_refused_and_names_both_numbers() {
+        let description = start(serde_json::json!({
+            "audio": { "sample_rate": 44100, "channels": 1, "frame_ms": 100, "format": "pcm16" }
+        }))
+        .description();
+        let reason = description.check().expect_err("44.1 kHz is not carried");
+        assert!(reason.contains("16000"), "expected: {reason}");
+        assert!(reason.contains("44100"), "received: {reason}");
+        // The refusal is what `topic.rs` sends and then returns from, before `sessions.start`:
+        // nothing was registered, so a fresh registry is still empty.
+        let registry = LiveVoiceSessions::default();
+        assert_eq!(registry.len(), 0, "a refused start leaves no session behind");
+    }
+
+    #[test]
+    fn a_chunk_from_another_rate_is_refused_while_the_session_keeps_listening() {
+        let transport = VizierTransport::new();
+        let (lane, _rx) = make_lane();
+        let session = make_session(&transport, lane);
+        session.set_description(AudioDescription::default());
+        session.set_state(SessionState::Listening);
+
+        assert!(session.description().accepts(16_000, "pcm16").is_ok());
+        let reason = session
+            .description()
+            .accepts(44_100, "pcm16")
+            .expect_err("a 44.1 kHz chunk is not this session's audio");
+        assert!(reason.contains("16000") && reason.contains("44100"), "{reason}");
+
+        // One bad frame is not a reason to take the microphone away: `topic.rs` returns after the
+        // error and touches nothing else, so the state is unchanged.
+        assert_eq!(session.state(), SessionState::Listening);
+        assert!(!session.is_stopped());
+    }
+}

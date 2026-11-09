@@ -231,7 +231,24 @@ impl TopicConnection {
         };
 
         match action {
-            ClientAction::Start(_) => {
+            ClientAction::Start(start) => {
+                // T102: the audio description is asked for, not assumed. This runs before the
+                // registry is read or written and before any state changes, so a client asking for
+                // a carrier this release does not speak leaves nothing behind — no session, no
+                // half-open microphone, no state word.
+                //
+                // The kind is `ProviderFailed` for consistency with the other refusals in this
+                // file, all of which are contract violations. It is a poor name for this one; a
+                // dedicated `unsupported_audio` variant is the honest fix and is not added here
+                // without the Lead's word.
+                let description = start.description();
+                if let Err(reason) = description.check() {
+                    self.send_live_voice(LiveVoiceControl::Error {
+                        kind: EndReason::ProviderFailed,
+                        message: reason,
+                    });
+                    return;
+                }
                 if let Some(existing) = sessions.get(&self.session) {
                     if owned(&existing) && !existing.is_stopped() {
                         // Idempotent: the same person pressing start on a reconnected socket
@@ -298,6 +315,7 @@ impl TopicConnection {
                     })
                     .unwrap_or_else(|existing| existing);
                 session.set_engines(engines);
+                session.set_description(description);
                 session.set_state(SessionState::Listening);
             }
             ClientAction::Audio(audio) => {
@@ -307,6 +325,17 @@ impl TopicConnection {
                 // T015: a little over one chunk (~6.3 KB of base64) is the most a frame may carry.
                 // Anything larger is refused outright rather than buffered, so a client cannot make
                 // the server hold an unbounded utterance one frame at a time.
+                // T102: a chunk that is not in the description the session declared is refused
+                // rather than decoded as if it were. One bad frame is not a reason to take the
+                // microphone away, so the session stays exactly as it was — listening.
+                if let Err(reason) = session.description().accepts(audio.sample_rate, &audio.format)
+                {
+                    self.send_live_voice(LiveVoiceControl::Error {
+                        kind: EndReason::ProviderFailed,
+                        message: reason,
+                    });
+                    return;
+                }
                 if audio.base64.len() > vizier_core::live_voice::MAX_AUDIO_FRAME_BASE64 {
                     self.send_live_voice(LiveVoiceControl::Error {
                         kind: EndReason::ProviderFailed,
