@@ -7,9 +7,10 @@ All frames travel on the socket the conversation already uses
 text. No new endpoint, no new authentication, no binary frames (they are dropped today,
 `channel.rs:818`).
 
-**Provisional in one respect only — the carrier.** The sound's carrier is one of two values, and it is
-the only thing Q11 can change: **`ws-json-pcm16`** (today: base64 PCM16 on this socket) or
-**`media-track`** (a peer connection, if Q11 picks it). Every *frame* below other than the audio ones is
+**The carrier is decided: `ws-json-pcm16`** — base64 PCM16, 100 ms chunks, on this socket (Q11, closed
+by the User 2026-11-09 16:35). **`media-track` stays in this contract as the reserved value only**: a
+client MUST NOT send it, and a server MUST refuse it if it does, because none of the setup, decoding or
+relaying for it exists. Every *frame* below other than the audio ones is
 unaffected by that choice, and the transport-agnostic obligations a third party owes us are collected in
 two sections at the end. **Two rules hold under either carrier and are not provisional:** an audio
 description this document publishes **MUST** be accepted, and audio in a description it does not publish
@@ -42,7 +43,7 @@ them, because the capability reads false.
 Refused with `live_voice_error` when the agent has no usable recogniser or voice (FR-004), or when
 another person holds the session (FR-005). Idempotent while the caller's own session is live.
 
-### `live_voice_audio` — **PROVISIONAL, pending Q11 (C13, 2026-11-09)**
+### `live_voice_audio` — **the shipped carrier (Q11, closed 2026-11-09 16:35)**
 
 > The spec now requires the sound to travel on a path of its own (FR-054) and leaves **which transport**
 > to Q11. This frame is the socket transport: it is the one already implemented and tested, so it stays
@@ -60,10 +61,9 @@ one utterance past `max_utterance_seconds`, closes it, and says so once.
 one session.** Two sources for one utterance have no correct ordering, and `utterance_id` cannot tell
 them apart. That refusal is part of every candidate, not of one.
 
-The transport-agnostic side of the audio path — the lifecycle, the audio description, the
-authentication rule and the closed surfaces — is one section, because it survives any transport:
-see **§ The audio path, transport-agnostic (PROVISIONAL)** below. The setup messages themselves are
-the one thing still awaiting Q11, and they live there too, in its carrier column.
+The side of this contract a stranger implements — the lifecycle, the audio description, the key and
+the closed surfaces — is collected in **one** section near the end (§ The public audio contract: what a
+third-party client implements), because it is the part that must make sense without reading the rest.
 
 ### `live_voice_utterance_end`
 
@@ -139,7 +139,12 @@ an indicator in the row — never as the same thing as `reconnecting`. `reason` 
 `ended` / `failed` / `reconnecting`; it is one of
 `pressed_again | left_conversation | page_closed | permission_withdrawn | conversation_deleted |
 agent_changed | idle | connection_lost | server_restart | no_device | no_recognizer | no_voice |
-provider_failed | unintelligible | moved`.
+provider_failed | unintelligible | moved | key_revoked | key_expired`.
+
+**`key_revoked` and `key_expired` are new (C15, 2026-11-09 16:35).** A third-party client reaches this
+feature with a scoped API key (FR-061), and that key can be taken away while a call is running:
+revocation or expiry ends the session through the ordinary release path, with the reason the client
+shows, rather than being noticed at the next connection (FR-063).
 
 **`moved` is new (spec C10, 2026-11-09).** There is exactly one live session per person, so a
 `live_voice_start` that arrives for a *different* conversation or agent is not a second session: the
@@ -173,7 +178,12 @@ state to `listening` (FR-015).
 { "live_voice": { "type": "error", "kind": "provider_failed", "message": "the voice provider refused the segment" } }
 ```
 
-`kind` mirrors the `reason` list above. The session's own state is not changed by this frame alone —
+`kind` mirrors the `reason` list above, plus **one kind that is not a session reason: `forbidden`**
+(FR-064). A refusal that happens **before a session exists** — a missing, revoked, expired or
+under-scoped API key, or a second call for the same owner (FR-005) — has no session to end, so it
+cannot carry a `reason`; it is one `live_voice_error` with `kind: "forbidden"` and nothing else. A
+refusal MUST NOT disclose whether the conversation, the agent or a live session exists. When a session
+does exist, the frame's usual rule holds: the session's own state is not changed by this frame alone —
 a `live_voice_state` always follows, so the client has one source of truth (FR-032, SC-009).
 
 ### `live_voice` `stall`
@@ -191,7 +201,7 @@ channel that tells them the session is live.
 
 ## Delivery path (not the session-event broadcast)
 
-> **PROVISIONAL for audio, pending Q11 (C13, 2026-11-09).** What follows describes how **audio**
+> **Settled: the socket carries the sound (Q11).** What follows describes how **audio**
 > frames travel when the transport is the topic socket: a per-connection lane, a bounded queue and a
 > `stall` frame. It is the implemented candidate and the leading fallback, not a decision — if Q11
 > lands on a media transport, the sound leaves this path and only the control frames keep the
@@ -252,10 +262,10 @@ Rules:
 
 | Limit | Value | Where |
 |---|---|---|
-| Audio chunk (socket path, provisional) | 100 ms, 3.2 KB raw / ~4.3 KB base64 | the implemented candidate, kept while Q11 is open |
+| Audio chunk | 100 ms, 3.2 KB raw / ~4.3 KB base64 | this contract, `ws-json-pcm16` |
 | One utterance | 60 s (default) | FR-010 |
 | One frame | far below the 1 MiB bus envelope (`envelope.rs:11`) | measured at 4.3 KB |
-| Backlog to one socket (socket path, provisional) | 16 audio frames (~1.6 s), then audio frames are dropped and one stall is reported | the implemented candidate, kept while Q11 is open; a media transport would replace this bound with its own |
+| Backlog to one socket | 16 audio frames (~1.6 s), then audio frames are dropped and one stall is reported | this contract, Delivery path |
 | Sessions in total, per person | **1**, across every conversation and agent (a start elsewhere moves it, reason `moved`) | FR-005, FR-050, C10 |
 | Sessions per agent | unbounded in this release; the deployment's socket limits apply | open question Q4 |
 
@@ -270,26 +280,25 @@ session is live", so FR-018's "answered **and** spoken" had no path.~~ **Superse
 User's decision:** a typed message is text only, FR-018 is withdrawn, and the frame is removed with it.
 Kept as history so nobody re-adds it from an old branch.
 
-## The audio path, transport-agnostic (PROVISIONAL — pending Q11)
+## The public audio contract: what a third-party client implements
 
-This section is written **for a client we have never seen** (FR-058) and it holds whichever transport
-Q11 chooses. It is deliberately the only place where a third party's obligations are stated together,
-because the parts of this feature that a stranger must implement are: a lifecycle, an audio
-description, an authentication rule, and a list of surfaces that are ours. Everything else is our
-implementation.
+This section is written **for a client we have never seen** (FR-058) and it is deliberately the only
+place where a third party's obligations are stated together, because the parts of this feature that a
+stranger must implement are: a key, a lifecycle, an audio description, and a list of surfaces that are
+ours. Everything else is our implementation.
 
-**Provisional does not mean vague.** The lifecycle, the description and the authentication are fixed
-now and will not change with the transport. Only **one column** below — the carrier, `ws-json-pcm16`
-or `media-track` — moves if the sound leaves the socket. A client that implements this section against
-today's carrier keeps working
-against tomorrow's if the frames' *meaning* is unchanged, and that is exactly what the column marks.
+**The lifecycle, the description and the key are settled** — Q11 closed on the socket, so what a client
+builds against is what ships, not a shape to be confirmed later. The carrier column reads
+`ws-json-pcm16` everywhere, because that is the decision (Q11); `media-track` survives in this contract
+as a reserved value so that a future change is a value change rather than a rewrite — and a server must
+refuse it rather than half-honour it.
 
 ### The lifecycle, as a client sees it
 
 | Step | Client sends | Server answers | Carrier |
 |---|---|---|---|
 | begin | `live_voice_start` — conversation, agent, and the audio description it will send | `state: connecting`, then `listening`; or `error` with a reason | socket |
-| send sound | audio in the description it declared | nothing per frame (the socket's order is enough) | **carrier** — `ws-json-pcm16` today (`live_voice_audio`, 100 ms chunks), or `media-track` with `opus` and a peer connection if Q11 picks it |
+| send sound | audio in the description it declared | nothing per frame (the socket's order is enough) | `ws-json-pcm16` — `live_voice_audio`, 100 ms chunks. `media-track` is reserved and refused |
 | close an utterance | `live_voice_utterance_end` — `utterance_id` | `live_voice_transcript`, or an error (`too_short`, `unintelligible`) | socket |
 | receive the reply | — | the reply **text** in the conversation, and audio per segment | text: socket, always; sound: the same carrier the client sends on — one carrier per session, never mixed |
 | interrupt by speaking | **nothing extra** — the end of an utterance while a reply is audible | `state: interrupted`, a new `generation`, the rest of the reply discarded | socket |
@@ -299,7 +308,7 @@ against tomorrow's if the frames' *meaning* is unchanged, and that is exactly wh
 **The reason vocabulary is part of the contract**, because a third-party client has to show something
 truthful: `pressed_again | left_conversation | page_closed | permission_withdrawn |
 conversation_deleted | agent_changed | idle | connection_lost | server_restart | no_device |
-no_recognizer | no_voice | provider_failed | unintelligible | moved`. These strings are stable; a
+no_recognizer | no_voice | provider_failed | unintelligible | moved | key_revoked | key_expired`. These strings are stable; a
 client MUST NOT receive a reason it has no word for.
 
 ### The audio description (FR-057)
@@ -309,8 +318,8 @@ accept, with a reason from the list above — it never silently downgrades or co
 
 | Field | Today | Reserved |
 |---|---|---|
-| `format` | `pcm16` | `opus` |
-| `encoding` | `base64` inside JSON | `media-track` |
+| `format` | `pcm16` | `opus` — **reserved, refused today** |
+| `encoding` | `base64` inside JSON | `media-track` — **reserved, refused today** |
 | `sample_rate` | `16000` | by negotiation |
 | `channels` | `1` | `1` (a second channel is not a feature, it is a bug with more bytes) |
 | `frame_ms` | `100` | by negotiation |
@@ -320,11 +329,38 @@ description MUST be accepted, whichever browser or library produced it (FR-057).
 send audio in a description it did not declare: that is refused, not guessed at, because the server
 cannot tell an undeclared format from a corrupt stream.
 
-### Authentication
+### Authentication — two ways in, one authorisation outcome
 
-The conversation's own credential, and nothing else. No second token, no anonymous audio endpoint, no
-long-lived media key (FR-054). A media transport's setup messages are refused on an unauthenticated
-socket exactly as `live_voice_start` is, so the audio path cannot become a way in.
+| Client | How it gets in | What it may do |
+|---|---|---|
+| **this WebUI** | the person's own session, as every other screen does | live voice in the conversations that person can already open — no wider than the UI already is |
+| **any other client** | an **API key scoped to live voice** (FR-061) | start, speak, hear, interrupt, end and move a live session for the person the key belongs to — **and nothing else** |
+
+**The scope is the security boundary, not a detail of the key.** A key issued for live voice MUST be
+refused by every route outside live voice: another conversation, another agent's history, settings,
+memory, files, jobs, provider credentials. It MUST NOT inherit the owner's role or permissions — a key
+that resolves to whatever the person can do is a password, and handing one to an outside system is how a
+partnership becomes an incident. FR-062; measured by SC-013 against an explicit list of routes.
+
+**The lifecycle a client may meet** (FR-063):
+
+| Event | What the server does | What the client sees |
+|---|---|---|
+| key expired | the next request is refused; a **live** session ends | `ended` with reason `key_expired` |
+| key revoked | as above, within 1 s of the revocation | `ended` with reason `key_revoked` |
+| key rotated (new key, old one retired) | the old key stops working; a session opened with it ends | reason `key_revoked` on the old session |
+| key scoped without live voice | refused before any state exists | `error` with `kind: "forbidden"` |
+
+**Refused before anything is created** (FR-064). A missing, revoked, expired or under-scoped key is
+answered before a session, an utterance or a turn exists — and the refusal MUST NOT disclose whether the
+conversation, the agent or a live session exists, because a caller who may not use the feature may not
+enumerate with it either.
+
+**What the key never carries**: the person's password, their WebUI token, an agent's provider
+credential, or a second long-lived secret minted for the media path. One key, one scope, one session at a
+time (FR-005 applies to a key exactly as it applies to a person: same owner, same single call).
+
+
 
 ### What is ours and stays ours (FR-059)
 
@@ -347,8 +383,10 @@ section a third party reads first.
 
 **What a third-party client needs, in the order it will need it:**
 
-1. **A socket, and a way in.** The conversation's existing authenticated connection. No second login,
-   no token invented for this feature (FR-054).
+1. **A socket, and a **key**.** An **API key scoped to live voice** (FR-061) — not the person's WebUI
+   session, not an agent's provider credential, and emphatically not a key that carries the owner's
+   whole account (FR-062). Its lifecycle is part of the contract: create, expire, rotate, revoke, and a
+   running session ending with `key_revoked` / `key_expired` when one of those happens (FR-063).
 2. **The identity of the call.** Which conversation, which session — and the guarantee that audio
    belonging to one cannot join another (FR-056). Without this a client cannot safely reconnect,
    because it cannot tell *my call* from *a call*.
@@ -370,11 +408,12 @@ section a third party reads first.
 | the generation counter | it is how *we* make an interruption safe; a client only needs the guarantee, not the mechanism |
 | the session registry | it is how *we* enforce one call per person; publishing it would make an implementation detail contractual |
 
-**What publishing this costs.** Six surfaces become promises: how a call is set up, identity, the auth
+**What publishing this costs.** Six surfaces become promises: how a call is set up, identity, the key,
 rule, the audio description, the lifecycle and the failure words. None of them can be renamed quietly
 once a third party depends on them. That is the price of the User's request, and the mitigation is the
 one FR-058 already names — **our own WebUI is a client of this contract too**, so breaking it breaks us
-first. If that price is not worth paying, the honest move is to withdraw C14 explicitly rather than
+first. Its one difference is the door it comes in by (a person's session rather than a scoped key,
+Authentication above); every frame past that door is the same, which is what keeps the contract honest. If that price is not worth paying, the honest move is to withdraw C14 explicitly rather than
 publish and drift.
 
 ## Review delta (2026-11-08, `@mamang-lead-be`)

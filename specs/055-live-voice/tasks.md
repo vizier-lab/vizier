@@ -59,41 +59,44 @@ reasons are in `architecture.md` §11 — do not build both.
 - [ ] T012 [P] Read `detail.live_voice` in `webui/app/routes/chat.tsx:104-119` beside the existing `stt`/`tts` and pass it to the composer's control state
 - [ ] T013 [P] Add the `live_voice` case to `classifyFrame` in `webui/app/api/frames.ts:597-630` (a new `kind: 'live_voice'`) plus a case in `webui/app/api/frames.test.ts` proving an older payload still returns `null`
 - [ ] T014 Contract test in `crates/vizier-http/tests/live_voice_frames.rs`: with the flag **off** a `live_voice_start` is ignored without closing the socket and no `live_voice` frame is ever emitted (FR-041)
-- [ ] T015 **Socket path only, pending Q11** — `live_voice_audio` larger than one chunk (~6 KB of base64) or a chunk rate above the contract's cap is refused with `live_voice_error`, not buffered. If T099 moves the sound off the socket, T104 refuses this frame instead and the bound moves with it
+- [ ] T015 Guard the inbound audio path in `crates/vizier-http/src/topic.rs`: `live_voice_audio` larger than one chunk (~6 KB of base64) or a chunk rate above the contract's cap is refused with `live_voice_error`, not buffered. This is the shipped carrier (Q11), so the bound is load-bearing rather than provisional
 - [ ] T016 [P] Regenerate the typed API schema (`webui/app/api/schema.d.ts`) with the project's existing generator script so `live_voice: bool` is in the generated types
 - [ ] T017 Add `#[serde(default)] spoken: bool` to `VizierRequest` in `crates/vizier-core/src/schema/request.rs`, with a serde test proving a stored request from before this feature loads as `false` — the one field FR-011's "marked as spoken" and FR-017's indication both need (there is none today: `grep -rn "spoken" crates/` is empty; `review.md` D2)
 - [ ] T018 [P] Use `spoken` on the turn: append the "this came by speech, answer for listening" indication in the block that already preprocesses voice input, `crates/vizier-core/src/agents/agent/mod.rs:712-750`, gated on `spoken` so no typed turn changes (FR-017); render the spoken mark on the stored request in history (server side `SessionHistoryContent::Request`, client side the FR-011/Q5 badge)
 - [ ] T019 Take the `live_voice_*` branch in `crates/vizier-http/src/topic.rs:209` `handle_inbound` **before** the `let text_str = frame.to_string();` copy at `:216`, so a session does not serialise its own audio twice on the way in (4.3 KB x 10/s per session); add a test that one audio chunk is dispatched without being stringified (`review.md` D5)
-- [ ] T020 **Socket path only, pending Q11** — carry live voice frames to **one** socket, never the session broadcast, in `crates/vizier-core/src/live_voice/session.rs` (where `LiveVoiceSessions` lives, `:430`; there is no separate `registry.rs`): the session holds the owner's `Arc<ClientConnection>`, so delivery is a call, not a subscription (`review.md` D9). This is the path that exists and is tested; it stays until T099 says otherwise
-- [ ] T021 **Socket path only, pending Q11** — bound the socket, not the broadcast: `LIVE_VOICE_SOCKET_BACKLOG = 16` in the `client_rx` arm of `TopicOutbound::run` (`crates/vizier-http/src/topic.rs:519-525`). A media transport replaces this bound with its own (T103, T104); until then it is the guard on the path that ships
+- [ ] T020 Carry live voice frames to **one** socket, never the session broadcast, in `crates/vizier-core/src/live_voice/session.rs` (where `LiveVoiceSessions` lives, `:430`; there is no separate `registry.rs`): the session holds the owner's `Arc<ClientConnection>`, so delivery is a call, not a subscription (`review.md` D9). This is the shipped path (Q11), so a second subscriber must never receive one person's audio
+- [ ] T021 Bound the socket, not the broadcast: `LIVE_VOICE_SOCKET_BACKLOG = 16` in the `client_rx` arm of `TopicOutbound::run` (`crates/vizier-http/src/topic.rs:519-525`) — above it, audio frames are dropped and one `stall` is reported, because a lost syllable is cheaper than a lost session (Q11: this is the only carrier, so this bound is the feature's only backpressure)
 - [ ] T022 Speak for the `Lagged` arm in `crates/vizier-http/src/topic.rs:609-613`: it is reachable because it drops **control and text** frames only once audio is off this ring (T020), and the arm's behaviour stays (a lagging subscriber cannot be repaired by replay). Keep the test either way: the ring is 1024 slots for the whole process (`transport/mod.rs:29`), so what it may not lose is text
 
 **Checkpoint**: the capability reads true/false correctly, the frames round-trip, and a flag-off build is indistinguishable from today.
 
 ---
 
-## Phase 2b — The audio path, the public contract, and the retiring surfaces (C12, C13, C14)
+## Phase 2b — The audio path, the public contract, and third-party access (C12, C13, C14, C15)
 
-**Goal**: the sound travels on a path of its own whose transport is *decided on evidence, not assumed*,
-the transcript stays on the conversation's socket, a stranger can build a client from one document, and
-the manual speech **surfaces** step aside while their code stays.
+**Goal**: the sound travels on the path Q11 settled — the conversation's own socket — the transcript
+stays beside it, an outside system can call live voice with a **key that grants nothing else**, and the
+manual speech **surfaces** step aside while their code stays.
 
-**On the ids**: these are appended as T099–T108 although the phase runs early. The id is not the
-order — the phase is (see §Delta). Phase 2b runs **after Phase 2 and before Phase 3**, because the row
-cannot be tried by hand until the point's voice reaches the server. **T099 is a gate**: T100–T104 say
-"whichever path T099 records" on purpose, because the transport is Q11 and the Lead answers it with
-numbers. Nothing below presumes WebRTC.
+**On the ids**: T099–T110 although the phase runs early. The id is not the order — the phase is (see
+§Delta). Phase 2b runs **after Phase 2 and before Phase 3**, because the row cannot be tried by hand
+until the person's voice reaches the server. **Q11 is closed on `ws-json-pcm16`**, so T100–T104 describe
+the socket path that already exists and is tested; nothing here builds a media transport, and
+`media-track` remains a reserved value that a server must refuse.
 
-- [ ] T099 **Decide the carrier (Q11) and record the measured numbers, before any code; T100–T104 then follow whichever path T099 records.** Compare at least three: a WebRTC media transport, the socket path already implemented and tested (46 client tests, 3 server suites), and any cheaper option that reaches the same result. **Nothing in this task or below presumes WebRTC** — it is one candidate, and the numbers decide. For each: added crates, added build time, added `target` size, peak RSS, whether the server needs an audio decoder, whether a relay is needed, what a lost packet does to the sound, and what it cannot fix at all. **Echo cancellation is not a criterion**: it comes from the `getUserMedia` constraints in `capture.ts:34` on every path, so treating it as a transport benefit would decide this question wrongly. The decision goes into `plan.md` with its numbers, and `research.md` names each alternative and why it lost. **No `Cargo.toml` change in this task** — it records a decision; T100–T104 implement it. This is Q11 and it is the Lead's call
-- [ ] T100 [P] The setup sequence for the path T099 records, on the conversation's **existing socket** and its existing authentication (FR-058, contract `The audio path's setup`): an offer, an answer and candidates on a media transport; an open and a first frame on the socket. Reusing the conversation's auth is not negotiable either way. Test: an unauthenticated caller cannot set anything up, and a second offer while one is open is **refused rather than negotiated**
+- [ ] T099 **The carrier is decided: the socket.** Q11 was closed by the User on 2026-11-09 16:35 — *"gw setuju pake websocket dulu aja"* — after the numbers were put in front of them. Record that decision, and the numbers that made it a decision, in `plan.md`: the socket (+0 crates, 0 build, 0 RSS, no relay) against a media transport (+22 crates for `str0m`, 36 s probe build, 583 MB `target`, 1,25 GB peak RSS, an Opus decoder on the server, a relay). **Record what the socket cannot do as well** — no jitter buffer, no PLC, no FEC, so packet loss is a hole in the sound — so a future reversal starts from the real trade-off. **No `Cargo.toml` change**, no peer setup, no relay: this task closes a question, it does not open a work stream. `media-track` stays a reserved value in the contract and is refused
+- [ ] T100 [P] **The door, on the socket** (FR-058, FR-061, FR-064, contract `Authentication`): `live_voice_start` carries the audio description the client will send, and a caller without a usable identity — a person's session or a key scoped to live voice — is refused **before any session state exists**, with `kind: "forbidden"` and no hint about whether the conversation, the agent or a session exists. Test: an unauthenticated caller cannot start anything, an under-scoped key is refused identically, and a second start for the same owner is refused the way FR-005 says (Q2's default: refused for the same conversation)
 - [ ] T101 Bind the audio to one session in `crates/vizier-core/src/live_voice/session.rs`: audio belonging to a session that has ended, arriving for a conversation where no session is live, or sent by a person who does not own the session is **refused** — never adopted by whatever is live there now (FR-056). Test all three refusals, each with a reason word the contract names
 - [ ] T102 [P] The audio description, in the contract and on the acceptance path: sample rate, channel count, frame duration and the acceptable codec or format stated so a non-browser client can meet them, and enforced on what arrives so a client that meets them is accepted (FR-057). Test: a conforming description is accepted, a non-conforming one is refused with a reason a client can show
-- [ ] T103 [US1] `webui/app/lib/liveVoice/capture.ts` + `session.ts`: send the microphone on the path T099 recorded, keeping the `getUserMedia` constraints of T033. **If that path is the socket, the chunk encoder stays** — this task implements a decision, it does not presume one. Test: a whole session reaches the server with exactly the description T102 publishes
-- [ ] T104 [P] **Refuse the other path.** Whichever transport T099 records, the other one is refused rather than half-handled, because two audio sources for one utterance have no correct ordering and `utterance_id` cannot tell them apart: a media offer is refused when the socket owns the audio, `live_voice_audio` is refused when a media path owns it. Either way one named reason, reported once (contract, `live_voice_audio — PROVISIONAL`)
-- [ ] T105 [P] Publish the contract in `docs/`: the six surfaces of FR-058 — how a call is set up, session identity, authentication, the audio description, lifecycle, failure vocabulary — written for someone who has never seen this repository and cross-linked from the existing speech page. The wire shapes of the setup sequence are filled in from T099's decision, not invented here. Gate: a reviewer follows it end to end without opening `webui/`
+- [ ] T103 [US1] `webui/app/lib/liveVoice/capture.ts` + `session.ts`: send the microphone as **100 ms base64 PCM16 chunks on the socket** (the carrier Q11 settled), keeping the `getUserMedia` constraints of T033 untouched. The chunk encoder stays — it is now the shipped path, not a fallback. Test: a whole session reaches the server with exactly the description T102 publishes
+- [ ] T104 [P] **Refuse the reserved path.** A client that sends an offer or declares `media-track` is **refused with one named kind, reported once** — nothing in this release can terminate a peer, decode Opus or relay, so accepting the offer would be a lie the sound pays for. Two audio sources for one utterance have no correct ordering and `utterance_id` cannot tell them apart, which is the second reason the refusal is unconditional. Test: a media offer and an `opus`/`media-track` description are both refused, and the session continues on `ws-json-pcm16` if one is live
+- [ ] T105 [P] Publish the contract in `docs/`: the six surfaces of FR-058 — how a call is set up, session identity, authentication, the audio description, lifecycle, failure vocabulary — written for someone who has never seen this repository and cross-linked from the existing speech page. The wire shapes are the socket's, as Q11 settled them, with `media-track` shown only as the reserved
+value a client must not use. Gate: a reviewer follows it end to end without opening `webui/`
 - [ ] T106 Conformance test for **SC-012**: a client written against the published document alone starts a session, speaks, hears the reply and ends the call against the real server. Written from `docs/`, not from `webui/app/lib/liveVoice/`, and it is the check that fails first when the contract and our own client drift (FR-058)
 - [ ] T107 Retire the manual speech **surfaces** (FR-053): the composer's recording control and the spoken-reply toggle leave the surface; their agent settings stay readable so nothing is silently reconfigured. **Do not delete the tools' code, providers, routes or flags** — the User kept them deliberately for another surface later (2026-11-09 16:16), and this task retires a surface, not a feature. Test: the tools still answer when called directly while no button offers them
 - [ ] T108 Prove FR-041 got **harder, not narrower**: with live voice compiled out (`cargo build -p vizier --no-default-features`), the app still chats and **every existing speech tool still works** — which matters more than before, because two speech paths now coexist while only one is on screen. Test: flag off, STT and TTS reachable and functional, live voice frames refused with no socket closed (T014)
+- [ ] T109 **A scoped API key for third-party live voice (FR-061, FR-062, FR-064).** Add a **capability** to an API key and enforce it: a key issued for live voice may start, speak, hear, interrupt, end and move a session for its owner and **nothing else**. Today `crates/vizier-http/src/auth/middleware.rs:183-209` resolves a key to the owner's **full role and permissions** — line 200 — and `crates/vizier-core/src/storage/user.rs:69-81` has no scope field, so this is code, not prose. The effective permission of a key MUST be the **intersection** of its capabilities with its owner's, never their union. Tests: a key without the live-voice capability is refused by every live-voice action with `kind: "forbidden"`; a key with it is refused by an explicit list of the other routes (history, settings, memory, files, jobs, provider credentials); neither refusal reveals whether a conversation, an agent or a session exists (FR-064)
+- [ ] T110 **A revoked or expired key ends the live session it opened (FR-063).** Revocation and expiry MUST act on a **running** session, not only on the next connection: the session releases the microphone through the single release path of T059, cancels the turn in flight (FR-052's path), and reports `ended` with `key_revoked` or `key_expired` (contract, reason vocabulary). Rotation means a new key plus the old one retired, so it takes the same path as revocation. Test: revoke mid-answer, and assert the release, the cancelled turn and the reason within 1 s (SC-013)
 
 ---
 
@@ -277,7 +280,7 @@ chat behind it; end the call; the panel is gone, both turns present, the control
 
 - **Setup (Phase 1)**: no dependencies
 - **Foundational (Phase 2)**: needs Setup; **blocks every story**
-- **Audio path and public contract (Phase 2b)**: needs Phase 2; **T099 gates the rest** — it records the transport, and T100–T104 implement whichever one it records. It **blocks US1's client side** (T103 puts the sound on that path) and **blocks US6**, because the row cannot be tried by hand until the person's voice reaches the server. Its ids (T099–T108) are larger than US6's; the phase is the order, not the id
+- **Audio path and third-party access (Phase 2b)**: needs Phase 2; **T099 then runs as a record, not a gate** — the carrier is settled (Q11: `ws-json-pcm16`), and T100–T104 build the socket path that already exists plus the door in front of it. **T109 and T110** add third-party access: a scoped key, and its revocation ending a running session. It **blocks US1's client side** (T103 ships the chunk encoder) and **blocks US6**, because the row cannot be tried by hand until the person's voice reaches the server. Its ids (T099–T110) are larger than US6's; the phase is the order, not the id
 - **US1 (Phase 3)**: needs Foundational
 - **US2 (Phase 4)**: needs Foundational; its barge-in is only observable once US1 can speak, so in practice after US1
 - **US3 (Phase 5)**: **backlog — not built, not gated (C7)**
@@ -369,17 +372,26 @@ tree. Seven findings change what a task must say; `architecture.md` is the shape
 tasks (T001–T108), nothing renumbered: **ten appended** (T099–T108) into a new **Phase 2b**, which runs
 after Phase 2 and before Phase 3 — the ids are larger than US6's on purpose, since the phase is the
 order and not the id. Changed in place: **T015, T020, T021** keep their content and gain
-**socket-path only, pending Q11** — they are the path that exists and is tested, and they retire only
-if the transport moves; **T022** keeps its invariant and its behaviour; **T033** asks for the three
-`getUserMedia` constraints explicitly and presumes nothing else; **T037, T038, T040, T089, T090, T091,
-T092, T094** now describe a row above the composer rather than a panel over it; **T093** alone carries
-**[SUPERSEDED by C11]**. New: **T099** decide and record the transport on evidence (a decision, not a
-dependency — and a gate, since T100–T104 say "whichever path T099 records"), **T100** the setup
-sequence on the existing socket's authentication, **T101** bind the audio to one session and refuse the
-rest, **T102** the audio description, **T103** the client sends the sound on the recorded path,
-**T104** refuse the *other* path either way, **T105** publish the contract, **T106** a third-party
-conformance test for SC-012, **T107** retire the manual speech **surfaces** while the code stays,
-**T108** prove FR-041 got harder rather than narrower.
+**socket path that ships** — they are the path that exists and is tested; **T022** keeps its invariant and
+its behaviour; **T033** asks for the three `getUserMedia` constraints explicitly and presumes nothing
+else; **T037, T038, T040, T089, T090, T091, T092, T094** now describe a row above the composer rather
+than a panel over it; **T093** alone carries **[SUPERSEDED by C11]**. New: **T099** record the carrier Q11
+settled and the numbers that settled it, **T100** the door on the socket — identity and a refusal before
+any state exists, **T101** bind the audio to one session and refuse the rest, **T102** the audio
+description, **T103** the client sends 100 ms PCM16 chunks (the shipped path), **T104** refuse the
+reserved `media-track`, **T105** publish the contract, **T106** a third-party conformance test for
+SC-012, **T107** retire the manual speech **surfaces** while the code stays, **T108** prove FR-041 got
+harder rather than narrower.
+
+**Delta 2026-11-09 16:35 (Q11 closed on the socket; a scoped API key for outsiders — spec C15).** 108 →
+**110** tasks (T001–T110), nothing renumbered: **two appended** at the end of Phase 2b. Changed in
+place: **T099** closes the question instead of opening a work stream, and keeps the losing option's
+measured cost in `plan.md`; **T100** becomes the door (identity, and a refusal before any state);
+**T103** ships the chunk encoder; **T104** refuses the reserved `media-track` rather than "the other
+path". New: **T109** a capability on an API key that grants live voice and nothing else — code, not
+prose, because `auth/middleware.rs:200` still resolves a key to its owner's full permissions — and
+**T110** revocation or expiry ending a **running** session with `key_revoked` / `key_expired`.
+**Q11 is answered, so the open-question count in `spec.md` drops to four.**
 
 
 **Delta 2026-11-09 07:52 (design tokens, before the panel).** 97 → **98** tasks (T001–T098), nothing

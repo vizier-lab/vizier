@@ -79,7 +79,8 @@ problem, the second removes an entire class of "which conversation is talking?" 
 | **C11** | **The call is one row inside the conversation** — not a floating panel, not a full screen, not a route | C9's draggable panel, C6's call screen and the composer bar before it (all three archived, none deleted) | **FR-043, FR-044, FR-045, FR-046 and FR-049** rewritten around a row; **FR-048** and **Q9** superseded, because a row has no position to clamp or remember; US6 rewritten. Surviving from the panel work: the state words, the rule that the microphone indicator is never the element that gives way, and the `ended`/`failed` treatment |
 | **C12** | **The manual speech-to-text and text-to-speech surfaces are deprecated — the surfaces, not the code.** The record control and the spoken-reply toggle leave the conversation's UI; the providers, tools, configuration and build capability stay, because another surface may use them later | the assumption that both surfaces must be offered side by side in the composer | **FR-053** new. **FR-003 and FR-041 are NOT superseded and get stronger**: two paths live side by side while only one is on screen, so a build without live voice must still leave every existing speech feature working. The "flag off" tests (T014, T015) stay alive for the same reason |
 | **C13** | **Audio travels on a path of its own; chat, transcript and control stay on the existing transport** — and *which transport carries the sound is under evaluation* | R1 (audio as base64 PCM16 JSON on the topic socket) *as the final answer* | **FR-054, FR-055, FR-056, FR-057, FR-060** new. The JSON delivery path (per-connection lane, `LIVE_VOICE_SOCKET_BACKLOG = 16`, `stall`) is **provisional, not superseded**: it is the implemented candidate and stays until Q11 is answered on evidence. The latency criteria are scoped to whichever path carries the sound. Choosing the transport is the Lead's call and **Q11** records the question, not the answer |
-| **C14** | **The audio capability is standalone**: a documented contract a third party can implement without our client | the assumption that the audio path is a private detail of the WebUI | **FR-058** and **FR-059** new, **SC-012** new, and a public-contract section in the frame contract. Holds whichever transport Q11 picks. It also binds our own WebUI to the same contract, or the contract rots |
+| **C14** | **The audio capability is standalone**: a documented contract a third party can implement without our client | the assumption that the audio path is a private detail of the WebUI | **FR-058** and **FR-059** new, **SC-012** new, and a public-contract section in the frame contract. It also binds our own WebUI to the same contract, or the contract rots. **Narrowed by C15**: a document is not enough — access needs a scoped API key |
+| **C15** | **Third-party access is by API key, scoped to live voice** — the User's reading of "standalone": not only a document, but a feature another system can actually call, kept safe by a key | C14's "the conversation's own credential", which would have handed an outside system a person's whole account | **FR-061 to FR-064** new, **SC-013** new, and the contract's Authentication section rewritten. The gap is named, not glossed: API keys exist but carry no scope (`middleware.rs:200` grants the owner's full permissions), so this is code, not prose |
 
 **Why C9 is not just a repaint of C6.** C6 put the call in place of the conversation, and then had to
 answer what happens to the chat — the full-screen render answered it by growing a transcript panel
@@ -118,7 +119,7 @@ WebRTC for the sound with the transcript left on the existing WebSocket, and imm
 same instruction came with an escape clause worth honouring: if a cheaper way gets the same result, say
 so first. So what this document fixes is the **shape**, not the plumbing — the sound travels on its own
 path (FR-054), everything a person reads stays on the conversation's transport (FR-055), and the audio
-is bound to exactly one session (FR-056). Which transport delivers that is **Q11**, decided on measured
+is bound to exactly one session (FR-056). Which transport delivers that was **Q11**, settled on the
 evidence by the Lead. The JSON path already built — 100 ms base64 chunks, the per-connection lane, the
 socket backlog, the `stall` frame — is therefore **provisional, not superseded**: it is the candidate
 that already works and is the fallback if a media path does not earn its cost. What is already certain
@@ -132,14 +133,53 @@ opened it, or arrive for a conversation that has since had a *different* call. F
 to exactly one session and refuses it otherwise, rather than letting it join whatever is live now. And
 because the sound no longer passes through the conversation's socket, SC-001, SC-002 and SC-003 are
 measured **on the path that carries it** — a number taken from the message hop would describe a path
-that is not carrying the sound, whichever transport Q11 lands on.
+that is not carrying the sound.
+
+### Session 2026-11-09 16:35 (the socket carries the sound, and a stranger gets in with a key)
+
+Two decisions from the User, and the second one changed a requirement rather than adding one.
+
+**Q11 is closed: the socket.** *"kalo liat concern yang disampein SA sama lead sih gw setuju pake
+websocket dulu aja kalo gitu."* The carrier is `ws-json-pcm16` — the path that already exists, with 46
+green client tests, a per-connection lane, a bounded queue and a `stall` report. Three things this
+settles, and one it does not:
+
+- **Settled**: no setup frames for a peer, no peer registry, no Opus decoder on the server, no bundled
+  relay. Those tasks are not implemented and must not be revived from an old branch without the numbers
+  that lost here being re-read.
+- **Settled**: the reliability the socket cannot give — jitter buffer, packet-loss concealment, FEC — is
+  **accepted as missing**. Packet loss is a hole in the sound, not a retry. Saying so now is cheaper than
+  discovering it in a bad-network report later.
+- **Still open, in another place**: echo in a full-volume speaker and talk-over are handled by T047's
+  ducking and the 150 ms guard, and whether that is enough is **SC-008's measurement**, not a promise
+  made here.
+- **Kept**: the measured cost of the option that lost (str0m +22 crates, 36 s, 583 MB, 1,25 GB peak RSS,
+  Opus decoder, relay) stays in `plan.md`. A future decision should meet those numbers, not rediscover
+  them.
+
+**"Standalone" now means an outside system can actually call it — and that needs a key.** The first
+reading of the User's request was a *document*: a contract someone could implement. The correction is
+narrower and sharper: *"iya si fitur live voice ini bisa diintegrasiin di luar client vizier, dan dia
+(client lain) butuh API key buat akses live voice ini biar aman."* A document plus **an API key scoped to
+live voice**. That is FR-061 to FR-064, and it contradicts what this spec said twelve minutes earlier
+(auth = the conversation's credential, no second token). The correction is recorded rather than quietly
+overwritten, because the reason matters: handing a third-party system a conversation credential hands it
+a person's account, and the entire point of the key is that it does **not**.
+
+**The uncomfortable part, said plainly.** API keys already exist (`storage/user.rs:69-81`) and already
+authenticate (`auth/middleware.rs:183-209`), but they carry **no scope** — line 200 resolves a key to the
+owner's full role and permissions. So today, giving a partner an API key to use live voice would give
+them everything the person can do. FR-062 is therefore not a documentation task: it needs a capability on
+the key and a check at every route, and until it exists, third-party access MUST NOT be offered. That is
+the one place in this delta where a security requirement is written against code that is not there yet,
+and it is written that way on purpose.
 
 ### What "standalone" means here, and what it costs
 
 The User asked for the media part to be able to stand alone so that someone else could implement their
 own client against it, and asked what that actually means. In one paragraph — and note this holds
-whichever transport Q11 picks, which is why it is written as a requirement (FR-058) rather than as a
-property of WebRTC:
+because it is a requirement (FR-058) rather than a property of any transport — and with Q11 closed on the
+socket it is now the *only* way an outside client gets in (FR-061 to FR-064):
 
 > **Standalone means the audio capability is a thing a stranger can use without our client.** A person
 > who wants live voice inside *their own* application does not fork this repository, does not import our
@@ -155,7 +195,7 @@ belong in `contracts/`):
 |---|---|
 | **How a call is set up** | whatever the audio path needs before sound can move — in WebRTC that is an offer, an answer and candidates; on a socket it is an open and a first frame. A third party must be able to do it on a transport they already have |
 | **Session identity** | they must be able to say *this audio belongs to that conversation's call*, and be refused when it does not (FR-056) |
-| **Authentication** | they must get in without a second login or a token type invented for this feature |
+| **Authentication** | an **API key scoped to live voice**, and nothing wider (FR-061, FR-062). Not the conversation's credential: a key that carries a person's whole account is not a key, it is a password |
 | **The audio shape** | sample rate, channels, frame duration, and the acceptable codec or format: the thing that makes a non-browser client possible at all (FR-057) |
 | **Lifecycle** | start, move, end, and the reconnect window, expressed as steps rather than as one client's behaviour |
 | **Failure vocabulary** | the same reason words our own UI shows, so a third-party client can show something truthful |
@@ -435,8 +475,17 @@ this diagram because it is deferred (C7).
 
 **The audio path (C13 — transport under evaluation)**
 
-- **FR-054**: The person's audio and the agent's audio MUST travel on a path of their own, **separate from the conversation's message transport**, so that a burst of speech cannot queue behind text and a stall in text cannot silence the call. It MUST be two-way and realtime enough that a person can interrupt the agent by speaking (FR-019), and a reply heard through speakers MUST NOT re-enter the microphone as a new utterance (FR-046, FR-047). **Echo cancellation is required of the feature, not of the transport**: it comes from the capture constraints on `getUserMedia` (C5, already in `webui/app/lib/liveVoice/capture.ts:34` — `echoCancellation`, `noiseSuppression`, `autoGainControl`), so it MUST NOT be counted as an argument for any transport. *Which transport delivers this is open question Q11.*
+- **FR-054**: The person's audio and the agent's audio MUST travel on a path of their own, **separate from the conversation's message transport**, so that a burst of speech cannot queue behind text and a stall in text cannot silence the call. It MUST be two-way and realtime enough that a person can interrupt the agent by speaking (FR-019), and a reply heard through speakers MUST NOT re-enter the microphone as a new utterance (FR-046, FR-047). **Echo cancellation is required of the feature, not of the transport**: it comes from the capture constraints on `getUserMedia` (C5, already in `webui/app/lib/liveVoice/capture.ts:34` — `echoCancellation`, `noiseSuppression`, `autoGainControl`), so it MUST NOT be counted as an argument for any transport. **The carrier is the conversation's WebSocket, `ws-json-pcm16`** (Q11, closed by the User 2026-11-09 16:35): base64 PCM16 in 100 ms chunks on the socket that is already open. The media track stays a **reserved** value in the contract, not a shipped one, and no peer setup, no server-side audio decoder and no relay are part of this feature.
 - **FR-060**: Whatever transport is chosen MUST NOT require the person to obtain a third-party service or an account: if it needs a relay, the relay MUST ship with Vizier and be configured by us, not by the person (User, 2026-11-09 16:16). Its configuration MUST be documented well enough that a third-party client can reach it (FR-058).
+
+**Third-party access — the API key (C15, 2026-11-09 16:35)**
+
+- **FR-061**: Live voice MUST be usable by a client that is not Vizier's own, authenticated by an **API key** issued for that purpose — not by a person's WebUI session and not by an agent's provider credential. The key MUST identify the person whose session it starts, so FR-005's one-call-per-person rule still holds across both kinds of client.
+- **FR-062**: An API key issued for live voice MUST grant **live voice and nothing else**. It MUST NOT reach another agent's history, another conversation, settings, memory, files, jobs or any other endpoint, and it MUST NOT read or widen the owner's role or permissions. A key that cannot be narrowed MUST NOT be offered for third-party use at all — an unscoped key handed to an outside system is one person's whole account.
+- **FR-063**: The key MUST have a lifecycle that a person can act on: it is created with a name, may expire, can be rotated, and can be revoked. Revoking or expiry MUST take effect on a **running** session — the session ends with a reason from the contract's vocabulary, the microphone is released (FR-028) and the turn in flight is cancelled — rather than being honoured only at the next connection.
+- **FR-064**: A request whose key is missing, revoked, expired or scoped away from live voice MUST be **refused before any session state is created**, with a reason a client can show. The refusal MUST NOT reveal whether a session, a conversation or an agent exists to a caller who is not allowed to use it.
+
+*(Code reality behind FR-062, verified 2026-11-09: API keys exist — `crates/vizier-core/src/storage/user.rs:69-81` — but carry **no scope**: `crates/vizier-http/src/auth/middleware.rs:200` resolves a key to the owner's full role and permissions. So the scoping this requirement demands is **not built**, and calling it a documentation change would be wrong.)*
 - **FR-055**: Everything that is not audio MUST stay on the conversation's existing transport — the state word, the transcript, the reply's text, errors and endings. What a person reads in the conversation MUST be the transcript the conversation stores, never a parallel copy carried by the audio path.
 - **FR-056**: The audio path MUST be correlated with exactly one session (FR-005) in exactly one conversation. Audio belonging to a session that has ended, or arriving for a conversation where no session is live, MUST be refused rather than adopted by whatever session is live there now.
 - **FR-057**: The audio the server accepts MUST be described in terms another client can meet — sample rate, channel count, frame duration, and what codec or format is acceptable — rather than being whatever one client happens to send. A client that meets the description MUST be accepted, whichever browser or library produced it.
@@ -458,7 +507,7 @@ this diagram because it is deferred (C7).
 
 ### Measurable Outcomes
 
-*Every latency figure below is measured on the **path that carries the sound** — not on the message hop — with the marks taken in the client. That is settled whatever Q11 chooses: a number taken from a path that is not carrying audio describes nothing.*
+*Every latency figure below is measured on the **path that carries the sound** — the conversation's socket, `ws-json-pcm16` — with the marks taken in the client, not on the message hop. A number taken from a path that is not carrying audio describes nothing.*
 
 - **SC-001**: From the person finishing a short question to the first audible word of the answer, on an ordinary laptop and ordinary broadband, with a hosted recogniser and voice: **p90 <= 3.5 s and p99 <= 5 s is the release gate**; 2.0 s at p50 is the stretch target. The reason for the gate, not the aspiration: the plan's budget floors at 2.57 s before the model has produced anything (800 ms end-of-utterance + 120 ms to the wire + 900 ms hosted recognition + 100 ms turn start + 600 ms first segment + 50 ms to sound), and the turn protocol delivers the model's whole message rather than token deltas, so the model's own latency sits on top of that floor. A local-only recogniser or voice is CPU-bound, is expected to be slower still, and is measured separately (open question Q3). *(Restated in the Lead's review, 2026-11-08: the earlier 2 s p90 could not be met by the architecture the plan itself describes.)*
 - **SC-002**: From the **end** of the person's speech (the end-of-utterance period firing) to silence: within 300 ms in at least 95% of attempts, and the next answer addresses the interrupting message in at least 90% of those attempts. The agent being audible *during* the person's speech is not a failure — it is the behaviour C8 asks for, so the clock starts when they stop, not when they start, and it is measured on the client (first audible sample of the reply to silence).
@@ -472,6 +521,7 @@ this diagram because it is deferred (C7).
 - **SC-010**: Pressing the control shows an interactive row within 500 ms on the first attempt, on a fresh profile, with microphone permission granted at the system prompt — in at least 90% of tries. The clock stops at the row, not at the first answer (SC-005 keeps the wider "talking within 20 seconds").
 - **SC-011**: A call taken by another conversation leaves no second session behind: in 100 of 100 tries exactly one microphone is open after the move, the old conversation carries a reason, and no turn keeps generating or is spoken into the new call (FR-050, FR-051, FR-052).A failed call never leaves the session looking live: in every scenario of FR-030 to FR-033 the person sees a reason within 5 seconds and the microphone is released or the session is ended.
 - **SC-012**: A client written against the published contract alone — no code from this repository — completes a full session (start, speak, hear the reply, end) in 100 of 100 attempts, on a machine that has never held this repository. This WebUI is one such client: same contract, same test.
+- **SC-013**: A key issued for live voice starts a session and speaks through it in 100 of 100 tries, and is refused by **every** endpoint outside live voice — checked against an explicit list of the other routes, not a sample — in 100 of 100 tries. A key that is revoked mid-session ends that session within 1 s with its reason, in 100 of 100 tries.
 
 ## Assumptions
 
@@ -523,7 +573,7 @@ already follow. Changing one is a change of scope, not a rewrite.
 | **Q2** | A second tab on the **same** conversation: move the call to that tab, or refuse? (Every *other* conversation and agent now moves — C10.) | Refused: the second tab is told the call is already open here, and the row there says so instead of showing state (FR-005). | Moving would need a rule for what happens to audio already captured in the first tab; refusing is one line of state, and the person can end the call in the tab that has it. |
 | **Q3** | Is the 2-second target (SC-001) measured only with hosted speech, with local models excluded? | Yes: hosted only, local measured separately. | Requiring it for a local whisper model means either accepting a slower target or dropping local models from the live path. |
 | **Q5** | How visible should "this message was spoken" and "this reply was interrupted" be in the conversation? | A small badge with a tooltip, nothing more (FR-011, FR-023). | Hiding the badges makes the conversation read like typing; making them loud makes voice turns look like errors. |
-| **Q11** | Which transport carries the audio path (FR-054): a WebRTC media track, the existing socket with base64 PCM16, or something cheaper again? | **Not decided here.** The strongest argument for WebRTC — echo cancellation — is **retired**: it is a capture feature on `getUserMedia`, asked for at `webui/app/lib/liveVoice/capture.ts:34` since the start (bracket C5 said so already). Measured, not estimated — read-only probe by `@mamang-lead-be`, 2026-11-09, source quoted in `plan.md`: **str0m** +**22** crates · probe build **36 s** · `target` **583 MB** · peak RSS **1,25 GB** · needs an **Opus decoder on the server** (the recogniser takes PCM16/WAV) · needs a **relay**; **the socket** +**0** crates · **0** build · **0** RSS · **no relay**, and cannot hide packet loss (no jitter buffer, PLC or FEC). The full-build audit of this crate is separate and **still unfinished** — those figures are not these. | Whichever way it lands, FR-054 to FR-057 and FR-060 stay true as written and nothing else in this document moves: they are phrased as shape rather than plumbing. If the socket wins, the bundled relay disappears from the product entirely; if the media path wins, it ships as a separate process, off by default in a development build. Five open questions is the ceiling this document holds itself to, so the ones below are closed by default and kept as a record. |
+| ~~**Q11**~~ | Which transport carries the audio path (FR-054)? | **Answered by the User, 2026-11-09 16:35: the WebSocket.** *"kalo liat concern yang disampein SA sama lead sih gw setuju pake websocket dulu aja kalo gitu."* The carrier is **`ws-json-pcm16`** — the path already implemented and tested. The media track stays in the contract as the **reserved** value `media-track`, not as the shipped one, and nothing built for it (setup frames, peer registry, Opus decoder, relay) is written. *The numbers that made this a real choice are kept in `plan.md` so a future decision does not start from zero: str0m +22 crates, 36 s probe build, 583 MB `target`, 1,25 GB peak RSS, Opus decoder + relay required.* | The socket path inherits the work already done: the 46 green client tests, the per-connection lane, the backlog bound and `stall`. What it does **not** do is hide packet loss — no jitter buffer, no PLC, no FEC — so packet loss is a hole in the sound, not a retry. T047's ducking and the 150 ms guard carry the echo and talk-over cases, and the speaker sweep decides whether they are enough (SC-008). |
 | ~~**Q4**~~ | A hard cap on concurrent live sessions? | **Answered by the User, 2026-11-09 06:52: exactly one — per person, across every conversation and agent (C10, FR-005).** | — |
 | ~~**Q6**~~ | What else does the live row carry besides the four required things? | **Closed 2026-11-09 as design's call within a stated bound**: the level of the person's voice and the elapsed time, and nothing that survives FR-049's order of surrender. Reopening it means a fourth thing competing for one line, which is why it is not a question but a constraint. | — |
 | ~~**Q7**~~ | Can the person reach the conversation (and type in it) while the call is open? | **Closed by C11 (2026-11-09 16:07): yes, structurally.** A row above the composer covers nothing, so the conversation and its input are reachable by construction rather than by an answer (FR-049); typed messages stay text-only (FR-025 deferred). | — |
@@ -682,8 +732,8 @@ rather than as an answer because that is what the owner said it was.
 |---|---|---|
 | **C11 — one row in the conversation** | new `### Session 2026-11-09 16:07` · **US6 rewritten** (title, narrative, why, independent test, 8 scenarios) · **FR-043, FR-044, FR-045, FR-046, FR-049** rewritten · **FR-001, FR-002, FR-006, SC-010** reworded · **FR-048** and **Q9** struck as superseded · **Q6** reworded · the panel edge case rewritten · the archived-surface note now covers all three retired surfaces | the call is one row above the composer, at the conversation's width; it covers nothing, floats over nothing and has no position to remember |
 | **C12 — the manual speech *surfaces* retire** | **FR-053** new · the record and spoken-reply controls leave the composer UI · **FR-003 and FR-041 left exactly as they were**, deliberately | live voice becomes the only speech surface on screen; the providers, tools, flags and build capability stay in the code for another surface later (User, 2026-11-09 16:16), so a build without live voice still has every speech feature |
-| **C13 — audio gets a path of its own (transport *not* decided)** | **FR-054, FR-055, FR-056, FR-057, FR-060** new · **Q11** opened · SC-001/002/003 scoped to the path that carries the sound · the plan's R1 and the contract's delivery path marked **provisional**, not superseded | the sound travels on its own path, everything a person reads stays on the conversation's transport, and the audio is bound to one session; which transport delivers it is measured, not assumed — `str0m`, the existing socket and any cheaper option all stay on the table |
-| **C14 — standalone** | **FR-058, FR-059** new · **SC-012** new · `### What "standalone" means here` · a public-contract section in `contracts/live-voice-frames.md` | six surfaces become public (how a call is set up, session identity, authentication, the audio shape, lifecycle, failure vocabulary) and our own WebUI must use the same contract — for whichever transport Q11 picks |
+| **C13 — audio gets a path of its own; the carrier is the socket (Q11, closed 16:35)** | **FR-054, FR-055, FR-056, FR-057, FR-060** new · **Q11** opened and then closed on `ws-json-pcm16` · SC-001/002/003 scoped to the path that carries the sound · the plan's R1 and the contract's delivery path marked as the shipped path, `media-track` reserved | the sound travels on the conversation's socket as base64 PCM16, everything a person reads stays on the same socket, and the audio is bound to one session; the media option's measured cost stays in `plan.md` as the record of what lost |
+| **C15 — third-party access by scoped API key** | **FR-061, FR-062, FR-063, FR-064** new · **SC-013** new · `### Session 2026-11-09 16:35` · contract's Authentication section rewritten | a client that is not Vizier's gets in with a **key that grants live voice and nothing else**; a running session ends when its key is revoked or expires; a key that cannot be narrowed must not be offered at all. The code gap is stated: keys exist (`storage/user.rs:69-81`) but carry no scope (`auth/middleware.rs:200`) |
 
 **Kept exactly as they were** (checked, not assumed): the thinking indicator told apart from
 `reconnecting` by word, colour and marker (FR-042); the microphone indicator never being the element
