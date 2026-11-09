@@ -538,3 +538,20 @@ whether they share a positioning mechanism is @mamang-lead-be's call, not this d
 `LiveVoiceCall.tsx` was written into the task list as a screen; a floating panel is a different
 component with different geometry, and the tasks are corrected below rather than left to be
 interpreted.
+
+## Delta Log — 2026-11-09 07:17 (a review round: two requirements stood without a carrier)
+
+Not a decision by the User. This round removed two places where the document promised something no task
+would ever build — the same class of defect as FR-018, caught before implementation rather than after.
+
+| Change | Why | Where |
+|---|---|---|
+| **FR-025 deferred** (struck through, joined to FR-020/021) | Its only carrier, **T054**, sits in the deferred US3 (C7). A live requirement whose one task is in the backlog is a release promise with nobody to keep it: QA cannot test it and nobody will build it. Deferring it also makes the release rule readable in one line — **the only way to stop the audio is to stop speaking** (FR-019), not a button and not a keystroke. | FR-025 itself, the typed-while-speaking edge case, the *Interruption* key entity, and `contracts` §`live_voice_interrupt`, which now says the `typed` reason is not sent by this release's client even though both helpers exist (`Session.onTyped`, `forwardLiveVoiceTyped`) because nothing calls them |
+| **T053 rewritten** | It claimed the client interrupt path was still to be implemented. It is not missing: `Session.interrupt(reason)` (`webui/app/lib/liveVoice/session.ts:149`) already stops the audio, sends the frame and moves `speaking`/`waiting` to `listening`, with a passing test. What is missing is the **control on the surface this release ships**, because the only renderer today is the archived bar and FR-045 lets the panel carry one action (End) until this item lands. A plan that says "not built" about shipped code misleads in exactly the way the opposite does. | `tasks.md` T053 |
+| **T095 corrected** | It said the registry is "keyed by person, not by (agent, conversation)". The `VizierSession` key is what routes inbound frames; deleting it would break delivery. The task now says: **keep the key, add a second index `owner → Arc<LiveVoiceSession>`**, and assert that a frame for the old conversation resolves to nothing after a move. | `tasks.md` T095 |
+| **D17 wording** | It read "T054 deleted" while T054 is alive for the typed-message path. It now reads "T054 reused for the typed-message path", so nobody creates a duplicate ID. | `tasks.md` §Delta |
+
+**Nothing was renumbered**: 53 live FR ids, 11 success criteria, 97 tasks (7 of them `[BACKLOG]`) before
+and after. `spec.md` gained no requirement: FR-025 lost its force, and that is the only change to the
+requirement set.
+
