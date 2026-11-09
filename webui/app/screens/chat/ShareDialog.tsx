@@ -49,6 +49,9 @@ export function createFailure(e: unknown): string {
     if (e instanceof ApiError) {
         if (e.status === 429) return 'Too many shares just now. Try again in a little while.'
         if (e.status === 403) return 'You are not allowed to share this conversation.'
+        if (e.status === 413) return 'This conversation is too large to share. Nothing was shared.'
+        // A bare "Service Unavailable" says nothing; say what happened and that nothing was stored.
+        if (e.status >= 500) return 'The server could not create the link right now. Nothing was shared; try again in a moment.'
         return e.message || 'The link could not be created.'
     }
     return 'The link could not be created.'

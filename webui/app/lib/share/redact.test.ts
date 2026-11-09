@@ -79,6 +79,14 @@ describe('redactText: split and nested', () => {
         expect(text).not.toContain(ANTHROPIC.slice(half))
         expect(text).not.toContain(ANTHROPIC.slice(0, half))
     })
+    it('removes a key split with a newline escaped twice (JSON inside a JSON string)', () => {
+        const half = ANTHROPIC.length >> 1
+        const inner = JSON.stringify({ code: `x = \"${ANTHROPIC.slice(0, half)}\\n${ANTHROPIC.slice(half)}\"` })
+        const { text } = run(JSON.stringify({ message: inner }))
+        expect(text).not.toContain(ANTHROPIC.slice(half))
+        expect(text).not.toContain(ANTHROPIC.slice(0, half))
+        expect(() => JSON.parse(text)).not.toThrow()
+    })
     it('removes a key inside a JSON string of a tool result', () => {
         const result = JSON.stringify({ stdout: JSON.stringify({ password: 'hunter2xyz', k: OPENAI }) })
         const { text } = run(result)

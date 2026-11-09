@@ -88,9 +88,9 @@ export function SnapshotView({ snapshot, banner }: { snapshot: Snapshot; banner?
                 </p>
                 {banner && <Notice tone="info" title={banner} />}
             </header>
-            <main className="flex flex-1 flex-col gap-20 px-24 py-20">
+            <main className="flex min-w-0 flex-1 flex-col gap-20 px-24 py-20">
                 {snapshot.turns.map((turn) => (
-                    <section key={turn.id} className="flex flex-col gap-8" aria-label={turn.role === 'person' ? 'Person' : agent}>
+                    <section key={turn.id} className="flex min-w-0 flex-col gap-8" aria-label={turn.role === 'person' ? 'Person' : agent}>
                         <p className="type-ui-medium text-muted">{turn.role === 'person' ? 'Person' : agent}</p>
                         {turn.parts.map((part, i) => (
                             <PartView key={i} part={part} snapshot={snapshot} files={files} />

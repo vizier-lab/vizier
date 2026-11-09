@@ -23,7 +23,8 @@ export function outsideData(text: string, fn: (part: string) => string): string 
     return out + fn(text.slice(last))
 }
 
-const BR = String.raw`(?:\r?\n|\\(?:r\\)?n)`
+// A line break: a real one, or an escaped one (`\n`), or one escaped twice when JSON sits inside a JSON string (`\\n`).
+const BR = String.raw`(?:\r?\n|\\+(?:r\\+)?n)`
 const WORD = '[A-Za-z0-9_-]'
 const NOT_BEFORE = String.raw`(?<![A-Za-z0-9_-])`
 const NOT_AFTER = String.raw`(?![A-Za-z0-9_-])`

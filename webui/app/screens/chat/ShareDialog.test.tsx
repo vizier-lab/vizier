@@ -44,6 +44,8 @@ describe('the dialog text', () => {
         expect(createFailure(new ShareError('too_large', 'Too big'))).toBe('Too big')
         expect(createFailure(new ApiError(429, 'rate_limited', 'x'))).toMatch(/Too many/)
         expect(createFailure(new ApiError(403, 'forbidden', 'x'))).toMatch(/not allowed/)
+        expect(createFailure(new ApiError(503, 'unavailable', 'Service Unavailable'))).toMatch(/Nothing was shared/)
+        expect(createFailure(new ApiError(413, 'too_large', 'x'))).toMatch(/too large/)
         expect(createFailure('weird')).toMatch(/could not be created/)
     })
 })

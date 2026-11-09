@@ -37,10 +37,13 @@ const keepUrl = (url: string) => url
 
 export function ViewerMarkdown({ children }: { children: string }) {
     return (
-        <Prose size="reply">
-            <ReactMarkdown remarkPlugins={PLUGINS} rehypePlugins={REHYPE} components={components} urlTransform={keepUrl}>
-                {children}
-            </ReactMarkdown>
-        </Prose>
+        // A very long unbroken word (a 100 KB line, a hash, a URL) wraps instead of widening the page (TP-14).
+        <div className="min-w-0 max-w-full [overflow-wrap:anywhere]">
+            <Prose size="reply">
+                <ReactMarkdown remarkPlugins={PLUGINS} rehypePlugins={REHYPE} components={components} urlTransform={keepUrl}>
+                    {children}
+                </ReactMarkdown>
+            </Prose>
+        </div>
     )
 }
