@@ -1629,6 +1629,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/shares": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/shares/{share_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["read"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/status": {
         parameters: {
             query?: never;
@@ -2300,6 +2332,21 @@ export interface components {
             /** Format: int32 */
             status: number;
         };
+        APIResponse_CreatedShare: {
+            data?: {
+                /**
+                 * Format: int64
+                 * @description Unix milliseconds.
+                 */
+                created_at: number;
+                share_id: string;
+                /** @description `/share/<id>`, relative to the instance's address. */
+                url_path: string;
+            };
+            message?: string | null;
+            /** Format: int32 */
+            status: number;
+        };
         APIResponse_CustomProviderResponse: {
             /** @description A custom provider without its secrets. */
             data?: {
@@ -2870,6 +2917,24 @@ export interface components {
             /** @description The answer of `GET /api/v1/utils/setup-state`. */
             data?: {
                 setups: components["schemas"]["SetupState"][];
+            };
+            message?: string | null;
+            /** Format: int32 */
+            status: number;
+        };
+        APIResponse_ShareView: {
+            /** @description A share as `GET /shares/{id}` returns it. No field depends on who asks. */
+            data?: {
+                audience: components["schemas"]["Audience"];
+                /** Format: int64 */
+                created_at: number;
+                /** Format: int64 */
+                format_version: number;
+                include_trail: boolean;
+                share_id: string;
+                /** @description The stored document, as stored. */
+                snapshot: Record<string, never>;
+                title: string;
             };
             message?: string | null;
             /** Format: int32 */
@@ -3958,6 +4023,14 @@ export interface components {
         AttachmentBody: {
             attached: boolean;
         };
+        /**
+         * @description Who may open a share. Fixed at creation (there is no update).
+         *
+         *     Nothing outside [`Audience::allows`] and [`Audience::cache_policy`] branches on the variant
+         *     (constitution II); the name used on the wire and in storage comes from one table.
+         * @enum {string}
+         */
+        Audience: "specific" | "signed_in" | "public";
         AuthorView: {
             /** @description An agent that was deleted since reads `false`; its messages stay. */
             available: boolean;
@@ -4431,6 +4504,21 @@ export interface components {
             title: string;
             topic: string;
         };
+        /** @description Documentation twin of the `POST /shares` body (the service reads the raw bytes itself). */
+        CreateShareRequest: {
+            agent_id: string;
+            audience: components["schemas"]["Audience"];
+            include_trail?: boolean;
+            /** @description Required (1 to 50 existing people) when the audience is `specific`; absent otherwise. */
+            people?: string[] | null;
+            /** @description Counts by kind of what was left out (`credentials`, `paths`, `recall`, `reasoning`, `media`). */
+            removals?: Record<string, never> | null;
+            /** @description The document of `contracts/snapshot-format.md`, format version 1. */
+            snapshot: Record<string, never>;
+            /** @description At most 120 characters. */
+            title: string;
+            topic_id: string;
+        };
         CreateTaskRequest: {
             instruction: string;
             /** @description Whether the task is switched on. Omitted means on, which is what both routes always did. */
@@ -4456,6 +4544,16 @@ export interface components {
             channel_id: string;
             topic: string;
             worktree: components["schemas"]["WorktreeSummary"];
+        };
+        CreatedShare: {
+            /**
+             * Format: int64
+             * @description Unix milliseconds.
+             */
+            created_at: number;
+            share_id: string;
+            /** @description `/share/<id>`, relative to the instance's address. */
+            url_path: string;
         };
         /**
          * @description A credential field a provider's connect form asks for.
@@ -6126,6 +6224,19 @@ export interface components {
         /** @description The answer of `GET /api/v1/utils/setup-state`. */
         SetupStates: {
             setups: components["schemas"]["SetupState"][];
+        };
+        /** @description A share as `GET /shares/{id}` returns it. No field depends on who asks. */
+        ShareView: {
+            audience: components["schemas"]["Audience"];
+            /** Format: int64 */
+            created_at: number;
+            /** Format: int64 */
+            format_version: number;
+            include_trail: boolean;
+            share_id: string;
+            /** @description The stored document, as stored. */
+            snapshot: Record<string, never>;
+            title: string;
         };
         ShellConfig: (components["schemas"]["DockerShellConfig"] & {
             /** @enum {string} */
@@ -12263,6 +12374,123 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["APIResponse_TestResult"];
                 };
+            };
+        };
+    };
+    create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateShareRequest"];
+            };
+        };
+        responses: {
+            /** @description Created. The link is `url_path` on this instance */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_CreatedShare"];
+                };
+            };
+            /** @description Invalid shape, format version, title or people */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Missing or invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Needs `owned_agents:share_conversations` for an agent the caller owns, or `all_agents:share_conversations` */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The body is over 5 MiB */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description `trail_mismatch`: `include_trail` is false but the document holds trail parts */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description 10 creates an hour (with `retry_after_secs`), or 200 active shares */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Storage is unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    read: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 21 URL-safe characters */
+                share_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The snapshot. Public shares: `Cache-Control: public, max-age=300, s-maxage=300` and `ETag`; others `private, no-store` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_ShareView"];
+                };
+            };
+            /** @description `If-None-Match` matches a public share */
+            304: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description `sign_in_required`: no session, and the share is not an active public one (or does not exist; the same body) */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description `share_unavailable`: signed in, and the share is unknown, revoked, or not for this person (one body) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
