@@ -32,6 +32,17 @@ Spec = **apa yang benar**. DoD = **bagaimana dibuktikan**. `specs/**`: Lead bole
 - Muncul di **3 task** -> **wajib diputuskan** dalam satu siklus spec: naik jadi `FR` atau **dicabut**. Tidak ada `[DOD+]` abadi.
 - Promosi yang menyentuh perilaku/scope tetap lewat **ACC kang** (draft `@system-analyst`, diajukan `@bro-pm`).
 
+
+## Jalur task per agen
+- **`@sepuh-be` (kode)**: task dari Lead, dengan DoD tertulis.
+- **`@teteh-qa` dan `@teteh-desener`**: task dari Lead, DoD + acceptance criteria dari spec. Bukan dari PM.
+- **`@system-analyst` (spec/analisa)**: task **dari `@bro-pm`**, bukan dari Lead — karena outputnya *mendahului* implementasi. Kalau spec datang dari Lead, penulis hulu dan konsumen hilir jadi satu orang, dan independensi spec hilang di titik itu. Batasnya tiga:
+  - yang dikirim PM adalah artefak yang mendahului implementasi (requirement, SRS/FRD, analisa, spec, Notion);
+  - perubahan spec karena temuan hilir (C-13/C-14 di 055, qa-plan yang menemukan requirement kurang) masuk **lewat Lead** — pemicunya di hilir, jadi pintu masuknya di hilir;
+  - SA **tidak** menerima task kode atau brief ber-DoD kode.
+- Tanda tangan SA bukan tiga: approval User di Gate 1 + pernyataan Lead bahwa spec cukup dipecah jadi task.
+- Larangan "PM tidak pernah mengirim task ke implementer" tidak berubah.
+
 ## Gate: satu gerbang, tiga tanda tangan
 Tidak ada gate terpisah per disiplin. Satu status `gate`, tiga syarat, satu kebenaran.
 
@@ -68,6 +79,7 @@ tripwire: task 1-3 | diblokir-spec: 0/3 | tanpa-spec: 0/5
 ```
 Kalau **2 dari 3** task diblokir "spec belum siap", atau **>2 dari 5** baris pakai `tanpa-spec`, aturan dibawa ke `@bro-pm`/kang untuk direvisi — bukan dilonggarkan sendiri.
 
+
 ## Format baris
 `ID . judul . status . pemilik . sejak . R: <FR-### | tanpa-spec:<alasan>> . diblokir oleh`
 
@@ -75,4 +87,22 @@ Kalau **2 dari 3** task diblokir "spec belum siap", atau **>2 dari 5** baris pak
 
 | ID | Judul | Status | Pemilik | Sejak | R: | Diblokir oleh |
 |---|---|---|---|---|---|---|
-| `AQ-001` | Rekonsiliasi checkbox `specs/055-live-voice/tasks.md` dengan riwayat git (label `docs`) | `aktif` | Lead | 9 Nov 2026 20:45 WIB | `tanpa-spec:docs` — allowlist `specs/**` | - |
+| `AQ-001` | Rekonsiliasi checkbox `specs/055-live-voice/tasks.md` dengan riwayat git (label `docs`) | `siap-kirim` | Lead | 9 Nov 2026 20:45 WIB | `tanpa-spec:docs` — allowlist `specs/**` | - |
+
+## Tanda tangan — AQ-001
+
+| Tanda tangan | Pemilik | Status | Bukti |
+|---|---|---|---|
+| Teknis | Lead | ✅ 9 Nov 2026 | di bawah |
+| Perilaku vs spec | `@teteh-qa` | N/A | `qa-plan: N/A - no behavior change` (label `docs`, tidak menyentuh kode) |
+| Visual vs handoff | `@teteh-desener` | N/A | label `docs`, bukan `ui` |
+
+**Bukti teknis** (perintah → keluaran, dijalankan 9 Nov 2026 sebelum commit):
+- `grep -cE '^- \[[ x]\] T[0-9]{3}' specs/055-live-voice/tasks.md` → `110` sebelum **dan** sesudah: tidak ada task ditambah atau dihapus, hanya status yang berubah.
+- `grep -c '^- \[ \] T' …` → `101` → **`46`**; `grep -c '^- \[x\] T' …` → `9` → **`64`**.
+- `grep -c 'app/screens/livevoice/' specs/055-live-voice/tasks.md` → `6` → **`0`** (barisnya ada di `webui/app/screens/chat/LiveVoiceRow.tsx`, bukan `screens/livevoice/`).
+- Commit: **`aa27590e`**, path-scoped ke `specs/055-live-voice/tasks.md` saja.
+
+**Batas yang harus dibaca sebelum mengutip angka 64**: 55 centang baru hanya membuktikan **kode ada di HEAD** (`git grep … HEAD -- <file>`) dan menyebut commit yang memperkenalkannya. **Tidak ada tes yang dijalankan** di rekonsiliasi ini. Karena itu dua penanda dibedakan di kepala `tasks.md`: `Landed … gate passed` (gate dijalankan) vs `In the tree … not gated in AQ-001` (hanya keberadaan). Gate tetap tanda tangan QA.
+
+**46 yang sengaja masih `[ ]`**: fixture VAD (T004), baseline (T006), indikator FR-042 e2e (T039), mount (T040, T089), saklar per-agen (T041), counter backlog (T042), ducking & burst pendek (T047, T048), e2e barge-in/interrupt (T049, T056), seluruh backlog interrupt (T051–T057), siklus & penolakan koneksi kedua (T061–T065), tes kegagalan server (T066), superseded (T093), registri & alasan tertinggal (T095–T097), instrumentasi server (T077), dan seluruh gerbang rilis (T078–T088) serta fase kunci pihak ketiga (T100–T110).
