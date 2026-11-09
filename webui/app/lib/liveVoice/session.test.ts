@@ -389,3 +389,182 @@ describe('T042 — a refused frame is not an ending', () => {
         expect(h.last().state).toBe('ended')
     })
 })
+/** The order of the two things T045 is about: the audio stopping, and the frame leaving. */
+function ordered(options: { sendReturns?: (frame: object) => boolean } = {}) {
+    const log: string[] = []
+    const sent: object[] = []
+    const views: LiveVoiceView[] = []
+    let capture: {
+        onChunk(samples: Int16Array): void
+        onWindow(samples: Float32Array): void
+        onLost(reason: string): void
+    } | null = null
+    const player = new SilentPlayer()
+    const stop = player.stop.bind(player)
+    player.stop = () => {
+        stop()
+        log.push('stop')
+    }
+    const client = new LiveVoiceClient({
+        send: (frame) => {
+            sent.push(frame)
+            const key = Object.keys(frame)[0] ?? 'unknown'
+            log.push(key)
+            return options.sendReturns ? options.sendReturns(frame) : true
+        },
+        player,
+        openCapture: async (callbacks) => {
+            capture = callbacks
+            return { stop: () => {}, open: true }
+        },
+        onView: (view) => views.push(view),
+        now: () => 1000,
+    })
+    const voice = (ms: number) => {
+        const window = new Float32Array(320)
+        for (let i = 0; i < window.length; i++) window[i] = i % 2 === 0 ? 0.2 : -0.2
+        for (let elapsed = 0; elapsed < ms; elapsed += 20) capture?.onWindow(window)
+    }
+    const silence = (ms: number) => {
+        const window = new Float32Array(320)
+        for (let elapsed = 0; elapsed < ms; elapsed += 20) capture?.onWindow(window)
+    }
+    /** One 100 ms chunk of audio, as the capture emits alongside the analysis windows. */
+    const chunk = () => capture?.onChunk(new Int16Array(1600))
+    return { client, log, sent, player, voice, silence, chunk, views }
+}
+
+/** One segment, so the session believes a reply is audible. */
+const audible = {
+    live_voice: {
+        type: 'speech' as const,
+        generation: 1,
+        seq: 0,
+        sample_rate: 16000,
+        format: 'pcm16',
+        base64: 'AAECAw==',
+        final: false,
+    },
+}
+
+describe('T045 — the interruption lands at the end of the utterance (C8)', () => {
+    it('keeps the reply playing while the person speaks', async () => {
+        const h = ordered()
+        await h.client.start()
+        h.client.onFrame(audible)
+        expect(h.client.currentState).toBe('speaking')
+
+        const before = h.player.stopped
+        h.voice(400)
+        h.chunk()
+        // The reply is still audible: nothing stopped it, and no interruption was announced.
+        expect(h.player.stopped, 'the agent keeps talking while the person talks').toBe(before)
+        expect(h.log).not.toContain('live_voice_interrupt')
+        expect(h.client.currentState).toBe('speaking')
+        // The words are already being captured, which is what makes the later cut possible.
+        expect(h.log).toContain('live_voice_speech_start')
+        expect(h.log).toContain('live_voice_audio')
+    })
+
+    it('stops the audio at the end of the utterance, then sends the frame in that tick', async () => {
+        const h = ordered()
+        await h.client.start()
+        h.client.onFrame(audible)
+        h.voice(400)
+        h.log.length = 0
+
+        h.silence(900)
+
+        const stopAt = h.log.indexOf('stop')
+        const endAt = h.log.indexOf('live_voice_utterance_end')
+        expect(stopAt, 'the audio stops when the person finishes').toBeGreaterThanOrEqual(0)
+        expect(endAt, 'the utterance end is sent on that tick').toBeGreaterThanOrEqual(0)
+        expect(stopAt, 'silence is felt before the round trip, not after').toBeLessThan(endAt)
+        // Nothing else was said on that tick: no interrupt frame, no second speech_start.
+        expect(h.log).not.toContain('live_voice_interrupt')
+        expect(h.player.playing).toBe(false)
+    })
+
+    it('sends speech_start once per utterance, and utterance_end once', async () => {
+        const h = ordered()
+        await h.client.start()
+        h.voice(400)
+        h.silence(900)
+        h.voice(400)
+        h.silence(900)
+        expect(h.log.filter((entry) => entry === 'live_voice_speech_start')).toHaveLength(2)
+        expect(h.log.filter((entry) => entry === 'live_voice_utterance_end')).toHaveLength(2)
+    })
+
+    it('a burst too short to be a word still ends the utterance without cancelling nothing', async () => {
+        const h = ordered()
+        await h.client.start()
+        h.client.onFrame(audible)
+        // 100 ms of voice, then silence: the server decides too-short (FR-024); the client's job
+        // is only to close the utterance and stop the reply it was talking over.
+        h.voice(100)
+        h.silence(900)
+        expect(h.log).toContain('live_voice_utterance_end')
+    })
+
+    it('the frame order is unchanged: chunks, then the end', async () => {
+        const h = ordered()
+        await h.client.start()
+        h.voice(400)
+        h.chunk()
+        h.chunk()
+        h.silence(900)
+        const kinds = h.log.filter((entry) => entry.startsWith('live_voice_'))
+        const lastAudio = kinds.lastIndexOf('live_voice_audio')
+        const end = kinds.indexOf('live_voice_utterance_end')
+        expect(lastAudio).toBeGreaterThanOrEqual(0)
+        expect(end).toBeGreaterThan(lastAudio)
+    })
+})
+
+describe('T045 — a silenced reply cannot come back to life', () => {
+    it('refuses a late segment of the generation it just cut, and opens for the next one', async () => {
+        const h = ordered()
+        await h.client.start()
+        h.client.onFrame(audible) // generation 1 is audible
+        expect(h.client.currentState).toBe('speaking')
+        const queuedBefore = h.player.queued
+
+        // The person speaks, then finishes: the audio stops on that tick.
+        h.voice(400)
+        h.chunk()
+        h.silence(900)
+        expect(h.player.stopped).toBeGreaterThan(0)
+
+        // Segments of that same reply are still in flight. Arriving now, they must not restart it.
+        h.client.onFrame(audible)
+        h.client.onFrame({ live_voice: { ...audible.live_voice, seq: 1 } })
+        expect(h.player.queued, 'a cut reply stays cut').toBe(queuedBefore)
+        expect(h.player.playing, 'nothing is playing again').toBe(false)
+        expect(h.client.currentState).not.toBe('speaking')
+
+        // A newer generation is a new reply: the silence does not carry over to it.
+        h.client.onFrame({
+            live_voice: { type: 'state', state: 'listening', generation: 2 },
+        })
+        h.client.onFrame({ live_voice: { ...audible.live_voice, generation: 2 } })
+        expect(h.player.playing, 'the next reply is heard').toBe(true)
+        expect(h.client.currentState).toBe('speaking')
+    })
+
+    it('a reconnect never leaves the session muted', async () => {
+        const h = ordered()
+        await h.client.start()
+        h.client.onFrame(audible)
+        h.voice(400)
+        h.silence(900)
+        expect(h.player.playing).toBe(false)
+
+        h.client.onSocketState('reconnecting')
+        h.client.onSocketState('open')
+        // Same generation as the one that was muted, and it is heard: the lane is new, and a
+        // reconnect that stayed silent would look like a dead session.
+        h.client.onFrame(audible)
+        expect(h.player.playing, 'a reconnected session still speaks').toBe(true)
+    })
+})

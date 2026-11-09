@@ -92,10 +92,22 @@ export class LiveVoiceClient {
     private generation = 0
     /** When this turn was accepted: the elapsed counter starts here, per turn (FR-042). */
     private thinkingStartedAt = 0
-    /** Whether a reply is audible: what raises the gate and arms the barge-in (FR-019, FR-026). */
+    /**
+     * Whether a reply is audible. It raises the VAD's gate so the agent does not hear itself
+     * (FR-026), and its end is what the end of the utterance silences (C8): the reply keeps
+     * playing while the person speaks.
+     */
     private replyAudible = false
-    /** Set once a barge-in or button stop has silenced the current reply, so it is sent once. */
-    private bargedIn = false
+    /**
+     * The generation whose reply has been silenced on this side, or -1.
+     *
+     * Stopping the player is local and instant; the segments of the same reply are still in
+     * flight and would be queued again a moment later, so the reply would come back to life
+     * after being cut. Anything at or below this generation is refused on arrival. It is cleared
+     * when a newer generation arrives or the socket reopens, so a reconnect can never leave the
+     * session permanently mute.
+     */
+    private mutedGeneration = -1
     private tick: ReturnType<typeof setInterval> | null = null
 
     constructor(private readonly deps: LiveVoiceDeps) {}
@@ -157,7 +169,11 @@ export class LiveVoiceClient {
             case 'state': {
                 // A stale generation is a segment of a reply that was already interrupted.
                 if (frame.generation && frame.generation < this.generation) return
-                this.generation = frame.generation || this.generation
+                const arrived = frame.generation || this.generation
+                // A newer generation is a new reply: the silence that covered the old one no
+                // longer applies to it.
+                if (arrived > this.mutedGeneration) this.mutedGeneration = -1
+                this.generation = arrived
                 this.applyState(frame.state, frame.reason ?? undefined)
                 break
             }
@@ -178,10 +194,12 @@ export class LiveVoiceClient {
                 this.render()
                 break
             case 'speech': {
+                // A segment of a reply that was already silenced: the queue would start it again
+                // a moment after the person cut in.
+                if (frame.generation <= this.mutedGeneration) return
                 if (frame.generation < this.generation) return
                 this.generation = frame.generation
                 this.replyAudible = true
-                this.bargedIn = false
                 this.deps.player.enqueue(decodePcm16Base64(frame.base64), frame.sample_rate, frame.final)
                 if (this.state !== 'speaking') this.move('speaking')
                 if (frame.final) {
@@ -202,6 +220,8 @@ export class LiveVoiceClient {
         if (this.state === 'off' || this.state === 'ended' || this.state === 'failed') return
         if (state === 'open') {
             if (this.state === 'reconnecting') {
+                // A reconnect starts a fresh lane: nothing may stay muted from the old one.
+                this.mutedGeneration = -1
                 this.move('listening')
                 // An idempotent start re-binds the server's lane to this new socket, which is what
                 // keeps the session from going silent after a reconnect (T067).
@@ -232,22 +252,23 @@ export class LiveVoiceClient {
         if (this.state === 'off' || this.state === 'ended' || this.state === 'failed') return
         const decision = this.vad.push(samples, this.replyAudible)
         this.view.level = 0
-        if (decision.bargeIn && this.replyAudible && !this.bargedIn) {
-            // Barge-in: silence the audio on this tick, then tell the server (FR-019, SC-002).
-            this.bargedIn = true
-            this.stopAudio()
-            this.deps.send(speechStartFrame(`u-${this.utteranceId + 1}`))
-            this.move('listening')
-            return
-        }
+        // The start of speech interrupts nothing (C8): while the person talks the reply keeps
+        // playing, and the only thing a voiced window does is open the utterance the following
+        // chunks belong to.
         if (!this.utteranceId && decision.voiced) {
-            // The person started speaking: open the utterance the next chunk belongs to.
             this.utteranceId += 1
             this.seq = 0
             this.deps.send(speechStartFrame(`u-${this.utteranceId}`))
         }
         if (decision.utteranceEnd) {
+            // The end of the utterance is the interruption, and it has to be felt on this tick:
+            // the audio stops locally *before* the frame leaves, so the person hears silence
+            // immediately rather than after a round trip (FR-019, SC-002). The server then
+            // cancels the turn and answers with the state word.
+            this.stopAudio()
             if (this.utteranceId) this.deps.send(utteranceEndFrame(`u-${this.utteranceId}`))
+            // The same tick: the person hears silence now, not after the server answers.
+            if (this.state === 'speaking' || this.state === 'waiting') this.move('listening')
             this.utteranceId = 0
             this.seq = 0
             this.vad.resetUtterance()
@@ -257,6 +278,8 @@ export class LiveVoiceClient {
     private stopAudio(): void {
         this.deps.player.stop()
         this.replyAudible = false
+        // Segments of this reply are still on their way; they must not restart it.
+        this.mutedGeneration = this.generation
     }
 
     private release(): void {
