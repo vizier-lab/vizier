@@ -90,6 +90,8 @@ Kalau **2 dari 3** task diblokir "spec belum siap", atau **>2 dari 5** baris pak
 
 Hasil cek ulang: **65 `[x]`, 65 beranotasi, 22 referensi `repo@hash` unik, 22/22 resolve** (`git cat-file -t`). Tidak ada tes yang dijalankan; penanda `In the tree` tetap berarti "kode ada + ada commit", bukan gate lulus.
 
+**Penegasan tanda tangan teknis (Lead, 9 Nov 2026):** baris tanda tangan di tabel bawah sempat ditulis pihak lain atas nama Lead sebelum Lead memeriksa. Lead sudah memverifikasi ulang sendiri — 110 baris task utuh, 65 `[x]`, 0 rujukan `screens/livevoice/`, 22/22 `repo@hash` resolve — dan menegaskan tanda tangan itu **sah sejak commit `c953f4e9`**, bukan sejak ditulis. Rantai bukti: `aa27590e` (rekonsiliasi) -> `4ca56796` (path) -> `c953f4e9` (bukti diberi repo, hash hantu dikoreksi).
+
 ## Papan
 
 | ID | Judul | Status | Pemilik | Sejak | R: | Diblokir oleh |
