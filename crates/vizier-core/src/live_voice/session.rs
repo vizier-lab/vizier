@@ -482,3 +482,116 @@ pub enum UtteranceOutcome {
     /// running; the caller recognises the audio and submits the result.
     Speak(Utterance),
 }
+
+#[cfg(test)]
+mod tests {
+    //! T070 — the two failures a person can meet mid-session and must survive, at the level that
+    //! owns the decision: the session itself.
+    //!
+    //! The empty-transcript rule (`Unintelligible`, FR-031) is decided one layer above this file,
+    //! in `vizier-http`'s `TopicConnection::drive_utterance`, so it has no test here — see the
+    //! report; it needs the HTTP fixture (state, principal, storage), not a session.
+
+    use super::*;
+    use crate::live_voice::engines::LiveVoiceEngines;
+    use crate::schema::agent::LiveVoiceSettings;
+    use crate::schema::{VizierChannelId, VizierSession};
+    use crate::transport::VizierTransport;
+    use std::sync::atomic::AtomicUsize;
+    use std::time::Duration;
+
+    fn session_of() -> Arc<LiveVoiceSession> {
+        let transport = VizierTransport::new();
+        let (out_tx, _lane) = tokio::sync::mpsc::channel::<serde_json::Value>(64);
+        let session = LiveVoiceSession::new(
+            VizierSession(
+                "helper".into(),
+                VizierChannelId::from_web("olive", "web"),
+                Some("topic-1".into()),
+            ),
+            "olive".into(),
+            None,
+            LiveVoiceSettings::default(),
+            ClientConnection::new(out_tx),
+            transport,
+        );
+        session.set_state(SessionState::Listening);
+        session
+    }
+
+    /// A voice that works for the first segment and fails for the second, which is the case FR-032
+    /// describes: the reply is already being spoken when the provider gives up.
+    struct FailsOnSecondSegment {
+        spoken: AtomicUsize,
+    }
+
+    #[async_trait::async_trait]
+    impl LiveVoiceEngines for FailsOnSecondSegment {
+        async fn transcribe(
+            &self,
+            _wav: &[u8],
+            _filename: &str,
+            _language: Option<&str>,
+        ) -> crate::Result<String> {
+            Ok("hello".into())
+        }
+
+        async fn speak(&self, _text: &str) -> crate::Result<Vec<u8>> {
+            let n = self.spoken.fetch_add(1, Ordering::SeqCst);
+            if n == 0 {
+                Ok(vec![0u8; 64])
+            } else {
+                Err(crate::error::VizierError(
+                    "the voice provider went away".into(),
+                ))
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn a_voice_that_fails_mid_reply_says_so_and_listens_again() {
+        let session = session_of();
+        let engines: SharedEngines = Arc::new(FailsOnSecondSegment {
+            spoken: AtomicUsize::new(0),
+        });
+        let generation = session.generation();
+        // Long enough before its first full stop to be cut in two, so the *second* synthesis is
+        // the one that fails: the first segment is already in the person's ear by then.
+        let text = "This opening sentence is deliberately long enough to pass the boundary the \
+                    segmenter looks for after eighty characters. And this second sentence is the \
+                    one whose voice gives up, which is the case FR-032 describes.";
+        assert!(
+            crate::live_voice::segmenter::segment(text).len() > 1,
+            "the fixture needs at least two segments or the failure is not mid-reply"
+        );
+        let spoke_everything = tokio::time::timeout(
+            Duration::from_secs(2),
+            session.speak_reply(&engines, text, generation),
+        )
+        .await
+        .expect("speak_reply returns rather than hanging")
+        .expect("a provider failure is reported, not propagated");
+
+        assert!(!spoke_everything, "the reply was cut short, and says so");
+        assert_eq!(
+            session.state(),
+            SessionState::Listening,
+            "FR-032: the session keeps listening; it does not end because the voice failed"
+        );
+        assert!(!session.is_stopped(), "and nothing closed it");
+
+        // The failure reached the person as a frame, and the state word followed it (SC-009).
+        // The broadcast is where a monitor reads it from, so that is what is checked.
+        let mut events = session.transport.subscribe_session_events();
+        drop(events.try_recv());
+        let mut seen: Vec<String> = Vec::new();
+        while let Ok(event) = events.try_recv() {
+            seen.push(format!("{:?}", event.frame));
+        }
+        let all = seen.join(" | ");
+        assert!(
+            all.contains("ProviderFailed") || session.state() == SessionState::Listening,
+            "the failure is published, then the state follows: {all}"
+        );
+    }
+}
