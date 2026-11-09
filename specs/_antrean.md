@@ -84,6 +84,24 @@ Satu perintah di repo — kode ditulis `@sepuh-be`, pemilik semantik `@system-an
 
 - **Usul `@system-analyst` (9 Nov 2026, belum ACC):** output juga menyebut `hidup-tanpa-pembawa` (FR terdefinisi yang tidak dirujuk task mana pun) dan `deferred-yang-masih-dirujuk-qa-plan`. Alasannya: perintah yang hanya memeriksa satu arah bisa keluar bersih sementara sebuah requirement hidup tanpa pelaksana — gate hijau untuk sesuatu yang tidak akan dibangun.
 
+
+## Skill `speckit*` wajib (perintah User, 9 Nov 2026 20:57 — penegasan kedua)
+
+Vizier memakai alur spec-driven: `spec.md`, `plan.md`, `tasks.md` bukan dokumen lepas, melainkan **artefak skill**. Karena itu tiap task vizier menyebut skill yang dipakai dan artefak yang dihasilkannya — di baris task atau di brief, bukan di kepala orang.
+
+| Artefak | Skill | Pemilik |
+|---|---|---|
+| `spec.md` (FR, acceptance criteria) | `speckit-specify`, `speckit-clarify` | `@system-analyst` |
+| `plan.md`, `research.md`, `data-model.md`, `contracts/` | `speckit-plan` | Lead |
+| `tasks.md` | `speckit-tasks` | Lead |
+| audit konsistensi spec/plan/tasks | `speckit-analyze` | `@teteh-qa` (dipanggil Lead) |
+| daftar periksa mutu per requirement | `speckit-checklist` | `@teteh-qa` |
+| commit yang mengikuti konvensi repo | `speckit-git-commit` | yang commit |
+
+- Letak skill di repo ini: `.agents/skills/speckit-*` dan `.claude/skills/speckit-*` — **14 skill `speckit*`**, dua direktori identik (diverifikasi 9 Nov 2026 21:23 WIB).
+- Aturan praktis: **jangan** mengganti alat dengan kerja manual yang diulang tiap ronde. Cacat penomoran di `tasks.md` (88 / 110 / 97 di tiga sumber) adalah **cacat artefak**, dan alat untuk itu `speckit-analyze` — bukan `grep` manual yang hasilnya harus dipercaya ulang setiap kali.
+- `AQ-001` sendiri dikerjakan **sebagian** dengan cara manual (`grep`/`git grep`) sebelum aturan ini ditegaskan. Itu dicatat sebagai kekurangan baris ini, bukan dicetak sebagai preseden: rekonsiliasi berikutnya wajib lewat `speckit-analyze` dan melampirkan keluarannya.
+
 ## Format baris
 `ID . judul . status . pemilik . sejak . R: <FR-### | tanpa-spec:<alasan>> . diblokir oleh`
 
