@@ -7,9 +7,13 @@ All frames travel on the socket the conversation already uses
 text. No new endpoint, no new authentication, no binary frames (they are dropped today,
 `channel.rs:818`).
 
-**Provisional in one respect only**: the sound may stop travelling on this socket if Q11 lands on a
-media transport. Every *frame* below other than the audio ones is unaffected by that, and the
-transport-agnostic obligations a third party owes us are collected in two sections at the end.
+**Provisional in one respect only — the carrier.** The sound's carrier is one of two values, and it is
+the only thing Q11 can change: **`ws-json-pcm16`** (today: base64 PCM16 on this socket) or
+**`media-track`** (a peer connection, if Q11 picks it). Every *frame* below other than the audio ones is
+unaffected by that choice, and the transport-agnostic obligations a third party owes us are collected in
+two sections at the end. **Two rules hold under either carrier and are not provisional:** an audio
+description this document publishes **MUST** be accepted, and audio in a description it does not publish
+**MUST** be refused — never guessed at, never silently converted.
 
 **Compatibility rule**: every server frame carries a distinct top-level key, `live_voice`, so a client
 that does not know it ignores it (`webui/app/api/frames.ts:607-630`). With `provider-live-voice` off,
@@ -275,8 +279,9 @@ description, an authentication rule, and a list of surfaces that are ours. Every
 implementation.
 
 **Provisional does not mean vague.** The lifecycle, the description and the authentication are fixed
-now and will not change with the transport. Only **one column** below — the carrier — moves if the
-sound leaves the socket. A client that implements this section against today's carrier keeps working
+now and will not change with the transport. Only **one column** below — the carrier, `ws-json-pcm16`
+or `media-track` — moves if the sound leaves the socket. A client that implements this section against
+today's carrier keeps working
 against tomorrow's if the frames' *meaning* is unchanged, and that is exactly what the column marks.
 
 ### The lifecycle, as a client sees it
@@ -284,9 +289,9 @@ against tomorrow's if the frames' *meaning* is unchanged, and that is exactly wh
 | Step | Client sends | Server answers | Carrier |
 |---|---|---|---|
 | begin | `live_voice_start` — conversation, agent, and the audio description it will send | `state: connecting`, then `listening`; or `error` with a reason | socket |
-| send sound | audio in the description it declared | nothing per frame (the socket's order is enough) | **socket today** (`live_voice_audio`, 100 ms chunks); a media path would declare `opus`/`media-track` and set up a peer instead |
+| send sound | audio in the description it declared | nothing per frame (the socket's order is enough) | **carrier** — `ws-json-pcm16` today (`live_voice_audio`, 100 ms chunks), or `media-track` with `opus` and a peer connection if Q11 picks it |
 | close an utterance | `live_voice_utterance_end` — `utterance_id` | `live_voice_transcript`, or an error (`too_short`, `unintelligible`) | socket |
-| receive the reply | — | the reply **text** in the conversation, and audio per segment | text: socket, always; sound: the same carrier the client sends on |
+| receive the reply | — | the reply **text** in the conversation, and audio per segment | text: socket, always; sound: the same carrier the client sends on — one carrier per session, never mixed |
 | interrupt by speaking | **nothing extra** — the end of an utterance while a reply is audible | `state: interrupted`, a new `generation`, the rest of the reply discarded | socket |
 | end | `live_voice_stop` | `state: ended` with a reason | socket |
 | move | `live_voice_start` for another conversation or agent | the old session `ended` with reason `moved`, the new one starting | socket |
