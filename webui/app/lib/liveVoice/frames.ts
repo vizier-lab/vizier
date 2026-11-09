@@ -44,6 +44,7 @@ export type EndReason =
     | 'unsupported_audio'
     | 'key_revoked'
     | 'key_expired'
+    | 'moved'
 
 /** A control frame: the only family that arrives on the session socket's broadcast. */
 export type ControlFrame =

@@ -558,6 +558,11 @@ export function humanReason(reason: EndReason): string {
             return 'the API key for this call was revoked'
         case 'key_expired':
             return 'the API key for this call expired'
+        case 'moved':
+            // T096: the person started a call somewhere else. One session is all they may
+            // have, so this one ended — and the sentence has to say that, or it reads like
+            // a failure they did not cause.
+            return 'this call moved to another conversation'
         case 'unsupported_audio':
             // T102: the client asked for audio this release does not carry. It must not read
             // as a provider failure, or a person goes looking at credentials for a format bug.

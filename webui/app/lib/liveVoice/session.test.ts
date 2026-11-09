@@ -193,6 +193,7 @@ describe('the reason wording', () => {
             'unsupported_audio',
             'key_revoked',
             'key_expired',
+            'moved',
         ] as const
         for (const reason of reasons) {
             const wording = humanReason(reason)
@@ -211,6 +212,9 @@ describe('the reason wording', () => {
         expect(humanReason('key_revoked')).not.toBe(humanReason('pressed_again'))
         expect(humanReason('key_revoked')).toContain('revoked')
         expect(humanReason('key_expired')).toContain('expired')
+        // T096: a moved call is not a failure and not a switch-off.
+        expect(humanReason('moved')).not.toBe(humanReason('pressed_again'))
+        expect(humanReason('moved')).toContain('another conversation')
     })
 })
 
