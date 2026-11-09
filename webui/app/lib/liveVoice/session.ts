@@ -180,7 +180,9 @@ export class LiveVoiceClient {
 
     /** End the session and release the microphone. Safe to call twice. */
     stop(reason: 'pressed_again' | 'left_conversation' = 'pressed_again'): void {
-        if (this.state === 'off') return
+        // One ending, one frame. A hidden page and then an unmount both call this (T090); the
+        // second call must not tell the server to end a session it already ended.
+        if (this.state === 'off' || this.released) return
         this.deps.send(stopFrame())
         this.release()
         this.move('ended', reason)
@@ -188,6 +190,11 @@ export class LiveVoiceClient {
 
     /** A frame arrived on the topic socket. */
     onFrame(raw: unknown): void {
+        // Once the session has let go, nothing on the wire may reach it: a segment already in
+        // flight would put audio in the queue of a closed player — reopening the audio context
+        // `release()` closed — and a state word would write a defect notice onto a session that is
+        // over. The row was hidden; it stays hidden until `start()`.
+        if (this.released) return
         const frame = decodeServerFrame(raw)
         if (!frame) return
         switch (frame.type) {

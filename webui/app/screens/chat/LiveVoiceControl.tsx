@@ -13,7 +13,7 @@ import { useConnection } from '../../stores/connection'
 import { LiveVoiceClient, type LiveVoiceView } from '../../lib/liveVoice/session'
 import { WebAudioPlayer } from '../../lib/liveVoice/player'
 import { startCapture } from '../../lib/liveVoice/capture'
-import { bindLiveVoice } from '../../lib/liveVoice/control'
+import { bindLiveVoice, endLiveVoice } from '../../lib/liveVoice/control'
 import { LiveVoiceRow } from './LiveVoiceRow'
 
 export interface LiveVoiceControlProps {
@@ -55,20 +55,19 @@ export function LiveVoiceControl({ agentId, topicId, capability, missing, onOpen
     // alone, so an idle surface needs no client at all.
     useEffect(() => {
         const bound = (client.current ??= makeClient(agentId, topicId, setView))
-        const unbind = bindLiveVoice(agentId, topicId, bound, setView)
-        return () => {
-            // Leaving the conversation ends the session and releases the microphone (FR-028).
-            bound.stop('left_conversation')
-            unbind()
-        }
+        bindLiveVoice(agentId, topicId, bound, setView)
+        // Leaving the conversation ends the session and releases the microphone (FR-028). The
+        // unmount and the page close below both land in `endLiveVoice`, so there is one leaving
+        // path and not two (T090).
+        return () => endLiveVoice(agentId, topicId, bound, 'left_conversation')
     }, [agentId, topicId])
 
     // A closed tab or a backgrounded desktop window ends the session with a reason.
     useEffect(() => {
-        const onHide = () => client.current?.stop('left_conversation')
+        const onHide = () => endLiveVoice(agentId, topicId, client.current, 'left_conversation')
         window.addEventListener('pagehide', onHide)
         return () => window.removeEventListener('pagehide', onHide)
-    }, [])
+    }, [agentId, topicId])
 
     // FR-004: a control that cannot start says which half is missing, where the settings are.
     const start = () => {

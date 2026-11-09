@@ -878,3 +878,73 @@ describe('the session clock', () => {
         expect(h.client.currentView.elapsedMs).toBe(0)
     })
 })
+
+/**
+ * T090 — the row is hidden by several means, and every one of them has to end the session once.
+ *
+ * The client-side legs (an End press, a failure, an ending the server decides, the tick stopping)
+ * are already pinned in the C2 block above. What is added here is what that block never asked:
+ * the *second* call that an unmount after a page hide produces, and the frames still in flight
+ * when the row goes away.
+ */
+describe('T090 — a hidden row ends the session once, and stays ended', () => {
+    it('a page hide and then an unmount send one stop frame, not two', async () => {
+        const h = driven()
+        await h.client.start()
+        // `LiveVoiceControl` calls the same thing from `pagehide` and from its unmount cleanup.
+        h.client.stop('left_conversation')
+        h.client.stop('left_conversation')
+        expect(h.sent.filter((frame) => 'live_voice_stop' in frame), 'one ending, one frame').toHaveLength(1)
+        expect(h.microphones()).toBe(1)
+        expect(h.player.closed).toBe(1)
+        expect(h.last().micOpen).toBe(false)
+    })
+
+    it('a segment still on the wire cannot reach the player after the row is gone', async () => {
+        const h = driven()
+        await h.client.start()
+        h.client.onFrame({ live_voice: { type: 'state', state: 'listening', generation: 3 } })
+        h.client.stop('left_conversation')
+        const queued = h.player.queued
+
+        // A newer generation, so the mute from the cut does not explain the silence: this is the
+        // `released` gate, not the barge-in one.
+        h.client.onFrame({
+            live_voice: {
+                type: 'speech',
+                generation: 4,
+                seq: 0,
+                sample_rate: 16000,
+                format: 'pcm16',
+                base64: 'AAECAw==',
+                final: false,
+            },
+        })
+        expect(h.player.queued, 'nothing is queued into a closed player').toBe(queued)
+        expect(h.player.closed).toBe(1)
+        expect(h.client.currentState).toBe('ended')
+    })
+
+    it('a state word after the row is gone writes no defect notice onto an ended session', async () => {
+        const h = driven()
+        await h.client.start()
+        h.client.stop('left_conversation')
+        const notice = h.last().notice
+
+        h.client.onFrame({ live_voice: { type: 'state', state: 'listening', generation: 4 } })
+        expect(h.last().notice).toBe(notice)
+        expect(h.last().notice).not.toMatch(/ignored a move/)
+        expect(h.client.currentState).toBe('ended')
+    })
+
+    it('and a session can still be started after all of it', async () => {
+        const h = driven()
+        await h.client.start()
+        h.client.stop('left_conversation')
+        h.client.stop('left_conversation')
+        await h.client.start()
+        expect(h.client.currentState).toBe('listening')
+        expect(h.last().micOpen).toBe(true)
+        expect(h.microphones(), 'the old microphone was released, the new one is open').toBe(1)
+    })
+})
