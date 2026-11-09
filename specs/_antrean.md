@@ -28,6 +28,8 @@ Spec = **apa yang benar**. DoD = **bagaimana dibuktikan**. `specs/**`: Lead bole
 - Nilai `R:` wajib muncul di laporan `siap-kirim`.
 - Allowlist diverifikasi **`<base>..<commit>`**, bukan `git diff --name-only` di working tree: perubahan belum commit milik agen lain akan menuduh baris yang commit-nya bersih (9 Nov: 13 file `crates/**` modified saat AQ-001 diperiksa).
 
+`tasks.md` berikutnya lahir dari `.specify/templates/tasks-template.md`, dan sejak commit `80cadbac` template itu memuat `R:`, `[DOD+]`, dan dua penanda bukti — jadi aturan ini bertahan saat `speckit-tasks` dijalankan ulang. Tidak retroaktif: `tasks.md` lama tanpa `R:` tidak batal; kewajibannya dicek per baris saat task itu masuk `aktif`.
+
 ## `[DOD+]` — kriteria tambahan dari Lead
 - Kriteria di luar spec wajib berlabel `[DOD+]` dan **bisa dicek mesin** (anggaran performa, ukuran file, kontras). "Kualitas" tanpa perintah verifikasi bukan kriteria.
 - Muncul di **3 task** -> **wajib diputuskan** dalam satu siklus spec: naik jadi `FR` atau **dicabut**. Tidak ada `[DOD+]` abadi.
@@ -42,6 +44,14 @@ Spec = **apa yang benar**. DoD = **bagaimana dibuktikan**. `specs/**`: Lead bole
 - Batasnya tiga: (1) yang dikirim PM adalah artefak pra-implementasi (requirement, SRS/FRD, analisa, spec, Notion); (2) perubahan spec karena temuan hilir (C-13/C-14, qa-plan yang menemukan requirement kurang) masuk **lewat Lead**; (3) SA tidak menerima task kode atau brief ber-DoD kode.
 - Tanda tangan SA dua, bukan tiga: approval User di Gate 1 + pernyataan Lead bahwa spec cukup dipecah jadi task.
 - Larangan "PM tidak pernah mengirim task ke implementer" tidak berubah. Jalur `@sepuh-be`, QA dan desainer tetap seperti §Gate di bawah.
+
+## Skill `speckit*` wajib di vizier (perintah User 9 Nov 2026 20:57)
+
+Alur lengkapnya di memori `vizier/speckit-workflow-roles`; yang mengikat papan ini cuma satu hal: **tiap task vizier menyebut skill `speckit*` yang dipakai dan artefak yang dihasilkan**, atau `tanpa-skill:<alasan>` untuk task yang memang bukan kerja spec-kit (mis. perbaikan path, rekonsiliasi dokumen). Tanpa itu, brief-nya belum lengkap.
+
+- Pemilik langkah: specify/clarify = `@system-analyst` · plan/tasks/constitution/git = Lead · implement = `@sepuh-be` · analyze/checklist = `@teteh-qa`.
+- `tasks.md` adalah artefak `speckit-tasks`, bukan dokumen lepas; cacat penomoran di dalamnya diperiksa dengan `speckit-analyze`, bukan grep manual yang diulang tiap ronde.
+- Cek requirement otomatis (§ di atas) **bukan** pengganti `speckit-analyze`/`speckit-checklist` — alat tambahan di gate Lead, bukan langkah baru dalam alur.
 
 ## Gate: satu gerbang, tiga tanda tangan
 Tidak ada gate terpisah per disiplin. Satu status `gate`, tiga syarat, satu kebenaran.
@@ -80,29 +90,12 @@ tripwire: task 1-3 | diblokir-spec: 0/3 | tanpa-spec: 0/5
 Kalau **2 dari 3** task diblokir "spec belum siap", atau **>2 dari 5** baris pakai `tanpa-spec`, aturan dibawa ke `@bro-pm`/kang untuk direvisi — bukan dilonggarkan sendiri.
 
 
-## Cek requirement otomatis (ACC 20:55, poin 6)
+## Cek requirement otomatis (ACC 20:55, poin 6; scope diputuskan `@bro-pm` 9 Nov 21:22)
 
 Satu perintah di repo — kode ditulis `@sepuh-be`, pemilik semantik `@system-analyst`, dijalankan di gate Lead — mencetak: id terdefinisi, dicoret/deferred, dirujuk-tapi-tak-terdefinisi, varian berhuruf, dan jumlah hidup. Output ditempel ke laporan `siap-kirim`; spec tidak dipakai sebelum output bersih.
 
-- **Usul `@system-analyst` (9 Nov 2026, belum ACC):** output juga menyebut `hidup-tanpa-pembawa` (FR terdefinisi yang tidak dirujuk task mana pun) dan `deferred-yang-masih-dirujuk-qa-plan`. Alasannya: perintah yang hanya memeriksa satu arah bisa keluar bersih sementara sebuah requirement hidup tanpa pelaksana — gate hijau untuk sesuatu yang tidak akan dibangun.
-
-
-## Skill `speckit*` wajib (perintah User, 9 Nov 2026 20:57 — penegasan kedua)
-
-Vizier memakai alur spec-driven: `spec.md`, `plan.md`, `tasks.md` bukan dokumen lepas, melainkan **artefak skill**. Karena itu tiap task vizier menyebut skill yang dipakai dan artefak yang dihasilkannya — di baris task atau di brief, bukan di kepala orang.
-
-| Artefak | Skill | Pemilik |
-|---|---|---|
-| `spec.md` (FR, acceptance criteria) | `speckit-specify`, `speckit-clarify` | `@system-analyst` |
-| `plan.md`, `research.md`, `data-model.md`, `contracts/` | `speckit-plan` | Lead |
-| `tasks.md` | `speckit-tasks` | Lead |
-| audit konsistensi spec/plan/tasks | `speckit-analyze` | `@teteh-qa` (dipanggil Lead) |
-| daftar periksa mutu per requirement | `speckit-checklist` | `@teteh-qa` |
-| commit yang mengikuti konvensi repo | `speckit-git-commit` | yang commit |
-
-- Letak skill di repo ini: `.agents/skills/speckit-*` dan `.claude/skills/speckit-*` — **14 skill `speckit*`**, dua direktori identik (diverifikasi 9 Nov 2026 21:23 WIB).
-- Aturan praktis: **jangan** mengganti alat dengan kerja manual yang diulang tiap ronde. Cacat penomoran di `tasks.md` (88 / 110 / 97 di tiga sumber) adalah **cacat artefak**, dan alat untuk itu `speckit-analyze` — bukan `grep` manual yang hasilnya harus dipercaya ulang setiap kali.
-- `AQ-001` sendiri dikerjakan **sebagian** dengan cara manual (`grep`/`git grep`) sebelum aturan ini ditegaskan. Itu dicatat sebagai kekurangan baris ini, bukan dicetak sebagai preseden: rekonsiliasi berikutnya wajib lewat `speckit-analyze` dan melampirkan keluarannya.
+- **Scope default: per-fitur.** `--all` hanya untuk audit dan **tidak boleh** dipakai sebagai dasar gate: kerusakan FR di fitur lain tidak boleh memblokir fitur yang sedang dikerjakan. Output **wajib** menyebut cakupannya (`scope: 055`), supaya "bersih" tidak pernah dibaca sebagai "seluruh repo bersih".
+- **Usul `@system-analyst` (9 Nov 2026, belum ACC):** output juga menyebut `hidup-tanpa-pembawa` (FR terdefinisi yang tidak dirujuk task mana pun) dan `deferred-yang-masih-dirujuk-qa-plan`. Alasannya: perintah yang hanya memeriksa satu arah bisa keluar bersih sementara sebuah requirement hidup tanpa pelaksana — gate hijau untuk sesuatu yang tidak akan dibangun. **Jangan ditahan untuk versi pertama checker.**
 
 ## Format baris
 `ID . judul . status . pemilik . sejak . R: <FR-### | tanpa-spec:<alasan>> . diblokir oleh`
