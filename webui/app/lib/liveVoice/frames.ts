@@ -41,6 +41,7 @@ export type EndReason =
     | 'no_voice'
     | 'provider_failed'
     | 'unintelligible'
+    | 'unsupported_audio'
 
 /** A control frame: the only family that arrives on the session socket's broadcast. */
 export type ControlFrame =

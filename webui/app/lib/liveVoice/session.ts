@@ -552,5 +552,9 @@ export function humanReason(reason: EndReason): string {
             return 'the speech provider failed'
         case 'unintelligible':
             return 'that was not intelligible; say it again'
+        case 'unsupported_audio':
+            // T102: the client asked for audio this release does not carry. It must not read
+            // as a provider failure, or a person goes looking at credentials for a format bug.
+            return 'this release carries 16 kHz mono audio'
     }
 }

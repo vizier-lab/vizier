@@ -190,14 +190,19 @@ describe('the reason wording', () => {
             'no_voice',
             'provider_failed',
             'unintelligible',
+            'unsupported_audio',
         ] as const
         for (const reason of reasons) {
             const wording = humanReason(reason)
             expect(wording).not.toBe(reason)
             expect(wording.length).toBeGreaterThan(8)
         }
-        // The one pair that must not share a wording.
+        // The pairs that must not share a wording.
         expect(humanReason('idle')).not.toBe(humanReason('connection_lost'))
+        // T102: a wrong audio description is not a provider failure. If it read like one, a
+        // person would go looking at credentials for a format bug.
+        expect(humanReason('unsupported_audio')).not.toBe(humanReason('provider_failed'))
+        expect(humanReason('unsupported_audio')).toContain('16 kHz')
     })
 })
 
