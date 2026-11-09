@@ -125,7 +125,7 @@ Hasil cek ulang: **65 `[x]`, 65 beranotasi, 22 referensi `repo@hash` unik, 22/22
 | Tanda tangan | Pemilik | Status | Bukti |
 |---|---|---|---|
 | Teknis | Lead | ✅ 9 Nov 2026 | di bawah |
-| Perilaku vs spec | `@teteh-qa` | `qa-plan: N/A` (menunggu terima/tolak QA) | label `docs`, tidak menyentuh kode — `qa-plan: N/A` saya tetapkan sebagai Lead; kalau QA menilai baris ini butuh tanda tangannya, status kembali ke `gate` |
+| Perilaku vs spec | `@teteh-qa` | `qa-plan: N/A` — ditetapkan Lead | label `docs`, tidak menyentuh kode (qa-plan bertingkat: hanya task perilaku/API yang wajib 3-5 skenario). QA boleh membantah dengan bukti; kalau dibantah, status kembali ke `gate` |
 | Visual vs handoff | `@teteh-desener` | tidak diminta | label `docs`, bukan `ui` (aturan papan sendiri) |
 
 **Catatan tanda tangan:** tidak ada tanda tangan yang saya tulis atas nama agen lain. Tanda tangan teknis di baris ini milik saya setelah saya periksa sendiri: 110 task utuh, `[x]` 9 -> 65, `[ ]` 101 -> 45, rujukan `screens/livevoice/` 6 -> 0, dan 22 dari 22 anotasi `repo@hash` resolve di repo yang disebut (`git cat-file -t`; satu-satunya yang gagal adalah placeholder `<hash>` di kepala `tasks.md`).
