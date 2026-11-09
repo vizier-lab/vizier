@@ -99,10 +99,10 @@ Kalau **2 dari 3** task diblokir "spec belum siap", atau **>2 dari 5** baris pak
 
 **Bukti teknis** (perintah → keluaran, dijalankan 9 Nov 2026 sebelum commit):
 - `grep -cE '^- \[[ x]\] T[0-9]{3}' specs/055-live-voice/tasks.md` → `110` sebelum **dan** sesudah: tidak ada task ditambah atau dihapus, hanya status yang berubah.
-- `grep -c '^- \[ \] T' …` → `101` → **`46`**; `grep -c '^- \[x\] T' …` → `9` → **`64`**.
+- `grep -c '^- \[ \] T' …` → `101` → **`45`**; `grep -c '^- \[x\] T' …` → `9` → **`65`**.
 - `grep -c 'app/screens/livevoice/' specs/055-live-voice/tasks.md` → `6` → **`0`** (barisnya ada di `webui/app/screens/chat/LiveVoiceRow.tsx`, bukan `screens/livevoice/`).
-- Commit: **`aa27590e`**, path-scoped ke `specs/055-live-voice/tasks.md` saja.
+- Commit: **`aa27590e`** (rekonsiliasi) + **`5a8b3f0f`** (koreksi T037/T040/T089 setelah bukti mount ditemukan), path-scoped ke `specs/055-live-voice/tasks.md` saja.
 
-**Batas yang harus dibaca sebelum mengutip angka 64**: 55 centang baru hanya membuktikan **kode ada di HEAD** (`git grep … HEAD -- <file>`) dan menyebut commit yang memperkenalkannya. **Tidak ada tes yang dijalankan** di rekonsiliasi ini. Karena itu dua penanda dibedakan di kepala `tasks.md`: `Landed … gate passed` (gate dijalankan) vs `In the tree … not gated in AQ-001` (hanya keberadaan). Gate tetap tanda tangan QA.
+**Batas yang harus dibaca sebelum mengutip angka 65**: 56 centang baru hanya membuktikan **kode ada di HEAD** (`git grep … HEAD -- <file>`) dan menyebut commit yang memperkenalkannya. **Tidak ada tes yang dijalankan** di rekonsiliasi ini. Karena itu dua penanda dibedakan di kepala `tasks.md`: `Landed … gate passed` (gate dijalankan) vs `In the tree … not gated in AQ-001` (hanya keberadaan). Gate tetap tanda tangan QA.
 
-**46 yang sengaja masih `[ ]`**: fixture VAD (T004), baseline (T006), indikator FR-042 e2e (T039), mount (T040, T089), saklar per-agen (T041), counter backlog (T042), ducking & burst pendek (T047, T048), e2e barge-in/interrupt (T049, T056), seluruh backlog interrupt (T051–T057), siklus & penolakan koneksi kedua (T061–T065), tes kegagalan server (T066), superseded (T093), registri & alasan tertinggal (T095–T097), instrumentasi server (T077), dan seluruh gerbang rilis (T078–T088) serta fase kunci pihak ketiga (T100–T110).
+**45 yang sengaja masih `[ ]`**: fixture VAD (T004), baseline (T006), indikator FR-042 e2e (T039), tombol arsip yang bukan lagi pintu masuk (T037), saklar per-agen (T041), counter backlog (T042), ducking & burst pendek (T047, T048), e2e barge-in/interrupt (T049, T056), seluruh backlog interrupt (T051–T057), siklus & penolakan koneksi kedua (T061–T065), tes kegagalan server (T066), superseded (T093), registri & alasan tertinggal (T095–T097), instrumentasi server (T077), dan seluruh gerbang rilis (T078–T088) serta fase kunci pihak ketiga (T100–T110).

@@ -111,11 +111,12 @@ webui/app/
 │   ├── player.ts           # AudioContext queue, gapless segments, immediate stop()
 │   └── segmenter.test.ts   # mirrors the server segmenter's expectations
 ├── screens/chat/
-│   └── LiveVoiceButton.tsx # the entry control, next to the mic and the spoken toggle
-└── screens/livevoice/
-    └── LiveVoiceRow.tsx    # the live row: agent, state word, thinking, mic open, one End action.
-                            # Above the composer, one line, covers nothing (spec C11, 2026-11-09 —
-                            # supersedes the floating panel, the call screen and the composer bar)
+│   ├── LiveVoiceButton.tsx # archived in place: the idle pill now lives inside the row (spec C11)
+│   └── LiveVoiceRow.tsx    # the live row: agent, state word, thinking, mic open, one End action.
+                            # Inside the composer's own meta line, 24 px, 0 px added (spec C11,
+                            # 2026-11-09 — supersedes the floating panel, the call screen and the
+                            # composer bar). There is no separate live voice directory: six task
+                            # rows pointed at one until AQ-001 corrected them.
 # The composer bar of the earlier draft is archived (spec C6): the call is a screen, and no
 # interrupt control ships in this release (spec C7).
 ```
