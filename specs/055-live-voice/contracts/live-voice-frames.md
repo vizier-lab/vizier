@@ -7,6 +7,10 @@ All frames travel on the socket the conversation already uses
 text. No new endpoint, no new authentication, no binary frames (they are dropped today,
 `channel.rs:818`).
 
+**Provisional in one respect only**: the sound may stop travelling on this socket if Q11 lands on a
+media transport. Every *frame* below other than the audio ones is unaffected by that, and the
+transport-agnostic obligations a third party owes us are collected in two sections at the end.
+
 **Compatibility rule**: every server frame carries a distinct top-level key, `live_voice`, so a client
 that does not know it ignores it (`webui/app/api/frames.ts:607-630`). With `provider-live-voice` off,
 no `live_voice` frame is ever emitted. Client frames carry `live_voice_*` action names; a server
@@ -52,22 +56,10 @@ one utterance past `max_utterance_seconds`, closes it, and says so once.
 one session.** Two sources for one utterance have no correct ordering, and `utterance_id` cannot tell
 them apart. That refusal is part of every candidate, not of one.
 
-### The audio path's setup — required by FR-058, shaped by Q11
-
-Whatever carries the sound, three things have to be true and public, because a third-party client
-cannot guess them (FR-058):
-
-| Public surface | What it must say | Fixed now, or by Q11 |
-|---|---|---|
-| **How a call is set up** | what the client sends before sound can move, in what order, and what a refusal looks like | **Q11**: an SDP offer/answer and ICE candidates on a media transport; an open and a first frame on a socket |
-| **The audio description** | sample rate, channels, frame duration, acceptable codec or format (FR-057) | **now** — these are the numbers a non-browser client needs, and they are cheap to publish whatever the transport |
-| **The identity binding** | which conversation and which session the audio belongs to, and that audio for anything else is refused (FR-056) | **now** — this does not depend on the transport at all |
-
-**Why this section exists before the transport is chosen.** The alternative was to publish the
-signalling shapes for a transport we may not use, and then republish them — the exact churn this
-document has already been through three times on the surface. So the contract publishes the *questions
-a client must be able to answer* now, and the wire shapes once Q11 has evidence.
-
+The transport-agnostic side of the audio path — the lifecycle, the audio description, the
+authentication rule and the closed surfaces — is one section, because it survives any transport:
+see **§ The audio path, transport-agnostic (PROVISIONAL)** below. The setup messages themselves are
+the one thing still awaiting Q11, and they live there too, in its carrier column.
 
 ### `live_voice_utterance_end`
 
@@ -106,8 +98,8 @@ this release, so a client MUST NOT send it; a server that receives it MUST treat
 `barge_in` rather than fail, so the backlog item needs no protocol change when it lands.
 
 **`typed` exists only where the conversation is reachable during a session** — spec open question Q7's
-default says it is not, since the floating panel leaves the conversation behind it in place (C9) and a
-call is moved rather than duplicated (C10). The reason stays in the contract so the backlog item needs
+default says it is yes — a row above the composer covers nothing (C11, FR-049) — and a call is moved
+rather than duplicated (C10). The reason stays in the contract so the backlog item needs
 no protocol change when it returns — but **`typed` is not sent by this release's client**: FR-025 is
 deferred with the interrupt control (C7, 2026-11-08 21:19), and although the two client helpers for it
 exist (`Session.onTyped`, `webui/app/lib/liveVoice/session.ts:239`, and `forwardLiveVoiceTyped`,
@@ -139,7 +131,7 @@ Ends the session, releases everything, reason `pressed_again` (FR-028).
 
 The FR-006 state word. `waiting` is the one that carries FR-042: it is sent as soon as the turn is
 accepted, before any audio exists, and the client must render it as **the agent is thinking** — text or
-an animation in the bar — never as the same thing as `reconnecting`. `reason` is present only for
+an indicator in the row — never as the same thing as `reconnecting`. `reason` is present only for
 `ended` / `failed` / `reconnecting`; it is one of
 `pressed_again | left_conversation | page_closed | permission_withdrawn | conversation_deleted |
 agent_changed | idle | connection_lost | server_restart | no_device | no_recognizer | no_voice |
@@ -148,7 +140,7 @@ provider_failed | unintelligible | moved`.
 **`moved` is new (spec C10, 2026-11-09).** There is exactly one live session per person, so a
 `live_voice_start` that arrives for a *different* conversation or agent is not a second session: the
 server ends the old one with `reason: "moved"` and starts the new one. The old client shows that reason
-until its panel closes; nothing is written into the old conversation's history (open question Q10's
+until its row goes; nothing is written into the old conversation's history (open question Q10's
 default), and the old session's running turn is cancelled on the normal abort path rather than spoken
 into the new call (FR-052). A `live_voice_start` for the **same** conversation is still refused when
 another connection holds it (open question Q2's default).
@@ -269,47 +261,78 @@ No binary frames, no per-frame acknowledgement (the socket's ordering is enough)
 retransmission (a lost chunk is a syllable, not a state), and no transcript editing. Adding a
 realtime speech-to-speech pipeline later would add new frame names, not change these.
 
-
-
 **C-12 — `live_voice_text` (D17).** ~~The contract had no way to say "the person typed this while the
 session is live", so FR-018's "answered **and** spoken" had no path.~~ **Superseded 2026-11-08 by the
 User's decision:** a typed message is text only, FR-018 is withdrawn, and the frame is removed with it.
 Kept as history so nobody re-adds it from an old branch.
 
+## The audio path, transport-agnostic (PROVISIONAL — pending Q11)
 
-## Review delta (2026-11-08, `@mamang-lead-be`)
+This section is written **for a client we have never seen** (FR-058) and it holds whichever transport
+Q11 chooses. It is deliberately the only place where a third party's obligations are stated together,
+because the parts of this feature that a stranger must implement are: a lifecycle, an audio
+description, an authentication rule, and a list of surfaces that are ours. Everything else is our
+implementation.
 
-**C-7 — full is not closed (D10).** `ClientConnection::send` collapses two cases into one
-`false`; the contract now separates them, because the queue is 64 slots (not a socket timeout) and a
-busy socket must lose audio, not its session.
+**Provisional does not mean vague.** The lifecycle, the description and the authentication are fixed
+now and will not change with the transport. Only **one column** below — the carrier — moves if the
+sound leaves the socket. A client that implements this section against today's carrier keeps working
+against tomorrow's if the frames' *meaning* is unchanged, and that is exactly what the column marks.
 
-**C-6 — delivery path (D9).** The contract now says *how* server frames reach the client, not only
-what they contain: **audio** goes per connection and may be dropped; **control** keeps the session
-broadcast and is never dropped, which is also how a second tab learns a session is active (FR-005).
-Before this, the document implied the broadcast forwarded all of live voice like any other frame,
-which would have let audio evict reply text from a lagging subscriber — and sent one person's audio
-to every socket on the conversation.
+### The lifecycle, as a client sees it
 
-**C-1 — every server frame carries a `type` discriminator.** As first written, the six server frames
-shared the single top-level key `live_voice` and were distinguished only by which fields they happened
-to contain (`state` vs `utterance_id`+`text` vs `base64`), which a client cannot dispatch on safely
-(`review.md` D3). The type in code is `#[serde(tag = "type", rename_all = "snake_case")]`:
+| Step | Client sends | Server answers | Carrier |
+|---|---|---|---|
+| begin | `live_voice_start` — conversation, agent, and the audio description it will send | `state: connecting`, then `listening`; or `error` with a reason | socket |
+| send sound | audio in the description it declared | nothing per frame (the socket's order is enough) | **socket today** (`live_voice_audio`, 100 ms chunks); a media path would declare `opus`/`media-track` and set up a peer instead |
+| close an utterance | `live_voice_utterance_end` — `utterance_id` | `live_voice_transcript`, or an error (`too_short`, `unintelligible`) | socket |
+| receive the reply | — | the reply **text** in the conversation, and audio per segment | text: socket, always; sound: the same carrier the client sends on |
+| interrupt by speaking | **nothing extra** — the end of an utterance while a reply is audible | `state: interrupted`, a new `generation`, the rest of the reply discarded | socket |
+| end | `live_voice_stop` | `state: ended` with a reason | socket |
+| move | `live_voice_start` for another conversation or agent | the old session `ended` with reason `moved`, the new one starting | socket |
 
-| `type` | Variant | Extra fields |
+**The reason vocabulary is part of the contract**, because a third-party client has to show something
+truthful: `pressed_again | left_conversation | page_closed | permission_withdrawn |
+conversation_deleted | agent_changed | idle | connection_lost | server_restart | no_device |
+no_recognizer | no_voice | provider_failed | unintelligible | moved`. These strings are stable; a
+client MUST NOT receive a reason it has no word for.
+
+### The audio description (FR-057)
+
+A client declares what it will send before it sends it. A server **refuses** a description it cannot
+accept, with a reason from the list above — it never silently downgrades or converts.
+
+| Field | Today | Reserved |
 |---|---|---|
-| `state` | state word of FR-006 | `state`, `generation`, `reason` |
-| `transcript` | one utterance's outcome | `utterance_id`, `text`, `submitted` |
-| `speech` | one synthesised segment | `generation`, `seq`, `sample_rate`, `format`, `base64`, `final` |
-| `stall` | the socket fell behind and audio was dropped (control lane) | `dropped` |
-| `error` | a provider or session failure | `kind`, `message` |
+| `format` | `pcm16` | `opus` |
+| `encoding` | `base64` inside JSON | `media-track` |
+| `sample_rate` | `16000` | by negotiation |
+| `channels` | `1` | `1` (a second channel is not a feature, it is a bug with more bytes) |
+| `frame_ms` | `100` | by negotiation |
 
-Client frames keep their top-level keys (`live_voice_start`, `live_voice_audio`,
-`live_voice_utterance_end`, `live_voice_speech_start`, `live_voice_interrupt`, `live_voice_stop`); what
-changed on 2026-11-08 21:19 is *when* two of them are sent and what one of them does — see
-`live_voice_speech_start` above (opens an utterance, no longer interrupts) and `live_voice_interrupt`
-(`button` deferred). The floating panel of spec C9 needs **no new frame**: it is a surface over the same
-session, and its state word comes from `live_voice_state`. Nothing else in this contract changed; the sizes, limits and "deliberately not in
-the contract" list stand.
+**Two rules that make this a contract rather than a suggestion.** A client that declares the published
+description MUST be accepted, whichever browser or library produced it (FR-057). And a client MUST NOT
+send audio in a description it did not declare: that is refused, not guessed at, because the server
+cannot tell an undeclared format from a corrupt stream.
+
+### Authentication
+
+The conversation's own credential, and nothing else. No second token, no anonymous audio endpoint, no
+long-lived media key (FR-054). A media transport's setup messages are refused on an unauthenticated
+socket exactly as `live_voice_start` is, so the audio path cannot become a way in.
+
+### What is ours and stays ours (FR-059)
+
+| Ours | Why a third party must not need it |
+|---|---|
+| the session registry (`LiveVoiceSessions`, `live_voice/session.rs:430`) | it is how **we** enforce one call per person (FR-005); publishing it would make our data structure contractual |
+| the segmenter and its chunking | a client that reimplemented it would drift from the text the conversation stores (FR-055) |
+| how the generation number is produced | the **number** travels in every frame — a client needs it to recognise a stale frame, and needs nothing about how it is maintained. The guarantee is public; the mechanism is not |
+| provider credentials, model choice, voice selection | ours, and a client supplies its own if it runs its own |
+
+**What a client also does not need, stated plainly so nobody looks for it:** our React components, our
+client state machine, our `capture.ts`, our tests. If a document and a socket are not enough to build a
+working client, this section is incomplete and that is a defect in the contract, not in the reader.
 
 ## The audio contract as a public surface (C14)
 
@@ -349,4 +372,36 @@ one FR-058 already names — **our own WebUI is a client of this contract too**,
 first. If that price is not worth paying, the honest move is to withdraw C14 explicitly rather than
 publish and drift.
 
+## Review delta (2026-11-08, `@mamang-lead-be`)
 
+**C-7 — full is not closed (D10).** `ClientConnection::send` collapses two cases into one
+`false`; the contract now separates them, because the queue is 64 slots (not a socket timeout) and a
+busy socket must lose audio, not its session.
+
+**C-6 — delivery path (D9).** The contract now says *how* server frames reach the client, not only
+what they contain: **audio** goes per connection and may be dropped; **control** keeps the session
+broadcast and is never dropped, which is also how a second tab learns a session is active (FR-005).
+Before this, the document implied the broadcast forwarded all of live voice like any other frame,
+which would have let audio evict reply text from a lagging subscriber — and sent one person's audio
+to every socket on the conversation.
+
+**C-1 — every server frame carries a `type` discriminator.** As first written, the six server frames
+shared the single top-level key `live_voice` and were distinguished only by which fields they happened
+to contain (`state` vs `utterance_id`+`text` vs `base64`), which a client cannot dispatch on safely
+(`review.md` D3). The type in code is `#[serde(tag = "type", rename_all = "snake_case")]`:
+
+| `type` | Variant | Extra fields |
+|---|---|---|
+| `state` | state word of FR-006 | `state`, `generation`, `reason` |
+| `transcript` | one utterance's outcome | `utterance_id`, `text`, `submitted` |
+| `speech` | one synthesised segment | `generation`, `seq`, `sample_rate`, `format`, `base64`, `final` |
+| `stall` | the socket fell behind and audio was dropped (control lane) | `dropped` |
+| `error` | a provider or session failure | `kind`, `message` |
+
+Client frames keep their top-level keys (`live_voice_start`, `live_voice_audio`,
+`live_voice_utterance_end`, `live_voice_speech_start`, `live_voice_interrupt`, `live_voice_stop`); what
+changed on 2026-11-08 21:19 is *when* two of them are sent and what one of them does — see
+`live_voice_speech_start` above (opens an utterance, no longer interrupts) and `live_voice_interrupt`
+(`button` deferred). The row of spec C11 needs **no new frame**: it is a surface over the same
+session, and its state word comes from `live_voice_state`. Nothing else in this contract changed; the sizes, limits and "deliberately not in
+the contract" list stand.
