@@ -733,3 +733,117 @@ describe('C2 — a session that ends can be started again', () => {
         expect(h.player.closed).toBe(2)
     })
 })
+
+describe('C3 — a dropped session ends at thirty seconds, not never (T067)', () => {
+    /** A live session with one utterance already open and captured. */
+    async function live() {
+        const h = driven()
+        await h.client.start()
+        expect(h.client.currentState).toBe('listening')
+        h.speak(200)
+        h.advance(200)
+        return h
+    }
+
+    it('a drop keeps the microphone open for the window and stops the audio', async () => {
+        const h = await live()
+        h.client.onFrame({
+            live_voice: {
+                type: 'speech',
+                generation: 1,
+                seq: 0,
+                sample_rate: 16000,
+                format: 'pcm16',
+                base64: 'AAECAw==',
+                final: false,
+            },
+        })
+        h.client.onSocketState('reconnecting')
+
+        expect(h.client.currentState).toBe('reconnecting')
+        expect(h.last().notice).toBe('connection lost, reconnecting')
+        expect(h.player.playing).toBe(false)
+        // Still alive: the device is not taken away because a socket hiccuped.
+        expect(h.last().micOpen).toBe(true)
+        expect(h.microphones(), 'the window has not closed yet').toBe(0)
+        expect(h.player.closed).toBe(0)
+    })
+
+    it('a socket back at 29 s resumes the same session and re-binds it exactly once', async () => {
+        const here = await live()
+        const before = here.sent.filter(
+            (frame) => 'live_voice_start' in (frame as Record<string, unknown>)
+        ).length
+        const utteranceAtDrop = here.sent.length
+
+        here.client.onSocketState('reconnecting')
+        here.advance(29_000)
+        here.client.checkReconnectDeadline()
+        expect(here.client.currentState, 'inside the window the session is still alive').toBe(
+            'reconnecting'
+        )
+
+        here.client.onSocketState('open')
+        expect(here.client.currentState).toBe('listening')
+        const after = here.sent.filter(
+            (frame) => 'live_voice_start' in (frame as Record<string, unknown>)
+        ).length
+        expect(after - before, 'the lane is re-bound once, not twice').toBe(1)
+        expect(here.microphones(), 'the device was never taken away').toBe(0)
+
+        // Nothing from before the drop is re-sent: no chunk, no speech_start, no utterance_end.
+        const resent = here.sent.slice(utteranceAtDrop + 1)
+        expect(
+            resent.some(
+                (frame) =>
+                    'live_voice_audio' in (frame as Record<string, unknown>) ||
+                    'live_voice_speech_start' in (frame as Record<string, unknown>) ||
+                    'live_voice_utterance_end' in (frame as Record<string, unknown>)
+            ),
+            'a reopened socket replays nothing'
+        ).toBe(false)
+    })
+
+    it('past thirty seconds the session ends and lets go of everything exactly once', async () => {
+        const h = await live()
+        h.client.onSocketState('reconnecting')
+        h.advance(31_000)
+        // The render tick drives the deadline, so a throttled timeout cannot leave it hanging.
+        await new Promise((resolve) => setTimeout(resolve, 220))
+
+        expect(h.client.currentState).toBe('ended')
+        expect(h.last().notice).toBe('the connection dropped')
+        expect(h.last().micOpen).toBe(false)
+        expect(h.microphones(), 'the device is released once').toBe(1)
+        expect(h.player.closed).toBe(1)
+    })
+
+    it('an ending is not sent on a socket that is gone', async () => {
+        const h = await live()
+        const before = h.sent.length
+        h.client.onSocketState('offline')
+        h.advance(31_000)
+        await new Promise((resolve) => setTimeout(resolve, 220))
+        expect(h.client.currentState).toBe('ended')
+        const sentSince = h.sent.slice(before)
+        expect(
+            sentSince.some((frame) => 'live_voice_stop' in (frame as Record<string, unknown>)),
+            'a closed socket is not asked to carry a goodbye'
+        ).toBe(false)
+    })
+
+    it('a second drop after a resume starts a fresh window', async () => {
+        const h = await live()
+        h.client.onSocketState('reconnecting')
+        h.advance(10_000)
+        h.client.onSocketState('open')
+        h.client.onSocketState('reconnecting')
+        h.advance(25_000)
+        h.client.checkReconnectDeadline()
+        // Twenty-five seconds into the *second* window: not expired.
+        expect(h.client.currentState).toBe('reconnecting')
+        h.advance(6_000)
+        h.client.checkReconnectDeadline()
+        expect(h.client.currentState).toBe('ended')
+    })
+})

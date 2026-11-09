@@ -62,6 +62,14 @@ export interface LiveVoiceDeps {
  * The state words, and which of them a session may move to next. Written down rather than implied:
  * a transition that is not here is a bug, not a shortcut.
  */
+/**
+ * How long a dropped session may stay `reconnecting` before it ends (FR-033).
+ *
+ * During the window the microphone stays open, because the session is still alive; past it the
+ * session ends and everything is released, rather than hanging on a socket that never came back.
+ */
+export const RECONNECT_WINDOW_MS = 30_000
+
 const TRANSITIONS: Record<SessionState, SessionState[]> = {
     off: ['connecting'],
     connecting: ['listening', 'failed', 'ended'],
@@ -111,6 +119,10 @@ export class LiveVoiceClient {
     private tick: ReturnType<typeof setInterval> | null = null
     /** Whether this session has already let go of the microphone and the audio context. */
     private released = false
+    /** When the socket dropped, or null while it is up. */
+    private droppedAt: number | null = null
+    /** The timer that ends a session whose socket never came back. */
+    private reconnectTimer: ReturnType<typeof setTimeout> | null = null
 
     constructor(private readonly deps: LiveVoiceDeps) {}
 
@@ -231,23 +243,68 @@ export class LiveVoiceClient {
     }
 
     /** The socket dropped: say reconnecting, stop the audio, keep the session (FR-033). */
+
     onSocketState(state: 'open' | 'connecting' | 'reconnecting' | 'offline'): void {
         if (this.state === 'off' || this.state === 'ended' || this.state === 'failed') return
         if (state === 'open') {
             if (this.state === 'reconnecting') {
+                // The socket is back inside the window: nothing about this session is stale.
+                this.clearReconnectDeadline()
                 // A reconnect starts a fresh lane: nothing may stay muted from the old one.
                 this.mutedGeneration = -1
                 this.move('listening')
                 // An idempotent start re-binds the server's lane to this new socket, which is what
-                // keeps the session from going silent after a reconnect (T067).
+                // keeps the session from going silent after a reconnect (T067). Nothing else is
+                // re-sent: an utterance that was open when the socket dropped is dropped with it,
+                // and a chunk or a `speech_start` from before the drop would be a duplicate the
+                // server has no way to place.
+                this.utteranceId = 0
+                this.seq = 0
                 this.deps.send(startFrame(this.deps.language))
             }
             return
         }
         if (state === 'reconnecting' || state === 'offline') {
+            if (this.state === 'reconnecting') return
             this.stopAudio()
             this.move('reconnecting', 'connection_lost')
+            // The microphone stays open for the window: the session is still alive, and a drop of a
+            // second must not cost the person their device. FR-033 gives it thirty seconds; past
+            // that the session ends and the microphone is released like any other ending.
+            this.droppedAt = this.now()
+            this.reconnectTimer = setTimeout(
+                () => this.endIfStillDropped(),
+                RECONNECT_WINDOW_MS
+            )
         }
+    }
+
+    /**
+     * End a session whose socket did not come back inside the window.
+     *
+     * `release()` is the same path every other ending takes, so the microphone and the audio
+     * context are let go here exactly as they are on the End control — a session left
+     * `reconnecting` forever would keep both alive with nothing to talk to.
+     */
+    private endIfStillDropped(): void {
+        if (this.state !== 'reconnecting' || this.droppedAt === null) return
+        if (this.now() - this.droppedAt < RECONNECT_WINDOW_MS) return
+        this.clearReconnectDeadline()
+        this.release()
+        this.move('ended', 'connection_lost')
+    }
+
+    private clearReconnectDeadline(): void {
+        this.droppedAt = null
+        if (this.reconnectTimer) {
+            clearTimeout(this.reconnectTimer)
+            this.reconnectTimer = null
+        }
+    }
+
+    /** For the tests, and for a tab whose timers were throttled while it was in the background. */
+    checkReconnectDeadline(): void {
+        this.endIfStillDropped()
     }
 
     /** The person typed a message: the audio stops, the session stays live (FR-025). */
@@ -305,6 +362,7 @@ export class LiveVoiceClient {
     private release(): void {
         if (this.released) return
         this.released = true
+        this.clearReconnectDeadline()
         this.capture?.stop()
         this.capture = null
         this.view.micOpen = false
@@ -381,11 +439,15 @@ export class LiveVoiceClient {
         this.render()
     }
 
+
     private render(): void {
         if (this.view.thinking) {
             this.view.thinkingMs = Math.max(0, this.now() - this.thinkingStartedAt)
         }
         this.deps.onView({ ...this.view })
+        // A background tab has its timers throttled, so the deadline is also checked on the render
+        // tick: a session must not stay `reconnecting` because a timeout was frozen.
+        this.endIfStillDropped()
     }
 
     private now(): number {
