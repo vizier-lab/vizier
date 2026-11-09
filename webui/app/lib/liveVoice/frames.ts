@@ -42,6 +42,8 @@ export type EndReason =
     | 'provider_failed'
     | 'unintelligible'
     | 'unsupported_audio'
+    | 'key_revoked'
+    | 'key_expired'
 
 /** A control frame: the only family that arrives on the session socket's broadcast. */
 export type ControlFrame =

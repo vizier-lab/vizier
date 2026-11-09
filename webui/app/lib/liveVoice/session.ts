@@ -552,6 +552,12 @@ export function humanReason(reason: EndReason): string {
             return 'the speech provider failed'
         case 'unintelligible':
             return 'that was not intelligible; say it again'
+        case 'key_revoked':
+            // T110: the credential behind this call was deleted. Its own sentence, because
+            // "live voice is off" would hide the fact that something outside ended it.
+            return 'the API key for this call was revoked'
+        case 'key_expired':
+            return 'the API key for this call expired'
         case 'unsupported_audio':
             // T102: the client asked for audio this release does not carry. It must not read
             // as a provider failure, or a person goes looking at credentials for a format bug.

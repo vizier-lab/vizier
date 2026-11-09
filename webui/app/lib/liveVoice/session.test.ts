@@ -191,6 +191,8 @@ describe('the reason wording', () => {
             'provider_failed',
             'unintelligible',
             'unsupported_audio',
+            'key_revoked',
+            'key_expired',
         ] as const
         for (const reason of reasons) {
             const wording = humanReason(reason)
@@ -203,6 +205,12 @@ describe('the reason wording', () => {
         // person would go looking at credentials for a format bug.
         expect(humanReason('unsupported_audio')).not.toBe(humanReason('provider_failed'))
         expect(humanReason('unsupported_audio')).toContain('16 kHz')
+        // T110: a revoked key and a lapsed one are two events, and neither may read like the
+        // person switching the call off.
+        expect(humanReason('key_revoked')).not.toBe(humanReason('key_expired'))
+        expect(humanReason('key_revoked')).not.toBe(humanReason('pressed_again'))
+        expect(humanReason('key_revoked')).toContain('revoked')
+        expect(humanReason('key_expired')).toContain('expired')
     })
 })
 
