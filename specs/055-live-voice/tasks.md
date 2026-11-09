@@ -209,6 +209,16 @@ chat behind it; end the call; the panel is gone, both turns present, the control
 - [ ] T096 [US6] The reason left behind, in `crates/vizier-core/src/live_voice/session.rs` and `webui/app/lib/liveVoice/session.ts`: a session ended by a move carries its own reason (`moved`), the old panel shows it until it disappears, and nothing is written into the old conversation's history (FR-051, open question Q10's default)
 - [ ] T097 [US6] A turn at the moment of a move, in `crates/vizier-core/src/live_voice/session.rs`: the running turn is cancelled on the existing abort path with its partial text kept, its reply is never spoken into the new call, and a test proves no segment from the old session reaches the new panel (FR-052, SC-011)
 
+- [ ] T098 [P] Tokens before the panel, in `design/src/tokens/tokens.css`: add `--vz-retrying-text` (`#8a560e`, measured
+  5.59:1 on `bg/surface`, 5.61:1 on `retrying-bg`, 6.14:1 on white; the existing `--vz-retrying` `#a86a12` fails all
+  three at 4.03:1, 4.05:1 and 4.43:1, below the 4.5 threshold for small text) and pin the dark failed state to the
+  library pair (`--vz-failed` `#e5654b`, `--vz-failed-text` `#f0a394`) instead of the render's `#f87171`. **Do not
+  replace `#f87171` globally**: it is legitimately the generative-UI fallback palette
+  (`webui/app/lib/pageDocument.ts:67`), and only the design palette's failed state moves. Gate: the ratio asserted in a
+  test, not checked by eye — `design/vitest.config.ts` is already wired to `npm test` in `design/`, so add
+  `design/src/tokens/tokens.test.ts` computing the contrast from the two hex values, and run
+  `cd design && npm test` together with the existing `node scripts/lint-tokens.mjs`
+
 **Checkpoint**: a person can hold a conversation without ever seeing the chat layout, and can leave it without losing a word of it.
 
 ---
@@ -318,12 +328,24 @@ raised at 15:25 — and is **verified and amended here three times**, not rewrit
 tasks were checked against the code and kept; **six** were added (T017, T018, T019 for the findings
 below; T020, T021, T022 for the delivery path), eight were made more specific, and the ID sequence was
 renumbered three times (old `T017` and up moved by three, old `T038`/`T040` and up by two, old `T022`
-and up by one, and again by two for SC-005/FR-008) so the list stays in execution order. Total: 88 tasks,
-T001–T088 (`analysis.md` M12 caught the
-stale 84 here and the stale phase count below).
+and up by one, and again by two for SC-005/FR-008). **The id is not the execution order** — the phase
+is. US6 was appended as T089–T097 although it is built **before** Polish, which keeps T074–T088, so
+Phase 9 must be executed **last** even though its ids are the smallest of the two blocks; anyone
+following the numbers instead of the phases would write the docs and run the closing gates before the
+panel exists. Total at this delta: 88 tasks, T001–T088 (`analysis.md` M12 caught the stale 84 here and
+the stale phase count below).
 
 **Why this delta exists**: `review.md` re-checked every citation in `research.md`/`plan.md` against the
 tree. Seven findings change what a task must say; `architecture.md` is the shape they take.
+
+**Delta 2026-11-09 07:52 (design tokens, before the panel).** 97 → **98** tasks (T001–T098), nothing
+renumbered: **T098** appended at the end of Phase 8, because the panel cannot be built on tokens that do not
+exist yet. It is the first task in this file that touches `design/` rather than `crates/` or `webui/app/`:
+`--vz-retrying-text` is still a proposal (`grep -rn retrying-text design/` → 0 hits) whose absence would
+leave the reconnecting word at 4.03:1, and the dark failed state has been drawn from `#f87171`, which is a
+generative-UI fallback value, not a library token. The task carries both hex pairs and their measured ratios
+so the gate is arithmetic, and it says explicitly not to replace `#f87171` everywhere — that value is
+legitimate where it is.
 
 **Delta 2026-11-09 06:52 (User: the panel floats, one call in total — spec C9/C10).** 92 → **97** tasks
 (T001–T097), no ID renumbered: five appended. Changed in place: **T089** (a panel mounted as an overlay,
