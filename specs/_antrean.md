@@ -47,6 +47,10 @@ Wajib satu baris di gate: **"kenapa lolos"**, pilih satu kategori:
 - (d) wajib langsung jadi task ber-ID di papan ini. Tanpa ID, known issue cuma known sampai lupa.
 - Yang diperbaiki gate-nya, bukan orangnya.
 
+## Catatan baris pertama (AQ-001)
+Kenapa ini yang pertama: `tasks.md` 055 saat ini menampilkan **101 `[ ]` vs 9 `[x]`**, padahal `git log` menunjukkan T074–T109 sudah di-commit. Angka status yang salah = klaim tanpa bukti, dan itu persis penyakit yang aturan ini obati. Deliverable tunggal: tiap `[x]` punya commit hash pendukung; selisih sebelum/sesudah dilaporkan.
+Batas uji: baris ini menguji **papan + tanda tangan teknis** saja (pemilik Lead, tidak menyentuh kode). Untuk menguji jalur Sepuh + QA + desainer end-to-end, butuh satu deliverable kode nyata dari kang/PM.
+
 ## Format baris
 `ID . judul . status . pemilik . sejak . diblokir oleh`
 
@@ -54,4 +58,4 @@ Wajib satu baris di gate: **"kenapa lolos"**, pilih satu kategori:
 
 | ID | Judul | Status | Pemilik | Sejak | Diblokir oleh |
 |---|---|---|---|---|---|
-| - | (kosong - belum ada task terdaftar) | - | - | - | - |
+| `AQ-001` | Rekonsiliasi checkbox `specs/055-live-voice/tasks.md` dengan riwayat git (label `docs`) | `aktif` | Lead | 9 Nov 2026 20:45 WIB | - |
