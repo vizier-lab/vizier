@@ -33,15 +33,12 @@ Spec = **apa yang benar**. DoD = **bagaimana dibuktikan**. `specs/**`: Lead bole
 - Promosi yang menyentuh perilaku/scope tetap lewat **ACC kang** (draft `@system-analyst`, diajukan `@bro-pm`).
 
 
-## Jalur task per agen
-- **`@sepuh-be` (kode)**: task dari Lead, dengan DoD tertulis.
-- **`@teteh-qa` dan `@teteh-desener`**: task dari Lead, DoD + acceptance criteria dari spec. Bukan dari PM.
-- **`@system-analyst` (spec/analisa)**: task **dari `@bro-pm`**, bukan dari Lead — karena outputnya *mendahului* implementasi. Kalau spec datang dari Lead, penulis hulu dan konsumen hilir jadi satu orang, dan independensi spec hilang di titik itu. Batasnya tiga:
-  - yang dikirim PM adalah artefak yang mendahului implementasi (requirement, SRS/FRD, analisa, spec, Notion);
-  - perubahan spec karena temuan hilir (C-13/C-14 di 055, qa-plan yang menemukan requirement kurang) masuk **lewat Lead** — pemicunya di hilir, jadi pintu masuknya di hilir;
-  - SA **tidak** menerima task kode atau brief ber-DoD kode.
-- Tanda tangan SA bukan tiga: approval User di Gate 1 + pernyataan Lead bahwa spec cukup dipecah jadi task.
-- Larangan "PM tidak pernah mengirim task ke implementer" tidak berubah.
+## Jalur task `@system-analyst` (keputusan `@bro-pm` 9 Nov 2026 20:49; ditulis di sini atas permintaannya)
+
+- Task spec/analisa ke SA datang **dari `@bro-pm`**, bukan dari Lead: outputnya *mendahului* implementasi, jadi kalau Lead yang menugaskan, penulis hulu dan konsumen hilir jadi satu orang.
+- Batasnya tiga: (1) yang dikirim PM adalah artefak pra-implementasi (requirement, SRS/FRD, analisa, spec, Notion); (2) perubahan spec karena temuan hilir (C-13/C-14, qa-plan yang menemukan requirement kurang) masuk **lewat Lead**; (3) SA tidak menerima task kode atau brief ber-DoD kode.
+- Tanda tangan SA dua, bukan tiga: approval User di Gate 1 + pernyataan Lead bahwa spec cukup dipecah jadi task.
+- Larangan "PM tidak pernah mengirim task ke implementer" tidak berubah. Jalur `@sepuh-be`, QA dan desainer tetap seperti §Gate di bawah.
 
 ## Gate: satu gerbang, tiga tanda tangan
 Tidak ada gate terpisah per disiplin. Satu status `gate`, tiga syarat, satu kebenaran.
@@ -80,6 +77,12 @@ tripwire: task 1-3 | diblokir-spec: 0/3 | tanpa-spec: 0/5
 Kalau **2 dari 3** task diblokir "spec belum siap", atau **>2 dari 5** baris pakai `tanpa-spec`, aturan dibawa ke `@bro-pm`/kang untuk direvisi — bukan dilonggarkan sendiri.
 
 
+## Cek requirement otomatis (ACC 20:55, poin 6)
+
+Satu perintah di repo — kode ditulis `@sepuh-be`, pemilik semantik `@system-analyst`, dijalankan di gate Lead — mencetak: id terdefinisi, dicoret/deferred, dirujuk-tapi-tak-terdefinisi, varian berhuruf, dan jumlah hidup. Output ditempel ke laporan `siap-kirim`; spec tidak dipakai sebelum output bersih.
+
+- **Usul `@system-analyst` (9 Nov 2026, belum ACC):** output juga menyebut `hidup-tanpa-pembawa` (FR terdefinisi yang tidak dirujuk task mana pun) dan `deferred-yang-masih-dirujuk-qa-plan`. Alasannya: perintah yang hanya memeriksa satu arah bisa keluar bersih sementara sebuah requirement hidup tanpa pelaksana — gate hijau untuk sesuatu yang tidak akan dibangun.
+
 ## Format baris
 `ID . judul . status . pemilik . sejak . R: <FR-### | tanpa-spec:<alasan>> . diblokir oleh`
 
@@ -103,8 +106,11 @@ Hasil cek ulang: **65 `[x]`, 65 beranotasi, 22 referensi `repo@hash` unik, 22/22
 | Tanda tangan | Pemilik | Status | Bukti |
 |---|---|---|---|
 | Teknis | Lead | ✅ 9 Nov 2026 | di bawah |
-| Perilaku vs spec | `@teteh-qa` | N/A | `qa-plan: N/A - no behavior change` (label `docs`, tidak menyentuh kode) |
-| Visual vs handoff | `@teteh-desener` | N/A | label `docs`, bukan `ui` |
+| Perilaku vs spec | `@teteh-qa` | `qa-plan: N/A` (menunggu terima/tolak QA) | label `docs`, tidak menyentuh kode — `qa-plan: N/A` saya tetapkan sebagai Lead; kalau QA menilai baris ini butuh tanda tangannya, status kembali ke `gate` |
+| Visual vs handoff | `@teteh-desener` | tidak diminta | label `docs`, bukan `ui` (aturan papan sendiri) |
+
+**Catatan tanda tangan:** tidak ada tanda tangan yang saya tulis atas nama agen lain. Tanda tangan teknis di baris ini milik saya setelah saya periksa sendiri: 110 task utuh, `[x]` 9 -> 65, `[ ]` 101 -> 45, rujukan `screens/livevoice/` 6 -> 0, dan 22 dari 22 anotasi `repo@hash` resolve di repo yang disebut (`git cat-file -t`; satu-satunya yang gagal adalah placeholder `<hash>` di kepala `tasks.md`).
+
 
 **Bukti teknis** (perintah → keluaran, dijalankan 9 Nov 2026 sebelum commit):
 - `grep -cE '^- \[[ x]\] T[0-9]{3}' specs/055-live-voice/tasks.md` → `110` sebelum **dan** sesudah: tidak ada task ditambah atau dihapus, hanya status yang berubah.
