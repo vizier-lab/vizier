@@ -26,6 +26,7 @@ export const CONTRAST_PAIRS: Pair[] = [
     pair('state/live', 'bg/panel', 3, 'Live mark'),
     pair('state/failed', 'bg/panel', 3, 'Failed mark'),
     pair('state/retrying', 'bg/panel', 3, 'Retrying mark'),
+    pair('state/retrying-text', 'bg/panel', 4.5, 'Retrying text on content'),
 ]
 
 /** Accent and live closer than this hide the live dot on a sigil, which differs by colour alone. */

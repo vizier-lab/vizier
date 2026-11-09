@@ -84,7 +84,7 @@ describe('paint cache', () => {
         const paint = paintOf(nord)!
         expect(paint.id).toBe('nord')
         expect(paint.light).toBeUndefined()
-        expect(Object.keys(paint.dark!)).toHaveLength(50)
+        expect(Object.keys(paint.dark!)).toHaveLength(51)
         for (const [name, value] of Object.entries(paint.dark!)) {
             expect(name).toMatch(/^--vz-[a-z0-9-]+$/)
             expect(value).toMatch(/^#[0-9a-f]{6}$/)
@@ -115,7 +115,7 @@ describe('applying', () => {
     it('sets variables and the attribute, and clears what the new scheme lacks', () => {
         const el = fakeElement()
         applyTo(el, resolve(nord, 'system', false))
-        expect(el.vars.size).toBe(50)
+        expect(el.vars.size).toBe(51)
         expect(el.attrs.get('data-theme')).toBe('dark')
         applyTo(el, resolve(vizier, 'system', false))
         expect(el.vars.size).toBe(0)

@@ -39,6 +39,7 @@ const ROLE_TABLE = [
     ['state/retrying', '--vz-retrying', 'Retrying'],
     ['state/retrying-bg', '--vz-retrying-bg', 'Retrying ground'],
     ['state/retrying-line', '--vz-retrying-line', 'Retrying edge'],
+    ['state/retrying-text', '--vz-retrying-text', 'Retrying text'],
     ['state/selection', '--vz-selection', 'Selected text ground'],
     ['state/selection-text', '--vz-selection-text', 'Selected text letters'],
     ['data/graph-edge', '--vz-graph-edge', 'Graph link'],
