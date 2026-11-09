@@ -17,12 +17,14 @@ interrupt control. The feature is separate from the existing speech tools and is
 
 The technical shape is fixed by what the repository already is:
 
-* **The sound travels on a path of its own; the transcript does not move** (spec C13, 2026-11-09).
-  Everything a person reads — the state word, the transcript, the reply's text, errors — stays on the
-  per-agent WebSocket that is already open, so no second connection and no second credential. **Which
-  transport carries the sound is Q11 and is not assumed here**: the plan is written so that the socket
-  path (base64 PCM16, 100 ms chunks, already built and tested) and a media path both fit, and T099
-  records the decision with its numbers before any of it is coded.
+* **The sound travels in a lane of its own on the conversation's socket; the transcript does not move**
+  (spec C13; Q11 closed 2026-11-09 16:35). Audio is base64 PCM16 in 100 ms chunks on the per-agent
+  WebSocket that is already open, delivered per connection and **droppable** under backpressure;
+  everything a person reads — the state word, the transcript, the reply's text, errors — keeps the
+  ordered path on that same socket. No second connection, no second credential, no relay. The trade is
+  recorded rather than hidden: no jitter buffer, no PLC, no FEC, so a lost packet is a hole in the sound;
+  a media transport would have bought that resilience for +22 crates, 583 MB of `target` and a 1,25 GB
+  peak, which the User declined on those numbers.
 * Voice activity detection runs **in the browser**, on the AudioWorklet capture path that already
   exists, using an energy gate with an adaptive noise floor. No model, no new dependency.
 * Speech goes through the **existing recogniser and voice** (`VizierStt`, `VizierTts`). Both are
@@ -129,7 +131,7 @@ The decisions that shape the rest of the plan, each with the evidence it rests o
 
 | # | Decision | Evidence |
 |---|---|---|
-| R1 | Reuse the topic WebSocket, JSON + base64 PCM16, 100 ms chunks — **for the socket path, which stays the implemented candidate until Q11 says otherwise**. Evidence below describes a socket we proved writes JSON text and drops binary (`channel.rs:799-820`), and the 1 MiB envelope (`envelope.rs:11`) that made 4.3 KB chunks comfortable. It is the measurement a media path has to beat, not a decision that was overturned | `channel.rs:799-820` (write half is JSON text; binary is dropped), `envelope.rs:11` (1 MiB) |
+| R1 | Reuse the topic WebSocket, JSON + base64 PCM16, 100 ms chunks — **the shipped carrier, Q11 closed 2026-11-09 16:35**. Evidence below describes a socket we proved writes JSON text and drops binary (`channel.rs:799-820`), and the 1 MiB envelope (`envelope.rs:11`) that made 4.3 KB chunks comfortable. It is the measurement a media path has to beat, not a decision that was overturned | `channel.rs:799-820` (write half is JSON text; binary is dropped), `envelope.rs:11` (1 MiB) |
 | R2 | Client-side energy VAD, no model | CSP `default-src 'self'`, no wasm allowance (`tauri.conf.json:14`); worklet already shipped |
 | R3 | Server-authoritative interruption with a generation counter | inbound frames arrive over the same socket, so a stale synth task must be told to stop by the server, not trusted to notice |
 | R4 | One utterance per recognition call (batch providers) | `stt/mod.rs:10-18` — `transcribe(audio, filename, language)`, whole clip |

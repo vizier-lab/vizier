@@ -45,10 +45,11 @@ another person holds the session (FR-005). Idempotent while the caller's own ses
 
 ### `live_voice_audio` — **the shipped carrier (Q11, closed 2026-11-09 16:35)**
 
-> The spec now requires the sound to travel on a path of its own (FR-054) and leaves **which transport**
-> to Q11. This frame is the socket transport: it is the one already implemented and tested, so it stays
-> in the contract as the **leading fallback**, not as a decision. If Q11 lands on a media transport,
-> this frame is superseded and kept — the same way every other retired decision in this feature is kept.
+> **This is the shipped frame.** Q11 was closed on the socket by the User on 2026-11-09 16:35, so this
+> frame is what a client sends — not a candidate. It is the path that was already implemented and tested
+> (46 client tests, 3 server suites). `media-track` survives in this contract as a **reserved** value: a
+> client must not send it and a server must refuse it, because none of the setup, decoding or relaying
+> for it exists.
 
 ```json
 { "live_voice_audio": { "utterance_id": "u-42", "seq": 7, "sample_rate": 16000, "format": "pcm16", "base64": "..." } }
@@ -91,15 +92,18 @@ sends `utterance_end`, so the person hears silence as soon as they stop talking.
 ### `live_voice_interrupt`
 
 ```json
-{ "live_voice_interrupt": { "reason": "button" } }
+{ "live_voice_interrupt": { "reason": "barge_in" } }
 ```
 
 `reason`: `typed` | `barge_in`. It stops the audio and cancels the turn without opening an utterance: the
-session stays live and listening (FR-025, FR-027).
+session stays live and listening (FR-027). `typed` is the value a typed message would send, and it is
+**deferred with FR-025** — this release's client sends only `barge_in`.
 
 **`button` is deferred to the backlog (spec C7, 2026-11-08 21:19).** There is no interrupt control in
-this release, so a client MUST NOT send it; a server that receives it MUST treat it exactly like
-`barge_in` rather than fail, so the backlog item needs no protocol change when it lands.
+this release, so a client MUST NOT send it. It is **not shown in any example above**, deliberately: a
+third-party client copies examples, and an example is the strongest documentation there is. A server that
+receives it anyway MUST treat it exactly like `barge_in` rather than fail, so the backlog item needs no
+protocol change when it lands.
 
 **`typed` exists only where the conversation is reachable during a session** — spec open question Q7's
 default says it is yes — a row above the composer covers nothing (C11, FR-049) — and a call is moved
@@ -178,13 +182,20 @@ state to `listening` (FR-015).
 { "live_voice": { "type": "error", "kind": "provider_failed", "message": "the voice provider refused the segment" } }
 ```
 
-`kind` mirrors the `reason` list above, plus **one kind that is not a session reason: `forbidden`**
-(FR-064). A refusal that happens **before a session exists** — a missing, revoked, expired or
-under-scoped API key, or a second call for the same owner (FR-005) — has no session to end, so it
-cannot carry a `reason`; it is one `live_voice_error` with `kind: "forbidden"` and nothing else. A
-refusal MUST NOT disclose whether the conversation, the agent or a live session exists. When a session
-does exist, the frame's usual rule holds: the session's own state is not changed by this frame alone —
-a `live_voice_state` always follows, so the client has one source of truth (FR-032, SC-009).
+`kind` mirrors the `reason` list above, plus **two kinds that are not session reasons**, because a
+refusal that happens *before a session exists* has no session to end and cannot carry a `reason`:
+
+| `kind` | When | What the client shows |
+|---|---|---|
+| `forbidden` | the caller may not use this feature at all: missing, revoked, expired or under-scoped key, or no right to chat in this conversation (FR-064) | nothing about the conversation — the refusal must not disclose whether it, the agent or a session exists |
+| `session_active` | this conversation already has a call, held by another connection of the same owner (FR-005, Q2's default) | that the call is already open here, and that it can be ended from the connection holding it |
+
+**One term, one meaning.** `session_active` is the **only** answer for a second connection on a
+conversation that already has a call, and it is **never** the answer to a start elsewhere — that
+**moves** the call (FR-050, FR-051). A server MUST NOT answer a start elsewhere with `session_active`,
+and MUST NOT answer a same-conversation start with anything else. When a session does exist, the frame's
+usual rule holds: the session's own state is not changed by this frame alone — a `live_voice_state`
+always follows, so the client has one source of truth (FR-032, SC-009).
 
 ### `live_voice` `stall`
 
@@ -201,11 +212,10 @@ channel that tells them the session is live.
 
 ## Delivery path (not the session-event broadcast)
 
-> **Settled: the socket carries the sound (Q11).** What follows describes how **audio**
-> frames travel when the transport is the topic socket: a per-connection lane, a bounded queue and a
-> `stall` frame. It is the implemented candidate and the leading fallback, not a decision — if Q11
-> lands on a media transport, the sound leaves this path and only the control frames keep the
-> session broadcast, which is the half of this section that holds either way.
+> **This is the delivery path that ships (Q11, closed 2026-11-09 16:35).** Audio frames travel on a
+> per-connection lane with a bounded queue and a `stall` frame, because they are droppable; control
+> frames keep the session broadcast, because they are not. Both halves are now the product, not a
+> choice between halves.
 
 **Audio** frames (`live_voice_speech`) do **not** travel through `publish_session_event` and the
 session-event broadcast: they are written to the one socket that owns the session, through

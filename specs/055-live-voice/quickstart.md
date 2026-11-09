@@ -59,17 +59,18 @@ microphone and the "ask for a spoken reply" toggle, and is off.
 9. **Two tabs.** Start a session in one tab and open the same conversation in another: the second is
    told a session is active and cannot start one (FR-005).
 
-10. **Measure the three gates.** SC-001, SC-002 and SC-003 are only gates if they are measured the
-    same way every time (T073 fixes the marks). With a hosted provider, three turns are enough for a
-    smoke measurement; a release gate wants twenty:
+10. **Measure the two gates.** SC-001 and SC-002 are only gates if they are measured the same way
+    every time (T076 fixes the marks). With a hosted provider, three turns are enough for a smoke
+    measurement; a release gate wants twenty:
     * **SC-001** — the clock starts when the utterance closes on the client (the 800 ms hangover
       fires) and stops at the first `AudioBufferSourceNode.start()` of the reply. Read it from the
       `live_voice_metric` lines the client logs, or from the browser's Performance panel.
     * **SC-002** — speak over the agent and read the same log: utterance-close to `player.stop()`
       returning must be <= 50 ms on the client, and the server span must show the `Abort` delivered
       within 300 ms.
-    * **SC-003** — press Interrupt and read the click-to-silence time; it must be <= 200 ms in every
-      attempt, which is why `stop()` is synchronous.
+    * **SC-003 does not apply to this release** — it times the interrupt button, and that control is
+      deferred with C7. It is struck in `spec.md` and is not measured here; when the control returns
+      from the backlog, this step comes back with it.
     Record the numbers in the pull request next to the run's provider and machine. A local whisper
     model is expected to miss SC-001; that is open question Q3, not a bug.
 
