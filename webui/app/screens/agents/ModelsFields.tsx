@@ -196,6 +196,30 @@ export function ModelsFields({ form, errors, set }: Props) {
                             <TextField label="Language" mono value={form.sttLanguage} placeholder="Detect automatically" helper="A language code such as en." onChange={(e) => set({ sttLanguage: e.target.value })} />
                         </div>
                     </ToggleSection>
+
+                    {/* The live conversation (spec 055 T041). Its own switch: the two above are the
+                        voice-message tools, and this one is a session that listens while the person
+                        talks. It borrows their providers rather than asking for a third pair, and
+                        it says which two, because the pickers above may be collapsed. */}
+                    <ToggleSection
+                        title="Live voice"
+                        description="Talk to the agent instead of typing. It listens and answers in the conversation, and it uses the two providers above."
+                        checked={form.liveVoice}
+                        onCheckedChange={(liveVoice) => set({ liveVoice, liveVoiceTouched: true })}
+                    >
+                        <div className="flex flex-col gap-12">
+                            <p className="type-small text-faint">
+                                Recogniser <span className="font-mono">{form.sttProvider}</span> · Voice{' '}
+                                <span className="font-mono">{form.ttsProvider}</span>. Change either with the providers above.
+                            </p>
+                            <p className="type-small text-faint">
+                                The local models — <span className="font-mono">whisper</span> and{' '}
+                                <span className="font-mono">kokoro</span> — download their weights on first use: a few minutes,
+                                and no key needed.
+                            </p>
+                            {errors.liveVoice && <p className="type-small text-failed-text">{errors.liveVoice}</p>}
+                        </div>
+                    </ToggleSection>
                 </div>
             </Card>
 

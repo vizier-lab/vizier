@@ -231,3 +231,73 @@ describe('local embedding models', () => {
         expect(LOCAL_EMBEDDING_MODELS[0].label).toBe('all_mini_lml6_v2 · lightweight')
     })
 })
+
+/**
+ * T041 — the switch that makes live voice reachable at all.
+ *
+ * The server refuses `enabled: true` with no recogniser and no voice, and `whisper`/`kokoro` are its
+ * *defaults* — so a body that sent only `enabled` would be rejected. That is why the switch always
+ * sends the two providers the form shows.
+ */
+describe('the live voice switch', () => {
+    it('sends the switch and the providers it shows', () => {
+        const f = {
+            ...emptyForm(),
+            name: 'Archivist',
+            agentId: 'archivist',
+            provider: 'anthropic',
+            model: 'claude-haiku-5-5',
+            liveVoice: true,
+            liveVoiceTouched: true,
+        }
+        const live = toInput(f).tools?.live_voice
+        expect(live?.enabled).toBe(true)
+        // The whole point: the providers travel with it, so the server's gate can pass even when
+        // the person left the local defaults in place.
+        expect(live?.settings?.stt?.provider).toBe('whisper')
+        expect(live?.settings?.tts?.provider).toBe('kokoro')
+    })
+
+    it('sends what the pickers hold, not the defaults, when they were changed', () => {
+        const f = {
+            ...emptyForm(),
+            liveVoice: true,
+            liveVoiceTouched: true,
+            sttProvider: 'groq',
+            sttModel: 'whisper-large-v3',
+            sttLanguage: 'id',
+            ttsProvider: 'elevenlabs',
+            ttsVoice: 'rachel',
+        }
+        const live = toInput(f).tools?.live_voice
+        expect(live?.settings?.stt).toMatchObject({ provider: 'groq', model: 'whisper-large-v3', language: 'id' })
+        expect(live?.settings?.tts).toMatchObject({ provider: 'elevenlabs', voice: 'rachel' })
+    })
+
+    it('an explicit off is sent as off', () => {
+        const f = { ...emptyForm(), liveVoice: false, liveVoiceTouched: true }
+        expect(toInput(f).tools?.live_voice?.enabled).toBe(false)
+    })
+
+    it('a form nobody touched sends no block at all, so saving cannot end a session', () => {
+        const d = detail({ live_voice: true })
+        const f = fromDetail(d)
+        expect(f.liveVoice, 'the switch shows what the server reports').toBe(true)
+        expect(f.liveVoiceTouched).toBe(false)
+        // Absent, not `false`: the server keeps what is stored.
+        expect(toInput(f, d).tools).not.toHaveProperty('live_voice')
+        expect(toInput({ ...emptyForm() }).tools).not.toHaveProperty('live_voice')
+    })
+
+    it('a form for an agent without a session shows the switch off', () => {
+        expect(fromDetail(detail({ live_voice: false })).liveVoice).toBe(false)
+        expect(fromDetail(detail()).liveVoice, 'absent means off').toBe(false)
+    })
+
+    it('asks for a provider rather than letting the save fail with a 400', () => {
+        const p = problems({ ...emptyForm(), name: 'a', provider: 'x', model: 'm', liveVoice: true, sttProvider: '', ttsProvider: '' }, 'models')
+        expect(p.liveVoice).toBe('Live voice needs a recogniser and a voice.')
+        // Nothing to complain about while the switch is off.
+        expect(problems({ ...emptyForm(), name: 'a', provider: 'x', model: 'm', sttProvider: '', ttsProvider: '' }, 'models').liveVoice).toBeUndefined()
+    })
+})

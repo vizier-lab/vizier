@@ -37,6 +37,18 @@ export type AgentForm = {
     sttModel: string
     /** Language hint such as `en`; empty lets the model detect it. */
     sttLanguage: string
+    /**
+     * The live conversation's own switch (spec 055 T041). It is not the STT or TTS tool: those are
+     * the voice-message tools, and this one opens a session that listens and answers while the
+     * person talks. Its providers are the pickers below, which is why turning it on sends them
+     * explicitly — the server refuses a session that names no recogniser and no voice.
+     */
+    liveVoice: boolean
+    /**
+     * Whether the person touched that switch. An untouched form sends no `live_voice` at all, so
+     * saving an agent from a page that never showed it cannot end a session somebody is in.
+     */
+    liveVoiceTouched: boolean
     readImage: boolean
     /** True when the vision model is its own pick; false sends images to the main model. */
     visionOwn: boolean
@@ -184,6 +196,8 @@ export const emptyForm = (): AgentForm => ({
     sttProvider: 'whisper',
     sttModel: '',
     sttLanguage: '',
+    liveVoice: false,
+    liveVoiceTouched: false,
     readImage: false,
     visionOwn: false,
     visionProvider: '',
@@ -261,6 +275,9 @@ export function problems(f: AgentForm, step: 'config' | 'models' | 'prompt' | 'a
         if (f.tts && f.ttsSpeed.trim() !== '' && (num(f.ttsSpeed) ?? -1) <= 0) out.ttsSpeed = 'A positive number, or empty.'
         if (f.dreamEnabled && !f.dreamSchedule.trim()) out.dreamSchedule = 'A cron expression is needed when dreams are on.'
         if (f.readImage && f.visionOwn && (!f.visionProvider || !f.visionModel)) out.vision = 'Choose a vision model.'
+        // A session with no recogniser and no voice is refused by the server, so the form says it
+        // here instead of letting the save fail with a 400 nobody expected.
+        if (f.liveVoice && (!f.sttProvider || !f.ttsProvider)) out.liveVoice = 'Live voice needs a recogniser and a voice.'
         // The memory index's model sits in Models too, and only Bedrock and the built-in local index
         // have a documented default.
         if (f.embeddingProvider !== 'local' && f.embeddingProvider !== 'bedrock' && !f.embeddingModel.trim()) out.embeddingModel = 'Name the embedding model.'
@@ -332,6 +349,32 @@ export function toInput(f: AgentForm, base?: AgentDetail): AgentInput {
             image_gen_settings: f.imageGen
                 ? { ...keep(base?.image_gen_settings, f.imageGenProvider), model: f.imageGenModel.trim() || null, size: f.imageGenSize.trim() || null }
                 : (base?.image_gen_settings ?? null),
+            // Absent unless the switch was touched: an agent saved from a page that never showed it
+            // must keep the session exactly as it is (the server reads "absent" as "leave it").
+            // When it is touched, the providers come with it. The server refuses `enabled: true`
+            // with no recogniser and no voice, and `whisper`/`kokoro` are the *defaults* there — so
+            // a session that named only `enabled` would be refused. Sending what the pickers hold
+            // is what makes the switch work with the local models too.
+            ...(f.liveVoiceTouched
+                ? {
+                      live_voice: {
+                          enabled: f.liveVoice,
+                          settings: {
+                              stt: {
+                                  provider: f.sttProvider,
+                                  model: f.sttModel.trim() || null,
+                                  language: f.sttLanguage.trim() || null,
+                              },
+                              tts: {
+                                  provider: f.ttsProvider,
+                                  model: f.ttsModel.trim() || null,
+                                  voice: f.ttsVoice.trim() || null,
+                                  speed: num(f.ttsSpeed),
+                              },
+                          },
+                      },
+                  }
+                : {}),
         },
     }
 }
@@ -378,6 +421,12 @@ export function fromDetail(d: AgentDetail): AgentForm {
         sttProvider: str(d.stt_settings?.provider, 'whisper'),
         sttModel: str(d.stt_settings?.model),
         sttLanguage: str(d.stt_settings?.language),
+        // `detail.live_voice` is the server's own answer — on only when the switch is on and both
+        // halves exist — so it is what the switch shows. The providers the session uses are not in
+        // the detail; the pickers below are the form's source for them, and turning the switch on
+        // sends what they hold. `touched` starts false: loading a page is not an edit.
+        liveVoice: d.live_voice ?? false,
+        liveVoiceTouched: false,
         readImage: d.read_image,
         visionOwn: !!(d.read_image_settings?.provider && d.read_image_settings?.model),
         visionProvider: d.read_image_settings?.provider ?? '',

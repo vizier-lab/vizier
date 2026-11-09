@@ -138,7 +138,22 @@ export type AgentInput = {
         read_image_settings?: ReadImageSettings | null
         image_gen?: boolean
         image_gen_settings?: Record<string, unknown> | null
+        /**
+         * The live conversation's own switch (spec 055 T041). Absent means "leave it as it is" —
+         * the server keeps what is stored — so a page that never showed the switch cannot end a
+         * session by saving.
+         */
+        live_voice?: LiveVoiceInput
     }
+}
+
+/** `tools.live_voice` on the way in. */
+export type LiveVoiceInput = {
+    enabled: boolean
+    settings?: {
+        stt?: Record<string, unknown> | null
+        tts?: Record<string, unknown> | null
+    } | null
 }
 
 /** A saved agent, with anything about its model worth knowing. */
