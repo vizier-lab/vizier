@@ -81,13 +81,17 @@ this release, so a client MUST NOT send it; a server that receives it MUST treat
 
 **`typed` exists only where the conversation is reachable during a session** — spec open question Q7's
 default says it is not, since the floating panel leaves the conversation behind it in place (C9) and a
-call is moved rather than duplicated (C10). The reason stays in the
-contract because FR-025 (typing stops the reply) is a requirement even when the surface that allows it
-is not on screen.
+call is moved rather than duplicated (C10). The reason stays in the contract so the backlog item needs
+no protocol change when it returns — but **`typed` is not sent by this release's client**: FR-025 is
+deferred with the interrupt control (C7, 2026-11-08 21:19), and although the two client helpers for it
+exist (`Session.onTyped`, `webui/app/lib/liveVoice/session.ts:239`, and `forwardLiveVoiceTyped`,
+`webui/app/lib/liveVoice/control.ts:56`), **nothing calls them** — the composer never reaches the
+session, so a keystroke stops nothing today.
 
-**A typed message has no frame here.** Typing during a session sends `live_voice_interrupt { reason:
-"typed" }` (the audio stops, FR-025) and then the text as an ordinary chat request on the same socket,
-exactly as it would with no session at all. Its reply is text and is never spoken (FR-018 withdrawn,
+**A typed message has no frame here.** When FR-025 returns, typing during a session sends
+`live_voice_interrupt { reason: "typed" }` (the audio stops) and then the text as an ordinary chat
+request on the same socket, exactly as it would with no session at all — the missing piece is the call
+site, not the frame. Its reply is text and is never spoken (FR-018 withdrawn,
 2026-11-08). The earlier `live_voice_text` frame existed only to route that reply through the session's
 speaker; it is gone with the requirement.
 
