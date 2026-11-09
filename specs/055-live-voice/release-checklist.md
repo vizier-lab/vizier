@@ -1,6 +1,9 @@
 # 055 — Release checklist
 
-**Written by `@teteh-qa` at `cdffd94a`** (parent; `webui c06185f`, C6b still in the working copy), 2026-11-09.
+**Written by `@teteh-qa` at `70806654`** (parent; `design 021ab46`, `webui c1dabc6`), 2026-11-09, and
+**re-verified at `70806654`**: every `[QA]` line below was re-read against this tree, not carried over.
+Since the first draft, T102 landed `unsupported_audio` (`de006e3e`, pin `2569aa34`); C6b (API key scope) sits
+**uncommitted in the working copy - 12 files `M`** and is therefore in no gate below.
 Scope: what a person running the release binary must actually check, and what **cannot** be checked on this
 machine. This is a test plan, not a claim that anything below has passed.
 
@@ -42,9 +45,12 @@ tools:
 
 - **What failing looks like:** no pill at all, or a greyed pill. A greyed pill is **not** a bug — it is
   FR-004 (`webui/app/screens/chat/LiveVoiceRow.tsx:169-183`) and its tooltip names the missing half.
-  Known rough edge [QA]: `liveVoiceMissing` is never passed from `chat.tsx` (only `liveVoiceEnabled`), so the
-  tooltip always shows the generic *"live voice is not configured for this agent"*, and pressing the greyed
-  pill calls an `onOpenSettings` that `Composer.tsx` never supplies — the press does nothing.
+  Two rough edges [QA], both re-checked at `70806654`: (a) `chat.tsx:546` passes `liveVoiceEnabled` but **never**
+  `liveVoiceMissing`, although `Composer.tsx:71,102,472` accepts and forwards it - so the tooltip is always the generic
+  *"live voice is not configured for this agent"* and never names the missing half; (b) the greyed control is a `<span>`
+  (`LiveVoiceRow.tsx:169-189`), not a button, so pressing it cannot open settings: `onOpenSettings` reaches
+  `LiveVoiceControl.tsx:26,75` but `Composer.tsx` never supplies it. **Neither is a release blocker** - FR-004's text is
+  shown, only the *where to set it* half is missing. Do not report it as "the pill is dead" without this line.
 
 **0.2 A real recogniser and a real voice.** `SttProvider` / `TtsProvider` need saved provider credentials
 (`crates/vizier-core/src/schema/agent.rs:398-408` and `:335-343`). **Do not** write credentials into this file
@@ -70,7 +76,7 @@ Run these first: a red here invalidates section B.
 | A4 | `env -u PYTHONHOME -u PYTHONPATH cargo test -p vizier-http --features live-voice` | 11 suites ok [lap] | any failure |
 | A5 | `cd webui && npx playwright test --list e2e/live-voice-row.spec.ts e2e/live-voice-lifecycle.spec.ts e2e/live-voice-failures.spec.ts` | prints a list, exit 0 | parse error. **A list is not a pass** — it only proves the selectors are syntactically valid |
 | A6 | `node design/scripts/lint-tokens.mjs app` | 15 violations, all pre-existing (`WorkspaceSidebar`, `SideCard`, `WorkspaceHeader`) [lap] | **any** violation whose path is `LiveVoiceRow` or `liveVoice` — a raw hex or a raw spacing step got in |
-| A7 | `grep -c 'Interrupt' webui/app/screens/chat/LiveVoiceRow.tsx webui/app/screens/chat/LiveVoiceControl.tsx` | `0` and `0` | any hit: the deferred control (C7) came back |
+| A7 | `grep -n 'Interrupt' webui/app/screens/chat/LiveVoiceRow.tsx webui/app/screens/chat/LiveVoiceControl.tsx` | **`LiveVoiceRow.tsx:48` only** - the state word `'Interrupted'` inside `rowWord()`; `LiveVoiceControl.tsx` **0** | any hit that renders a **button or label** named Interrupt, or any hit outside `rowWord()`. A bare `grep -c` reports `1` here and is a false alarm - read the line, not the count |
 | A8 | `grep -n 'MANUAL_SPEECH_SURFACES' webui/app/screens/chat/Composer.tsx` | one constant = `false`, plus its two uses (mic, spoken-reply toggle) | a `true` default: the retired surfaces (FR-053/T107) reappear |
 | A9 | read `rowWord()` in `webui/app/screens/chat/LiveVoiceRow.tsx:37-58` | `Connecting…`, `Thinking`, `Listening`, `Speaking`, `Interrupted`, `Reconnecting`, `Ended`, `Failed` | a missing word, or `Thinking` and `Reconnecting` sharing one |
 
@@ -111,7 +117,7 @@ Start the release binary, open a chat with an agent configured per §0.1, then w
     passing before it lands.
 11. **Latency is recorded, not judged.** Every turn logs one line
     `live_voice_metric turn=… end_of_utterance_to_audible_ms=… end_of_utterance_to_silence_ms=…`
-    (`webui/app/lib/liveVoice/metrics.ts:80-89` [QA]). Collect ≥50 turns before anyone quotes a percentile.
+    (`webui/app/lib/liveVoice/metrics.ts:79-89`, `console.info` at `:83` [QA]). Collect ≥50 turns before anyone quotes a percentile.
     *Broke if:* the line is absent — the recorder is off by default (one boolean per turn, no allocation).
 
 ---
