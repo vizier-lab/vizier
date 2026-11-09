@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { LiveVoiceClient, humanReason, type LiveVoiceDeps, type LiveVoiceView } from './session'
 import { SilentPlayer } from './player'
@@ -853,7 +854,7 @@ describe('C3 — a dropped session ends at thirty seconds, not never (T067)', ()
 })
 
 describe('the session clock', () => {
-    it('counts from start, and returns to zero when the session ends', async () => {
+    it('counts from start, and freezes at what it counted when the session ends (T062)', async () => {
         const h = driven()
         await h.client.start()
         expect(h.client.currentView.elapsedMs).toBe(0)
@@ -864,7 +865,9 @@ describe('the session clock', () => {
 
         h.client.stop('pressed_again')
         expect(h.client.currentState).toBe('ended')
-        expect(h.client.currentView.elapsedMs, 'an ended session has no clock').toBe(0)
+        // Changed with T062: the number is a record of the session that ran, not a reset. What
+        // matters is that it stops moving, and the test below shows it does.
+        expect(h.client.currentView.elapsedMs).toBeGreaterThanOrEqual(3000)
     })
 
     it('starts again from zero on the next session', async () => {
@@ -1071,5 +1074,110 @@ describe('T076 — the latency marks are two events', () => {
         h.advance(5000)
         h.client.onFrame(segment(2, 0))
         expect(liveVoiceReport().n, 'the stale mark was dropped with the session').toBe(0)
+    })
+})
+
+/**
+ * C5/A — the session's own cycle: an idle ending, a second visit, and a hidden window.
+ *
+ * What is *not* here, and cannot be: `document.visibilitychange` and React's effect cleanup. This
+ * package runs vitest with `environment: 'node'`, so there is no document to dispatch on and no
+ * component to mount. The client is asserted on the facts a hidden window would produce — a device
+ * the browser took away, and a session that keeps the microphone open while the window is not in
+ * focus — and one policy test reads the sources to prove nothing ends a session on `hidden`.
+ */
+describe('C5/A — an idle ending, a second visit, a hidden window', () => {
+    it('T062: an idle ending keeps the reason readable and stops the clock where it stood', async () => {
+        const h = driven()
+        await h.client.start()
+        h.advance(185_000)
+        // A frame makes the client render, which is where the clock catches up: the 100 ms tick is
+        // a real timer and these tests do not wait on wall-clock time.
+        h.client.onFrame({ live_voice: { type: 'state', state: 'listening', generation: 1 } })
+        h.client.onFrame({ live_voice: { type: 'state', state: 'ended', generation: 1, reason: 'idle' } })
+
+        const view = h.last()
+        expect(h.client.currentState).toBe('ended')
+        expect(view.notice, 'the reason is a sentence, not a code').toBe(
+            'live voice ended after a while with nothing said'
+        )
+        expect(view.notice).not.toMatch(/idle/)
+        expect(view.micOpen, 'an idle ending releases the microphone').toBe(false)
+        expect(h.microphones(), 'and does it once').toBe(1)
+        expect(h.player.closed, 'and closes the audio context').toBe(1)
+
+        const frozen = view.elapsedMs
+        expect(frozen, 'three minutes and change').toBeGreaterThanOrEqual(185_000)
+        // The clock is not merely reset: it does not advance while the ended row is on screen.
+        h.advance(30_000)
+        h.client.onFrame({ live_voice: { type: 'error', kind: 'idle', message: 'noise' } })
+        expect(h.last().elapsedMs, 'a frozen clock stays frozen').toBe(frozen)
+    })
+
+    it('T063: a second visit remembers nothing from the first', async () => {
+        const h = driven()
+        await h.client.start()
+        h.advance(4000)
+        h.client.onFrame({ live_voice: { type: 'state', state: 'listening', generation: 1 } })
+        h.client.onFrame({ live_voice: { type: 'state', state: 'ended', generation: 1, reason: 'idle' } })
+        expect(h.last().notice).not.toBeNull()
+        expect(h.last().elapsedMs).toBeGreaterThan(0)
+
+        await h.client.start()
+        const fresh = h.last()
+        expect(fresh.notice, 'the old reason is not news about this session').toBeNull()
+        expect(fresh.elapsedMs).toBe(0)
+        expect(fresh.micOpen).toBe(true)
+        expect(h.client.currentState).toBe('listening')
+    })
+
+    it('T063: a new session reaches connecting before the device is open', async () => {
+        // The permission prompt, held open: the promise resolves only when the test says so.
+        const pending: ((value: { stop(): void; open: boolean }) => void)[] = []
+        const view: LiveVoiceView[] = []
+        const client = new LiveVoiceClient({
+            send: () => true,
+            player: new SilentPlayer(),
+            openCapture: () =>
+                new Promise((resolve) => {
+                    pending.push(resolve)
+                }),
+            onView: (next) => view.push(next),
+            now: () => 1000,
+        })
+        void client.start()
+        // The permission prompt is still up: the person sees `connecting`, and nothing else.
+        expect(client.currentState).toBe('connecting')
+        expect(view[view.length - 1].notice).toBeNull()
+        pending[0]?.({ stop: () => {}, open: true })
+    })
+
+    it('T065: the microphone is taken away mid-session, and the reason is readable', async () => {
+        const h = driven()
+        await h.client.start()
+        h.advance(2000)
+        // What a suspended or revoked device produces: `capture.ts` reports it, and the session
+        // must not pretend to still be listening.
+        h.lost('the microphone was taken away')
+
+        const view = h.last()
+        expect(h.client.currentState).toBe('failed')
+        expect(view.notice).toBe('the microphone was taken away')
+        expect(view.micOpen).toBe(false)
+        expect(h.microphones()).toBe(1)
+    })
+
+    it('T065: nothing ends a session because the window was hidden', () => {
+        // A policy test, and it is the only honest form of this one here: there is no document to
+        // dispatch `visibilitychange` on. FR-038 wants the microphone alive while the window is in
+        // the background; the one hide event the surface listens for is `pagehide`, which fires on
+        // navigation and page close, not on a hidden tab.
+        const control = readFileSync('app/screens/chat/LiveVoiceControl.tsx', 'utf8')
+        const session = readFileSync('app/lib/liveVoice/session.ts', 'utf8')
+        for (const source of [control, session]) {
+            expect(source).not.toContain('visibilitychange')
+            expect(source).not.toMatch(/document\.hidden/)
+        }
+        expect(control, 'pagehide is the hide event the surface uses').toContain("'pagehide'")
     })
 })

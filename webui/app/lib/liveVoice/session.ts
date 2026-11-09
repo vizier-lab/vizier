@@ -155,6 +155,9 @@ export class LiveVoiceClient {
         this.released = false
         this.startedAt = this.now()
         this.view.elapsedMs = 0
+        // Nothing from the last visit is remembered (T063): an old reason, a stale transcript or a
+        // leftover notice would greet the person as if it were news about this session.
+        this.view.notice = null
         this.move('connecting')
         const sent = this.deps.send(startFrame(this.deps.language))
         if (!sent) {
@@ -423,7 +426,10 @@ export class LiveVoiceClient {
         this.capture?.stop()
         this.capture = null
         this.view.micOpen = false
-        this.view.elapsedMs = 0
+        // The clock stops where it stood rather than snapping back to zero (T062): the row's time
+        // is the record of the session that just ran, and `0:00` next to `Ended` says the opposite
+        // of what happened. `startedAt = 0` is what stops it advancing; `start()` zeroes the value
+        // for the next session, so a frozen number can never leak forward.
         this.startedAt = 0
         this.stopAudio()
         // Closing is asynchronous and its outcome changes nothing the person can act on; the
