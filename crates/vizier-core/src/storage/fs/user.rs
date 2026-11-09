@@ -336,6 +336,7 @@ impl UserStorage for FileSystemStorage {
         key_hash: &str,
         prefix: &str,
         expires_at: Option<Timestamp>,
+        capabilities: Option<Vec<String>>,
     ) -> Result<ApiKey> {
         let path = build_path(&self.workspace, &[API_KEYS_PATH]);
         let _ = std::fs::create_dir_all(path.parent().unwrap())?;
@@ -349,6 +350,7 @@ impl UserStorage for FileSystemStorage {
 
         let api_key = ApiKey {
             prefix: Some(prefix.to_string()),
+            capabilities,
             id: Uuid::new_v4().to_string(),
             user_id: user_id.to_string(),
             name: name.to_string(),

@@ -69,6 +69,22 @@ impl axum::response::IntoResponse for AuthError {
     }
 }
 
+/// What a key carries, and whether it is scoped (T109, FR-062).
+///
+/// `None` is a key made before scopes existed, and every key the settings page makes today: it
+/// carries its owner's permissions, and nothing about those keys changes. `Some(list)` carries the
+/// list and nothing else — that is the whole of the scope, and it is why this decision lives in one
+/// small function instead of inline in the middleware where it could not be tested.
+pub fn key_permissions(
+    capabilities: Option<Vec<String>>,
+    owner: Vec<String>,
+) -> (Vec<String>, bool) {
+    match capabilities {
+        Some(capabilities) => (capabilities, true),
+        None => (owner, false),
+    }
+}
+
 async fn resolve_user_role(state: &HTTPState, user_id: &str) -> Result<(Role, Vec<String>), AuthError> {
     let user = state
         .storage
@@ -198,13 +214,19 @@ pub async fn require_auth(
 
             // Get the user associated with this API key
             let (role, permissions) = resolve_user_role(&state, &api_key.user_id).await?;
+            // T109/FR-062: a scoped key carries **only** its own capabilities and inherits nothing
+            // from its owner. `role` stays as it is — it is a label and a few lookups read it — but
+            // every permission check reads `permissions`, and this is the line that makes a key
+            // handed to a third party unable to do anything else. `None` is a key made before
+            // scopes existed: it keeps its owner's permissions exactly as before.
+            let (permissions, scoped) = key_permissions(api_key.capabilities, permissions);
 
             Principal {
                 user_id: api_key.user_id,
                 username: String::new(),
                 role,
                 permissions,
-                method: AuthMethod::ApiKey,
+                method: AuthMethod::ApiKey { scoped },
             }
         }
         _ => return Err(AuthError::MissingCredentials),
@@ -253,4 +275,99 @@ fn extract_token_from_query(uri: &Uri) -> Option<String> {
                     }
                 })
         })
+}
+
+#[cfg(test)]
+mod tests {
+    //! T109/FR-062 — what a scoped key carries, and what it is refused.
+    //!
+    //! **What is not here.** The live socket's refusal of a scoped key that lacks `live_voice` is
+    //! asserted one layer down, on the predicate in `topic.rs` (`may_start_live_voice`): building a
+    //! `TopicConnection` needs an `HTTPState` and a topic that passes `authorize_topic`, and that
+    //! harness does not exist (the same `TODO(C5)` `live_voice_frames.rs` carries). The predicate is
+    //! the decision; the socket arm only calls it.
+
+    use super::key_permissions;
+    use crate::auth::AuthMethod;
+    use vizier_core::access;
+    use vizier_core::auth::Principal;
+    use vizier_core::storage::user::Role;
+
+    fn owner_permissions() -> Vec<String> {
+        vec![
+            "settings:api_keys".into(),
+            "users:manage".into(),
+            "live_voice".into(),
+        ]
+    }
+
+    fn principal(permissions: Vec<String>, scoped: bool, is_system: bool) -> Principal {
+        Principal {
+            user_id: "olive".into(),
+            username: String::new(),
+            role: Role {
+                role_id: "r".into(),
+                name: "role".into(),
+                permissions: owner_permissions(),
+                is_system,
+                created_at: vizier_core::time::now(),
+            },
+            permissions,
+            method: AuthMethod::ApiKey { scoped },
+        }
+    }
+
+    #[test]
+    fn a_scoped_key_carries_only_its_capabilities() {
+        let (permissions, scoped) =
+            key_permissions(Some(vec!["live_voice".into()]), owner_permissions());
+        assert!(scoped);
+        assert_eq!(permissions, vec!["live_voice".to_string()]);
+        // The point of the whole change: nothing of the owner's comes along.
+        assert!(!permissions.iter().any(|p| p == "users:manage"));
+        assert!(!permissions.iter().any(|p| p == "settings:api_keys"));
+    }
+
+    #[test]
+    fn a_key_without_capabilities_behaves_exactly_as_before() {
+        let (permissions, scoped) = key_permissions(None, owner_permissions());
+        assert!(!scoped, "an unscoped key is not scoped");
+        assert_eq!(permissions, owner_permissions(), "it still carries its owner's");
+        // Which means the settings page keeps working with no visible change.
+        assert!(permissions.iter().any(|p| p == "settings:api_keys"));
+    }
+
+    #[test]
+    fn an_empty_scope_carries_nothing() {
+        let (permissions, scoped) = key_permissions(Some(vec![]), owner_permissions());
+        assert!(scoped);
+        assert!(permissions.is_empty(), "an empty list is a key that may do nothing");
+    }
+
+    #[test]
+    fn a_scoped_key_is_refused_where_its_owner_is_allowed() {
+        // The owner may manage users; the scoped key may not, and `access::require` is where that
+        // is decided for every endpoint at once.
+        let scoped = principal(vec!["live_voice".into()], true, false);
+        assert!(access::require(&scoped, "users:manage").is_err());
+        assert!(access::require(&scoped, "settings:api_keys").is_err());
+        // Its own capability is allowed, which is what makes it useful at all.
+        assert!(access::require(&scoped, "live_voice").is_ok());
+
+        // And the unscoped key of the same owner keeps its access — no regression for the keys
+        // people already hold.
+        let full = principal(owner_permissions(), false, false);
+        assert!(access::require(&full, "users:manage").is_ok());
+    }
+
+    #[test]
+    fn a_scoped_key_of_an_administrator_is_still_not_a_system_caller() {
+        // Without this the scope would be a decoration: `require` short-circuits for system roles.
+        let scoped = principal(vec!["live_voice".into()], true, true);
+        assert!(access::require(&scoped, "users:manage").is_err());
+        assert!(access::require(&scoped, "live_voice").is_ok());
+
+        let full = principal(owner_permissions(), false, true);
+        assert!(access::require(&full, "users:manage").is_ok(), "a system key keeps everything");
+    }
 }

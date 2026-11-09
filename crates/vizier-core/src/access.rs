@@ -59,18 +59,26 @@ pub fn platform_of_slug(channel: &str) -> Option<&'static str> {
 
 /// System bypasses; otherwise the principal needs `permission`.
 pub fn require(user: &Principal, permission: &str) -> Result<(), ServiceError> {
-    if user.role.is_system || user.permissions.iter().any(|p| p == permission) {
+    if is_system(user) || user.permissions.iter().any(|p| p == permission) {
         Ok(())
     } else {
         Err(ServiceError::Forbidden("Forbidden: insufficient permissions".into()))
     }
 }
 
+/// Whether this caller may do everything. A **scoped API key** never may (T109, FR-062): its whole
+/// purpose is to be less than its owner, and its owner's role is still attached to it for labels
+/// and lookups. Without this line a scoped key belonging to an administrator would pass every
+/// check in the codebase, which is the one outcome the scope exists to prevent.
+fn is_system(user: &crate::auth::Principal) -> bool {
+    user.role.is_system && !matches!(user.method, crate::auth::AuthMethod::ApiKey { scoped: true })
+}
+
 impl<'a> From<&'a crate::auth::Principal> for Caller<'a> {
     fn from(user: &'a crate::auth::Principal) -> Self {
         Self {
             user_id: &user.user_id,
-            is_system: user.role.is_system,
+            is_system: is_system(user),
             permissions: &user.permissions,
         }
     }

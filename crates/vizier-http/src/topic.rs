@@ -39,10 +39,58 @@ fn stamp_on_receipt(request: &mut vizier_core::schema::VizierRequest) {
     request.timestamp = vizier_core::time::now();
 }
 
+/// Whether this caller may open a live voice session (T109, FR-062).
+///
+/// A **scoped** API key must name the capability; an unscoped key carries its owner's permissions
+/// and is not affected, which is what keeps every key made before scopes existed working. A person
+/// signed in normally is not an API key at all and is allowed here — the surface is gated by the
+/// agent's own `live_voice` switch, not by a permission a person would have to be granted.
+fn may_start_live_voice(principal: &vizier_core::auth::Principal) -> bool {
+    match principal.method {
+        vizier_core::auth::AuthMethod::ApiKey { scoped: true } => principal
+            .permissions
+            .iter()
+            .any(|c| c == vizier_core::service::api_keys::CAPABILITY_LIVE_VOICE),
+        _ => true,
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::stamp_on_receipt;
+    use super::{may_start_live_voice, stamp_on_receipt};
     use vizier_core::schema::{VizierRequest, VizierRequestContent};
+
+    /// T109/FR-062: who may open a live voice session, and the three cases that matter.
+    #[test]
+    fn a_scoped_key_may_start_live_voice_only_when_it_names_the_capability() {
+        let principal = |permissions: &[&str], method| vizier_core::auth::Principal {
+            user_id: "olive".into(),
+            username: "olive".into(),
+            role: vizier_core::storage::user::Role {
+                role_id: "r".into(),
+                name: "role".into(),
+                permissions: vec!["users:manage".into()],
+                is_system: false,
+                created_at: vizier_core::time::now(),
+            },
+            permissions: permissions.iter().map(|p| p.to_string()).collect(),
+            method,
+        };
+        let api_key = |scoped| vizier_core::auth::AuthMethod::ApiKey { scoped };
+
+        // A scoped key that names the capability: allowed.
+        assert!(may_start_live_voice(&principal(&["live_voice"], api_key(true))));
+        // A scoped key with an empty scope, or one naming something else: refused.
+        assert!(!may_start_live_voice(&principal(&[], api_key(true))));
+        assert!(!may_start_live_voice(&principal(&["other"], api_key(true))));
+        // An unscoped key keeps its owner's permissions and is not affected by this rule.
+        assert!(may_start_live_voice(&principal(&[], api_key(false))));
+        // A person signed in normally is not an API key and is allowed here.
+        assert!(may_start_live_voice(&principal(
+            &[],
+            vizier_core::auth::AuthMethod::Jwt
+        )));
+    }
 
     #[test]
     fn a_clients_own_time_and_depth_are_discarded() {
@@ -241,6 +289,19 @@ impl TopicConnection {
                 // file, all of which are contract violations. It is a poor name for this one; a
                 // dedicated `unsupported_audio` variant is the honest fix and is not added here
                 // without the Lead's word.
+                // T109/FR-062: a key scoped to live voice can start one, and a scoped key that
+                // does not name it cannot. `None` is an unscoped key carrying its owner's
+                // permissions, which is every key made before scopes existed; those are not
+                // affected. The check is here rather than per-endpoint because a scoped key's
+                // other permissions are already gone — only this surface is reachable by a key
+                // whose whole purpose is to reach it.
+                if !may_start_live_voice(&self.principal) {
+                    self.send_live_voice(LiveVoiceControl::Error {
+                        kind: EndReason::PermissionWithdrawn,
+                        message: "this key is not allowed to use live voice".into(),
+                    });
+                    return;
+                }
                 let description = start.description();
                 if let Err(reason) = description.check() {
                     self.send_live_voice(LiveVoiceControl::Error {

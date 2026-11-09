@@ -15,8 +15,12 @@ pub use crate::storage::user::Role;
 pub enum AuthMethod {
     /// A JWT bearer token: the WebUI's login flow.
     Jwt,
-    /// An API key: a programmatic caller.
-    ApiKey,
+    /// An API key: a programmatic caller. `scoped` says the key was made with a capability list,
+    /// so it carries only those and not its owner's permissions (T109, FR-062). It lives here
+    /// rather than on [`Principal`] because it is a property of the credential, not of the person.
+    ApiKey {
+        scoped: bool,
+    },
     /// The desktop app's in-process caller: the window the person signed in to by opening the app.
     /// Only the embedded dispatcher can produce it; the network router never accepts it.
     Desktop,

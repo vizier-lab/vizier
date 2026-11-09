@@ -78,6 +78,12 @@ pub struct ApiKey {
     /// before it was kept have none.
     #[serde(default)]
     pub prefix: Option<String>,
+    /// What this key may do (T109, FR-062). `None` is a key made before scopes existed and behaves
+    /// exactly as it always has — it carries its owner's permissions. `Some(list)` is a key that
+    /// carries **only** those capabilities, whatever its owner can do: that is the whole point of
+    /// a key handed to a third party.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capabilities: Option<Vec<String>>,
 }
 
 /// When a person was last seen, and when they were here before that (spec 024: "Since you were
@@ -153,6 +159,7 @@ pub trait UserStorage {
         key_hash: &str,
         prefix: &str,
         expires_at: Option<Timestamp>,
+        capabilities: Option<Vec<String>>,
     ) -> Result<ApiKey>;
     async fn get_api_key_by_hash(&self, key_hash: &str) -> Result<Option<ApiKey>>;
     async fn list_api_keys(&self, user_id: &str) -> Result<Vec<ApiKey>>;

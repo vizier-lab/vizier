@@ -293,9 +293,10 @@ impl UserStorage for VizierStorage {
         key_hash: &str,
         prefix: &str,
         expires_at: Option<Timestamp>,
+        capabilities: Option<Vec<String>>,
     ) -> Result<crate::storage::user::ApiKey> {
         self.0
-            .create_api_key(user_id, name, key_hash, prefix, expires_at)
+            .create_api_key(user_id, name, key_hash, prefix, expires_at, capabilities)
             .await
     }
 
