@@ -542,6 +542,56 @@ impl LiveVoiceSessions {
         ended
     }
 
+    /// The call this owner already has somewhere else, moved out of the registry (T095-T097).
+    ///
+    /// One session per person, across conversations (FR-005): starting a call in another
+    /// conversation moves the one that is running rather than adding a second. The order is fixed
+    /// and it is the order `abort_turn` already has — the generation moves first so no segment in
+    /// flight can still be heard, then the running turn is cancelled, then `end(Moved)` publishes
+    /// why and lets go of the microphone through the one release path. `busy` is false when
+    /// `abort_turn` returns, which is the only honest "the turn is over" this code can observe:
+    /// the turn is spawned and never joined.
+    ///
+    /// Identity is the owner **and** the credential that opened the call. An API key presents an
+    /// empty username, so the key id is what tells two callers apart; a person signed in normally
+    /// has no key id at all. The consequence, chosen deliberately: two different keys of the same
+    /// person are two identities here, so the second key starts its own call rather than moving the
+    /// first. Treating them as one person needs the user id on the session, which this chunk does
+    /// not add — reported rather than hidden.
+    ///
+    /// Returns the ended session so a caller can say so in a log, and `None` when there was nothing
+    /// to move. A session that already stopped is dropped from the map and not counted: its reason
+    /// is the one that won.
+    pub async fn move_owned_elsewhere(
+        &self,
+        conversation: &VizierSession,
+        owner: &str,
+        owner_key: Option<&str>,
+    ) -> Option<Arc<LiveVoiceSession>> {
+        let previous: Option<(VizierSession, Arc<LiveVoiceSession>)> = {
+            let map = self.map.lock();
+            map.iter()
+                .filter(|(other, _)| *other != conversation)
+                .find(|(_, session)| {
+                    !session.is_stopped()
+                        && session.owner == owner
+                        && session.key_origin().map(|origin| origin.key_id).as_deref() == owner_key
+                })
+                .map(|(other, session)| (other.clone(), session.clone()))
+        };
+        let (old_conversation, session) = previous?;
+        // The lock is dropped above: `abort_turn` and `end` publish, and a publish must never
+        // happen while the registry is held.
+        session.abort_turn(InterruptReason::BargeIn).await;
+        session.end(EndReason::Moved);
+        self.remove(&old_conversation, &session);
+        tracing::debug!(
+            agent_id = %old_conversation.0,
+            "a live voice call moved to another conversation"
+        );
+        Some(session)
+    }
+
     pub fn len(&self) -> usize {
         self.map.lock().len()
     }
@@ -821,5 +871,165 @@ mod key_tests {
         // Nothing in the map matches any key id, so a revocation elsewhere cannot touch it.
         assert_eq!(registry.end_owned_by_key("key-a", EndReason::KeyRevoked).await, 0);
         assert_eq!(LiveVoiceSessions::len(&registry), 1);
+    }
+}
+
+#[cfg(test)]
+mod move_tests {
+    //! T095-T097 / FR-005 — one call per person, and starting elsewhere moves it rather than
+    //! adding a second. The registry is the whole subject; the socket only calls it at the start of
+    //! a session, after the engines are ready.
+
+    use super::*;
+    use crate::schema::agent::LiveVoiceSettings;
+    use crate::schema::{VizierChannelId, VizierSession};
+    use crate::transport::VizierTransport;
+
+    fn conversation(topic: &str) -> VizierSession {
+        VizierSession(
+            "helper".into(),
+            VizierChannelId::from_web("olive", "web"),
+            Some(topic.into()),
+        )
+    }
+
+    fn session_on(transport: &VizierTransport, topic: &str, owner: &str) -> Arc<LiveVoiceSession> {
+        let (out_tx, _lane) = tokio::sync::mpsc::channel::<serde_json::Value>(64);
+        let session = LiveVoiceSession::new(
+            conversation(topic),
+            owner.into(),
+            None,
+            LiveVoiceSettings::default(),
+            ClientConnection::new(out_tx),
+            transport.clone(),
+        );
+        session.set_state(SessionState::Listening);
+        session
+    }
+
+    /// A registry holding one live call on `topic-a` for `olive`.
+    fn one_call(transport: &VizierTransport) -> (LiveVoiceSessions, Arc<LiveVoiceSession>) {
+        let registry = LiveVoiceSessions::default();
+        let session = session_on(transport, "topic-a", "olive");
+        assert!(registry.start(conversation("topic-a"), || session.clone()).is_ok());
+        (registry, session)
+    }
+
+    #[tokio::test]
+    async fn starting_elsewhere_moves_the_call_and_the_old_one_says_so() {
+        let transport = VizierTransport::new();
+        let mut events = transport.subscribe_session_events();
+        let (registry, old) = one_call(&transport);
+        assert_eq!(registry.len(), 1);
+
+        let moved = registry
+            .move_owned_elsewhere(&conversation("topic-b"), "olive", None)
+            .await;
+        let moved = moved.expect("the call on topic-a belongs to this person");
+
+        assert!(Arc::ptr_eq(&moved, &old), "the call that moved is the one that was running");
+        assert_eq!(old.state(), SessionState::Ended, "the old call is over, not paused");
+        assert!(registry.get(&conversation("topic-a")).is_none(), "and its entry is gone");
+        assert_eq!(registry.len(), 0, "one person, never two calls");
+
+        // The reason really reaches the client: `moved`, not `page_closed` (the socket is open)
+        // and not `pressed_again` (the person did not switch anything off).
+        let mut reason = None;
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_millis(500);
+        while reason.is_none() && tokio::time::Instant::now() < deadline {
+            let left = deadline.saturating_duration_since(tokio::time::Instant::now());
+            let Ok(Ok(event)) = tokio::time::timeout(left, events.recv()).await else {
+                break;
+            };
+            if let SessionFrame::LiveVoice(LiveVoiceControl::State {
+                state: SessionState::Ended,
+                reason: Some(why),
+                ..
+            }) = event.frame
+            {
+                reason = Some(why);
+            }
+        }
+        assert_eq!(reason, Some(EndReason::Moved));
+
+        // And the new call is a new session: nothing of the old one comes with it.
+        let fresh = session_on(&transport, "topic-b", "olive");
+        assert!(registry.start(conversation("topic-b"), || fresh.clone()).is_ok());
+        assert_eq!(registry.len(), 1, "still one call, in the new conversation");
+        assert!(!Arc::ptr_eq(&fresh, &old));
+        assert_eq!(fresh.generation(), 1, "a new call starts its own generation");
+        assert!(
+            matches!(fresh.close_utterance("u-from-the-old-call").await, UtteranceOutcome::Unknown),
+            "the old call's utterance did not come with it"
+        );
+    }
+
+    #[tokio::test]
+    async fn starting_in_the_same_conversation_moves_nothing() {
+        let transport = VizierTransport::new();
+        let (registry, old) = one_call(&transport);
+        let generation = old.generation();
+
+        let moved = registry
+            .move_owned_elsewhere(&conversation("topic-a"), "olive", None)
+            .await;
+        assert!(moved.is_none(), "the same conversation is the same call, not a move");
+        assert_eq!(old.state(), SessionState::Listening);
+        assert_eq!(old.generation(), generation, "and nothing was interrupted");
+        assert_eq!(registry.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn another_persons_call_is_never_moved() {
+        let transport = VizierTransport::new();
+        let (registry, theirs) = one_call(&transport);
+
+        let moved = registry
+            .move_owned_elsewhere(&conversation("topic-b"), "someone-else", None)
+            .await;
+        assert!(moved.is_none(), "moving is the owner's privilege");
+        assert_eq!(theirs.state(), SessionState::Listening, "their call is untouched");
+        assert_eq!(registry.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_different_key_of_the_same_person_is_a_different_identity() {
+        // Chosen deliberately and pinned here: identity is the owner *and* the credential. Two
+        // keys of one person are two identities, so the second starts its own call. Treating them
+        // as one person needs the user id on the session, which T095-T097 does not add.
+        let transport = VizierTransport::new();
+        let registry = LiveVoiceSessions::default();
+        let session = session_on(&transport, "topic-a", "");
+        session.set_key_origin(Some(KeyOrigin {
+            key_id: "key-a".into(),
+            expires_at: None,
+        }));
+        assert!(registry.start(conversation("topic-a"), || session.clone()).is_ok());
+
+        let moved = registry
+            .move_owned_elsewhere(&conversation("topic-b"), "", Some("key-b"))
+            .await;
+        assert!(moved.is_none(), "a second key is not the first key");
+        assert_eq!(session.state(), SessionState::Listening);
+
+        // The same key, elsewhere, is the same identity: that does move.
+        let moved = registry
+            .move_owned_elsewhere(&conversation("topic-b"), "", Some("key-a"))
+            .await;
+        assert!(moved.is_some(), "the key that opened the call moves with it");
+        assert_eq!(session.state(), SessionState::Ended);
+    }
+
+    #[tokio::test]
+    async fn a_session_that_already_stopped_is_not_moved_again() {
+        let transport = VizierTransport::new();
+        let (registry, old) = one_call(&transport);
+        old.end(EndReason::PressedAgain);
+
+        let moved = registry
+            .move_owned_elsewhere(&conversation("topic-b"), "olive", None)
+            .await;
+        assert!(moved.is_none(), "an ended call has nothing left to move");
+        assert_eq!(old.state(), SessionState::Ended);
     }
 }

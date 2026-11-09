@@ -505,6 +505,20 @@ impl TopicConnection {
                         return;
                     }
                 };
+                // T095-T097 (FR-005): one call per person, across conversations. Starting here
+                // moves the one that is running elsewhere instead of leaving two behind. This runs
+                // after the engines are ready, so a start that cannot begin does not kill a call
+                // that is already working.
+                if let Some(previous) = sessions
+                    .move_owned_elsewhere(
+                        &self.session,
+                        &self.principal.username,
+                        self.principal.method.key_id(),
+                    )
+                    .await
+                {
+                    debug_assert_eq!(previous.state(), SessionState::Ended);
+                }
                 let language = stt.language.clone();
                 let session = sessions
                     .start(self.session.clone(), || {

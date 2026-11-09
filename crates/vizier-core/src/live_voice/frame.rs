@@ -93,6 +93,10 @@ pub enum EndReason {
     KeyRevoked,
     /// The API key that opened this session lapsed while the call was running (T110, FR-063).
     KeyExpired,
+    /// The same person started a call somewhere else, and one session is all they may have
+    /// (T096, FR-051). Its own reason: the socket is still open and the person did not switch
+    /// anything off — the call simply went with them.
+    Moved,
 }
 
 impl EndReason {
@@ -115,6 +119,7 @@ impl EndReason {
             Self::UnsupportedAudio => "unsupported_audio",
             Self::KeyRevoked => "key_revoked",
             Self::KeyExpired => "key_expired",
+            Self::Moved => "moved",
         }
     }
 }
