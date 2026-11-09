@@ -14,7 +14,7 @@ D3 correction, and the invariants QA can test. No code here.
 
 | Component | File | Lives in | Responsibility |
 |---|---|---|---|
-| `LiveVoiceSessions` (registry) | `crates/vizier-core/src/live_voice/registry.rs` | shared services, beside `questions` | **one session per person, in total** (C10, FR-005): a second map runs `owner → Arc<LiveVoiceSession>`, and the `VizierSession` key stays for routing frames. Starting one elsewhere **moves** it (§13) |
+| `LiveVoiceSessions` (registry) | `.../live_voice/session.rs` (no separate `registry.rs` module) | shared services, beside `questions` | **one session per person, in total** (C10, FR-005): a second map runs `owner → Arc<LiveVoiceSession>`, and the `VizierSession` key stays for routing frames. Starting one elsewhere **moves** it (§13) |
 | `LiveVoiceSession` | `.../live_voice/session.rs` | in the registry, `Arc<Mutex<…>>` | state machine (FR-006), generation `watch<u64>`, idle timer, end reason |
 | `Utterance` | `.../live_voice/utterance.rs` | inside its session | accumulate PCM16, 60 s cap, 44-byte WAV header by hand, call `VizierStt` (D7) |
 | `LiveVoiceEngines` (trait) + cascade impl | `.../live_voice/engines.rs` | built per session from agent config | `transcribe(utterance)`, `speak(segment) -> PCM16`; the only seam (FR-036a) |
