@@ -26,6 +26,7 @@ Spec = **apa yang benar**. DoD = **bagaimana dibuktikan**. `specs/**`: Lead bole
 - `R: FR-0xx` **atau** `R: tanpa-spec:<alasan>`. Dua-duanya kosong = **tidak boleh `aktif`**.
 - `tanpa-spec` hanya sah kalau `git diff --name-only` **seluruhnya** ada di allowlist: `specs/**`, `docs/**`, `*.md`, `scripts/**`, file tes. Satu path di `crates/**`, `webui/**`, `app/**` -> **wajib FR**, bukan diskusi. Diverifikasi **path**, bukan kalimat alasan.
 - Nilai `R:` wajib muncul di laporan `siap-kirim`.
+- Allowlist diverifikasi **`<base>..<commit>`**, bukan `git diff --name-only` di working tree: perubahan belum commit milik agen lain akan menuduh baris yang commit-nya bersih (9 Nov: 13 file `crates/**` modified saat AQ-001 diperiksa).
 
 ## `[DOD+]` — kriteria tambahan dari Lead
 - Kriteria di luar spec wajib berlabel `[DOD+]` dan **bisa dicek mesin** (anggaran performa, ukuran file, kontras). "Kualitas" tanpa perintah verifikasi bukan kriteria.
