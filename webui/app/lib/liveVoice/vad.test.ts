@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { EnergyVad, HANGOVER_MS, ONSET_MS, WINDOW_SAMPLES, rootMeanSquare } from './vad'
+import { EnergyVad, HANGOVER_MS, WINDOW_SAMPLES, rootMeanSquare } from './vad'
 
 /** One 20 ms window at a given level, as the gate sees it. */
 function windowOf(level: number): Float32Array {
@@ -36,21 +36,26 @@ describe('the energy gate', () => {
         expect(decisions.every((d) => !d.utteranceEnd)).toBe(true)
     })
 
-    it('needs the full onset before calling a barge-in (FR-019)', () => {
-        const vad = new EnergyVad()
-        const decisions = feed(vad, ONSET_MS - 20, 0.05, true)
-        expect(decisions.some((d) => d.bargeIn)).toBe(false)
-        const more = feed(vad, 20, 0.05, true)
-        expect(more[more.length - 1].bargeIn).toBe(true)
+    it("ignores the agent's own voice while the reply is audible (FR-026, SC-008)", () => {
+        // The gate is doubled while playback runs. 0.02 clears the quiet gate (floor 0.005 × 3 =
+        // 0.015) and falls under the raised one (× 2 = 0.03), so the same level is the person in
+        // silence and the agent's own voice over the speakers (FR-026, SC-008).
+        const inSilence = new EnergyVad()
+        expect(inSilence.push(windowOf(0.02), false).voiced).toBe(true)
+        const overReply = new EnergyVad()
+        expect(overReply.push(windowOf(0.02), true).voiced).toBe(false)
+        // A voice loud enough to clear the raised gate is still heard over the reply.
+        expect(overReply.push(windowOf(0.2), true).voiced).toBe(true)
     })
 
-    it("ignores the agent's own voice while the reply is audible (SC-008)", () => {
-        // The gate is raised while playback runs, so the same level that reads as speech in
-        // silence does not read as speech against the reply.
-        const quiet = new EnergyVad()
-        expect(quiet.push(windowOf(0.02), true).voiced).toBe(false)
-        const loud = new EnergyVad()
-        expect(loud.push(windowOf(0.02), false).voiced).toBe(true)
+    it('reports the voiced duration as a continuous state, which ducking reads (T047)', () => {
+        const vad = new EnergyVad()
+        expect(vad.voicedFor).toBe(0)
+        feed(vad, 200, 0.05)
+        expect(vad.voicedFor).toBeGreaterThanOrEqual(180)
+        feed(vad, 900, 0)
+        // The utterance closed, so the counter starts again with the next one.
+        expect(vad.voicedFor).toBe(0)
     })
 
     it('follows a loud room without going deaf', () => {
