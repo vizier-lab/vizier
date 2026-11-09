@@ -1,4 +1,14 @@
 /**
+ * ARCHIVED (C11): the previous surface, no longer rendered.
+ *
+ * A live session is one row inside the composer's meta line now, and `LiveVoiceControl` renders
+ * that row instead of this bar and its button. Both files stay in the tree because the handoff
+ * geometry and the review notes still refer to them; nothing imports them.
+ *
+ * What follows is the bar as it was, including its interrupt control — which FR-020/FR-021 have
+ * since deferred (C7). Do not read it as behaviour this release ships.
+ */
+/**
  * The live session's status line and its interrupt control (`specs/055-live-voice` FR-020, FR-038,
  * FR-042).
  *

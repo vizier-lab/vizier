@@ -1,4 +1,9 @@
 /**
+ * ARCHIVED (C11): the previous on/off control, no longer rendered.
+ *
+ * The row's idle pill is the control now. Kept for the geometry notes, not for use.
+ */
+/**
  * The one control that turns live voice on and off (`specs/055-live-voice` FR-001, FR-002, FR-003).
  *
  * Separate from the microphone button and the spoken-reply toggle: this is its own feature, with

@@ -29,6 +29,11 @@ export interface LiveVoiceView {
     thinking: boolean
     /** Milliseconds since the agent started thinking, for the elapsed counter. */
     thinkingMs: number
+    /**
+     * How long this session has been running, from `start()` to now. The row shows it as `m:ss`,
+     * and until the field existed the row had nothing to show and printed `0:00` forever.
+     */
+    elapsedMs: number
     /** 0..1 input level, for the meter. */
     level: number
     /** The last transcript, so a person sees what was heard. */
@@ -88,6 +93,7 @@ export class LiveVoiceClient {
         state: 'off',
         thinking: false,
         thinkingMs: 0,
+        elapsedMs: 0,
         level: 0,
         transcript: '',
         notice: null,
@@ -100,6 +106,8 @@ export class LiveVoiceClient {
     private generation = 0
     /** When this turn was accepted: the elapsed counter starts here, per turn (FR-042). */
     private thinkingStartedAt = 0
+    /** When the session started, for the clock the row shows. */
+    private startedAt = 0
     /**
      * Whether a reply is audible. It raises the VAD's gate so the agent does not hear itself
      * (FR-026), and its end is what the end of the utterance silences (C8): the reply keeps
@@ -138,6 +146,8 @@ export class LiveVoiceClient {
     async start(): Promise<void> {
         if (this.state !== 'off' && this.state !== 'ended' && this.state !== 'failed') return
         this.released = false
+        this.startedAt = this.now()
+        this.view.elapsedMs = 0
         this.move('connecting')
         const sent = this.deps.send(startFrame(this.deps.language))
         if (!sent) {
@@ -366,6 +376,8 @@ export class LiveVoiceClient {
         this.capture?.stop()
         this.capture = null
         this.view.micOpen = false
+        this.view.elapsedMs = 0
+        this.startedAt = 0
         this.stopAudio()
         // Closing is asynchronous and its outcome changes nothing the person can act on; the
         // player is finished with either way.
@@ -444,6 +456,7 @@ export class LiveVoiceClient {
         if (this.view.thinking) {
             this.view.thinkingMs = Math.max(0, this.now() - this.thinkingStartedAt)
         }
+        if (this.startedAt > 0) this.view.elapsedMs = Math.max(0, this.now() - this.startedAt)
         this.deps.onView({ ...this.view })
         // A background tab has its timers throttled, so the deadline is also checked on the render
         // tick: a session must not stay `reconnecting` because a timeout was frozen.

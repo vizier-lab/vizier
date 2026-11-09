@@ -16,6 +16,7 @@ const view = (patch: Partial<LiveVoiceView> = {}): LiveVoiceView => ({
     state: 'off',
     thinking: false,
     thinkingMs: 0,
+    elapsedMs: 0,
     level: 0,
     transcript: '',
     notice: null,

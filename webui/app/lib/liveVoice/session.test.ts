@@ -355,6 +355,7 @@ function h0(): LiveVoiceView {
         state: 'off',
         thinking: false,
         thinkingMs: 0,
+        elapsedMs: 0,
         level: 0,
         transcript: '',
         notice: null,
@@ -847,5 +848,33 @@ describe('C3 — a dropped session ends at thirty seconds, not never (T067)', ()
         h.advance(6_000)
         h.client.checkReconnectDeadline()
         expect(h.client.currentState).toBe('ended')
+    })
+})
+
+describe('the session clock', () => {
+    it('counts from start, and returns to zero when the session ends', async () => {
+        const h = driven()
+        await h.client.start()
+        expect(h.client.currentView.elapsedMs).toBe(0)
+
+        h.advance(3000)
+        h.client.onFrame({ live_voice: { type: 'state', state: 'listening', generation: 1 } })
+        expect(h.client.currentView.elapsedMs).toBeGreaterThanOrEqual(3000)
+
+        h.client.stop('pressed_again')
+        expect(h.client.currentState).toBe('ended')
+        expect(h.client.currentView.elapsedMs, 'an ended session has no clock').toBe(0)
+    })
+
+    it('starts again from zero on the next session', async () => {
+        const h = driven()
+        await h.client.start()
+        h.advance(5000)
+        h.client.onFrame({ live_voice: { type: 'state', state: 'listening', generation: 1 } })
+        expect(h.client.currentView.elapsedMs).toBeGreaterThanOrEqual(5000)
+        h.client.stop('pressed_again')
+
+        await h.client.start()
+        expect(h.client.currentView.elapsedMs).toBe(0)
     })
 })

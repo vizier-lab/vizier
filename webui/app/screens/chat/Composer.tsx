@@ -48,6 +48,16 @@ type Pending = {
     reason?: string
 }
 
+/**
+ * FR-053 / T107: the manual speech surfaces step aside, while the code behind them stays.
+ *
+ * The User's decision: "disembunyikan secara UI, tapi di code rust nya tetep ada incase kedepannya
+ * kepake buat UI lain". Live voice replaces them, so the microphone and the spoken-reply toggle
+ * are not drawn — but their props, their plumbing and the Rust providers are untouched, and this
+ * one constant is what to flip when another surface wants them back.
+ */
+const MANUAL_SPEECH_SURFACES = false
+
 type Props = {
     agentId: string
     agentName: string
@@ -413,7 +423,7 @@ export function Composer({
                         ? `${abbreviate(tokens.used)} / ${abbreviate(tokens.window)}`
                         : undefined
                 }
-                mic={sttEnabled}
+                mic={MANUAL_SPEECH_SURFACES && sttEnabled}
                 recording={voice?.mode === 'recording'}
                 onAttach={() => input.current?.click()}
                 onMic={() =>
@@ -462,8 +472,10 @@ export function Composer({
                                 missing={liveVoiceMissing ?? null}
                             />
                         )}
-                        {/* A spoken reply needs the agent's Text-to-Speech: without it, no toggle. */}
-                        {ttsEnabled && (
+                        {/* FR-053/T107: the spoken-reply toggle is one of the manual speech surfaces,
+                            so it is not drawn. The agent capability and the `spoken` plumbing below
+                            stay: only the control is hidden. */}
+                        {MANUAL_SPEECH_SURFACES && ttsEnabled && (
                             <Tooltip label="Ask for a spoken reply">
                                 <button
                                     type="button"

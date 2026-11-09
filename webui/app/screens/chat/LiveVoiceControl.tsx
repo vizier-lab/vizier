@@ -1,9 +1,11 @@
 /**
- * The live voice controls, mounted next to the composer's own (`specs/055-live-voice` FR-001,
- * FR-020, FR-042).
+ * The live session's control, as one row inside the composer's meta line (B1-1, FR-043).
  *
- * It owns the client and nothing else: the button, the status bar and the interrupt all read one
- * view, so the state word can never disagree with the audio.
+ * This component owns the client and nothing else; the row it returns is the whole surface. The
+ * two pieces it used to render — `LiveVoiceButton` and `LiveVoiceBar` — are archived in place:
+ * they are the record of the previous surface, and the handoff geometry still refers to them.
+ * There is no interrupt control anywhere, because FR-020/FR-021 are deferred (C7): the only way
+ * to stop the agent talking is to speak.
  */
 
 import { useEffect, useRef, useState } from 'react'
@@ -12,13 +14,12 @@ import { LiveVoiceClient, type LiveVoiceView } from '../../lib/liveVoice/session
 import { WebAudioPlayer } from '../../lib/liveVoice/player'
 import { startCapture } from '../../lib/liveVoice/capture'
 import { bindLiveVoice } from '../../lib/liveVoice/control'
-import { LiveVoiceBar } from './LiveVoiceBar'
-import { LiveVoiceButton } from './LiveVoiceButton'
+import { LiveVoiceRow } from './LiveVoiceRow'
 
 export interface LiveVoiceControlProps {
     agentId: string
     topicId: string
-    /** The agent detail's `live_voice`; the control is offered only when this is true. */
+    /** The agent detail's `live_voice`; the row is offered only when this is true. */
     capability: boolean
     /** Which half is missing, when the capability is false (FR-004). */
     missing?: 'recognizer' | 'voice' | null
@@ -29,29 +30,31 @@ const OFF: LiveVoiceView = {
     state: 'off',
     thinking: false,
     thinkingMs: 0,
+    elapsedMs: 0,
     level: 0,
     transcript: '',
     notice: null,
     micOpen: false,
 }
 
+/** One client per open conversation; the session it drives lives on the server. */
+const makeClient = (agentId: string, topicId: string, onView: (view: LiveVoiceView) => void) =>
+    new LiveVoiceClient({
+        send: (frame) => useConnection.getState().send(agentId, topicId, frame),
+        player: new WebAudioPlayer(),
+        openCapture: startCapture,
+        onView,
+    })
+
 export function LiveVoiceControl({ agentId, topicId, capability, missing, onOpenSettings }: LiveVoiceControlProps) {
     const [view, setView] = useState<LiveVoiceView>(OFF)
     const client = useRef<LiveVoiceClient | null>(null)
 
-    // The client is built once per open conversation; the session it drives lives on the server.
-    if (!client.current) {
-        client.current = new LiveVoiceClient({
-            send: (frame) => useConnection.getState().send(agentId, topicId, frame),
-            player: new WebAudioPlayer(),
-            openCapture: startCapture,
-            onView: setView,
-        })
-    }
-
+    // Built on first use, never during render: an `AudioContext` is a resource, and a render that
+    // is thrown away (StrictMode, a server render) must not create one. The row draws from `view`
+    // alone, so an idle surface needs no client at all.
     useEffect(() => {
-        const bound = client.current
-        if (!bound) return
+        const bound = (client.current ??= makeClient(agentId, topicId, setView))
         const unbind = bindLiveVoice(agentId, topicId, bound, setView)
         return () => {
             // Leaving the conversation ends the session and releases the microphone (FR-028).
@@ -67,17 +70,24 @@ export function LiveVoiceControl({ agentId, topicId, capability, missing, onOpen
         return () => window.removeEventListener('pagehide', onHide)
     }, [])
 
+    // FR-004: a control that cannot start says which half is missing, where the settings are.
+    const start = () => {
+        if (!capability) {
+            onOpenSettings?.()
+            return
+        }
+        void (client.current ??= makeClient(agentId, topicId, setView)).start()
+    }
+
     return (
-        <div className="lv-controls">
-            <LiveVoiceButton
-                capability={capability}
-                state={view.state}
-                missing={missing}
-                onOpenSettings={onOpenSettings}
-                onStart={() => void client.current?.start()}
-                onStop={() => client.current?.stop('pressed_again')}
-            />
-            <LiveVoiceBar view={view} onInterrupt={() => client.current?.interrupt('button')} />
-        </div>
+        <LiveVoiceRow
+            view={view}
+            capability={capability}
+            missing={missing}
+            elapsedSeconds={Math.floor(view.elapsedMs / 1000)}
+            onStart={start}
+            onEnd={() => client.current?.stop('pressed_again')}
+            onRestart={start}
+        />
     )
 }
