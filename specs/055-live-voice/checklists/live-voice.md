@@ -182,3 +182,20 @@ changes a requirement; there is still no implementation to test.
 **86 tasks, T001–T086**.
 **CHK046 (traceability)** now **passes for FR-018**: T054 implements it, T056 asserts it.
 Every `T0xx` id in this file from T054 upward is **one lower than the truth** — add one when reading.
+
+## Status at `8e0a8637` (`@teteh-qa`, 2026-11-09) — three items changed meaning
+
+- **CHK059 is moot, not failed.** It asked whether the path carrying the reply to a *typed* message is written
+  down. FR-018 was **withdrawn** by the User (2026-11-08 17:27): a typed message is text only, and
+  `live_voice_text` was removed along with the requirement. The question no longer has a subject — keep it as
+  history, do not ask it again.
+- **The line above claiming "CHK046 now passes for FR-018: T054 implements it" is wrong.** Nothing implements
+  FR-018; it was withdrawn. T054 stops the audio and sends an ordinary chat request on the same socket, whose
+  reply is text. CHK046 should read: FR-018 **withdrawn**, not covered.
+- **New item — N1 (`analysis.md` §8).** FR-025 is still active ("a message typed while the agent is speaking
+  MUST stop the audio and cancel the running turn") but its only task, T054, is `[BACKLOG]`. Either the
+  stop-the-audio half moves to an active task, or FR-025 is marked deferred like FR-020/021 so the gap is
+  visible rather than silent.
+
+Everything else in this file is a snapshot of an older commit, and task numbers have been renumbered twice
+since. Resolve any `T0nn` against `tasks.md` at `dbc50b37` before using it.

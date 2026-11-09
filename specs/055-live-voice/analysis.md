@@ -169,7 +169,7 @@ FR-018). Re-read §1-§3 through this table, not the ids in them.
 
 | Was | Is now | What changed |
 |---|---|---|
-| H9 open (FR-018 has no mechanism) | **closed** | **T054** accepts `live_voice_text`, submits it with `spoken: false` and keeps the `ResponseSender`; T053 sends it; `contracts` C-12 and `architecture.md` §4 record the rule |
+| H9 open (FR-018 promised "answered **and** spoken" with no mechanism) | **RESOLVED BY WITHDRAWAL — not by a task** *(row rewritten by `@teteh-qa`, 2026-11-09)* | The User withdrew FR-018 (2026-11-08 17:27): a typed message is **text only** — `spec.md:296` is struck through and marked WITHDRAWN. `live_voice_text` no longer exists: contract **C-12** and review **D17** are superseded notes kept as history (`contracts/live-voice-frames.md:91,238`, `tasks.md:358`). T054 is now `[BACKLOG]` and sends `live_voice_interrupt { reason: "typed" }` followed by an ordinary chat request on the same socket, whose reply is text. The earlier version of this row was wrong twice over: the frame it named had been removed, and the requirement it was said to satisfy had been withdrawn — a withdrawn requirement cannot be "covered" by a task, and nothing should be built for it. |
 | M1 open (FR-004 message) | **closed** | T037 now says which half is missing and links to the agent's speech settings |
 | M11 open (short utterance vs guard) | **closed** | T047 + `plan.md` Phase D: the guard governs *barge-in* only; the utterance path governs *messages*; "too short" is a duration, never a character count |
 | M15 open (two serialisers) | **closed** | T010 uses `serde_json::to_value` for the control lane, the same serialiser as T020 |
@@ -213,3 +213,47 @@ Item counts for this pass: `tasks.md` 88 tasks, `grep -cE '^- \[ \] .*Lagged'` =
 `architecture.md` §11 records both the per-session filter (`topic.rs:533`) that let a second tab receive
 audio and the fact that the `SessionFrame` variant and its outbound arm are **alive** (control only),
 so the section and `tasks.md` no longer contradict each other.
+
+## 8. Re-pin at `8e0a8637` (`@teteh-qa`, 2026-11-09) — read this before quoting anything above
+
+Verified on disk while writing this section:
+
+```
+HEAD 8e0a8637 · branch 055-live-voice · docs baseline dbc50b37 (spec/tasks) then a338248f (architecture/review)
+spec.md : 53 FR ids (FR-001..FR-052 + FR-036a) · 11 SC ids · 6 user stories
+tasks.md: 97 task lines (T001..T097)
+live_voice_text : 3 hits, every one a superseded note (contracts C-12 :91/:238, tasks D17 :358) — none in spec
+FR-043..FR-052 and SC-010/SC-011 : each has at least one task (T089..T097 cover the panel and the move)
+```
+
+**§§1-§7 are history, not a current verdict, and their task numbers are no longer reliable.**
+The list grew from **83** tasks — where §0 pinned this file — through 84, 85, 88 and 92 to **97**, and every
+insertion renumbered what followed. A `T0nn` in §§1-§7 therefore names a different task today; resolve it
+against `tasks.md` at `dbc50b37` before anything is decided from it. The same caution applies to any sentence
+in these pages that speaks of "the bar" or "the screen": the surface changed twice after §1 (C6 call screen
+→ C9 floating panel), so wording written against the earlier surfaces is moot even where the underlying
+finding still holds.
+
+**Correction carried into §6.** That table was written by `@mamang-lead-be`; its H9 row is now rewritten. H9
+was never "closed by a task": FR-018 was **withdrawn** by the User on 2026-11-08 17:27, `live_voice_text` was
+removed with it, and contract C-12 / review D17 are history kept so nobody re-adds it from an old branch.
+Nothing should be built for FR-018. Read the §7 sentence about the `dummyplug` steps as evidence for
+**FR-017** ("this came by speech") only — that is a different promise from "the reply is spoken".
+
+### New findings from this pass (narrow and verified — not a full re-analysis)
+
+| ID | Severity | Where | Finding |
+|---|---|---|---|
+| N1 | MEDIUM | `spec.md:308` (FR-025) vs `tasks.md:145` (T054) | FR-025 — "a message typed while the agent is speaking MUST stop the audio and cancel the running turn" — is **active**, but its only implementing task, T054, is marked `[BACKLOG]` along with the rest of US3. That is the H9 defect in a milder form: a live requirement whose only carrier is deferred. Either the stop-the-audio half of T054 moves to an active task, or FR-025 is marked deferred next to FR-020/021 so the gap is visible instead of silent. |
+| N2 | LOW | `tasks.md:358` (D17 delta row) | The row reads "T053, T056 (T054 deleted)", while `tasks.md:145` carries a live T054 for the typed-message path. The parenthetical is false for a reader and invites a duplicate-ID accident; "T054 reused for the typed-message path" is the accurate wording. |
+
+### What this file does not establish
+
+- I did **not** re-run `speckit-analyze` over §§1-§4 at `dbc50b37`. This pass verified the H9 row, the FR/SC/
+  task counts above, the absence of `live_voice_text`, and the coverage of the two new deltas — nothing more.
+- The counts are for the commits named here. `tasks.md` moved twice while this section was being written
+  (`dbc50b37` → `a338248f` → `8e0a8637`); quote the commit, never the number.
+- Implementation state is not asserted here. E1/E2 being green is `@mamang-lead-be`'s and `@sepuh-be`'s
+  report; I have not re-read their logs, so for QA purposes that is still self-report.
+- A withdrawn requirement and a deferred one look identical in a task list unless the spec says which it is.
+  FR-018 is withdrawn; FR-020/021 and T051-T057 are deferred. Do not let the second quietly become the first.
