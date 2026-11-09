@@ -271,15 +271,21 @@ rewriting the analyst's text wholesale: each row names the file and what it now 
 | C-12 | `quickstart.md` gains a scripted `dummyplug` half and a measurement step | `quickstart.md` | C1 — the constitution's e2e gate had nothing to run |
 | C-13 | tasks: T038/T039 now render the terminal states with their reason and no interrupt control, move the elapsed counter out of the announced text, and require the design system instead of a stylesheet | `tasks.md` | Lead's review, 2026-11-08 — `LiveVoiceBar.tsx:46-47` drops `ended` and `failed` while `session.ts:314-316` and `:324` already hold the reason: FR-006, FR-029, FR-030 |
 | C-14 | tasks: T038 keeps the state words English, and `start()` clears the previous session's notice | `tasks.md` | same review — one Indonesian word in a bar of eight English ones widened it 2.3× in the designer's render; `session.ts:112-114` never resets `view.notice`, so an old reason can surface inside a healthy session |
+| C-15 | **C9 (2026-11-09 06:52): the surface is a floating panel, not a screen and not a route.** US6, FR-043…FR-046 rewritten, **FR-048** (drag, clamp, resize, position) and **FR-049** (the conversation behind stays readable and usable) new, SC-010 reworded, wireframe replaced; `Tasks` target is `LiveVoicePanel.tsx`. C-13 and C-14 above were written against `LiveVoiceBar.tsx` and are **superseded, not withdrawn** — the bar is archived, its two behaviours (terminal reasons with no interrupt control, English state words, cleared notice) still bind the panel | `spec.md`, `tasks.md`, `architecture.md` §1, §8, `@teteh-desener`'s render | the User's decision, and the full screen could not promise FR-049: a screen cannot leave the conversation readable behind it |
+| C-16 | **C10 (2026-11-09 06:52): one live session per person, and it moves.** FR-005 rewritten, **FR-050**, **FR-051**, **FR-052** new, SC-011 new, Q4 and Q8 closed, Q2 narrowed to "second tab on the same conversation is refused", contract gains `ended{reason:"moved"}` and the "1 session in total" limit row; `architecture.md` §3 (two indexes, per-process honest limit) and a new §13 (the move: generation → abort → `ended{moved}` → new session, transcript stays) | `spec.md`, `tasks.md`, `contracts/live-voice-frames.md`, `architecture.md` §3, §10 I10, §13 | the User's decision. It is the one place the feature gets *less* permissive on purpose; the refusal that remains is the second tab, where the microphone is already in that conversation |
 
 **Canonical baseline for anything quoting counts**: `specs/055-live-voice/tasks.md` at the commit
-being read — `c760cdb3` at the time of writing — carrying **92 tasks (T001–T092)**, counted with
-`grep -cE '^- \[ \] T[0-9]{3}'` (the id now sits outside the bold so one pattern counts all of them).
-The count moved 88 → 92 with C8–C12: the call screen is a surface of its own (FR-044/FR-045), the
-composer bar is archived, the interrupt control is backlog (T051–T058 marked `[BACKLOG]`), and
-barge-in moved from the start of speech to the end of the utterance. Any other number in an older
-message or report is stale, including the "85" and the "86" this file and two commit messages used to
-repeat.
+being read — **`dbc50b37` at the time of writing** — carrying **97 tasks (T001–T097, 7 of them
+`[BACKLOG]`)**, counted with `grep -cE '^- \[ \] T[0-9]{3}'` (the id sits outside the bold so one
+pattern counts all of them).
+
+The history of that number, so an older figure can be dated instead of argued about: 88 → 92 at
+`c760cdb3` with C8–C12 (the surface became a surface of its own — FR-044/FR-045 —, the composer bar
+was archived, the interrupt control went to the backlog as T051–T058, and barge-in moved from the
+start of speech to the end of the utterance), then **92 → 97 at `dbc50b37`** with C15–C16 (the
+floating panel with FR-048/FR-049, and the move with FR-050/FR-051/FR-052 + SC-011). Any other number
+in an older message or report is stale, including the "85" and the "86" this file and two commit
+messages used to repeat.
 
 ---
 

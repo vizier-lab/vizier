@@ -14,7 +14,7 @@ D3 correction, and the invariants QA can test. No code here.
 
 | Component | File | Lives in | Responsibility |
 |---|---|---|---|
-| `LiveVoiceSessions` (registry) | `crates/vizier-core/src/live_voice/registry.rs` | shared services, beside `questions` | one session per (agent, conversation); owner = the principal that started it (FR-005) |
+| `LiveVoiceSessions` (registry) | `crates/vizier-core/src/live_voice/registry.rs` | shared services, beside `questions` | **one session per person, in total** (C10, FR-005): a second map runs `owner → Arc<LiveVoiceSession>`, and the `VizierSession` key stays for routing frames. Starting one elsewhere **moves** it (§13) |
 | `LiveVoiceSession` | `.../live_voice/session.rs` | in the registry, `Arc<Mutex<…>>` | state machine (FR-006), generation `watch<u64>`, idle timer, end reason |
 | `Utterance` | `.../live_voice/utterance.rs` | inside its session | accumulate PCM16, 60 s cap, 44-byte WAV header by hand, call `VizierStt` (D7) |
 | `LiveVoiceEngines` (trait) + cascade impl | `.../live_voice/engines.rs` | built per session from agent config | `transcribe(utterance)`, `speak(segment) -> PCM16`; the only seam (FR-036a) |
@@ -25,7 +25,7 @@ D3 correction, and the invariants QA can test. No code here.
 | outbound arm | `crates/vizier-http/src/topic.rs:535-600` | per socket | `SessionFrame::LiveVoice(f) => Some(json!({"live_voice": f}))` — control only, the match never sees audio (D4) |
 | delivery (server → client) | `ClientConnection::send` (`crates/vizier-core/src/agents/client/connection.rs`) | per socket, bounded (64) | live voice frames go to the **owner's** socket, never the session-event broadcast (§11, D9); audio is dropped before control |
 | audio chunking, VAD, player, state machine | `webui/app/lib/liveVoice/{capture,vad,player,session}.ts` | client | capture 100 ms PCM16, energy VAD, gapless playback, generation guard |
-| the control and the call screen | `webui/app/screens/chat/LiveVoiceButton.tsx` (starts/ends the call), `webui/app/screens/livevoice/LiveVoiceCall.tsx` (the call itself, FR-043) | client | one on/off control in the conversation; the call screen replaces that conversation view for the session and shows the agent, the FR-006 state word, FR-042's thinking indicator, the open microphone (FR-038) and the way out (FR-045). **There is no interrupt control** — C7 moved it to the backlog |
+| the control and the floating panel | `webui/app/screens/chat/LiveVoiceButton.tsx` (starts/ends the call), `webui/app/screens/livevoice/LiveVoicePanel.tsx` (the call itself, FR-043, FR-048) | client | one control in the conversation, visually separate from the mic and the spoken-reply toggle (FR-001, FR-003); the panel **floats over** the conversation the person is already reading (C9, FR-049) and shows the agent, the FR-006 state word, FR-042's thinking indicator, the open microphone (FR-038) and **one** action, End (FR-045). **There is no interrupt control** — C7 moved it to the backlog |
 
 `vizier-http` must build **with the feature off**: every reference to `live_voice` in that crate is
 behind `#[cfg(feature = "provider-live-voice")]` (FR-041), and the inbound branch falls through to
@@ -44,7 +44,7 @@ flowchart LR
         PLAY["player.ts<br/>AudioContext, one queue"]
         SPK["Speakers"]
         BTN["LiveVoiceButton<br/>starts and ends the call"]
-        BAR["LiveVoiceCall<br/>state, thinking, mic, hang up"]
+        BAR["LiveVoicePanel<br/>floats, draggable, one End"]
     end
     subgraph Server["Vizier server"]
         SOCK["Topic socket<br/>channel.rs:818 JSON only"]
@@ -85,10 +85,18 @@ second tab can never be spoken by mistake.
 * **Registry**: `Arc<LiveVoiceSessions>` created once per process and exposed on the same shared
   service struct that already carries `Questions` (`TopicConnection` receives
   `Arc<vizier_core::questions::Questions>` at `crates/vizier-http/src/topic.rs:79-81` — the live
-  registry is handed over the same way). Key: `(agent_id, session.0, session.1)`. Two sockets in two
-  tabs therefore see the same entry, which is what FR-005 needs (D6).
-* **Owner**: the `Principal` of the connection that sent `live_voice_start`. Any other principal gets
-  `live_voice_error { kind: "session_active" }` and cannot start, interrupt or stop it.
+  registry is handed over the same way). **Two indexes, one entry**: the `VizierSession` key routes a
+  frame to a session, and an `owner → Arc<LiveVoiceSession>` index enforces FR-005's "at most one for
+  this person" across conversations **and** agents (C10). Two sockets in two tabs on the *same*
+  conversation therefore resolve to the same entry, which is what D6 and Q2's "refuse the second tab"
+  need.
+* **Owner**: the `Principal` of the connection that sent `live_voice_start`. A different principal gets
+  `live_voice_error { kind: "session_active" }`. The same principal starting a call **elsewhere** is
+  not refused — it moves (§13, FR-050).
+* **Honest limit**: this index is per **process**. A fleet with more than one process needs the claim on
+  the bus (one `agent…` subject per person), not a local map; until then "one session per person" holds
+  per process, and the deployment's single-process default is what makes it true today. Recorded rather
+  than claimed.
 * **Generation**: `tokio::sync::watch<u64>` inside the session, starts at 1, `+1` on every
   interruption (barge-in, button, typed message). Every server audio frame carries it; the client
   drops anything below its current value; the synthesis loop re-reads it between segments and exits.
@@ -97,8 +105,9 @@ second tab can never be spoken by mistake.
   the last connection closing sets a stop flag and awaits the task. Nothing spawns per segment.
 * **Lifetime ends** (FR-028, FR-029): the socket closing (`connection.close()` already exists),
   explicit `live_voice_stop`, 3 min without an utterance, agent config reload / agent restart (the
-  session holds the config generation it started with and compares on each turn), the registry entry
-  being dropped. Every path: stop audio → release microphone → write `live_voice_state{ended,reason}`.
+  session holds the config generation it started with and compares on each turn), the person starting a
+  call **elsewhere** (`moved`, §13), the registry entry being dropped. Every path: stop audio → release
+  microphone → write `live_voice_state{ended,reason}`.
 
 ## 4. The turn the session drives
 
@@ -129,7 +138,7 @@ into the session, which is more surface than the behaviour is worth — the User
 **FR-042 — the thinking indicator keeps §4's rule honest.** Since the session speaks only its own turns
 and the model is not streaming, the gap between "request accepted" and "first segment" is real and can
 be long (FR-017 lets the agent take that time). The session already emits `live_voice_state` with
-`state: "waiting"` at turn start; FR-042 requires the bar to render that as **thinking** and to keep it
+`state: "waiting"` at turn start; FR-042 requires the panel to render that as **thinking** and to keep it
 visually distinct from `reconnecting`. No new frame: `waiting` gains an obligation it did not have
 before, which is why `contracts` documents it under the state word rather than as a new type.
 
@@ -245,7 +254,7 @@ gate — a reply at 80 % volume, no headphones, ten minutes, no self-interruptio
 2026-11-08 (Clarifications C7, `spec.md` US3 `Priority: backlog`, FR-020/FR-021 struck as deferred,
 `tasks.md` T051–T057 `[BACKLOG]`). The sequence below is kept because the mechanism it uses is the one
 barge-in already needs — `interrupt` moves the generation, cancels the turn, and ends no session — so
-reinstating the control later is a screen and a frame, not a new design. Nothing here is built now, and
+reinstating the control later is one more control on the panel and one more frame, not a new design. Nothing here is built now, and
 no checkpoint waits on it.
 
 ```mermaid
@@ -286,6 +295,7 @@ session returns to `listening` and waits. That is why it works where speaking ov
 | `vad.ts` | energy gate on 20 ms windows, adaptive noise floor (rolling p10), start threshold, 800 ms hangover, playback guard (threshold +12 dB and 150 ms blind window while a segment is audible) | no model, no wasm, no network |
 | `session.ts` | states of FR-006, generation guard, frame codec, `too_short` decision | no audio, no DOM; pure and unit-tested |
 | `player.ts` | one `AudioContext` resumed on the control press, `AudioBufferSourceNode`s scheduled back to back on the context clock, `stop()` closes every source and drains the queue | never re-schedules a stale generation |
+| `LiveVoicePanel.tsx` | renders the panel **over** the conversation (C9, FR-049): drag by the header, clamp so no edge leaves the window, re-clamp on resize, keep the position for the life of the call (FR-048), one End (FR-045) | no route of its own, no dimming overlay, no second control that ends the call, no session state — it reads the state word the session sends and calls one callback |
 
 `stop()` must be synchronous with the click: `SC-003` (200 ms) is measured from the press to silence,
 and a `Promise` chain that awaits the socket would blow it.
@@ -327,6 +337,11 @@ below is 2.57 s before the model has produced anything.
 * **I9** No `live_voice_speech` frame ever reaches `publish_session_event` (control frames do, by
   design); a backlogged socket loses speech frames only, never a `SessionFrame::Response`, and never a
   control frame (§11, D9).
+* **I10** A move (section 13) leaves one session, not two: after `live_voice_start` on another conversation the
+  registry holds **one** entry for that person, the old entry ends with `ended{moved}`, and the turn
+  that was in flight is aborted once and never spoken into the new call (FR-050, FR-052, SC-011). The
+  old conversation's transcript keeps the turns it already had — a move moves the microphone, not the
+  history (FR-051, Q10).
 
 ## 11. Delivery path for server frames (`review.md` D9)
 
@@ -436,7 +451,56 @@ this feature would otherwise feed at 43 KB/s — and it costs no new dependency.
 
 No live provider in CI; the manual pass is `quickstart.md`.
 
-## 13. What would change the design (recorded, not built)
+## 13. One session, and it moves
+
+C10 makes the registry a single-entry-per-person map, so the interesting case is not the second start
+being refused — it is the second start **winning**. FR-050, FR-051 and FR-052 are one mechanism seen
+from three sides: the new call must be alone, the old conversation must say why, and no turn may cross
+between them.
+
+```text
+live_voice_start (conversation B, same Principal)
+    │
+    ├─ 1. look up owner index ──> old session in conversation A (if any)
+    ├─ 2. old.bump_generation()            ← nothing more is synthesised from now on (§3)
+    ├─ 3. old.abort_turn(Moved)            ← FR-052: the same abort §4 already sends, once
+    ├─ 4. old.end(reason: "moved")         ← stop audio, release the mic, state{ended,moved} on A
+    ├─ 5. wait for old's task to be gone   ← the "one microphone open once" guarantee (SC-011)
+    ├─ 6. insert new session under B       ← routing index (VizierSession) + owner index
+    └─ 7. state{live, "listening"} on B    ← the panel opens here, FR-050
+```
+
+* **Three starts, three outcomes, one lookup each.** Same conversation from the owner's current socket →
+  the FR-033 re-bind of §11 (idempotent, adopts the new `ClientConnection`, no ending frame). Same
+  conversation from a **different** socket → `session_active`, refused (Q2). Different conversation, or
+  different agent → the move above. Any other principal starting on that conversation is refused the
+  same way and for a smaller reason: the routing entry for the conversation is already taken, so the
+  answer is `session_active` whoever asks — a second microphone in one conversation is never what C10
+  wants, and it is the one case where the new start loses.
+* **The order is the invariant.** Steps 2–4 happen before 5, and 5 finishes before 6: there is never a
+  moment with two registry entries, and never a moment with two open microphones on the server side.
+  The client's old panel closes on step 4's frame; the new panel only exists after step 7, so the two
+  panels are never both live either.
+* **The turn is cancelled, not carried.** FR-052 is not a new path: it is §4's fixed order (stop the
+  audio, then `AgentsClient::abort`) with the reason recorded as `moved` instead of `barge_in` or
+  `button`. The partial `Message` is kept exactly as D1 keeps it, in conversation **A**, which is where
+  the person left it. Nothing of A's turn is fed to B — B's session starts with an empty playback queue
+  and its own generation `1`, so even a late frame from A carries a generation the new client never
+  adopts (§10 I5, I6).
+* **Transcripts do not move.** The session holds no history; A's transcript is A's, B's is B's, and the
+  spoken turns of the old call stay in the conversation that heard them. This is what makes FR-051 a
+  cheap promise: the reason is a notice on the closed panel (Q10 default), not an invented message, and
+  the history it sits beside is untouched.
+* **A refusal still exists, in exactly one place.** Q2: a second **tab on the same conversation** is
+  refused (`session_active`), because there the microphone is already in that conversation and the
+  question is which tab owns it, not which conversation. Compare the two cases side by side:
+  same person + different conversation → move; same person + same conversation, different socket →
+  refuse. Both rules are one lookup each in the registry, and §10 I4 still holds.
+* **The reason vocabulary gains one value.** `ended` reasons are the existing set plus `moved`
+  (`contracts/live-voice-frames.md`). `moved` never appears on the conversation a call is *taken to*,
+  only on the one it leaves — which is why the client can tell "my call was taken" from "my call ended".
+
+## 14. What would change the design (recorded, not built)
 
 * Token streaming in the turn protocol → segmenter replaced by deltas, frames unchanged.
 * A realtime speech-to-speech provider → implements `LiveVoiceEngines`; frames, controls and
