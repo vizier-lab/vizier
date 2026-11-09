@@ -127,6 +127,7 @@ Dicatat terpisah dari status task, sesuai permintaan `@bro-pm`:
 | ID | Judul | Status | Pemilik | Sejak | R: | Diblokir oleh |
 |---|---|---|---|---|---|---|
 | `AQ-001` | Rekonsiliasi checkbox `specs/055-live-voice/tasks.md` dengan riwayat git (label `docs`) | `siap-kirim` | Lead | 9 Nov 2026 20:45 WIB | `tanpa-spec:docs` — allowlist `specs/**` | - |
+| `T110` | Kunci yang dicabut/kedaluwarsa mengakhiri sesi live yang ia buka (FR-063, SC-013) | `gate` | `@sepuh-be` | 9 Nov 2026 21:32 WIB | `FR-063` | DoD + gate belum ada; kode sudah mendarat di `vizier@449aca26` + `webui@7b7c9a3`, brief belum terlacak |
 
 ## Tanda tangan — AQ-001
 
