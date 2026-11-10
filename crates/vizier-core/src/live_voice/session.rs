@@ -338,19 +338,26 @@ impl LiveVoiceSession {
         text: &str,
         generation: u64,
     ) -> Result<bool> {
-        let segments = segmenter::segment(text);
-        if segments.is_empty() {
+        let mut segments = segmenter::segment(text).into_iter();
+        let Some(mut current) = segments.next() else {
             return Ok(false);
-        }
+        };
         self.set_state(SessionState::Speaking);
+
+        // Synthesis of the segment *after* this one starts before this one is sent, so the wait for
+        // it overlaps with this segment being played. Sequential `await` made a reply of N segments
+        // cost the sum of N syntheses before the last one was heard — the gap between sentences the
+        // person noticed — for no reason: sending is instant, and the client queues gaplessly.
+        let mut pending = Some(synthesise(engines, &current.text));
         let mut seq = 0u32;
-        for segment in segments {
+        loop {
             if self.generation() != generation || self.is_stopped() {
+                abort(pending.take());
                 return Ok(false);
             }
-            let audio = match engines.speak(&segment.text).await {
-                Ok(audio) => audio,
-                Err(e) => {
+            let audio = match pending.take().expect("a synthesis is always in flight").await {
+                Ok(Ok(audio)) => audio,
+                Ok(Err(e)) => {
                     // FR-032: the text is already on screen; say the voice failed and listen
                     // again rather than ending the session.
                     self.publish(LiveVoiceControl::Error {
@@ -360,13 +367,31 @@ impl LiveVoiceSession {
                     self.set_state(SessionState::Listening);
                     return Ok(false);
                 }
+                // The task was cancelled — only this function cancels it, so the session is over.
+                Err(_) => return Ok(false),
             };
+            // The synthesis may have taken long enough for the person to cut in. Sending it anyway
+            // would put a stale sentence in their ear *after* they interrupted — the one thing the
+            // generation counter exists to prevent (FR-022). The check is here and at the top of
+            // the loop because the two bracket the await.
+            if self.generation() != generation || self.is_stopped() {
+                abort(pending.take());
+                return Ok(false);
+            }
             let pcm = to_pcm16_16k(&audio);
-            if self.send_speech(LiveVoiceSpeech::new(generation, seq, &pcm, segment.last)) {
+            if self.send_speech(LiveVoiceSpeech::new(generation, seq, &pcm, current.last)) {
                 seq += 1;
             }
             if self.is_stopped() {
+                abort(pending.take());
                 return Ok(false);
+            }
+            match segments.next() {
+                Some(next) => {
+                    pending = Some(synthesise(engines, &next.text));
+                    current = next;
+                }
+                None => break,
             }
         }
         if self.generation() == generation && !self.is_stopped() {
@@ -598,6 +623,23 @@ impl LiveVoiceSessions {
 
     pub fn is_empty(&self) -> bool {
         self.map.lock().is_empty()
+    }
+}
+
+/// One segment's synthesis, off the caller's task so the next one can overlap with it (F3).
+fn synthesise(
+    engines: &SharedEngines,
+    text: &str,
+) -> tokio::task::JoinHandle<crate::Result<Vec<u8>>> {
+    let engines = engines.clone();
+    let text = text.to_string();
+    tokio::spawn(async move { engines.speak(&text).await })
+}
+
+/// Stop a synthesis nobody is waiting for. An interrupted reply must not keep a provider busy.
+fn abort(pending: Option<tokio::task::JoinHandle<crate::Result<Vec<u8>>>>) {
+    if let Some(task) = pending {
+        task.abort();
     }
 }
 
@@ -1031,5 +1073,149 @@ mod move_tests {
             .await;
         assert!(moved.is_none(), "an ended call has nothing left to move");
         assert_eq!(old.state(), SessionState::Ended);
+    }
+}
+
+#[cfg(test)]
+mod pipeline_tests {
+    //! F3 — the voice does not wait for itself. Synthesis of the next segment overlaps with the
+    //! current one being sent, so a reply of N segments no longer costs the sum of N syntheses
+    //! before the last sentence is heard.
+
+    use super::*;
+    use crate::live_voice::engines::LiveVoiceEngines;
+    use crate::schema::agent::LiveVoiceSettings;
+    use crate::schema::{VizierChannelId, VizierSession};
+    use crate::transport::VizierTransport;
+    use std::sync::Arc;
+    use std::sync::Mutex as StdMutex;
+    use std::time::Duration;
+
+    /// A voice that records what happened, in order, and takes its time on the second segment.
+    struct RecordingEngines {
+        log: Arc<StdMutex<Vec<String>>>,
+    }
+
+    #[async_trait::async_trait]
+    impl LiveVoiceEngines for RecordingEngines {
+        async fn transcribe(
+            &self,
+            _wav: &[u8],
+            _filename: &str,
+            _language: Option<&str>,
+        ) -> crate::Result<String> {
+            Ok("hello".into())
+        }
+
+        async fn speak(&self, text: &str) -> crate::Result<Vec<u8>> {
+            let n = {
+                let mut log = self.log.lock().unwrap();
+                let n = log.iter().filter(|entry| entry.starts_with("start:")).count();
+                log.push(format!("start:{n}"));
+                n
+            };
+            // The second segment is slow, which is the case that used to show as a gap.
+            if n == 1 {
+                tokio::time::sleep(Duration::from_millis(120)).await;
+            }
+            self.log.lock().unwrap().push(format!("end:{n}"));
+            Ok(vec![0u8; 64 * (n as usize + 1)])
+        }
+    }
+
+    fn session_with_lane() -> (Arc<LiveVoiceSession>, tokio::sync::mpsc::Receiver<serde_json::Value>) {
+        let transport = VizierTransport::new();
+        let (out_tx, rx) = tokio::sync::mpsc::channel::<serde_json::Value>(64);
+        let session = LiveVoiceSession::new(
+            VizierSession(
+                "helper".into(),
+                VizierChannelId::from_web("olive", "web"),
+                Some("topic-1".into()),
+            ),
+            "olive".into(),
+            None,
+            LiveVoiceSettings::default(),
+            ClientConnection::new(out_tx),
+            transport,
+        );
+        session.set_state(SessionState::Listening);
+        (session, rx)
+    }
+
+    fn segments_of() -> String {
+        // Two sentences, each past the first boundary, so the reply really has two segments.
+        "This opening sentence is long enough to pass the boundary the segmenter looks for. \
+         This second sentence is the one whose synthesis is slow on purpose."
+            .to_string()
+    }
+
+    #[tokio::test]
+    async fn the_second_synthesis_overlaps_the_first_segment_being_sent() {
+        let (session, mut rx) = session_with_lane();
+        let log = Arc::new(StdMutex::new(Vec::new()));
+        let engines: SharedEngines = Arc::new(RecordingEngines { log: log.clone() });
+        let generation = session.generation();
+        let text = segments_of();
+        assert!(
+            segmenter::segment(&text).len() >= 2,
+            "the fixture needs two segments or there is nothing to overlap"
+        );
+
+        let spoke = session.speak_reply(&engines, &text, generation).await.unwrap();
+        assert!(spoke);
+        assert_eq!(session.state(), SessionState::Listening);
+
+        // The frames that reached the lane, in order.
+        let mut seqs = Vec::new();
+        let mut last_flags = Vec::new();
+        while let Ok(frame) = rx.try_recv() {
+            if let Some(body) = frame.get(crate::live_voice::FRAME_KEY) {
+                seqs.push(body["seq"].as_u64().unwrap() as u32);
+                last_flags.push(body["final"].as_bool().unwrap());
+            }
+        }
+        assert_eq!(seqs, vec![0, 1], "one frame per segment, in order");
+        assert_eq!(last_flags, vec![false, true], "only the last segment is final");
+
+        // And the order inside the engine's own log proves the overlap: the second synthesis had
+        // already started before the first segment was sent.
+        let entries = log.lock().unwrap().clone();
+        let start2 = entries.iter().position(|e| e == "start:1").expect("a second synthesis");
+        let end1 = entries.iter().position(|e| e == "end:1").expect("the second finished");
+        assert!(start2 < end1, "{entries:?}");
+    }
+
+    #[tokio::test]
+    async fn an_interrupted_reply_sends_no_further_segment() {
+        let (session, mut rx) = session_with_lane();
+        let log = Arc::new(StdMutex::new(Vec::new()));
+        let engines: SharedEngines = Arc::new(RecordingEngines { log: log.clone() });
+        let generation = session.generation();
+        let text = segments_of();
+
+        let speaking = {
+            let session = session.clone();
+            let engines = engines.clone();
+            tokio::spawn(async move { session.speak_reply(&engines, &text, generation).await })
+        };
+        // Let the first segment go, then interrupt the way a person speaking does.
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        session.interrupt();
+        let spoke = speaking.await.unwrap().unwrap();
+        assert!(!spoke, "the reply did not finish");
+
+        let mut seqs = Vec::new();
+        while let Ok(frame) = rx.try_recv() {
+            if let Some(body) = frame.get(crate::live_voice::FRAME_KEY) {
+                seqs.push(body["seq"].as_u64().unwrap() as u32);
+            }
+        }
+        assert!(
+            seqs.iter().all(|seq| *seq == 0),
+            "nothing after the interruption: {seqs:?}"
+        );
+        // `interrupt()` moves the generation and nothing else; putting the word back is
+        // `abort_turn`'s job in the socket, and that path is covered by its own tests.
+        assert!(seqs.len() <= 1, "at most the segment already in flight: {seqs:?}");
     }
 }

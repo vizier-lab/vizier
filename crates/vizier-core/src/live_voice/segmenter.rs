@@ -2,12 +2,17 @@
 //!
 //! The reply arrives whole (the engine does not stream tokens, `llm/sse.rs`), so the first segment
 //! is cut at the first sentence end after roughly [`FIRST_BOUNDARY_CHARS`] characters: that is what
-//! puts a first word in the person's ear before the rest of the answer is synthesised. A segment is
+//! puts a first word in the person's ear before the rest of the answer is synthesised, and why that
+//! number is small. A segment is
 //! never cut inside a word, and a reply made of code, tables and links is not read aloud at all —
 //! it is announced once and left on screen.
 
 /// Where the first segment prefers to end. Short enough to speak soon, long enough to be a clause.
-pub const FIRST_BOUNDARY_CHARS: usize = 80;
+///
+/// 40, not 80: the whole first segment has to be synthesised before one sample is sent, so this
+/// number is a direct multiplier on how long the person waits for the first word. Halving it halves
+/// that wait at the cost of one more segment per reply (F2, latency work after a live session).
+pub const FIRST_BOUNDARY_CHARS: usize = 40;
 /// No segment grows past this; a wall of text is cut at the nearest clause or word.
 pub const MAX_SEGMENT_CHARS: usize = 400;
 /// What is said instead of reading code, tables or a URL aloud.
@@ -138,7 +143,7 @@ mod tests {
         segments.iter().map(|s| s.text.as_str()).collect()
     }
 
-    /// FR-013: the first segment ends at the first sentence end after ~80 characters, so the
+    /// FR-013: the first segment ends at the first sentence end after ~40 characters, so the
     /// person hears something before the whole reply is synthesised.
     #[test]
     fn the_first_segment_ends_after_the_preferred_boundary() {
@@ -154,6 +159,27 @@ mod tests {
         assert!(!segments[0].last);
         assert!(segments.last().unwrap().last);
         assert_eq!(segments.iter().filter(|s| s.last).count(), 1);
+    }
+
+    /// F2: the first cut comes after the *first* sentence once it passes the threshold, not after
+    /// two of them. With 80 the two sentences below would have been spoken as one segment, which is
+    /// twice the synthesis before a single sample leaves.
+    #[test]
+    fn the_first_segment_is_one_sentence_not_two() {
+        let first = "This opening sentence is about forty five characters long.";
+        let second = "This second sentence is also about that long, roughly.";
+        let reply = format!("{first} {second} And a third one closes the reply.");
+        let segments = segment(&reply);
+        assert!(segments.len() >= 2, "{segments:?}");
+        assert_eq!(
+            segments[0].text, first,
+            "the first segment is the first sentence, not the first two: {segments:?}"
+        );
+        assert!(
+            segments[0].text.chars().count() < 80,
+            "well under the old boundary: {:?}",
+            segments[0].text
+        );
     }
 
     /// A boundary is only used at a word end: no segment splits a word in half.
