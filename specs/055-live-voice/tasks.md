@@ -368,7 +368,10 @@ every decision logs: decision=abort|held, reason=<burst|no-audio>, ratio, audio_
         interruption was refused" can be matched to a turn without guessing from the clock; sequence
         and reason ride the warn line only, not the grey-zone debug line
 levels: held at warn (the only branch that can make a person say "my interruption was refused", so it
-        must not depend on a debug filter); the 2.0-5.0 grey zone at debug with decision=abort
+        must not depend on a debug filter); the grey zone `2.0 <= ratio < 5.0` at debug with
+        decision=abort. The boundary is `< 5.0` in both places on purpose, so exactly 5.0 is held and
+        never aborts; and `decision=` must never be left empty here, or an implementer can write held on
+        a band that actually aborts and `grep decision=held` then lists cases that never held anything
 ```
 **Why the ratio and not a duration or "has it spoken yet":** measured over 19 utterances on
 20:08-20:13, audio duration / wall-clock duration is **1.0x** for a person actually speaking and
