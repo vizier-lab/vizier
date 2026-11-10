@@ -342,6 +342,39 @@ be started.
   the log. Not a release blocker (the call that was tested was the third one and it worked), but it
   costs every future report the same hour this one cost.
 
+- [ ] LV-BARGE-BEFORE-AUDIO **The first turn of every call is killed before it makes a sound.**
+  `close_utterance` while the turn is still `busy` calls `abort_turn(BargeIn)`
+  (`crates/vizier-core/src/live_voice/session.rs:457`), which moves the generation, and the answer is
+  discarded before it is ever synthesised. Seen on three calls in a row (20:08, 20:09, 20:12 on
+  `:9998`): `turn_start` -> `open_utterance` **0.4 ms later** -> `close_utterance` -> `interrupted
+  cancelled=true generation=3` -> `reply abandoned … at="the synthesis finished after the reply was
+  over"`, with zero `segment sent`. The person sees "the first answer has no voice" and every answer
+  after it is fine, because later turns are no longer brand new when their `close` arrives.
+  **The guard must not be built on either of the two obvious conditions — both were measured and both
+  fail.** Over 19 utterances on 20:08–20:13, audio-duration ÷ wall-clock-duration is **1.0×** for a
+  person actually speaking and **1 370×, 3 320×, 4 641×** for a burst that arrived at once (tens of
+  milliseconds of wall clock carrying 800–3 100 ms of audio): so a duration threshold that drops the
+  burst also drops a real 805 ms interruption, and `segment sent >= 1` would disable the legitimate
+  case below (the person really did interrupt; the audio simply had not been sent yet). What separates
+  them is **how fast the audio arrived**, not how long it was. **One case is undecided and is the PM's,
+  not the implementer's:** 20:10:05 arrived at **9.8×** and *was* treated as a real turn
+  (`turn_start` 20:10:09.332). Where the line sits between 9.8× and 1 370× has to be chosen before the
+  threshold is written.
+- [ ] LV-EMPTY-REPLY-SILENT **A reply with no content passes as a turn.** Four of the eight turns on
+  topic `cEKjwtlxZ7` produced `content: ""` — no text, no speech, and no word to the person that
+  anything went wrong. An empty answer must become a named error, in the same spirit as the JSON-body
+  guard in the TTS path: a failure that says what it is beats a turn that is simply silent.
+- [ ] LV-SESSION-MUTED-AFTER-RESTART **A new call inherits the previous call's silence.**
+  `start()` never resets `generation` or `mutedGeneration` (`webui/app/lib/liveVoice/session.ts:201`),
+  so a call that ended with `mutedGeneration = 2` opens the next one already muted; the server starts
+  its generation at 1 (`crates/vizier-core/src/live_voice/session.rs:115`) and the first reply, at
+  generation 2, is refused by `if (frame.generation <= this.mutedGeneration) return`
+  (`session.ts:323`) — every byte thrown away and the state frames dropped at `:283` too, so the bar
+  does not move either. Evidence: 20:12 — the server sent **144 640 + 72 960 bytes** and nothing was
+  heard. `mutedGeneration` compares the *server's* generation with the one this client silenced, and
+  two sessions reuse the same numbers, so it only means anything inside one session; the reset belongs
+  in `start()` with that reason written beside it.
+
 - [ ] LV-LATENCY-FIRST-AUDIO **The wait to the first word is still felt on an online provider.**
   Measured on `:9998`, `bestie`, `Openrouter` + `google/gemini-3.1-flash-tts-preview`, two calls
   after the PCM fix: **9,46 s** and **9,32 s** from the end of the utterance to the first audible
