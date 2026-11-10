@@ -1533,3 +1533,41 @@ describe('D2 — a prompt nobody answers still ends, even after the listening ec
         expect(h.client.currentState).toBe('ended')
     })
 })
+
+/**
+ * The level behind the meter. It was written as the constant 0, so the bar existed and could never
+ * move; these three assertions tie the number to the audio that produced it.
+ */
+describe('the level meter follows the input', () => {
+    it('a loud window lifts the level off zero', async () => {
+        const h = ordered()
+        await h.client.start()
+        expect(h.client.currentView.level, 'nothing heard yet').toBe(0)
+        h.voice(20)
+        expect(h.client.currentView.level).toBeGreaterThan(0.05)
+    })
+
+    it('a silent window afterwards pulls the level back down', async () => {
+        const h = ordered()
+        await h.client.start()
+        h.voice(200)
+        const loud = h.client.currentView.level
+        expect(loud).toBeGreaterThan(0.05)
+        h.silence(200)
+        const quiet = h.client.currentView.level
+        expect(quiet).toBeLessThan(loud)
+        expect(quiet).toBeGreaterThanOrEqual(0)
+    })
+
+    it('an ending leaves the meter at zero', async () => {
+        // The row must not keep a bar standing at whatever the last window was once the
+        // microphone is gone.
+        const h = ordered()
+        await h.client.start()
+        h.voice(200)
+        expect(h.client.currentView.level).toBeGreaterThan(0)
+        h.client.stop('pressed_again')
+        expect(h.client.currentState).toBe('ended')
+        expect(h.client.currentView.level).toBe(0)
+    })
+})

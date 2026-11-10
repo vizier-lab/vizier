@@ -19,7 +19,7 @@ import {
     type EndReason,
     type SessionState,
 } from './frames'
-import { EnergyVad, hangoverOf } from './vad'
+import { EnergyVad, hangoverOf, rootMeanSquare } from './vad'
 import type { Player } from './player'
 import { liveVoiceMetricsEnabled, recordTurn } from './metrics'
 
@@ -92,6 +92,13 @@ export interface LiveVoiceDeps {
  * session ends and everything is released, rather than hanging on a socket that never came back.
  */
 export const RECONNECT_WINDOW_MS = 30_000
+
+/**
+ * Scales a window's RMS into the 0..1 the meter shows. A normal sentence at 16 kHz sits around
+ * 0.1-0.15 RMS, so this puts it at 0.4-0.6 and leaves the top of the bar for a raised voice
+ * instead of pinning it at 1 on every syllable.
+ */
+const LEVEL_GAIN = 4
 
 const TRANSITIONS: Record<SessionState, SessionState[]> = {
     off: ['connecting'],
@@ -403,7 +410,11 @@ export class LiveVoiceClient {
     private onWindow(samples: Float32Array): void {
         if (this.state === 'off' || this.state === 'ended' || this.state === 'failed') return
         const decision = this.vad.push(samples, this.replyAudible)
-        this.view.level = 0
+        // The meter reads the audio itself, not the gate's verdict: a quiet window still has a
+        // level, and the bar should fall on it rather than blink to nothing between syllables.
+        // Smoothed 0.6/0.4 so it moves like a needle instead of strobing on every window.
+        const rms = rootMeanSquare(samples)
+        this.view.level = this.view.level * 0.6 + Math.min(1, rms * LEVEL_GAIN) * 0.4
         // The start of speech interrupts nothing (C8): while the person talks the reply keeps
         // playing, and the only thing a voiced window does is open the utterance the following
         // chunks belong to.
@@ -475,6 +486,9 @@ export class LiveVoiceClient {
         this.capture?.stop()
         this.capture = null
         this.view.micOpen = false
+        // The level is the microphone's, and the microphone is gone: `ended` must not leave the
+        // bar standing at whatever the last window happened to be.
+        this.view.level = 0
         // The clock stops where it stood rather than snapping back to zero (T062): the row's time
         // is the record of the session that just ran, and `0:00` next to `Ended` says the opposite
         // of what happened. `startedAt = 0` is what stops it advancing; `start()` zeroes the value
