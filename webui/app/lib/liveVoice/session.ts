@@ -46,6 +46,16 @@ export interface LiveVoiceView {
 }
 
 /** What a session needs from the world; injected so the tests need no browser. */
+/**
+ * How long the microphone may take to open before the session gives up (N1).
+ *
+ * Generous on purpose: the delay is usually a person reading a permission prompt, and a shorter
+ * deadline would kill sessions people meant to start. What it prevents is not slowness but the
+ * absence of an exit — `connecting` used to have no other door than a capture that eventually
+ * opened, while the server already held a session for it.
+ */
+export const CONNECTING_DEADLINE_MS = 30_000
+
 export interface LiveVoiceDeps {
     /** Send one frame on the topic socket; `false` when the socket is not open. */
     send(frame: object): boolean
@@ -67,6 +77,8 @@ export interface LiveVoiceDeps {
     endOfUtteranceMs?: number
     /** A clock, so the elapsed counter is testable. */
     now?(): number
+    /** How long the device may take to open (N1). Absent leaves `CONNECTING_DEADLINE_MS`. */
+    connectDeadlineMs?: number
 }
 
 /**
@@ -133,6 +145,8 @@ export class LiveVoiceClient {
     private tick: ReturnType<typeof setInterval> | null = null
     /** Whether this session has already let go of the microphone and the audio context. */
     private released = false
+    /** The timer that gives up on a device that never opens (N1). */
+    private connectDeadline: ReturnType<typeof setTimeout> | null = null
     /** When the socket dropped, or null while it is up. */
     private droppedAt: number | null = null
     /** The timer that ends a session whose socket never came back. */
@@ -179,12 +193,27 @@ export class LiveVoiceClient {
             this.fail('connection_lost', 'the connection is not open')
             return
         }
+        // N1: `startFrame` has already gone, so the server holds a session from here. If the device
+        // never opens — a permission prompt left on screen, a browser that never answers — the
+        // session used to sit in `connecting` for ever with no other door out.
+        const deadlineMs = this.deps.connectDeadlineMs ?? CONNECTING_DEADLINE_MS
+        this.connectDeadline = setTimeout(() => this.abandonConnect(deadlineMs), deadlineMs)
         try {
-            this.capture = await this.deps.openCapture({
+            const capture = await this.deps.openCapture({
                 onChunk: (samples) => this.sendAudio(samples),
                 onWindow: (samples) => this.onWindow(samples),
                 onLost: (reason) => this.fail('permission_withdrawn', reason),
             })
+            // The device arrived after the session gave up (or after the person ended it): it must
+            // not stay open with nothing driving it, so it is stopped here and dropped.
+            // `currentState`, not `this.state`: the guard at the top of `start()` narrows the field,
+            // and the whole point here is that an `await` may have moved it since.
+            if (this.currentState !== 'connecting' || this.released) {
+                capture.stop()
+                return
+            }
+            this.clearConnectDeadline()
+            this.capture = capture
             this.view.micOpen = this.capture.open
             await this.deps.player.resume()
             this.move('listening')
@@ -438,6 +467,7 @@ export class LiveVoiceClient {
         // the first segment of the next session.
         this.pendingMetric = null
         this.clearReconnectDeadline()
+        this.clearConnectDeadline()
         this.capture?.stop()
         this.capture = null
         this.view.micOpen = false
@@ -457,6 +487,26 @@ export class LiveVoiceClient {
         this.vad.resetUtterance()
         this.utteranceId = 0
         this.seq = 0
+    }
+
+    /**
+     * Give up on a device that never opened (N1): tell the server, then fail with a reason the
+     * person can act on.
+     *
+     * The stop frame goes first, because from the server's side the session exists from the moment
+     * `startFrame` left — and a client that never opens its microphone leaves a session nobody can
+     * use and every other tab sees as taken.
+     */
+    private abandonConnect(deadlineMs: number): void {
+        if (this.state !== 'connecting') return
+        this.deps.send(stopFrame())
+        this.fail('no_device', `the microphone did not open within ${Math.round(deadlineMs / 1000)} seconds`)
+    }
+
+    private clearConnectDeadline(): void {
+        if (!this.connectDeadline) return
+        clearTimeout(this.connectDeadline)
+        this.connectDeadline = null
     }
 
     private stopAudio(): void {

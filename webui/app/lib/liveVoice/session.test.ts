@@ -1306,3 +1306,88 @@ describe('C5/B — after a failure, the next attempt works', () => {
         expect(h.client.currentState).toBe('listening')
     })
 })
+
+/**
+ * N1 — `connecting` has a door out.
+ *
+ * `startFrame` leaves before the microphone is awaited, so the server holds a session from that
+ * moment. If the device never opened — a permission prompt left on screen, a browser that never
+ * answers — the row sat on `Connecting…` for ever and the server kept a session nobody could use.
+ */
+describe('N1 — a device that never opens does not hang the session', () => {
+    /** A client whose device opens only when the test says so. */
+    function pendingCapture(deadlineMs: number) {
+        const sent: object[] = []
+        const views: LiveVoiceView[] = []
+        let settle: ((value: { stop(): void; open: boolean }) => void) | null = null
+        let stopped = 0
+        const client = new LiveVoiceClient({
+            send: (frame) => {
+                sent.push(frame)
+                return true
+            },
+            player: new SilentPlayer(),
+            openCapture: () =>
+                new Promise((resolve) => {
+                    settle = resolve
+                }),
+            onView: (view) => views.push(view),
+            now: () => 1000,
+            connectDeadlineMs: deadlineMs,
+        })
+        return {
+            client,
+            sent,
+            views,
+            last: () => views[views.length - 1],
+            stopped: () => stopped,
+            open: () => settle?.({ stop: () => (stopped += 1), open: true }),
+            keys: () => sent.map((frame) => Object.keys(frame)[0]),
+        }
+    }
+
+    it('gives up on the device, says why, and tells the server', async () => {
+        const h = pendingCapture(20)
+        void h.client.start()
+        expect(h.client.currentState, 'the prompt is still up').toBe('connecting')
+
+        await new Promise((resolve) => setTimeout(resolve, 60))
+
+        expect(h.client.currentState).toBe('failed')
+        expect(h.last().notice, 'a sentence, not a code').toContain('the microphone did not open')
+        expect(h.last().micOpen).toBe(false)
+        // The server's session started with the frame that left before the device was asked for;
+        // a client that never opens its microphone must not leave it standing.
+        expect(h.keys(), 'the server is told').toContain('live_voice_stop')
+    })
+
+    it('a device that arrives too late is stopped, not kept', async () => {
+        const h = pendingCapture(20)
+        void h.client.start()
+        await new Promise((resolve) => setTimeout(resolve, 60))
+        expect(h.client.currentState).toBe('failed')
+
+        // The person finally clicks Allow: the device is real, and nothing is driving it.
+        h.open()
+        await new Promise((resolve) => setTimeout(resolve, 0))
+
+        expect(h.stopped(), 'the microphone is released at once').toBe(1)
+        expect(h.client.currentState, 'and the session stays over').toBe('failed')
+        expect(h.last().micOpen).toBe(false)
+    })
+
+    it('a device that opens in time is not disturbed by the deadline', async () => {
+        const h = pendingCapture(20)
+        const starting = h.client.start()
+        h.open()
+        await starting
+        expect(h.client.currentState).toBe('listening')
+        expect(h.last().micOpen).toBe(true)
+
+        // Past the deadline: the timer was cleared, so nothing changes and nothing is released.
+        await new Promise((resolve) => setTimeout(resolve, 60))
+        expect(h.client.currentState).toBe('listening')
+        expect(h.stopped()).toBe(0)
+        expect(h.keys()).not.toContain('live_voice_stop')
+    })
+})
