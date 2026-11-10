@@ -362,7 +362,12 @@ abort_turn  ONLY when  ratio = audio_ms / wall_ms < 5.0
   audio_ms  from the PCM actually received (len / 32 for 16 kHz mono 16-bit), never chunks x 100
   wall_ms   in microseconds (or f64): three measured bursts are 241, 584 and 668 us, so whole
             milliseconds would round two of them to 0 and divide by zero
-  wall_ms == 0   -> held, reason=zero-wall, never infinity (division by zero is not a theoretical case)
+  wall_ms == 0   -> held, reason=zero-wall, never infinity (division by zero is not a theoretical case).
+            `zero-wall` is its own reason, not `burst`: `burst` means a ratio that was measured and came
+            out at or above 5.0, while here there is no ratio to measure at all. Same branch, same
+            decision - the name is split so `grep reason=burst` counts measured bursts only and does not
+            quietly mix in the times the clock rounded to zero. If the PM prefers two names over three,
+            this is one word to change, and the guard does not change with it.
   audio_ms == 0  -> held too, reason=no-audio: no audio is not a low ratio
   opened_at / turn_started_at are NOT a condition - see the withdrawal note below; they may be logged
             as a diagnostic (`opened_before_turn=true|false`) and nothing depends on them
