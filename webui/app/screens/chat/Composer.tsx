@@ -69,6 +69,8 @@ type Props = {
     liveVoiceEnabled?: boolean
     /** Which half is missing when it cannot, so the disabled control can say so. */
     liveVoiceMissing?: 'recognizer' | 'voice' | null
+    /** The agent's own hangover, in ms (G1). */
+    liveVoiceEndOfUtteranceMs?: number
     busy: boolean
     /** Why it can't send (the agent is down), in place of the placeholder. */
     disabledReason?: string
@@ -100,6 +102,7 @@ export function Composer({
     ttsEnabled,
     liveVoiceEnabled,
     liveVoiceMissing,
+    liveVoiceEndOfUtteranceMs,
     busy,
     disabledReason,
     context,
@@ -470,6 +473,7 @@ export function Composer({
                                 topicId={topicId}
                                 capability={liveVoiceEnabled ?? false}
                                 missing={liveVoiceMissing ?? null}
+                                endOfUtteranceMs={liveVoiceEndOfUtteranceMs}
                             />
                         )}
                         {/* FR-053/T107: the spoken-reply toggle is one of the manual speech surfaces,

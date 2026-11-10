@@ -19,7 +19,7 @@ import {
     type EndReason,
     type SessionState,
 } from './frames'
-import { EnergyVad } from './vad'
+import { EnergyVad, hangoverOf } from './vad'
 import type { Player } from './player'
 import { liveVoiceMetricsEnabled, recordTurn } from './metrics'
 
@@ -60,6 +60,11 @@ export interface LiveVoiceDeps {
     onView(view: LiveVoiceView): void
     /** The recognition language, if the agent names one. */
     language?: string
+    /**
+     * How long a silence ends the utterance, from the agent's live voice settings (G1). The gate
+     * runs here, in the client, so this is the only way the setting can mean anything.
+     */
+    endOfUtteranceMs?: number
     /** A clock, so the elapsed counter is testable. */
     now?(): number
 }
@@ -100,7 +105,7 @@ export class LiveVoiceClient {
         notice: null,
         micOpen: false,
     }
-    private vad = new EnergyVad()
+    private vad: EnergyVad
     private capture: { stop(): void; open: boolean } | null = null
     private utteranceId = 0
     private seq = 0
@@ -139,10 +144,17 @@ export class LiveVoiceClient {
      */
     private pendingMetric: { endOfUtterance: number; silenceMs: number } | null = null
 
-    constructor(private readonly deps: LiveVoiceDeps) {}
+    constructor(private readonly deps: LiveVoiceDeps) {
+        this.vad = new EnergyVad(3, hangoverOf(deps.endOfUtteranceMs))
+    }
 
     get currentState(): SessionState {
         return this.state
+    }
+
+    /** The hangover this session's gate uses, in ms (G1). Read by the tests and by nobody else. */
+    get hangoverMs(): number {
+        return this.vad.hangover
     }
 
     get currentView(): LiveVoiceView {

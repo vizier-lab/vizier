@@ -96,6 +96,8 @@ export type AgentDetail = {
     /** On only when the agent's own switch is on and it has both a recogniser and a voice
      * (spec 055 FR-004). */
     live_voice?: boolean
+    /** How long a silence ends the utterance (G1). Absent on a server older than the field. */
+    live_voice_end_of_utterance_ms?: number
     read_image: boolean
     read_image_settings?: ReadImageSettings | null
     image_gen: boolean

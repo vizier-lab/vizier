@@ -13,8 +13,25 @@
 
 /** 20 ms at 16 kHz: the window every decision is made on. */
 export const WINDOW_SAMPLES = 320
-/** FR-010: the hangover that ends an utterance. */
+/**
+ * FR-010: the hangover that ends an utterance, when the agent's settings say nothing.
+ *
+ * Kept at the spec's number for anything that builds a gate without an argument — a test, a
+ * surface with no agent behind it. The session passes the agent's own
+ * `end_of_utterance_ms` instead, which is what makes the setting mean something: it used to be
+ * hardcoded here and read by nobody (G1).
+ */
 export const HANGOVER_MS = 800
+/** What a hangover is clamped to. Below 100 ms a pause for breath ends the utterance; above 2 s the
+ * person waits in silence for no reason. */
+export const MIN_HANGOVER_MS = 100
+export const MAX_HANGOVER_MS = 2000
+
+/** The hangover a session uses: the agent's number, clamped, or the spec's default. */
+export function hangoverOf(configured?: number): number {
+    if (configured === undefined || !Number.isFinite(configured)) return HANGOVER_MS
+    return Math.min(MAX_HANGOVER_MS, Math.max(MIN_HANGOVER_MS, Math.round(configured)))
+}
 /** The floor never rises above this, so a loud room cannot deafen the gate. */
 const MAX_FLOOR = 0.02
 /** How fast the floor follows the room: slow enough that speech does not raise it. */
@@ -39,6 +56,11 @@ export class EnergyVad {
         private readonly thresholdFactor = 3,
         private readonly hangoverMs = HANGOVER_MS
     ) {}
+
+    /** The hangover this gate ends an utterance on, in ms. */
+    get hangover(): number {
+        return this.hangoverMs
+    }
 
     /** The current floor, for the level meter and for the tests. */
     get noiseFloor(): number {

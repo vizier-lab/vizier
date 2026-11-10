@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { EnergyVad, HANGOVER_MS, WINDOW_SAMPLES, rootMeanSquare } from './vad'
+import { EnergyVad, HANGOVER_MS, MAX_HANGOVER_MS, MIN_HANGOVER_MS, WINDOW_SAMPLES, hangoverOf, rootMeanSquare } from './vad'
+import { LiveVoiceClient } from './session'
+import { SilentPlayer } from './player'
 
 /** One 20 ms window at a given level, as the gate sees it. */
 function windowOf(level: number): Float32Array {
@@ -69,5 +71,64 @@ describe('the energy gate', () => {
     it('reports rms for the level meter', () => {
         expect(rootMeanSquare(new Float32Array(0))).toBe(0)
         expect(rootMeanSquare(windowOf(0.5))).toBeCloseTo(0.5, 5)
+    })
+})
+
+/**
+ * G1 — the hangover the session actually uses.
+ *
+ * It was hardcoded here and read by nobody, so the agent's `end_of_utterance_ms` never reached the
+ * gate. That silence is 0.8 s of the delay a person feels before the agent even starts thinking.
+ */
+describe('the hangover a session uses', () => {
+    it('closes the utterance at the configured silence, not the spec default', () => {
+        const vad = new EnergyVad(3, hangoverOf(250))
+        feed(vad, 200, 0.2)
+        // 300 ms of silence: past the configured 250 ms hangover, well short of the 800 default.
+        const decisions = feed(vad, 300, 0)
+        expect(decisions.some((d) => d.utteranceEnd), 'the utterance ended at ~250 ms').toBe(true)
+    })
+
+    it('a gate built without an argument keeps the spec default', () => {
+        const vad = new EnergyVad()
+        feed(vad, 200, 0.2)
+        const early = feed(vad, 400, 0)
+        expect(early.some((d) => d.utteranceEnd), 'not yet at 400 ms').toBe(false)
+        const late = feed(vad, 500, 0)
+        expect(late.some((d) => d.utteranceEnd), 'ended past 800 ms').toBe(true)
+    })
+
+    it('clamps a setting that would make the gate unusable, and says what it clamps to', () => {
+        // A zero would end every utterance on the first silent window; a huge one would leave the
+        // person waiting in silence.
+        expect(hangoverOf(0)).toBe(MIN_HANGOVER_MS)
+        expect(hangoverOf(-50)).toBe(MIN_HANGOVER_MS)
+        expect(hangoverOf(60_000)).toBe(MAX_HANGOVER_MS)
+        expect(hangoverOf(250)).toBe(250)
+        // Nothing configured is the spec's number, not a clamp.
+        expect(hangoverOf(undefined)).toBe(HANGOVER_MS)
+        expect(hangoverOf(Number.NaN)).toBe(HANGOVER_MS)
+    })
+
+    it('the configured value reaches the gate through the client', async () => {
+        // The chain the setting travels: deps → client → gate. A gate that ignored it would end
+        // the utterance at 800 ms whatever the agent asked for.
+        const client = new LiveVoiceClient({
+            send: () => true,
+            player: new SilentPlayer(),
+            openCapture: async () => ({ stop: () => {}, open: true }),
+            onView: () => {},
+            now: () => 1000,
+            endOfUtteranceMs: 250,
+        })
+        expect(client.hangoverMs).toBe(250)
+        const plain = new LiveVoiceClient({
+            send: () => true,
+            player: new SilentPlayer(),
+            openCapture: async () => ({ stop: () => {}, open: true }),
+            onView: () => {},
+            now: () => 1000,
+        })
+        expect(plain.hangoverMs, 'an agent that says nothing gets the spec default').toBe(HANGOVER_MS)
     })
 })
