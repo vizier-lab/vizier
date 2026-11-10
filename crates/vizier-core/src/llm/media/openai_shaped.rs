@@ -571,7 +571,7 @@ mod pcm_tests {
         assert_eq!(out.len(), 160 * 2, "the ratio is 3:2 and an odd byte is never guessed at");
         // A linear ramp stays a ramp: no sample may be out of the input's range.
         let peak = out
-            .chunks_exact(2)
+            .as_chunks::<2>().0.iter()
             .map(|p| i16::from_le_bytes([p[0], p[1]]))
             .max()
             .unwrap();
