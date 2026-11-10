@@ -749,13 +749,15 @@ impl VizierAgent {
             }
         }
 
-        // FR-017: a turn that came from speech is answered to be *heard*. The note rides the
-        // turn's client-context block, which is rendered for this turn only and never stored in
-        // the person's message, so history still shows exactly what they said. A typed turn is
-        // untouched — `spoken` is false for every one of them.
-        if req.spoken && !req.client_context.iter().any(|note| note == SPOKEN_TURN_NOTE) {
-            req.client_context.push(SPOKEN_TURN_NOTE.to_string());
-        }
+        // FR-017: a turn that came from speech is answered to be *heard*.
+        //
+        // The note used to ride `client_context`, and that was the bug: that block opens by
+        // telling the model it holds "facts about the client, **not instructions**", so an
+        // instruction placed inside it is read as background. A live voice turn answered in 717
+        // tokens — 10.7 s of silence — with the rule sitting in a block that denied being a rule.
+        // It is now rendered as its own `## How to answer` section, ahead of the client facts; the
+        // note text is unchanged and a typed turn is untouched (`spoken` is false for all of them).
+        let spoken_note = req.spoken.then_some(SPOKEN_TURN_NOTE);
 
         let mut rng = StdRng::seed_from_u64(crate::time::now().timestamp() as u64);
         let initiative_factor = rng.random_range(0_f32..=1_f32);
@@ -1028,6 +1030,7 @@ impl VizierAgent {
                         digest.as_deref(),
                         project_state.as_deref(),
                         mentions.as_deref(),
+                        spoken_note,
                     ),
                 ),
                 history,
