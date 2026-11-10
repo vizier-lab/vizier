@@ -120,7 +120,18 @@ Dicatat terpisah dari status task, sesuai permintaan `@bro-pm`:
 | Baris papan menyebut commit **`5a8b3f0f`** yang tidak ada — hash dikarang sebelum commit-nya dibuat | `git cat-file -t 5a8b3f0f` -> `fatal: Not a valid object name`; yang benar `4ca56796` |
 | "Siapa yang pegang pena" **tidak bisa dijawab dari repo** | ketujuh commit 9 Nov punya author git identik (`Robi Naufal Kaosar`); tidak ada penanda agen |
 
-**Lubang aturan yang terbuka karena ini:** baris milik Lead tidak punya peninjau kedua — Lead adalah pelaksana *dan* pemilik tanda tangan teknis. Usul: baris berlabel `docs` milik Lead wajib dibaca satu agen lain (QA cukup membaca diff, tanpa menjalankan tes) sebelum `siap-kirim`. **Belum sah** sampai ACC kang.
+**Lubang aturan yang terbuka karena ini:** baris milik Lead tidak punya peninjau kedua — Lead adalah pelaksana *dan* pemilik tanda tangan teknis.
+
+> **Aturan: peninjau kedua untuk baris `docs` milik Lead — DISAHKAN kang muruyung, 10 Nov 2026 09:37** (*"Ok setuju"*, item 3). Status **uji coba**, bukan permanen.
+
+Empat pagar, dan melanggarnya membuat peninjauan itu batal:
+
+1. **Baca saja, tanpa tes.** Peninjau membaca diff dan bukti yang ditulis; ia tidak menjalankan perintah, tidak menyentuh kode, tidak menambah tes.
+2. **Hanya baris berlabel `docs` yang pemiliknya Lead.** Baris kode, atau baris milik agen lain, tidak masuk cakupan ini.
+3. **Hanya boleh menahan kalau bukti tidak mendukung klaim** — bukan karena selera, bukan karena format, bukan karena "menurut saya lebih rapi". Menahan wajib menyebut bukti mana yang tidak cocok.
+4. **Uji coba:** kalau aturan ini dalam praktiknya menahan task tanpa alasan yang bisa dicek mesin, ia dicabut di `@bro-pm`/kang, bukan dilonggarkan diam-diam.
+
+Peninjau yang wajar: `@teteh-qa` (ia sudah membaca diff tes sebagai bagian gate-nya). Untuk AQ-001 aturan ini **tidak berlaku surut** — kang sudah menerima baris itu, jadi tidak ada yang perlu dibuka ulang.
 
 ## Papan
 
@@ -186,3 +197,13 @@ Dicatat terpisah dari status task, sesuai permintaan `@bro-pm`:
 **Batas gate yang lebar, dan bukan milik fitur ini:** `cargo test -p vizier-core` (seluruh crate, tanpa fitur) = **1733 lulus, 8 gagal**; kedelapan kegagalan semuanya `projects::tools::lsp_tests` + `service::project_lsp` ("the server never became ready", 20 s), **repro sendirian** setelah `cargo build -p vizier-core --example fake_lsp`. Itu fitur 054, bukan 055 — makanya DoD #2/#3 di atas dipersempit, bukan gate dibiarkan merah karena warisan fitur lain.
 
 **Pemilik:** gate teknis saya **✅ 10 Nov** (baris #1–#3) · tanda tangan perilaku `@teteh-qa` (task perilaku → `qa-plan` 4 skenario sudah ditulis QA; belum tanda tangan).
+
+## Q12 dan T111 — apa yang dijawab kang 10 Nov 09:37, dan apa yang **tidak** berubah
+
+Kang menjawab item 4 (*"Boleh deh"*). Ini yang berubah dan yang tidak:
+
+- **Berubah:** arah *"jawaban datang sambil dibuat"* (level 1, FR-065…FR-070) **dikonfirmasi kedua kalinya** oleh User — yang pertama 10 Nov 06:39 (*"level 1 dulu aja deh bro, tapi kalo pas gw tes terus latency nya masih kerasa ganggu baru gw minta level 2"*, sudah tercatat di `spec.md:691` pada `ef846fbd`). Konfirmasi kedua ini tidak menambah syarat, ia mengulang yang sudah ada.
+- **Tidak berubah:** `T111` tetap `[PROVISIONAL]`. Label itu **bukan soal izin** — izinnya sudah ada sejak 06:39 — melainkan soal **angka**: belum ada pengukuran yang mengatakan berapa yang dibeli. Spec menulisnya sendiri: *"until those numbers are re-measured against a real turn, a latency target would be a number invented to look finished"* (`spec.md:263-267`).
+- **Karena itu, yang mengubah T111 jadi bisa dijadwalkan bukan "boleh", tapi tiga hal ini:** (1) asesmen saya dengan angka yang diukur ulang pada satu turn nyata; (2) DoD tertulis; (3) slot WIP `@sepuh-be` kosong — sekarang tidak, karena `T110` di `gate` dan `GI-01`/`GI-02` di `antre`.
+
+**Kalau yang kang maksud "Boleh" adalah *mulai bangun sekarang*:** itu keputusan prioritas dan sah — tapi tetap butuh DoD lebih dulu, dan tetap antre di belakang T110. Sebut satu baris, dan saya tulis brief-nya hari ini.
