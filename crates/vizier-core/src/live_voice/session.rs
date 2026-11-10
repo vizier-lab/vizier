@@ -17,7 +17,7 @@ use crate::Result;
 use crate::agents::client::ClientConnection;
 use crate::live_voice::engines::SharedEngines;
 use crate::live_voice::frame::{
-    EndReason, InterruptReason, LiveVoiceControl, LiveVoiceSpeech, SessionState,
+    EndReason, InterruptReason, LiveVoiceControl, LiveVoiceSpeech, SAMPLE_RATE, SessionState,
 };
 use crate::live_voice::segmenter;
 use crate::live_voice::utterance::Utterance;
@@ -754,13 +754,98 @@ impl LiveVoiceSession {
 
 /// The provider's container into PCM16 16 kHz mono.
 ///
-/// A provider that already answers in WAV is unwrapped; anything else is passed through, because
-/// the client is told the format it is given rather than being lied to about it.
+/// A WAV is unwrapped **and, when its rate is not 16 kHz, resampled**. The rate used to be ignored:
+/// the header was dropped and the frame then declared 16 kHz regardless (`frame::SAMPLE_RATE`), so
+/// a provider answering at 24 kHz — which is what Google documents for its speech models — was
+/// played 1.5x slow, with the pitch dragged down with it. The client cannot notice: it is told the
+/// rate in the frame and uses it.
+///
+/// A 16 kHz body comes out **byte for byte** as it did before, which is what keeps every provider
+/// already working untouched. A body that is not WAV is passed through unchanged, because the
+/// client is told the format it is given rather than being lied to about it.
 fn to_pcm16_16k(audio: &[u8]) -> Vec<u8> {
-    if audio.len() > 44 && &audio[0..4] == b"RIFF" {
-        return audio[44..].to_vec();
+    let Some(body) = wav_body(audio) else {
+        return audio.to_vec();
+    };
+    match wav_rate(audio) {
+        Some(rate) if rate != SAMPLE_RATE && rate > 0 => resample_pcm16(body, rate, SAMPLE_RATE),
+        _ => body.to_vec(),
     }
-    audio.to_vec()
+}
+
+/// The `data` chunk's payload, found by walking the chunks.
+///
+/// Not `&wav[44..]`: that is only right for the canonical header this project writes. A provider
+/// that puts a `LIST` or `fact` chunk before `data` would have those bytes played as audio — and
+/// the test that builds such a header caught exactly that, at 8 bytes of noise on the front.
+fn wav_body(wav: &[u8]) -> Option<&[u8]> {
+    if wav.len() < 12 || &wav[0..4] != b"RIFF" || &wav[8..12] != b"WAVE" {
+        return None;
+    }
+    let mut at = 12;
+    while at + 8 <= wav.len() {
+        let id = &wav[at..at + 4];
+        let len = u32::from_le_bytes([wav[at + 4], wav[at + 5], wav[at + 6], wav[at + 7]]) as usize;
+        let start = at + 8;
+        if id == b"data" {
+            let end = start.saturating_add(len).min(wav.len());
+            return Some(&wav[start..end]);
+        }
+        at = start + len + (len & 1);
+    }
+    None
+}
+
+/// The sample rate a WAV header names, or `None` when it is not one.
+///
+/// Walked chunk by chunk rather than read at a fixed offset: this project writes a canonical
+/// 44-byte header, but a provider may put a `LIST` or `fact` chunk first, and a wrong offset would
+/// resample from a garbage rate — noise instead of a slow voice.
+fn wav_rate(wav: &[u8]) -> Option<u32> {
+    if wav.len() < 28 || &wav[0..4] != b"RIFF" || &wav[8..12] != b"WAVE" {
+        return None;
+    }
+    let mut at = 12;
+    while at + 8 <= wav.len() {
+        let id = &wav[at..at + 4];
+        let len = u32::from_le_bytes([wav[at + 4], wav[at + 5], wav[at + 6], wav[at + 7]]) as usize;
+        if id == b"fmt " && at + 16 <= wav.len() {
+            return Some(u32::from_le_bytes([
+                wav[at + 12],
+                wav[at + 13],
+                wav[at + 14],
+                wav[at + 15],
+            ]));
+        }
+        at += 8 + len + (len & 1);
+    }
+    None
+}
+
+/// Linear resampling of PCM16 mono, the same shape as `stt::whisper::resample_linear` on i16.
+///
+/// One pass per spoken segment, heard once: a windowed filter would cost more than it returns.
+fn resample_pcm16(pcm: &[u8], from: u32, to: u32) -> Vec<u8> {
+    let samples: Vec<i16> = pcm
+        .chunks_exact(2)
+        .map(|pair| i16::from_le_bytes([pair[0], pair[1]]))
+        .collect();
+    if samples.is_empty() {
+        return Vec::new();
+    }
+    let ratio = from as f64 / to as f64;
+    let count = ((samples.len() as f64) / ratio).floor() as usize;
+    let mut out = Vec::with_capacity(count * 2);
+    for index in 0..count {
+        let at = index as f64 * ratio;
+        let left = at.floor() as usize;
+        let frac = at - left as f64;
+        let a = samples[left.min(samples.len() - 1)] as f64;
+        let b = samples[(left + 1).min(samples.len() - 1)] as f64;
+        let value = (a + (b - a) * frac).round().clamp(-32768.0, 32767.0) as i16;
+        out.extend_from_slice(&value.to_le_bytes());
+    }
+    out
 }
 
 /// Every live session in the process, keyed by (agent, conversation).
@@ -2339,5 +2424,94 @@ mod reply_tests {
             drawn, "the answer, as words",
             "the spoken answer must also be published: without it the text only exists after a reload"
         );
+    }
+}
+
+#[cfg(test)]
+mod rate_tests {
+    //! A provider's WAV is unwrapped **and** brought to the one rate a spoken frame declares.
+    //!
+    //! The bug this closes is older than the Gemini work: the header was dropped and the frame said
+    //! 16 kHz whatever the body was, so a provider answering at 24 kHz played 1.5x slow with the
+    //! pitch dragged down. The client cannot see it — it is told the rate and uses it.
+
+    use super::*;
+
+    /// A canonical 44-byte WAV header at `rate`, around `samples` i16 values.
+    fn wav(samples: &[i16], rate: u32) -> Vec<u8> {
+        let data: Vec<u8> = samples.iter().flat_map(|s| s.to_le_bytes()).collect();
+        let mut h = [0u8; 44];
+        h[0..4].copy_from_slice(b"RIFF");
+        h[4..8].copy_from_slice(&(36 + data.len() as u32).to_le_bytes());
+        h[8..12].copy_from_slice(b"WAVE");
+        h[12..16].copy_from_slice(b"fmt ");
+        h[16..20].copy_from_slice(&16u32.to_le_bytes());
+        h[20..22].copy_from_slice(&1u16.to_le_bytes());
+        h[22..24].copy_from_slice(&1u16.to_le_bytes());
+        h[24..28].copy_from_slice(&rate.to_le_bytes());
+        h[28..32].copy_from_slice(&(rate * 2).to_le_bytes());
+        h[32..34].copy_from_slice(&2u16.to_le_bytes());
+        h[34..36].copy_from_slice(&16u16.to_le_bytes());
+        h[36..40].copy_from_slice(b"data");
+        h[40..44].copy_from_slice(&(data.len() as u32).to_le_bytes());
+        let mut out = h.to_vec();
+        out.extend_from_slice(&data);
+        out
+    }
+
+    #[test]
+    fn a_16k_wav_comes_out_byte_for_byte() {
+        // The guard on every provider that already works: this must not change by one byte.
+        let samples: Vec<i16> = (0..320).map(|i| (i * 37) as i16).collect();
+        let body: Vec<u8> = samples.iter().flat_map(|s| s.to_le_bytes()).collect();
+        let out = to_pcm16_16k(&wav(&samples, SAMPLE_RATE));
+        assert_eq!(out, body, "a 16 kHz provider is untouched");
+    }
+
+    #[test]
+    fn a_24k_wav_is_resampled_to_16k() {
+        let samples: Vec<i16> = (0..2400).map(|i| (i * 3) as i16).collect();
+        let out = to_pcm16_16k(&wav(&samples, 24_000));
+        assert_eq!(
+            out.len(),
+            1600 * 2,
+            "2400 samples at 24 kHz is 100 ms, which is 1600 samples at 16 kHz"
+        );
+        assert!(out.len() < samples.len() * 2, "the body must actually shrink");
+    }
+
+    #[test]
+    fn the_rate_is_read_from_the_header_and_not_assumed() {
+        // A 16 kHz body declared at 24 kHz is resampled; the same bytes declared at 16 kHz are not.
+        let samples: Vec<i16> = (0..480).map(|i| (i * 11) as i16).collect();
+        assert_eq!(to_pcm16_16k(&wav(&samples, 24_000)).len(), 320 * 2);
+        assert_eq!(to_pcm16_16k(&wav(&samples, SAMPLE_RATE)).len(), 480 * 2);
+    }
+
+    #[test]
+    fn a_body_that_is_not_a_wav_is_passed_through_untouched() {
+        // The client is told the format it is given rather than being lied to about it.
+        let raw = vec![1u8, 2, 3, 4, 5, 6];
+        assert_eq!(to_pcm16_16k(&raw), raw);
+    }
+
+    #[test]
+    fn a_wav_with_a_chunk_before_fmt_still_finds_its_rate() {
+        // A `LIST` chunk before `fmt `: a fixed offset would read the wrong number and resample
+        // from garbage, which is noise rather than a slow voice.
+        let samples: Vec<i16> = (0..480).map(|i| (i * 5) as i16).collect();
+        let canonical = wav(&samples, 24_000);
+        let fmt = &canonical[12..36];
+        let mut odd = Vec::new();
+        odd.extend_from_slice(&canonical[0..4]);
+        odd.extend_from_slice(&((canonical.len() - 8 + 12) as u32).to_le_bytes());
+        odd.extend_from_slice(&canonical[8..12]);
+        odd.extend_from_slice(b"LIST");
+        odd.extend_from_slice(&4u32.to_le_bytes());
+        odd.extend_from_slice(b"INFO");
+        odd.extend_from_slice(fmt);
+        odd.extend_from_slice(&canonical[36..]);
+        assert_eq!(wav_rate(&odd), Some(24_000), "the fmt chunk is found by walking");
+        assert_eq!(to_pcm16_16k(&odd).len(), 320 * 2);
     }
 }
