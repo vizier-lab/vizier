@@ -7,7 +7,7 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 
 use parking_lot::Mutex;
 use tokio::sync::watch;
@@ -23,6 +23,20 @@ use crate::live_voice::utterance::Utterance;
 use crate::schema::agent::LiveVoiceSettings;
 use crate::schema::{VizierRequest, VizierRequestContent, VizierResponseContent, VizierSession};
 use crate::transport::{SessionEvent, SessionFrame, VizierTransport};
+
+/// The words a filler may say (G2).
+///
+/// Neutral in language on purpose, and **never a promise about time**: "sebentar", "wait", "one
+/// moment" and "hold on" all commit to a duration the session cannot keep, and the person who asked
+/// for this ruled them out by name. These four are what a person says while they gather a thought.
+pub const FILLER_WORDS: &[&str] = &["okay", "ya", "mm", "right"];
+
+/// How long the agent may be silent before a filler covers the gap (G2).
+///
+/// Below this the answer is on its way anyway, and a filler would only be noise over the reply —
+/// which is the "robotik" the person asked us to avoid. Once per turn, never repeated.
+pub const FILLER_AFTER_MS: u64 = 400;
+
 
 /// The API key a session was opened with (T110, FR-063).
 ///
@@ -63,6 +77,21 @@ pub struct LiveVoiceSession {
     description: Mutex<crate::live_voice::frame::AudioDescription>,
     /// Which API key opened this session, or `None` for a person's own session (T110).
     key: Mutex<Option<KeyOrigin>>,
+    /// The fillers, already synthesised in the agent's own voice (G2). Empty means this session has
+    /// none — a voice that cannot say one word cannot say a filler either, and the reply is
+    /// untouched by that.
+    filler: Mutex<Vec<Vec<u8>>>,
+    /// Whether synthesising the fillers has been attempted, so it happens once per session.
+    filler_ready: AtomicBool,
+    /// Which filler to say next, so a session does not repeat one word all conversation long.
+    filler_next: AtomicUsize,
+    /// The `seq` the next segment of this turn takes. A filler and a real segment share it, which
+    /// is what keeps their order right on the client's queue.
+    turn_seq: AtomicU32,
+    /// Real segments sent this turn. A filler only goes while this is still zero.
+    reply_segments: AtomicU32,
+    /// Whether this turn's filler has already been spent.
+    filler_spent: AtomicBool,
     transport: VizierTransport,
 }
 
@@ -90,6 +119,12 @@ impl LiveVoiceSession {
             engines: Mutex::new(None),
             description: Mutex::new(crate::live_voice::frame::AudioDescription::default()),
             key: Mutex::new(None),
+            filler: Mutex::new(Vec::new()),
+            filler_ready: AtomicBool::new(false),
+            filler_next: AtomicUsize::new(0),
+            turn_seq: AtomicU32::new(0),
+            reply_segments: AtomicU32::new(0),
+            filler_spent: AtomicBool::new(false),
             transport,
         })
     }
@@ -330,6 +365,73 @@ impl LiveVoiceSession {
         sent
     }
 
+    /// Start a turn's filler: the words once per session, this turn's counters, and the timer (G2).
+    ///
+    /// Called when the turn begins — before the answer exists — because that is the silence it
+    /// covers. `speak_reply` then only sends, and the two share one `seq` counter so their order on
+    /// the client's queue is the order they were produced.
+    pub fn arm_filler(self: &Arc<Self>, engines: &SharedEngines, generation: u64) {
+        self.prepare_filler(engines);
+        self.turn_seq.store(0, Ordering::SeqCst);
+        self.reply_segments.store(0, Ordering::SeqCst);
+        self.filler_spent.store(false, Ordering::SeqCst);
+        let armed = self.clone();
+        tokio::spawn(async move { armed.cover_thinking(generation).await });
+    }
+
+    /// Synthesise the fillers once, in the agent's own voice (G2).
+    ///
+    /// A voice that cannot say two syllables cannot say an answer either, but this must never be
+    /// what ends a session: a failure leaves the list empty and the reply untouched.
+    fn prepare_filler(self: &Arc<Self>, engines: &SharedEngines) {
+        if self.filler_ready.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        let engines = engines.clone();
+        let this = self.clone();
+        tokio::spawn(async move {
+            let mut words = Vec::new();
+            for word in FILLER_WORDS {
+                match engines.speak(word).await {
+                    Ok(audio) => words.push(to_pcm16_16k(&audio)),
+                    Err(e) => tracing::debug!("a filler could not be synthesised: {e}"),
+                }
+            }
+            *this.filler.lock() = words;
+        });
+    }
+
+    /// Cover a silent agent with one filler word, at most once per turn (G2).
+    ///
+    /// Nothing here can hurt the reply: the word is dropped the moment the queue is full, and it
+    /// never cancels or delays a real segment — the check for `reply_segments` is what makes a
+    /// quick answer pass without any filler at all.
+    async fn cover_thinking(self: Arc<Self>, generation: u64) {
+        tokio::time::sleep(std::time::Duration::from_millis(FILLER_AFTER_MS)).await;
+        if self.generation() != generation || self.is_stopped() {
+            return;
+        }
+        // The answer is already being spoken: a filler now would talk over it.
+        if self.reply_segments.load(Ordering::SeqCst) > 0 {
+            return;
+        }
+        if self.filler_spent.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        let pcm = {
+            let words = self.filler.lock();
+            if words.is_empty() {
+                return;
+            }
+            let at = self.filler_next.fetch_add(1, Ordering::SeqCst) % words.len();
+            words[at].clone()
+        };
+        let seq = self.turn_seq.fetch_add(1, Ordering::SeqCst);
+        // Cosmetic, so nothing is retried and nothing else is touched: a full lane loses the word
+        // and the reply follows it as usual.
+        let _ = self.send_speech(LiveVoiceSpeech::new(generation, seq, &pcm, false));
+    }
+
     /// Speak `text` in segments, checking the generation between them so an interruption stops
     /// the rest of the answer instead of finishing it (FR-022).
     pub async fn speak_reply(
@@ -349,7 +451,6 @@ impl LiveVoiceSession {
         // cost the sum of N syntheses before the last one was heard — the gap between sentences the
         // person noticed — for no reason: sending is instant, and the client queues gaplessly.
         let mut pending = Some(synthesise(engines, &current.text));
-        let mut seq = 0u32;
         loop {
             if self.generation() != generation || self.is_stopped() {
                 abort(pending.take());
@@ -379,8 +480,11 @@ impl LiveVoiceSession {
                 return Ok(false);
             }
             let pcm = to_pcm16_16k(&audio);
+            // The turn's own counter, shared with the filler: whichever goes first takes the lower
+            // `seq`, and the client's queue plays them in exactly that order (G2).
+            let seq = self.turn_seq.fetch_add(1, Ordering::SeqCst);
             if self.send_speech(LiveVoiceSpeech::new(generation, seq, &pcm, current.last)) {
-                seq += 1;
+                self.reply_segments.fetch_add(1, Ordering::SeqCst);
             }
             if self.is_stopped() {
                 abort(pending.take());
@@ -412,6 +516,9 @@ impl LiveVoiceSession {
         self.busy.store(true, Ordering::SeqCst);
         let generation = self.generation();
         self.thinking();
+
+        // G2: a filler covers the gap while the answer is being written, if it takes long enough.
+        self.arm_filler(&engines, generation);
 
         let (tx, mut stream) = match self.transport.reply_channel().await {
             Ok(pair) => pair,
@@ -1217,5 +1324,197 @@ mod pipeline_tests {
         // `interrupt()` moves the generation and nothing else; putting the word back is
         // `abort_turn`'s job in the socket, and that path is covered by its own tests.
         assert!(seqs.len() <= 1, "at most the segment already in flight: {seqs:?}");
+    }
+}
+
+#[cfg(test)]
+mod filler_tests {
+    //! G2 — a filler word covers the first four hundred milliseconds of a slow answer, and nothing
+    //! else. The hard rule: the reply is never sacrificed for the cosmetic word.
+
+    use super::*;
+    use crate::live_voice::engines::LiveVoiceEngines;
+    use crate::schema::agent::LiveVoiceSettings;
+    use crate::schema::{VizierChannelId, VizierSession};
+    use crate::transport::VizierTransport;
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    /// A voice whose reply takes `delay`, and whose audio is as long as the text it was given — which
+    /// is how a filler (two to five bytes) is told apart from a real segment in the lane.
+    struct SlowVoice {
+        delay: Duration,
+        filler_fails: bool,
+    }
+
+    #[async_trait::async_trait]
+    impl LiveVoiceEngines for SlowVoice {
+        async fn transcribe(
+            &self,
+            _wav: &[u8],
+            _filename: &str,
+            _language: Option<&str>,
+        ) -> crate::Result<String> {
+            Ok("hello".into())
+        }
+
+        async fn speak(&self, text: &str) -> crate::Result<Vec<u8>> {
+            let is_filler = FILLER_WORDS.contains(&text);
+            if is_filler && self.filler_fails {
+                return Err(crate::error::VizierError("no filler for you".into()));
+            }
+            if !is_filler {
+                tokio::time::sleep(self.delay).await;
+            }
+            Ok(vec![0xAB; text.len()])
+        }
+    }
+
+    fn lane(
+        capacity: usize,
+    ) -> (Arc<LiveVoiceSession>, tokio::sync::mpsc::Receiver<serde_json::Value>) {
+        let transport = VizierTransport::new();
+        let (out_tx, rx) = tokio::sync::mpsc::channel::<serde_json::Value>(capacity);
+        let session = LiveVoiceSession::new(
+            VizierSession(
+                "helper".into(),
+                VizierChannelId::from_web("olive", "web"),
+                Some("topic-1".into()),
+            ),
+            "olive".into(),
+            None,
+            LiveVoiceSettings::default(),
+            ClientConnection::new(out_tx),
+            transport,
+        );
+        session.set_state(SessionState::Listening);
+        (session, rx)
+    }
+
+    fn reply() -> String {
+        "This opening sentence is long enough to pass the boundary the segmenter looks for. \
+         This second sentence is the one whose synthesis is deliberately slow."
+            .to_string()
+    }
+
+    /// Drain the lane into (decoded length, seq, final) so a filler is recognisable by its size.
+    fn frames(rx: &mut tokio::sync::mpsc::Receiver<serde_json::Value>) -> Vec<(usize, u32, bool)> {
+        use base64::Engine as _;
+        let mut out = Vec::new();
+        while let Ok(frame) = rx.try_recv() {
+            let Some(body) = frame.get(crate::live_voice::FRAME_KEY) else { continue };
+            let text = body["base64"].as_str().unwrap_or_default();
+            let bytes = base64::engine::general_purpose::STANDARD.decode(text).unwrap_or_default();
+            out.push((
+                bytes.len(),
+                body["seq"].as_u64().unwrap_or(0) as u32,
+                body["final"].as_bool().unwrap_or(false),
+            ));
+        }
+        out
+    }
+
+    /// A slow answer gets exactly one filler, and it is the first thing heard.
+    #[tokio::test]
+    async fn a_slow_answer_is_covered_by_one_filler() {
+        let (session, mut rx) = lane(64);
+        let engines: SharedEngines = Arc::new(SlowVoice {
+            delay: Duration::from_millis(700),
+            filler_fails: false,
+        });
+        let generation = session.generation();
+        let text = reply();
+        session.arm_filler(&engines, generation);
+        session.speak_reply(&engines, &text, generation).await.unwrap();
+
+        let heard = frames(&mut rx);
+        assert!(heard.len() >= 2, "{heard:?}");
+        let (len, seq, last) = heard[0];
+        assert!(len <= 8, "the first thing is a filler word, not a segment: {heard:?}");
+        assert_eq!(seq, 0, "the filler takes the first seq");
+        assert!(!last, "a filler is never the reply's last segment");
+        // Exactly one filler, however long the answer takes.
+        let fillers = heard.iter().filter(|(len, _, _)| *len <= 8).count();
+        assert_eq!(fillers, 1, "one word per turn, not a chorus: {heard:?}");
+        // The real segments follow, in order, and only the last one is final.
+        assert_eq!(heard.last().map(|(_, _, last)| *last), Some(true));
+        let seqs: Vec<u32> = heard.iter().map(|(_, seq, _)| *seq).collect();
+        assert_eq!(seqs, (0..heard.len() as u32).collect::<Vec<_>>(), "seqs are 0,1,2…");
+    }
+
+    /// A quick answer is not covered: the filler would talk over it, which is what "robotik" means.
+    #[tokio::test]
+    async fn a_quick_answer_gets_no_filler_at_all() {
+        let (session, mut rx) = lane(64);
+        let engines: SharedEngines = Arc::new(SlowVoice {
+            delay: Duration::from_millis(10),
+            filler_fails: false,
+        });
+        let generation = session.generation();
+        let text = reply();
+        session.arm_filler(&engines, generation);
+        session.speak_reply(&engines, &text, generation).await.unwrap();
+
+        let heard = frames(&mut rx);
+        assert!(!heard.is_empty(), "the reply is still spoken");
+        assert!(
+            heard.iter().all(|(len, _, _)| *len > 8),
+            "no filler for an answer that arrived at once: {heard:?}"
+        );
+    }
+
+    /// The hard rule: a filler that cannot be sent changes nothing, and the reply still goes.
+    #[tokio::test]
+    async fn a_dropped_filler_never_costs_the_reply() {
+        // One slot, already occupied when the filler fires and free again when the segment does.
+        let (session, mut rx) = lane(1);
+        assert!(session.send_speech(LiveVoiceSpeech::new(1, 0, &[0u8; 4], false)), "the slot is taken");
+
+        let engines: SharedEngines = Arc::new(SlowVoice {
+            delay: Duration::from_millis(700),
+            filler_fails: false,
+        });
+        let generation = session.generation();
+        let text = reply();
+        session.arm_filler(&engines, generation);
+        let running = {
+            let session = session.clone();
+            let engines = engines.clone();
+            let text = text.clone();
+            tokio::spawn(async move { session.speak_reply(&engines, &text, generation).await })
+        };
+
+        // The filler fires at 400 ms against a full lane and is dropped, silently.
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        assert!(!session.is_stopped(), "a cosmetic word never ends the session");
+        assert_eq!(session.state(), SessionState::Speaking);
+        // Free the slot; the real segment then arrives and is sent.
+        let _ = rx.try_recv();
+        running.await.unwrap();
+
+        let heard = frames(&mut rx);
+        assert!(!heard.is_empty(), "the reply still reaches the person: {heard:?}");
+        assert!(heard.iter().all(|(len, _, _)| *len > 8), "and it is the reply, not the filler");
+        assert_eq!(session.state(), SessionState::Listening);
+    }
+
+    /// A voice that cannot say one word is a session with no filler, not a broken session.
+    #[tokio::test]
+    async fn a_filler_that_cannot_be_synthesised_leaves_the_session_working() {
+        let (session, mut rx) = lane(64);
+        let engines: SharedEngines = Arc::new(SlowVoice {
+            delay: Duration::from_millis(700),
+            filler_fails: true,
+        });
+        let generation = session.generation();
+        let text = reply();
+        session.arm_filler(&engines, generation);
+        session.speak_reply(&engines, &text, generation).await.unwrap();
+
+        let heard = frames(&mut rx);
+        assert!(!heard.is_empty(), "the answer is still spoken");
+        assert!(heard.iter().all(|(len, _, _)| *len > 8), "no filler existed: {heard:?}");
+        assert!(!session.is_stopped());
+        assert_eq!(session.state(), SessionState::Listening);
     }
 }
