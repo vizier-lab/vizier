@@ -15,8 +15,24 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-/** Also used inline in chat. */
-export const Offline: Story = {};
+/**
+ * Also used inline in chat.
+ *
+ * The offline tone says what is unavailable, so it carries a second line: the condition in the
+ * title, what stops working and what keeps working in the message.
+ */
+export const Offline: Story = {
+  args: {
+    title: "Vizier can't reach the engine",
+    message: "Replies and new conversations need a connection. What is already open stays readable.",
+  },
+  play: async ({ canvasElement }) => {
+    const said = canvasElement.textContent ?? "";
+    if (!said.includes("Replies and new conversations need a connection.")) {
+      throw new Error("the offline banner does not say what is unavailable");
+    }
+  },
+};
 
 export const Reconnected: Story = { args: { tone: "reconnected", title: "Back online · 2 queued messages sent", actions: undefined } };
 
