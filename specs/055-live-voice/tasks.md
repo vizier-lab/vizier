@@ -417,8 +417,19 @@ be started.
   stalled socket can read a high ratio and be held; an utterance shorter than about 300 ms makes the
   ratio noisy and stays on the server's `too_short` path, not this one; and `channels != 1`, PCM-only
   models outside the name pattern, and the 263 ms `speaking` are untouched.
-  **Gate, red first:** 1.0x (the real 805 ms interruption at 20:12:32) **must** abort · 20:09:25 **must
-  not** abort · 1 370x / 3 320x / 4 641x / 9.8x **must not** abort · the origin condition · Q5 green.
+  **Gate, red first — three cases, because only three ever reached the guard.** The `cancelled` flag is
+  `true` only at **20:08:14.819**, **20:09:25.700** and **20:12:32.921**; 20:10:05 (9.8x) and 20:11:48
+  (4 641x) logged `cancelled=false` because no turn was busy, so they prove the burst **arrived** and say
+  nothing about what the guard does with it. A test written from those two would pass without the guard.
+  So the gate is: **20:08:14 (1 370x) held** · **20:09:25 (3 320x) held** · **20:12:32 (1.0x) aborts** ·
+  plus `reason=opened-before-turn` on a held close that fails the origin condition · plus **Q5 green**.
+  **And one honesty line about condition (1):** `opened_at > turn_started_at` is **not proven by any
+  sample**. It can only hold *more* closes, never abort more, so its direction is safe — but the two kills
+  it was checked against are 104-121 us apart, which is scheduling, not a person. Write it as a guard that
+  is safe in direction, not as one the log confirms. The stronger candidate, if a held-interruption
+  complaint ever arrives, is the turn's **age** at close: 20:09:25 closed a turn **0.345 ms** old, which no
+  human interruption can explain, and it does not depend on arrival timing — the input just shown to be
+  untrustworthy.
   **The origin condition cannot stand alone, and one kill case proves it.** The ordering rule was checked
   against both kills before it was accepted, because it rests entirely on that ordering:
   | kill case | order in the log | origin rule | result |
