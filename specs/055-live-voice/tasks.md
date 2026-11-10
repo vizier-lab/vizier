@@ -391,6 +391,15 @@ may carry `opened_before_turn=true|false` — and it must not decide anything.
 are right under both. So the ratio covers every case we have; origin never adds coverage, it only
 removes it.
 
+**Do not revive the origin condition as a gate** (PM, 2026-11-10 21:20: it must stay, because this is
+the paragraph that stops the next reader rebuilding a dead rule). Two versions of it were written into
+this entry tonight and both are withdrawn: `opened_at` as the only gate (fails `20:09:25`, the reported
+defect), and `opened_at` AND the ratio (identical results on every case we have, one more field to carry,
+and it holds a genuine interruption that lands inside the 3.4 s window). The order of `open_utterance`
+and `turn_start` is decided by task scheduling 104-121 us apart, so a guard resting on it cannot be
+reproduced: the same call can cut or not. Origin stays in the log as `opened_before_turn=`, for
+diagnosis only.
+
 **Why the ratio is 5.0 and not 3.0 or 100.** Audio duration / wall-clock duration is **1.0x** for a person
 actually speaking (all 16 real utterances) and **1 370x, 3 320x, 4 641x** for audio that arrived in one
 dump. A person cannot speak five times faster than time, so 5.0 only silences what is physically
