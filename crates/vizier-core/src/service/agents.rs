@@ -73,6 +73,11 @@ pub struct AgentDetail {
     /// Whether this agent can hold a live voice conversation (FR-004): the switch is on **and**
     /// it has a usable recogniser and voice. Additive: an older client ignores it.
     pub live_voice: bool,
+    /// How long a silence ends the utterance, from the agent's live voice settings (G1).
+    ///
+    /// It travels to the client because the client is where the gate runs: the value used to be
+    /// hardcoded in the browser, so the setting was never read by anything.
+    pub live_voice_end_of_utterance_ms: u32,
     pub read_image: bool,
     pub read_image_settings: Option<ReadImageToolSettings>,
     pub image_gen: bool,
@@ -598,6 +603,7 @@ pub async fn detail(
         },
         // FR-004: on only when the switch is on and both halves exist.
         live_voice: config.tools.live_voice.enabled && has_recogniser && has_voice,
+        live_voice_end_of_utterance_ms: config.tools.live_voice.settings.end_of_utterance_ms,
         read_image: config.tools.read_image.enabled,
         read_image_settings: if config.tools.read_image.settings.provider.is_some()
             || config.tools.read_image.settings.model.is_some()
