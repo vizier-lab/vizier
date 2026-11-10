@@ -465,12 +465,12 @@ Three things travel with the clause, or it will be read as something it is not:
 - **The clause does not apply when the rate reads high because the socket stalled.** That cause is
   recognition running inline, and moving `transcribe` out of the socket loop is what closes it; the
   threshold must not be credited with it.
-**20:12:32 does NOT discriminate the two shapes** - both conditions are true there, so it aborts under
-AND and under ratio alone alike. **The test that proves which shape is installed is the 3.4 s window**
-(ratio ~1.0x, utterance opened before `turn_start`): ratio-alone **aborts** it, and a guard that had
-silently kept the origin condition would hold it. It has no sample in the log, so the ordering must be
-injected deliberately - and it must be written, because it is the only test that fails if the origin
-condition is ever reinstated.
+**20:12:32 is a behaviour test, not a shape test** - both conditions hold there, so it aborts under AND
+and under ratio alone alike. The only case that would separate the two shapes is the 3.4 s window
+(ratio ~1.0x, utterance opened before `turn_start`), and it has no sample in the log. **It is not
+required** (PM, 2026-11-10 21:29): the shape that ships is ratio alone, so write the behaviour tests and
+nothing else. Recorded here only so that if the origin condition is ever reinstated, this is the test
+that would have caught it - choosing not to write it is a decision, not an oversight.
 
 - [ ] LV-EMPTY-REPLY-SILENT **A reply with no content passes as a turn.** Four of the eight turns on
   topic `cEKjwtlxZ7` produced `content: ""` — no text, no speech, and no word to the person that
