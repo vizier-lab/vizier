@@ -24,6 +24,8 @@ export interface LiveVoiceControlProps {
     capability: boolean
     /** Which half is missing, when the capability is false (FR-004). */
     missing?: 'recognizer' | 'voice' | null
+    /** The agent's own hangover, in ms (G1). Absent leaves the spec's default. */
+    endOfUtteranceMs?: number
     onOpenSettings?(): void
 }
 
@@ -39,15 +41,28 @@ const OFF: LiveVoiceView = {
 }
 
 /** One client per open conversation; the session it drives lives on the server. */
-const makeClient = (agentId: string, topicId: string, onView: (view: LiveVoiceView) => void) =>
+const makeClient = (
+    agentId: string,
+    topicId: string,
+    onView: (view: LiveVoiceView) => void,
+    endOfUtteranceMs?: number
+) =>
     new LiveVoiceClient({
         send: (frame) => useConnection.getState().send(agentId, topicId, frame),
         player: new WebAudioPlayer(),
         openCapture: startCapture,
         onView,
+        endOfUtteranceMs,
     })
 
-export function LiveVoiceControl({ agentId, topicId, capability, missing, onOpenSettings }: LiveVoiceControlProps) {
+export function LiveVoiceControl({
+    agentId,
+    topicId,
+    capability,
+    missing,
+    endOfUtteranceMs,
+    onOpenSettings,
+}: LiveVoiceControlProps) {
     const [view, setView] = useState<LiveVoiceView>(OFF)
     const client = useRef<LiveVoiceClient | null>(null)
 
@@ -55,7 +70,7 @@ export function LiveVoiceControl({ agentId, topicId, capability, missing, onOpen
     // is thrown away (StrictMode, a server render) must not create one. The row draws from `view`
     // alone, so an idle surface needs no client at all.
     useEffect(() => {
-        const bound = (client.current ??= makeClient(agentId, topicId, setView))
+        const bound = (client.current ??= makeClient(agentId, topicId, setView, endOfUtteranceMs))
         bindLiveVoice(agentId, topicId, bound, setView)
         // Leaving the conversation ends the session and releases the microphone (FR-028). The
         // unmount and the page close below both land in `endLiveVoice`, so there is one leaving
@@ -95,7 +110,7 @@ export function LiveVoiceControl({ agentId, topicId, capability, missing, onOpen
             onOpenSettings?.()
             return
         }
-        void (client.current ??= makeClient(agentId, topicId, setView)).start()
+        void (client.current ??= makeClient(agentId, topicId, setView, endOfUtteranceMs)).start()
     }
 
     return (
