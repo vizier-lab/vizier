@@ -402,10 +402,8 @@ be started.
   models outside the name pattern, and the 263 ms `speaking` are untouched.
   **Gate, red first:** 1.0x (the real 805 ms interruption at 20:12:32) **must** abort · 1 370x / 3 320x /
   4 641x **must not** abort · 9.8x **must not** abort · the origin condition · Q5 green.
-  **Decision of 21:02 (PM): the origin alone is the gate, the ratio only a log field — and the log
-  refuses it on one case.** The ruling was that `close_utterance` may abort only when the utterance was
-  opened after the turn started, with the ratio demoted to a diagnostic. Checked against the two kills
-  before agreeing, because the ruling rests entirely on that ordering:
+  **The origin condition cannot stand alone, and one kill case proves it.** The ordering rule was checked
+  against both kills before it was accepted, because it rests entirely on that ordering:
   | kill case | order in the log | origin rule | result |
   |---|---|---|---|
   | 20:08:14, 1 370x | `open_utterance` .818824 -> `turn_start` .818945 (open **121 us** first) | no abort | fixed |
@@ -413,14 +411,15 @@ be started.
   Only those two are kills: 20:11:48 and 20:10:05 logged `cancelled=false` because no turn was busy, so
   they neither prove nor disprove the rule. And 20:09:25 is exactly the "first answer has no voice"
   report on topic `cEKjwtlxZ7`. The two events land **104 us** apart, so their order is decided by task
-  scheduling and not by anything a person did — a guard built on it is a coin toss on the very call it
-  exists to save. **What the entry therefore requires, and the choice is the PM's, not the
-  implementer's:** keep the ratio as the second condition (20:09:25 sits at 3 320x, far above any
-  threshold that keeps 1.0x genuine speech — the file's earlier 5x ruling already does this), **or** use
-  the turn's age at close (the turn was **0.35 ms** old when 20:09:25 closed it, which no interruption
-  can explain). Either is cheap; neither is written until one is chosen. **Regardless of the choice the
-  gate must carry 20:09:25 as a red case** — a guard that passes 20:08:14 and fails 20:09:25 has not
-  fixed the reported defect, and would ship a fix that works on one call in two.
+  scheduling and not by anything a person did — a guard built on it alone is a coin toss on the very
+  call it exists to save. **That is why the ratio is a condition and not a log field:** 20:09:25 sits at
+  3 320x, far above the 5.0x threshold, so the ratio holds it back even though its ordering says abort.
+  The two conditions are therefore both **negative** guards — abort only when `ratio <= 5.0` **and**
+  `opened_at >= turn.started_at` — and the origin rule alone would have shipped a fix that works on one
+  call in two. A third signal is available if the two ever disagree again: the turn was **0.35 ms** old
+  when 20:09:25 closed it, which no interruption can explain; it is recorded, not adopted. **The gate
+  must carry 20:09:25 as a red case regardless** — a guard that passes 20:08:14 and fails 20:09:25 has
+  not fixed the reported defect.
 - [ ] LV-EMPTY-REPLY-SILENT **A reply with no content passes as a turn.** Four of the eight turns on
   topic `cEKjwtlxZ7` produced `content: ""` — no text, no speech, and no word to the person that
   anything went wrong. An empty answer must become a named error, in the same spirit as the JSON-body
