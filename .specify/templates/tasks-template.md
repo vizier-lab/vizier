@@ -13,11 +13,29 @@ description: "Task list template for feature implementation"
 
 **Organization**: Tasks are grouped by user story to enable independent implementation and testing of each story.
 
-## Format: `[ID] [P?] [Story] Description`
+## Format: `[ID] [P?] [Story] Description · R: <FR-### | tanpa-spec:<reason>>`
 
 - **[P]**: Can run in parallel (different files, no dependencies)
 - **[Story]**: Which user story this task belongs to (e.g., US1, US2, US3)
 - Include exact file paths in descriptions
+- **`R:`** (vizier): the requirement the task serves, as `FR-###`, or `tanpa-spec:<reason>` when the
+  task touches no behaviour at all. A row with neither cannot enter `aktif` — see
+  `specs/_antrean.md` §Field `R:` for the allowlist that makes `tanpa-spec` legal.
+- **`[DOD+]`** (vizier): a criterion the Lead added beyond the spec MUST carry this label and MUST be
+  checkable by a machine (a perf budget, a file size, a contrast ratio). "Quality" with no verifying
+  command is not a criterion. Three appearances force a decision: promote it to `FR` or drop it.
+
+## Evidence for a tick (vizier)
+
+`[x]` alone does not say what was proved. Two markers, and they are not the same claim:
+
+- **Landed `<repo>@<hash>`; the gate it names passed.** — the gate named in the task was run and passed.
+- **In the tree: `<repo>@<hash>`; not gated.** — the deliverable exists and the named commit is where it
+  came from; no test was run for this reconciliation. A tick with this marker means "the code exists",
+  not "verified against `spec.md`".
+
+Name the repository (`vizier@…`, `webui@…`, `design@…`): a bare hash does not resolve from every
+submodule, and a check that is honest is worth more than a check that is easy.
 
 ## Path Conventions
 
@@ -49,7 +67,7 @@ description: "Task list template for feature implementation"
 
 **Purpose**: Project initialization and basic structure
 
-- [ ] T001 Create project structure per implementation plan
+- [ ] T001 Create project structure per implementation plan · R: FR-001
 - [ ] T002 Initialize [language] project with [framework] dependencies
 - [ ] T003 [P] Configure linting and formatting tools
 

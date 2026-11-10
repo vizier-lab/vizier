@@ -144,6 +144,11 @@ pub struct ChangePasswordRequest {
 pub struct CreateApiKeyRequest {
     pub name: String,
     pub expires_in_days: Option<i64>,
+    /// What the key may do (T109, FR-062). Absent — the default, and what the API keys page sends —
+    /// makes a key that carries its owner's permissions, exactly as every key did before scopes
+    /// existed. `["live_voice"]` makes a key that can open a live voice session and nothing else:
+    /// that is the key a third-party client should be handed.
+    pub capabilities: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize, Clone, utoipa::ToSchema)]
@@ -159,6 +164,9 @@ pub struct CreateApiKeyResponse {
 pub struct ApiKeyResponse {
     pub id: String,
     pub name: String,
+    /// What the key may do; absent for a key that carries its owner's permissions.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub capabilities: Option<Vec<String>>,
     /// The first characters of the key; empty for a key made before they were kept.
     pub prefix: Option<String>,
     pub expires_at: Option<DateTime<Local>>,
@@ -291,7 +299,15 @@ pub async fn create_api_key(
     if state.config.channels.http.is_none() {
         return err(ServiceError::Internal("HTTP channel not configured".into()));
     }
-    match api_keys::create(&services(&state), &user, &req.name, req.expires_in_days).await {
+    match api_keys::create_scoped(
+        &services(&state),
+        &user,
+        &req.name,
+        req.expires_in_days,
+        req.capabilities,
+    )
+    .await
+    {
         Ok((api_key, raw_key)) => api_response(
             StatusCode::CREATED,
             CreateApiKeyResponse {
@@ -330,6 +346,7 @@ pub async fn list_api_keys(
         .map(|k| ApiKeyResponse {
             id: k.id,
             name: k.name,
+            capabilities: k.capabilities,
             prefix: k.prefix,
             expires_at: k.expires_at,
             created_at: k.created_at,

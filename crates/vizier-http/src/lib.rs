@@ -132,6 +132,10 @@ where
 {
     let app = router_with_health(runtime, &config, health.clone());
     async move {
+        // FR-029 option A. Behind the same feature as the frames it serves: without it the registry
+        // does not exist, and a build with the feature off must be unchanged (FR-041).
+        #[cfg(feature = "live-voice")]
+        start_live_voice_sweeper();
         let listener = tokio::net::TcpListener::bind(format!(
             "{}:{}",
             config.host.as_deref().unwrap_or("0.0.0.0"),
@@ -148,6 +152,25 @@ where
             .await
             .map_err(|e| VizierError(e.to_string()))
     }
+}
+
+/// Start the one sweeper that ends idle live voice calls (`FR-029`, option A).
+///
+/// Once per process, guarded by `Once`: the future returned by [`serve_with_shutdown`] is
+/// polled once in production, but tests call it repeatedly, and two sweepers would double every
+/// `lv_idle` line and race each other into two endings. The registry is process-wide
+/// (`live_voice::sessions()`), so the sweeper belongs to the same lifetime as the server that
+/// serves it, not to a socket.
+#[cfg(feature = "live-voice")]
+fn start_live_voice_sweeper() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        vizier_core::live_voice::sessions().spawn_sweeper(vizier_core::live_voice::IDLE_SWEEP);
+        tracing::debug!(
+            every_ms = vizier_core::live_voice::IDLE_SWEEP.as_millis() as u64,
+            "live voice idle sweeper started"
+        );
+    });
 }
 
 #[derive(OpenApi)]

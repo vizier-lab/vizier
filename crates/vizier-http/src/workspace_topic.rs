@@ -61,7 +61,7 @@ impl WorkspaceConnection {
         let outbound = WorkspaceOutbound {
             services: services.clone(),
             user_id: principal.user_id.clone(),
-            method: principal.method,
+            method: principal.method.clone(),
             workspace_id: workspace_id.to_string(),
             topic_id: topic_id.to_string(),
             workspace_events,
@@ -71,7 +71,7 @@ impl WorkspaceConnection {
         Ok(Self {
             services,
             user_id: principal.user_id.clone(),
-            method: principal.method,
+            method: principal.method.clone(),
             workspace_id: workspace_id.to_string(),
             topic_id: topic_id.to_string(),
             out,
@@ -95,7 +95,7 @@ impl WorkspaceConnection {
                 return;
             }
         };
-        let who = match self.services.resolve(&self.user_id, self.method).await {
+        let who = match self.services.resolve(&self.user_id, self.method.clone()).await {
             Ok(who) => who,
             Err(e) => return self.post_error(&e),
         };
@@ -125,7 +125,7 @@ impl WorkspaceOutbound {
             let delivery = tokio::select! {
                 event = self.workspace_events.recv() => match event {
                     Ok(event) => Some(workspaces::deliver_workspace(
-                        &self.services, &self.user_id, self.method,
+                        &self.services, &self.user_id, self.method.clone(),
                         &self.workspace_id, &self.topic_id, &event,
                     ).await),
                     Err(RecvError::Lagged(skipped)) => {
@@ -137,7 +137,7 @@ impl WorkspaceOutbound {
                 },
                 event = self.session_events.recv() => match event {
                     Ok(event) => Some(workspaces::deliver_session(
-                        &self.services, &self.user_id, self.method,
+                        &self.services, &self.user_id, self.method.clone(),
                         &self.workspace_id, &self.topic_id, &event,
                     ).await),
                     // Session events are many; a lag here only drops live trail steps, which a

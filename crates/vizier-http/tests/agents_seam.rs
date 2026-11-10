@@ -180,3 +180,58 @@ async fn the_seam_is_a_trait_object() {
     seam.health("alpha").await.unwrap();
     assert_eq!(fake.calls().len(), 1, "the fake behind the trait is the test's fake");
 }
+
+/// T041 — the switch that made the whole feature unreachable.
+///
+/// These go through the same two steps the API goes through: the request body becomes a config
+/// (`CreateAgentRequest::into_config`, which is what `PUT /agents/{id}` calls), the config is
+/// stored, and `detail` — what the WebUI reads to decide whether to draw the pill — is asked what
+/// it sees. A fake agents client is enough because nothing here starts a session.
+mod live_voice_switch {
+    use super::*;
+    use vizier_core::service::agents::CreateAgentRequest;
+
+    fn request(tools: serde_json::Value) -> CreateAgentRequest {
+        serde_json::from_value(serde_json::json!({
+            "agent_id": "helper",
+            "name": "helper",
+            "provider": "dummyplug",
+            "model": "dummyplug",
+            "tools": tools,
+        }))
+        .expect("a request with tools")
+    }
+
+    async fn detail_after(tools: serde_json::Value) -> bool {
+        let fake = FakeAgentsClient::default();
+        let (deps, _dir) = deps_with(&fake).await;
+        let config = request(tools).into_config();
+        deps.storage.create_agent("helper", &config).await.unwrap();
+        let services = Services::new(deps);
+        agents_service::detail(&services, &who(), "helper")
+            .await
+            .expect("the agent is there")
+            .live_voice
+    }
+
+    #[tokio::test]
+    async fn turning_it_on_with_both_halves_makes_the_pill_available() {
+        let on = detail_after(serde_json::json!({
+            "live_voice": {
+                "enabled": true,
+                "settings": {
+                    "stt": { "provider": "groq", "language": "id" },
+                    "tts": { "provider": "elevenlabs", "voice": "rachel" }
+                }
+            }
+        }))
+        .await;
+        assert!(on, "enabled with a recogniser and a voice is what the row needs");
+    }
+
+    #[tokio::test]
+    async fn an_agent_that_never_asked_for_it_still_reports_off() {
+        let off = detail_after(serde_json::json!({ "fetch": true })).await;
+        assert!(!off, "regression: nothing changes for an agent that does not ask");
+    }
+}

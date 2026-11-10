@@ -111,21 +111,150 @@ impl VizierSttModel for OpenAiStt {
 
 // Text to speech -------------------------------------------------------------------------------
 
-/// `POST {base}/audio/speech` with `{model, input, voice, speed}`; the MP3 reply becomes WAV.
+/// `POST {base}/audio/speech` with `{model, input, voice, speed}`; the reply becomes WAV.
 pub struct OpenAiTts {
     pub endpoint: Endpoint,
     /// OpenRouter needs the format named; OpenAI defaults to MP3.
     pub response_format: Option<&'static str>,
+    /// Some models answer only in raw PCM, and refuse `response_format: "mp3"` outright.
+    ///
+    /// Gemini TTS through OpenRouter is one: asking for mp3 is a `400 … only supports
+    /// response_format="pcm"`, which is what a live call was doing — every segment failed, the
+    /// answer stayed on screen and no sound arrived. When this is `Some(rate)` the request names
+    /// `pcm` and the body is bare 16-bit mono samples at that rate, which are resampled to
+    /// [`SPEECH_RATE`] here so everything downstream still sees one rate.
+    pub pcm_rate: Option<u32>,
 }
+
+/// The rate every spoken segment is delivered at (`live_voice::frame::SAMPLE_RATE`).
+///
+/// Repeated rather than imported because `live_voice` sits behind `provider-live-voice`
+/// (`lib.rs:103`), and this media layer must compile without that feature. The test in
+/// `pcm_tests` pins the two numbers together, and it only runs when the feature is on, which is
+/// the only build where a mismatch could reach a person's ear.
+pub const SPEECH_RATE: u32 = 16_000;
 
 #[async_trait::async_trait]
 impl VizierTtsModel for OpenAiTts {
     async fn generate_speech(&self, text: &str, voice: &str, speed: f32) -> Result<Vec<u8>> {
-        let body = speech_body(&self.endpoint.model, text, voice, speed, self.response_format);
+        let body = self.body_for(text, voice, speed);
         let req = self.endpoint.post("/audio/speech").await.map_err(|e| err("speech", e))?;
         let response = http::send(req.json(&body)).await.map_err(|e| err("speech", e))?;
-        mp3_to_wav(&response.body)
+        match self.pcm_rate {
+            Some(rate) => Ok(pcm_to_wav16(&response.body, rate)?),
+            None => mp3_to_wav(&response.body),
+        }
     }
+}
+
+impl OpenAiTts {
+    /// The JSON body this request will carry, built without sending it.
+    ///
+    /// A seam, not a convenience: the format a live call names is what broke it (a model that only
+    /// accepts `pcm` was asked for `mp3` and answered `400` before producing a byte), and a test
+    /// that drove `speech_format` directly stayed green when this call site was reverted to
+    /// `self.response_format`. Building the body here is what a test can hold onto.
+    fn body_for(&self, text: &str, voice: &str, speed: f32) -> Value {
+        let format = speech_format(self.pcm_rate, self.response_format);
+        speech_body(&self.endpoint.model, text, voice, speed, format)
+    }
+}
+
+/// Which `response_format` a speech request names.
+///
+/// A pure function, and not an inline `match`, because it is the decision that broke a live call:
+/// a model that only accepts `pcm` was asked for `mp3` and answered `400` before producing a byte.
+/// Extracting it is what lets a test fail if this line is ever changed back — the test that drove
+/// `speech_body` with a literal `Some("pcm")` stayed green under exactly that mutation.
+fn speech_format(pcm_rate: Option<u32>, response_format: Option<&'static str>) -> Option<&'static str> {
+    match pcm_rate {
+        Some(_) => Some("pcm"),
+        None => response_format,
+    }
+}
+
+/// A provider's bare PCM16 at `rate`, as the WAV at [`SPEECH_RATE`] every spoken segment carries.
+///
+/// This is the whole of the PCM path, and it is one function on purpose: a test that only drove
+/// `resample` would stay green if the resampling were dropped from here, which is the failure the
+/// tests exist to catch.
+/// The PCM body as a WAV, or an error naming what came back instead.
+///
+/// The guard is the point. A provider that answers `{"audio": "…base64…"}` instead of bare
+/// samples would otherwise be wrapped into a WAV of JSON bytes: the call would play noise or
+/// nothing, with no line in the log saying why — the exact failure this whole change exists to
+/// end. One look at the first byte turns that into a named error, and the next real call says
+/// which of the two shapes OpenRouter sends.
+fn pcm_to_wav16(body: &[u8], rate: u32) -> Result<Vec<u8>> {
+    let head = body.iter().find(|b| !b.is_ascii_whitespace());
+    if head == Some(&b'{') || head == Some(&b'[') {
+        let preview: String = String::from_utf8_lossy(&body[..body.len().min(160)]).into_owned();
+        return Err(VizierError(format!(
+            "speech: expected raw PCM at {rate} Hz, got a JSON body: {preview}"
+        )));
+    }
+    if body.len() < 2 {
+        return Err(VizierError(format!(
+            "speech: expected raw PCM at {rate} Hz, got {} byte(s)",
+            body.len()
+        )));
+    }
+    Ok(wav_from_pcm16(resample(body, rate, SPEECH_RATE), SPEECH_RATE))
+}
+
+/// Bare little-endian PCM16 mono, resampled linearly.
+///
+/// Linear interpolation is enough here: this is speech that will be heard once, at a 3:2 ratio for
+/// the rate that needed it, and a windowed-sinc filter would cost more than it returns. An odd
+/// trailing byte is dropped rather than guessed at.
+fn resample(pcm: &[u8], from: u32, to: u32) -> Vec<u8> {
+    if from == to || from == 0 {
+        return pcm.to_vec();
+    }
+    let samples: Vec<i16> = pcm
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|pair| i16::from_le_bytes(*pair))
+        .collect();
+    if samples.is_empty() {
+        return Vec::new();
+    }
+    let ratio = from as f64 / to as f64;
+    let count = ((samples.len() as f64) / ratio).floor() as usize;
+    let mut out = Vec::with_capacity(count * 2);
+    for index in 0..count {
+        let at = index as f64 * ratio;
+        let left = at.floor() as usize;
+        let frac = at - left as f64;
+        let a = samples[left.min(samples.len() - 1)] as f64;
+        let b = samples[(left + 1).min(samples.len() - 1)] as f64;
+        let value = (a + (b - a) * frac).round().clamp(-32768.0, 32767.0) as i16;
+        out.extend_from_slice(&value.to_le_bytes());
+    }
+    out
+}
+
+/// A canonical 44-byte WAV header around `pcm`, at `rate`. Mono, 16-bit, as everywhere else.
+fn wav_from_pcm16(pcm: Vec<u8>, rate: u32) -> Vec<u8> {
+    let data = pcm.len() as u32;
+    let mut header = [0u8; 44];
+    header[0..4].copy_from_slice(b"RIFF");
+    header[4..8].copy_from_slice(&(36 + data).to_le_bytes());
+    header[8..12].copy_from_slice(b"WAVE");
+    header[12..16].copy_from_slice(b"fmt ");
+    header[16..20].copy_from_slice(&16u32.to_le_bytes());
+    header[20..22].copy_from_slice(&1u16.to_le_bytes());
+    header[22..24].copy_from_slice(&1u16.to_le_bytes());
+    header[24..28].copy_from_slice(&rate.to_le_bytes());
+    header[28..32].copy_from_slice(&(rate * 2).to_le_bytes());
+    header[32..34].copy_from_slice(&2u16.to_le_bytes());
+    header[34..36].copy_from_slice(&16u16.to_le_bytes());
+    header[36..40].copy_from_slice(b"data");
+    header[40..44].copy_from_slice(&data.to_le_bytes());
+    let mut out = header.to_vec();
+    out.extend_from_slice(&pcm);
+    out
 }
 
 /// The speech request body. `speed` is sent only when it is not the neutral 1.0: a model
@@ -427,5 +556,144 @@ mod tests {
         ];
         assert_eq!(order_by_index(&items, 2).unwrap(), vec![vec![1.0, 0.5], vec![2.0]]);
         assert!(order_by_index(&items, 3).is_err());
+    }
+}
+
+#[cfg(test)]
+mod pcm_tests {
+    //! A speech model that answers only in PCM (`Gemini TTS only supports response_format="pcm"`).
+    //!
+    //! Found in a live call at 16:33: every segment came back `400`, so the answer sat on screen
+    //! with no sound and the state never left `listening`. These tests pin the two halves of the
+    //! fix: the request names `pcm`, and the bare samples come back at the rate everything else
+    //! expects.
+
+    use super::*;
+
+    #[test]
+    fn a_gemini_tts_model_is_asked_for_pcm_and_nothing_else_is() {
+        assert_eq!(crate::tts::gemini_pcm_rate("google/gemini-3.1-flash-tts-preview"), Some(24_000));
+        assert_eq!(crate::tts::gemini_pcm_rate("GEMINI-2.5-flash-tts"), Some(24_000));
+        assert_eq!(crate::tts::gemini_pcm_rate("hexgrad/kokoro-82m"), None);
+        assert_eq!(crate::tts::gemini_pcm_rate("tts-1"), None);
+        assert_eq!(crate::tts::gemini_pcm_rate("gemini-3.5-transcribe"), None);
+    }
+
+    #[test]
+    fn the_request_names_pcm_when_the_model_needs_it() {
+        let body = speech_body("google/gemini-3.1-flash-tts-preview", "hi", "Kore", 1.0, Some("pcm"));
+        assert_eq!(body["response_format"], "pcm");
+        let mp3 = speech_body("hexgrad/kokoro-82m", "hi", "af_alloy", 1.0, Some("mp3"));
+        assert_eq!(mp3["response_format"], "mp3");
+    }
+
+    #[test]
+    fn the_pcm_path_actually_resamples_and_does_not_trust_the_rate_it_was_told() {
+        // The failure this catches: dropping the resample from `pcm_to_wav16` leaves every
+        // other test in this module green, because they drive `resample` directly. Gemini
+        // answers 24 kHz and every segment is delivered at 16 kHz, so the byte count is the
+        // proof: 3·N samples in, 2·N samples out, and the header says the rate it was given.
+        let pcm: Vec<u8> = (0..300i16).flat_map(|s| (s * 10).to_le_bytes()).collect();
+        let wav = pcm_to_wav16(&pcm, 24_000).expect("raw PCM is the happy path");
+        let data = &wav[44..];
+        assert_eq!(data.len(), 200 * 2, "24 kHz to 16 kHz is 3:2");
+        assert_eq!(
+            u32::from_le_bytes([wav[24], wav[25], wav[26], wav[27]]),
+            SPEECH_RATE,
+            "the header must name the rate the samples are actually at"
+        );
+    }
+
+    #[test]
+    fn twenty_four_kilocycles_become_sixteen_without_a_click() {
+        // 240 samples at 24 kHz is 10 ms; at 16 kHz the same interval is 160 samples.
+        let samples: Vec<i16> = (0..240).map(|i| (i * 100) as i16).collect();
+        let pcm: Vec<u8> = samples.iter().flat_map(|s| s.to_le_bytes()).collect();
+        let out = resample(&pcm, 24_000, 16_000);
+        assert_eq!(out.len(), 160 * 2, "the ratio is 3:2 and an odd byte is never guessed at");
+        // A linear ramp stays a ramp: no sample may be out of the input's range.
+        let peak = out
+            .as_chunks::<2>().0.iter()
+            .map(|p| i16::from_le_bytes([p[0], p[1]]))
+            .max()
+            .unwrap();
+        assert!(peak <= 239 * 100, "resampling must not invent peaks: {peak}");
+    }
+
+    #[test]
+    fn the_wav_header_says_the_rate_everything_else_reads() {
+        let wav = wav_from_pcm16(vec![0u8; 320], SPEECH_RATE);
+        assert_eq!(&wav[0..4], b"RIFF");
+        assert_eq!(u32::from_le_bytes([wav[24], wav[25], wav[26], wav[27]]), SPEECH_RATE);
+        assert_eq!(u32::from_le_bytes([wav[40], wav[41], wav[42], wav[43]]), 320);
+        // ...and it is the rate a spoken segment is delivered at, which is the whole point.
+        // Behind the feature: `live_voice` itself is gated (`lib.rs:103`), so a build without it
+        // has no constant to compare against — and that build must still compile.
+        #[cfg(feature = "provider-live-voice")]
+        assert_eq!(SPEECH_RATE, crate::live_voice::frame::SAMPLE_RATE);
+    }
+
+
+    #[test]
+    fn a_json_body_is_named_not_wrapped_into_noise() {
+        // The shape this guards against: a provider that answers base64 inside JSON. Wrapping that
+        // into a WAV would play noise with nothing in the log saying why, which is the failure this
+        // whole change exists to end.
+        let body = br#"{"audio": "AAAA"}"#;
+        let err = pcm_to_wav16(body, 24_000).expect_err("a JSON body is not PCM");
+        assert!(err.to_string().contains("JSON body"), "{err}");
+        assert!(err.to_string().contains("24000"), "the rate it expected is named: {err}");
+    }
+
+    #[test]
+    fn an_empty_body_is_an_error_rather_than_a_silent_segment() {
+        let err = pcm_to_wav16(&[], 24_000).expect_err("nothing is not audio");
+        assert!(err.to_string().contains("0 byte"), "{err}");
+    }
+
+    #[test]
+    fn real_samples_still_become_a_wav() {
+        let pcm: Vec<u8> = (0..480i16).flat_map(|s| (s * 10).to_le_bytes()).collect();
+        let wav = pcm_to_wav16(&pcm, 24_000).expect("raw PCM is the happy path");
+        assert_eq!(&wav[0..4], b"RIFF");
+        assert_eq!(u32::from_le_bytes([wav[24], wav[25], wav[26], wav[27]]), SPEECH_RATE);
+    }
+
+    #[test]
+    fn an_already_matching_rate_is_left_alone() {
+        // A ramp, not a constant: 64 identical bytes are returned unchanged by almost any
+        // resampler, including one that rounds wrongly. This asserts the bytes a real provider
+        // sends come back bit-for-bit when the rate already matches.
+        let pcm: Vec<u8> = (0..64i16).flat_map(|s| (s * 7).to_le_bytes()).collect();
+        assert_eq!(resample(&pcm, 16_000, 16_000), pcm);
+    }
+
+    #[test]
+    fn the_request_format_follows_the_rate_and_not_the_provider_name() {
+        // Driven through the body the request would actually carry. Reverting the call site to
+        // `self.response_format` — the exact regression — turns this red; a test that called
+        // `speech_format` directly did not.
+        let at = |model: &str| Endpoint {
+            http: reqwest::Client::new(),
+            base_url: "http://127.0.0.1:1".into(),
+            credential: crate::llm::media::StaticKey::shared(
+                crate::llm::media::KeyStyle::Bearer,
+                Some("test-key".into()),
+            ),
+            model: model.to_string(),
+        };
+        let pcm_model = OpenAiTts {
+            endpoint: at("google/gemini-3.1-flash-tts-preview"),
+            response_format: Some("mp3"),
+            pcm_rate: Some(24_000),
+        };
+        assert_eq!(pcm_model.body_for("hi", "Kore", 1.0)["response_format"], "pcm");
+
+        let mp3_model = OpenAiTts {
+            endpoint: at("hexgrad/kokoro-82m"),
+            response_format: Some("mp3"),
+            pcm_rate: None,
+        };
+        assert_eq!(mp3_model.body_for("hi", "af_alloy", 1.0)["response_format"], "mp3");
     }
 }

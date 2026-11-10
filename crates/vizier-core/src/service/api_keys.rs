@@ -29,12 +29,37 @@ pub fn hash(api_key: &str) -> String {
         .collect()
 }
 
+/// The capabilities a key may be scoped to (`specs/055-live-voice` FR-062).
+///
+/// One name, not `live_voice:start` / `live_voice:speak`: nothing needs that split yet, and adding
+/// a finer name later is cheaper than withdrawing one a third party already holds.
+pub const CAPABILITY_LIVE_VOICE: &str = "live_voice";
+
 /// Returns the stored key and the raw key (shown once).
+///
+/// `capabilities: None` is a key that carries its owner's permissions — every key made before
+/// scopes existed, and every key the settings page makes today. That is a deliberate choice, not an
+/// accident: changing it would break keys already in someone's hands.
 pub async fn create(
     services: &Services,
     principal: &Principal,
     name: &str,
     expires_in_days: Option<i64>,
+) -> Result<(ApiKey, String), ServiceError> {
+    create_scoped(services, principal, name, expires_in_days, None).await
+}
+
+/// The same, with the capabilities spelled out. `Some(list)` is a key that can do **only** what the
+/// list names, whatever its owner can do.
+///
+/// A separate name rather than a fifth parameter on `create`: every existing caller means "my own
+/// permissions", and a defaulted argument at a call site is a decision nobody reads.
+pub async fn create_scoped(
+    services: &Services,
+    principal: &Principal,
+    name: &str,
+    expires_in_days: Option<i64>,
+    capabilities: Option<Vec<String>>,
 ) -> Result<(ApiKey, String), ServiceError> {
     access::require(principal, NEEDS)?;
     let (raw, key_hash) = generate();
@@ -42,7 +67,14 @@ pub async fn create(
     let key = services
         .deps()
         .storage
-        .create_api_key(&principal.user_id, name, &key_hash, &raw[..raw.len().min(7)], expires_at)
+        .create_api_key(
+            &principal.user_id,
+            name,
+            &key_hash,
+            &raw[..raw.len().min(7)],
+            expires_at,
+            capabilities,
+        )
         .await
         .map_err(|e| fail("Failed to create API key", e))?;
     Ok((key, raw))
@@ -71,5 +103,18 @@ pub async fn delete(services: &Services, principal: &Principal, key_id: &str) ->
     storage
         .delete_api_key(key_id)
         .await
-        .map_err(|e| fail("Failed to delete API key", e))
+        .map_err(|e| fail("Failed to delete API key", e))?;
+    // T110/FR-063: a session opened with this key ends with it. After the delete, never before —
+    // a failed delete must not take a call down with it — and through the registry's own release
+    // path, so the microphone is let go the way every other ending lets it go.
+    #[cfg(feature = "provider-live-voice")]
+    {
+        let ended = crate::live_voice::sessions()
+            .end_owned_by_key(key_id, crate::live_voice::EndReason::KeyRevoked)
+            .await;
+        if ended > 0 {
+            tracing::info!(key_id, ended, "a revoked API key ended its live voice session");
+        }
+    }
+    Ok(())
 }

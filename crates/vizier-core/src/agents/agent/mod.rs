@@ -749,6 +749,16 @@ impl VizierAgent {
             }
         }
 
+        // FR-017: a turn that came from speech is answered to be *heard*.
+        //
+        // The note used to ride `client_context`, and that was the bug: that block opens by
+        // telling the model it holds "facts about the client, **not instructions**", so an
+        // instruction placed inside it is read as background. A live voice turn answered in 717
+        // tokens — 10.7 s of silence — with the rule sitting in a block that denied being a rule.
+        // It is now rendered as its own `## How to answer` section, ahead of the client facts; the
+        // note text is unchanged and a typed turn is untouched (`spoken` is false for all of them).
+        let spoken_note = req.spoken.then_some(SPOKEN_TURN_NOTE);
+
         let mut rng = StdRng::seed_from_u64(crate::time::now().timestamp() as u64);
         let initiative_factor = rng.random_range(0_f32..=1_f32);
 
@@ -1003,6 +1013,9 @@ impl VizierAgent {
             (Some(project), Some(workspace)) => Some(format!("{project}\n\n{workspace}")),
             (project, workspace) => project.or(workspace),
         };
+        // G3: decided here, where the request and its history are still in hand — the call below
+        // consumes both.
+        let fast_path = fast_path_ok(&req, &history);
         let prompt_result = self
             .prompt_with(
                 &turn_model,
@@ -1020,6 +1033,7 @@ impl VizierAgent {
                         digest.as_deref(),
                         project_state.as_deref(),
                         mentions.as_deref(),
+                        spoken_note,
                     ),
                 ),
                 history,
@@ -1029,6 +1043,7 @@ impl VizierAgent {
                 &ctx,
                 Some(&mut recorder),
                 progress,
+                fast_path,
             )
             .await;
 
@@ -1151,6 +1166,7 @@ impl VizierAgent {
             ctx,
             None,
             vec![],
+            false,
         )
         .await
     }
@@ -1167,6 +1183,8 @@ impl VizierAgent {
         ctx: &ToolContext,
         mut steps: Option<&mut StepRecorder>,
         progress: Vec<Message>,
+        // G3: offer no tools at all on the first hop, and take the retry if the model wants one.
+        fast_path: bool,
     ) -> std::result::Result<
         (
             String,
@@ -1183,10 +1201,13 @@ impl VizierAgent {
         let mut full_history = history.clone();
         let mut turn_depth = turn_depth;
         let max_turn_depth = self.config.thinking_depth;
-        let tools = snapshot
+        let full_tools = snapshot
             .tools()
             .await
             .map_err(|e| (e, full_history.clone()))?;
+        // A fast-path hop offers the model nothing to call; the retry below puts the list back.
+        let mut fast = fast_path && turn_depth == 0;
+        let mut tools: &[ToolDefinition] = if fast { &[] } else { &full_tools };
 
         let output: String;
 
@@ -1256,14 +1277,34 @@ impl VizierAgent {
 
             // The model gets the narrowed view; `full_history` keeps the full record,
             // which is what storage and the WebUI are served from.
-            let response = model
+            // G3: the first hop may have been asked without tools. A model that wants one anyway
+            // gets the whole set back and the same hop is asked once more — one retry, never a loop.
+            let mut response = model
                 .complete_until(
-                    completion_request(&history, &message, &tools, wrapping_up),
+                    completion_request(&history, &message, tools, wrapping_up),
                     Some(start + prompt_timeout),
                     &UsageScope::turn(Some(ctx.session.clone()), guard.turn(), turn_depth as u32),
                 )
                 .await
                 .map_err(|e| fail_turn(e, full_history.clone(), Some(message.clone()), vec![]))?;
+            if fast && response.content.iter().any(|part| matches!(part, AssistantPart::ToolCall { .. })) {
+                fast = false;
+                tools = &full_tools;
+                let retries = FAST_PATH_RETRIES.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+                tracing::warn!(
+                    turn_depth = turn_depth,
+                    retries,
+                    "the fast path guessed wrong: the model asked for a tool, so the turn is retried with the toolset"
+                );
+                response = model
+                    .complete_until(
+                        completion_request(&history, &message, tools, wrapping_up),
+                        Some(start + prompt_timeout),
+                        &UsageScope::turn(Some(ctx.session.clone()), guard.turn(), turn_depth as u32),
+                    )
+                    .await
+                    .map_err(|e| fail_turn(e, full_history.clone(), Some(message.clone()), vec![]))?;
+            }
             let (choices, usage) = (response.content, response.usage);
             let choices = if wrapping_up {
                 answer_without_tool_calls(choices)
@@ -2292,6 +2333,84 @@ fn completion_request(
 /// The result a timed-out tool call hands the model. The call is abandoned, but whatever it
 /// did before the deadline may already have happened.
 /// Said when the wrap-up completion offered nothing to say.
+/// The longest question a fast path will answer with no toolset at all (G3).
+const FAST_PATH_MAX_CHARS: usize = 120;
+
+/// Words that mean the person is asking for work rather than conversation (G3).
+///
+/// Deliberately broad: a false positive costs one ordinary turn, a false negative makes the agent
+/// look stupid in front of the person, and that is much more expensive than 2.4 s.
+const FAST_PATH_WORK_WORDS: &[&str] = &[
+    "file", "cari", "jalankan", "shell", "git", "baca", "tulis", "ubah", "hapus", "build",
+    "commit", "branch", "repo", "kode", "error", "log", "config", "install", "cek", "test", "tes",
+    "jalur", "folder", "direktori", "hapus", "tambah",
+];
+
+/// Turns that asked for a tool while the fast path had offered none (G3).
+///
+/// Read rather than logged and forgotten: if this grows past roughly one turn in ten, the predicate
+/// is too loose and the next step is to narrow it, not to explain the number away.
+static FAST_PATH_RETRIES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// How often the fast path guessed wrong in this process (G3).
+///
+/// Exposed rather than only logged, because the ratio is what decides whether the predicate stays:
+/// more than roughly one turn in ten means it is too loose and should be narrowed.
+pub fn fast_path_misses() -> u64 {
+    FAST_PATH_RETRIES.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Whether this turn may be answered with no tools at all (G3).
+///
+/// Every condition must hold and anything uncertain answers `false`, because the default has to be
+/// the safe one. `history` is the turn's own: a conversation that already used a tool is the most
+/// likely to need one again, whatever the next sentence looks like.
+fn fast_path_ok(req: &VizierRequest, history: &[Message]) -> bool {
+    // Only a spoken turn. A typed message tolerates latency in a way a conversation does not, so
+    // the extra hop a wrong guess costs is not worth the risk of an agent that lost its tools —
+    // and this whole speed-up was defined for `run_turn`, not for the keyboard.
+    if !req.spoken {
+        return false;
+    }
+    let text = match &req.content {
+        VizierRequestContent::Chat(text) => text.as_str(),
+        _ => return false,
+    };
+    // `>=`: a message of exactly 120 characters is not small talk. `chars()`, not bytes — a
+    // question in a script outside ASCII is not longer for taking more bytes.
+    if text.chars().count() >= FAST_PATH_MAX_CHARS {
+        return false;
+    }
+    // A path, a command or a snippet is never small talk.
+    if text.contains('/') || text.contains('\\') || text.contains('`') {
+        return false;
+    }
+    let lower = text.to_lowercase();
+    let words: Vec<&str> = lower
+        .split(|c: char| !c.is_alphanumeric() && c != '-' && c != '_')
+        .filter(|word| !word.is_empty())
+        .collect();
+    if words.iter().any(|word| FAST_PATH_WORK_WORDS.contains(word)) {
+        return false;
+    }
+    // A turn already inside a chain of work keeps the toolset.
+    let used_a_tool = history.iter().any(|message| match message {
+        Message::Assistant(parts) => parts
+            .iter()
+            .any(|part| matches!(part, AssistantPart::ToolCall { .. })),
+        _ => false,
+    });
+    !used_a_tool
+}
+
+/// The note a spoken turn is given (`specs/055-live-voice` FR-017).
+///
+/// FR-017 as decided on 2026-11-08: short by default, longer only when the question genuinely
+/// needs it, and **the agent decides** — there is no user-facing switch, mode or setting. The
+/// second sentence is the honest consequence the person accepted: the engine does not stream
+/// tokens, so a long answer is silence first, then speech.
+const SPOKEN_TURN_NOTE: &str = "This message came by speech in a live voice session, and your answer is read aloud as it is spoken. Answer for listening: keep it short and direct by default — a sentence or two — because a long answer is silence in the person's ear while you write it. If the question genuinely needs research or careful reasoning, take the time you need; the person is shown that you are thinking. Never ask them to pick a mode.";
+
 const DEPTH_EXHAUSTED_FALLBACK: &str = "I ran out of steps for this turn before I could finish. Ask me to continue and I'll pick \
      up from here.";
 
@@ -2952,5 +3071,106 @@ mod attachment_note_tests {
             "{text}"
         );
         assert!(!text.contains("# Attached Files"), "{text}");
+    }
+}
+
+#[cfg(test)]
+mod fast_path_tests {
+    //! G3 — a short conversational turn is answered without the toolset, and a wrong guess costs
+    //! one ordinary turn rather than a bad answer. The predicate is the decision; the retry is the
+    //! safety net, and both are asserted here without a model.
+
+    use super::*;
+
+    /// A spoken turn, which is the only kind the fast path serves.
+    fn asked(text: &str) -> VizierRequest {
+        VizierRequest {
+            content: VizierRequestContent::Chat(text.to_string()),
+            spoken: true,
+            ..Default::default()
+        }
+    }
+
+    /// The same words typed: the path is not for the keyboard.
+    fn typed(text: &str) -> VizierRequest {
+        VizierRequest {
+            content: VizierRequestContent::Chat(text.to_string()),
+            ..Default::default()
+        }
+    }
+
+    fn tool_call() -> Message {
+        Message::Assistant(vec![AssistantPart::ToolCall {
+            id: "c1".into(),
+            name: "execute_python".into(),
+            arguments: serde_json::json!({}),
+            provider_data: None,
+        }])
+    }
+
+    #[test]
+    fn small_talk_takes_the_fast_path() {
+        for text in ["halo, apa kabar?", "thanks!", "what's the time of day", "good morning"] {
+            assert!(fast_path_ok(&asked(text), &[]), "{text}");
+        }
+        // The same words typed keep the toolset: a typed turn is out of scope, and losing tools
+        // there is a risk with no latency to win.
+        assert!(!fast_path_ok(&typed("halo, apa kabar?"), &[]));
+    }
+
+    #[test]
+    fn a_request_for_work_never_does() {
+        for text in [
+            "baca file /etc/hosts",
+            "jalankan test suite",
+            "cek log terakhir",
+            "tolong commit sekarang",
+            "git status",
+            "what does the config say",
+        ] {
+            assert!(!fast_path_ok(&asked(text), &[]), "{text}");
+        }
+    }
+
+    #[test]
+    fn a_path_a_snippet_or_a_long_question_never_does() {
+        assert!(!fast_path_ok(&asked("open ~/notes.md"), &[]), "a path");
+        assert!(!fast_path_ok(&asked("what does `ls` print"), &[]), "a snippet");
+        assert!(!fast_path_ok(&asked("explain C:\\\\temp"), &[]), "a windows path");
+        let long = "halo ".repeat(40);
+        assert!(!fast_path_ok(&asked(&long), &[]), "too long to be small talk");
+        // Right at the boundary: 119 passes, 120 does not.
+        assert!(fast_path_ok(&asked(&"a".repeat(119)), &[]));
+        assert!(!fast_path_ok(&asked(&"a".repeat(120)), &[]));
+    }
+
+    #[test]
+    fn a_turn_already_inside_a_chain_of_work_keeps_its_tools() {
+        // The most likely turn to need a tool again is the one that just used one, whatever the
+        // next sentence looks like.
+        assert!(!fast_path_ok(&asked("halo, apa kabar?"), &[tool_call()]));
+        // And a conversation with no tool call is untouched.
+        assert!(fast_path_ok(&asked("halo, apa kabar?"), &[Message::user_text("hi").unwrap()]));
+    }
+
+    #[test]
+    fn a_non_chat_request_never_takes_it() {
+        let audio = VizierRequest {
+            content: VizierRequestContent::Chat(String::new()),
+            ..Default::default()
+        };
+        // An empty chat is still a chat, so prove the *kind* matters with one that is not.
+        let mut audio = audio;
+        audio.content = VizierRequestContent::Command("abort".into());
+        assert!(!fast_path_ok(&audio, &[]), "a command is not a question");
+        assert!(!fast_path_ok(&audio, &[]));
+    }
+
+    #[test]
+    fn the_miss_counter_moves_only_when_it_is_read() {
+        // It is exposed rather than logged and forgotten: one turn in ten guessing wrong means the
+        // predicate is too loose. Reading it twice must not change it.
+        let first = fast_path_misses();
+        assert_eq!(fast_path_misses(), first);
     }
 }

@@ -19,6 +19,13 @@ include = [
   "/webui-dist/**/*",
 ]
 
+[features]
+# Off by default, so this adapter still builds against an engine without the live voice feature and
+# FR-041 ("with the feature off nothing changes") can be tested on a real build. Turning it on is
+# what makes the socket understand `live_voice_*` frames at all.
+default = []
+live-voice = ["vizier-core/provider-live-voice"]
+
 [dependencies]
 vizier-core = { workspace = true, features = ["utoipa"] }
 anyhow.workspace = true
@@ -52,3 +59,6 @@ zip.workspace = true
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }
 tokio-tungstenite.workspace = true
+# The trait the faked speech engines implement in the live voice tests, used exactly as the
+# engine crate uses it.
+async-trait.workspace = true
