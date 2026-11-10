@@ -1129,7 +1129,7 @@ opens (`topic.rs:243`), and revocation is only pushed by `delete_api_key` → `e
 revoke ends a session, the same open socket can send `live_voice_start` again — the principal still carries the
 key id and its permissions — and FR-064 says a request with a revoked key is refused *before any session state
 is created*. **Not proven:** no test was written. A test that revokes and then starts again on the same socket
-settles it in one run, and it is the natural first line of `GI-04`.
+settles it in one run, and it is the natural first line of `GI-05` (`specs/_antrean.md:146`, which names this same test as its closing condition — `GI-04` is a different item: the `key_revoked` sentence reaching the row, `:145`).
 
 **Still owed, and not mine:** the `architecture.md` and `review.md` pass, owner unchanged.
 
