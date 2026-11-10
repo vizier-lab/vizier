@@ -662,14 +662,12 @@ impl LiveVoiceSessions {
         };
         let mut ended = 0;
         for (conversation, session) in targets {
-            if session.is_stopped() {
-                self.remove(&conversation, &session);
-                continue;
+            // One place, both callers: `end_one` cancels the turn, stops the session and leaves the
+            // map, in that order. The socket's expiry check calls the same function, so the two
+            // paths cannot drift apart again (T110 round 1).
+            if self.end_one(&conversation, &session, reason).await {
+                ended += 1;
             }
-            session.abort_turn(InterruptReason::BargeIn).await;
-            session.end(reason);
-            self.remove(&conversation, &session);
-            ended += 1;
         }
         ended
     }
@@ -722,6 +720,39 @@ impl LiveVoiceSessions {
             "a live voice call moved to another conversation"
         );
         Some(session)
+    }
+
+    /// End one session through the single path every ending takes (T110/FR-063, ronde 1).
+    ///
+    /// Two callers reach `EndReason::KeyRevoked`/`KeyExpired`: the revoke hook
+    /// ([`LiveVoiceSessions::end_owned_by_key`]) and the socket's expiry check in `topic.rs`.
+    /// Before this they disagreed, one cancelled the running turn and the other only stopped the
+    /// session, so a lapsed key told the person the call had ended while the agent kept working and
+    /// the answer was still written and saved. Both callers end here now, and the order is the one
+    /// [`LiveVoiceSession::abort_turn`] documents: cancel the turn (FR-052), then stop and say why,
+    /// then leave the map so no later frame resolves to a session that is over.
+    ///
+    /// Returns whether this call is the one that ended it. A session that already stopped is
+    /// removed and reported as `false`: its first reason won, and `end`'s idempotence means the
+    /// second caller must not overwrite it.
+    pub async fn end_one(
+        &self,
+        conversation: &VizierSession,
+        session: &Arc<LiveVoiceSession>,
+        reason: EndReason,
+    ) -> bool {
+        if session.is_stopped() {
+            self.remove(conversation, session);
+            return false;
+        }
+        // The turn first: `end` stops the session and releases the microphone, but it sends no
+        // `Command("abort")`, so without this the agent keeps writing an answer for a call that is
+        // already over. `BargeIn` is the reason every ending-by-force already uses (FR-052), and
+        // `abort_turn` is a no-op on the turn when nothing is running.
+        session.abort_turn(InterruptReason::BargeIn).await;
+        session.end(reason);
+        self.remove(conversation, session);
+        true
     }
 
     pub fn len(&self) -> usize {
@@ -887,6 +918,9 @@ mod key_tests {
     use crate::schema::{VizierChannelId, VizierSession};
     use crate::transport::VizierTransport;
 
+    /// How long a test waits for a request before deciding it will not come.
+    const WAIT: std::time::Duration = std::time::Duration::from_millis(500);
+
     fn session_on(topic: &str) -> Arc<LiveVoiceSession> {
         session_on_transport(topic, VizierTransport::new())
     }
@@ -1021,6 +1055,100 @@ mod key_tests {
         assert_eq!(registry.end_owned_by_key("key-a", EndReason::KeyRevoked).await, 0);
         assert_eq!(LiveVoiceSessions::len(&registry), 1);
     }
+
+    /// A voice that says nothing: this test needs a turn to be running, not its sound.
+    struct SilentVoice;
+
+    #[async_trait::async_trait]
+    impl crate::live_voice::engines::LiveVoiceEngines for SilentVoice {
+        async fn transcribe(
+            &self,
+            _wav: &[u8],
+            _filename: &str,
+            _language: Option<&str>,
+        ) -> crate::Result<String> {
+            Ok("hello".into())
+        }
+
+        async fn speak(&self, _text: &str) -> crate::Result<Vec<u8>> {
+            Ok(Vec::new())
+        }
+    }
+
+    /// The shape of a request as the agent's inbox sees it, so a test can name one.
+    fn request_kind(content: &VizierRequestContent) -> String {
+        match content {
+            VizierRequestContent::Command(command) => format!("command:{command}"),
+            VizierRequestContent::Chat(text) => format!("chat:{text}"),
+            other => format!("{other}"),
+        }
+    }
+
+    /// T110/FR-063 ronde 1: the expiry path ends the call **and cancels the turn it was running**.
+    ///
+    /// The revoke path always did both. The socket's expiry check only stopped the session, so the
+    /// agent kept working: the answer was still written and still saved after the person had been
+    /// told the call had ended (the warning on `abort_turn`). The five tests above missed it because
+    /// they call the registry directly and never pass through the socket. Both callers go through
+    /// `end_one` now, and this test asserts the three things FR-063 asks for at once: the reason,
+    /// the release, and the turn.
+    #[tokio::test]
+    async fn a_lapsed_key_cancels_the_turn_it_was_running() {
+        let transport = VizierTransport::new();
+        let mut inbox = transport.register_agent("helper".into()).await;
+        let registry = LiveVoiceSessions::default();
+        let session = session_on_transport("topic-a", transport.clone());
+        session.set_key_origin(origin("key-a", Some(crate::time::now())));
+        let key = session.session.clone();
+        registry.start(key.clone(), || session.clone());
+
+        // A turn is running: its request has reached the agent and the reply has not come back.
+        let running = session.clone();
+        tokio::spawn(async move { running.run_turn(Arc::new(SilentVoice), "hello".into()).await });
+        let submitted = tokio::time::timeout(WAIT, inbox.recv_request())
+            .await
+            .expect("the turn submits its request")
+            .expect("the inbox is open");
+        assert_eq!(
+            request_kind(&submitted.request.content),
+            "chat:hello",
+            "the request in flight is the one the test is about to cancel"
+        );
+        assert!(
+            session.busy.load(Ordering::SeqCst),
+            "the session is busy while it waits for the reply"
+        );
+
+        // The key lapses and the path the socket takes runs: one call, one ending.
+        assert!(
+            registry.end_one(&key, &session, EndReason::KeyExpired).await,
+            "this call is the one that ended it"
+        );
+
+        // 1. the reason the person is told, on the state frame the contract names
+        assert_eq!(session.state(), SessionState::Ended);
+        // 2. the turn is no longer running, not only the session (FR-063)
+        assert!(
+            !session.busy.load(Ordering::SeqCst),
+            "the turn was cancelled, so nothing is still being written"
+        );
+        // 3. and the cancellation really left: `end()` alone sends no abort
+        let mut kinds = Vec::new();
+        while let Ok(Ok(envelope)) =
+            tokio::time::timeout(std::time::Duration::from_millis(50), inbox.recv_request()).await
+        {
+            kinds.push(request_kind(&envelope.request.content));
+        }
+        assert_eq!(
+            kinds.iter().filter(|kind| *kind == "command:abort").count(),
+            1,
+            "the running turn is cancelled by exactly one abort, got {kinds:?}"
+        );
+
+        // The entry is gone, so a frame arriving later does not resolve to a session that is over.
+        assert!(registry.get(&key).is_none());
+    }
+
 }
 
 #[cfg(test)]

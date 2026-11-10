@@ -415,8 +415,11 @@ impl TopicConnection {
         if key_lapsed(&self.principal) {
             if let Some(session) = sessions.get(&self.session).filter(|s| owned(s)) {
                 if session.key_origin().is_some() {
-                    session.end(EndReason::KeyExpired);
-                    sessions.remove(&self.session, &session);
+                    // The same ending the revoke hook uses (T110 round 1): `end_one` cancels the
+                    // running turn before it stops the session. Twice now this path has been the
+                    // one that forgot a step, so it no longer steps at all — it calls the one
+                    // function both endings share.
+                    sessions.end_one(&self.session, &session, EndReason::KeyExpired).await;
                 }
             }
         }
