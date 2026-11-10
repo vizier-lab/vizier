@@ -145,7 +145,7 @@ impl VizierTtsModel for OpenAiTts {
         let req = self.endpoint.post("/audio/speech").await.map_err(|e| err("speech", e))?;
         let response = http::send(req.json(&body)).await.map_err(|e| err("speech", e))?;
         match self.pcm_rate {
-            Some(rate) => Ok(pcm_to_wav16(&response.body, rate)),
+            Some(rate) => Ok(pcm_to_wav16(&response.body, rate)?),
             None => mp3_to_wav(&response.body),
         }
     }
@@ -156,8 +156,28 @@ impl VizierTtsModel for OpenAiTts {
 /// This is the whole of the PCM path, and it is one function on purpose: a test that only drove
 /// `resample` would stay green if the resampling were dropped from here, which is the failure the
 /// tests exist to catch.
-fn pcm_to_wav16(body: &[u8], rate: u32) -> Vec<u8> {
-    wav_from_pcm16(resample(body, rate, SPEECH_RATE), SPEECH_RATE)
+/// The PCM body as a WAV, or an error naming what came back instead.
+///
+/// The guard is the point. A provider that answers `{"audio": "…base64…"}` instead of bare
+/// samples would otherwise be wrapped into a WAV of JSON bytes: the call would play noise or
+/// nothing, with no line in the log saying why — the exact failure this whole change exists to
+/// end. One look at the first byte turns that into a named error, and the next real call says
+/// which of the two shapes OpenRouter sends.
+fn pcm_to_wav16(body: &[u8], rate: u32) -> Result<Vec<u8>> {
+    let head = body.iter().find(|b| !b.is_ascii_whitespace());
+    if head == Some(&b'{') || head == Some(&b'[') {
+        let preview: String = String::from_utf8_lossy(&body[..body.len().min(160)]).into_owned();
+        return Err(VizierError(format!(
+            "speech: expected raw PCM at {rate} Hz, got a JSON body: {preview}"
+        )));
+    }
+    if body.len() < 2 {
+        return Err(VizierError(format!(
+            "speech: expected raw PCM at {rate} Hz, got {} byte(s)",
+            body.len()
+        )));
+    }
+    Ok(wav_from_pcm16(resample(body, rate, SPEECH_RATE), SPEECH_RATE))
 }
 
 /// Bare little-endian PCM16 mono, resampled linearly.
@@ -552,7 +572,7 @@ mod pcm_tests {
         // answers 24 kHz and every segment is delivered at 16 kHz, so the byte count is the
         // proof: 3·N samples in, 2·N samples out, and the header says the rate it was given.
         let pcm: Vec<u8> = (0..300i16).flat_map(|s| (s * 10).to_le_bytes()).collect();
-        let wav = pcm_to_wav16(&pcm, 24_000);
+        let wav = pcm_to_wav16(&pcm, 24_000).expect("raw PCM is the happy path");
         let data = &wav[44..];
         assert_eq!(data.len(), 200 * 2, "24 kHz to 16 kHz is 3:2");
         assert_eq!(
@@ -589,6 +609,32 @@ mod pcm_tests {
         // has no constant to compare against — and that build must still compile.
         #[cfg(feature = "provider-live-voice")]
         assert_eq!(SPEECH_RATE, crate::live_voice::frame::SAMPLE_RATE);
+    }
+
+
+    #[test]
+    fn a_json_body_is_named_not_wrapped_into_noise() {
+        // The shape this guards against: a provider that answers base64 inside JSON. Wrapping that
+        // into a WAV would play noise with nothing in the log saying why, which is the failure this
+        // whole change exists to end.
+        let body = br#"{"audio": "AAAA"}"#;
+        let err = pcm_to_wav16(body, 24_000).expect_err("a JSON body is not PCM");
+        assert!(err.to_string().contains("JSON body"), "{err}");
+        assert!(err.to_string().contains("24000"), "the rate it expected is named: {err}");
+    }
+
+    #[test]
+    fn an_empty_body_is_an_error_rather_than_a_silent_segment() {
+        let err = pcm_to_wav16(&[], 24_000).expect_err("nothing is not audio");
+        assert!(err.to_string().contains("0 byte"), "{err}");
+    }
+
+    #[test]
+    fn real_samples_still_become_a_wav() {
+        let pcm: Vec<u8> = (0..480i16).flat_map(|s| (s * 10).to_le_bytes()).collect();
+        let wav = pcm_to_wav16(&pcm, 24_000).expect("raw PCM is the happy path");
+        assert_eq!(&wav[0..4], b"RIFF");
+        assert_eq!(u32::from_le_bytes([wav[24], wav[25], wav[26], wav[27]]), SPEECH_RATE);
     }
 
     #[test]
