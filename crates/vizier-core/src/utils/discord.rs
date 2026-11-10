@@ -21,6 +21,55 @@ pub fn parse_id<T>(raw: u64, what: &str) -> Result<Id<T>, VizierError> {
     Id::new_checked(raw).ok_or_else(|| VizierError(format!("invalid discord {} id: {}", what, raw)))
 }
 
+fn message_chunks(content: String) -> Vec<String> {
+    if content.chars().count() <= MESSAGE_LIMIT {
+        return vec![content];
+    }
+
+    const FENCE: &str = "```";
+    // A continuation can need an opening and closing fence, each with a newline.
+    const FENCE_OVERHEAD: usize = 8;
+    let contains_fence = content
+        .lines()
+        .any(|line| line.trim_start().starts_with(FENCE));
+    let chunk_limit = if contains_fence {
+        MESSAGE_LIMIT - FENCE_OVERHEAD
+    } else {
+        MESSAGE_LIMIT
+    };
+    let mut inside_fence = false;
+
+    MarkdownSplitter::new(chunk_limit)
+        .chunks(&content)
+        .map(|raw| {
+            let started_inside = inside_fence;
+            for line in raw.lines() {
+                if line.trim_start().starts_with(FENCE) {
+                    inside_fence = !inside_fence;
+                }
+            }
+
+            if !started_inside && !inside_fence {
+                return raw.to_string();
+            }
+
+            let mut chunk = String::with_capacity(raw.len() + FENCE_OVERHEAD);
+            if started_inside {
+                chunk.push_str(FENCE);
+                chunk.push('\n');
+            }
+            chunk.push_str(raw);
+            if inside_fence {
+                if !raw.ends_with('\n') {
+                    chunk.push('\n');
+                }
+                chunk.push_str(FENCE);
+            }
+            chunk
+        })
+        .collect()
+}
+
 /// Post `content`, split at Discord's limit, and return the id of every message that was
 /// posted so a reply can be linked to the history entry it renders. A chunk Discord rejects is
 /// logged and skipped, as before.
@@ -29,14 +78,7 @@ pub async fn send_message(
     channel_id: Id<ChannelMarker>,
     content: String,
 ) -> Result<Vec<Id<MessageMarker>>, VizierError> {
-    let chunks = if content.len() < MESSAGE_LIMIT {
-        vec![content]
-    } else {
-        MarkdownSplitter::new(MESSAGE_LIMIT)
-            .chunks(&content)
-            .map(|s| s.to_string())
-            .collect::<Vec<String>>()
-    };
+    let chunks = message_chunks(content);
 
     match tokio::spawn(async move {
         let mut ids = Vec::with_capacity(chunks.len());
@@ -94,5 +136,27 @@ impl Typing {
 impl Drop for Typing {
     fn drop(&mut self) {
         self.0.abort();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn long_fenced_messages_keep_every_chunk_balanced() {
+        let code = "x".repeat(MESSAGE_LIMIT * 2);
+        let content = format!("use execute_python\n```js\n{{\"code\":\"{code}\"}}\n```");
+
+        let chunks = message_chunks(content);
+
+        assert!(chunks.len() > 1);
+        assert!(chunks.iter().all(|chunk| chunk.chars().count() <= MESSAGE_LIMIT));
+        assert!(
+            chunks
+                .iter()
+                .all(|chunk| chunk.lines().filter(|line| line.trim_start().starts_with("```")).count() % 2 == 0),
+            "each Discord message must contain a complete code fence: {chunks:#?}"
+        );
     }
 }
