@@ -90,6 +90,19 @@ export function LiveVoiceControl({
         useTurns.getState().adoptTurn(agentId, topicId, `${topicId}-${heard.current.turns}`, text)
     }, [view.transcript, agentId, topicId])
 
+    // V9: once the words above have reached the thread, give the row's middle slot back to the
+    // waveform. It is cleared here and not on the state change, because the transcript is still the
+    // only thing on screen until `adoptTurn` has it — clearing first would erase the sentence a
+    // person is reading, which is the bug this fixes, in the other direction.
+    useEffect(() => {
+        const text = view.transcript.trim()
+        if (!text || text !== heard.current.text) return
+        // Only once the call is listening again: while the reply is still being spoken the words
+        // stay on screen, and the meter returns in the window a person actually asks about it.
+        if (view.state !== 'listening') return
+        client.current?.transcriptAdopted()
+    }, [view.transcript, view.state])
+
     // The reply has been spoken and the session is listening again: read the stored page back, so
     // the stand-ins give way to what the server actually wrote (and nothing is drawn twice).
     useEffect(() => {

@@ -569,12 +569,27 @@ describe('T045 — the interruption lands at the end of the utterance (C8)', () 
         expect(h.log.filter((entry) => entry === 'live_voice_utterance_end')).toHaveLength(2)
     })
 
-    it('a burst too short to be a word still ends the utterance without cancelling nothing', async () => {
+    it('a 100 ms burst over a live reply is a blip, not an ending (superseded expectation)', async () => {
+        // This test used to assert the opposite, and the change is deliberate: a 100 ms burst
+        // closed the utterance, stopped the audio locally and cancelled the turn, so a knock, a
+        // chair or an AGC step could cut an answer that was being spoken (bro-pm's DoD for the
+        // lost-TTS report). It now has to be **voice** of `MIN_VOICED_MS`, not a buffer length,
+        // before silence may end an utterance at all.
         const h = ordered()
         await h.client.start()
         h.client.onFrame(audible)
-        // 100 ms of voice, then silence: the server decides too-short (FR-024); the client's job
-        // is only to close the utterance and stop the reply it was talking over.
+        h.voice(100)
+        h.silence(900)
+        expect(h.log, 'the reply keeps playing: nobody interrupted it').not.toContain(
+            'live_voice_utterance_end'
+        )
+    })
+
+    it('with no reply playing, the same burst still ends the utterance for the server to judge', async () => {
+        // FR-024 is untouched: when nothing is being spoken over, the client still closes the
+        // utterance and the server still decides that it was too short to be a word.
+        const h = ordered()
+        await h.client.start()
         h.voice(100)
         h.silence(900)
         expect(h.log).toContain('live_voice_utterance_end')
@@ -1610,5 +1625,100 @@ describe('the level meter follows the input', () => {
         h.client.stop('pressed_again')
         expect(h.client.currentState).toBe('ended')
         expect(h.client.currentView.level).toBe(0)
+    })
+})
+
+describe('the blip guard — a knock does not cut a reply (C8)', () => {
+    // The report this answers: the agent spoke twice and then only text. The utterance end used to
+    // interrupt unconditionally, so a 20 ms blip of desk, chair or AGC closed the utterance, stopped
+    // the audio locally and cancelled the turn on the server: the rest of the answer was never
+    // spoken, though its text was already saved.
+    it('a 20 ms blip leaves the reply alone and sends no utterance end', async () => {
+        const h = driven()
+        await h.client.start()
+        h.client.onFrame({ live_voice: { type: 'state', state: 'speaking', generation: 1 } })
+        h.client.onFrame(audible)
+
+        // A blip: one voiced window, then the hangover. The gate is raised while the reply is
+        // audible, so this level clears it — which is exactly the false positive being rejected.
+        h.speak(20, 0.3)
+        h.stopSpeaking()
+
+        expect(
+            h.sent.filter((frame) => 'live_voice_utterance_end' in frame),
+            'a blip is not the end of a sentence'
+        ).toHaveLength(0)
+        expect(h.last().state, 'the call is still speaking, because nobody interrupted it').toBe(
+            'speaking'
+        )
+    })
+
+    it('a word of 400 ms still ends the utterance, as it did before', async () => {
+        const h = driven()
+        await h.client.start()
+        h.client.onFrame({ live_voice: { type: 'state', state: 'speaking', generation: 1 } })
+        h.client.onFrame(audible)
+
+        h.speak(400, 0.3)
+        h.stopSpeaking()
+
+        expect(
+            h.sent.filter((frame) => 'live_voice_utterance_end' in frame),
+            'a person speaking over the reply is how they interrupt it (FR-019)'
+        ).toHaveLength(1)
+    })
+
+    it('the abandoned utterance is replaced, not closed, by the next speech', async () => {
+        const h = driven()
+        await h.client.start()
+        h.client.onFrame(audible)
+        h.speak(20, 0.3)
+        h.stopSpeaking()
+        const opened = h.sent.filter((frame) => 'live_voice_speech_start' in frame).length
+        h.speak(60, 0.3)
+        expect(
+            h.sent.filter((frame) => 'live_voice_speech_start' in frame).length,
+            'a second blip opens a second utterance rather than reusing a closed one'
+        ).toBe(opened + 1)
+        expect(h.sent.filter((frame) => 'live_voice_utterance_end' in frame)).toHaveLength(0)
+    })
+})
+
+describe('V9 — the meter returns between turns', () => {
+    it('clearing the transcript gives the middle slot back, and only once it is handed over', async () => {
+        const h = driven()
+        await h.client.start()
+        h.client.onFrame({
+            live_voice: {
+                type: 'transcript',
+                utterance_id: 'u-1',
+                text: 'what time is standup',
+                submitted: true,
+            },
+        })
+        expect(h.last().transcript).toBe('what time is standup')
+
+        // Nothing has been asked for yet: the clear is the control's call, after adoption, so a
+        // render here must leave the words where they are.
+        h.client.onFrame({ live_voice: { type: 'state', state: 'listening', generation: 1 } })
+        expect(h.last().transcript, 'the words are still the only place they exist').toBe(
+            'what time is standup'
+        )
+
+        // The control hands them to the thread, then asks for the slot back.
+        h.client.transcriptAdopted()
+        expect(h.last().transcript).toBe('')
+    })
+
+    it('a second turn shows its own words, not the first turn\u2019s', async () => {
+        const h = driven()
+        await h.client.start()
+        h.client.onFrame({
+            live_voice: { type: 'transcript', utterance_id: 'u-1', text: 'first', submitted: true },
+        })
+        h.client.onFrame({
+            live_voice: { type: 'transcript', utterance_id: 'u-2', text: 'second', submitted: true },
+        })
+        expect(h.last().transcript).toBe('second')
     })
 })

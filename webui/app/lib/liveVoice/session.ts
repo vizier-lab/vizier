@@ -100,6 +100,21 @@ export const RECONNECT_WINDOW_MS = 30_000
  */
 const LEVEL_GAIN = 4
 
+/**
+ * How long a person must actually be voiced before their silence is allowed to end the utterance
+ * and interrupt the reply (FR-019, C8).
+ *
+ * The hangover alone cannot tell a sentence from a knock: the client sends the hangover's own
+ * silence as audio, so a 20 ms blip arrives at the server as ~270 ms of PCM and passes
+ * `MIN_UTTERANCE_MS` (`crates/vizier-core/src/live_voice/utterance.rs:10`). Measured on the voice
+ * rather than on the buffer, a blip is 20 ms and a word is 300-plus.
+ *
+ * 300 ms: below the shortest word anyone says on purpose, above every blip a desk, a chair or an
+ * AGC step produces. It only guards the *end* of an utterance — speech still opens one on the
+ * first voiced window, so nothing a person says is ever unsent.
+ */
+const MIN_VOICED_MS = 300
+
 const TRANSITIONS: Record<SessionState, SessionState[]> = {
     off: ['connecting'],
     connecting: ['listening', 'failed', 'ended'],
@@ -399,6 +414,22 @@ export class LiveVoiceClient {
         if (this.state === 'speaking' || this.state === 'waiting') this.interrupt('typed')
     }
 
+    /**
+     * The row's own transcript has reached the thread, so let the waveform have the middle slot
+     * back (V9).
+     *
+     * `transcript` used to be cleared only by `start()`, so after the first word of a call the
+     * meter never came back — for the rest of the session — and the row showed the previous turn's
+     * sentence while a person asked themselves whether the microphone could still hear them. The
+     * clear is **not** part of the state change: the words have to be adopted into the thread
+     * first, or they disappear from the screen, which is what `LiveVoiceControl` does with them.
+     */
+    transcriptAdopted(): void {
+        if (!this.view.transcript) return
+        this.view.transcript = ''
+        this.render()
+    }
+
     // --- internals ---------------------------------------------------------
 
     private sendAudio(samples: Int16Array): void {
@@ -409,6 +440,9 @@ export class LiveVoiceClient {
 
     private onWindow(samples: Float32Array): void {
         if (this.state === 'off' || this.state === 'ended' || this.state === 'failed') return
+        // Read before `push`: the gate resets the utterance as part of reporting its end, so after
+        // the call `voicedFor` is already zero and the guard below would reject everything.
+        const voicedForMs = this.vad.voicedFor
         const decision = this.vad.push(samples, this.replyAudible)
         // The meter reads the audio itself, not the gate's verdict: a quiet window still has a
         // level, and the bar should fall on it rather than blink to nothing between syllables.
@@ -424,6 +458,24 @@ export class LiveVoiceClient {
             this.deps.send(speechStartFrame(`u-${this.utteranceId}`))
         }
         if (decision.utteranceEnd) {
+            // A blip is not a person finishing a sentence (bro-pm's DoD for the lost-TTS report):
+            // a knock, a chair or an AGC step must not cut a reply that is being spoken. The
+            // utterance the server already has is abandoned rather than closed — the next
+            // `speech_start` replaces it, which `open_utterance` already does
+            // (`session.rs:300-306`), so no new contract and no new frame.
+            //
+            // The cost is stated rather than hidden: an utterance shorter than `MIN_VOICED_MS`
+            // leaves its audio on the server unclosed until the next one arrives. The server's
+            // own cap (`max_utterance_seconds`) still bounds it, and a blip that never repeats
+            // costs one abandoned buffer, not a lost sentence.
+            if (this.replyAudible && voicedForMs < MIN_VOICED_MS) {
+                if (this.utteranceId) {
+                    this.utteranceId = 0
+                    this.seq = 0
+                }
+                this.vad.resetUtterance()
+                return
+            }
             // The end of the utterance is the interruption, and it has to be felt on this tick:
             // the audio stops locally *before* the frame leaves, so the person hears silence
             // immediately rather than after a round trip (FR-019, SC-002). The server then
