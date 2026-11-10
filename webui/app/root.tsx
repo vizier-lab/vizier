@@ -7,7 +7,7 @@ import './app.css'
 import './lib/clientTools/builtin'
 import { transport } from './api/transport'
 import { bootstrapView } from './lib/desktop'
-import { PRE_PAINT_SCRIPT } from './lib/themes/apply'
+import { PRE_PAINT_SCRIPT, THEME_COLORS } from './lib/themes/apply'
 import { Bootstrap } from './screens/desktop/Bootstrap'
 import { RuntimeBanner } from './screens/desktop/RuntimeBanner'
 import { useAppearance } from './stores/appearance'
@@ -21,9 +21,18 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <html lang="en">
             <head>
                 <meta charSet="utf-8" />
-                <meta name="viewport" content="width=device-width, initial-scale=1" />
+                <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
                 <title>Vizier</title>
                 <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+                <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+                <link rel="manifest" href="/manifest.webmanifest" />
+                <meta name="theme-color" content={THEME_COLORS.dark} />
+                <meta name="color-scheme" content="light dark" />
+                {/* iOS ignores parts of the manifest. */}
+                <meta name="mobile-web-app-capable" content="yes" />
+                <meta name="apple-mobile-web-app-capable" content="yes" />
+                <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+                <meta name="apple-mobile-web-app-title" content="Vizier" />
                 {/* The stored scheme before first paint; nothing stored follows the OS. */}
                 <script dangerouslySetInnerHTML={{ __html: PRE_PAINT_SCRIPT }} />
                 <Meta />
