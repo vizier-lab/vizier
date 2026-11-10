@@ -1,15 +1,19 @@
 import { IconButton, MobileTopBar, ShellFrame, SlideOver } from '@vizier/design'
-import { useEffect, useState, type MouseEvent } from 'react'
+import { useEffect, useMemo, useState, type MouseEvent } from 'react'
 import { Outlet, useLocation, useMatches, useNavigate, useParams } from 'react-router'
 import { motion } from 'motion/react'
 import { motionDurations, motionEases } from '@vizier/design'
 import { useMobile } from '../lib/useMobile'
+import { isUnreachable } from '../lib/pwa/connectivity'
 import { useNav } from '../stores/nav'
 import { useAgents } from '../stores/agents'
+import { useConnection } from '../stores/connection'
+import { useConnectivity } from '../stores/connectivity'
 import { useNotifications } from '../stores/notifications'
 import { NotificationsPopup } from '../screens/notifications/NotificationsPopup'
 import { NotificationsBell } from '../screens/shared/NotificationsBell'
 import { NotificationToasts } from '../screens/shared/NotificationToasts'
+import { OfflineBanner } from '../screens/shared/OfflineBanner'
 import { NewAgentDialog, withNewAgent } from '../screens/agents/NewAgentDialog'
 import { SettingsSidebar } from '../screens/settings/SettingsSidebar'
 import { AgentSidebar } from '../screens/shell/AgentSidebar'
@@ -50,6 +54,30 @@ export default function AppShell() {
 
     useEffect(() => start(), [start])
     useEffect(() => void loadWorkspaces(), [loadWorkspaces])
+    // Whether the app can reach the engine: what the browser says, or a topic that lost its
+    // connection. The banner says what is unavailable rather than pretending the app is fine.
+    const offline = useConnectivity((s) => s.offline)
+    const topicStates = useConnection((s) => s.state)
+    const unreachable = useMemo(() => isUnreachable(offline, topicStates), [offline, topicStates])
+    useEffect(() => {
+        const update = () => useConnectivity.getState().setOffline(!navigator.onLine)
+        update()
+        window.addEventListener('online', update)
+        window.addEventListener('offline', update)
+        return () => {
+            window.removeEventListener('online', update)
+            window.removeEventListener('offline', update)
+        }
+    }, [])
+    // Trying again re-reads the browser's answer and asks every lost socket to reconnect.
+    const retry = () => {
+        useConnectivity.getState().setOffline(!navigator.onLine)
+        for (const [key, state] of Object.entries(topicStates)) {
+            if (state !== 'offline') continue
+            const cut = key.lastIndexOf('/')
+            useConnection.getState().retry(key.slice(0, cut), key.slice(cut + 1))
+        }
+    }
     // A fresh session starts from zero, then the badge is kept current by the inbox stream.
     useEffect(() => {
         resetNotifications()
@@ -131,6 +159,13 @@ export default function AppShell() {
         </motion.div>
     )
 
+    // Above the page, in the same place the chat draws its own connection banner.
+    const banner = unreachable ? (
+        <div className="px-24 pt-12">
+            <OfflineBanner onRetry={retry} />
+        </div>
+    ) : null
+
     if (mobile) {
         const drawerView = view === 'bare' && drawerAgent ? 'agent' : view
         return (
@@ -155,7 +190,10 @@ export default function AppShell() {
                         }
                     />
                 )}
-                <main className="flex min-h-0 min-w-0 flex-1 flex-col">{page}</main>
+                <main className="flex min-h-0 min-w-0 flex-1 flex-col">
+                    {banner}
+                    {page}
+                </main>
                 <SlideOver open={navOpen} title="Menu" side="left" onClose={() => setNavOpen(false)}>
                     <div className="-m-20 flex h-[calc(100%+40px)] bg-shell">
                         <ShellRail pathname={pathname} view={view} routeAgent={routeAgent} />
@@ -182,6 +220,7 @@ export default function AppShell() {
                 sidebarKey={sidebarKey}
                 collapsed={view === 'agent' && sidebarCollapsed}
             >
+                {banner}
                 {page}
             </ShellFrame>
             <NotificationsPopup />
