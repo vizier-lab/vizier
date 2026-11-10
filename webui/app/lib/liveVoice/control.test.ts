@@ -5,9 +5,11 @@ import {
     bindLiveVoice,
     clearLiveVoice,
     endLiveVoice,
+    followLiveVoiceConnection,
     forwardLiveVoiceFrame,
     forwardLiveVoiceState,
 } from './control'
+import { topicKey, useConnection } from '../../stores/connection'
 
 /**
  * T090 — the composer's surface is hidden in two ways by React (`pagehide`, then the unmount
@@ -128,3 +130,102 @@ describe('T090 — the row leaving through the binding', () => {
  * Adding one is a dependency decision for the Lead, not a change to make inside a test ticket. The
  * seam both handlers call is `endLiveVoice`, and it is covered above with a real client.
  */
+
+
+/**
+ * FR-033 — the socket's own state reaches the call.
+ *
+ * `forwardLiveVoiceState` existed and had no production caller: the transport publishes
+ * `reconnecting`/`offline`/`open` into the connection store, and nothing forwarded them. These legs
+ * drive the real store and the real client, so they fail if the subscription is ever unwired again
+ * — which is exactly what happened and what no test caught.
+ *
+ * What cannot be run here: rendering `LiveVoiceControl` (this package has no DOM). The seam the
+ * component calls is `followLiveVoiceConnection`, and it is what is exercised below.
+ */
+describe('FR-033 — the socket drops, and the call is told', () => {
+    const KEY = topicKey(AGENT, TOPIC)
+
+    function following() {
+        const sent: object[] = []
+        const views: LiveVoiceView[] = []
+        let clock = 1000
+        const live = new LiveVoiceClient({
+            send: (frame) => {
+                sent.push(frame)
+                return true
+            },
+            player: new SilentPlayer(),
+            openCapture: async () => ({ stop: () => {}, open: true }),
+            onView: (view) => views.push(view),
+            now: () => clock,
+        })
+        bindLiveVoice(AGENT, TOPIC, live, () => {})
+        const unsubscribe = followLiveVoiceConnection(AGENT, TOPIC)
+        return {
+            live,
+            sent,
+            unsubscribe,
+            advance: (ms: number) => {
+                clock += ms
+            },
+            last: () => views[views.length - 1],
+            starts: () =>
+                sent.filter((frame) => 'live_voice_start' in (frame as Record<string, unknown>))
+                    .length,
+            socket: (state: 'open' | 'connecting' | 'reconnecting' | 'offline') =>
+                useConnection.setState((cur) => ({ state: { ...cur.state, [KEY]: state } })),
+        }
+    }
+
+    afterEach(() => {
+        clearLiveVoice()
+        useConnection.setState({ state: {} })
+    })
+
+    it('a reconnect reaches the call, so the bar stops claiming to be listening', async () => {
+        const h = following()
+        await h.live.start()
+        expect(h.live.currentState).toBe('listening')
+
+        h.socket('reconnecting')
+
+        expect(h.live.currentState).toBe('reconnecting')
+        expect(h.last().notice).toBe('connection lost, reconnecting')
+    })
+
+    it('the socket coming back re-binds the session with one start frame (T067)', async () => {
+        const h = following()
+        await h.live.start()
+        const before = h.starts()
+
+        h.socket('reconnecting')
+        h.socket('open')
+
+        expect(h.live.currentState).toBe('listening')
+        expect(h.starts(), 'one more start, and the server re-binds its lane').toBe(before + 1)
+    })
+
+    it('a drop that outlasts the window ends the call instead of hanging', async () => {
+        const h = following()
+        await h.live.start()
+
+        h.socket('offline')
+        expect(h.live.currentState).toBe('reconnecting')
+
+        h.advance(31_000)
+        h.live.checkReconnectDeadline()
+
+        expect(h.live.currentState).toBe('ended')
+        expect(h.last().notice).toBe('the connection dropped')
+        expect(h.last().micOpen).toBe(false)
+    })
+
+    it('the state already in the store is forwarded to a call that starts later', async () => {
+        const h = following()
+        h.socket('open')
+        await h.live.start()
+        h.socket('reconnecting')
+        expect(h.live.currentState).toBe('reconnecting')
+    })
+})

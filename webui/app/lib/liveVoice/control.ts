@@ -7,6 +7,7 @@
  * conversation), which is also what the server keys its registry on (FR-005).
  */
 
+import { topicKey, useConnection } from '../../stores/connection'
 import type { LiveVoiceClient, LiveVoiceView } from './session'
 
 const key = (agentId: string, topicId: string) => `${agentId}/${topicId}`
@@ -71,6 +72,37 @@ export function forwardLiveVoiceState(
     state: 'open' | 'connecting' | 'reconnecting' | 'offline'
 ): void {
     entries.get(key(agentId, topicId))?.client.onSocketState(state)
+}
+
+/**
+ * Hand the socket's state to this conversation's call, for as long as the caller keeps the
+ * subscription (FR-033).
+ *
+ * `forwardLiveVoiceState` existed and nobody called it: the transport does publish
+ * `reconnecting`/`offline`/`open` into the connection store, but the call never listened, so
+ * `onSocketState` never ran in production. The consequence was not cosmetic — `droppedAt` was
+ * never set, the thirty second deadline never armed, no `live_voice_start` was re-sent on a
+ * return, and a session the server had already forgotten stayed on screen as `listening`
+ * forever while every audio frame it sent was dropped in silence.
+ *
+ * Subscribing rather than reading the state in a render keeps the call out of React's render
+ * path: a socket that flaps ten times a second should not re-render a bar. The current value is
+ * forwarded on subscribe, because a session that starts while the socket is already open needs to
+ * know that it is open.
+ */
+export function followLiveVoiceConnection(agentId: string, topicId: string): () => void {
+    const id = key(agentId, topicId)
+    const at = (state: Record<string, string> | undefined) => state?.[id]
+    let seen = at(useConnection.getState().state)
+    if (seen) forwardLiveVoiceState(agentId, topicId, seen as 'open' | 'connecting' | 'reconnecting' | 'offline')
+    return useConnection.subscribe((current) => {
+        const next = at(current.state)
+        if (next === seen) return
+        seen = next
+        if (next) {
+            forwardLiveVoiceState(agentId, topicId, next as 'open' | 'connecting' | 'reconnecting' | 'offline')
+        }
+    })
 }
 
 /** The person typed a message: the audio stops, the session stays live (FR-025). */

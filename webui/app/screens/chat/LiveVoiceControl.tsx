@@ -14,7 +14,7 @@ import { useTurns } from '../../stores/turns'
 import { LiveVoiceClient, type LiveVoiceView } from '../../lib/liveVoice/session'
 import { WebAudioPlayer } from '../../lib/liveVoice/player'
 import { startCapture } from '../../lib/liveVoice/capture'
-import { bindLiveVoice, endLiveVoice } from '../../lib/liveVoice/control'
+import { bindLiveVoice, endLiveVoice, followLiveVoiceConnection } from '../../lib/liveVoice/control'
 import { LiveVoiceRow } from './LiveVoiceRow'
 
 export interface LiveVoiceControlProps {
@@ -77,6 +77,13 @@ export function LiveVoiceControl({
         // path and not two (T090).
         return () => endLiveVoice(agentId, topicId, bound, 'left_conversation')
     }, [agentId, topicId])
+
+    // FR-033: the socket's own state reaches the call. Nothing did this before — the transport
+    // publishes `reconnecting` and `offline` into the connection store, and the call never
+    // listened, so a drop left the bar saying `listening` for good while the server dropped every
+    // frame it sent. The subscription lives as long as the surface does, and the current value is
+    // forwarded on the way in for a call that starts on a socket that is already open.
+    useEffect(() => followLiveVoiceConnection(agentId, topicId), [agentId, topicId])
 
     // A live voice turn is submitted by the server, so this tab never sends it and the thread used
     // to stay empty until a refresh read it back. The words are drawn as they are heard: the
