@@ -362,16 +362,16 @@ abort_turn  ONLY when  ratio = audio_ms / wall_ms < 5.0
   audio_ms  from the PCM actually received (len / 32 for 16 kHz mono 16-bit), never chunks x 100
   wall_ms   in microseconds (or f64): three measured bursts are 241, 584 and 668 us, so whole
             milliseconds would round two of them to 0 and divide by zero
-  wall_ms == 0   -> held, reason=zero-wall, never infinity (division by zero is not a theoretical case).
-            `zero-wall` is its own reason, not `burst`: `burst` means a ratio that was measured and came
-            out at or above 5.0, while here there is no ratio to measure at all. Same branch, same
-            decision - the name is split so `grep reason=burst` counts measured bursts only and does not
-            quietly mix in the times the clock rounded to zero. If the PM prefers two names over three,
-            this is one word to change, and the guard does not change with it.
+  wall_ms == 0   -> held, reason=burst, never infinity (division by zero is not a theoretical case).
+            A third name (`zero-wall`) was drafted and withdrawn against the PM's ruling of 21:20 that
+            **only `burst` and `no-audio` are valid reasons**, and against the implementer's reading of
+            the same branch. The cost is stated rather than hidden: `grep reason=burst` also counts the
+            times the clock rounded to zero, so a reader counting *measured* bursts must exclude
+            `wall_ms == 0` themselves. Two names, one address - that is the trade.
   audio_ms == 0  -> held too, reason=no-audio: no audio is not a low ratio
   opened_at / turn_started_at are NOT a condition - see the withdrawal note below; they may be logged
             as a diagnostic (`opened_before_turn=true|false`) and nothing depends on them
-every decision logs: decision=abort|held, reason=<burst|no-audio|zero-wall>, ratio, audio_ms,
+every decision logs: decision=abort|held, reason=<burst|no-audio>, ratio, audio_ms,
         wall_ms, topic, utterance_id, sequence=<which turn of this session> - so a report of "my
         interruption was refused" can be matched to a turn without guessing from the clock; sequence
         and reason ride the warn line only, not the grey-zone debug line. **One field, one name:** the
