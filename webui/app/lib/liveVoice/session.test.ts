@@ -569,6 +569,38 @@ describe('T045 — the interruption lands at the end of the utterance (C8)', () 
         expect(h.log.filter((entry) => entry === 'live_voice_utterance_end')).toHaveLength(2)
     })
 
+    it('a chunk during silence does not swallow the next speech_start', async () => {
+        // What a real browser does and this suite never did: the capture emits one 100 ms chunk
+        // every 100 ms, whether or not anyone is talking (`capture.ts:56` window, then `:64`
+        // chunk). `sendAudio` used to bump `utteranceId` for that chunk, and `onWindow` opens an
+        // utterance only when `!utteranceId` — so after the first silent chunk the id was never
+        // zero again, `speech_start` went out at most once per session, and every later utterance
+        // was audio the server dropped without a word (`push_audio` -> `None`). That is the
+        // report: "I speak again and only `listening` happens".
+        const h = ordered()
+        await h.client.start()
+
+        // Silence, with the chunks that flow anyway.
+        h.chunk()
+        h.chunk()
+
+        // Then a person speaks, finishes, and speaks again.
+        h.voice(400)
+        h.silence(900)
+        h.chunk()
+        h.voice(400)
+        h.silence(900)
+
+        expect(
+            h.log.filter((entry) => entry === 'live_voice_speech_start'),
+            'two utterances spoken, so two utterances opened'
+        ).toHaveLength(2)
+        expect(
+            h.log.filter((entry) => entry === 'live_voice_utterance_end'),
+            'and both closed'
+        ).toHaveLength(2)
+    })
+
     it('a 100 ms burst over a live reply is a blip, not an ending (superseded expectation)', async () => {
         // This test used to assert the opposite, and the change is deliberate: a 100 ms burst
         // closed the utterance, stopped the audio locally and cancelled the turn, so a knock, a

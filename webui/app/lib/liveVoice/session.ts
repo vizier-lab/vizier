@@ -434,7 +434,14 @@ export class LiveVoiceClient {
 
     private sendAudio(samples: Int16Array): void {
         if (this.state === 'off' || this.state === 'ended' || this.state === 'failed') return
-        if (!this.utteranceId) this.utteranceId += 1
+        // No utterance open, no audio. The id belongs to the utterance the gate opened, and only
+        // the gate opens one (`onWindow`). Inventing an id here is what broke the second
+        // utterance of every call: the capture emits a chunk every 100 ms whether or not anyone
+        // is talking (`capture.ts:56` then `:64`), so the first silent chunk claimed id 1, and
+        // `!this.utteranceId` was never true again — `speech_start` went out at most once per
+        // session and every later utterance was audio the server dropped without a word
+        // (`push_audio` -> `None`, `session.rs:418-419`).
+        if (!this.utteranceId) return
         this.deps.send(audioFrame(`u-${this.utteranceId}`, this.seq++, encodePcm16Base64(samples)))
     }
 
