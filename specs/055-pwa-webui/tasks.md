@@ -78,6 +78,29 @@ check is a Playwright spec against a running server.
       control.
 - [X] T020 Write the spec folder: `spec.md`, `tasks.md` and the mockup.
 
+## Phase 5: The review pass
+
+What the review of the whole branch found, and what the branch does about it.
+
+- [X] T021 Hold the worker's runtime cache write with `waitUntil`: the write was a promise nobody
+      waited for, so the worker could stop before the asset landed and the app would come back
+      without its chunks.
+- [X] T022 Stamp the worker with the id of the build it belongs to (`vite.config.ts`). The worker
+      was the same bytes in every build, so the browser never installed a new one and the update
+      offer never came. The id is a hash of what the build emitted: it changes exactly when the
+      app does.
+- [X] T023 Clear only Vizier's own caches when a worker takes over; this origin may hold others.
+- [X] T024 Recognise an asset by its extension, not by any dot: a memory document named
+      `notes.v1.md` is addressed as `notes.v1`, and its route was answering 404 instead of the
+      shell.
+- [X] T025 Tell a visitor on a LAN address that the install is loopback-only, in the web app and
+      not only in the desktop app's settings — the note was where the switch is, and the switch is
+      not what the visitor is using.
+- [X] T026 Paint the browser chrome even when the stored paint cache is damaged: the cache is an
+      optimisation, and it was throwing the script out before the chrome was painted.
+- [X] T027 Check the offline surface where it is drawn: the sign-in screen and the signed-in
+      shell, and that the served worker belongs to this build.
+
 ## Not done, and why
 
 - **No API caching.** A stale chat is a lie about a live system. The issue's own recommendation,
@@ -86,3 +109,7 @@ check is a Playwright spec against a running server.
   if the maintainer wants it.
 - **No safe-area tokens.** `viewport-fit=cover` extends the layout into the notch, and `design/`
   has no safe-area tokens. The phone layout is #152.
+- **The browser chrome follows light and dark, not a custom scheme's own ground.** A
+  `theme-color` meta takes a plain colour, not a token, so it cannot follow `--vz-ground` when a
+  scheme paints a different one. The two grounds the design system ships are the ones the meta
+  uses.
