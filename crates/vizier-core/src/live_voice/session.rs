@@ -1442,6 +1442,50 @@ mod filler_tests {
         assert_eq!(seqs, (0..heard.len() as u32).collect::<Vec<_>>(), "seqs are 0,1,2…");
     }
 
+    /// The list itself is the rule the person set: neutral in language, and never a promise about
+    /// how long the wait will be. A word added here later that breaks either is caught here.
+    #[test]
+    fn the_filler_list_promises_nothing_about_time() {
+        assert!(!FILLER_WORDS.is_empty(), "a filler that says nothing covers nothing");
+        for word in FILLER_WORDS {
+            let lower = word.to_lowercase();
+            for banned in [
+                "sebentar", "bentar", "sabar", "tunggu", "wait", "moment", "second", "hold", "soon",
+                "minute", "detik", "segera",
+            ] {
+                assert!(
+                    !lower.contains(banned),
+                    "{word:?} promises a duration this session cannot keep ({banned:?})"
+                );
+            }
+            assert!(word.chars().count() <= 8, "{word:?} is a sentence, not a filler");
+        }
+        // And the four the brief names are still there.
+        for word in ["okay", "ya", "mm", "right"] {
+            assert!(FILLER_WORDS.contains(&word), "{word:?} was agreed and is missing");
+        }
+    }
+
+    /// One turn, one word: a second turn gets its own, and neither turn gets two.
+    #[tokio::test]
+    async fn each_turn_spends_at_most_one_filler() {
+        let (session, mut rx) = lane(64);
+        let engines: SharedEngines = Arc::new(SlowVoice {
+            delay: Duration::from_millis(700),
+            filler_fails: false,
+        });
+        let text = reply();
+
+        for turn in 0..2 {
+            let generation = session.generation();
+            session.arm_filler(&engines, generation);
+            session.speak_reply(&engines, &text, generation).await.unwrap();
+            let heard = frames(&mut rx);
+            let fillers = heard.iter().filter(|(len, _, _)| *len <= 8).count();
+            assert_eq!(fillers, 1, "turn {turn} gets exactly one word: {heard:?}");
+        }
+    }
+
     /// A quick answer is not covered: the filler would talk over it, which is what "robotik" means.
     #[tokio::test]
     async fn a_quick_answer_gets_no_filler_at_all() {
