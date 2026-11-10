@@ -350,41 +350,46 @@ be started.
   cancelled=true generation=3` -> `reply abandoned … at="the synthesis finished after the reply was
   over"`, with zero `segment sent`. The person sees "the first answer has no voice" and every answer
   after it is fine, because later turns are no longer brand new when their `close` arrives.
-**THE RULE — gate: BOTH conditions (PM, 2026-11-10 21:16, final). This block is the whole of it;
-nothing above or below widens or narrows it.**
+**THE RULE — one gate: the ratio. Frozen 2026-11-10 21:17 after the third rewrite of this block.**
 ```
-abort_turn  ONLY when BOTH hold:
-  (1) utterance.opened_at > turn.started_at        strict >, never >=  (a tie is a race, not "after")
-  (2) ratio = audio_ms / wall_ms < 5.0
-  wall_ms == 0        -> held   (burst, never infinity: two measured cases are 0.2 and 0.6 ms)
-  audio_ms == 0       -> held   (reason=no-audio: no audio is not a low ratio)
-  ratio >= 5.0        -> held   (warn!, decision=held, reason=burst, sequence=...)
+abort_turn  ONLY when  ratio = audio_ms / wall_ms < 5.0
+  ratio >= 5.0     -> held   (burst; warn! with decision=held reason=burst sequence=...)
+  2.0 <= ratio < 5.0 -> ABORT, debug! with decision=abort   (today's behaviour, unchanged)
+  ratio < 2.0      -> ABORT, no extra line
+  wall_ms == 0     -> held   (burst, never infinity: two measured cases are 0.2 and 0.6 ms)
+  audio_ms == 0    -> held   (reason=no-audio: no audio is not a low ratio)
   audio_ms  from the PCM actually received (len / 32 for 16 kHz mono 16-bit), never chunks x 100
   wall_ms   in microseconds or f64: three measured bursts are 241, 584 and 668 us, so whole
             milliseconds would round two of them to 0
 every decision logs: decision=abort|held, ratio, audio_ms, wall_ms, topic, utterance_id, sequence,
-            and reason=burst | opened-before-turn | no-audio
+            and reason=burst | no-audio
 levels: held -> warn (the only branch that can make a person say "my interruption was refused", so it
-        must not depend on a debug filter); a 2.0-5.0 ratio that aborts -> debug with decision=abort
+        must not depend on a debug filter); abort decisions -> debug!
 ```
-**Two fields are therefore a prerequisite, not a detail:** `Utterance` carries `opened_at`
-(`crates/vizier-core/src/live_voice/utterance.rs:14`) and the session carries `turn_started_at`
-(`session.rs:74` holds only `busy: AtomicBool`). Both use `tokio::time::Instant`, like `session.rs:80`,
-not `std::time::Instant`, so the comparison is sound and a test needs no injected ordering. Without them
-the red test cannot be written honestly.
+**No new fields are required.** `opened_at` and `turn_started_at` are **not** part of this gate, so
+`utterance.rs` and `session.rs` are untouched by it. If they are added later for diagnostics, the log
+may carry `opened_before_turn=true|false` — and it must not decide anything.
 
-**Each condition alone was measured, and each fails alone.** They are kept together for that reason:
-- **Ratio alone is wider, and it passes every case we have** — but it holds nothing when an utterance is
-  opened after the turn with a plausible ratio, so it is the shape that leaves the most room.
-- **Origin alone is broken, measured, and must never be used on its own.** Of the three `cancelled=true`
-  events in the log it gets one wrong, and that one is the reported defect:
-  - `20:08:14` `open` .818824 -> `turn_start` .818945 (open **121 us earlier**) -> origin holds: correct
-  - `20:09:25` `turn_start` .700115 -> `open` .700219 (open **104 us later**) -> origin **aborts**: wrong,
-    because this is the first answer of `cEKjwtlxZ7` dying before it speaks
-  - `20:12:32` `turn_start` 20:12:29.710 -> `open` 20:12:32.116 (2.4 s later), ratio **1.0x** -> abort:
-    correct, a real interruption, and it must keep working
-  The 104 us gap is task scheduling, not anything a person did. With condition (1) **and** (2) together
-  the 20:09:25 burst is held by the ratio, so the race can no longer decide a kill.
+**A second condition was proposed twice tonight and rejected twice. Three reasons, all checkable:**
+1. **Its only effect lies in a band with zero samples.** Both shapes pass all three `cancelled=true`
+   cases identically; they differ only for an utterance opened before `turn_start` with a plausible
+   ratio. No call in the log produced that. Tonight's own rule — do not build a condition for a case
+   that has never been observed — rules it out.
+2. **Origin as a gate can hold a legitimate interruption.** The two events land 104-121 us apart, so a
+   genuine 1.0x interrupt whose `open` happens to land before `turn_start` would be **held** by that
+   condition — a real interruption blocked by task scheduling. Measuring the ratio cannot do that.
+3. **It costs two new fields in two core files for no measured coverage.** `Utterance` would carry
+   `opened_at` (`utterance.rs:14`) and the session `turn_started_at` (`session.rs:74` holds only
+   `busy: AtomicBool`). The ratio needs neither, and the simpler shape reaches identical results on
+   every case we have.
+
+**What was measured, and it is why the ratio is the gate.** Of the three `cancelled=true` events,
+**origin alone gets one wrong and it is the reported defect**: `20:09:25` `turn_start` .700115 then
+`open` .700219 — 104 us later, so origin says "after, abort", and that is the first answer of
+`cEKjwtlxZ7` dying before it speaks. The ratio holds it at 3 320x. `20:08:14` (`open` 121 us before
+`turn_start`, 1 370x) and `20:12:32` (2.4 s after, 1.0x, a real interruption that must keep aborting)
+are right under both. So the ratio covers every case we have; origin never adds coverage, it only
+removes it.
 
 **Why the ratio is 5.0 and not 3.0 or 100.** Audio duration / wall-clock duration is **1.0x** for a person
 actually speaking (all 16 real utterances) and **1 370x, 3 320x, 4 641x** for audio that arrived in one
@@ -406,12 +411,13 @@ finished: the DoD stays that **the first turn of a session must not die before i
 test must be **red** without it.
 
 **What this does NOT close, stated as a price rather than hidden:**
-- **An utterance opened inside the 3.4 s window between `close_utterance` and `turn_start`**
-  (20:13:14 -> 20:13:18) has `opened_at < turn_started_at`, so condition (1) forbids aborting its close:
-  a person who starts speaking while the agent is still thinking **cannot cut the answer until it ends**.
-  That is the **accepted cost of the narrower shape** (PM, 2026-11-10 21:16), and it disappears when
-  `transcribe` leaves the socket loop, because the window shrinks to nothing. It has no sample in the
-  log — it is a reasoned cost, not a measured one — and it must not be described as closed.
+- **The 3.4 s window between `close_utterance` and `turn_start` (20:13:14 -> 20:13:18) is NOT a gap
+  under this shape.** It was only ever one under the rejected origin condition: an utterance opened in
+  that window sits before the next `turn_start`, so that condition forbade aborting it. Judged on the
+  ratio alone, a genuine 1.0x interruption there still cuts the answer — and cutting it costs nothing,
+  because no audio for that turn has been sent yet. So there is no accepted cost to declare here, and
+  nothing to wait for: the window is irrelevant to this gate. (Moving `transcribe` out of the socket
+  loop still shrinks it, which is why that work is in this package for other reasons.)
 - A **legitimate** interruption arriving while the socket is stalled reads a high ratio and is held; the
   agent keeps talking until it finishes or the button is pressed. Same cause, same expiry.
 - An utterance shorter than about 300 ms makes the ratio noisy and stays on the server's `too_short`
@@ -430,18 +436,17 @@ exists so the frequency can be counted and this decision revisited with data.
 at `20:08:14.819`, `20:09:25.700` and `20:12:32.921`, so: **20:08:14 (1 370x) held, `segment sent` > 0**
 (first turn of `dPg_xlZut8`) · **20:09:25 (3 320x) held, `segment sent` > 0** (first turn of
 `cEKjwtlxZ7`, **red without the fix**) · **20:12:32 (1.0x) aborts** (a real interruption) · **`wall_ms == 0`
-held** · **`reason=opened-before-turn` written** when condition (1) holds a close · **Q5 green**.
+held** · **`audio_ms == 0` held with `reason=no-audio`** · **Q5 green**.
 `20:10:05` (9.8x) and `20:11:48` (4 641x) are **not gate material**: both logged `cancelled=false` with no
 turn busy, so they prove the burst arrived and say nothing about what the guard does with it — a test
 written from either would pass without the fix.
 
 **What 20:12:32 proves, and what no test can prove.** It proves a real interruption still cuts the answer:
-it opens at 20:12:32.116, **2.4 s after** `turn_start` 20:12:29.710, at a 1.0x ratio, so both conditions
-agree and the abort proceeds. It does **not** by itself distinguish this shape from the ratio-only shape —
-on all five cases in the log the two shapes give the same verdict. They differ only for an utterance
-opened inside the 3.4 s window at about 1.0x, which has **no sample**: under BOTH it is held, under ratio
-only it aborts. Say that in the test's comment rather than implying the gate pins the shape; the gate pins
-the defect, and the shape is pinned by the rule block above and by nothing else.
+it opens at 20:12:32.116, **2.4 s after** `turn_start` 20:12:29.710, at a 1.0x ratio, so the ratio lets the
+abort through. **Say in the test's comment what it does and does not pin:** it pins the defect (a real
+interruption must still cut the answer), and it does **not** distinguish this gate from the rejected
+two-condition shape — on all five cases in the log the two give the same verdict, and they differ only for
+an utterance opened inside the 3.4 s window at about 1.0x, which has no sample at all.
 
 - [ ] LV-EMPTY-REPLY-SILENT **A reply with no content passes as a turn.** Four of the eight turns on
   topic `cEKjwtlxZ7` produced `content: ""` — no text, no speech, and no word to the person that
