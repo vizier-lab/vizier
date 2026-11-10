@@ -366,6 +366,15 @@ every decision logs: decision=abort|held, reason=<burst|no-audio>, ratio, audio_
 levels: held at warn (the only branch that can make a person say "my interruption was refused", so it
         must not depend on a debug filter); the 2.0-5.0 grey zone at debug with decision=
 ```
+**A second condition on the utterance's origin was chosen and then withdrawn — do not put it back.**
+Between 21:02 and 21:10 the guard briefly required `opened_at > turn_started_at` as well. It was
+withdrawn for a measured reason, not a preference: it buys nothing the ratio does not already buy
+(every burst in the log is 9.8x or above, so the ratio holds all of them), and it *creates* a failure
+it was supposed to prevent — an utterance opened during the 3.4 s between `close_utterance` and
+`turn_start` has `opened_at < turn_started_at`, so its close could never abort, and a person talking
+while the agent was still thinking could not cut the answer at all. Under the ratio alone that same
+utterance measures about 1.0x and aborts as it should. `opened_at` survives as a **diagnostic
+(`opened_before_turn=true|false`)**, never as a gate.
 **Why the ratio and not a duration or "has it spoken yet":** measured over 19 utterances on
 20:08-20:13, audio duration / wall-clock duration is **1.0x** for a person actually speaking and
 **1 370x, 3 320x, 4 641x** for audio that arrived in one dump (tens of microseconds of wall clock
