@@ -318,6 +318,22 @@ refuse it rather than half-honour it.
 | interrupt by speaking | **nothing extra** — the end of an utterance while a reply is audible | `state: interrupted`, a new `generation`, the rest of the reply discarded | socket |
 | end | `live_voice_stop` | `state: ended` with a reason | socket |
 | move | `live_voice_start` for another conversation or agent | the old session `ended` with reason `moved`, the new one starting | socket |
+| end by itself | **nothing** — the server counts the silence | `state: ended` with reason `idle`, the microphone released | socket |
+
+**`end by itself` is new (2026-11-10, FR-029, option A).** Until this row existed the lifecycle table had
+only two endings, and **both were started by the client**: `end` (the person presses stop) and `move` (the
+person starts a call elsewhere). The reason `idle` was in the vocabulary at `:146` and `:324` with nothing
+that produced it — a word the contract promised and the lifecycle never delivered. The row fixes the
+**owner**, not just the word: the server watches the silence and ends the session, so a client that hangs,
+crashes or is written by somebody else does not have to implement a timer to keep the promise.
+
+**What a client owes here is only to listen.** It sends `live_voice_stop` when the person ends the call;
+it does **not** send it because a timer expired, because a third-party client has no way to know the
+configured idle period and a client-side timer would be a rule nobody wrote down. Three details of the
+server's side are part of the promise rather than of the implementation: the clock is reset by **every**
+event that makes a session active (a start, an utterance closing, a segment of a reply going out), it
+**stops counting while the agent is working**, and the ending is sent as one `state: ended` frame with
+`reason: idle` so the row can show the reason it already knows how to show.
 
 **The reason vocabulary is part of the contract**, because a third-party client has to show something
 truthful: `pressed_again | left_conversation | page_closed | permission_withdrawn |
