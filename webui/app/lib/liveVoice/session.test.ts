@@ -1469,3 +1469,67 @@ describe('N1 regression — a listing echo that overtakes the device must not ki
         expect(h.client.currentState, 'back on the same session').toBe('listening')
     })
 })
+
+/**
+ * D2 — the deadline must survive the server's `listening` echo.
+ *
+ * The echo is what made the original report ("Listening" with `mic off`) possible, so the deadline
+ * is checked with the echo in the picture: the row must still give up, say why, and tell the server
+ * exactly once. Gating the deadline on the state word instead of on the missing device is what
+ * would let a prompt nobody answered hang for ever.
+ */
+describe('D2 — a prompt nobody answers still ends, even after the listening echo', () => {
+    function pendingDevice(deadlineMs: number) {
+        const sent: object[] = []
+        const views: LiveVoiceView[] = []
+        let settle: ((value: { stop(): void; open: boolean }) => void) | null = null
+        const client = new LiveVoiceClient({
+            send: (frame) => {
+                sent.push(frame)
+                return true
+            },
+            player: new SilentPlayer(),
+            openCapture: () =>
+                new Promise((resolve) => {
+                    settle = resolve
+                }),
+            onView: (view) => views.push(view),
+            now: () => 1000,
+            connectDeadlineMs: deadlineMs,
+        })
+        return {
+            client,
+            last: () => views[views.length - 1],
+            open: () => settle?.({ stop: () => {}, open: true }),
+            stops: () => sent.filter((frame) => 'live_voice_stop' in frame).length,
+        }
+    }
+
+    it('fails with a readable reason and one stop frame', async () => {
+        const h = pendingDevice(20)
+        void h.client.start()
+        // The server accepted the start frame, so it is listening already — the echo that started
+        // this whole thread.
+        h.client.onFrame({ live_voice: { type: 'state', state: 'listening', generation: 1 } })
+
+        await new Promise((resolve) => setTimeout(resolve, 60))
+
+        expect(h.client.currentState).toBe('failed')
+        expect(h.last().notice).toContain('the microphone did not open')
+        expect(h.last().micOpen).toBe(false)
+        expect(h.stops(), 'exactly one ending, not two').toBe(1)
+    })
+
+    it('an ending the person asked for is not repeated by the deadline', async () => {
+        // Pressing End while the prompt is up must not turn into a second `live_voice_stop`
+        // when the timer fires a moment later.
+        const h = pendingDevice(20)
+        void h.client.start()
+        h.client.stop('pressed_again')
+        expect(h.stops()).toBe(1)
+
+        await new Promise((resolve) => setTimeout(resolve, 60))
+        expect(h.stops(), 'the deadline stays quiet').toBe(1)
+        expect(h.client.currentState).toBe('ended')
+    })
+})

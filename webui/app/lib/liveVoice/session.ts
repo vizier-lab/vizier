@@ -501,8 +501,19 @@ export class LiveVoiceClient {
      * `startFrame` left — and a client that never opens its microphone leaves a session nobody can
      * use and every other tab sees as taken.
      */
+    /**
+     * Give up on a device that never opened (N1).
+     *
+     * The question is whether a device ever arrived, **not** which word the row is showing. Gating
+     * this on `state === 'connecting'` made the deadline die silently the moment anything moved the
+     * session on — which is precisely the situation it exists for: a permission prompt nobody
+     * answered while the server had already said `listening`. A session that is already over is
+     * left alone, so an ending the person asked for is never repeated.
+     */
     private abandonConnect(deadlineMs: number): void {
-        if (this.state !== 'connecting') return
+        this.connectDeadline = null
+        if (this.capture !== null || this.released) return
+        if (this.state === 'off' || this.state === 'ended' || this.state === 'failed') return
         this.deps.send(stopFrame())
         this.fail('no_device', `the microphone did not open within ${Math.round(deadlineMs / 1000)} seconds`)
     }
