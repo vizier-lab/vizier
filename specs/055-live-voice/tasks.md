@@ -350,132 +350,98 @@ be started.
   cancelled=true generation=3` -> `reply abandoned … at="the synthesis finished after the reply was
   over"`, with zero `segment sent`. The person sees "the first answer has no voice" and every answer
   after it is fine, because later turns are no longer brand new when their `close` arrives.
-**THE RULE — gate: the ratio alone (PM, 2026-11-10 21:15, final; supersedes the BOTH-conditions ruling
-of 21:14 and the origin-as-gate ruling before it). This block is the whole of it; nothing above or below
-widens or narrows it.**
+**THE RULE — gate: BOTH conditions (PM, 2026-11-10 21:16, final). This block is the whole of it;
+nothing above or below widens or narrows it.**
 ```
-abort_turn  ONLY when  ratio = audio_ms / wall_ms < 5.0
-  ratio >= 5.0        -> held   (warn!,  decision=held,   reason=burst,     sequence=...)
+abort_turn  ONLY when BOTH hold:
+  (1) utterance.opened_at > turn.started_at        strict >, never >=  (a tie is a race, not "after")
+  (2) ratio = audio_ms / wall_ms < 5.0
   wall_ms == 0        -> held   (burst, never infinity: two measured cases are 0.2 and 0.6 ms)
   audio_ms == 0       -> held   (reason=no-audio: no audio is not a low ratio)
-  2.0 <= ratio < 5.0  -> abort  (today's behaviour, unchanged) + debug! with decision=abort
-  ratio < 2.0         -> abort  (a person speaking; no extra log line)
+  ratio >= 5.0        -> held   (warn!, decision=held, reason=burst, sequence=...)
   audio_ms  from the PCM actually received (len / 32 for 16 kHz mono 16-bit), never chunks x 100
   wall_ms   in microseconds or f64: three measured bursts are 241, 584 and 668 us, so whole
             milliseconds would round two of them to 0
-  opened_at / turn_started_at -> DIAGNOSTIC ONLY, logged as opened_before_turn=true|false, decides
-            nothing. No field is a prerequisite for the red test.
-every decision logs: decision=abort|held, ratio, audio_ms, wall_ms, topic, utterance_id, sequence
+every decision logs: decision=abort|held, ratio, audio_ms, wall_ms, topic, utterance_id, sequence,
+            and reason=burst | opened-before-turn | no-audio
 levels: held -> warn (the only branch that can make a person say "my interruption was refused", so it
-        must not depend on a debug filter); the 2.0-5.0 band -> debug with decision=abort
+        must not depend on a debug filter); a 2.0-5.0 ratio that aborts -> debug with decision=abort
 ```
-**Why the origin is not the gate: the log killed it.** The order of `open_utterance` and `turn_start`
-is a race, not a meaning, and it fails on the case it was meant to save. These are the only three
-`cancelled=true` events in the log; the other two bursts logged `cancelled=false` with no turn busy and
-so are not evidence either way:
-- `20:08:14` `open` .818824 -> `turn_start` .818945 (open **121 us earlier**) -> `cancelled=true`
-- `20:09:25` `turn_start` .700115 -> `open` .700219 (open **104 us later**) -> `cancelled=true`
-- `20:12:32` `turn_start` 20:12:29.710 -> `open` 20:12:32.116 (open **2.4 s later**) -> `cancelled=true`,
-  ratio **1.0x**: a real interruption, and it must keep aborting
-A burst and a genuine interruption both open their utterance *after* `turn_start`, because the running
-turn always started first - 20:10:26 opened after 20:10:09, 20:11:18 after 20:11:00, 20:12:32 after
-20:12:29. Origin therefore separates almost nothing; measured, it separates exactly one case, 20:08:14,
-whose open happened to land 121 us first. Origin-as-gate leaves the 20:09:25 kill alive because its
-ordering says "abort a 3 320x burst"; the ratio holds it.
-**Where this leaves the grey zone, and it is a deliberate choice, not an oversight.** `2.0-5.0` keeps
-today's behaviour - it aborts - because holding there would stop interruptions at a rate no case has
-ever produced, which is the same reason 3.0 was rejected as a threshold and the same reason FR-024 was
-not rewritten to forbid it. It is logged with `decision=abort` so that a report of a refused
-interruption can still be traced.
-**The price this rule charges, recorded rather than discovered:** a **legitimate** interruption that
-arrives while the socket is stalled reads a high ratio and is held - the agent keeps talking until it
-finishes or the button is pressed. That is the cost of not killing the first turn of every call, and it
-disappears when `transcribe` leaves the socket loop, which is in this package.
-**Why the ratio and not a duration or "has it spoken yet":** measured over 19 utterances on
-20:08-20:13, audio duration / wall-clock duration is **1.0x** for a person actually speaking and
-**1 370x, 3 320x, 4 641x** for audio that arrived in one dump (tens of microseconds of wall clock
-carrying 800-3 100 ms of audio). A duration threshold that drops the dump also drops the real 805 ms
-interruption; `segment sent >= 1` would disable the case where the person really did interrupt but the
-audio had not been sent yet. What separates them is **how fast the audio arrived**, not how long it was.
-**Why 5.0:** all 16 real utterances measured about 1.0x, so 5.0 keeps a 5x margin above genuine speech
-and only silences what is physically impossible - a person cannot speak five times faster than time.
-**Why not 3.0:** the two thresholds disagree only in 3.0-5.0, and there 3.0 would hold back an
-interruption that might be genuine while 5.0 lets it through, which is today's behaviour. So 5.0
-regresses nothing; anything lower is a policy that stops people interrupting, which FR-024/FR-027 never
-agreed to. **Why not 100 ("safely in the middle"):** 9.8x is also impossible for a human voice - 3 000 ms
-of audio cannot arrive inside 305 ms - and an upper threshold would let it through and keep killing the
-first answer of every call, which is the defect this task exists to remove.
-5.0 is a **named constant** with that reasoning beside it, never a literal inside a function.
-**Do NOT build the guard on the utterance's origin - it was tried and the log killed it.** The order of
-`open_utterance` and `turn_start` is a race, not a meaning:
-- `20:08:14` `open` .818824 -> `turn_start` .818945 (**121 us** apart) -> `cancelled=true`
-- `20:09:25` `turn_start` .700115 -> `open` .700219 (**104 us** apart) -> `cancelled=true`
-- `20:11:48` `turn_start` 20:11:26.485673 -> `open` 20:11:48.389813 (21 s apart) -> **`cancelled=false`**:
-  no turn was busy (the 20:11:26 reply had already finished), so it is **not a kill case** and cannot be
-  used as evidence either way. It is listed only to stop it being mistaken for one - a test written from
-  it passes with and without the guard.
-Origin as the gate leaves the 20:09:25 kill alive, because its ordering says "abort a 3 320x burst";
-the ratio holds it. That is one measured case, and it is the reported defect - enough. The ratio is not
-preferred, it is the only one of the two that is exercised at all.
+**Two fields are therefore a prerequisite, not a detail:** `Utterance` carries `opened_at`
+(`crates/vizier-core/src/live_voice/utterance.rs:14`) and the session carries `turn_started_at`
+(`session.rs:74` holds only `busy: AtomicBool`). Both use `tokio::time::Instant`, like `session.rs:80`,
+not `std::time::Instant`, so the comparison is sound and a test needs no injected ordering. Without them
+the red test cannot be written honestly.
+
+**Each condition alone was measured, and each fails alone.** They are kept together for that reason:
+- **Ratio alone is wider, and it passes every case we have** — but it holds nothing when an utterance is
+  opened after the turn with a plausible ratio, so it is the shape that leaves the most room.
+- **Origin alone is broken, measured, and must never be used on its own.** Of the three `cancelled=true`
+  events in the log it gets one wrong, and that one is the reported defect:
+  - `20:08:14` `open` .818824 -> `turn_start` .818945 (open **121 us earlier**) -> origin holds: correct
+  - `20:09:25` `turn_start` .700115 -> `open` .700219 (open **104 us later**) -> origin **aborts**: wrong,
+    because this is the first answer of `cEKjwtlxZ7` dying before it speaks
+  - `20:12:32` `turn_start` 20:12:29.710 -> `open` 20:12:32.116 (2.4 s later), ratio **1.0x** -> abort:
+    correct, a real interruption, and it must keep working
+  The 104 us gap is task scheduling, not anything a person did. With condition (1) **and** (2) together
+  the 20:09:25 burst is held by the ratio, so the race can no longer decide a kill.
+
+**Why the ratio is 5.0 and not 3.0 or 100.** Audio duration / wall-clock duration is **1.0x** for a person
+actually speaking (all 16 real utterances) and **1 370x, 3 320x, 4 641x** for audio that arrived in one
+dump. A person cannot speak five times faster than time, so 5.0 only silences what is physically
+impossible. Against **3.0**: the two disagree only in 3.0-5.0, and there 3.0 would hold back an
+interruption that might be genuine while 5.0 lets it through — today's behaviour — so 5.0 regresses
+nothing. Against **100**: 9.8x is also impossible for a human voice, and a higher threshold would let it
+through and keep killing the first answer. 5.0 is a **named constant** with that reasoning beside it,
+never a literal inside a function.
+
 **It is a net, not a cure.** The cause that **is** proven: the socket is not read while recognition runs
-inline (`crates/vizier-http/src/topic.rs:912`, `:936`; the 16:33 call carried `idle_for_ms=11768` and
-then 117 chunks in one second). "The client sent a held-then-dumped burst" is **not** proven - a stalled
+inline (`crates/vizier-http/src/topic.rs:912`, `:936`; the 16:33 call carried `idle_for_ms=11768` and then
+117 chunks in one second). "The client sent a held-then-dumped burst" is **not** proven — a stalled
 server read produces identical timestamps, and only a client-side log could tell them apart. Moving
 `transcribe` out of the socket loop costs little and saves **0 ms** of latency, but it removes the cause
 rather than the symptom; it touches the `touch`/`busy` path that keeps FR-029's Option A honest, so **Q5
-(a silent session ends by itself) is part of this gate.** It must not be used to declare this task
-finished: the DoD stays that the first turn of a session must not die before it makes a sound, and the
-test must be **red** without the guard.
+(a silent session ends by itself) is part of this gate.** The guard must not be used to declare this task
+finished: the DoD stays that **the first turn of a session must not die before it makes a sound**, and the
+test must be **red** without it.
+
 **What this does NOT close, stated as a price rather than hidden:**
-- A **legitimate** interruption arriving while the socket is stalled reads a high ratio and is **held**:
-  the agent keeps talking until it finishes. That disappears only when `transcribe` leaves the loop.
-- An utterance opened **inside the window between `close_utterance` and `turn_start`** (20:13:14 ->
-  20:13:18, 3.4 s) is **no longer a gap**: it is judged purely on its ratio, so a genuine ~1.0x
-  interruption there still aborts. That case only ever existed under the origin condition, which this
-  rule does not have. What remains open inside that window is the opposite: a **held** burst opened there
-  keeps the agent talking, because the ratio cannot tell a stalled socket from a slow speaker - and that
-  closes with the same move as the cause above, `transcribe` out of the socket loop.
+- **An utterance opened inside the 3.4 s window between `close_utterance` and `turn_start`**
+  (20:13:14 -> 20:13:18) has `opened_at < turn_started_at`, so condition (1) forbids aborting its close:
+  a person who starts speaking while the agent is still thinking **cannot cut the answer until it ends**.
+  That is the **accepted cost of the narrower shape** (PM, 2026-11-10 21:16), and it disappears when
+  `transcribe` leaves the socket loop, because the window shrinks to nothing. It has no sample in the
+  log — it is a reasoned cost, not a measured one — and it must not be described as closed.
+- A **legitimate** interruption arriving while the socket is stalled reads a high ratio and is held; the
+  agent keeps talking until it finishes or the button is pressed. Same cause, same expiry.
 - An utterance shorter than about 300 ms makes the ratio noisy and stays on the server's `too_short`
   path, not this one.
-- **Held is not discarded, and that is a decision, not an accident (PM, 2026-11-10 21:12).** A held
-  burst is still transcribed and still becomes the person's next message, exactly as today (20:10:05
-  held, then `turn_start` 20:10:09.332 and `segment sent` 20:10:15.851). It enters the conversation **like
-  any other turn** - no special marker to the person, no emphasis, no ordering rule of its own. Why it is
-  kept rather than dropped: the audio is real captured PCM, so its transcript says what the microphone
-  actually caught, which is a different risk from form B of partial STT (a model's guess revised into a
-  message); and throwing away a genuine sentence is worse than one extra turn, with no sample yet showing
-  the contents are junk. Whether such audio is a real utterance that was delayed or audio that should
-  never have been sent is **not proven** - only a client-side log settles it, and if it ever is proven,
-  that is a new task with its data, not a change bolted onto this guard.
-  **The `warn` line is written even when the utterance goes on to become a turn**, so the frequency of
-  this case is countable; if that count is high, the decision above is revisited with the number, not
-  with an opinion.
 - `channels != 1`, PCM-only models outside the name pattern, and the 263 ms `speaking` are untouched.
-**FR-024 gains one clause, and it is proposed tomorrow, not written tonight.** The shape is approved
-(PM, 2026-11-10 21:12): an utterance whose audio arrived faster than a person can speak is **not a
-barge-in**, so the reply is not cancelled for it - the same family as FR-024's existing rule that an
-utterance too short to be a word does not cancel the reply. It belongs in FR-024 (`spec.md:533`), **not**
-as a definition of interruption in FR-027 (`spec.md:536`), whose trigger stays *the end* of the person's
-utterance, never its start. Three things travel with it, or the clause will be read as something it is
-not:
-- **"not a barge-in" is not "not a message".** The burst still becomes the person's turn (see above), and
-  the clause must say so, or someone will read it as permission to discard.
-- **The threshold is a named constant in the code, not a number in the spec.** The spec states the
-  property; 5.0 is a choice under uncertainty and must stay revisable without an amendment, with one log
-  line per decision as the price of that freedom.
-- **The clause does not apply when the rate reads high because the socket stalled.** The cause is
-  recognition running inline, and moving `transcribe` out of the socket loop is what closes that case -
-  the threshold is not allowed to claim it.
-**Gate, red first:** 20:09:25 (3 320x) **held** - the red case, it is the reported defect · 20:12:32
-(1.0x) **abort**, the real interruption must keep working · 20:08:14 (1 370x) **held** · `wall_ms == 0`
-**held** · `audio_ms == 0` **held** · Q5 green.
-**What 20:12:32 proves, and what no test can prove.** It proves a real interruption still cuts the
-answer - it opens at 20:12:32.116, **2.4 s after** `turn_start` 20:12:29.710, and measures 1.0x, so the
-ratio lets it abort. It does **not** distinguish this shape from the BOTH-conditions shape it replaced:
-both give the same verdict on all five cases in the log. The one case where they differ - an utterance
-opened inside the 3.4 s window at about 1.0x - **has no sample**, so no test written from tonight's log
-can tell the two apart. Say that in the test's comment rather than implying the gate pins the shape: the
-gate pins the defect, and the shape is pinned by the rule block above and by nothing else.
+
+**Held is not discarded, and that is a decision, not an accident** (PM, 2026-11-10 21:12). A held burst is
+still transcribed and still becomes the person's next message, exactly as today (20:10:05 held, then
+`turn_start` 20:10:09.332 and `segment sent` 20:10:15.851). It enters the conversation like any other turn
+— no marker, no ordering rule of its own. It is kept rather than dropped because the audio is real
+captured PCM, and discarding a genuine sentence is worse than one extra turn. Whether such audio is a
+delayed real utterance or audio that should never have been sent **is not proven**, and the `warn` line
+exists so the frequency can be counted and this decision revisited with data.
+
+**Gate, red first — three cases, because only three ever reached the guard.** `cancelled=true` occurs only
+at `20:08:14.819`, `20:09:25.700` and `20:12:32.921`, so: **20:08:14 (1 370x) held, `segment sent` > 0**
+(first turn of `dPg_xlZut8`) · **20:09:25 (3 320x) held, `segment sent` > 0** (first turn of
+`cEKjwtlxZ7`, **red without the fix**) · **20:12:32 (1.0x) aborts** (a real interruption) · **`wall_ms == 0`
+held** · **`reason=opened-before-turn` written** when condition (1) holds a close · **Q5 green**.
+`20:10:05` (9.8x) and `20:11:48` (4 641x) are **not gate material**: both logged `cancelled=false` with no
+turn busy, so they prove the burst arrived and say nothing about what the guard does with it — a test
+written from either would pass without the fix.
+
+**What 20:12:32 proves, and what no test can prove.** It proves a real interruption still cuts the answer:
+it opens at 20:12:32.116, **2.4 s after** `turn_start` 20:12:29.710, at a 1.0x ratio, so both conditions
+agree and the abort proceeds. It does **not** by itself distinguish this shape from the ratio-only shape —
+on all five cases in the log the two shapes give the same verdict. They differ only for an utterance
+opened inside the 3.4 s window at about 1.0x, which has **no sample**: under BOTH it is held, under ratio
+only it aborts. Say that in the test's comment rather than implying the gate pins the shape; the gate pins
+the defect, and the shape is pinned by the rule block above and by nothing else.
 
 - [ ] LV-EMPTY-REPLY-SILENT **A reply with no content passes as a turn.** Four of the eight turns on
   topic `cEKjwtlxZ7` produced `content: ""` — no text, no speech, and no word to the person that
