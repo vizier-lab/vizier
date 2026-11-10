@@ -171,4 +171,91 @@ path shows as a zero count instead of a rumour. Two lines, no new metric, no das
 | a third-party client seeing `ended{idle}` | it does not exist yet (SC-012, T106) | later |
 | the reason a person reads | `humanReason('idle')` already returns a sentence (`session.ts:554`) | nothing |
 | whether 3 minutes is the right number | product decision, already defaulted to 180 in `agent.rs:242` | User, if he ever wants it |
+---
 
+## 8. Reading conditions 2 and 4 from the log, not from the microphone
+
+Both are silent failures: a missing reset has no error, and a clock that runs during a turn only shows
+up as an answer cut in half. So they need a line in the log, written to a shape that a script can decide
+on. This section is that shape — **it is part of the brief, not a follow-up**, because a line added
+afterwards is a line nobody knows how to read.
+
+### 8.1 Three lines, exact tokens
+
+```rust
+// one per reset, at the place that resets. `trigger` is the whole point: it makes a missing call
+// site show up as a zero count instead of a rumour.
+tracing::debug!(trigger, idle_for_ms, session = %topic, "lv_idle reset");
+// the sweep wanted to end the call and refused because a turn was running
+tracing::debug!(idle_for_ms, busy = true, session = %topic, "lv_idle held");
+// the sweep ended it
+tracing::debug!(idle_for_ms, busy, session = %topic, "lv_idle end");
+```
+
+`trigger` takes the six names of §3 — `start`, `push_audio`, `open_utterance`, `close_utterance`,
+`turn_start`, `segment_sent` — so §3 stops being prose and becomes six counters. **If the implementer
+prefers one choke point instead of six call sites, that is allowed, but then the six names must still be
+emitted** and the reason the choke point covers all six written down; a choke point at `publish()`
+(`session.rs:180`) would *not* cover `segment_sent`, because `send_speech` writes the per-connection lane
+and never calls `publish`.
+
+### 8.2 They will actually appear — checked, not assumed
+
+`crates/vizier/src/main.rs:71-72` sets the default filter to `EnvFilter::new("vizier=debug")`, and that
+prefix matches `vizier_core::…` too. Evidence from today's run, not from reading the docs:
+`grep -c 'LLM completion received' /home/muruyung/server-055test.log` → **91**, and every one of them
+carries the target `vizier_core::agents::agent`. `session.rs` already emits three `tracing::debug!` of
+its own (`:274`, `:397`, `:718`), so the pattern is in the file being edited.
+
+One practical trap: the log file carries ANSI colours (`\x1b[2m…`), so a naive `grep '^2026'` or a field
+parser sees escape bytes inside the fields. The reader below strips them; anyone copying a command by hand
+must too.
+
+### 8.3 The run itself: a low limit, one ordinary turn
+
+Waiting 180 s per case is what makes this unverifiable in practice. For the measurement run only:
+
+```yaml
+tools: { live_voice: { settings: { idle_stop_seconds: 20 } } }   # test instance, not the default
+```
+
+The default stays 180 (`schema/agent.rs:242`); say in the report that 20 was used, so the log is not
+mistaken for a 3-minute run. Then **one ordinary spoken turn** is enough: `start` fires on connect,
+`push_audio` and `open_utterance` on the first timestamp of speech, `close_utterance` at the hangover,
+`turn_start` when the agent is given the transcript, and `segment_sent` when the first audio goes out.
+Six call sites, one turn — but only if the person then stays quiet for 20 s, which is the point.
+
+### 8.4 The reader
+
+```
+/home/muruyung/.qa055/read-idle.sh /home/muruyung/server-055test.log 20000
+```
+
+Three sections: resets by trigger (condition 2), one verdict per ending (condition 4), and the held
+sweeps that prove the guard was reached rather than merely written.
+
+**It is tested on fixtures, because a parser that has never failed proves nothing.** On
+`~/.qa055/fixture-idle-ok.log` (six triggers, one ending 22 s after the last reset) it prints six rows
+and `t-1 OK idle_for_ms=20500 since_last_reset=22000`. On `~/.qa055/fixture-idle-bad.log` — five triggers,
+no `segment_sent`, and an ending 2 s after the last reset while `busy=true` — it prints five rows and
+
+```
+t-2  FAIL  idle_for_ms=20000  since_last_reset=2000  ended while busy only 2000 ms after the last reset (limit 20000)
+```
+
+Three findings in one line, and each maps to a real defect: the missing trigger is a path that does not
+reset, the short gap is the clock not being reset by the last segment, and `busy=true` is a live answer
+being cut. On a log with no `lv_idle` lines it exits **3** with *"either the build predates the change, or
+`RUST_LOG` hid debug"* — never "all clear".
+
+### 8.5 What the log cannot say, and where that is covered instead
+
+| Question | Why the log cannot answer it | Where it is answered |
+|---|---|---|
+| did the microphone actually close? | release is client-side | the existing client path: `applyState` releases on `ended`/`failed` (`session.ts:519-522`) |
+| did the person read a sentence, not a code? | rendering | `humanReason('idle')` already returns one (`session.ts:554`) |
+| was the ending *timely*, to the second? | the sweep has an interval; the log shows the sweep, not the wish | state the interval next to the number; do not claim second-precision |
+| does a third-party client also stop? | it does not exist | SC-012 / T106, later |
+
+**One number I will not accept without it:** *"the timer resets on every path"* is not a claim until
+section 1 shows six rows. Five rows is a finding, and the name of the missing one is the bug.
