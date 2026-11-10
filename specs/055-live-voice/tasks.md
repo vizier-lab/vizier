@@ -351,8 +351,9 @@ be started.
   over"`, with zero `segment sent`. The person sees "the first answer has no voice" and every answer
   after it is fine, because later turns are no longer brand new when their `close` arrives.
 **THE RULE — one condition, and this block is the whole of it.** *(`gate: ratio only`, PM 21:20,
-settled after six reversals; frozen at `bab7add6`. Any later edit must carry a new sample from the
-log, not a preference.)*
+settled after six reversals. The rule itself is frozen: any later edit to it must carry a new sample
+from the log, not a preference. The commit hashes quoted in this entry are history, not pointers - do
+not treat one as "the version that counts" without reading the block itself.)*
 ```
 abort_turn  ONLY when  ratio = audio_ms / wall_ms < 5.0
   ratio > 5.0            -> burst, held
