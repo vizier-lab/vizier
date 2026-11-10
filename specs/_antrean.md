@@ -38,7 +38,7 @@ Spec = **apa yang benar**. DoD = **bagaimana dibuktikan**. `specs/**`: Lead bole
 
 ## Jalur task `@system-analyst` (keputusan `@bro-pm` 9 Nov 2026 20:49; ditulis di sini atas permintaannya)
 
-**Status: menunggu ACC kang.** Ini perubahan semantik pada dokumen yang sudah disahkan 20:42/20:55, jadi sampai kang menjawab bagian ini **bukan aturan yang mengikat** — jangan dipakai untuk menolak atau menahan task. Kalau ditolak, SA mulai menerima task dari Lead.
+**Status: DISAHKAN kang muruyung, 10 Nov 2026 09:36** (*"Iya terima juga"*, menjawab item 2 di workspace `vizier-dev`/`general`). Sejak sini bagian ini **mengikat**: task spec/analisa ke SA datang dari `@bro-pm`. Sebelum tanggal itu ia hanya keputusan PM yang belum sah — dicatat supaya tidak ada yang mengira ia berlaku surut.
 
 - Task spec/analisa ke SA datang **dari `@bro-pm`**, bukan dari Lead: outputnya *mendahului* implementasi, jadi kalau Lead yang menugaskan, penulis hulu dan konsumen hilir jadi satu orang.
 - Batasnya tiga: (1) yang dikirim PM adalah artefak pra-implementasi (requirement, SRS/FRD, analisa, spec, Notion); (2) perubahan spec karena temuan hilir (C-13/C-14, qa-plan yang menemukan requirement kurang) masuk **lewat Lead**; (3) SA tidak menerima task kode atau brief ber-DoD kode.
@@ -126,7 +126,7 @@ Dicatat terpisah dari status task, sesuai permintaan `@bro-pm`:
 
 | ID | Judul | Status | Pemilik | Sejak | R: | Diblokir oleh |
 |---|---|---|---|---|---|---|
-| `AQ-001` | Rekonsiliasi checkbox `specs/055-live-voice/tasks.md` dengan riwayat git (label `docs`) | `siap-kirim` | Lead | 9 Nov 2026 20:45 WIB | `tanpa-spec:docs` — allowlist `specs/**` | - |
+| `AQ-001` | Rekonsiliasi checkbox `specs/055-live-voice/tasks.md` dengan riwayat git (label `docs`) | **`selesai`** | Lead | 9 Nov 2026 20:45 WIB | `tanpa-spec:docs` — allowlist `specs/**` | - · diterima kang **10 Nov 2026 09:36** (*"Ok terima"*) |
 | `T110` | Kunci yang dicabut/kedaluwarsa mengakhiri sesi live yang ia buka (FR-063, SC-013) | `gate` | `@sepuh-be` | 9 Nov 2026 21:32 WIB | `FR-063` | tanda tangan **teknis ✅ 10 Nov 09:15** (DoD v2, 5/5 tes modul + flag-off); menunggu **tanda tangan perilaku QA** (4 skenario). SC-013 "1 detik" **belum terbukti** — lihat §DoD |
 | `GI-01` | SC-013: sesi berakhir **≤1 detik** setelah kunci dicabut — belum ada alat yang mengukur jeda nyata dari HTTP revoke sampai frame sampai ke klien | `antre` | `@sepuh-be` | 10 Nov 2026 09:20 WIB | `FR-063` | butuh uji waktu dengan server hidup; bukan tes unit |
 | `GI-02` | FR-063: **turn yang berjalan dibatalkan** saat kunci dicabut — kode memanggil `abort_turn` (`session.rs:541-542`), tapi tak satu pun tes `key_tests` meng-assert bahwa turn berhenti | `antre` | `@sepuh-be` | 10 Nov 2026 09:20 WIB | `FR-063` | satu assert baru di `key_tests`; belum ditulis |
