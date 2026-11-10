@@ -341,6 +341,23 @@ from an analyser or from the microphone. This is the designer's "visible but not
 `loud = 0`" seen from the client side. The rest of QA's V1–V11 findings sit behind it; this is the
 one the User will notice first.
 
+**5. N1's late-device guard closes a microphone that was legitimately opening** — found by the
+User's first manual test at 11:06 on the 10:32 binary, and reproduced by reading three lines.
+`start()` sends `startFrame` and *then* awaits the device; the server answers a Start frame by
+publishing `listening` at once (`crates/vizier-http/src/topic.rs:551` at `30500bf5`), and the client
+accepts that frame out of `connecting` (`webui/app/lib/liveVoice/session.ts:98` at `08cf067`). The
+guard N1 added at `:211` then reads `this.currentState !== 'connecting'` → true, so it stops the
+capture and returns **before** `view.micOpen` (`:217`) and the render tick (`:220`). What a person
+sees is exactly the screenshot: the word `Listening`, the chip `mic off`, the timer at `0:00`, no
+audio ever sent, and N1's own deadline unable to fire because `abandonConnect` returns unless the
+state is still `connecting`. Before N1 the same race was harmless, and it is not a stale build —
+the minified guard is inside the binary that served the page
+(`if(this.currentState!=="connecting"||this.released){i.stop();return}`, byte offset `19073262` of
+`target/release/vizier`, md5 `65fe9ce727f272d0214487f2a88c2056`). Closed by ignoring a `listening`
+frame while the client is `connecting` with no open capture, narrowing the guard to
+`released`/`ended`/`failed`, and a test that delivers that frame mid-await — the 145 tests never did,
+which is why the gate was green.
+
 **Checked and NOT a gap** (so the same worry is not raised twice): `key_lapsed` is present at
 `cf663414` — definition `crates/vizier-http/src/topic.rs:67`, call at `:415`, five test assertions
 `:209-213`. It was reported as "zero hits" against an older tree; that report is stale.
