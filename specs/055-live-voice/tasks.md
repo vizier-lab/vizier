@@ -356,7 +356,7 @@ log, not a preference.)*
 ```
 abort_turn  ONLY when  ratio = audio_ms / wall_ms < 5.0
   ratio > 5.0            -> burst, held
-  ratio 2.0-5.0          -> abort (debug!, decision=abort) - today's behaviour, unchanged
+  ratio 2.0 <= r < 5.0   -> abort (debug!, decision=abort) - today's behaviour, unchanged
   ratio < 2.0            -> abort, no extra line
   audio_ms  from the PCM actually received (len / 32 for 16 kHz mono 16-bit), never chunks x 100
   wall_ms   in microseconds (or f64): three measured bursts are 241, 584 and 668 us, so whole
