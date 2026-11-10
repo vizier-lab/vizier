@@ -138,14 +138,14 @@ Peninjau yang wajar: `@teteh-qa` (ia sudah membaca diff tes sebagai bagian gate-
 | ID | Judul | Status | Pemilik | Sejak | R: | Diblokir oleh |
 |---|---|---|---|---|---|---|
 | `AQ-001` | Rekonsiliasi checkbox `specs/055-live-voice/tasks.md` dengan riwayat git (label `docs`) | **`selesai`** | Lead | 9 Nov 2026 20:45 WIB | `tanpa-spec:docs` — allowlist `specs/**` | - · diterima kang **10 Nov 2026 09:36** (*"Ok terima"*) |
-| `T110` | Kunci yang dicabut/kedaluwarsa mengakhiri sesi live yang ia buka (FR-063, SC-013) | `gate` (ronde 1 selesai) | `@sepuh-be` | 9 Nov 2026 21:32 WIB | `FR-063` | kode ronde 1 **`30500bf5`** (gate teknis saya hijau, §Gate teknis — T110 ronde 1); menunggu **tanda tangan perilaku `@teteh-qa`** dan keputusan atas **`GI-07`** (jalur socket tidak punya tes) |
+| `T110` | Kunci yang dicabut/kedaluwarsa mengakhiri sesi live yang ia buka (FR-063, SC-013) | `aktif` (ronde 2) | `@sepuh-be` | 9 Nov 2026 21:32 WIB | `FR-063` | kode ronde 1 **`30500bf5`** sudah di-gate (6 tes `key_tests` hijau); ronde 2 = **GI-07**, DoD tertulis di §DoD — T110 ronde 2 |
 | `GI-01` | SC-013: sesi berakhir **≤1 detik** setelah kunci dicabut — belum ada alat yang mengukur jeda nyata dari HTTP revoke sampai frame sampai ke klien | `antre` | `@sepuh-be` | 10 Nov 2026 09:20 WIB | `FR-063` | butuh uji waktu dengan server hidup; bukan tes unit |
 | `GI-02` | FR-063: **turn yang berjalan dibatalkan** saat kunci dicabut — kode memanggil `abort_turn` (`session.rs:541-542`), tapi tak satu pun tes `key_tests` meng-assert bahwa turn berhenti | `antre` | `@sepuh-be` | 10 Nov 2026 09:20 WIB | `FR-063` | satu assert baru di `key_tests`; belum ditulis |
 | `GI-03` | **Kedaluwarsa ditegakkan pada frame berikutnya**, bukan pada detiknya (`topic.rs:410-415`). Sesi yang **diam** hidup melewati masa berlaku kuncinya dan tidak ada yang mengakhirinya — bukan "salah label `idle`", karena idle-stop (`T062`) belum ada | `antre` | `@sepuh-be` | 10 Nov 2026 09:40 WIB | **`FR-063a`** | **diputuskan 10 Nov 09:48:** perilaku ini sekarang **dijanjikan** oleh FR-063a (`spec.md` @ `28ed1668`), bukan cacat. Yang tersisa cuma interaksi dengan `T062` (ordering dependency), bukan timer penyapu |
 | `GI-04` | Skenario 4 qa-plan (alasan `key_revoked` sampai ke layar) lulus **secara komposisi**, bukan satu assert: kalimatnya diuji `session.test.ts:210-213`, mekanisme terminal diuji dengan alasan `idle` di `:702` | `antre` | `@sepuh-be` | 10 Nov 2026 09:40 WIB | `FR-063` | satu tes klien yang mengirim `key_revoked` dan membaca kalimatnya di baris |
 | `GI-05` | FR-064: **pencabutan tidak dicek per frame.** `key_lapsed` (`topic.rs:67-74`) hanya membaca `principal.method` yang distempel sekali saat koneksi dibuka (`topic.rs:243`); pencabutan hanya didorong `delete_api_key`. Socket yang masih terbuka bisa mengirim `live_voice_start` lagi dengan kunci yang sudah dicabut | `antre` | `@sepuh-be` | 10 Nov 2026 09:50 WIB | `FR-064` | **belum dibuktikan** (tidak ada tes). Satu tes "revoke → `start` lagi di socket yang sama" menyelesaikannya; temuan `@system-analyst`, bukan asumsi |
 | `GI-06` | `lsp_tests` 8 kegagalan **bukan** karena fixture belum dibangun: `fake_lsp()` menghitung path dari `current_exe()`, dan di mesin ini binary tes lib hidup di `target/debug/build/vizier-core/<hash>/out/`, jadi ia mencari `target/debug/build/vizier-core/examples/fake_lsp` yang tidak ada | `antre` | `@sepuh-be` | 10 Nov 2026 11:05 WIB | `FR-041` | terbukti: contoh `fake_lsp` **sudah** dibangun di `target/debug/examples/` dan 8 tes tetap gagal (`the server never became ready`, 20 s); perbaikan = path fixture tahan-layout, bukan `cargo build --example` |
-| `GI-07` | **Jalur kedaluwarsa di socket tidak punya tes yang melewati socket.** `grep -rn 'KeyExpired\|key_lapsed\|expired' crates/vizier-http/tests/*.rs` → **0 hit**. Tes ronde 1 membuktikan `end_one` berperilaku benar, tapi bahwa `topic.rs` **memanggil** fungsi itu hanya terbukti dari membaca diff — dan cacat aslinya justru lahir karena tes memanggil registry langsung, melewati socket | `antre` | `@sepuh-be` | 10 Nov 2026 11:20 WIB | `FR-063` | satu tes di `live_voice_session.rs`: principal dengan kunci kedaluwarsa, turn berjalan, frame berikutnya masuk → sesi `ended` + `abort` terkirim |
+| `GI-07` | **Jalur kedaluwarsa di socket tidak punya tes yang melewati socket.** `grep -rn 'KeyExpired\|key_lapsed\|expired' crates/vizier-http/tests/*.rs` → **0 hit**. Tes ronde 1 membuktikan `end_one` berperilaku benar, tapi bahwa `topic.rs` **memanggil** fungsi itu hanya terbukti dari membaca diff — dan cacat aslinya justru lahir karena tes memanggil registry langsung, melewati socket | **dilebur ke T110 ronde 2** (satu slot, `WIP=1`) | `@sepuh-be` | 10 Nov 2026 11:20 WIB | `FR-063` | satu tes di `live_voice_session.rs`: principal dengan kunci kedaluwarsa, turn berjalan, frame berikutnya masuk → sesi `ended` + `abort` terkirim |
 
 **Catatan penomoran (10 Nov 09:15):** bukti AQ-001 di bawah berlaku untuk **110 task** dan dibekukan di commit-commitnya. Sesudahnya `@system-analyst` menambahkan **T111 [PROVISIONAL]** (`a53bfcb5`, disempurnakan `ef846fbd`), jadi hitungan hari ini **111 task: 65 `[x]` / 46 `[ ]`** — bukan 110/45. Penambahan itu diterima Lead: isinya provisional, menunggu asesmen saya + Q12 dari kang, dan **tidak** masuk gate rilis ini.
 
@@ -230,6 +230,52 @@ Kode: **`30500bf5`** — `crates/vizier-core/src/live_voice/session.rs` + `crate
 **Atribusi:** penulis kode tidak bisa dipastikan dari git (author identik antar-agen). Yang terbukti: isinya cocok dengan DoD yang saya tulis 09:40, mtime 09:53 = 6 menit setelah commit saya `28ed1668` (09:47), dan `@sepuh-be` menyatakan tidak punya sesi di jendela itu. Saya gate dan commit atas dasar itu, dan mencatatnya sebagai **cacat proses** — kode semestinya ditulis `@sepuh-be`, bukan Lead.
 
 **Yang belum dibuktikan:** SC-013 "within 1 s" (butuh uji waktu dengan server hidup) dan **`GI-07`** (tidak ada tes yang melewati socket). Keduanya wajib ikut di laporan gate, bukan dirapikan.
+
+
+## DoD — T110 ronde 2 (GI-07): jalur socket diuji lewat socket, bukan lewat registry
+
+**Kenapa ronde 2 dan bukan baris baru:** `GI-07` lahir dari T110 dan QA tidak boleh menandatangani T110 selama lubangnya terbuka. Satu slot (`WIP=1`), satu `R: FR-063`. `GI-07` di papan tetap ada sebagai jejak, statusnya **dilebur ke ronde ini**.
+
+**Opsi A/B yang diajukan `@sepuh-be` tidak perlu dipilih — ada opsi C, dan biayanya nol perubahan produksi.** Buktinya, ketiganya saya periksa sendiri:
+
+| Fakta | Bukti |
+|---|---|
+| `HTTPState` tidak bisa disebut dari `tests/` | `crates/vizier-http/src/lib.rs:26` → `mod state;` (privat ke crate) |
+| Tapi **bisa** disebut dari tes di dalam crate | `crates/vizier-http/src/api/v1/catalogue.rs:249-…` membangun `HTTPState { … }` apa adanya; `new_state()` juga `pub(crate)` (`lib.rs:63`) |
+| Tes in-crate async sudah jadi kebiasaan di crate ini | `#[tokio::test]` di `api/v1/catalogue.rs:282`, `notifications.rs:393`, `health.rs` |
+| `Principal` + `AuthMethod::ApiKey { expires_at }` bisa dibangun tes | `crates/vizier-core/src/auth/mod.rs:52-57`, `:15-32`; contoh tangan: `topic.rs:93-99` |
+| Sesi bisa disuntik ke registry proses | `vizier_core::live_voice::sessions()` (`live_voice/mod.rs:45`), `set_key_origin` (`session.rs:157`), `run_turn` (`:512`) |
+
+**Keputusan saya: tes diletakkan di `crates/vizier-http/src/topic.rs`, `#[cfg(test)] mod tests`** — modul yang sudah ada, bukan file baru. Tidak ada perubahan perilaku produksi. **Kalau ternyata mustahil tanpa menyentuh kode produksi (visibility/refactor): berhenti dan lapor, jangan ubah visibility sendiri** — itu keputusan gate, bukan langkah kerja.
+
+**Yang harus dibuktikan** — dua tes baru, nama persis ini:
+
+1. `a_lapsed_key_at_the_socket_cancels_the_turn_it_was_running`
+   - `TopicConnection` dengan principal `AuthMethod::ApiKey { key_id: Some(..), expires_at: Some(masa lalu), .. }`.
+   - Sesi di registry untuk conversation yang sama, `key_origin` = kunci itu, **turn berjalan** (`run_turn` dengan engine yang tidak bersuara, pola `SilentVoice` di `session.rs` ronde 1).
+   - Satu frame masuk lewat `handle_live_voice` (mis. `live_voice_audio`).
+   - Assert **lima**: `state() == Ended`; alasan yang dipublikasikan `key_expired`; `busy == false`; `command:abort` terkirim **tepat 1**; registry tidak lagi memuat sesi itu.
+2. `a_session_a_person_opened_survives_the_same_call`
+   - Sesi yang sama tapi `key_origin == None`, principal yang sama (kunci kedaluwarsa).
+   - Assert: sesi **tetap** hidup dan tidak ada `abort` — ini yang membedakan "semua sesi dipangkas" dari "sesi milik kunci itu".
+
+
+**Catatan urutan yang harus dibaca sebelum menulis tes** (saya periksa sendiri, supaya tidak ada kejutan di tengah):
+- Cabang kedaluwarsa ada **sebelum** `match action` dan **tidak** `return` (`topic.rs:415-425`). Setelah `end_one`, frame yang sama tetap masuk ke arm-nya: `ClientAction::Audio` langsung `return` karena `sessions.get(...)` sudah kosong (`:553-556`). Jadi tidak ada frame liar — tapi assertion-nya harus pada **state sesi + abort + registry**, bukan pada "tidak ada frame lain".
+- Tes negatif jangan menuntut frame audio berhasil diproses: yang di-assert cuma **sesi tidak berhenti** dan **tidak ada `abort`**.
+
+**Perintah + keluaran harapan:**
+
+| # | Perintah | Output harapan |
+|---|---|---|
+| 1 | `cargo test -p vizier-http --features live-voice --lib topic::tests` | `running 6 tests` · **6 passed / 0 failed** · nama kedua tes baru muncul di daftar. Baseline hari ini **4 passed** — angka 6 wajib, bukan "ok" saja |
+| 2 | `cargo test -p vizier-core --features provider-live-voice live_voice::session::key_tests` | `running 6 tests` · 6 passed (ronde 1 tidak rusak) |
+| 3 | `cargo check -p vizier-http --features live-voice` | `Finished`, exit 0 — tidak ada kode produksi yang berubah |
+| 4 | `git status --short crates/` | **kosong** sesudah commit, sebelum dan sesudah gate dijalankan |
+
+**Batas yang wajib ikut di laporan:** tes ini membuktikan jalur socket untuk **kedaluwarsa**. Ia **tidak** membuktikan `SC-013` "within 1 s" (butuh uji waktu dengan server hidup, `GI-01`), dan **tidak** membuktikan `GI-05` (pencabutan tidak dicek per frame) — tapi harness yang sama membuat `GI-05` murah sesudah ini: satu tes tambahan "cabut kunci → `live_voice_start` lagi di socket yang sama". Kalau lu bisa menutup keduanya dalam satu file, sebut di laporan; kalau tidak, `GI-05` tetap terbuka dan itu tidak menghalangi ronde ini.
+
+**WIP:** `T110` tetap satu-satunya slot lu. Ronde ini ronde ke-2 dari maksimum 2 — kalau setelah ini masih ada blocker, ronde ke-3 bukan ronde lagi, tapi eskalasi ke `@bro-pm`.
 
 ## Keputusan rotasi kunci (FR-063), 10 Nov 2026 09:20
 
