@@ -5,7 +5,11 @@ Dokumen ini **bukan** checklist uji selama `design_ref` belum ber-versi (aturan 
 
 ```
 flow:         Live Voice — panggilan sebagai satu baris di dalam percakapan (C11 / surface B1-1)
-spec_ref:     specs/055-live-voice/spec.md@ef846fbd
+spec_ref:     specs/055-live-voice/spec.md@25b796ac — bukan @ef846fbd: spec.md jalan 2 commit (+163 baris) sesudah
+             pin lama, membawa **Q13** (menghapus toggle spoken-reply meninggalkan orang yang bisa mengetik tapi
+             lebih suka mendengar dengan satu jalan saja) dan dua keputusan User 09:27 — **UI tetap Inggris**
+             (FR-006) dan **QA tanpa database**. Dokumen matriks yang tidak menyebut Q13 sedang mengutip spec
+             yang tidak lagi ada.
 design_ref:   055-live-voice-screen.figcraft@02ddd7b4 (291 259 B) — B1-1, frame `9679` + app `9680`; idle `9462`;
              export `055-B1-1-pil-kiri-light@2x.png` (1 168 623 B, md5 `f1308ffc4b4255aed62acedbd8343ea7`).
              **@02ddd7b4, bukan @7072fe9f:** 2026-11-10 09:17 label `CANONICAL` dicabut dari `6188`/`6190`
@@ -96,5 +100,5 @@ sekali melainkan cabang `!capability` yang merender pill non-tombol. Menguji `da
 - baris: **15** · kolom QA terisi: **15** · kolom data terisi: **15** · kolom desain: **15 diisi — 7 tergambar penuh · 1 sebagian (`unavailable`) · 7 n/a + alasan**
 - pemilik pengisian: desain (kol 3, sudah — 2026-11-10) · data (kol 4, sudah) · QA (kol 5, sudah).
 - tiga hal yang **tidak** diisi tapi diputuskan: `level` tanpa penulis, `interrupted` tanpa produsen, `no-speech` punya dua jalur data.
-- sumber angka: `spec.md@ef846fbd` (FR-004 `:505`, FR-049 `:570`), kode di `LiveVoiceRow.tsx`
+- sumber angka: `spec.md@25b796ac` (Q13 lahir sesudah `ef846fbd`; matriks ini tidak memuat daftar Q, jadi Q13 hanya tercatat di header) (FR-004 `:505`, FR-049 `:570`), kode di `LiveVoiceRow.tsx`
   (`ROW` `:32`, cabang capability `:169`, `role="status"` `:214`, aksi `:265`/`:275`).
