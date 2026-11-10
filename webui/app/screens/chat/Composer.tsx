@@ -471,6 +471,7 @@ export function Composer({
                             <LiveVoiceControl
                                 agentId={agentId}
                                 topicId={topicId}
+                                agentName={agentName}
                                 capability={liveVoiceEnabled ?? false}
                                 missing={liveVoiceMissing ?? null}
                                 endOfUtteranceMs={liveVoiceEndOfUtteranceMs}

@@ -20,6 +20,8 @@ import { LiveVoiceRow } from './LiveVoiceRow'
 export interface LiveVoiceControlProps {
     agentId: string
     topicId: string
+    /** The agent's display name, for the row (FR-044). The id is not a name. */
+    agentName?: string
     /** The agent detail's `live_voice`; the row is offered only when this is true. */
     capability: boolean
     /** Which half is missing, when the capability is false (FR-004). */
@@ -58,6 +60,7 @@ const makeClient = (
 export function LiveVoiceControl({
     agentId,
     topicId,
+    agentName,
     capability,
     missing,
     endOfUtteranceMs,
@@ -136,6 +139,7 @@ export function LiveVoiceControl({
     return (
         <LiveVoiceRow
             view={view}
+            agentName={agentName}
             capability={capability}
             missing={missing}
             elapsedSeconds={Math.floor(view.elapsedMs / 1000)}

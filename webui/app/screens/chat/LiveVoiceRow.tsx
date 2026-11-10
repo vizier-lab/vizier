@@ -16,6 +16,16 @@ import type { LiveVoiceView } from '../../lib/liveVoice/session'
 
 export interface LiveVoiceRowProps {
     view: LiveVoiceView
+    /**
+     * The agent the call is with (FR-044).
+     *
+     * Required by the requirement to be **in the row**, not implied by the conversation header:
+     * `spec.md:572` settles that reading with the same standard FR-038 applies to the microphone —
+     * a header, like a tooltip, is a different surface. Absent is allowed (a surface with no agent
+     * behind it, a test), and then nothing is drawn: an empty slot that says "the agent" would be
+     * worse than no slot.
+     */
+    agentName?: string
     /** The agent detail's `live_voice`: the row is offered only when both halves exist (FR-004). */
     capability: boolean
     /** Which half is missing, when the capability is false. */
@@ -32,6 +42,22 @@ export interface LiveVoiceRowProps {
 const ROW = { height: 24, pill: 106, end: 54, state: 70, timer: 34, micGlyph: 10, font: 10.5, gap: 8, pad: 10 }
 /** The waveform: bars of 2 px with a 6 px gap, at most 39 and at least 12 before it disappears. */
 const BAR = { width: 2, gap: 6, min: 12, max: 39, default: 24 }
+/**
+ * The agent's name in the row: at most 96 px, truncated with `…`, never wrapped (FR-044, FR-049).
+ *
+ * The number is the measured handoff, not a guess: 96 px is where the model chip's own floor sits,
+ * so the two surrender at the same width, and 96 px at this font leaves the transcript 408 px in a
+ * 1280 pane — far above the ~120 px at which a truncated line stops reading as speech. A name is
+ * worth a word, not the sentence.
+ *
+ * `shrink: 900` is what makes it the first thing to go when the pane narrows: the fixed items
+ * (state, mic, timer, End) never shrink, and against the middle slot's `flex: 1` a factor this size
+ * takes the name to zero before the slot loses a pixel. At the row's 292 px floor the middle slot
+ * has 16 px left, so the name is **absent rather than truncated** — which is why the test asserts
+ * it above the floor and never at it (T094 measures the floor in a browser; a server render has no
+ * layout to measure).
+ */
+const AGENT = { maxWidth: 96, endsWith: '\u2026' }
 
 /** The word the row shows, one per state; `waiting` is FR-042's thinking, never `reconnecting`. */
 export function rowWord(view: LiveVoiceView): string {
@@ -155,6 +181,7 @@ function Waveform({ level }: { level: number }) {
 
 export function LiveVoiceRow({
     view,
+    agentName,
     capability,
     missing,
     elapsedSeconds = 0,
@@ -202,6 +229,9 @@ export function LiveVoiceRow({
     }
 
     const reason = view.notice ?? (terminal ? rowWord(view).toLowerCase() : null)
+    // Trimmed, not shown as given: a name of spaces is no name, and the slot it would take comes
+    // out of the transcript.
+    const name = agentName?.trim() ?? ''
 
     return (
         <div
@@ -224,6 +254,20 @@ export function LiveVoiceRow({
             <span aria-hidden className={`shrink-0 whitespace-nowrap ${rowTone(view)}`}>
                 {view.state === 'waiting' ? '•••' : view.state === 'reconnecting' ? '•' : ''}
             </span>
+
+            {/* FR-044: the agent the call is with, in the row. `title` carries the whole name for
+                the case the ellipsis hides it; the row's own text is the name itself, because a
+                tooltip is not "show" (the reading FR-038 fixes for the microphone). */}
+            {name ? (
+                <span
+                    data-agent
+                    title={name}
+                    className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-soft"
+                    style={{ maxWidth: AGENT.maxWidth, flexShrink: 900, flexBasis: 'auto' }}
+                >
+                    {name}
+                </span>
+            ) : null}
 
             <span className="inline-flex shrink-0 items-center whitespace-nowrap text-faint" style={{ gap: 4 }}>
                 <MicGlyph muted={!view.micOpen} />

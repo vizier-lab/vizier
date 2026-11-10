@@ -36,7 +36,35 @@ const render = (patch: Partial<LiveVoiceView> = {}, extra: Record<string, unknow
         />
     )
 
+describe('the agent the call is with (FR-044)', () => {
+    it('names the agent in the row, not only in the conversation header', () => {
+        const html = render({ state: 'listening', micOpen: true }, { agentName: 'Bro PM' })
+        // The requirement is that the row shows it (`spec.md:565`); `spec.md:572` already refused
+        // the header as a substitute, by the same reading FR-038 applies to the microphone.
+        expect(html).toContain('data-agent')
+        expect(html).toContain('Bro PM')
+        expect(html).toContain('title="Bro PM"')
+        // The whole name travels in the title, because the row's own copy is the truncated one.
+        expect(html).toContain('text-ellipsis')
+        expect(html).toContain('max-width:96px')
+    })
+
+    it('draws no slot at all when there is no name', () => {
+        // An empty element that says "the agent" would be worse than no element: it takes width
+        // from the transcript and carries nothing.
+        expect(render({ state: 'listening' })).not.toContain('data-agent')
+        expect(render({ state: 'listening' }, { agentName: '   ' })).not.toContain('data-agent')
+    })
+
+    it('is absent from the idle pill, which has one word and one button', () => {
+        const html = render({ state: 'off' }, { agentName: 'Bro PM' })
+        expect(html).not.toContain('data-agent')
+        expect(html).toContain('Start live voice')
+    })
+})
+
 describe('the idle row', () => {
+
     it('is one pill and nothing else — live voice never appears by itself', () => {
         const html = render()
         expect(html).toContain('Live voice')
