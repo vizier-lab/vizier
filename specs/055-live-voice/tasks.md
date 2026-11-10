@@ -473,11 +473,12 @@ Three things travel with the clause, or it will be read as something it is not:
   threshold must not be credited with it.
 **20:12:32 is a behaviour test, not a shape test** - both conditions hold there, so it aborts under AND
 and under ratio alone alike; a test written from it proves nothing about which shape is installed.
-**The shape test is the 3.4 s window, and it IS required (PM, 2026-11-10 21:31, superseding the 21:29
-note that called it optional):** an utterance opened before `turn_start` with ratio ~1.0x must **abort**
-under ratio alone and would be **held** under AND, so it fails if `opened_at` is still a gate by
-accident. It has no sample in the log, so the ordering is **injected** in the test - and that is sound:
-the test asserts the rule, not the recording. Write it with the behaviour tests, not after them.
+**The 3.4 s window is a NON-REGRESSION test, not a shape test (PM, 2026-11-10 21:35, superseding the
+21:31 note that required it as a shape test):** an utterance opened before `turn_start` with ratio ~1.0x
+**aborts** under the shipped rule, which is exactly today's behaviour - so the test protects what exists,
+it does not pin which shape is installed. It has no sample in the log, so its ordering is **injected**;
+that is acceptable for a regression guard and is why it is not allowed to be quoted as evidence about
+the shape. Do not spend work on it before the five gate cases.
 **And one claim about that window must not be quoted as evidence:** the argument that aborting there is
 "free" because `turn_start` precedes the model by 1-4 s and no audio has been sent yet is a **design
 argument, not a measurement**. It rests on mechanism alone, with **zero samples** in the log. It was
