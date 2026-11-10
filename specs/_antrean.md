@@ -144,6 +144,7 @@ Peninjau yang wajar: `@teteh-qa` (ia sudah membaca diff tes sebagai bagian gate-
 | `GI-03` | **Kedaluwarsa ditegakkan pada frame berikutnya**, bukan pada detiknya (`topic.rs:410-415`). Sesi yang **diam** hidup melewati masa berlaku kuncinya dan tidak ada yang mengakhirinya — bukan "salah label `idle`", karena idle-stop (`T062`) belum ada | `antre` | `@sepuh-be` | 10 Nov 2026 09:40 WIB | **`FR-063a`** | **diputuskan 10 Nov 09:48:** perilaku ini sekarang **dijanjikan** oleh FR-063a (`spec.md` @ `28ed1668`), bukan cacat. Yang tersisa cuma interaksi dengan `T062` (ordering dependency), bukan timer penyapu |
 | `GI-04` | Skenario 4 qa-plan (alasan `key_revoked` sampai ke layar) lulus **secara komposisi**, bukan satu assert: kalimatnya diuji `session.test.ts:210-213`, mekanisme terminal diuji dengan alasan `idle` di `:702` | `antre` | `@sepuh-be` | 10 Nov 2026 09:40 WIB | `FR-063` | satu tes klien yang mengirim `key_revoked` dan membaca kalimatnya di baris |
 | `GI-05` | FR-064: **pencabutan tidak dicek per frame.** `key_lapsed` (`topic.rs:67-74`) hanya membaca `principal.method` yang distempel sekali saat koneksi dibuka (`topic.rs:243`); pencabutan hanya didorong `delete_api_key`. Socket yang masih terbuka bisa mengirim `live_voice_start` lagi dengan kunci yang sudah dicabut | `antre` | `@sepuh-be` | 10 Nov 2026 09:50 WIB | `FR-064` | **belum dibuktikan** (tidak ada tes). Satu tes "revoke → `start` lagi di socket yang sama" menyelesaikannya; temuan `@system-analyst`, bukan asumsi |
+| `GI-06` | `lsp_tests` 8 kegagalan **bukan** karena fixture belum dibangun: `fake_lsp()` menghitung path dari `current_exe()`, dan di mesin ini binary tes lib hidup di `target/debug/build/vizier-core/<hash>/out/`, jadi ia mencari `target/debug/build/vizier-core/examples/fake_lsp` yang tidak ada | `antre` | `@sepuh-be` | 10 Nov 2026 11:05 WIB | `FR-041` | terbukti: contoh `fake_lsp` **sudah** dibangun di `target/debug/examples/` dan 8 tes tetap gagal (`the server never became ready`, 20 s); perbaikan = path fixture tahan-layout, bukan `cargo build --example` |
 
 **Catatan penomoran (10 Nov 09:15):** bukti AQ-001 di bawah berlaku untuk **110 task** dan dibekukan di commit-commitnya. Sesudahnya `@system-analyst` menambahkan **T111 [PROVISIONAL]** (`a53bfcb5`, disempurnakan `ef846fbd`), jadi hitungan hari ini **111 task: 65 `[x]` / 46 `[ ]`** — bukan 110/45. Penambahan itu diterima Lead: isinya provisional, menunggu asesmen saya + Q12 dari kang, dan **tidak** masuk gate rilis ini.
 
@@ -195,6 +196,22 @@ Akibatnya persis yang diperingatkan `session.rs:236-238`: agen tetap bekerja, ja
 
 **WIP:** `T110` kembali ke `aktif` (ronde 1 dari maks 2). Ini ronde yang sama, bukan task baru — tidak menambah slot.
 
+
+## Kode ronde 1 di working tree — penulis tidak diketahui (10 Nov 2026 11:05)
+
+`git status` 11:00 menunjukkan perubahan **belum commit** yang isinya persis DoD ronde 1, filenya milik T110:
+
+| File | mtime | Isi |
+|---|---|---|
+| `crates/vizier-core/src/live_voice/session.rs` | 10 Nov 09:53 | method baru `end_one()` (abort → end → remove) + tes `a_lapsed_key_cancels_the_turn_it_was_running` |
+| `crates/vizier-http/src/topic.rs` | 10 Nov 09:54 | jalur kedaluwarsa memanggil `sessions.end_one(..., KeyExpired)` — tiga baris lama dihapus |
+
+**Yang sudah saya buktikan (11:02):** `cargo test -p vizier-core --features provider-live-voice live_voice::session::key_tests` → `running 6 tests`, **6 passed / 0 failed**, exit 0 — termasuk tes baru yang meng-assert `busy` kembali `false` dan `Command("abort")` benar-benar terkirim lewat transport uji.
+
+**Yang belum:** siapa penulisnya. Git tidak bisa membedakan agen (author identik), dan saya **tidak** menyatakan "bukan saya" tanpa bukti. Bobot bukti saat ini: (a) jeda 09:53 hanya **6 menit** setelah commit saya `28ed1668` (09:47); (b) alibi `@sepuh-be` (10:43) menyebut sesinya terpotong **21:45 semalam** dan tidak menyebut jendela 09:40–10:00 — jadi klaimnya belum menutup jendela itu. Saya tanyakan satu hal tertutup ke dia sebelum menyimpulkan.
+
+**Batas gate:** tes baru memakai API yang belum ada di HEAD, jadi "harus gagal sebelum perbaikan" terpenuhi secara kompilasi, **bukan** sebagai bukti perilaku. Bukti perilaku sesungguhnya ada di `topic.rs`: jalur kedaluwarsa tidak lagi memanggil `end()` sendiri. Itu yang harus dibaca reviewer, bukan exit code-nya.
+
 ## Keputusan rotasi kunci (FR-063), 10 Nov 2026 09:20
 
 **Temuan `@teteh-qa`:** `grep -rn rotate crates/vizier-http/src/api/v1` → **0 hit**. FR-063 menyebut kunci "can be rotated", tapi tidak ada route rotasi.
@@ -202,6 +219,8 @@ Akibatnya persis yang diperingatkan `session.rs:236-238`: agen tetap bekerja, ja
 **Keputusan saya, dengan buktinya:** rotasi **tidak butuh route sendiri** — ia komposisi dua route yang sudah ada: `create_api_key` (`crates/vizier-http/src/api/v1/auth.rs:294`) dan `delete_api_key` (`:404`). Kontrak sudah menuliskannya begitu: *"key rotated (new key, old one retired) → the old key stops working; a session opened with it ends | reason `key_revoked`"* (`contracts/live-voice-frames.md:362`). Jadi requirement punya pembawa; yang kurang hanya **satu baris di `spec.md`** yang menyebut "rotate = buat kunci baru + cabut yang lama, dengan akibat yang sama seperti revoke". Itu semantik spec → `@system-analyst`, bukan saya.
 
 **Yang tidak saya putuskan:** apakah rotasi harus punya endpoint atomik sendiri (supaya tidak ada jendela dua kunci aktif). Kalau kang mau itu, ia requirement baru, bukan penafsiran FR-063.
+**Catatan 10 Nov 11:05:** laporan `@sepuh-be` 10:43 masih memakai DoD versi 9 Nov (#3 `end_owned_by_key`, #4 `cargo test -p vizier-core`). Keduanya **sudah diganti di bagian ini jam 09:15**, sebelum laporannya masuk. Yang perlu ditambahkan hanya akar masalah #4, di `GI-06`.
+
 ## DoD — T110 (v2, 10 Nov 2026 09:15 — DoD #3 lama diganti karena **gate hijau palsu**)
 
 **Kenapa diganti:** `cargo test -p vizier-core --features provider-live-voice end_owned_by_key` keluar dengan **exit 0 sambil menjalankan nol tes** — `end_owned_by_key` adalah nama *method* (`session.rs:519`), bukan nama tes, jadi filter mencocokkan nol fungsi dan Rust tetap melaporkan `test result: ok`. Diukur ulang: **7 target, 7x `running 0 tests`, exit 0.** Temuan `@teteh-qa` 9 Nov 21:45; saya reproduksi sendiri 10 Nov.
