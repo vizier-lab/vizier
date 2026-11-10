@@ -186,6 +186,12 @@ describe('pre-paint script', () => {
         expect(run({}, false).meta.attrs.get('content')).toBe('#ffffff')
     })
 
+    it('paints the browser chrome even when the stored paint is damaged', () => {
+        const el = run({ 'vizier.theme': 'light', 'vizier.scheme.paint': '{oops' })
+        expect(el.vars.size).toBe(0)
+        expect(el.meta.attrs.get('content')).toBe('#ffffff')
+    })
+
     it('paints the browser chrome to the variant a scheme forces', () => {
         const el = run({ 'vizier.theme': 'light', 'vizier.scheme.paint': JSON.stringify(paintOf(nord)) })
         expect(el.attrs.get('data-theme')).toBe('dark')
