@@ -1013,6 +1013,9 @@ impl VizierAgent {
             (Some(project), Some(workspace)) => Some(format!("{project}\n\n{workspace}")),
             (project, workspace) => project.or(workspace),
         };
+        // G3: decided here, where the request and its history are still in hand — the call below
+        // consumes both.
+        let fast_path = fast_path_ok(&req, &history);
         let prompt_result = self
             .prompt_with(
                 &turn_model,
@@ -1040,6 +1043,7 @@ impl VizierAgent {
                 &ctx,
                 Some(&mut recorder),
                 progress,
+                fast_path,
             )
             .await;
 
@@ -1162,6 +1166,7 @@ impl VizierAgent {
             ctx,
             None,
             vec![],
+            false,
         )
         .await
     }
@@ -1178,6 +1183,8 @@ impl VizierAgent {
         ctx: &ToolContext,
         mut steps: Option<&mut StepRecorder>,
         progress: Vec<Message>,
+        // G3: offer no tools at all on the first hop, and take the retry if the model wants one.
+        fast_path: bool,
     ) -> std::result::Result<
         (
             String,
@@ -1194,10 +1201,13 @@ impl VizierAgent {
         let mut full_history = history.clone();
         let mut turn_depth = turn_depth;
         let max_turn_depth = self.config.thinking_depth;
-        let tools = snapshot
+        let full_tools = snapshot
             .tools()
             .await
             .map_err(|e| (e, full_history.clone()))?;
+        // A fast-path hop offers the model nothing to call; the retry below puts the list back.
+        let mut fast = fast_path && turn_depth == 0;
+        let mut tools: &[ToolDefinition] = if fast { &[] } else { &full_tools };
 
         let output: String;
 
@@ -1267,14 +1277,33 @@ impl VizierAgent {
 
             // The model gets the narrowed view; `full_history` keeps the full record,
             // which is what storage and the WebUI are served from.
-            let response = model
+            // G3: the first hop may have been asked without tools. A model that wants one anyway
+            // gets the whole set back and the same hop is asked once more — one retry, never a loop.
+            let mut response = model
                 .complete_until(
-                    completion_request(&history, &message, &tools, wrapping_up),
+                    completion_request(&history, &message, tools, wrapping_up),
                     Some(start + prompt_timeout),
                     &UsageScope::turn(Some(ctx.session.clone()), guard.turn(), turn_depth as u32),
                 )
                 .await
                 .map_err(|e| fail_turn(e, full_history.clone(), Some(message.clone()), vec![]))?;
+            if fast && response.content.iter().any(|part| matches!(part, AssistantPart::ToolCall { .. })) {
+                fast = false;
+                tools = &full_tools;
+                FAST_PATH_MISSES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                tracing::warn!(
+                    turn_depth = turn_depth,
+                    "the fast path guessed wrong: the model asked for a tool, so the turn is retried with the toolset"
+                );
+                response = model
+                    .complete_until(
+                        completion_request(&history, &message, tools, wrapping_up),
+                        Some(start + prompt_timeout),
+                        &UsageScope::turn(Some(ctx.session.clone()), guard.turn(), turn_depth as u32),
+                    )
+                    .await
+                    .map_err(|e| fail_turn(e, full_history.clone(), Some(message.clone()), vec![]))?;
+            }
             let (choices, usage) = (response.content, response.usage);
             let choices = if wrapping_up {
                 answer_without_tool_calls(choices)
@@ -2303,6 +2332,65 @@ fn completion_request(
 /// The result a timed-out tool call hands the model. The call is abandoned, but whatever it
 /// did before the deadline may already have happened.
 /// Said when the wrap-up completion offered nothing to say.
+/// The longest question a fast path will answer with no toolset at all (G3).
+const FAST_PATH_MAX_CHARS: usize = 120;
+
+/// Words that mean the person is asking for work rather than conversation (G3).
+///
+/// Deliberately broad: a false positive costs one ordinary turn, a false negative makes the agent
+/// look stupid in front of the person, and that is much more expensive than 2.4 s.
+const FAST_PATH_WORK_WORDS: &[&str] = &[
+    "file", "cari", "jalankan", "shell", "git", "baca", "tulis", "ubah", "hapus", "build",
+    "commit", "branch", "repo", "kode", "error", "log", "config", "install", "cek", "test", "tes",
+    "jalur", "folder", "direktori", "hapus", "tambah",
+];
+
+/// Turns that asked for a tool while the fast path had offered none (G3).
+///
+/// Read rather than logged and forgotten: if this grows past roughly one turn in ten, the predicate
+/// is too loose and the next step is to narrow it, not to explain the number away.
+static FAST_PATH_MISSES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// How often the fast path guessed wrong in this process (G3).
+pub fn fast_path_misses() -> u64 {
+    FAST_PATH_MISSES.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Whether this turn may be answered with no tools at all (G3).
+///
+/// Every condition must hold and anything uncertain answers `false`, because the default has to be
+/// the safe one. `history` is the turn's own: a conversation that already used a tool is the most
+/// likely to need one again, whatever the next sentence looks like.
+fn fast_path_ok(req: &VizierRequest, history: &[Message]) -> bool {
+    let text = match &req.content {
+        VizierRequestContent::Chat(text) => text.as_str(),
+        _ => return false,
+    };
+    if text.chars().count() >= FAST_PATH_MAX_CHARS {
+        return false;
+    }
+    // A path, a command or a snippet is never small talk.
+    if text.contains('/') || text.contains('\\') || text.contains('`') {
+        return false;
+    }
+    let lower = text.to_lowercase();
+    let words: Vec<&str> = lower
+        .split(|c: char| !c.is_alphanumeric() && c != '-' && c != '_')
+        .filter(|word| !word.is_empty())
+        .collect();
+    if words.iter().any(|word| FAST_PATH_WORK_WORDS.contains(word)) {
+        return false;
+    }
+    // A turn already inside a chain of work keeps the toolset.
+    let used_a_tool = history.iter().any(|message| match message {
+        Message::Assistant(parts) => parts
+            .iter()
+            .any(|part| matches!(part, AssistantPart::ToolCall { .. })),
+        _ => false,
+    });
+    !used_a_tool
+}
+
 /// The note a spoken turn is given (`specs/055-live-voice` FR-017).
 ///
 /// FR-017 as decided on 2026-11-08: short by default, longer only when the question genuinely
@@ -2971,5 +3059,97 @@ mod attachment_note_tests {
             "{text}"
         );
         assert!(!text.contains("# Attached Files"), "{text}");
+    }
+}
+
+#[cfg(test)]
+mod fast_path_tests {
+    //! G3 — a short conversational turn is answered without the toolset, and a wrong guess costs
+    //! one ordinary turn rather than a bad answer. The predicate is the decision; the retry is the
+    //! safety net, and both are asserted here without a model.
+
+    use super::*;
+
+    fn asked(text: &str) -> VizierRequest {
+        VizierRequest {
+            content: VizierRequestContent::Chat(text.to_string()),
+            ..Default::default()
+        }
+    }
+
+    fn tool_call() -> Message {
+        Message::Assistant(vec![AssistantPart::ToolCall {
+            id: "c1".into(),
+            name: "execute_python".into(),
+            arguments: serde_json::json!({}),
+            provider_data: None,
+        }])
+    }
+
+    #[test]
+    fn small_talk_takes_the_fast_path() {
+        for text in ["halo, apa kabar?", "thanks!", "what's the time of day", "good morning"] {
+            assert!(fast_path_ok(&asked(text), &[]), "{text}");
+        }
+        // A spoken turn is not treated differently: same rules, same answer.
+        let mut spoken = asked("halo, apa kabar?");
+        spoken.spoken = true;
+        assert!(fast_path_ok(&spoken, &[]));
+    }
+
+    #[test]
+    fn a_request_for_work_never_does() {
+        for text in [
+            "baca file /etc/hosts",
+            "jalankan test suite",
+            "cek log terakhir",
+            "tolong commit sekarang",
+            "git status",
+            "what does the config say",
+        ] {
+            assert!(!fast_path_ok(&asked(text), &[]), "{text}");
+        }
+    }
+
+    #[test]
+    fn a_path_a_snippet_or_a_long_question_never_does() {
+        assert!(!fast_path_ok(&asked("open ~/notes.md"), &[]), "a path");
+        assert!(!fast_path_ok(&asked("what does `ls` print"), &[]), "a snippet");
+        assert!(!fast_path_ok(&asked("explain C:\\\\temp"), &[]), "a windows path");
+        let long = "halo ".repeat(40);
+        assert!(!fast_path_ok(&asked(&long), &[]), "too long to be small talk");
+        // Right at the boundary: 119 passes, 120 does not.
+        assert!(fast_path_ok(&asked(&"a".repeat(119)), &[]));
+        assert!(!fast_path_ok(&asked(&"a".repeat(120)), &[]));
+    }
+
+    #[test]
+    fn a_turn_already_inside_a_chain_of_work_keeps_its_tools() {
+        // The most likely turn to need a tool again is the one that just used one, whatever the
+        // next sentence looks like.
+        assert!(!fast_path_ok(&asked("halo, apa kabar?"), &[tool_call()]));
+        // And a conversation with no tool call is untouched.
+        assert!(fast_path_ok(&asked("halo, apa kabar?"), &[Message::user_text("hi").unwrap()]));
+    }
+
+    #[test]
+    fn a_non_chat_request_never_takes_it() {
+        let audio = VizierRequest {
+            content: VizierRequestContent::Chat(String::new()),
+            ..Default::default()
+        };
+        // An empty chat is still a chat, so prove the *kind* matters with one that is not.
+        let mut audio = audio;
+        audio.content = VizierRequestContent::Command("abort".into());
+        assert!(!fast_path_ok(&audio, &[]), "a command is not a question");
+        assert!(!fast_path_ok(&audio, &[]));
+    }
+
+    #[test]
+    fn the_miss_counter_moves_only_when_it_is_read() {
+        // It is exposed rather than logged and forgotten: one turn in ten guessing wrong means the
+        // predicate is too loose. Reading it twice must not change it.
+        let first = fast_path_misses();
+        assert_eq!(fast_path_misses(), first);
     }
 }
