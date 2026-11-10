@@ -979,7 +979,7 @@ number, not in this document as a preference.
 | FR-003 | T014 | carried, done |
 | FR-041 | T014, **T108** | carried, T108 open |
 | FR-043 | T038, T040, T089 | carried, done |
-| FR-044 | T038 | **not carried** — T038 draws the row but not the agent's name (`agentName` has **0** hits in the row at `webui@34e7060`); a carrier is owed, and **T112** is the proposed id while it is not yet in `tasks.md` |
+| FR-044 | T038 (the row), **T112** (the agent's name) | **carried** — T038 draws the row but not the agent, which is why T112 exists: `webui@5b5209c` renders the name in the row, `webui@c735d82` tests a 40-character name against the 24 px height, and T112 is `[x]` since `83922351` (still `[x]` at `59614393`). Corrected at 12:52 as "not carried" because the name was missing at `webui@34e7060`; that reading is now stale. **The width in a real browser (T094) is still unmeasured** — `[x]` means the element and its rule exist, not that the row was seen at every width |
 | FR-045 | T038, T090 | carried, done |
 | FR-046 | T040, T091 | carried, done |
 | FR-047 | T047 | carried, open |
@@ -1177,7 +1177,7 @@ renumbers nothing**.
 | FR-003 | T014 | `[x]` | carried |
 | FR-041 | T014, **T108** | `[x]`, `[ ]` | carried — T108 is the harder half (two speech paths coexist) |
 | FR-006, FR-038, FR-042 | T038, T039 | `[x]` | carried |
-| FR-044 | T038 | `[x]` | **not carried** — the row exists, the agent's name does not; a carrier is owed (T112 proposed). Corrected at 12:52 |
+| FR-044 | T038, **T112** | `[x]`, `[x]` | **carried** — T038 is the row, T112 is the agent's name (`webui@5b5209c` render, `webui@c735d82` test, ticked at `83922351`). Two corrections stand behind this cell: the 12:52 reading ("not carried, `agentName` = 0 hits at `webui@34e7060`") was true then and is stale now, and the earlier claim that T038 alone carried FR-044 was never true. **Browser width (T094) unmeasured** |
 | FR-043, FR-046, FR-049 | T038, T040, T089, T094 | `[x]` | carried |
 | FR-045 | T038, T090 | `[x]` | carried; **T052/T053 (`[BACKLOG]`) add a control to it — they are not its carrier** |
 | FR-047 | T047 | `[ ]` | carried, open — the release still owes SC-008 |
