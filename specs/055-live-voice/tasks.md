@@ -350,11 +350,10 @@ be started.
   cancelled=true generation=3` -> `reply abandoned … at="the synthesis finished after the reply was
   over"`, with zero `segment sent`. The person sees "the first answer has no voice" and every answer
   after it is fine, because later turns are no longer brand new when their `close` arrives.
-**THE RULE — both conditions, and this block is the whole of it.**
+**THE RULE — one condition, and this block is the whole of it.**
 ```
 abort_turn  ONLY when  ratio = audio_ms / wall_ms < 5.0
-                AND    utterance.opened_at >= turn.started_at
-  ratio > 5.0            -> burst, held, whatever the origin says
+  ratio > 5.0            -> burst, held
   ratio 2.0-5.0          -> abort (debug!, decision=abort) - today's behaviour, unchanged
   ratio < 2.0            -> abort, no extra line
   audio_ms  from the PCM actually received (len / 32 for 16 kHz mono 16-bit), never chunks x 100
@@ -362,8 +361,9 @@ abort_turn  ONLY when  ratio = audio_ms / wall_ms < 5.0
             milliseconds would round two of them to 0 and divide by zero
   wall_ms == 0   -> held, never infinity (division by zero is not a theoretical case here)
   audio_ms == 0  -> held too, reason=no-audio: no audio is not a low ratio
-  opened_at and turn_started_at are tokio::time::Instant, like session.rs:80
-every decision logs: decision=abort|held, reason=<burst|no-audio|opened-before-turn>, ratio, audio_ms,
+  opened_at / turn_started_at are NOT a condition - see the withdrawal note below; they may be logged
+            as a diagnostic (`opened_before_turn=true|false`) and nothing depends on them
+every decision logs: decision=abort|held, reason=<burst|no-audio>, ratio, audio_ms,
         wall_ms, topic, utterance_id, sequence=<which turn of this session> - so a report of "my
         interruption was refused" can be matched to a turn without guessing from the clock; sequence
         and reason ride the warn line only, not the grey-zone debug line
@@ -385,22 +385,19 @@ agreed to. **Why not 100 ("safely in the middle"):** 9.8x is also impossible for
 of audio cannot arrive inside 305 ms - and an upper threshold would let it through and keep killing the
 first answer of every call, which is the defect this task exists to remove.
 5.0 is a **named constant** with that reasoning beside it, never a literal inside a function.
-**Why BOTH conditions, and why each alone is wrong in a different direction.**
-Origin alone fails on the two cases it was invented for, and both are in the log:
-- `20:08:14` `open` .818824 -> `turn_start` .818945 (**121 us** apart) -> `cancelled=true`
-- `20:09:25` `turn_start` .700115 -> `open` .700219 (**104 us** apart) -> `cancelled=true`
+**Why the origin is NOT a condition — it was tried and withdrawn, with the log as the reason.**
+Between 21:02 and 21:22 the guard briefly also required `opened_at > turn_started_at`. It was withdrawn
+for two measured reasons. First, `opened_at` is a **race variable**: the two kills sit **121 us and
+104 us** from their `turn_start`, in opposite directions, so the same call can go either way depending on
+task scheduling — a guard like that cannot be re-tested, cannot be explained to the person, and cannot be
+told apart from a bug when they report one.
+- `20:08:14` `open` .818824 -> `turn_start` .818945 (**121 us** apart, open first) -> `cancelled=true`
+- `20:09:25` `turn_start` .700115 -> `open` .700219 (**104 us** apart, turn first) -> `cancelled=true`
 - `20:11:48` `turn_start` 20:11:26.485673 -> `open` 20:11:48.389813 (**21 s** apart) -> `cancelled=false`
-At 20:09:25 ordering says "abort a 3 320x burst", which leaves the reported defect alive; at 20:11:48 it
-would wrongly abort a 4 641x burst. The events are microseconds apart, so their order is decided by task
-scheduling, not by anything a person did. **Do not build the guard on the origin alone.**
-Ratio alone fails in the opposite direction: it says nothing about an utterance that carries a normal
-ratio but cannot be an interruption - one opened inside the window between `close_utterance` and
-`turn_start` (20:13:14 -> 20:13:18, 3.4 s), where a person starts talking while the agent has not made a
-sound yet. There the ratio is ~1.0x and the close would abort a turn nobody has heard, which is the
-defect this task exists to remove wearing a different coat.
-Combined, the wrong origin verdicts never execute, because the ratio holds those cases first. That is
-the whole argument for AND: not that origin is right, but that it can only ever add a hold, never remove
-one.
+Ordering alone says "abort the 3 320x burst at 20:09:25", which leaves the reported defect alive, and
+would wrongly abort the 4 641x burst at 20:11:48. Second, it buys nothing: every burst in the log is
+**9.8x or above**, so the ratio already holds all of them. Deterministic beats wider coverage.
+**Do not reinstate it.** `opened_at` survives as a diagnostic only.
 **It is a net, not a cure.** The cause that **is** proven: the socket is not read while recognition runs
 inline (`crates/vizier-http/src/topic.rs:912`, `:936`; the 16:33 call carried `idle_for_ms=11768` and
 then 117 chunks in one second). "The client sent a held-then-dumped burst" is **not** proven - a stalled
@@ -413,13 +410,13 @@ test must be **red** without the guard.
 **What this does NOT close, stated as a price rather than hidden:**
 - A **legitimate** interruption arriving while the socket is stalled reads a high ratio and is **held**:
   the agent keeps talking until it finishes. It disappears only when `transcribe` leaves the loop.
-- **The 3.4 s window is the accepted cost, and it is the reason AND was kept.** An utterance opened
-  inside it sits before the next `turn_start`, so the origin condition holds its close: the person cannot
-  cut an answer they have not heard yet. That is not a regression - today the close aborts a turn nobody
-  has heard - and it is not the defect that was reported, which happens on every call rather than in a
-  short gap after speaking. Every such hold logs `reason=opened-before-turn`, so a complaint of "I could
-  not cut in" is one grep away. It disappears when `transcribe` leaves the loop and the window shrinks to
-  about zero.
+- **The 3.4 s window between `close_utterance` and `turn_start` is not a gap any more, and it is not
+  held.** It only ever became one under the origin condition: an utterance opened inside it sits before
+  the next `turn_start`, so that rule forbade aborting it and a person talking while the agent was still
+  thinking could not cut the answer at all. With the ratio as the only gate, that utterance measures
+  about **1.0x** and its close **aborts** - which is today's behaviour, not a regression (every `close`
+  while `busy` aborts today). Nothing is held for origin, so there is no `reason=opened-before-turn` to
+  grep for.
 - An utterance shorter than about 300 ms makes the ratio noisy and stays on the server's `too_short`
   path, not this one.
 - **Held is not discarded:** a held burst is still transcribed and can still become the person's next
@@ -427,14 +424,14 @@ test must be **red** without the guard.
   audio is a real utterance that was delayed or audio that should never have been sent is **not proven**;
   only a client-side log settles it.
 - `channels != 1`, PCM-only models outside the name pattern, and the 263 ms `speaking` are untouched.
-**Gate, red first:** 20:09:25 (3 320x) **held** - the red case, it is the reported defect, and origin
-alone would abort it · 20:12:32 (1.0x) **abort**, the real interruption must keep working · 20:08:14
+**Gate, red first:** 20:09:25 (3 320x) **held** - the red case, it is the reported defect · 20:12:32 (1.0x) **abort**, the real interruption must keep working · 20:08:14
 (1 370x) **held** · `wall_ms == 0` **held** · `audio_ms == 0` **held** · Q5 green.
 **20:12:32 does NOT discriminate the two shapes** - both conditions are true there, so it aborts under
 AND and under ratio alone alike. **The test that proves which shape is installed is the 3.4 s window**
-(ratio ~1.0x, utterance opened before `turn_start`): AND holds it, ratio-alone aborts it. It has no
-sample in the log, so the ordering must be injected deliberately - and it must be written, or a guard
-that silently lost the origin condition will pass every other test.
+(ratio ~1.0x, utterance opened before `turn_start`): ratio-alone **aborts** it, and a guard that had
+silently kept the origin condition would hold it. It has no sample in the log, so the ordering must be
+injected deliberately - and it must be written, because it is the only test that fails if the origin
+condition is ever reinstated.
 
 - [ ] LV-EMPTY-REPLY-SILENT **A reply with no content passes as a turn.** Four of the eight turns on
   topic `cEKjwtlxZ7` produced `content: ""` — no text, no speech, and no word to the person that
