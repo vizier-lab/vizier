@@ -342,6 +342,24 @@ be started.
   the log. Not a release blocker (the call that was tested was the third one and it worked), but it
   costs every future report the same hour this one cost.
 
+- [ ] LV-LATENCY-FIRST-AUDIO **The wait to the first word is still felt on an online provider.**
+  Measured on `:9998`, `bestie`, `Openrouter` + `google/gemini-3.1-flash-tts-preview`, two calls
+  after the PCM fix: **9,46 s** and **9,32 s** from the end of the utterance to the first audible
+  segment. That is a large improvement on the **22,5 s** measured before it (14:39), and the person
+  still feels it (2026-11-10 17:46, "latency nya masih lumayan kerasa", explicitly **not urgent**).
+  Three causes, each measured rather than guessed:
+  - **The voice is not streamed.** `live_voice/session.rs` synthesises only after
+    `VizierResponseContent::Message` — the whole answer exists before segment 1 is asked for, so the
+    first audio pays the full completion time. This is the largest of the three, and closing it is a
+    contract change (`LV-TTS-PCM-FORMAT`'s sibling, not a tweak).
+  - **Recognition costs 4,19 s / 5,09 s** and it blocks the socket read: the 16:33 call carried
+    `idle_for_ms=11768` on `turn_start`, and 117 chunks arrived in the following second.
+  - **The turn waits in the agent queue** — `vizier.queue.wait_ms=0` in one call, **5 085 ms** in the
+    other, **14 881 ms** at 16:33. That is the queue, not the voice.
+  Do not start before `LV-SECOND-UTTERANCE-DROPPED` and the `mutedGeneration` reset are closed: a
+  faster first answer the client then refuses to play is worse than the wait. **No new number is
+  promised to the person until it is measured**, and the three causes must be attributed separately
+  when it is.
 
 ---
 
