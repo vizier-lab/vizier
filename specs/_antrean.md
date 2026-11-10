@@ -138,13 +138,14 @@ Peninjau yang wajar: `@teteh-qa` (ia sudah membaca diff tes sebagai bagian gate-
 | ID | Judul | Status | Pemilik | Sejak | R: | Diblokir oleh |
 |---|---|---|---|---|---|---|
 | `AQ-001` | Rekonsiliasi checkbox `specs/055-live-voice/tasks.md` dengan riwayat git (label `docs`) | **`selesai`** | Lead | 9 Nov 2026 20:45 WIB | `tanpa-spec:docs` — allowlist `specs/**` | - · diterima kang **10 Nov 2026 09:36** (*"Ok terima"*) |
-| `T110` | Kunci yang dicabut/kedaluwarsa mengakhiri sesi live yang ia buka (FR-063, SC-013) | `aktif` (ronde 1) | `@sepuh-be` | 9 Nov 2026 21:32 WIB | `FR-063` | QA menolak tanda tangan 10 Nov 09:38: **jalur kedaluwarsa tidak membatalkan turn** (`topic.rs:417` memanggil `end()` saja, tanpa `abort_turn`) — beda dengan jalur cabut (`end_owned_by_key` → `abort_turn` + `end` + `remove`). Diverifikasi Lead di kode. Brief + DoD perbaikan: §DoD — T110 ronde 1 |
+| `T110` | Kunci yang dicabut/kedaluwarsa mengakhiri sesi live yang ia buka (FR-063, SC-013) | `gate` (ronde 1 selesai) | `@sepuh-be` | 9 Nov 2026 21:32 WIB | `FR-063` | kode ronde 1 **`30500bf5`** (gate teknis saya hijau, §Gate teknis — T110 ronde 1); menunggu **tanda tangan perilaku `@teteh-qa`** dan keputusan atas **`GI-07`** (jalur socket tidak punya tes) |
 | `GI-01` | SC-013: sesi berakhir **≤1 detik** setelah kunci dicabut — belum ada alat yang mengukur jeda nyata dari HTTP revoke sampai frame sampai ke klien | `antre` | `@sepuh-be` | 10 Nov 2026 09:20 WIB | `FR-063` | butuh uji waktu dengan server hidup; bukan tes unit |
 | `GI-02` | FR-063: **turn yang berjalan dibatalkan** saat kunci dicabut — kode memanggil `abort_turn` (`session.rs:541-542`), tapi tak satu pun tes `key_tests` meng-assert bahwa turn berhenti | `antre` | `@sepuh-be` | 10 Nov 2026 09:20 WIB | `FR-063` | satu assert baru di `key_tests`; belum ditulis |
 | `GI-03` | **Kedaluwarsa ditegakkan pada frame berikutnya**, bukan pada detiknya (`topic.rs:410-415`). Sesi yang **diam** hidup melewati masa berlaku kuncinya dan tidak ada yang mengakhirinya — bukan "salah label `idle`", karena idle-stop (`T062`) belum ada | `antre` | `@sepuh-be` | 10 Nov 2026 09:40 WIB | **`FR-063a`** | **diputuskan 10 Nov 09:48:** perilaku ini sekarang **dijanjikan** oleh FR-063a (`spec.md` @ `28ed1668`), bukan cacat. Yang tersisa cuma interaksi dengan `T062` (ordering dependency), bukan timer penyapu |
 | `GI-04` | Skenario 4 qa-plan (alasan `key_revoked` sampai ke layar) lulus **secara komposisi**, bukan satu assert: kalimatnya diuji `session.test.ts:210-213`, mekanisme terminal diuji dengan alasan `idle` di `:702` | `antre` | `@sepuh-be` | 10 Nov 2026 09:40 WIB | `FR-063` | satu tes klien yang mengirim `key_revoked` dan membaca kalimatnya di baris |
 | `GI-05` | FR-064: **pencabutan tidak dicek per frame.** `key_lapsed` (`topic.rs:67-74`) hanya membaca `principal.method` yang distempel sekali saat koneksi dibuka (`topic.rs:243`); pencabutan hanya didorong `delete_api_key`. Socket yang masih terbuka bisa mengirim `live_voice_start` lagi dengan kunci yang sudah dicabut | `antre` | `@sepuh-be` | 10 Nov 2026 09:50 WIB | `FR-064` | **belum dibuktikan** (tidak ada tes). Satu tes "revoke → `start` lagi di socket yang sama" menyelesaikannya; temuan `@system-analyst`, bukan asumsi |
 | `GI-06` | `lsp_tests` 8 kegagalan **bukan** karena fixture belum dibangun: `fake_lsp()` menghitung path dari `current_exe()`, dan di mesin ini binary tes lib hidup di `target/debug/build/vizier-core/<hash>/out/`, jadi ia mencari `target/debug/build/vizier-core/examples/fake_lsp` yang tidak ada | `antre` | `@sepuh-be` | 10 Nov 2026 11:05 WIB | `FR-041` | terbukti: contoh `fake_lsp` **sudah** dibangun di `target/debug/examples/` dan 8 tes tetap gagal (`the server never became ready`, 20 s); perbaikan = path fixture tahan-layout, bukan `cargo build --example` |
+| `GI-07` | **Jalur kedaluwarsa di socket tidak punya tes yang melewati socket.** `grep -rn 'KeyExpired\|key_lapsed\|expired' crates/vizier-http/tests/*.rs` → **0 hit**. Tes ronde 1 membuktikan `end_one` berperilaku benar, tapi bahwa `topic.rs` **memanggil** fungsi itu hanya terbukti dari membaca diff — dan cacat aslinya justru lahir karena tes memanggil registry langsung, melewati socket | `antre` | `@sepuh-be` | 10 Nov 2026 11:20 WIB | `FR-063` | satu tes di `live_voice_session.rs`: principal dengan kunci kedaluwarsa, turn berjalan, frame berikutnya masuk → sesi `ended` + `abort` terkirim |
 
 **Catatan penomoran (10 Nov 09:15):** bukti AQ-001 di bawah berlaku untuk **110 task** dan dibekukan di commit-commitnya. Sesudahnya `@system-analyst` menambahkan **T111 [PROVISIONAL]** (`a53bfcb5`, disempurnakan `ef846fbd`), jadi hitungan hari ini **111 task: 65 `[x]` / 46 `[ ]`** — bukan 110/45. Penambahan itu diterima Lead: isinya provisional, menunggu asesmen saya + Q12 dari kang, dan **tidak** masuk gate rilis ini.
 
@@ -211,6 +212,24 @@ Akibatnya persis yang diperingatkan `session.rs:236-238`: agen tetap bekerja, ja
 **Yang belum:** siapa penulisnya. Git tidak bisa membedakan agen (author identik), dan saya **tidak** menyatakan "bukan saya" tanpa bukti. Bobot bukti saat ini: (a) jeda 09:53 hanya **6 menit** setelah commit saya `28ed1668` (09:47); (b) alibi `@sepuh-be` (10:43) menyebut sesinya terpotong **21:45 semalam** dan tidak menyebut jendela 09:40–10:00 — jadi klaimnya belum menutup jendela itu. Saya tanyakan satu hal tertutup ke dia sebelum menyimpulkan.
 
 **Batas gate:** tes baru memakai API yang belum ada di HEAD, jadi "harus gagal sebelum perbaikan" terpenuhi secara kompilasi, **bukan** sebagai bukti perilaku. Bukti perilaku sesungguhnya ada di `topic.rs`: jalur kedaluwarsa tidak lagi memanggil `end()` sendiri. Itu yang harus dibaca reviewer, bukan exit code-nya.
+
+
+## Gate teknis — T110 ronde 1 (10 Nov 2026 11:15–11:20)
+
+Kode: **`30500bf5`** — `crates/vizier-core/src/live_voice/session.rs` + `crates/vizier-http/src/topic.rs`, 2 file, +140/−9. `git status --short crates/` **kosong** sesudah commit *dan* sesudah gate, jadi gate dijalankan pada tree yang di-commit, bukan working copy.
+
+| # | Perintah | Keluaran |
+|---|---|---|
+| 1 | `cargo test -p vizier-core --features provider-live-voice live_voice::session::key_tests` | `running 6 tests` · **6 passed / 0 failed**, exit 0 — termasuk `a_lapsed_key_cancels_the_turn_it_was_running` |
+| 2 | `cargo check -p vizier-core` | `Finished`, exit 0 — build tanpa fitur tidak melihat kode ini (FR-041) |
+| 3 | `cargo check -p vizier-core --features provider-live-voice` | `Finished`, exit 0 |
+| 4 | `cargo test -p vizier-http --features live-voice --test live_voice_session` | `running 7 tests` · 7 passed / 0 failed, exit 0 — jalur socket yang ada tidak rusak |
+
+**Batas bukti, ditulis dengan kata-kata `@sepuh-be`:** tes baru **merah karena kompilasi, bukan karena assertion** — `end_one` belum ada di HEAD, jadi "test fails before the fix" di sini berarti "tidak bisa dikompilasi sebelum perbaikan". Kalau kalimat itu dikutip tanpa batasnya, ia jadi bentuk lain dari hijau palsu. Bukti perilakunya ada di `topic.rs`: tiga baris `end()` + `remove()` hilang, diganti satu panggilan `end_one`.
+
+**Atribusi:** penulis kode tidak bisa dipastikan dari git (author identik antar-agen). Yang terbukti: isinya cocok dengan DoD yang saya tulis 09:40, mtime 09:53 = 6 menit setelah commit saya `28ed1668` (09:47), dan `@sepuh-be` menyatakan tidak punya sesi di jendela itu. Saya gate dan commit atas dasar itu, dan mencatatnya sebagai **cacat proses** — kode semestinya ditulis `@sepuh-be`, bukan Lead.
+
+**Yang belum dibuktikan:** SC-013 "within 1 s" (butuh uji waktu dengan server hidup) dan **`GI-07`** (tidak ada tes yang melewati socket). Keduanya wajib ikut di laporan gate, bukan dirapikan.
 
 ## Keputusan rotasi kunci (FR-063), 10 Nov 2026 09:20
 
