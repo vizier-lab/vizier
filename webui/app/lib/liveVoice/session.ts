@@ -562,6 +562,14 @@ export class LiveVoiceClient {
         }
         if (next === 'reconnecting') this.stopAudio()
         if (next === 'interrupted') this.stopAudio()
+        // `listening` from the server means the reply is over, whichever way it ended. `replyAudible`
+        // was otherwise cleared only by a segment carrying `final` (`:323`) or by `stopAudio()` — and
+        // an interrupted reply never sends that segment (`session.rs`: `final` is set only on the
+        // last one, after the loop is allowed to finish). So after an interruption the gate stayed
+        // raised at twice its factor, the person speaking softer than it was not heard, no utterance
+        // end followed, and nothing cleared the flag: `listening` with no way back until the call was
+        // ended. The server's own word is the signal that the reason is gone.
+        if (next === 'listening') this.replyAudible = false
         this.move(next, reason)
     }
 

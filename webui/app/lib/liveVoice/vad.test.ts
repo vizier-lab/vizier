@@ -50,6 +50,23 @@ describe('the energy gate', () => {
         expect(overReply.push(windowOf(0.2), true).voiced).toBe(true)
     })
 
+    it('a loud room cannot raise the gate above the level speech reaches', () => {
+        // The failure this closes: `MAX_FLOOR` (0.02) times the raised factor (3 x 2) is 0.12 RMS,
+        // which is the band ordinary speech sits in (0.10-0.15). In a room noisy enough to hold the
+        // floor at its ceiling, the person became quieter than the gate meant to hear them, and the
+        // session sat in `listening` with no utterance ever ending.
+        const vad = new EnergyVad()
+        // 30 s of loud silence drives the adaptive floor to its 0.02 ceiling.
+        feed(vad, 30_000, 0.02)
+        // Ordinary speech, spoken while the reply is audible: heard, because the cap is 0.06.
+        expect(vad.push(windowOf(0.1), true).voiced).toBe(true)
+        // The reply's own echo is still held off: 0.02 is well under the cap.
+        expect(vad.push(windowOf(0.02), true).voiced).toBe(false)
+        // And the raised gate is never weaker than the unraised one, or the cap would be a bug of
+        // its own: 0.03 clears the quiet gate and must stay under the raised one.
+        expect(vad.push(windowOf(0.03), true).voiced).toBe(false)
+    })
+
     it('reports the voiced duration as a continuous state, which ducking reads (T047)', () => {
         const vad = new EnergyVad()
         expect(vad.voicedFor).toBe(0)

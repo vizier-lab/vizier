@@ -34,6 +34,20 @@ export function hangoverOf(configured?: number): number {
 }
 /** The floor never rises above this, so a loud room cannot deafen the gate. */
 const MAX_FLOOR = 0.02
+/**
+ * The highest the gate may be raised to while the reply is audible, in RMS.
+ *
+ * Without this cap the raised gate is `floor * thresholdFactor * 2`, and `MAX_FLOOR` puts its
+ * ceiling at `0.02 * 3 * 2 = 0.12` — which is the level ordinary speech reaches (0.10–0.15 RMS,
+ * the same calibration `LEVEL_GAIN` in `session.ts` is built on). So in a loud room the person
+ * became quieter than the gate meant to hear them: `listening` forever, no utterance end, and the
+ * flag that raised the gate never cleared because only a `final` segment clears it.
+ *
+ * 0.06 sits between the room and the voice: above the 0.02 floor ceiling, comfortably below the
+ * bottom of the speech band, and still twice the unraised gate so the reply's own echo is held
+ * off. It is a cap, not a change to `thresholdFactor`: normal sensitivity is untouched.
+ */
+const MAX_GATE = 0.06
 /** How fast the floor follows the room: slow enough that speech does not raise it. */
 const FLOOR_RATE = 0.05
 
@@ -94,7 +108,11 @@ export class EnergyVad {
      */
     push(samples: Float32Array, replyAudible: boolean): VadDecision {
         const rms = rootMeanSquare(samples)
-        const gate = this.floor * (replyAudible ? this.thresholdFactor * 2 : this.thresholdFactor)
+        // Capped, not merely raised: see `MAX_GATE`. An uncapped gate in a loud room is a gate that
+        // cannot hear the person it exists for.
+        const gate = replyAudible
+            ? Math.min(this.floor * this.thresholdFactor * 2, MAX_GATE)
+            : this.floor * this.thresholdFactor
         const voiced = rms > gate && rms > 0.008
 
         if (!voiced) {

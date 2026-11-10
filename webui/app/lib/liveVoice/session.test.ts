@@ -262,10 +262,10 @@ function driven(options: { sendReturns?: (frame: object) => boolean } = {}) {
         advance: (ms: number) => {
             clock += ms
         },
-        /** One 20 ms window of voice, which is what the gate decides on. */
-        speak: (ms = 200) => {
+        /** One 20 ms window of voice, which is what the gate decides on. `level` is its RMS. */
+        speak: (ms = 200, level = 0.2) => {
             const window = new Float32Array(320)
-            for (let i = 0; i < window.length; i++) window[i] = i % 2 === 0 ? 0.2 : -0.2
+            for (let i = 0; i < window.length; i++) window[i] = i % 2 === 0 ? level : -level
             for (let elapsed = 0; elapsed < ms; elapsed += 20) capture?.onWindow(window)
         },
         /** Silence for the hangover, which ends the utterance. */
@@ -275,6 +275,47 @@ function driven(options: { sendReturns?: (frame: object) => boolean } = {}) {
         },
     }
 }
+
+describe('the raised gate is released when the server says the reply is over', () => {
+    it('a reply that ends without a final segment cannot leave the person unheard', async () => {
+        // The failure this closes: `replyAudible` was cleared only by a segment carrying `final`
+        // (`session.ts:323`) or by `stopAudio()`. An interrupted reply never sends that segment, so
+        // the flag stayed true, the gate stayed at twice its factor, and the person — quieter than
+        // the raised gate but louder than the real one — was never heard again. No utterance end
+        // followed, so nothing ever cleared the flag: `listening` with no way back until `End`.
+        const h = driven()
+        await h.client.start()
+        h.client.onFrame({ live_voice: { type: 'state', state: 'speaking', generation: 1 } })
+        h.client.onFrame({
+            live_voice: {
+                type: 'speech',
+                generation: 1,
+                seq: 0,
+                sample_rate: 16000,
+                format: 'pcm16',
+                base64: 'AAECAw==',
+                final: false,
+            },
+        })
+        // 0.025 RMS clears the quiet gate (floor x 3) and falls under the raised one (x 6), so the
+        // same voice is the agent's own echo over the speakers and the person in silence.
+        h.speak(40, 0.025)
+        expect(
+            h.sent.filter((frame) => 'live_voice_speech_start' in frame),
+            'while the reply is audible this is the response, not the person'
+        ).toHaveLength(0)
+
+        // The reply is over — and no `final` segment ever arrived to say so.
+        h.client.onFrame({ live_voice: { type: 'state', state: 'listening', generation: 1 } })
+
+        // The same voice now opens an utterance, because the gate came back down to its real factor.
+        h.speak(40, 0.025)
+        expect(
+            h.sent.filter((frame) => 'live_voice_speech_start' in frame),
+            'the server said listening, so the reply is not audible any more'
+        ).toHaveLength(1)
+    })
+})
 
 describe('FR-042 — the thinking indicator', () => {
     it('says thinking on waiting, and never in the reconnecting wording', async () => {
