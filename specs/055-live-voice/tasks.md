@@ -358,10 +358,6 @@ be started.
   origin is a DIAGNOSTIC ONLY: opened_before_turn=true|false is logged, decides nothing
   every decision logs: decision=abort|held, ratio, audio_ms, wall_ms, topic, utterance_id
   ```
-  Gate, red first, three cases (only three ever reached the guard):
-  **20:08:14 held** (1 370x, first turn of `dPg_xlZut8`) · **20:09:25 held** (3 320x, first turn of
-  `cEKjwtlxZ7`) · **20:12:32 aborts** (1.0x, a real interruption) · plus **Q5 green**. Nothing is held
-  for origin, so there is no `reason=` clause in this gate.
   **The guard must not be built on either of the two obvious conditions — both were measured and both
   fail.** Over 19 utterances on 20:08–20:13, audio-duration ÷ wall-clock-duration is **1.0×** for a
   person actually speaking and **1 370×, 3 320×, 4 641×** for a burst that arrived at once (tens of
@@ -441,13 +437,12 @@ be started.
   ratio noisy and stays on the server's `too_short` path, not this one; and `channels != 1`, PCM-only
   models outside the name pattern, and the 263 ms `speaking` are untouched.
   **Gate, red first — three cases, because only three ever reached the guard.** The `cancelled` flag is
-  `true` only at **20:08:14.819**, **20:09:25.700** and **20:12:32.921**; 20:10:05 (9.8x) and 20:11:48
-  (4 641x) logged `cancelled=false` because no turn was busy, so they prove the burst **arrived** and say
-  nothing about what the guard does with it. A test written from those two would pass without the guard.
-  So the gate is: **20:08:14 (1 370x) held** · **20:09:25 (3 320x) held** · **20:12:32 (1.0x) aborts** ·
-  plus **Q5 green**. Two cases are NOT gate material: 20:10:05 (9.8x) and 20:11:48 (4 641x) logged
-  `cancelled=false` with no turn busy, so they prove the burst arrived and say nothing about the guard; a
-  test written from them would pass without the fix.
+  `true` only at **20:08:14.819**, **20:09:25.700** and **20:12:32.921**, so: **20:08:14 (1 370x) held**
+  (first turn of `dPg_xlZut8`) · **20:09:25 (3 320x) held** (first turn of `cEKjwtlxZ7`) ·
+  **20:12:32 (1.0x) aborts** (a real interruption) · plus **Q5 green**. Nothing is ever held for origin,
+  so the gate carries no `reason=` clause. **20:10:05 (9.8x) and 20:11:48 (4 641x) are NOT gate
+  material:** both logged `cancelled=false` with no turn busy, so they prove the burst arrived and say
+  nothing about what the guard does with it — a test written from either would pass without the fix.
   **History, so nobody rebuilds the rejected rule.** Two guards were proposed on the way here and both
   were withdrawn against the log: a duration threshold (a burst carries 800-3 100 ms, and a real
   interruption carried 805 ms, so it cannot separate them), and the utterance's origin
