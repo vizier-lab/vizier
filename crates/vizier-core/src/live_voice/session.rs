@@ -8,6 +8,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
+use std::time::Duration;
 
 use parking_lot::Mutex;
 use tokio::sync::watch;
@@ -70,6 +71,11 @@ pub struct LiveVoiceSession {
     /// Whether a turn is running, so a second utterance waits rather than interleaves.
     busy: AtomicBool,
     stopped: AtomicBool,
+    /// When this session last did something that means a person is still there (`FR-029`, option
+    /// A). A `tokio::time::Instant`, never `std::time::Instant`: a deadline on the real clock costs
+    /// three minutes per test, so nobody runs more than one and "the clock resets on every path"
+    /// stays a claim (`specs/055-live-voice/checklists/verify-fr029-idle-option-a.md` section 0).
+    last_activity: Mutex<tokio::time::Instant>,
     /// The recogniser and voice this session speaks through; set once at start (FR-036).
     engines: Mutex<Option<SharedEngines>>,
     /// The audio this conversation carries, as the client declared it at start (T102). Every
@@ -116,6 +122,7 @@ impl LiveVoiceSession {
             lane: Mutex::new(lane),
             busy: AtomicBool::new(false),
             stopped: AtomicBool::new(false),
+            last_activity: Mutex::new(tokio::time::Instant::now()),
             engines: Mutex::new(None),
             description: Mutex::new(crate::live_voice::frame::AudioDescription::default()),
             key: Mutex::new(None),
@@ -168,6 +175,59 @@ impl LiveVoiceSession {
 
     pub fn is_stopped(&self) -> bool {
         self.stopped.load(Ordering::SeqCst)
+    }
+
+    /// How long this call has been quiet, measured against a clock the caller supplies (`FR-029`).
+    ///
+    /// `now` is an argument, never a clock read inside, for the same reason `SideChats::sweep` takes
+    /// one: a deadline that reads its own clock cannot be tested without waiting for it.
+    pub fn idle_for(&self, now: tokio::time::Instant) -> Duration {
+        now.saturating_duration_since(*self.last_activity.lock())
+    }
+
+    /// Whether a turn is running. Speech, tool calls and a synthesis in flight all count, because
+    /// all three mean the person is waiting for something they asked for.
+    pub fn is_busy(&self) -> bool {
+        self.busy.load(Ordering::SeqCst)
+    }
+
+    /// The idle limit these session settings ask for, or `None` when the call must never end itself.
+    ///
+    /// `idle_stop_seconds: 0` is read as **off**, not as "end immediately". A server that ended every
+    /// call the tick after it began would make the field a trap: a person writing `0` means "no
+    /// limit" in every other configuration key of this file, and there is no second reading of it
+    /// that anyone could want. The value is not clamped to a minimum either — `5` means five
+    /// seconds, and the client's hangover (`vad.ts:24-36`) is what makes a shorter one unusable, not
+    /// the server's opinion.
+    pub fn idle_limit(&self) -> Option<Duration> {
+        match self.settings.idle_stop_seconds {
+            0 => None,
+            seconds => Some(Duration::from_secs(seconds)),
+        }
+    }
+
+    /// Note that something happened, naming the path it came from (`FR-029`, checklist §3).
+    ///
+    /// One function and six call sites, not a reset written inline five times: the inline version
+    /// loses one of them silently, and the symptom is a call that ends mid-sentence with `mic on` on
+    /// screen. `trigger` is not decoration — it is what turns the six paths into six counters in the
+    /// log, so a path that stops resetting shows up as a zero instead of a rumour
+    /// (`verify-fr029-idle-option-a.md` §8.1). A choke point was considered and rejected: `publish`
+    /// would not see `segment_sent`, because `send_speech` writes the per-connection lane.
+    fn touch(&self, trigger: &'static str) {
+        let now = tokio::time::Instant::now();
+        let mut last = self.last_activity.lock();
+        let idle_for_ms = now.saturating_duration_since(*last).as_millis() as u64;
+        *last = now;
+        // `topic=` rather than the `session=` of checklist §8.1: the reader the brief points at
+        // (`~/.qa055/read-idle.sh:47-57`) parses `topic=`, and a field name it cannot read is a
+        // field that does not exist. Same value, one name, the script's.
+        tracing::debug!(trigger, idle_for_ms, topic = %self.topic(), "lv_idle reset");
+    }
+
+    /// The topic this call is on, as the idle log names it. A call without one logs `-`.
+    fn topic(&self) -> &str {
+        self.session.2.as_deref().unwrap_or("-")
     }
 
     /// Re-bind the lane to the socket that just reconnected, without disturbing the session.
@@ -298,6 +358,7 @@ impl LiveVoiceSession {
     /// Open an utterance, or replace the one already open: a second `speech_start` while one is
     /// open ends the first (data model §3).
     pub fn open_utterance(&self, id: &str) {
+        self.touch("open_utterance");
         let mut slot = self.utterance.lock();
         if let Some(mut previous) = slot.take() {
             previous.cancel();
@@ -307,6 +368,9 @@ impl LiveVoiceSession {
 
     /// Append audio; returns whether the cap was reached, which is what the client is told once.
     pub fn push_audio(&self, id: &str, pcm: &[u8]) -> Option<bool> {
+        // Any chunk is activity, including one belonging to an utterance that has already been
+        // replaced: audio arriving is a person talking, which is the whole question FR-029 asks.
+        self.touch("push_audio");
         let mut slot = self.utterance.lock();
         let utterance = slot.as_mut()?;
         if utterance.id != id {
@@ -335,6 +399,9 @@ impl LiveVoiceSession {
     /// nor restarted, nothing is submitted, and the session listens again (`FR-024`). That is why
     /// the length is decided before the abort rather than inside it.
     pub async fn close_utterance(&self, id: &str) -> UtteranceOutcome {
+        // Before the early returns: a close for an utterance this session no longer holds is still
+        // a person finishing a sentence, and the sweep must not fire on the recognition that follows.
+        self.touch("close_utterance");
         let Some(utterance) = self.take_utterance(id) else {
             return UtteranceOutcome::Unknown;
         };
@@ -358,6 +425,10 @@ impl LiveVoiceSession {
         let lane = self.lane.lock().clone();
         let json = serde_json::json!({ crate::live_voice::FRAME_KEY: frame });
         let sent = lane.send(json);
+        if sent {
+            // `segment_sent` — the sixth path, and the one `publish()` would have missed.
+            self.touch("segment_sent");
+        }
         if !sent && !lane.is_open() {
             self.end(EndReason::PageClosed);
             return false;
@@ -514,6 +585,7 @@ impl LiveVoiceSession {
             return;
         }
         self.busy.store(true, Ordering::SeqCst);
+        self.touch("turn_start");
         let generation = self.generation();
         self.thinking();
 
@@ -619,6 +691,10 @@ impl LiveVoiceSessions {
             None => {
                 let new = make();
                 map.insert(session, new.clone());
+                // The clock starts when the call does, and it is set after the lock is dropped: a
+                // session that begins without a `last_activity` is ended by the first sweep.
+                drop(map);
+                new.touch("start");
                 Ok(new)
             }
         }
@@ -753,6 +829,84 @@ impl LiveVoiceSessions {
         session.end(reason);
         self.remove(conversation, session);
         true
+    }
+
+    /// End every call that has been quiet longer than **its own** settings allow (`FR-029`, option
+    /// A: the server closes an idle call — User's choice, 2026-11-10 10:20).
+    ///
+    /// Three rules, each paid for by a specific failure:
+    ///
+    /// - **A running turn pauses the clock.** `busy` means the agent is working, through tools or
+    ///   synthesis. Counting that as idleness cuts an answer in half while the bar still says
+    ///   `Speaking`, which is the one thing this timer must never do.
+    /// - **A stopped session is skipped**, so a tick cannot publish a second `ended`; `end_one`
+    ///   would also remove it, but skipping is what keeps that reason the first one that won.
+    /// - **The ending is `end_one(Idle)`** — never `end()` alone and never `set_state(Ended)`:
+    ///   `end()` leaves the agent writing an answer for a call that is over, and `set_state` stamps
+    ///   `PressedAgain`, telling a person who is in the kitchen that they ended their own call.
+    ///
+    /// The lock is dropped before anything is ended: `end_one` publishes, and a publish must never
+    /// happen while the registry is held. `now` is an argument rather than a clock read so a test
+    /// can move it (`verify-fr029-idle-option-a.md` sections 0 and 4). Returns how many it ended.
+    pub async fn sweep(&self, now: tokio::time::Instant) -> usize {
+        let mut due: Vec<(VizierSession, Arc<LiveVoiceSession>, Duration)> = Vec::new();
+        {
+            let map = self.map.lock();
+            for (conversation, session) in map.iter() {
+                if session.is_stopped() {
+                    continue;
+                }
+                let Some(limit) = session.idle_limit() else {
+                    continue;
+                };
+                let idle = session.idle_for(now);
+                if idle >= limit {
+                    due.push((conversation.clone(), session.clone(), idle));
+                }
+            }
+        }
+        let mut ended = 0;
+        for (conversation, session, idle) in due {
+            let idle_for_ms = idle.as_millis() as u64;
+            if session.is_busy() {
+                // The guard was reached and refused: this line is how a person proving condition 4
+                // sees the difference between "held" and "never counted".
+                tracing::debug!(
+                    idle_for_ms,
+                    busy = true,
+                    topic = %session.topic(),
+                    "lv_idle held"
+                );
+                continue;
+            }
+            if self.end_one(&conversation, &session, EndReason::Idle).await {
+                tracing::debug!(
+                    idle_for_ms,
+                    busy = false,
+                    topic = %session.topic(),
+                    "lv_idle end"
+                );
+                ended += 1;
+            }
+        }
+        ended
+    }
+
+    /// Sweep every `every`, forever, for the whole process.
+    ///
+    /// The shape is `SideChats::spawn_sweeper`'s (`channels/side_chat.rs:438`) on purpose: one
+    /// interval owned by one task, and **no `sleep()` buried inside a per-session task**. A timer
+    /// that sleeps cannot be steered, so no test could prove the deadline without waiting for it —
+    /// and a deadline nobody tests is a deadline nobody has.
+    pub fn spawn_sweeper(&'static self, every: Duration) -> tokio::task::JoinHandle<()> {
+        tokio::spawn(async move {
+            let mut ticker = tokio::time::interval(every);
+            ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            loop {
+                ticker.tick().await;
+                self.sweep(tokio::time::Instant::now()).await;
+            }
+        })
     }
 
     pub fn len(&self) -> usize {
@@ -1688,5 +1842,300 @@ mod filler_tests {
         assert!(heard.iter().all(|(len, _, _)| *len > 8), "no filler existed: {heard:?}");
         assert!(!session.is_stopped());
         assert_eq!(session.state(), SessionState::Listening);
+    }
+}
+
+
+#[cfg(test)]
+mod idle_tests {
+    //! FR-029 option A — a call nobody is in ends itself, and says so with the right reason.
+    //!
+    //! Every test here runs under `start_paused = true` and moves the clock with
+    //! `tokio::time::advance`, because a 180 s deadline on the real clock means nobody runs more than
+    //! one case and "the clock resets on every path" stays a claim
+    //! (`specs/055-live-voice/checklists/verify-fr029-idle-option-a.md` §0, §4).
+    //!
+    //! What these tests cannot prove: that all six `trigger=` names reach the log. That is read from a
+    //! real run with `~/.qa055/read-idle.sh` (§8), and the names are asserted here only as call sites.
+
+    use super::*;
+    use crate::schema::agent::LiveVoiceSettings;
+    use crate::schema::{VizierChannelId, VizierSession};
+    use crate::transport::VizierTransport;
+    use std::sync::Arc;
+
+    /// How long a test waits for something that must arrive before it decides it will not.
+    const WAIT: Duration = Duration::from_secs(5);
+
+    fn settings_after(seconds: u64) -> LiveVoiceSettings {
+        LiveVoiceSettings { idle_stop_seconds: seconds, ..Default::default() }
+    }
+
+    /// A session on a transport the test keeps, so it can watch the frames and run turns.
+    ///
+    /// The lane's reader is returned rather than dropped: a closed lane makes `send` fail, and a
+    /// failed send ends the session with `PageClosed` (FR-030) — a test that let the receiver go
+    /// would be testing the closed-socket path without meaning to.
+    fn session_quiet_for(
+        seconds: u64,
+    ) -> (
+        Arc<LiveVoiceSession>,
+        VizierTransport,
+        tokio::sync::mpsc::Receiver<serde_json::Value>,
+    ) {
+        let transport = VizierTransport::new();
+        let (out_tx, lane) = tokio::sync::mpsc::channel::<serde_json::Value>(64);
+        let session = LiveVoiceSession::new(
+            VizierSession(
+                "helper".into(),
+                VizierChannelId::from_web("olive", "web"),
+                Some("topic-idle".into()),
+            ),
+            "olive".into(),
+            None,
+            settings_after(seconds),
+            ClientConnection::new(out_tx),
+            transport.clone(),
+        );
+        session.set_state(SessionState::Listening);
+        (session, transport, lane)
+    }
+
+    fn registry_with(session: &Arc<LiveVoiceSession>) -> LiveVoiceSessions {
+        let registry = LiveVoiceSessions::default();
+        let _ = registry.start(session.session.clone(), || session.clone());
+        registry
+    }
+
+    /// The reason on the last `ended` frame the transport published.
+    ///
+    /// The control frames reach this bus through the transport's own pump task, so the reader
+    /// yields between reads: with a paused clock `try_recv` on its own sees an empty bus that fills
+    /// one yield later, and a test that read it once would call a published frame "never sent".
+    async fn ended_reason(
+        events: &mut tokio::sync::broadcast::Receiver<crate::transport::SessionEvent>,
+    ) -> Option<EndReason> {
+        for _ in 0..1000 {
+            let mut seen = None;
+            while let Ok(event) = events.try_recv() {
+                if let SessionFrame::LiveVoice(LiveVoiceControl::State { state, reason, .. }) =
+                    event.frame
+                    && state == SessionState::Ended
+                {
+                    seen = reason;
+                }
+            }
+            if seen.is_some() {
+                return seen;
+            }
+            tokio::task::yield_now().await;
+        }
+        None
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_call_nobody_is_in_ends_itself_and_says_idle() {
+        let (session, _transport, _lane) = session_quiet_for(1);
+        let registry = registry_with(&session);
+        let mut events = session.transport.subscribe_session_events();
+        while events.try_recv().is_ok() {}
+
+        // Inside the limit nothing happens, not even on a sweep.
+        tokio::time::advance(Duration::from_millis(900)).await;
+        assert_eq!(registry.sweep(tokio::time::Instant::now()).await, 0);
+        assert!(!session.is_stopped(), "900 ms of a 1 s limit is not idle yet");
+
+        // Past it: one ending, through `end_one`, and the reason the person reads.
+        tokio::time::advance(Duration::from_millis(200)).await;
+        assert_eq!(registry.sweep(tokio::time::Instant::now()).await, 1);
+        assert_eq!(session.state(), SessionState::Ended);
+        assert!(registry.is_empty(), "an ended call leaves the map");
+        assert_eq!(
+            ended_reason(&mut events).await,
+            Some(EndReason::Idle),
+            "`idle`, never `pressed_again`: the person is not the one who ended this call"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_person_still_talking_is_never_cut_mid_sentence() {
+        let (session, _transport, _lane) = session_quiet_for(1);
+        let registry = registry_with(&session);
+        session.open_utterance("u-1");
+
+        // Three seconds of talking against a one-second limit: the audio keeps the call alive.
+        for _ in 0..10 {
+            tokio::time::advance(Duration::from_millis(300)).await;
+            assert_eq!(session.push_audio("u-1", &[7u8; 32]), Some(false));
+            assert_eq!(
+                registry.sweep(tokio::time::Instant::now()).await,
+                0,
+                "the worst of the six: a call cut while the bar still says `mic on`"
+            );
+        }
+        assert!(!session.is_stopped());
+    }
+
+    /// The other five paths, one at a time, on a fresh call each time (§3).
+    ///
+    /// `turn_start` is not here: it only happens inside a turn, and it is asserted in
+    /// [`a_running_turn_pauses_the_clock_and_the_call_ends_after_it`] where a turn can actually be
+    /// running. Each case advances nine tenths of the limit, calls one path, then advances another
+    /// nine tenths — 1800 ms against a 1000 ms limit, so a path that does not reset ends the call.
+    async fn a_path_restarts_the_clock(trigger: &str) {
+        let (session, _transport, _lane) = session_quiet_for(1);
+        let registry = registry_with(&session);
+        // An utterance is open before the quiet stretch wherever the path needs one, so the case
+        // tests the path named and not its neighbour.
+        if trigger != "open_utterance" {
+            session.open_utterance("u-1");
+        }
+        tokio::time::advance(Duration::from_millis(900)).await;
+        match trigger {
+            "open_utterance" => session.open_utterance("u-1"),
+            "push_audio" => {
+                assert_eq!(session.push_audio("u-1", &[3u8; 32]), Some(false));
+            }
+            "close_utterance" => {
+                let _ = session.close_utterance("u-1").await;
+            }
+            "segment_sent" => {
+                let frame = LiveVoiceSpeech::new(session.generation(), 0, &[1u8, 2, 3], true);
+                assert!(session.send_speech(frame), "the lane has room");
+            }
+            other => panic!("no such activity path: {other}"),
+        }
+        tokio::time::advance(Duration::from_millis(900)).await;
+        assert_eq!(
+            registry.sweep(tokio::time::Instant::now()).await,
+            0,
+            "`{trigger}` does not reset the clock, so the call was ended by a sweep"
+        );
+        assert!(!session.is_stopped(), "`{trigger}` is activity: the person was still there");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn every_path_that_means_activity_restarts_the_clock() {
+        for trigger in ["open_utterance", "push_audio", "close_utterance", "segment_sent"] {
+            a_path_restarts_the_clock(trigger).await;
+        }
+    }
+
+    /// A voice that takes `delay` per segment: a turn has to be long enough to be worth pausing for.
+    struct PatientVoice {
+        delay: Duration,
+    }
+
+    #[async_trait::async_trait]
+    impl crate::live_voice::engines::LiveVoiceEngines for PatientVoice {
+        async fn transcribe(
+            &self,
+            _wav: &[u8],
+            _filename: &str,
+            _language: Option<&str>,
+        ) -> crate::Result<String> {
+            Ok("hello".into())
+        }
+
+        async fn speak(&self, _text: &str) -> crate::Result<Vec<u8>> {
+            tokio::time::sleep(self.delay).await;
+            Ok(vec![0xAB; 64])
+        }
+    }
+
+    /// Condition 4: the clock does not run while the agent is working, and the ending comes after
+    /// the turn rather than during it — with `idle`, not with the reason a person's own ending has.
+    #[tokio::test(start_paused = true)]
+    async fn a_running_turn_pauses_the_clock_and_the_call_ends_after_it() {
+        let (session, transport, _lane) = session_quiet_for(1);
+        let mut inbox = transport.register_agent("helper".into()).await;
+        let registry = registry_with(&session);
+
+        // Nine tenths of the limit has gone by when the turn is accepted.
+        tokio::time::advance(Duration::from_millis(900)).await;
+        let running = session.clone();
+        tokio::spawn(async move {
+            running
+                .run_turn(Arc::new(PatientVoice { delay: Duration::from_millis(200) }), "hello".into())
+                .await
+        });
+        let submitted = tokio::time::timeout(WAIT, inbox.recv_request())
+            .await
+            .expect("the turn submits its request")
+            .expect("the inbox is open");
+
+        assert!(session.is_busy(), "the agent is working");
+        assert!(
+            session.idle_for(tokio::time::Instant::now()) < Duration::from_millis(50),
+            "`turn_start` restarts the clock: 900 ms had gone by since the session started"
+        );
+
+        // Five seconds of a one-second limit, with a turn in flight: refused, not ended.
+        tokio::time::advance(Duration::from_secs(5)).await;
+        assert_eq!(
+            registry.sweep(tokio::time::Instant::now()).await,
+            0,
+            "a sweep that counted a running turn would cut the answer in half"
+        );
+        assert!(!session.is_stopped());
+        assert_eq!(session.state(), SessionState::Waiting, "still thinking, not ended");
+
+        // The turn is over (its reader went away), so the clock counts again.
+        drop(inbox);
+        drop(submitted);
+        for _ in 0..100 {
+            if !session.is_busy() {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        assert!(!session.is_busy(), "the turn finished rather than hanging");
+
+        tokio::time::advance(Duration::from_millis(1100)).await;
+        assert_eq!(registry.sweep(tokio::time::Instant::now()).await, 1);
+        assert!(session.is_stopped());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_session_that_already_stopped_is_skipped() {
+        let (session, _transport, _lane) = session_quiet_for(1);
+        let registry = registry_with(&session);
+        session.end(EndReason::PressedAgain);
+
+        tokio::time::advance(Duration::from_secs(10)).await;
+        assert_eq!(
+            registry.sweep(tokio::time::Instant::now()).await,
+            0,
+            "no second ending: the first reason is the one that won"
+        );
+        assert_eq!(session.state(), SessionState::Ended);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn the_limit_comes_from_the_settings_not_from_the_default() {
+        let (session, _transport, _lane) = session_quiet_for(20);
+        let registry = registry_with(&session);
+
+        tokio::time::advance(Duration::from_secs(19)).await;
+        assert_eq!(
+            registry.sweep(tokio::time::Instant::now()).await,
+            0,
+            "19 s of a 20 s limit is not idle"
+        );
+        tokio::time::advance(Duration::from_secs(2)).await;
+        assert_eq!(registry.sweep(tokio::time::Instant::now()).await, 1);
+    }
+
+    /// `idle_stop_seconds: 0` reads as **off**. A server that ended every call the tick after it
+    /// began would make the field a trap, and "no limit" is the only reading anyone could want.
+    #[tokio::test(start_paused = true)]
+    async fn zero_means_the_call_never_ends_itself() {
+        let (session, _transport, _lane) = session_quiet_for(0);
+        assert_eq!(session.idle_limit(), None);
+        let registry = registry_with(&session);
+
+        tokio::time::advance(Duration::from_secs(3600)).await;
+        assert_eq!(registry.sweep(tokio::time::Instant::now()).await, 0);
+        assert!(!session.is_stopped());
     }
 }

@@ -34,6 +34,14 @@ pub use utterance::{MIN_UTTERANCE_MS, Utterance, wav_header};
 /// hearing the past, and the audio is worth less than the text that shares the socket.
 pub const LIVE_VOICE_SOCKET_BACKLOG: usize = 16;
 
+/// How often the process looks for calls nobody is in (`FR-029`, option A).
+///
+/// One second, so an ending lands within a second of the limit the session's settings ask for. The
+/// reader that judges this (`~/.qa055/read-idle.sh`) measures the gap against the limit and fails on
+/// an ending that comes **early**, never on a late one, so a coarse interval costs nothing and a
+/// fine one would only burn wake-ups.
+pub const IDLE_SWEEP: std::time::Duration = std::time::Duration::from_secs(1);
+
 /// The top-level key every server frame carries, so a client that does not know it ignores it.
 pub const FRAME_KEY: &str = "live_voice";
 
