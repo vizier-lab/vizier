@@ -275,11 +275,22 @@ rewriting the analyst's text wholesale: each row names the file and what it now 
 | C-16 | **C10 (2026-11-09 06:52): one live session per person, and it moves.** FR-005 rewritten, **FR-050**, **FR-051**, **FR-052** new, SC-011 new, Q4 and Q8 closed, Q2 narrowed to "second tab on the same conversation is refused", contract gains `ended{reason:"moved"}` and the "1 session in total" limit row; `architecture.md` §3 (two indexes, per-process honest limit) and a new §13 (the move: generation → abort → `ended{moved}` → new session, transcript stays) | `spec.md`, `tasks.md`, `contracts/live-voice-frames.md`, `architecture.md` §3, §10 I10, §13 | the User's decision. It is the one place the feature gets *less* permissive on purpose; the refusal that remains is the second tab, where the microphone is already in that conversation |
 
 **Canonical baseline for anything quoting counts**: `specs/055-live-voice/tasks.md` at the commit
-being read — **`cf663414`, the commit this paragraph was last corrected at (2026-11-10)** — carrying
-**111 tasks (T001–T111)**, **64 `[x]` / 47 `[ ]`**, **7 `[BACKLOG]`**, **one superseded (T093)**, counted with
-`grep -cE '^- \[[ x]\] T[0-9]{3}'` (the id sits outside the bold so one pattern counts all of them).
+being read — **`8404e876`, the commit this paragraph was last corrected at (2026-11-10 11:58)** — carrying
+**111 tasks (T001–T111)**, **65 `[x]` / 46 `[ ]`**, **7 `[BACKLOG]`** among the open ones, **one
+superseded (T093)**, counted with `grep -cE '^- \[[ x]\] T[0-9]{3}'` (the id sits outside the bold so
+one pattern counts all of them; the file holds 111 matching lines and 111 distinct ids, so the pattern
+and the task list agree). The 46 open ids, in file order, are: T004 T006 T026 T037 T039 T041 T042 T047
+T048 T049 T051 T052 T053 T054 T055 T056 T057 T061 T062 T063 T064 T065 T066 T077 T078 T079 T080 T081
+T082 T083 T084 T085 T086 T087 T088 T093 T095 T096 T097 T100 T101 T104 T105 T106 T108 T111.
 **T111 is `[PROVISIONAL]`**: it carries Level 1 of the latency work, whose direction the User approved
 on 2026-11-10 and whose start is not scheduled — do not count it as committed work.
+
+**Correction (2026-11-10 11:58), written because the wrong figure was mine.** This paragraph used to
+say `cf663414` carried **64 `[x]` / 47 `[ ]`**. Measured, that commit carries **65 / 46** — T026 was
+still ticked there, and the unticking happened in `77117f9d`, where the file reads **64 / 47**. The two
+numbers were written as one, and the pin was named for the side of the change it did not describe. At
+`8404e876` the count is **65 / 46** again, because `093c2b92` ticked T110. Anyone quoting a count must
+name the commit and the number, and the pair must be measured together.
 
 The history of that number, so an older figure can be dated instead of argued about: 88 → 92 at
 `c760cdb3` with C8–C12 (the surface became a surface of its own — FR-044/FR-045 —, the composer bar
