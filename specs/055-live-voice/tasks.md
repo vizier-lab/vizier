@@ -459,6 +459,11 @@ not:
 **Gate, red first:** 20:09:25 (3 320x) **held** - the red case, it is the reported defect · 20:12:32
 (1.0x) **abort**, the real interruption must keep working · 20:08:14 (1 370x) **held** · `wall_ms == 0`
 **held** · `audio_ms == 0` **held** · Q5 green.
+**The 20:12:32 assertion is not only "a person can still interrupt" - it is what tells the shipped shape
+apart from the withdrawn one.** It is the single case where ratio-only and ratio-AND-origin disagree, so
+a build that quietly kept the origin condition fails it. Keep it as an assertion about **which rule is
+installed**, not merely about behaviour, and say that in the test's own comment: without it, both shapes
+pass the other four cases and we would never know which one is running.
 
 - [ ] LV-EMPTY-REPLY-SILENT **A reply with no content passes as a turn.** Four of the eight turns on
   topic `cEKjwtlxZ7` produced `content: ""` — no text, no speech, and no word to the person that
