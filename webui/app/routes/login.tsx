@@ -2,7 +2,9 @@ import { Button, Notice, TextField, motionDurations, motionEases } from '@vizier
 import { useEffect, useState, type FormEvent } from 'react'
 import { motion } from 'motion/react'
 import { useNavigate } from 'react-router'
+import { useInsecureNetwork } from '../lib/pwa/origin'
 import { useSession } from '../stores/session'
+import { InsecureNetworkNotice } from '../screens/shared/InsecureNetworkNotice'
 
 export default function Login() {
     const login = useSession((s) => s.login)
@@ -14,6 +16,8 @@ export default function Login() {
     // Signing in needs the engine: without a connection the sign-in cannot succeed, so the screen
     // says so instead of failing with a message about a password.
     const [offline, setOffline] = useState(() => typeof navigator !== 'undefined' && !navigator.onLine)
+    // The browser refuses the worker on this address, so the app cannot be installed here.
+    const insecure = useInsecureNetwork()
     useEffect(() => {
         const update = () => setOffline(!navigator.onLine)
         window.addEventListener('online', update)
@@ -60,6 +64,7 @@ export default function Login() {
                     Signing in needs a connection. It will work as soon as this device is back online.
                 </Notice>
             )}
+            {insecure && <InsecureNetworkNotice />}
             <TextField label="Username" size="lg" value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" autoFocus />
             <TextField label="Password" size="lg" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" placeholder="Enter your password" invalid={error !== null} />
             <Button type="submit" variant="primary" size="lg" block loading={busy}>

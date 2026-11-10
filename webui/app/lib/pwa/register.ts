@@ -1,5 +1,6 @@
 import { isDesktop } from '../../api/transport'
 import { shouldRegister } from './guard'
+import { pageOrigin } from './origin'
 
 /**
  * Registers the service worker.
@@ -10,7 +11,7 @@ import { shouldRegister } from './guard'
  */
 export function registerServiceWorker(): void {
     if (!('serviceWorker' in navigator)) return
-    const origin = { hostname: location.hostname, protocol: location.protocol, desktop: isDesktop }
+    const origin = { ...pageOrigin(), desktop: isDesktop }
     if (!shouldRegister(origin)) return
 
     void navigator.serviceWorker.register('/service-worker.js', { scope: '/' }).catch(() => {
