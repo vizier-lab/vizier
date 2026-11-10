@@ -356,7 +356,7 @@ from the log, not a preference. The commit hashes quoted in this entry are histo
 not treat one as "the version that counts" without reading the block itself.)*
 ```
 abort_turn  ONLY when  ratio = audio_ms / wall_ms < 5.0
-  ratio > 5.0            -> burst, held
+  ratio >= 5.0           -> burst, held  (reason=burst) - exactly 5.0 belongs here, not to abort
   ratio 2.0 <= r < 5.0   -> abort (debug!, decision=abort) - today's behaviour, unchanged
   ratio < 2.0            -> abort, no extra line
   audio_ms  from the PCM actually received (len / 32 for 16 kHz mono 16-bit), never chunks x 100
