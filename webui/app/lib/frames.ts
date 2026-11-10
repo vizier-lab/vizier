@@ -75,6 +75,12 @@ export type Action =
     | { type: 'history'; entries: ChatMessage[]; position?: 'latest' | 'older' }
     | { type: 'busy'; thinking: boolean }
     | { type: 'send'; id: string; text: string; attachments?: VizierAttachment[]; spoken?: boolean; now?: string }
+    /**
+     * A turn nobody in this tab started, drawn in the thread the moment it is heard (a live voice
+     * utterance). It is a stand-in like `send`'s: the stored request replaces it through
+     * `coveredByStored`, so a later history read leaves one entry and not two.
+     */
+    | { type: 'adopt'; id: string; text: string; now?: string }
     | { type: 'dequeue' }
     /** The server stored a request this page was drawing as waiting. */
     | { type: 'sent'; request: VizierRequestContent; timestamp?: string }
@@ -376,6 +382,18 @@ export function reduce(state: TopicState, action: Action): TopicState {
                 error: null,
                 stopped: false,
                 entries: mergeEntries(state.entries, [requestEntry(state, action.id, action.text, now, action.attachments)]),
+            }
+        }
+
+        case 'adopt': {
+            // A live voice turn is submitted by the server, so this tab never sees a `send` and
+            // the thread stayed empty until a refresh read it back. Same drawing, same matching.
+            const now = action.now ?? new Date(0).toISOString()
+            const uid = `live-req-${action.id}`
+            if (state.entries.some((e) => e.uid === uid)) return state
+            return {
+                ...state,
+                entries: mergeEntries(state.entries, [requestEntry(state, action.id, action.text, now)]),
             }
         }
 

@@ -10,6 +10,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useConnection } from '../../stores/connection'
+import { useTurns } from '../../stores/turns'
 import { LiveVoiceClient, type LiveVoiceView } from '../../lib/liveVoice/session'
 import { WebAudioPlayer } from '../../lib/liveVoice/player'
 import { startCapture } from '../../lib/liveVoice/capture'
@@ -61,6 +62,25 @@ export function LiveVoiceControl({ agentId, topicId, capability, missing, onOpen
         // path and not two (T090).
         return () => endLiveVoice(agentId, topicId, bound, 'left_conversation')
     }, [agentId, topicId])
+
+    // A live voice turn is submitted by the server, so this tab never sends it and the thread used
+    // to stay empty until a refresh read it back. The words are drawn as they are heard: the
+    // transcript frame carries what was recognised, and the stored request replaces the stand-in
+    // when it arrives (`coveredByStored`), so a later read leaves one entry and not two.
+    const heard = useRef({ text: '', turns: 0 })
+    useEffect(() => {
+        const text = view.transcript.trim()
+        if (!text || text === heard.current.text) return
+        heard.current = { text, turns: heard.current.turns + 1 }
+        useTurns.getState().adoptTurn(agentId, topicId, `${topicId}-${heard.current.turns}`, text)
+    }, [view.transcript, agentId, topicId])
+
+    // The reply has been spoken and the session is listening again: read the stored page back, so
+    // the stand-ins give way to what the server actually wrote (and nothing is drawn twice).
+    useEffect(() => {
+        if (view.state !== 'listening' || !heard.current.turns) return
+        void useTurns.getState().refreshHistory(agentId, topicId)
+    }, [view.state, agentId, topicId])
 
     // A closed tab or a backgrounded desktop window ends the session with a reason.
     useEffect(() => {
