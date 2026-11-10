@@ -79,6 +79,14 @@ svg { display:block; flex:none; }
 .banner .act:hover { background:var(--vz-raised); }
 .banner--bare .msg { display:none; }
 
+/* The notice: design/Notice, an inline message with a title. */
+.notice { display:flex; align-items:flex-start; gap:12px; border:1px solid var(--vz-border-strong); background:var(--vz-raised); border-radius:8px; padding:12px 14px; }
+.notice .i { width:16px; height:16px; border-radius:999px; border:2px solid var(--vz-text-muted); flex:none; margin-top:2px; }
+.notice .lines { flex:1; min-width:0; display:flex; flex-direction:column; gap:2px; }
+.notice .title { font-size:13px; font-weight:600; line-height:18px; color:var(--vz-text); }
+.notice .msg { font-size:12px; line-height:17px; color:var(--vz-text-muted); }
+.notice code { font-family:var(--mono); font-size:11px; }
+
 /* Where it sits: above the frame, so it shows on every page. */
 .strip { background:var(--vz-panel); padding:12px 16px 0; }
 
@@ -107,6 +115,13 @@ svg { display:block; flex:none; }
 </div>
 
 <div class="strip">
+  <div class="notice" id="notice" hidden>
+    <span class="i" aria-hidden="true"></span>
+    <div class="lines">
+      <p class="title">Install is loopback-only</p>
+      <p class="msg">On this address the browser treats the connection as insecure and refuses the install. Use <code>http://127.0.0.1:&lt;port&gt;</code> on the computer Vizier runs on.</p>
+    </div>
+  </div>
   <div class="banner" id="banner" role="status">
     <span class="dot" aria-hidden="true"></span>
     <div class="lines">
@@ -149,6 +164,7 @@ svg { display:block; flex:none; }
     <li>It uses the <code>offline</code> tone of <code>design/Banner</code>: the retrying edge and ground, with a retrying dot.</li>
     <li>The second line needs the <code>offline</code> tone to render its <code>message</code>. Today only the <code>failed</code> tone does, so the design component changes first.</li>
     <li>"Try again" re-opens the socket. The chat's own banner keeps its per-topic line; this one is the shell-wide statement.</li>
+    <li>On a LAN address the browser refuses the worker, so a notice says so: the <code>info</code> tone of <code>design/Notice</code>, above the banner, in the same place.</li>
   </ul>
 </div>
 
@@ -157,14 +173,22 @@ const SCENARIOS = {
   'App shell': {
     title: "Vizier can't reach the engine",
     msg: "Replies and new conversations need a connection. What is already open stays readable.",
+    lan: false,
   },
   'Engine restarting': {
     title: "Vizier is reconnecting to the engine",
     msg: "Replies pause for a moment. Nothing you have open is lost.",
+    lan: false,
   },
   'Chat topic dropped': {
     title: "Vizier can't reach the engine",
     msg: "Replies and new conversations need a connection. What is already open stays readable.",
+    lan: false,
+  },
+  'LAN address': {
+    title: "Vizier can't reach the engine",
+    msg: "Replies and new conversations need a connection. What is already open stays readable.",
+    lan: true,
   },
 };
 
@@ -175,6 +199,7 @@ function paint() {
   const s = SCENARIOS[el('scenarios').querySelector('[aria-pressed="true"]').dataset.id];
   el('b-title').textContent = s.title;
   el('b-msg').textContent = s.msg;
+  el('notice').hidden = !s.lan;
 }
 
 const seg = el('scenarios');

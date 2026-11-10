@@ -20,10 +20,22 @@ fn cache_control(path: &str) -> &'static str {
     }
 }
 
+/// The extensions a static file carries. A path that ends in anything else is a route, even when
+/// its last segment has a dot: a memory document is named after its file, minus the `.md`.
+const ASSET_EXTENSIONS: &[&str] = &[
+    "js", "mjs", "css", "map", "json", "webmanifest", "txt", "xml", "svg", "png", "jpg", "jpeg",
+    "gif", "webp", "avif", "ico", "woff", "woff2", "ttf", "otf", "eot", "mp3", "ogg", "wav",
+    "m4a", "webm", "wasm", "pdf", "zip",
+];
+
 /// Whether a path that is not in the embed is an asset request (a miss is a 404) or a
 /// client-side route (a miss is the app shell, so the SPA router can take over).
 fn is_asset_path(path: &str) -> bool {
-    path.rsplit('/').next().unwrap_or(path).contains('.')
+    let file = path.rsplit('/').next().unwrap_or(path);
+    match file.rsplit_once('.') {
+        Some((_, ext)) => ASSET_EXTENSIONS.contains(&ext),
+        None => false,
+    }
 }
 
 pub async fn index() -> impl IntoResponse {
@@ -68,6 +80,14 @@ mod tests {
         assert!(!is_asset_path("settings/roles"));
         assert!(!is_asset_path("login"));
         assert!(!is_asset_path("my-agent/chat/topic-1"));
+    }
+
+    #[test]
+    fn a_route_with_a_dotted_name_is_still_a_route() {
+        // A memory document is named after its file, minus the .md: `notes.v1.md` is `notes.v1`.
+        assert!(!is_asset_path("my-agent/memory/core/notes.v1"));
+        assert!(!is_asset_path("my-agent/memory/core/notes"));
+        assert!(is_asset_path("favicon.svg"));
     }
 
     #[test]
