@@ -204,11 +204,15 @@ export class LiveVoiceClient {
                 onWindow: (samples) => this.onWindow(samples),
                 onLost: (reason) => this.fail('permission_withdrawn', reason),
             })
-            // The device arrived after the session gave up (or after the person ended it): it must
-            // not stay open with nothing driving it, so it is stopped here and dropped.
-            // `currentState`, not `this.state`: the guard at the top of `start()` narrows the field,
-            // and the whole point here is that an `await` may have moved it since.
-            if (this.currentState !== 'connecting' || this.released) {
+            // The device arrived after the session was over — ended, failed, or released by a
+            // page hide — so nothing is driving it and it must not stay open.
+            //
+            // Deliberately **not** "anything that is no longer `connecting`": the server publishes
+            // `listening` as soon as it has accepted the start frame, which can arrive before the
+            // device resolves. Treating that echo as "too late" closed the microphone of every
+            // session where the provider was quicker than the permission prompt — `Listening` on
+            // screen with `mic off`, no audio ever sent (N1 regression, `08cf067`).
+            if (this.released || this.currentState === 'off' || this.currentState === 'ended' || this.currentState === 'failed') {
                 capture.stop()
                 return
             }
@@ -518,6 +522,14 @@ export class LiveVoiceClient {
 
 
     private applyState(next: SessionState, reason?: EndReason): void {
+        // The server answers a start frame with `listening` as soon as it has accepted it, which
+        // may be before the microphone has opened. That echo is not news: the only door into
+        // `listening` is `start()`, where the device is actually attached. Without this, the echo
+        // moved the session on and the device that arrived a moment later looked "too late" and
+        // was closed — `Listening` with `mic off` and no audio (N1 regression, `08cf067`).
+        if (next === 'listening' && this.state === 'connecting' && this.capture === null) {
+            return
+        }
         if (next === 'ended' || next === 'failed') {
             this.release()
             this.move(next, reason)

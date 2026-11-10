@@ -1391,3 +1391,81 @@ describe('N1 — a device that never opens does not hang the session', () => {
         expect(h.keys()).not.toContain('live_voice_stop')
     })
 })
+
+/**
+ * N1 regression (`08cf067`) — "Listening + mic off", reported from a live session.
+ *
+ * The server answers a start frame with `listening` as soon as it has accepted it, which can be
+ * before the microphone resolves. That echo used to move the session off `connecting`, and the N1
+ * guard then treated the device that arrived a moment later as "too late" and closed it: the row
+ * said `Listening`, the chip said `mic off`, the clock never started, and no audio was ever sent.
+ */
+describe('N1 regression — a listing echo that overtakes the device must not kill it', () => {
+    /** A client whose device resolves only when the test releases it. */
+    function slowDevice() {
+        const sent: object[] = []
+        const views: LiveVoiceView[] = []
+        let settle: ((value: { stop(): void; open: boolean }) => void) | null = null
+        let stopped = 0
+        let clock = 1000
+        const client = new LiveVoiceClient({
+            send: (frame) => {
+                sent.push(frame)
+                return true
+            },
+            player: new SilentPlayer(),
+            openCapture: () =>
+                new Promise((resolve) => {
+                    settle = resolve
+                }),
+            onView: (view) => views.push(view),
+            now: () => clock,
+            connectDeadlineMs: 5_000,
+        })
+        return {
+            client,
+            stopped: () => stopped,
+            last: () => views[views.length - 1],
+            open: () => settle?.({ stop: () => (stopped += 1), open: true }),
+            advance: (ms: number) => {
+                clock += ms
+            },
+        }
+    }
+
+    it('keeps the device when the server says listening before the microphone opens', async () => {
+        const h = slowDevice()
+        const starting = h.client.start()
+        expect(h.client.currentState, 'the permission prompt is still up').toBe('connecting')
+
+        // What the server really sends: it accepted the start frame, so it is listening already.
+        h.client.onFrame({ live_voice: { type: 'state', state: 'listening', generation: 1 } })
+        expect(h.client.currentState, 'the echo is not news, the door is start()').toBe('connecting')
+
+        h.open()
+        await starting
+        expect(h.stopped(), 'the device is attached, not thrown away').toBe(0)
+        expect(h.client.currentState).toBe('listening')
+        expect(h.last().micOpen, 'and the chip can say mic on').toBe(true)
+
+        // The clock starts with the device, so a live session is not frozen at 0:00.
+        h.advance(1200)
+        h.client.onFrame({ live_voice: { type: 'transcript', utterance_id: 'u-1', text: 'halo', submitted: true } })
+        expect(h.last().elapsedMs).toBeGreaterThanOrEqual(1200)
+    })
+
+    it('a real reconnect still moves the session on', async () => {
+        // The echo is only ignored while `connecting` with no device. A dropped socket that comes
+        // back is genuine news, and that path must not be caught by the same guard.
+        const h = slowDevice()
+        const starting = h.client.start()
+        h.open()
+        await starting
+        expect(h.client.currentState).toBe('listening')
+
+        h.client.onSocketState('reconnecting')
+        expect(h.client.currentState).toBe('reconnecting')
+        h.client.onSocketState('open')
+        expect(h.client.currentState, 'back on the same session').toBe('listening')
+    })
+})
