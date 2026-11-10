@@ -382,9 +382,14 @@ be started.
   started but carrying held audio is caught by the **ratio**, not by the origin — the origin condition is
   the narrower of the two, never the only one doing work.
   **This is a heuristic and it must say so:** 5 is a **named constant**, never a literal inside a
-  function, with the physics above written beside it. Every discarded burst logs its ratio, audio length
-  and topic — if we ever throw away a real interruption, it has to be visible in the log rather than
-  discovered from a complaint.
+  function, with the physics above written beside it. If we ever throw away a real interruption, it has
+  to be visible in the log rather than discovered from a complaint — so **every** guard decision writes
+  one line carrying `decision=abort|held`, `ratio`, `audio_ms`, `wall_ms`, `topic` and `utterance_id`.
+  Levels, and why: a **held** burst is `warn` — the only branch that can make a person say "my
+  interruption was refused", so it must be readable without depending on a debug filter; the **2-5 grey
+  zone** is `debug`, because it changes no behaviour and a `warn` that fires when nothing was done stops
+  being read. `decision=` is what makes the grey zone worth keeping: `grep decision=held` separates a bug
+  (held at ratio 2-5) from the designed behaviour (held above 5).
   **And it is a net, not a cure.** The real cause is that audio arrives in a held-then-dumped burst;
   until that is proven and closed, this only dampens the symptom, and that goes in the DoD as a case this
   does **not** close. It must not be used to declare `LV-BARGE-BEFORE-AUDIO` finished: the DoD stays that
