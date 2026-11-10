@@ -296,6 +296,55 @@ chat behind it; end the call; the panel is gone, both turns present, the control
 
 ---
 
+## Defects found in the field, 2026-11-10 16:33 (after this release)
+
+Three defects were found by a live call in a real browser on `:9998`, agent `bestie`, provider
+`Openrouter` with `stt_from_live_voice=true tts_from_live_voice=true`. None of them is in the
+provider or in the person's configuration: the first is the line that made the call silent, and
+the other two are what the log shows once that line is read closely. **All three are out of this
+release's gate** (bro-pm, 2026-11-10 16:50); they are written down so they cannot be lost, not to
+be started.
+
+- [ ] LV-TTS-PCM-FORMAT **A speech model that answers only in PCM was asked for `mp3`.** Every
+  synthesis of the call came back `400 {"error":{"message":"Gemini TTS only supports
+  response_format=\"pcm\". Got \"mp3\"."}}` — filler 4× and the answer 1×, `segment sent` 0 — so the
+  reply reached the thread and never the speaker. `tts/mod.rs` names `mp3` for every OpenRouter
+  model without looking at which model it is. **Fix in the tree, not yet gated** (this is the only
+  one of the three that is being fixed now): the request names `pcm` for a model that requires it,
+  the bare samples are wrapped at the rate everything else reads, and a non-PCM model keeps its mp3
+  path unchanged. **Not covered by that fix, and it must be said in the release notes:** a PCM-only
+  model whose name does not match the detection pattern still gets `mp3` and still fails, and the
+  assumption that the body is bare PCM is only provable by one real turn.
+- [ ] LV-ST-SPEAKING-263MS **`speaking` reaches the client and dies in a quarter of a second.**
+  `frame.rs` publishes the word at 16:33:21.518 and `listening` at 16:33:21.781 — 263 ms. The bar
+  renders it (`LiveVoiceRow.tsx:71-72`), so the person sees `listening → thinking → listening` and
+  never a `speaking` they could name. The defect is **not** a missing transition: it is that a
+  failed voice has no word of its own. The client receives `speaking → error → listening`, and the
+  error's message is replaced by the generic sentence `the speech provider failed`
+  (`webui/app/lib/liveVoice/session.ts:713-714`), which is the same defect T102 fixed for
+  `unsupported_audio`. Needs a decision: a state or notice that means "the words are here, the
+  voice is not", and the provider's own message kept on screen long enough to be read.
+- [ ] LV-SECOND-UTTERANCE-DROPPED **After an `error` frame the client stops opening utterances.**
+  In the 63 s between `synthesis failed` (16:33:21.781) and the last line of the log (16:34:26.399):
+  927 `push_audio`, **0** `open_utterance`, **0** `turn_start`. The audio keeps arriving and the
+  server drops every chunk, because `push_audio` only appends to an utterance that is already open
+  (`crates/vizier-core/src/live_voice/session.rs:412-414`) and only a client `speech_start` opens one
+  (`crates/vizier-http/src/topic.rs:947`). The person spoke again and nothing was submitted. The
+  mechanism QA pointed at: `webui/app/lib/liveVoice/session.ts:437` invents an `utteranceId` without
+  sending `speech_start`, and `:455` only sends it while `!utteranceId` — so the id is non-zero,
+  the frame never leaves, and the gate never re-opens. **Silent by contract:** an unknown id returns
+  `None`/`Unknown` and neither path sends a frame (`topic.rs:909`, `:924`), so the bar shows
+  `listening` with a flat waveform for both "heard and working" and "dropped".
+- [ ] LV-SESS-NO-END **A live-voice call ends without a line saying so.** `start` happened three
+  times on one topic — 16:31:18, 16:31:48, 16:32:50, each `engines chosen` for `agent_id=bestie` —
+  and not one of them left a line that the previous call had ended; each restart coincides with a
+  17 s and a 13 s hole in the audio. So "why three sockets in 92 seconds" cannot be answered from
+  the log. Not a release blocker (the call that was tested was the third one and it worked), but it
+  costs every future report the same hour this one cost.
+
+
+---
+
 ## Dependencies & Execution Order
 
 ### Phase Dependencies
