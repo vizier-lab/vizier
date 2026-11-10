@@ -126,9 +126,12 @@ pub struct OpenAiTts {
     pub pcm_rate: Option<u32>,
 }
 
-/// The rate every spoken segment is delivered at (`live_voice::frame::SAMPLE_RATE`). Repeating the
-/// number rather than importing it keeps this crate's media layer independent of the feature that
-/// consumes it; the test below pins the two together.
+/// The rate every spoken segment is delivered at (`live_voice::frame::SAMPLE_RATE`).
+///
+/// Repeated rather than imported because `live_voice` sits behind `provider-live-voice`
+/// (`lib.rs:103`), and this media layer must compile without that feature. The test in
+/// `pcm_tests` pins the two numbers together, and it only runs when the feature is on, which is
+/// the only build where a mismatch could reach a person's ear.
 pub const SPEECH_RATE: u32 = 16_000;
 
 #[async_trait::async_trait]
@@ -556,6 +559,9 @@ mod pcm_tests {
         assert_eq!(u32::from_le_bytes([wav[24], wav[25], wav[26], wav[27]]), SPEECH_RATE);
         assert_eq!(u32::from_le_bytes([wav[40], wav[41], wav[42], wav[43]]), 320);
         // ...and it is the rate a spoken segment is delivered at, which is the whole point.
+        // Behind the feature: `live_voice` itself is gated (`lib.rs:103`), so a build without it
+        // has no constant to compare against — and that build must still compile.
+        #[cfg(feature = "provider-live-voice")]
         assert_eq!(SPEECH_RATE, crate::live_voice::frame::SAMPLE_RATE);
     }
 
