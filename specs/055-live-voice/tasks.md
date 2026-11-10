@@ -350,6 +350,19 @@ be started.
   cancelled=true generation=3` -> `reply abandoned … at="the synthesis finished after the reply was
   over"`, with zero `segment sent`. The person sees "the first answer has no voice" and every answer
   after it is fine, because later turns are no longer brand new when their `close` arrives.
+  **FINAL SHAPE — read this block and stop; everything below it is the reasoning and the two rules
+  that were proposed and rejected on the way here.**
+  ```
+  abort_turn  ONLY when BOTH hold:
+    (1) utterance.opened_at > turn.started_at        strict >, never >=
+    (2) ratio = audio_ms / wall_ms < 5.0             > 5.0 is a burst
+  otherwise: no abort. Every decision logs one line with
+    decision=abort|held, ratio, audio_ms, wall_ms, topic, utterance_id
+  ```
+  Gate, red first, three cases (only three ever reached the guard):
+  **20:08:14 held** (1 370x, first turn of `dPg_xlZut8`) · **20:09:25 held** (3 320x, first turn of
+  `cEKjwtlxZ7`) · **20:12:32 aborts** (1.0x, a real interruption) · plus `reason=opened-before-turn` on a
+  held close · plus **Q5 green**.
   **The guard must not be built on either of the two obvious conditions — both were measured and both
   fail.** Over 19 utterances on 20:08–20:13, audio-duration ÷ wall-clock-duration is **1.0×** for a
   person actually speaking and **1 370×, 3 320×, 4 641×** for a burst that arrived at once (tens of
