@@ -350,131 +350,67 @@ be started.
   cancelled=true generation=3` -> `reply abandoned … at="the synthesis finished after the reply was
   over"`, with zero `segment sent`. The person sees "the first answer has no voice" and every answer
   after it is fine, because later turns are no longer brand new when their `close` arrives.
-  **FINAL SHAPE — read this block and stop; everything below it is the reasoning and the two rules
-  that were proposed and rejected on the way here.**
-  ```
-  abort_turn  ONLY when  ratio = audio_ms / wall_ms < 5.0   AND   utterance.opened_at >= turn.started_at
-    wall_ms == 0 counts as a burst, never as infinity
-    audio_ms == 0 counts as a burst too: no audio is not a low ratio
-    ratio > 5.0 is a burst whatever the origin says (held, warn)
-    ratio in 2.0-5.0 with origin satisfied aborts, logged at debug with decision=abort
-  every decision logs: decision=abort|held, reason=, ratio, audio_ms, wall_ms, topic, utterance_id
-  ```
-  **The guard must not be built on either of the two obvious conditions — both were measured and both
-  fail.** Over 19 utterances on 20:08–20:13, audio-duration ÷ wall-clock-duration is **1.0×** for a
-  person actually speaking and **1 370×, 3 320×, 4 641×** for a burst that arrived at once (tens of
-  milliseconds of wall clock carrying 800–3 100 ms of audio): so a duration threshold that drops the
-  burst also drops a real 805 ms interruption, and `segment sent >= 1` would disable the legitimate
-  case below (the person really did interrupt; the audio simply had not been sent yet). What separates
-  them is **how fast the audio arrived**, not how long it was. **The line is decided (PM, 2026-11-10 21:02): a ratio of audio_ms / wall_ms > 5 is a burst, and a burst
-  neither aborts the turn nor opens a new one** — logged at `warn` with the ratio, the audio length and
-  the topic. At or below 5 it is behaviour as it is today, unchanged; the 2-5 grey zone is treated as a
-  real interruption but logged at `debug` with its ratio, so that a report of "my interruption was
-  refused" arrives with a number instead of a guess. The shape, exactly:
-  `ratio > 5.0` -> burst, no abort, `warn!(ratio, audio_ms, wall_ms, topic)` ·
-  `2.0 <= ratio <= 5.0` -> a real interruption, `debug!(ratio)` for the audit ·
-  `ratio < 2.0` -> a real interruption, no extra line.
-  **Why 5.0 and not 3.0:** both sit far above the 1.0x that all 16 real utterances measured, so the only
-  band they disagree on is **3.0-5.0** — and there 3.0 would hold back an interruption that might be
-  genuine while 5.0 lets it through, which is exactly today's behaviour. So 5.0 regresses nothing: it
-  only silences the physically impossible cases at 9.8x and above. Anything lower turns a safety net into
-  a policy that stops people interrupting, which FR-024/FR-027 never agreed to.
-  **Why 5 and not 100 ("safely in the middle"):** 9.8x is also impossible for a human voice — 3 000 ms
-  of audio cannot arrive inside 305 ms of wall clock. It was called a legitimate turn because it
-  *produced* a turn, not because its contents were legitimate; an upper threshold would let 9.8x through
-  and keep killing the first answer, which is the bug this exists to stop. The limit comes from physics,
-  not from a sample spread: a person cannot speak five times faster than time. All 16 real utterances
-  measured about **1.0x**, so 5 gives a 5x margin above them.
-  **Two conditions, and BOTH are needed — neither one alone survives the log** (PM final, 2026-11-10
-  21:07, settling a ruling that was changed twice before it). `abort_turn` is called only when
-  `ratio < 5.0` **and** `utterance.opened_at >= turn.started_at`; either condition reading "burst" holds
-  the turn. The reason is the log, checked case by case, and it is asymmetric:
-  | case | order in the log | ratio | origin as the gate | **ratio alone** |
-  |---|---|---|---|---|
-  | 20:08:14, killed | `open` .818824 -> `turn_start` .818945 (open **121 us first**) | 1 370x | no abort, fixed | no abort |
-  | 20:09:25, killed | `turn_start` .700115 -> `open` .700219 (open **104 us later**) | 3 320x | **abort: leaves the kill alive** | no abort |
-  | 20:11:48, not killed | `turn_start` 20:11:26.485673 -> `open` 20:11:48.389813 (open **21 s later**) | 4 641x | **abort: wrong** | no abort |
-  | 20:10:05, not killed | `open` 20:10:05 -> `turn_start` 20:10:09 | 9.8x | no abort | no abort |
-  | 20:12:32, real interruption | `turn_start` 20:12:29.710 -> `open` 20:12:32.116 | **1.0x** | abort | abort |
-  **Origin alone fails on the two cases it was invented for**, and one failure is the kill this task
-  exists to remove: at 20:09:25 `turn_start` .700115 came **104 us before** `open_utterance` .700219, so
-  ordering says "abort a 3 320x burst"; at 20:11:48 the utterance opened **21 s after** the turn, so
-  ordering says "abort a 4 641x burst". The two events are **microseconds apart**, so their order is
-  decided by task scheduling and not by anything a person did — an origin-only guard is a coin toss on
-  the very call it exists to save. **Do not build it alone; that is measured, not preferred.**
-  **Ratio alone also fails, in the opposite direction, and that is why it is not dropped either:** it
-  answers nothing about an utterance that carries a normal ratio but cannot be an interruption, i.e. one
-  opened inside the 3.4 s `close_utterance -> turn_start` window — there the person starts speaking
-  while the agent has not made a sound yet, and ratio would let the close abort a turn nobody heard.
-  **Combined, the wrong origin verdicts never execute**, because the ratio holds those cases first; and
-  the combined rule gets all five cases right. That is the whole argument for AND: not that origin is
-  right, but that it can only ever add a hold, never remove one.
-  **The cost, stated plainly:** an utterance opened inside that 3.4 s window with a genuine 1.0x ratio
-  is **held**, so the agent talks to the end and cannot be cut. That is the price of never losing the
-  first answer of a call again, and it disappears when `transcribe` leaves the socket loop and the
-  window shrinks to about zero.
-  **A third signal exists and is NOT adopted:** the turn was **0.35 ms** old when 20:09:25 closed it,
-  which no interruption can explain. It is recorded because it may matter later; adding it now would be
-  one more signal decided on no separating data.
-  **`wall_ms` must not divide, and must not be rounded to whole milliseconds.** Three of the five cases
-  last **241 us, 584 us and 668 us**; in integer milliseconds two of them are `0`, and `audio/0` is a
-  panic in integer arithmetic and an infinity in float. So the clock is kept in **microseconds or as
-  `f64`**, and `wall_ms == 0` still has an explicit branch -> `held`, never an infinity that slips
-  through the comparison. `audio_ms == 0` likewise: **no audio is not a low ratio**, it is `held` with
-  `reason=no-audio`.
-  **This is a heuristic and it must say so:** 5 is a **named constant**, never a literal inside a
-  function, with the physics above written beside it. If we ever throw away a real interruption, it has
-  to be visible in the log rather than discovered from a complaint — so **every** guard decision writes
-  one line carrying `decision=abort|held`, `ratio`, `audio_ms`, `wall_ms`, `topic` and `utterance_id`.
-  Levels, and why: a **held** burst is `warn` — the only branch that can make a person say "my
-  interruption was refused", so it must be readable without depending on a debug filter; the **2-5 grey
-  zone** is `debug`, because it changes no behaviour and a `warn` that fires when nothing was done stops
-  being read. `decision=` is what makes the grey zone worth keeping: `grep decision=held` separates a bug
-  (held at ratio 2-5) from the designed behaviour (held above 5).
-  **And it is a net, not a cure.** The real cause is that audio arrives in a held-then-dumped burst;
-  until that is proven and closed, this only dampens the symptom, and that goes in the DoD as a case this
-  does **not** close. It must not be used to declare `LV-BARGE-BEFORE-AUDIO` finished: the DoD stays that
-  **the first turn of a session must not die before it makes a sound**, and the test must be **red**
-  without the guard. The guard also stays if the client ever stops sending bursts, because another client
-  or a stalled network produces the same shape.
-  **Cause in the same package.** The burst exists because the socket is not read while recognition runs
-  inline (`crates/vizier-http/src/topic.rs:912`, `:936`; the 16:33 call carried `idle_for_ms=11768` and
-  then 117 chunks in one second). Moving `transcribe` out of the socket loop costs little and saves **0 ms**
-  of latency, but it removes the cause rather than the symptom. It touches the `touch`/`busy` path that
-  keeps FR-029's Option A honest, so **Q5 (a silent session ends by itself) is part of this gate.**
-  **The 3.4 s window between `close_utterance` and `turn_start` is the accepted cost, and it is logged.**
-  An utterance opened inside that window sits before the next `turn_start`, so the origin condition holds
-  its close: the agent keeps talking and cannot be cut until it finishes. That is not a regression —
-  today the close aborts a turn nobody has heard — and it is not the defect the person reported, which
-  happens on every call rather than in a short gap after speaking. Every such hold writes
-  `decision=held reason=opened-before-turn`, so a complaint of "I could not cut in" can be traced to
-  this case by grep instead of by guesswork, and it disappears when `transcribe` leaves the loop.
-  **What this does NOT close:** until that move lands, a **legitimate** interruption arriving during a
-  stalled socket can read a high ratio and be held, and one arriving inside the 3.4 s window is held for
-  its origin; an utterance shorter than about 300 ms makes the ratio noisy and stays on the server's
-  `too_short` path, not this one; and `channels != 1`, PCM-only models outside the name pattern, and the
-  263 ms `speaking` are untouched.
-  **`held` is not `discarded`, and that is not decided.** A held utterance is still transcribed and still
-  becomes a turn — 20:10:05 was held and `turn_start` 20:10:09.332 followed, with `segment sent` at
-  20:10:15.851. So the guard protects a running turn; it does not stop a burst from becoming a message.
-  Whether it should is undecidable from this data: 3 000 ms of audio arriving in 305 ms is either (a) a
-  real voice held up in the socket, in which case the turn is legitimate, or (b) audio that should never
-  have been sent, in which case we are storing words nobody said. Only a client-side log can separate
-  those, and there is not one yet. Recorded, not fixed.
-  **Gate, red first — three cases, because only three ever reached the guard.** The `cancelled` flag is
-  `true` only at **20:08:14.819**, **20:09:25.700** and **20:12:32.921**, so: **20:08:14 (1 370x) held**
-  (first turn of `dPg_xlZut8`) · **20:09:25 (3 320x) held** (first turn of `cEKjwtlxZ7`) ·
-  **20:12:32 (1.0x) aborts** (a real interruption) · plus **Q5 green**, plus **`wall_ms == 0` -> held**
-  and **`audio_ms == 0` -> held** as cases of their own. **20:10:05 (9.8x) and 20:11:48 (4 641x) are NOT gate
-  material:** both logged `cancelled=false` with no turn busy, so they prove the burst arrived and say
-  nothing about what the guard does with it — a test written from either would pass without the fix.
-  **History, so nobody rebuilds the rejected rule.** Two guards were proposed on the way here and both
-  were withdrawn against the log: a duration threshold (a burst carries 800-3 100 ms, and a real
-  interruption carried 805 ms, so it cannot separate them), and the utterance's origin
-  (`opened_at` vs `turn_started_at`), which fails on two of the three cases it was meant to settle —
-  20:09:25 and 20:11:48 both opened **after** their turn, 104 us and 21 s later respectively, and one of
-  them is the kill. The paragraphs that argued for them are gone on purpose: an entry that keeps a
-  rejected rule beside the accepted one gets read as "both are true" by whoever arrives next.
+**THE RULE — one condition, and this block is the whole of it.**
+```
+abort_turn  ONLY when  ratio = audio_ms / wall_ms < 5.0
+  audio_ms  from the PCM actually received (len / 32 for 16 kHz mono 16-bit), never chunks x 100
+  wall_ms   in microseconds (or f64): three measured bursts are 241, 584 and 668 us, so whole
+            milliseconds would round two of them to 0
+  wall_ms == 0  -> held, never infinity (division by zero is not a theoretical case here)
+  audio_ms == 0 -> held too: no audio is not a low ratio
+every decision logs: decision=abort|held, reason=, ratio, audio_ms, wall_ms, topic, utterance_id
+levels: held at warn (the only branch that can make a person say "my interruption was refused", so it
+        must not depend on a debug filter); the 2.0-5.0 grey zone at debug with decision=
+```
+**Why the ratio and not a duration or "has it spoken yet":** measured over 19 utterances on
+20:08-20:13, audio duration / wall-clock duration is **1.0x** for a person actually speaking and
+**1 370x, 3 320x, 4 641x** for audio that arrived in one dump (tens of microseconds of wall clock
+carrying 800-3 100 ms of audio). A duration threshold that drops the dump also drops the real 805 ms
+interruption; `segment sent >= 1` would disable the case where the person really did interrupt but the
+audio had not been sent yet. What separates them is **how fast the audio arrived**, not how long it was.
+**Why 5.0:** all 16 real utterances measured about 1.0x, so 5.0 keeps a 5x margin above genuine speech
+and only silences what is physically impossible - a person cannot speak five times faster than time.
+**Why not 3.0:** the two thresholds disagree only in 3.0-5.0, and there 3.0 would hold back an
+interruption that might be genuine while 5.0 lets it through, which is today's behaviour. So 5.0
+regresses nothing; anything lower is a policy that stops people interrupting, which FR-024/FR-027 never
+agreed to. **Why not 100 ("safely in the middle"):** 9.8x is also impossible for a human voice - 3 000 ms
+of audio cannot arrive inside 305 ms - and an upper threshold would let it through and keep killing the
+first answer of every call, which is the defect this task exists to remove.
+5.0 is a **named constant** with that reasoning beside it, never a literal inside a function.
+**Do NOT build the guard on the utterance's origin - it was tried and the log killed it.** The order of
+`open_utterance` and `turn_start` is a race, not a meaning:
+- `20:08:14` `open` .818824 -> `turn_start` .818945 (**121 us** apart) -> `cancelled=true`
+- `20:09:25` `turn_start` .700115 -> `open` .700219 (**104 us** apart) -> `cancelled=true`
+- `20:11:48` `turn_start` 20:11:26.485673 -> `open` 20:11:48.389813 (**21 s** apart) -> `cancelled=false`
+Origin as the gate leaves the 20:09:25 kill alive (ordering says "abort a 3 320x burst") and would
+wrongly abort the 20:11:48 burst. The ratio holds all three. That is measured, not preferred.
+**It is a net, not a cure.** The cause that **is** proven: the socket is not read while recognition runs
+inline (`crates/vizier-http/src/topic.rs:912`, `:936`; the 16:33 call carried `idle_for_ms=11768` and
+then 117 chunks in one second). "The client sent a held-then-dumped burst" is **not** proven - a stalled
+server read produces identical timestamps, and only a client-side log could tell them apart. Moving
+`transcribe` out of the socket loop costs little and saves **0 ms** of latency, but it removes the cause
+rather than the symptom; it touches the `touch`/`busy` path that keeps FR-029's Option A honest, so **Q5
+(a silent session ends by itself) is part of this gate.** It must not be used to declare this task
+finished: the DoD stays that the first turn of a session must not die before it makes a sound, and the
+test must be **red** without the guard.
+**What this does NOT close, stated as a price rather than hidden:**
+- A **legitimate** interruption arriving while the socket is stalled reads a high ratio and is **held**:
+  the agent keeps talking until it finishes. That disappears only when `transcribe` leaves the loop.
+- An utterance opened **inside the window between `close_utterance` and `turn_start`** (20:13:14 ->
+  20:13:18, 3.4 s) is judged on its ratio alone, which is about **1.0x**, so its close **does abort** a
+  turn that has not yet made a sound. No sample of it exists in tonight's log, it is **not a regression**
+  (every `close` while `busy` aborts today), and it closes with the same move as the cause above.
+- An utterance shorter than about 300 ms makes the ratio noisy and stays on the server's `too_short`
+  path, not this one.
+- **Held is not discarded:** a held burst is still transcribed and can still become the person's next
+  message (20:10:05 held, then `turn_start` 20:10:09.332 and `segment sent` 20:10:15.851). Whether such
+  audio is a real utterance that was delayed or audio that should never have been sent is **not proven**;
+  only a client-side log settles it.
+- `channels != 1`, PCM-only models outside the name pattern, and the 263 ms `speaking` are untouched.
+**Gate, red first:** 20:09:25 (3 320x) **held** - the red case, it is the reported defect · 20:12:32
+(1.0x) **abort**, the real interruption must keep working · 20:08:14 (1 370x) **held** · `wall_ms == 0`
+**held** · `audio_ms == 0` **held** · Q5 green.
+
 - [ ] LV-EMPTY-REPLY-SILENT **A reply with no content passes as a turn.** Four of the eight turns on
   topic `cEKjwtlxZ7` produced `content: ""` — no text, no speech, and no word to the person that
   anything went wrong. An empty answer must become a named error, in the same spirit as the JSON-body
