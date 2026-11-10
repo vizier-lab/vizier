@@ -831,7 +831,7 @@ would ever build — the same class of defect as FR-018, caught before implement
 | Change | Why | Where |
 |---|---|---|
 | **FR-025 deferred** (struck through, joined to FR-020/021) | Its only carrier, **T054**, sits in the deferred US3 (C7). A live requirement whose one task is in the backlog is a release promise with nobody to keep it: QA cannot test it and nobody will build it. Deferring it also makes the release rule readable in one line — **the only way to stop the audio is to stop speaking** (FR-019), not a button and not a keystroke. | FR-025 itself, the typed-while-speaking edge case, the *Interruption* key entity, and `contracts` §`live_voice_interrupt`, which now says the `typed` reason is not sent by this release's client even though both helpers exist (`Session.onTyped`, `forwardLiveVoiceTyped`) because nothing calls them |
-| **T053 rewritten** | It claimed the client interrupt path was still to be implemented. It is not missing: `Session.interrupt(reason)` (`webui/app/lib/liveVoice/session.ts:149`) already stops the audio, sends the frame and moves `speaking`/`waiting` to `listening`, with a passing test. What is missing is the **control on the surface this release ships**, because the only renderer today is the archived bar and FR-045 lets the panel carry one action (End) until this item lands. A plan that says "not built" about shipped code misleads in exactly the way the opposite does. | `tasks.md` T053 |
+| **T053 rewritten** | It claimed the client interrupt path was still to be implemented. It is not missing: `LiveVoiceClient.interrupt(reason)` (`webui/app/lib/liveVoice/session.ts:232 @ webui 8929bbed`) already stops the audio, sends the frame and moves `speaking`/`waiting` to `listening`, with a passing test. What is missing is the **control on the surface this release ships**, because the only renderer today is the archived bar and FR-045 lets the panel carry one action (End) until this item lands. A plan that says "not built" about shipped code misleads in exactly the way the opposite does. | `tasks.md` T053 |
 | **T095 corrected** | It said the registry is "keyed by person, not by (agent, conversation)". The `VizierSession` key is what routes inbound frames; deleting it would break delivery. The task now says: **keep the key, add a second index `owner → Arc<LiveVoiceSession>`**, and assert that a frame for the old conversation resolves to nothing after a move. | `tasks.md` T095 |
 | **D17 wording** | It read "T054 deleted" while T054 is alive for the typed-message path. It now reads "T054 reused for the typed-message path", so nobody creates a duplicate ID. | `tasks.md` §Delta |
 
@@ -1256,9 +1256,25 @@ no stack and no dependency: the transport is the User's answer, and the numbers 
 |---|---|---|
 | `state-matrix.md` | **The state matrix of the live row**: one row per state the row can be in, carrying what draws it (`digambar apa`, design), what data it needs (`butuh data apa`, data), when it is triggered (`dipicu kapan`, analysis) and what passing looks like (`lulusnya kayak apa`, QA). Fifteen rows, three desks, one file — it is an appendix of this specification, not a second document. | A UI surface of this feature is **not done** until this table exists, covers every state FR-006 names, and its `approved:` line carries a date and a name. A row marked `n/a` is a **decision**, not a gap: it must say why and when the decision was taken, or it is an open question with an owner. |
 
-**Pin rule.** The matrix is a test checklist only in a revision where its `spec_ref:` and `design_ref:` both
-resolve — a commit that exists, and a file whose bytes still hash to the recorded md5. In any other revision it is
-a draft, and no "failed" may be written against it, because the thing it would fail is text that no longer exists.
+**Pin rule — three refs, not two.** The matrix is a test checklist only in a revision where **`spec_ref:`,
+`design_ref:` and `code_ref:`** all resolve: a commit that exists, a file whose bytes still hash to the recorded md5,
+and a `webui` pin whose line numbers the table was actually read against. In any other revision it is a draft, and no
+"failed" may be written against it, because the thing it would fail is text that no longer exists.
+
+The third ref is not symmetry. Measured on 2026-11-10: the matrix carried **thirteen** `session.ts` line ranges, and
+**no single commit made all thirteen true at once** — nine were read at `webui@510ace84` (the pin when the data
+column was written at 08:57: `:97`, `:82`, `:27-46`, `:249-255`, `:250-253`, `:256-259`, `:373`, `:566-567`,
+`:540-586`) and four at `webui@08cf067a` (`:109-111`, `:180-192`, `:57`, `:219`), with two bare numbers (`:232`,
+`:331`) from the same later pin. One row, `LV-ST-LISTENING`, carried **both pins in one line**. When `webui` then
+moved twice in eight minutes (`2be9c377` 11:19, `8929bbed` 11:24), every one of them pointed somewhere else — and
+the file looked freshly verified, because every hash in it was correct. A pin that names the spec but not the code
+is a claim about a document and a silence about the thing that moves.
+
+**A pin is a date, not a guarantee.** `webui` moved four times in three hours on the day this rule was written, so
+`code_ref` records where the numbers *were* checked, not that they are still right. The check is one command, and it
+belongs before a signature rather than in a promise:
+
+    git ls-tree HEAD webui | awk '{print $3}'   # differs from code_ref→ the table is stale, re-read it before signing
 
 **Counted at this commit** (so a later reader does not have to trust it, and can re-run it). FR-006 names **eight**
 states. The matrix carries **15** rows (`grep -c '^| LV-ST-' state-matrix.md`), and the extra seven are not padding —
