@@ -422,11 +422,35 @@ test must be **red** without the guard.
   (every `close` while `busy` aborts today), and it closes with the same move as the cause above.
 - An utterance shorter than about 300 ms makes the ratio noisy and stays on the server's `too_short`
   path, not this one.
-- **Held is not discarded:** a held burst is still transcribed and can still become the person's next
-  message (20:10:05 held, then `turn_start` 20:10:09.332 and `segment sent` 20:10:15.851). Whether such
-  audio is a real utterance that was delayed or audio that should never have been sent is **not proven**;
-  only a client-side log settles it.
+- **Held is not discarded, and that is a decision, not an accident (PM, 2026-11-10 21:12).** A held
+  burst is still transcribed and still becomes the person's next message, exactly as today (20:10:05
+  held, then `turn_start` 20:10:09.332 and `segment sent` 20:10:15.851). It enters the conversation **like
+  any other turn** - no special marker to the person, no emphasis, no ordering rule of its own. Why it is
+  kept rather than dropped: the audio is real captured PCM, so its transcript says what the microphone
+  actually caught, which is a different risk from form B of partial STT (a model's guess revised into a
+  message); and throwing away a genuine sentence is worse than one extra turn, with no sample yet showing
+  the contents are junk. Whether such audio is a real utterance that was delayed or audio that should
+  never have been sent is **not proven** - only a client-side log settles it, and if it ever is proven,
+  that is a new task with its data, not a change bolted onto this guard.
+  **The `warn` line is written even when the utterance goes on to become a turn**, so the frequency of
+  this case is countable; if that count is high, the decision above is revisited with the number, not
+  with an opinion.
 - `channels != 1`, PCM-only models outside the name pattern, and the 263 ms `speaking` are untouched.
+**FR-024 gains one clause, and it is proposed tomorrow, not written tonight.** The shape is approved
+(PM, 2026-11-10 21:12): an utterance whose audio arrived faster than a person can speak is **not a
+barge-in**, so the reply is not cancelled for it - the same family as FR-024's existing rule that an
+utterance too short to be a word does not cancel the reply. It belongs in FR-024 (`spec.md:533`), **not**
+as a definition of interruption in FR-027 (`spec.md:536`), whose trigger stays *the end* of the person's
+utterance, never its start. Three things travel with it, or the clause will be read as something it is
+not:
+- **"not a barge-in" is not "not a message".** The burst still becomes the person's turn (see above), and
+  the clause must say so, or someone will read it as permission to discard.
+- **The threshold is a named constant in the code, not a number in the spec.** The spec states the
+  property; 5.0 is a choice under uncertainty and must stay revisable without an amendment, with one log
+  line per decision as the price of that freedom.
+- **The clause does not apply when the rate reads high because the socket stalled.** The cause is
+  recognition running inline, and moving `transcribe` out of the socket loop is what closes that case -
+  the threshold is not allowed to claim it.
 **Gate, red first:** 20:09:25 (3 320x) **held** - the red case, it is the reported defect · 20:12:32
 (1.0x) **abort**, the real interruption must keep working · 20:08:14 (1 370x) **held** · `wall_ms == 0`
 **held** · `audio_ms == 0` **held** · Q5 green.
