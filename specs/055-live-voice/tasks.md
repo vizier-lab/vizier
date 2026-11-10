@@ -375,10 +375,11 @@ be started.
   and keep killing the first answer, which is the bug this exists to stop. The limit comes from physics,
   not from a sample spread: a person cannot speak five times faster than time. All 16 real utterances
   measured about **1.0x**, so 5 gives a 5x margin above them.
-  **Second condition, both required:** `utterance.opened_at >= turn.started_at` — an utterance opened
-  **before** the turn existed cannot have interrupted it, so its close must never abort. Each condition
-  fails alone: the ratio is noisy on a very short utterance, and the origin alone misses a burst
-  opened after the turn started. And one class
+  **Second condition, both required:** abort needs `utterance.opened_at > turn.started_at` — **`>` never
+  `>=`**, because the two events land a tenth of a millisecond apart and an exact tie must not read as
+  "after". An utterance opened before the turn existed cannot have interrupted it, so its close must
+  never abort. Each condition fails alone: the ratio is noisy on a very short utterance, and the origin
+  alone misses a burst opened after the turn started. And one class
   that looks like a hole is not one, which is worth writing down: an utterance opened **after** the turn
   started but carrying held audio is caught by the **ratio**, not by the origin — the origin condition is
   the narrower of the two, never the only one doing work.
@@ -402,6 +403,16 @@ be started.
   then 117 chunks in one second). Moving `transcribe` out of the socket loop costs little and saves **0 ms**
   of latency, but it removes the cause rather than the symptom. It touches the `touch`/`busy` path that
   keeps FR-029's Option A honest, so **Q5 (a silent session ends by itself) is part of this gate.**
+  **The 3.4 s window between `close_utterance` and `turn_start` is NOT closed here, on purpose.** In that
+  window an utterance can be opened with no agent speech to interrupt, so its `opened_at` sits before the
+  next `turn_start` and the origin condition forbids aborting it — meaning a person who starts talking
+  while the agent is still thinking cannot cut the answer until it ends. Left open because the only
+  remaining discriminator is the turn's **age**, the same coin toss that was just thrown out, and because
+  the window disappears when `transcribe` leaves the socket loop. It has to be **findable**, not merely
+  noted: a held abort logs `decision=held reason=opened-before-turn` with `ratio`, `audio_ms`, `wall_ms`,
+  `topic` and `utterance_id`, so `grep reason=opened-before-turn` answers "is this that case" without
+  guessing. **Until `transcribe` is out of the loop and Q5 is green, this case is live and must not be
+  claimed closed.**
   **What this does NOT close:** until that move lands, a **legitimate** interruption arriving during a
   stalled socket can read a high ratio and be held; an utterance shorter than about 300 ms makes the
   ratio noisy and stays on the server's `too_short` path, not this one; and `channels != 1`, PCM-only
@@ -420,9 +431,9 @@ be started.
   scheduling and not by anything a person did — a guard built on it alone is a coin toss on the very
   call it exists to save. **That is why the ratio is a condition and not a log field:** 20:09:25 sits at
   3 320x, far above the 5.0x threshold, so the ratio holds it back even though its ordering says abort.
-  The two conditions are therefore both **negative** guards — abort only when `ratio <= 5.0` **and**
-  `opened_at >= turn.started_at` — and the origin rule alone would have shipped a fix that works on one
-  call in two. A third signal is available if the two ever disagree again: the turn was **0.35 ms** old
+  The two conditions are therefore both **negative** guards — abort only when the ratio is **not a burst**
+  (`ratio <= 5.0`, the line `> 5.0` being the burst) **and** `opened_at > turn.started_at`, never `>=` —
+  and the origin rule alone would have shipped a fix that works on one call in two. A third signal is available if the two ever disagree again: the turn was **0.35 ms** old
   when 20:09:25 closed it, which no interruption can explain; it is recorded, not adopted. **The gate
   must carry 20:09:25 as a red case regardless** — a guard that passes 20:08:14 and fails 20:09:25 has
   not fixed the reported defect.
