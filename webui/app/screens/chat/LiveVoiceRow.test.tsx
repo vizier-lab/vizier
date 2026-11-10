@@ -212,3 +212,35 @@ describe('F4 — the words that were heard', () => {
         expect(tag).toContain('flex-1')
     })
 })
+
+describe('T112 — a long name costs width, never height', () => {
+    // The DoD in T112: one test with a 40-character name proving the 24 px row still holds and the
+    // elements that must never shrink do not move. Geometry is asserted from the markup the row
+    // writes: `ROW.height` inline, and `shrink-0` on the four fixed slots.
+    const LONG = 'Ketua Tim Riset Produk dan Inovasi Digital'
+
+    it('keeps the row 24 px and the four fixed slots unshrunk', () => {
+        const html = render({ state: 'listening', micOpen: true }, { agentName: LONG })
+        expect(LONG.length, 'the fixture is the length the task names').toBeGreaterThanOrEqual(40)
+        expect(html).toContain('height:24px')
+        expect(html).toContain('data-agent')
+        expect(html).toContain(LONG)
+        // The name is the only slot that gives width back: no wrap, an ellipsis, and a ceiling.
+        expect(html).toContain('text-ellipsis')
+        expect(html).toContain('whitespace-nowrap')
+        expect(html).toContain('max-width:96px')
+        // The four that must not shrink still say so.
+        expect(html.match(/shrink-0/g)?.length ?? 0).toBeGreaterThanOrEqual(4)
+    })
+
+    it('the transcript keeps the space the name does not use', () => {
+        const withName = render(
+            { state: 'listening', micOpen: true, transcript: 'what time is standup' },
+            { agentName: LONG }
+        )
+        // The middle slot is `flex-1`: it takes what is left rather than a fixed width, which is
+        // what lets a long name cost the transcript width but never the row its height.
+        expect(withName).toContain('data-transcript')
+        expect(withName).toContain('flex-1')
+    })
+})
