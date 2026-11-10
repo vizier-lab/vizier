@@ -350,16 +350,20 @@ be started.
   cancelled=true generation=3` -> `reply abandoned … at="the synthesis finished after the reply was
   over"`, with zero `segment sent`. The person sees "the first answer has no voice" and every answer
   after it is fine, because later turns are no longer brand new when their `close` arrives.
-**THE RULE — gate: ratio only (PM, 2026-11-10 21:11); the utterance's origin is a diagnostic, not a
-gate. This block is the whole of it, and nothing above or below widens it.**
+**THE RULE — gate: BOTH conditions (PM, 2026-11-10 21:14, final; supersedes the ratio-only ruling of
+21:11). This block is the whole of it, and nothing above or below widens or narrows it.**
 ```
-abort_turn  ONLY when  ratio = audio_ms / wall_ms < 5.0
+abort_turn  ONLY when BOTH hold:
+  (1) utterance.opened_at > turn.started_at      strict >, never >=
+  (2) ratio = audio_ms / wall_ms < 5.0           > 5.0 is a burst
+anything else -> held, no abort
   audio_ms  from the PCM actually received (len / 32 for 16 kHz mono 16-bit), never chunks x 100
   wall_ms   in microseconds (or f64): three measured bursts are 241, 584 and 668 us, so whole
             milliseconds would round two of them to 0
   wall_ms == 0  -> held, never infinity (division by zero is not a theoretical case here)
   audio_ms == 0 -> held too, reason=no-audio: no audio is not a low ratio
-every decision logs: decision=abort|held, reason=<burst|no-audio>, ratio, audio_ms, wall_ms, topic,
+every decision logs: decision=abort|held, reason=<burst|no-audio|opened-before-turn>, ratio,
+        audio_ms, wall_ms, topic,
         utterance_id,
         sequence=<which turn of this session> - so a report of "my interruption was refused" can be
         matched to a turn without guessing from the clock; `sequence` rides the warn line only, not
@@ -369,20 +373,18 @@ every decision logs: decision=abort|held, reason=<burst|no-audio>, ratio, audio_
 levels: held at warn (the only branch that can make a person say "my interruption was refused", so it
         must not depend on a debug filter); the 2.0-5.0 grey zone at debug with decision=
 ```
-**A second condition on the utterance's origin was chosen and then withdrawn — do not put it back.**
-Between 21:02 and 21:10 the guard briefly required `opened_at > turn_started_at` as well. It was
-withdrawn for a measured reason, not a preference: it buys nothing the ratio does not already buy
-(every burst in the log is 9.8x or above, so the ratio holds all of them), and it *creates* a failure
-it was supposed to prevent — an utterance opened during the 3.4 s between `close_utterance` and
-`turn_start` has `opened_at < turn_started_at`, so its close could never abort, and a person talking
-while the agent was still thinking could not cut the answer at all. Under the ratio alone that same
-utterance measures about 1.0x and aborts as it should. `opened_at` survives as a **diagnostic
-(`opened_before_turn=true|false`)**, never as a gate.
-The sample count settled it too: **the origin condition was never exercised by a single case** - every
-burst in the log sits at 9.8x or above, where the ratio already holds it. So `opened_at` is **not a
-prerequisite for tomorrow's work**: no `opened_at` on `Utterance`, no `turn_started_at` on the session,
-and **no `reason=opened-before-turn`**; the reasons this guard emits are `burst` and `no-audio` only. A
-diagnostic origin can be added later as a plain log field, never as a gate.
+**Origin was withdrawn at 21:11 and restored at 21:14 — the reasoning, so it is not flipped a third
+time.** Withdrawing it was argued from measurement and the argument still stands: every burst in the log
+sits at 9.8x or above, so the ratio already holds all of them, and the origin condition adds no case it
+does not already cover. The PM restored it anyway, and that is a legitimate product choice rather than a
+correction: between two guards that pass every case we have, the narrower one cannot resurrect the defect
+this task exists to remove, and after a night of reversals one stable address is worth more than the
+marginally tidier shape. **The price is now the recorded cost of this rule, not an accident:** an
+utterance opened inside the 3.4 s between `close_utterance` and `turn_start` has
+`opened_at < turn_started_at`, so under BOTH it can never abort — a person talking while the agent is
+still thinking cannot cut the answer that follows. Under the ratio alone that utterance measures about
+1.0x and would abort. It disappears when `transcribe` leaves the socket loop, which is in this package.
+**`opened_at` and `turn_started_at` are therefore prerequisites again:** no fields, no gate, no red test.
 **Why the ratio and not a duration or "has it spoken yet":** measured over 19 utterances on
 20:08-20:13, audio duration / wall-clock duration is **1.0x** for a person actually speaking and
 **1 370x, 3 320x, 4 641x** for audio that arrived in one dump (tens of microseconds of wall clock
@@ -422,9 +424,10 @@ test must be **red** without the guard.
 - A **legitimate** interruption arriving while the socket is stalled reads a high ratio and is **held**:
   the agent keeps talking until it finishes. That disappears only when `transcribe` leaves the loop.
 - An utterance opened **inside the window between `close_utterance` and `turn_start`** (20:13:14 ->
-  20:13:18, 3.4 s) is judged on its ratio alone, which is about **1.0x**, so its close **does abort** a
-  turn that has not yet made a sound. No sample of it exists in tonight's log, it is **not a regression**
-  (every `close` while `busy` aborts today), and it closes with the same move as the cause above.
+  20:13:18, 3.4 s) can **never interrupt** the answer that follows, because the BOTH rule requires
+  `opened_at > turn_started_at` and this utterance opened before it. No sample of it exists in tonight's
+  log, it is **not a regression** (today that `close` aborts the turn outright), and it closes with the
+  same move as the cause above: `transcribe` out of the socket loop.
 - An utterance shorter than about 300 ms makes the ratio noisy and stays on the server's `too_short`
   path, not this one.
 - **Held is not discarded, and that is a decision, not an accident (PM, 2026-11-10 21:12).** A held
@@ -459,11 +462,14 @@ not:
 **Gate, red first:** 20:09:25 (3 320x) **held** - the red case, it is the reported defect · 20:12:32
 (1.0x) **abort**, the real interruption must keep working · 20:08:14 (1 370x) **held** · `wall_ms == 0`
 **held** · `audio_ms == 0` **held** · Q5 green.
-**The 20:12:32 assertion is not only "a person can still interrupt" - it is what tells the shipped shape
-apart from the withdrawn one.** It is the single case where ratio-only and ratio-AND-origin disagree, so
-a build that quietly kept the origin condition fails it. Keep it as an assertion about **which rule is
-installed**, not merely about behaviour, and say that in the test's own comment: without it, both shapes
-pass the other four cases and we would never know which one is running.
+**What 20:12:32 does and does not prove.** It proves a real interruption still cuts the answer - it
+opens at 20:12:32.116, **2.4 s after** `turn_start` 20:12:29.710, and measures 1.0x, so both conditions
+hold and the abort proceeds. What it does **not** do is tell the installed shape apart from the other one:
+ratio-only and BOTH give the same verdict on all five cases in the log, including this one. The single
+case where they disagree - an utterance opened inside the 3.4 s window at about 1.0x - **has no sample**,
+so no test written from tonight's log can distinguish them. Say that in the test's comment rather than
+implying the gate pins the shape: the gate pins the defect, and the shape is pinned by the rule in the
+block above and by nothing else.
 
 - [ ] LV-EMPTY-REPLY-SILENT **A reply with no content passes as a turn.** Four of the eight turns on
   topic `cEKjwtlxZ7` produced `content: ""` — no text, no speech, and no word to the person that
