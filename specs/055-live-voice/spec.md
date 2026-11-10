@@ -504,7 +504,7 @@ this diagram because it is deferred (C7).
 - **FR-003**: Live Voice MUST be independent of the existing speech-to-text and text-to-speech tools in both directions: starting it MUST NOT enable, disable or reconfigure those tools, and their switches MUST neither start it nor block it.
 - **FR-004**: Starting MUST require both a usable recognizer and a usable voice for that agent. When one is missing, the control MUST name what is missing and how to set it, and MUST NOT start; a session that can only listen, or only speak, MUST NOT be presented as live voice.
 - **FR-005**: A session MUST belong to one person, and there MUST be **at most one** live session for that person across every conversation and every agent (C10). Only someone allowed to chat in a conversation may start or end a call there. Starting a call **in another conversation or with another agent** MUST NOT fail with "a session is already active": it **moves** the call and says why in the conversation it leaves (FR-050, FR-051), so two are never running. The **one** refusal in this feature is narrower: a second connection pressing start on the **same** conversation that already has a call held by the owner's other connection (Q2's default). That is refused with `kind: "session_active"` — the same word the contract uses, never a different one — because moving would need a rule for audio already captured in the first connection, and the person can end the call from the connection that holds it.
-- **FR-006**: The **live row** MUST show, without a page reload: connecting, listening, waiting for the agent, speaking, interrupted, reconnecting, ended with a reason, failed with a reason. (`off` is the absence of the panel.) **The copy is English and stays English** (User, 2026-11-10 09:27): the eight words above are the shipped words, and translating them is a new decision rather than an edit — `agent sedang berpikir` measures 130 px against `thinking`'s 47 px, so a language change re-measures the row that FR-049 fixes at 24 px.
+- **FR-006**: The **live row** MUST show, without a page reload: connecting, listening, waiting for the agent, speaking, interrupted, reconnecting, ended with a reason, failed with a reason. (`off` is the absence of the row, not a state the row renders.) **The copy is English and stays English** (User, 2026-11-10 09:27): the eight words above are the shipped words, and translating them is a new decision rather than an edit — `agent sedang berpikir` measures 130 px against `thinking`'s 47 px, so a language change re-measures the row that FR-049 fixes at 24 px.
 - **FR-007**: A voice message MUST run the same turn as a typed one: same conversation history, same mode rules, same tools, same permissions, same memory, same usage accounting. Live Voice MUST NOT add, remove or alter the agent's tools, memory or permissions.
 - **FR-008**: A session MUST use the agent's own model and speech configuration. Live Voice MUST NOT silently change what typed turns use.
 
@@ -531,7 +531,7 @@ this diagram because it is deferred (C7).
 - **FR-022**: After an interruption, no part of the interrupted reply MUST be heard later, and the session MUST NOT resume speaking it on its own. The reply's remaining segments are abandoned, not paused: a later reply starts from its own first segment.
 - **FR-023**: An interrupted reply MUST remain in the conversation as the agent's message, marked as interrupted, so the person can see what they did not hear. How much text there is depends on when the interruption lands: interrupting while the reply is being spoken keeps the whole message, which was already stored before its first word was heard — **and that reason holds only while a reply arrives whole** (C16): once segments arrive as they are made, an interruption can land with only part of the reply produced, and then what is kept is what was produced, marked interrupted. Interrupting while the model is still producing it ends the turn as an abort (`VizierResponseContent::Abort` is a turn that produced nothing, `crates/vizier-core/src/schema/response.rs:156-163`), so the person sees the interrupted mark and the turn's saved activity trail, not partial prose. *(Clarified in the Lead's review, 2026-11-08: "readable as far as it was produced" promised partial text the abort path does not keep.)*
 - **FR-024**: The utterance that caused an interruption MUST become the person's next message, unless it was too short to be one, in which case nothing is sent **and the reply is not cancelled for it** — the threshold is the length that makes a barge-in, not a character count (Story 2 scenario 6).
-- ~~**FR-025**: A message typed while the agent is speaking MUST stop the audio and cancel the running turn, on the same path as any other interruption.~~ **DEFERRED with FR-020 (C7), User's decision 2026-11-08 21:19.** This release has no interrupt by typing either: the only way to stop the audio is to stop speaking (FR-019) — not a button, not a keystroke. Typing during a session is ordinary chat (FR-040) and does not stop the audio. Its only carrier, T054, sits in the deferred US3, and the composer surface is frozen until the User picks a panel, so a live requirement would have been a promise with no one to keep it. *(Deferred in the Lead's review, 2026-11-09: a requirement whose only task is in the backlog must not read as a release promise.)*
+- ~~**FR-025**: A message typed while the agent is speaking MUST stop the audio and cancel the running turn, on the same path as any other interruption.~~ **DEFERRED with FR-020 (C7), User's decision 2026-11-08 21:19.** This release has no interrupt by typing either: the only way to stop the audio is to stop speaking (FR-019) — not a button, not a keystroke. Typing during a session is ordinary chat (FR-040) and does not stop the audio. Its only carrier, T054, sits in the deferred US3, and the row carries exactly one action, End (FR-045), so a live requirement would have been a promise with no one to keep it. *(Deferred in the Lead's review, 2026-11-09: a requirement whose only task is in the backlog must not read as a release promise.)*
 - **FR-026**: The session MUST NOT interrupt itself: its own audio coming back through the device's speakers MUST NOT be taken as the person speaking, at any output volume and with or without headphones.
 - **FR-027**: An interruption MUST stop the audio at once and MUST also cancel the running turn, on the same path as the existing stop control: text produced so far stays in the conversation marked interrupted, nothing further is generated or spoken, and a tool call already completed is not undone. When the agent was working rather than speaking, an interruption MUST behave the same way, so "I interrupted while it was editing files" has exactly one answer. The trigger in this release is the end of the person's utterance (FR-019), never its start. *(Decided in Clarifications C3; trigger moved by C8.)*
 
@@ -568,7 +568,7 @@ this diagram because it is deferred (C7).
 - **FR-047**: The session MUST detect the end of the person's speech **while the agent's reply is audible** (C8): the reply continuing MUST NOT prevent the end-of-utterance period from elapsing. Echo cancellation alone MAY be the mechanism; where it is not enough, the reply's audibility to the microphone (not to the person) MUST be reduced once the person is detected speaking, so that the interruption still fires. The measured form of this is SC-008.
 - ~~**FR-048**: The panel MUST be draggable by its header with a pointer, MUST keep its whole area inside the window at every position (no edge can be dragged out of reach), MUST remain usable when the window is resized smaller than where it was left, and MUST keep its position while the call lives. Whether the position survives the call is open question Q9. Its size MUST NOT change when it is moved or when the conversation behind it is scrolled.~~ **SUPERSEDED by C11, 2026-11-09 16:07: the call is a row.** A row has no position to clamp, no edge to drag out of reach and nothing to resize, so this requirement and Q9 retire together. Kept because the panel remains the fallback if the row is rejected.
 - **FR-049**: The row MUST cost **no extra height**: it takes over the composer's existing meta line — **24 px, 0 px added** to a 156 px composer — so the conversation and the input do not move when a session starts or ends (C11, surface B1-1). It MUST NOT cover, clip or reorder any message: the conversation scrolls to its own end exactly as it does with no session, and the composer stays usable at every width. When space runs short the row gives up its own detail **in this order and only this order**: (1) the **model chip** shrinks to **96 px** and then goes, cut to its last segment — the provider prefix is not the informative half; (2) the **waveform** shortens from 39 bars to 12 and then goes, never below 6 px between bars; (3) the **context ring** goes whole, never partially drawn. **The microphone indicator (FR-038), the state word (FR-042), the elapsed time, the end action (FR-045) and the idle control MUST NOT shrink, truncate or wrap at any width**: they are `nowrap`, and no ellipsis may ever appear in the state word. The row's floor is **240 px** — at the minimum window (900 px) the pane leaves it far above that, so the floor guards a pane narrowed by surrounding chrome; if it is ever crossed the row keeps the never-shrink set and drops everything else rather than wrapping, because a row that grows to two lines is a panel again. In the chosen surface the context ring is already given up for the session — the state word takes its slot — so the path in practice begins at the chip; the three steps are stated in full so the test has one answer and a surface that keeps the ring does not need a new rule.
-- **FR-050**: Starting a call while one is live **elsewhere** — another conversation, or another agent — MUST move the call there rather than fail: the new panel opens on the new conversation, the old session ends by itself, and the old panel disappears (C10). The move MUST be one event, not two sessions that briefly overlap; the microphone MUST end up open once, on the new call.
+- **FR-050**: Starting a call while one is live **elsewhere** — another conversation, or another agent — MUST move the call there rather than fail: the row appears on the new conversation, the old session ends by itself, and the old row disappears (C10). The move MUST be one event, not two sessions that briefly overlap; the microphone MUST end up open once, on the new call.
 - **FR-051**: The conversation a call is taken *from* MUST say why it stopped — a visible reason, recorded where the session's other endings are, so a person who comes back to it is not left wondering whether it is still listening (FR-029, FR-030). Whether that reason is a message in the conversation or only a notice is open question Q10.
 - **FR-052**: A move MUST NOT strand a turn: if the agent was answering when the call was taken, that turn MUST be cancelled and its partial text kept, exactly as any other interruption (FR-027); it MUST NOT keep generating into a conversation nobody is listening to, and its reply MUST NOT be spoken into the new call.
 
@@ -677,7 +677,7 @@ colour **and** marker (FR-042).
 **Do not take any retired surface's pixel floor, narrowing order or placement as a requirement for
 the row.** The row's own constraints are FR-043, FR-044 and FR-049 and nothing else.
 
-## Open Questions (for the User — six live, each with a default; the closed ones kept as a record)
+## Open Questions (for the User — ten live, each with a default; the closed ones kept as a record)
 
 Nothing here blocks the plan: each has a decision taken in planning that the plan and the contracts
 already follow. Changing one is a change of scope, not a rewrite.
@@ -691,6 +691,10 @@ already follow. Changing one is a change of scope, not a rewrite.
 | ~~**Q11**~~ | Which transport carries the audio path (FR-054)? | **Answered by the User, 2026-11-09 16:35: the WebSocket.** *"kalo liat concern yang disampein SA sama lead sih gw setuju pake websocket dulu aja kalo gitu."* The carrier is **`ws-json-pcm16`** — the path already implemented and tested. The media track stays in the contract as the **reserved** value `media-track`, not as the shipped one, and nothing built for it (setup frames, peer registry, Opus decoder, relay) is written. *The numbers that made this a real choice are kept in `plan.md` so a future decision does not start from zero: str0m +22 crates, 36 s probe build, 583 MB `target`, 1,25 GB peak RSS, Opus decoder + relay required.* | The socket path inherits the work already done: the 46 green client tests, the per-connection lane, the backlog bound and `stall`. What it does **not** do is hide packet loss — no jitter buffer, no PLC, no FEC — so packet loss is a hole in the sound, not a retry. T047's ducking and the 150 ms guard carry the echo and talk-over cases, and the speaker sweep decides whether they are enough (SC-008). |
 | **Q12** | Does the reply start being built **before** the person stops talking — a speculative answer to a half-heard question — or does it start when they stop? | **Held; the reply-as-it-is-made work (FR-065 to FR-070) comes first.** Decided by the User on 2026-11-10 06:39: *"level 1 dulu aja deh bro, tapi kalo pas gw tes terus latency nya masih kerasa ganggu baru gw minta level 2"* — so this is a decision to wait, not an open technical puzzle. The Lead's assessment gives three reasons it is not a small extension: (a) recognition is **whole-clip** today (`stt/mod.rs:77-83`), so a partial hypothesis needs a streaming recogniser first; (b) this machine is already CPU-bound with whisper and kokoro competing, and re-decoding a moving window every ~500 ms would starve them; and (c) — the one that decides it — **a speculative turn can act before it is asked to**: a generation built on a half-heard question that is then discarded may already have run `execute_python` or a shell command, so a discarded answer can leave real effects behind. | If the User asks for it, it is its own project: streaming recognition, a speculative turn with an explicit discard rule that forbids side effects before commitment, and a contract for a reply that may be abandoned. The cost of getting (c) wrong is not tokens, it is a half-heard instruction that ran. |
 | **Q13** | The spoken-reply toggle leaves the UI (C12). A person who can type but would rather listen now has exactly one way to hear an answer: a live call. Is that acceptable? | **Yes, for this release**: C12 stands, and FR-053 keeps the providers, so the toggle can return without a rebuild. | If not, the toggle is the one manual speech surface worth keeping in the composer — which reopens C12 for that half only, and costs a control the row does not have. |
+| **Q14** | Terminal rows: `architecture.md:298` gives an ended/failed row `Start again` / `Try again`, while FR-045 says the row offers **one** action and no second control whose only effect duplicates End. One control or two? | **One**: after a terminal reason the single action becomes the restart, replacing End — the label changes, the count does not. T038 and T094 then test one control in every state. | Two actions means FR-049's never-shrink set grows by one item and the 240 px floor is re-measured — a design and a test change, not a wording change. |
+| **Q15** | Is `LIVE_VOICE_SOCKET_BACKLOG = 16` part of the published contract, or an implementation detail a client must not read? | **Published as an upper bound**, exactly as `contracts/live-voice-frames.md:279` states it: 16 audio frames ≈ 1.6 s, then audio is dropped and one `stall` is reported. A bound a client can plan for, not a knob we may halve without notice. | If it is internal, the contract and FR-057's "described in terms another client can meet" must stop quoting the number, and a client cannot size its send buffer. |
+| **Q16** | FR-048 is struck *and* kept "because the panel remains the fallback if the row is rejected". Does a struck requirement stay in the document as a fallback, or does the fallback go with the panel? | **Keep it struck**: no task may carry it (T093 is `[SUPERSEDED]`), and reviving it is a new decision with its own delta. | Deleting it makes the archived-surface table the only trace of the drag rules — thinner than what a future panel decision would need. |
+| **Q17** | `MANUAL_SPEECH_SURFACES` (`webui/app/screens/chat/Composer.tsx:59`) turns the record control and the spoken-reply toggle back on the day it is set true. Does that surface return **as it was**, or does it need a redrawn design? | **As it was** — FR-053 keeps the code, so no design is owed and Q13's "the toggle can return without a rebuild" stays true. | If it needs a redraw, Q13's default moves from "acceptable for this release" to "a design task is queued", and FR-053's promise narrows to the code only. |
 | ~~**Q4**~~ | A hard cap on concurrent live sessions? | **Answered by the User, 2026-11-09 06:52: exactly one — per person, across every conversation and agent (C10, FR-005).** | — |
 | ~~**Q6**~~ | What else does the live row carry besides the four required things? | **Closed 2026-11-09 as design's call within a stated bound**: the level of the person's voice and the elapsed time, and nothing that survives FR-049's order of surrender. Reopening it means a fourth thing competing for one line, which is why it is not a question but a constraint. | — |
 | ~~**Q7**~~ | Can the person reach the conversation (and type in it) while the call is open? | **Closed by C11 (2026-11-09 16:07): yes, structurally.** A row inside the composer's meta line adds no height and covers nothing, so the conversation and its input are reachable by construction rather than by an answer (FR-049); typed messages stay text-only (FR-025 deferred). | — |
@@ -1013,6 +1017,16 @@ Until they are rewritten two sources of truth exist, and `spec.md` wins.
 | `analysis.md` | 226 | "T089..T097 cover the panel and the move" | T089…T097 cover the row and the move; T093 is superseded |
 | `diagrams.md` | 168 | history list: bar → screen → draggable panel → rail → row | **correct as history** — leave it |
 
+**Status of this table at 2026-11-10 10:42 — read it before acting on it.** Six of its eleven rows are now
+**closed**, three of them by the pass that wrote this note: `plan.md` 238/259 (the Phase E goal, the exit criterion
+and the leftover "default: no") and `quickstart.md:137` are fixed in the delta below, and `architecture.md`
+47/141/257/298/470/482-483/492 and 133/334 were rewritten by the Lead — the component table now names
+`LiveVoiceRow.tsx` with "no route, no panel, no drag", and the typing sentence now says the reply keeps playing.
+`review.md:274` (C-15) carries its supersession note. **Still open: `tasks.md`** (the Phase 8 heading and goal,
+the delivery notes at `:354`/`:358`, and the two task lines at `:258`/`:259`) — the Lead's file, listed again with
+line numbers in the 10:42 delta. Do not re-fix a closed row from this table; it is a record of what was owed,
+not a work list.
+
 **Tests for withdrawn behaviour: swept, and two results.** No `LiveVoicePanel` component, unit test or
 e2e file remains (`grep -rln LiveVoicePanel crates webui docs` returns nothing), so nothing is green
 against the panel. The one surviving "typed" assertion is
@@ -1116,3 +1130,147 @@ is created*. **Not proven:** no test was written. A test that revokes and then s
 settles it in one run, and it is the natural first line of `GI-04`.
 
 **Still owed, and not mine:** the `architecture.md` and `review.md` pass, owner unchanged.
+
+
+## Delta Log — 2026-11-10 10:42 (the sweep: the prose still sold the panel, and every sentence is named)
+
+Source: the scheduled brief of 2026-11-10 09:00, re-read at 10:42. The first pass over it (`73d9a09d`, 09:00)
+answered its four items with addresses, struck the transport clause, audited carriers and listed the documents
+that still owed a pass. What that pass did **not** do is change a sentence: three files I own still described the
+call as a panel in their own voice, so a reader who trusts prose over ids would have rebuilt the retired surface.
+This pass is that sweep, plus a re-audit at the commit it lands in. It **adds no requirement, withdraws none, and
+renumbers nothing**.
+
+**Baseline, locked before reading anything** — `specs/055-live-voice` at `cf663414` (branch `055-live-voice`):
+
+| Measure | Value | Pattern (the one used, so it can be re-run) |
+|---|---|---|
+| task lines | **111** = **64** `[x]` + **47** `[ ]` | `grep -cE '^- \[[ xX]\] \*{0,2}T[0-9]{3}' tasks.md` |
+| `[BACKLOG]` **tasks** | **7** (`T051`–`T057`) | `grep -cE '^- \[[ xX]\] .*\[BACKLOG\]' tasks.md` — the bare `grep -c '\[BACKLOG\]'` gives **9**, because two prose lines say the word. A prose line is not a task |
+| `[SUPERSEDED]` | **1** (`T093`) | `grep -c 'SUPERSEDED' tasks.md` = **2** → one is the prose note at `:402` |
+| `[PROVISIONAL]` | **1** (`T111`) | `grep -c 'PROVISIONAL' tasks.md` |
+| FR ids | **72** = **67** live + **5** struck (`FR-018`, `FR-020`, `FR-021`, `FR-025`, `FR-048`) | live `grep -cE '^- \*\*FR-[0-9]{3}[a-z]?\*\*:' spec.md`; struck `grep -cE '^- ~~\*\*FR-[0-9]{3}[a-z]?\*\*:' spec.md`. **The colon is load-bearing**: without it, cross-reference bullets inside delta logs (`- **FR-012** (\`spec.md:447\`) says…`) count as definitions and inflate the total to 74 |
+| SC ids | **14** | `grep -oE 'SC-[0-9]{3}' spec.md \| sort -u \| wc -l` |
+| live questions | **6** at baseline (`Q1`, `Q2`, `Q3`, `Q5`, `Q12`, `Q13`); **10** after this delta adds `Q14`–`Q17` | `grep -cE '^\| \*\*Q[0-9]+\*\*' spec.md` |
+
+### The prose, swept (ten sentences, three files, all mine)
+
+| File | What it said | What it says now | Why it mattered |
+|---|---|---|---|
+| `spec.md` FR-006 | "`off` is the absence of the **panel**" | "the absence of the **row**, not a state the row renders" | The one sentence in the requirement set that named the retired surface — inside the requirement every test of the state word reads |
+| `spec.md` FR-025 (deferred) | "the composer surface is frozen **until the User picks a panel**, so a live requirement would have been a promise with no one to keep it" | "the row carries exactly one action, End (FR-045), so a live requirement would have been a promise…" | The *reason* FR-025 was deferred was kept, the *premise* was stale: the surface is picked, and what still keeps FR-025 out is FR-045's one action |
+| `spec.md` FR-050 | "the new **panel** opens… the old **panel** disappears" | "the **row** appears… the old **row** disappears" | A move is described in prose nowhere else; an implementer would have looked for a panel to close |
+| `plan.md` gate table | "**The floating panel's** states … are drawn … The archived bar is not the design; **the screen is** (spec C6)" | "The **row's** states … the archived bar, screen and panel are not the design; **the row is** (spec C11, B1-1)" | The constitution gate cited C6 — two decisions behind — as the design of record |
+| `plan.md` structure | "the **floating-panel** wireframe" | "the live-row wireframe" | It describes what `diagrams.md` actually contains |
+| `plan.md` structure comment | "the composer bar … is archived (spec C6): **the call is a screen**" | all three retired surfaces named (C6, C9, C11); the row is the call | It asserted the *screen* was current — the surface C9 replaced |
+| `plan.md` Phase E goal | "the **floating panel** exists and can be dragged" | "the row exists in the composer's own meta line at 0 px added height" | The phase goal is what an implementer reads first, and it asked for a drag |
+| `plan.md` Phase E step 3 | "the typed turn queues … **on the same path as any other interruption**… typing stays reachable because the conversation is still **behind the panel** (FR-049, Q7) (**default: no — the conversation view is what the call replaces**)" | the typed turn takes **no** interruption path and is answered as text; typing stays reachable **by construction** | Three errors in one sentence: FR-025 is deferred (typing interrupts nothing), Q7 is closed (not open with a default), and the leftover "default: no" contradicted the clause before it |
+| `plan.md` Phase E exit | "the control opens the **floating panel** and it drags within bounds" | "opens the row at no added height and the conversation does not move" | An exit criterion is a test; this one would have failed a correct row |
+| `quickstart.md` e2e row | "the interruption path and the **floating panel**" | "the interruption path and the **live row**" | The one line a person follows by hand |
+
+### Carrier audit — the FRs this round touches, at `cf663414`
+
+| FR | Carriers | State | Verdict |
+|---|---|---|---|
+| FR-003 | T014 | `[x]` | carried |
+| FR-041 | T014, **T108** | `[x]`, `[ ]` | carried — T108 is the harder half (two speech paths coexist) |
+| FR-006, FR-038, FR-042, FR-044 | T038, T039 | `[x]` | carried |
+| FR-043, FR-046, FR-049 | T038, T040, T089, T094 | `[x]` | carried |
+| FR-045 | T038, T090 | `[x]` | carried; **T052/T053 (`[BACKLOG]`) add a control to it — they are not its carrier** |
+| FR-047 | T047 | `[ ]` | carried, open — the release still owes SC-008 |
+| FR-048 | T093 **`[SUPERSEDED]`** | `[ ]` | **retired, not deferred**: the task says so itself; the FR stays struck as the archived fallback (Q16) |
+| FR-050, FR-052 | T095, T097 | `[ ]` | carried, open |
+| FR-051 | T096 | `[ ]` | carried, open |
+| FR-053 | T107 | `[x]` | carried — the surfaces are gone from `Composer.tsx` behind `MANUAL_SPEECH_SURFACES = false` (`:59`), and the code is not |
+| FR-054, FR-055 | T020, T021, T022 / T029 | `[x]` (T021 `[BACKLOG]`) | carried by done tasks; **T021's backlog state concerns an *alternative* audio shape, not FR-054 itself** |
+| FR-056, FR-057 | T101 / T102 | `[ ]` / `[x]` | carried |
+| FR-058, FR-059 | T100, T105, T106 | `[ ]` | carried — FR-059's carrier is T106 (the conformance test), recorded at `:985` |
+| FR-060 | — | — | satisfied **vacuously** on the socket, stated in the requirement itself; not an orphan |
+| FR-061 … FR-064 | T100, T109, T110 | `[ ]`, `[x]`, `[ ]` | carried |
+
+**Result: no FR in this set is carried only by a `[BACKLOG]` task.** The only backlog-only requirements in the
+document remain FR-020 and FR-021, which C7 deferred on purpose and whose US3 banner says so.
+
+### Documents still owing a pass (owner: `@mamang-lead-be`)
+
+The 09:00 list is now mostly closed by the Lead's own passes, and one row closed **during this pass**: `review.md`
+C-15 (`:274`) now carries "Superseded by C11 … this row is now history, not a promise". `architecture.md` no longer
+names the panel — `:298` is the row (`no route, no panel, no drag`) and the "typing stops the audio" sentence is
+corrected to "the reply keeps playing". What is left:
+
+| Document | Line | What it still says | Should say |
+|---|---|---|---|
+| `tasks.md` | **241–249** | Phase 8 heading "The call **floats over** the conversation (C9)", goal and independent test describing a draggable panel | Phase 8 is US6 v3: the row in the composer's meta line — the note at `:401` already says so; the phase did not follow |
+| `tasks.md` | **354, 358** | "The demo is the **floating panel** (US6)"; "US1 → demo → **US6 (the floating panel)**" | the row |
+| `tasks.md` | **258, 259** (T096, T097) | "the old **panel** shows it until it disappears"; "no segment … reaches the new **panel**" | the old **row** / the new **row** — prose inside two live tasks, so an implementer reads it as instruction |
+| `tasks.md` | **432** | history line naming `LiveVoicePanel.tsx` as the old target | **correct as history** — leave it |
+| `diagrams.md` | 168 | history list: bar → screen → draggable panel → rail → row | **correct as history** — leave it |
+| `architecture.md` | 17 | registry is `LiveVoiceSessions` in `session.rs`, "no separate `registry.rs` module" | **correct — do not "fix" it**: `ls crates/vizier-core/src/live_voice/` has no `registry.rs` |
+
+### Tests that would be green against withdrawn behaviour
+
+| Where | What it is | Keep? |
+|---|---|---|
+| `webui/app/lib/liveVoice/session.test.ts:125` | `it.skip('a typed message interrupts…')`, skipped with the reason inline (FR-025 deferred, C7) | **keep skipped** — it is the marker that the path exists and nothing calls it |
+| `crates/vizier-http/tests/live_voice_barge_in.rs:268` | the three interrupt **reason strings** are distinct (`barge_in`, `button`, `typed`) | **keep** — a vocabulary test, not a behaviour test; it must not be cited as evidence that typing stops the audio |
+| `webui/app/screens/chat/Composer.tsx:59` | `MANUAL_SPEECH_SURFACES = false` switches the record control and the spoken-reply toggle off | **keep** — this *is* C12's implementation, and FR-053 requires the code to stay |
+| any `LiveVoicePanel` component, unit test or e2e | `grep -rln 'LiveVoicePanel' webui crates docs` → **0 files** | nothing green survives the panel |
+
+### The third clause of the brief, again, with the numbers on disk
+
+The brief's third item — audio on **WebRTC**, chat on the WebSocket, superseding `ClientConnection::send`,
+`LIVE_VOICE_SOCKET_BACKLOG = 16` and the `stall` frame — is the state of the question **before** the User answered
+it at 16:35 (`73d9a09d` carries the quote). It is **not applied**, and the carrier is verified at this commit rather
+than remembered: `crates/vizier-core/src/live_voice/mod.rs:35` (`pub const LIVE_VOICE_SOCKET_BACKLOG: usize = 16`),
+`crates/vizier-http/src/topic.rs:1053` (the drop decision), `crates/vizier-http/tests/live_voice_delivery.rs:44`
+(`assert_eq!(LIVE_VOICE_SOCKET_BACKLOG, 16)`), `contracts/live-voice-frames.md:279` (the published bound: 16 audio
+frames ≈ 1.6 s, then dropped, one `stall` reported). Replacing that lane on the strength of a brief written before
+the answer would reverse the decision of the same person, 28 minutes later.
+
+What the brief is **right** about is the shape, and the shape is what shipped: **audio on a droppable lane of its
+own, everything a person reads on the ordered broadcast.** FR-054, FR-055 and FR-056 already say exactly that, and
+Q15 asks the one thing the sweep found unstated — whether that bound is public.
+
+### Open questions added by this pass
+
+Four, all in the table at `## Open Questions`, each with the default I would take: **Q14** one action or two on a
+terminal row (`architecture.md:298` labels a restart while FR-045 allows one control); **Q15** whether
+`LIVE_VOICE_SOCKET_BACKLOG = 16` is a published bound or an internal knob; **Q16** whether a struck requirement
+(FR-048) may stay in the document as the archived fallback; **Q17** whether the manual speech surface returns
+as it was when `MANUAL_SPEECH_SURFACES` is set true. None of them changes a requirement's meaning, and each names
+what would change if the answer differs.
+
+### What this delta does not do
+
+It does not edit the Lead's files (`architecture.md`, `review.md`, `tasks.md`): the rows above are **listed, not
+edited**, the same convention as the RK-1 row of the 06:35 delta. It does not reopen the surface — B1-1 is locked
+by the User, rendered (`055-live-voice-screen.figcraft@02ddd7b4`) and implemented (`LiveVoiceRow.tsx`), so the
+"three design options" brief stays **declined** (`73d9a09d`, 09:27) and this pass does not revive it. And it decides
+no stack and no dependency: the transport is the User's answer, and the numbers of the option that lost stay in
+`plan.md` as numbers.
+
+
+## Appendices
+
+| File | What it is | The gate it carries |
+|---|---|---|
+| `state-matrix.md` | **The state matrix of the live row**: one row per state the row can be in, carrying what draws it (`digambar apa`, design), what data it needs (`butuh data apa`, data), when it is triggered (`dipicu kapan`, analysis) and what passing looks like (`lulusnya kayak apa`, QA). Fifteen rows, three desks, one file — it is an appendix of this specification, not a second document. | A UI surface of this feature is **not done** until this table exists, covers every state FR-006 names, and its `approved:` line carries a date and a name. A row marked `n/a` is a **decision**, not a gap: it must say why and when the decision was taken, or it is an open question with an owner. |
+
+**Pin rule.** The matrix is a test checklist only in a revision where its `spec_ref:` and `design_ref:` both
+resolve — a commit that exists, and a file whose bytes still hash to the recorded md5. In any other revision it is
+a draft, and no "failed" may be written against it, because the thing it would fail is text that no longer exists.
+
+**Counted at this commit** (so a later reader does not have to trust it, and can re-run it). FR-006 names **eight**
+states. The matrix carries **15** rows (`grep -c '^| LV-ST-' state-matrix.md`), and the extra seven are not padding —
+each is a branch the code has and FR-006 does not name:
+
+| Rows | Why it is a row |
+|---|---|
+| 9 session states — `off`, `connecting`, `listening`, `waiting`, `speaking`, `interrupted`, `reconnecting`, `ended`, `failed` | the row's own states; `frames.ts:18-27` has **9** values and these are they. `listening` and `interrupted` are rows of their own even though the sheet does not draw them |
+| `!capability` | one row for the **three** `live_voice=false` reasons (`voice`, `recogniser`, `none`) because the code draws **one** non-button pill for all three — the `indistinguishable` case, flagged rather than merged away |
+| `overflow` | geometry, not a session state: the row giving up its own detail in FR-049's order at a narrow pane |
+| `no-speech` | **two** thresholds (utterance under 250 ms, and a session that heard nothing) on one screen |
+| `error-forbidden` (403), `error-transient` (5xx/timeout), `error-session-active` | three responses FR-006 compresses into the single word `failed`; splitting them is what makes the row's copy testable |
+
+The sheet draws **7** of the row's states (`9679`: `idle` + `R2` + `S1`–`S5`), one partially (`9462` S3), and the
+other seven are `n/a` with a dated reason — which is what the third column of the table above is for.

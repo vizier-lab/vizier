@@ -64,7 +64,7 @@ Web: `AudioContext`, `AudioWorklet` (already used by `webui/public/vizier-captur
 | **I. Lean by default** | No new mandatory dependency in Rust or in the web bundle. The one seam (a trait between the session and its speech) exists because FR-036a requires a second implementation to be possible later; the session itself is a concrete type. The existing worklet, player and recogniser are reused rather than duplicated. |
 | **II. DRY via trait seams** | Speech enters through `VizierStt`/`VizierTts` behind one `LiveVoiceEngines` trait, never through `match` over providers. Recognition and synthesis stay one implementation per provider, as they are today. |
 | **III. Optional capability behind a flag** | `provider-live-voice` in `vizier-core` (`default = []`, added to `full`). With the flag off, no frame is ever emitted, the capability reads false, the control is hidden, and the existing speech tools are unchanged (FR-040, FR-041). Adding a `SessionFrame` variant is additive: the client's `classifyFrame` returns `null` for an unknown top-level key (`webui/app/api/frames.ts:607-630`), so an older client ignores the new frames instead of failing. |
-| **Design before UI code** | The floating panel's states and the interruption by speech are drawn in [diagrams.md](./diagrams.md) (wireframe + Mermaid) before any `.tsx` is written. The archived bar is not the design; the screen is (spec C6). |
+| **Design before UI code** | The row's states and the interruption by speech are drawn in [diagrams.md](./diagrams.md) (wireframe + Mermaid) before any `.tsx` is written. The archived bar, screen and panel are not the design; the row is (spec C11, surface B1-1). |
 | **Verification per flag and crate** | Every phase below names the job that proves it: `vizier-core` on/off the flag, `vizier-http`, `webui` vitest, Playwright, and the documented full matrix on develop/master/release. |
 
 No violations, so the complexity table at the end stays empty.
@@ -79,7 +79,7 @@ specs/055-live-voice/
 ├── plan.md                     # This file
 ├── research.md                 # Phase 0: findings, decisions, dependency report
 ├── data-model.md               # Phase 1: entities, states, frame payloads
-├── diagrams.md                 # Architecture, the interruption sequence, the floating-panel wireframe
+├── diagrams.md                 # Architecture, the interruption sequence, the live-row wireframe
 ├── quickstart.md               # Phase 1: how to run and verify it by hand
 ├── contracts/
 │   └── live-voice-frames.md    # Phase 1: the wire contract
@@ -117,8 +117,9 @@ webui/app/
                             # 2026-11-09 — supersedes the floating panel, the call screen and the
                             # composer bar). There is no separate live voice directory: six task
                             # rows pointed at one until AQ-001 corrected them.
-# The composer bar of the earlier draft is archived (spec C6): the call is a screen, and no
-# interrupt control ships in this release (spec C7).
+# The composer bar, the full screen and the floating panel of the earlier drafts are all archived
+# (spec C6, C9, C11): the call is one row inside the composer's own meta line, and no interrupt
+# control ships in this release (spec C7).
 ```
 
 **Structure Decision**: the engine stays in `vizier-core` (it must run without the web layer, per spec
@@ -235,7 +236,7 @@ The decisions that shape the rest of the plan, each with the evidence it rests o
 
 ## Phase E — Client playback, interrupt control and UI
 
-**Goal**: the floating panel exists and can be dragged, the state is visible on it, and one interruption path (speech) works end to end.
+**Goal**: the row exists in the composer's own meta line at 0 px added height, the state is visible on it, and one interruption path (speech) works end to end.
 
 1. `player.ts`: one `AudioContext` resumed on the control press, an ordered queue of
    `AudioBufferSourceNode`s scheduled back to back, `stop()` that closes every source at once and
@@ -251,12 +252,11 @@ The decisions that shape the rest of the plan, each with the evidence it rests o
    is worse than an absent one. The three earlier surfaces are archived with the spec; none of their
    geometry, dragging or placement carries over.
 3. Typing during a session leaves the reply playing (FR-025 is deferred with C7); the typed turn queues
-   as ordinary chat, on the same path as any
-   other interruption. Typing stays reachable because the conversation is still behind the panel (FR-049, Q7)
-   (default: no — the conversation view is what the call replaces).
+   as ordinary chat, is answered as text, and takes no interruption path at all. Typing stays reachable by
+   construction, because the row adds no height and covers nothing (FR-049; Q7 closed).
 4. Ends: press again, leave the page, permission withdrawn, conversation or agent gone, idle, reload
    (FR-028, FR-034) — every one releases the microphone and leaves the text (SC-007).
-5. **Exit criteria**: Playwright with a faked provider — the control opens the floating panel and it drags within bounds, the
+5. **Exit criteria**: Playwright with a faked provider — the control opens the row at no added height and the conversation does not move, the
    thinking indicator shows while a slow turn runs and is distinguishable from `reconnecting`, the
    interruption by speech silences the audio and the session stays live, ending the call returns to the
    unchanged conversation, closing the tab releases the track, and a second tab is refused (FR-005,
