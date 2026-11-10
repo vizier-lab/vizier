@@ -145,10 +145,19 @@ impl VizierTtsModel for OpenAiTts {
         let req = self.endpoint.post("/audio/speech").await.map_err(|e| err("speech", e))?;
         let response = http::send(req.json(&body)).await.map_err(|e| err("speech", e))?;
         match self.pcm_rate {
-            Some(rate) => Ok(wav_from_pcm16(resample(&response.body, rate, SPEECH_RATE), SPEECH_RATE)),
+            Some(rate) => Ok(pcm_to_wav16(&response.body, rate)),
             None => mp3_to_wav(&response.body),
         }
     }
+}
+
+/// A provider's bare PCM16 at `rate`, as the WAV at [`SPEECH_RATE`] every spoken segment carries.
+///
+/// This is the whole of the PCM path, and it is one function on purpose: a test that only drove
+/// `resample` would stay green if the resampling were dropped from here, which is the failure the
+/// tests exist to catch.
+fn pcm_to_wav16(body: &[u8], rate: u32) -> Vec<u8> {
+    wav_from_pcm16(resample(body, rate, SPEECH_RATE), SPEECH_RATE)
 }
 
 /// Bare little-endian PCM16 mono, resampled linearly.
@@ -534,6 +543,23 @@ mod pcm_tests {
         assert_eq!(body["response_format"], "pcm");
         let mp3 = speech_body("hexgrad/kokoro-82m", "hi", "af_alloy", 1.0, Some("mp3"));
         assert_eq!(mp3["response_format"], "mp3");
+    }
+
+    #[test]
+    fn the_pcm_path_actually_resamples_and_does_not_trust_the_rate_it_was_told() {
+        // The failure this catches: dropping the resample from `pcm_to_wav16` leaves every
+        // other test in this module green, because they drive `resample` directly. Gemini
+        // answers 24 kHz and every segment is delivered at 16 kHz, so the byte count is the
+        // proof: 3·N samples in, 2·N samples out, and the header says the rate it was given.
+        let pcm: Vec<u8> = (0..300i16).flat_map(|s| (s * 10).to_le_bytes()).collect();
+        let wav = pcm_to_wav16(&pcm, 24_000);
+        let data = &wav[44..];
+        assert_eq!(data.len(), 200 * 2, "24 kHz to 16 kHz is 3:2");
+        assert_eq!(
+            u32::from_le_bytes([wav[24], wav[25], wav[26], wav[27]]),
+            SPEECH_RATE,
+            "the header must name the rate the samples are actually at"
+        );
     }
 
     #[test]
