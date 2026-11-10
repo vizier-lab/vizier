@@ -362,7 +362,9 @@ every decision logs: decision=abort|held, reason=<burst|no-audio>, ratio, audio_
         utterance_id,
         sequence=<which turn of this session> - so a report of "my interruption was refused" can be
         matched to a turn without guessing from the clock; `sequence` rides the warn line only, not
-        the grey-zone debug line
+        the grey-zone debug line. **One name, not two:** the PM calls this field `turn_seq` and this
+        entry calls it `sequence=`; the log field is **`sequence=`**, because that is the name written
+        into the runbook grep. Implement one field, not both, and answer to `sequence`.
 levels: held at warn (the only branch that can make a person say "my interruption was refused", so it
         must not depend on a debug filter); the 2.0-5.0 grey zone at debug with decision=
 ```
