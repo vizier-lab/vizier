@@ -585,7 +585,8 @@ this diagram because it is deferred (C7).
 
 - **FR-061**: Live voice MUST be usable by a client that is not Vizier's own, authenticated by an **API key** issued for that purpose — not by a person's WebUI session and not by an agent's provider credential. The key MUST identify the person whose session it starts, so FR-005's one-call-per-person rule still holds across both kinds of client.
 - **FR-062**: An API key issued for live voice MUST grant **live voice and nothing else**. It MUST NOT reach another agent's history, another conversation, settings, memory, files, jobs or any other endpoint, and it MUST NOT read or widen the owner's role or permissions. A key that cannot be narrowed MUST NOT be offered for third-party use at all — an unscoped key handed to an outside system is one person's whole account.
-- **FR-063**: The key MUST have a lifecycle that a person can act on: it is created with a name, may expire, can be rotated, and can be revoked. Revoking or expiry MUST take effect on a **running** session — the session ends with a reason from the contract's vocabulary, the microphone is released (FR-028) and the turn in flight is cancelled — rather than being honoured only at the next connection.
+- **FR-063**: The key MUST have a lifecycle that a person can act on: it is created with a name, may expire, can be rotated, and can be revoked. **Revoking a key — and rotating it, which is a new key plus the old one retired — MUST take effect on a running session that key opened**: within 1 s the session ends with `key_revoked` from the contract's vocabulary, the microphone is released (FR-028) and the turn in flight is cancelled (FR-052's path). It is honoured on the connection that is already open, not deferred to the next connection. **Expiry is FR-063a**: the same three consequences, a different moment, and no time bound.
+- **FR-063a**: **Expiry** MUST be enforced on the connection that is already open, and the moment is stated rather than implied: the lapse is noticed at the **next frame the client sends** on that connection, not by a timer (Lead's decision, 2026-11-10 — a sweep timer for a rare event is not built in this release; `specs/_antrean.md`, `GI-03`). When it fires, the consequences are FR-063's: `ended` with `key_expired`, the microphone released (FR-028), the turn in flight cancelled (FR-052's path). **What this release does not promise, and what a client must not infer from FR-063:** no bound on the time between the lapse and the ending. A client that sends nothing keeps its session past the key's expiry, and a turn already running keeps running until a frame arrives or the connection closes — ending it on the second would need exactly the timer this release declines. `SC-013`'s one second is about **revocation**; it is not a promise about expiry and must not be quoted for it. A new connection is refused at the door whatever the old one is doing (FR-064).
 - **FR-064**: A request whose key is missing, revoked, expired or scoped away from live voice MUST be **refused before any session state is created**, with a reason a client can show. The refusal MUST NOT reveal whether a session, a conversation or an agent exists to a caller who is not allowed to use it.
 
 **The reply as it is made (C16, 2026-11-10 — provisional, not in this release's gate)**
@@ -1060,3 +1061,58 @@ explicitly **not** required to be drawn now.
 on. `architecture.md:17` stays off that list: the registry really is `LiveVoiceSessions` in `session.rs`,
 and there is no `registry.rs` — that line is correct and must not be "fixed".
 
+## Delta Log — 2026-11-10 09:44 (FR-063 splits: revocation is timed, expiry is not)
+
+Baseline this delta was written against: `vizier@2acd9889` · `tasks.md` 46 `[ ]` / 65 `[x]` / 9 `[BACKLOG]` ·
+71 unique `FR-###` ids (65 + `FR-036a` + `FR-065`…`FR-070`). Perintah: `git log -1 --oneline`;
+`grep -cE '^- \[ \] T[0-9]{3}' tasks.md`; `grep -oE 'FR-[0-9]{3}[a-z]?' spec.md | sort -u | wc -l`.
+
+**Which door this came through.** `@mamang-lead-be`, 2026-11-10 09:40, on the path the User ratified at 09:36:
+a spec change caused by a downstream finding enters through the Lead. The finding is `@teteh-qa`'s (`GI-03`),
+verified in code by the Lead: `crates/vizier-http/src/topic.rs:410-421` ends a lapsed key's session when a frame
+arrives, and no timer exists anywhere to do it sooner.
+
+**The decision that was mine: split, not footnote.** A footnote would have left one MUST carrying two events
+whose promises cannot be kept together, with the weaker half borrowing the stronger half's credibility — the
+failure this spec has already paid for once (FR-025, deferred because its only carrier was in the backlog).
+
+| Requirement | Event | Promise | Carrier |
+|---|---|---|---|
+| FR-063 | revoke, rotate | within **1 s**: reason `key_revoked`, mic released, turn cancelled — `SC-013` | `T110` (round 1, in flight) |
+| FR-063a | expire | at the **next client frame on the open connection**: reason `key_expired`, mic released, turn cancelled — **no time bound** | `T110`, `GI-03` |
+
+`FR-063a` is a variant id on the convention `FR-036a` already set: no renumbering, so the references that
+already exist keep pointing where they pointed — six of them at `2acd9889`, by
+`git grep -o 'FR-063' 2acd9889 -- 'specs/055-live-voice/' | wc -l` (two in this file, three in the contract,
+one in `tasks.md`).
+
+**Two facts measured before writing this delta, because both change what could honestly be promised.**
+
+1. **There is no idle stop yet, so "a silent session ends with `idle` after 3 minutes" is not true today.**
+   `git grep -n 'EndReason::Idle' -- 'crates/**'` returns one hit, a test fixture (`live_voice/frame.rs:420`),
+   and `T062` — the idle timer of FR-029 — is `[ ]` (`tasks.md:213`). So the honest statement of the gap is not
+   "the ending is mislabelled `idle`". It is: **while the client stays silent the session outlives its key, and
+   nothing ends it.** When `T062` lands, a silent session may be ended by FR-029's timer with reason `idle` —
+   true (the person was silent) but silent about the key. That interaction is recorded here as an **ordering
+   dependency**, not as a promise of this release, and it is re-read when `T062` lands.
+2. **`T110`'s own test line already asked for the one second on both events** (`tasks.md:119`: *"the reason
+   within 1 s (SC-013)"*), while `SC-013`'s sentence is about revocation only. With the split, the expiry half is
+   asserted on the frame, not on the clock. That edit belongs to the Lead.
+
+**Documents that now disagree, and their owner** (the orphan class this repo has been bitten by twice):
+
+| Where | What is now wrong | Owner |
+|---|---|---|
+| `contracts/live-voice-frames.md:356` — lifecycle table, `key expired` row | says the next request is refused and a live session ends; silent about *which* frame and about the absence of a time bound, while the header of that section quotes FR-063's "rather than being noticed at the next connection" | `@mamang-lead-be` |
+| `tasks.md:119` (`T110`) | one 1 s promise covering both events, and no `(FR-063a)` tag | `@mamang-lead-be` |
+| this file, C15 row at `:852` | lists FR-063 only | left as history; this delta supersedes it |
+
+**Found while verifying, for the Lead's gate — deliberately not written into a requirement.** Revocation is not
+re-checked per frame: `key_lapsed` (`topic.rs:67-74`) reads `principal.method`, stamped once when the connection
+opens (`topic.rs:243`), and revocation is only pushed by `delete_api_key` → `end_owned_by_key`. So after a
+revoke ends a session, the same open socket can send `live_voice_start` again — the principal still carries the
+key id and its permissions — and FR-064 says a request with a revoked key is refused *before any session state
+is created*. **Not proven:** no test was written. A test that revokes and then starts again on the same socket
+settles it in one run, and it is the natural first line of `GI-04`.
+
+**Still owed, and not mine:** the `architecture.md` and `review.md` pass, owner unchanged.
