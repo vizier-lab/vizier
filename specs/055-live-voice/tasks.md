@@ -350,7 +350,9 @@ be started.
   cancelled=true generation=3` -> `reply abandoned … at="the synthesis finished after the reply was
   over"`, with zero `segment sent`. The person sees "the first answer has no voice" and every answer
   after it is fine, because later turns are no longer brand new when their `close` arrives.
-**THE RULE — one condition, and this block is the whole of it.**
+**THE RULE — one condition, and this block is the whole of it.** *(`gate: ratio only`, PM 21:20,
+settled after six reversals; frozen at `bab7add6`. Any later edit must carry a new sample from the
+log, not a preference.)*
 ```
 abort_turn  ONLY when  ratio = audio_ms / wall_ms < 5.0
   ratio > 5.0            -> burst, held
@@ -422,10 +424,18 @@ test must be **red** without the guard.
   grep for.
 - An utterance shorter than about 300 ms makes the ratio noisy and stays on the server's `too_short`
   path, not this one.
-- **Held is not discarded:** a held burst is still transcribed and can still become the person's next
-  message (20:10:05 held, then `turn_start` 20:10:09.332 and `segment sent` 20:10:15.851). Whether such
-  audio is a real utterance that was delayed or audio that should never have been sent is **not proven**;
-  only a client-side log settles it.
+- **Held is not discarded — decided, not merely observed.** A held burst is still transcribed and still
+  becomes the person's next message, in the ordinary order, with **no special marker to the person**
+  (20:10:05 held, then `turn_start` 20:10:09.332 and `segment sent` 20:10:15.851). Three reasons, and
+  they are why this is not Bentuk B: the audio is **real capture**, so its transcript says what the
+  microphone actually heard — the Bentuk B risk was *words the model guessed* being revised into a
+  message, and nothing is guessed here, only delayed; dropping it would delete a sentence somebody
+  actually said, which is worse than one extra turn; and dropping it would be a **new rule with its own
+  test** on a path already being repaired, with no sample saying the content is junk.
+  The `warn` line is still written for every held burst even though the turn proceeds, so the
+  **frequency is countable** — if it turns out to be frequent, that is a new task argued with that
+  number, not a patch now. Whether the content is real speech is **not proven**; only a client-side log
+  settles it, and that log does not exist yet.
 - `channels != 1`, PCM-only models outside the name pattern, and the 263 ms `speaking` are untouched.
 **Gate, red first:** 20:09:25 (3 320x) **held** - the red case, it is the reported defect · 20:12:32 (1.0x) **abort**, the real interruption must keep working · 20:08:14
 (1 370x) **held** · `wall_ms == 0` **held** · `audio_ms == 0` **held** · Q5 green.
