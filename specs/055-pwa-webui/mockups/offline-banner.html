@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Offline Banner</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Schibsted+Grotesk:wght@400;500;600&display=swap">
+<style>
+/* Values copied from design/src/tokens/tokens.css. */
+:root {
+  color-scheme: light;
+  --vz-ground:#ffffff; --vz-panel:#ffffff; --vz-surface:#f4f4f5; --vz-raised:#e9e9ec; --vz-pressed:#dcdce0;
+  --vz-border:#e4e4e7; --vz-border-strong:#d4d4d8; --vz-focus:#3f3f46; --vz-unlit:#d4d4da;
+  --vz-text-faint:#6e6e78; --vz-text-muted:#5b5b66; --vz-text-soft:#3f3f46; --vz-text:#111114;
+  --vz-ink:#111114; --vz-ink-hover:#2e2e33; --vz-on-ink:#ffffff;
+  --vz-live:#059669; --vz-live-text:#046c4e; --vz-live-bg:#ecf8f2;
+  --vz-rank-text:#3651c4; --vz-rank-bg:#e6ebfb;
+  --vz-failed:#c8371d; --vz-failed-text:#b4321c; --vz-failed-bg:#fdf1ee; --vz-failed-line:#f5c9c0;
+  --vz-retrying:#a86a12; --vz-retrying-bg:#fbf4e6; --vz-retrying-line:#ebd9b0;
+  --shadow:0 12px 32px -8px rgb(0 0 0 / .22);
+  --sans:"Schibsted Grotesk",ui-sans-serif,system-ui,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --vz-ground:#0b0b0c; --vz-panel:#0b0b0c; --vz-surface:#151518; --vz-raised:#1c1c20; --vz-pressed:#26262b;
+  --vz-border:#242428; --vz-border-strong:#303036; --vz-focus:#d6d6dc; --vz-unlit:#3a3a42;
+  --vz-text-faint:#8b8b96; --vz-text-muted:#a0a0aa; --vz-text-soft:#d6d6dc; --vz-text:#ededef;
+  --vz-ink:#f2f2f5; --vz-ink-hover:#d6d6dc; --vz-on-ink:#111114;
+  --vz-live:#10b981; --vz-live-text:#10b981; --vz-live-bg:#0f2a21;
+  --vz-rank-text:#9db1f5; --vz-rank-bg:#1e2540;
+  --vz-failed:#e5654b; --vz-failed-text:#f0a394; --vz-failed-bg:#2a1714; --vz-failed-line:#4a2a26;
+  --vz-retrying:#e2b04a; --vz-retrying-bg:#2a2213; --vz-retrying-line:#4a3d22;
+  --shadow:0 12px 32px -8px rgb(0 0 0 / .5);
+}
+* { box-sizing:border-box; }
+html,body { margin:0; }
+body { background:var(--vz-ground); color:var(--vz-text); font:400 14px/20px var(--sans); }
+button { font:inherit; color:inherit; cursor:pointer; background:none; border:0; padding:0; }
+:focus-visible { outline:2px solid var(--vz-focus); outline-offset:2px; }
+.mono { font-family:var(--mono); }
+svg { display:block; flex:none; }
+
+/* Mockup controls: not part of the design. */
+.controls { display:flex; flex-wrap:wrap; align-items:center; gap:8px 12px; padding:10px 16px; border-bottom:1px dashed var(--vz-border-strong); }
+.controls b { font-weight:500; font-size:12px; color:var(--vz-text-faint); }
+.seg { display:flex; flex-wrap:wrap; gap:2px; }
+.seg button { padding:4px 10px; border-radius:999px; font-size:12px; line-height:18px; color:var(--vz-text-muted); }
+.seg button:hover { background:var(--vz-raised); color:var(--vz-text); }
+.seg button[aria-pressed="true"] { background:var(--vz-ink); color:var(--vz-on-ink); }
+.spacer { flex:1; }
+
+/* The app shell: the frame the banner sits above. */
+.shell { display:flex; height:calc(100vh - 41px); background:var(--vz-shell,var(--vz-ground)); }
+.rail { width:64px; flex:none; display:flex; flex-direction:column; align-items:center; gap:8px; padding:12px 0; border-right:1px solid var(--vz-border); }
+.rail .mark { width:28px; height:28px; border-radius:8px; background:var(--vz-ink); color:var(--vz-on-ink); display:grid; place-items:center; margin-bottom:8px; }
+.rail .tile { width:36px; height:36px; border-radius:10px; display:grid; place-items:center; color:var(--vz-text-muted); }
+.rail .tile.on { background:var(--vz-raised); color:var(--vz-text); }
+.side { width:256px; flex:none; border-right:1px solid var(--vz-border); padding:16px 12px; display:flex; flex-direction:column; gap:6px; }
+.side h3 { font-size:12px; font-weight:600; color:var(--vz-text-faint); margin:0 0 6px; text-transform:uppercase; letter-spacing:.04em; }
+.side .row { display:flex; align-items:center; gap:8px; padding:8px 10px; border-radius:8px; color:var(--vz-text-soft); font-size:13px; }
+.side .row.on { background:var(--vz-raised); color:var(--vz-text); }
+.page { flex:1; min-width:0; display:flex; flex-direction:column; background:var(--vz-panel); }
+.page-head { display:flex; align-items:center; gap:10px; padding:18px 24px 12px; }
+.page-head h2 { font-size:15px; font-weight:600; margin:0; }
+.page-body { flex:1; padding:8px 24px 24px; display:flex; flex-direction:column; gap:12px; }
+.card { border:1px solid var(--vz-border); border-radius:12px; background:var(--vz-surface); padding:14px 16px; }
+.card .t { font-weight:500; margin-bottom:4px; }
+.card .m { font-size:12px; color:var(--vz-text-muted); }
+
+/* The banner: design/Banner, the offline tone with its second line. */
+.banner { display:flex; align-items:center; gap:8px; border:1px solid var(--vz-retrying-line); background:var(--vz-retrying-bg); border-radius:8px; padding:8px 12px; margin:0; }
+.banner .dot { width:7px; height:7px; border-radius:999px; background:var(--vz-retrying); flex:none; }
+.banner .lines { flex:1; min-width:0; display:flex; flex-direction:column; gap:2px; }
+.banner .title { font-size:13px; font-weight:500; line-height:18px; color:var(--vz-text); }
+.banner .msg { font-size:12px; line-height:17px; color:var(--vz-text-muted); }
+.banner .act { flex:none; display:inline-flex; align-items:center; height:28px; padding:0 10px; border-radius:6px; border:1px solid var(--vz-border-strong); background:var(--vz-panel); font-size:12px; }
+.banner .act:hover { background:var(--vz-raised); }
+.banner--bare .msg { display:none; }
+
+/* Where it sits: above the frame, so it shows on every page. */
+.strip { background:var(--vz-panel); padding:12px 16px 0; }
+
+/* Notes for the reader: not part of the design. */
+.annot { max-width:896px; margin:0 auto; padding:16px 24px 32px; border-top:1px dashed var(--vz-border-strong); font-size:13px; color:var(--vz-text-muted); }
+.annot h2 { font-size:13px; font-weight:600; margin:0 0 6px; color:var(--vz-text); }
+.annot ul { margin:0; padding-left:18px; }
+.annot li { margin:3px 0; }
+.annot code { font-family:var(--mono); font-size:12px; }
+
+@media (max-width:640px) {
+  .side { display:none; }
+  .strip { padding:10px 12px 0; }
+  .banner { flex-wrap:wrap; }
+  .banner .act { margin-left:15px; }
+}
+</style>
+</head>
+<body>
+
+<div class="controls">
+  <b>Mockup state</b>
+  <div class="seg" id="scenarios"></div>
+  <span class="spacer"></span>
+  <div class="seg"><button id="theme" aria-pressed="false">Dark</button></div>
+</div>
+
+<div class="strip">
+  <div class="banner" id="banner" role="status">
+    <span class="dot" aria-hidden="true"></span>
+    <div class="lines">
+      <p class="title" id="b-title"></p>
+      <p class="msg" id="b-msg"></p>
+    </div>
+    <button class="act" id="b-act">Try again</button>
+  </div>
+</div>
+
+<div class="shell">
+  <div class="rail">
+    <div class="mark" aria-hidden="true">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 5l6 14 6-14"/></svg>
+    </div>
+    <div class="tile on" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 10v10h14V10"/></svg></div>
+    <div class="tile" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></div>
+    <div class="tile" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v4l3 2"/></svg></div>
+  </div>
+  <div class="side">
+    <h3>Agents</h3>
+    <div class="row on">Oz</div>
+    <div class="row">Scribe</div>
+    <div class="row">Archivist</div>
+  </div>
+  <div class="page">
+    <div class="page-head"><h2>Oz</h2></div>
+    <div class="page-body">
+      <div class="card"><div class="t">A task that needs the engine</div><div class="m">Replies arrive over the socket. Without a connection the card stays as it was.</div></div>
+      <div class="card"><div class="t">Another card</div><div class="m">Reading what is already open still works.</div></div>
+    </div>
+  </div>
+</div>
+
+<div class="annot">
+  <h2>Design notes</h2>
+  <ul>
+    <li>The banner sits above the shell frame, so it shows on every page — Home, Settings and chat alike.</li>
+    <li>It says what is unavailable, not "you are offline": the title names the condition, the second line names what stops working and what keeps working.</li>
+    <li>It uses the <code>offline</code> tone of <code>design/Banner</code>: the retrying edge and ground, with a retrying dot.</li>
+    <li>The second line needs the <code>offline</code> tone to render its <code>message</code>. Today only the <code>failed</code> tone does, so the design component changes first.</li>
+    <li>"Try again" re-opens the socket. The chat's own banner keeps its per-topic line; this one is the shell-wide statement.</li>
+  </ul>
+</div>
+
+<script>
+const SCENARIOS = {
+  'App shell': {
+    title: "Vizier can't reach the engine",
+    msg: "Replies and new conversations need a connection. What is already open stays readable.",
+  },
+  'Engine restarting': {
+    title: "Vizier is reconnecting to the engine",
+    msg: "Replies pause for a moment. Nothing you have open is lost.",
+  },
+  'Chat topic dropped': {
+    title: "Vizier can't reach the engine",
+    msg: "Replies and new conversations need a connection. What is already open stays readable.",
+  },
+};
+
+const el = (id) => document.getElementById(id);
+const banner = el('banner');
+
+function paint() {
+  const s = SCENARIOS[el('scenarios').querySelector('[aria-pressed="true"]').dataset.id];
+  el('b-title').textContent = s.title;
+  el('b-msg').textContent = s.msg;
+}
+
+const seg = el('scenarios');
+for (const [id, s] of Object.entries(SCENARIOS)) {
+  const b = document.createElement('button');
+  b.dataset.id = id;
+  b.textContent = id;
+  b.setAttribute('aria-pressed', id === Object.keys(SCENARIOS)[0] ? 'true' : 'false');
+  b.onclick = () => {
+    seg.querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    paint();
+  };
+  seg.appendChild(b);
+}
+
+const theme = el('theme');
+theme.onclick = () => {
+  const dark = document.documentElement.getAttribute('data-theme') === 'dark';
+  document.documentElement.setAttribute('data-theme', dark ? 'light' : 'dark');
+  theme.setAttribute('aria-pressed', String(!dark));
+  theme.textContent = dark ? 'Dark' : 'Light';
+};
+
+paint();
+</script>
+</body>
+</html>
