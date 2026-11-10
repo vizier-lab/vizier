@@ -441,6 +441,23 @@ test must be **red** without the guard.
 - `channels != 1`, PCM-only models outside the name pattern, and the 263 ms `speaking` are untouched.
 **Gate, red first:** 20:09:25 (3 320x) **held** - the red case, it is the reported defect · 20:12:32 (1.0x) **abort**, the real interruption must keep working · 20:08:14
 (1 370x) **held** · `wall_ms == 0` **held** · `audio_ms == 0` **held** · Q5 green.
+**The FR-024 clause is approved in shape and is proposed tomorrow, not written tonight.** An utterance
+whose audio arrived faster than a person can speak is **not a barge-in**, so the reply is not cancelled
+for it - the same family as FR-024's existing rule that an utterance too short to be a word does not
+cancel the reply (`spec.md:533`). It goes in **FR-024, not FR-027**: FR-027's trigger stays *the end* of
+the person's utterance, never its start (`spec.md:536`), and an interruption defined by when an utterance
+*opened* would contradict that sentence and spread to every reader of "interruption".
+**Origin is NOT in the clause**, because the code is ratio-only: the guard is not allowed to describe
+itself as requiring something it does not.
+Three things travel with the clause, or it will be read as something it is not:
+- **"not a barge-in" is not "not a message".** The burst still becomes the person's turn, in the ordinary
+  order, with no marker - say so in the clause, or someone will read it as permission to discard.
+- **The threshold is a named constant in the code, never a number in the spec.** The spec states the
+  property; 5.0 is a choice under uncertainty and must stay revisable without an amendment, with one log
+  line per decision as the price of that freedom.
+- **The clause does not apply when the rate reads high because the socket stalled.** That cause is
+  recognition running inline, and moving `transcribe` out of the socket loop is what closes it; the
+  threshold must not be credited with it.
 **20:12:32 does NOT discriminate the two shapes** - both conditions are true there, so it aborts under
 AND and under ratio alone alike. **The test that proves which shape is installed is the 3.4 s window**
 (ratio ~1.0x, utterance opened before `turn_start`): ratio-alone **aborts** it, and a guard that had
