@@ -504,7 +504,7 @@ this diagram because it is deferred (C7).
 - **FR-003**: Live Voice MUST be independent of the existing speech-to-text and text-to-speech tools in both directions: starting it MUST NOT enable, disable or reconfigure those tools, and their switches MUST neither start it nor block it.
 - **FR-004**: Starting MUST require both a usable recognizer and a usable voice for that agent. When one is missing, the control MUST name what is missing and how to set it, and MUST NOT start; a session that can only listen, or only speak, MUST NOT be presented as live voice.
 - **FR-005**: A session MUST belong to one person, and there MUST be **at most one** live session for that person across every conversation and every agent (C10). Only someone allowed to chat in a conversation may start or end a call there. Starting a call **in another conversation or with another agent** MUST NOT fail with "a session is already active": it **moves** the call and says why in the conversation it leaves (FR-050, FR-051), so two are never running. The **one** refusal in this feature is narrower: a second connection pressing start on the **same** conversation that already has a call held by the owner's other connection (Q2's default). That is refused with `kind: "session_active"` — the same word the contract uses, never a different one — because moving would need a rule for audio already captured in the first connection, and the person can end the call from the connection that holds it.
-- **FR-006**: The **live row** MUST show, without a page reload: connecting, listening, waiting for the agent, speaking, interrupted, reconnecting, ended with a reason, failed with a reason. (`off` is the absence of the panel.)
+- **FR-006**: The **live row** MUST show, without a page reload: connecting, listening, waiting for the agent, speaking, interrupted, reconnecting, ended with a reason, failed with a reason. (`off` is the absence of the panel.) **The copy is English and stays English** (User, 2026-11-10 09:27): the eight words above are the shipped words, and translating them is a new decision rather than an edit — `agent sedang berpikir` measures 130 px against `thinking`'s 47 px, so a language change re-measures the row that FR-049 fixes at 24 px.
 - **FR-007**: A voice message MUST run the same turn as a typed one: same conversation history, same mode rules, same tools, same permissions, same memory, same usage accounting. Live Voice MUST NOT add, remove or alter the agent's tools, memory or permissions.
 - **FR-008**: A session MUST use the agent's own model and speech configuration. Live Voice MUST NOT silently change what typed turns use.
 
@@ -618,6 +618,8 @@ this diagram because it is deferred (C7).
 ## Success Criteria *(mandatory)*
 
 ### Measurable Outcomes
+
+**How these are verified, and with what** (User, 2026-11-10 09:27): the QA environment is the Ubuntu machine that runs this branch, and it verifies **without any database access** — no `mysql-local`, no direct reads of a live store. Fixtures are the only data source. A criterion that can only be shown against real stored data is therefore recorded as **"cannot be checked"** rather than replaced by an assumption, and that label is a result in its own right: it says the criterion is unproved, not that it passed.
 
 *Every latency figure below is measured on the **path that carries the sound** — the conversation's socket, `ws-json-pcm16` — with the marks taken in the client, not on the message hop. A number taken from a path that is not carrying audio describes nothing.*
 
@@ -1024,3 +1026,37 @@ Q13 is added to the table: removing the spoken-reply toggle leaves a person who 
 rather listen with exactly one way to hear an answer — a live call. The default is "yes, that is
 acceptable for this release", because FR-053 keeps the code and the toggle can come back without a
 rebuild. It is written down so the trade-off is visible, not to re-open C12.
+
+## Delta Log — 2026-11-10 09:27 (the copy stays English, and QA verifies without a database)
+
+Two decisions from the User, relayed by `@bro-pm` at 09:31. Neither changes a requirement's meaning;
+both close a question that would otherwise be answered differently by whoever got there first.
+
+**1. The interface is English, and stays English.** *"Bahasa inggris aja UI nya"* — recorded at FR-006,
+because that is where the eight state words live. The decision is not cosmetic and not a preference
+about tone: `thinking` is 47 px and `agent sedang berpikir` is 130 px, so translating the copy re-measures
+the row that FR-049 pins at 24 px with a fixed order of surrender. There is therefore **no copy pass, no
+width re-measure, and no delta** — and a future reader who wants Indonesian has to say so and accept the
+re-measure, rather than treating it as a find-and-replace.
+
+**2. QA verifies without a database.** *"Nggak sama sekali"* — no `mysql-local`, no direct reads of a live
+store; fixtures are the only data source. Recorded at Measurable Outcomes rather than in `checklists/`,
+because it constrains **what can be claimed**, not how a test is written: a criterion that can only be
+shown against real stored data is marked **"cannot be checked"**, and that label is a result. The
+alternative — substituting an assumption for the data and calling it a pass — is the failure mode this
+spec has already paid for twice.
+
+**What this delta deliberately does not do.** It does not reopen the surface. The row is **B1-1**, locked
+by the User on 2026-11-09 17:31, rendered, verified by two parties, and implemented in
+`webui/app/screens/chat/LiveVoiceRow.tsx`. A brief asking the designer for "three design options" was
+circulated on 2026-11-10 09:31 and is **declined here**: the surface is not open, and drawing options for
+a decided surface costs the designer time with no receiver. What remains for design is narrower and
+already named — relabel the four frames that still call a retired surface `CANONICAL`, and fill the
+"drawn as" column for the rows that genuinely need a drawing. `listening` and `interrupted` are
+explicitly **not** required to be drawn now.
+
+**Still owed, unchanged and not mine:** the `architecture.md` and `review.md` pass listed under
+"Documents still owing a pass", owner `@mamang-lead-be`, queued behind the gate that the User is waiting
+on. `architecture.md:17` stays off that list: the registry really is `LiveVoiceSessions` in `session.rs`,
+and there is no `registry.rs` — that line is correct and must not be "fixed".
+
