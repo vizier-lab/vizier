@@ -7,6 +7,8 @@ import './app.css'
 import './lib/clientTools/builtin'
 import { transport } from './api/transport'
 import { bootstrapView } from './lib/desktop'
+import { registerServiceWorker } from './lib/pwa/register'
+import { watchForUpdate } from './lib/pwa/update'
 import { PRE_PAINT_SCRIPT, THEME_COLORS } from './lib/themes/apply'
 import { Bootstrap } from './screens/desktop/Bootstrap'
 import { RuntimeBanner } from './screens/desktop/RuntimeBanner'
@@ -53,6 +55,19 @@ export default function App() {
 
     useEffect(() => init(), [init])
     useEffect(() => useAppearance.getState().init(), [])
+
+    // The web app's own updater: the worker waits for the person, so nothing reloads on its own.
+    useEffect(() => registerServiceWorker(), [])
+    useEffect(
+        () =>
+            watchForUpdate((apply) =>
+                useToasts.getState().push(
+                    { tone: 'info', title: 'A new version of Vizier is available', message: 'Select to load it.', onSelect: apply },
+                    12000
+                )
+            ),
+        []
+    )
 
     // Notifications, `vizier://` links and the tray ask the window to go somewhere.
     useEffect(() => {

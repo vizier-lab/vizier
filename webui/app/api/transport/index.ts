@@ -7,7 +7,8 @@ export * from './common'
 
 let current: Transport = http
 
-const isDesktop = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
+/** True in the desktop app's window. One source of truth for "are we in the desktop app". */
+export const isDesktop = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
 
 export const transportReady: Promise<void> = isDesktop
     ? import('./tauri').then((m) => {
