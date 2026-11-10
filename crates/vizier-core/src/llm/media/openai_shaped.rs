@@ -137,17 +137,39 @@ pub const SPEECH_RATE: u32 = 16_000;
 #[async_trait::async_trait]
 impl VizierTtsModel for OpenAiTts {
     async fn generate_speech(&self, text: &str, voice: &str, speed: f32) -> Result<Vec<u8>> {
-        let format = match self.pcm_rate {
-            Some(_) => Some("pcm"),
-            None => self.response_format,
-        };
-        let body = speech_body(&self.endpoint.model, text, voice, speed, format);
+        let body = self.body_for(text, voice, speed);
         let req = self.endpoint.post("/audio/speech").await.map_err(|e| err("speech", e))?;
         let response = http::send(req.json(&body)).await.map_err(|e| err("speech", e))?;
         match self.pcm_rate {
             Some(rate) => Ok(pcm_to_wav16(&response.body, rate)?),
             None => mp3_to_wav(&response.body),
         }
+    }
+}
+
+impl OpenAiTts {
+    /// The JSON body this request will carry, built without sending it.
+    ///
+    /// A seam, not a convenience: the format a live call names is what broke it (a model that only
+    /// accepts `pcm` was asked for `mp3` and answered `400` before producing a byte), and a test
+    /// that drove `speech_format` directly stayed green when this call site was reverted to
+    /// `self.response_format`. Building the body here is what a test can hold onto.
+    fn body_for(&self, text: &str, voice: &str, speed: f32) -> Value {
+        let format = speech_format(self.pcm_rate, self.response_format);
+        speech_body(&self.endpoint.model, text, voice, speed, format)
+    }
+}
+
+/// Which `response_format` a speech request names.
+///
+/// A pure function, and not an inline `match`, because it is the decision that broke a live call:
+/// a model that only accepts `pcm` was asked for `mp3` and answered `400` before producing a byte.
+/// Extracting it is what lets a test fail if this line is ever changed back — the test that drove
+/// `speech_body` with a literal `Some("pcm")` stayed green under exactly that mutation.
+fn speech_format(pcm_rate: Option<u32>, response_format: Option<&'static str>) -> Option<&'static str> {
+    match pcm_rate {
+        Some(_) => Some("pcm"),
+        None => response_format,
     }
 }
 
@@ -639,7 +661,39 @@ mod pcm_tests {
 
     #[test]
     fn an_already_matching_rate_is_left_alone() {
-        let pcm = vec![7u8; 64];
+        // A ramp, not a constant: 64 identical bytes are returned unchanged by almost any
+        // resampler, including one that rounds wrongly. This asserts the bytes a real provider
+        // sends come back bit-for-bit when the rate already matches.
+        let pcm: Vec<u8> = (0..64i16).flat_map(|s| (s * 7).to_le_bytes()).collect();
         assert_eq!(resample(&pcm, 16_000, 16_000), pcm);
+    }
+
+    #[test]
+    fn the_request_format_follows_the_rate_and_not_the_provider_name() {
+        // Driven through the body the request would actually carry. Reverting the call site to
+        // `self.response_format` — the exact regression — turns this red; a test that called
+        // `speech_format` directly did not.
+        let at = |model: &str| Endpoint {
+            http: reqwest::Client::new(),
+            base_url: "http://127.0.0.1:1".into(),
+            credential: crate::llm::media::StaticKey::shared(
+                crate::llm::media::KeyStyle::Bearer,
+                Some("test-key".into()),
+            ),
+            model: model.to_string(),
+        };
+        let pcm_model = OpenAiTts {
+            endpoint: at("google/gemini-3.1-flash-tts-preview"),
+            response_format: Some("mp3"),
+            pcm_rate: Some(24_000),
+        };
+        assert_eq!(pcm_model.body_for("hi", "Kore", 1.0)["response_format"], "pcm");
+
+        let mp3_model = OpenAiTts {
+            endpoint: at("hexgrad/kokoro-82m"),
+            response_format: Some("mp3"),
+            pcm_rate: None,
+        };
+        assert_eq!(mp3_model.body_for("hi", "af_alloy", 1.0)["response_format"], "mp3");
     }
 }
