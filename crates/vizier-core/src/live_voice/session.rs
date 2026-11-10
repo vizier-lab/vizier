@@ -543,6 +543,18 @@ impl LiveVoiceSession {
         // it overlaps with this segment being played. Sequential `await` made a reply of N segments
         // cost the sum of N syntheses before the last one was heard — the gap between sentences the
         // person noticed — for no reason: sending is instant, and the client queues gaplessly.
+        // One line when a segment is handed to the provider, and one when it leaves: the pair is
+        // what turns "the sound stopped after the second answer" into a count. Until this, the
+        // only line the whole live voice path wrote was `live voice interrupted`, so a reply that
+        // lost its voice was indistinguishable from one that was never spoken. `info` and not
+        // `debug` because this is the line a person's report is checked against.
+        tracing::info!(
+            agent_id = %self.session.0,
+            generation,
+            segment = 1u32,
+            chars = current.text.chars().count(),
+            "live voice segment synthesis started"
+        );
         let mut pending = Some(synthesise(engines, &current.text));
         // Which segment the reply stopped on, counted from one: the number a person reporting
         // "it stopped after the second answer" can be matched against.
@@ -600,7 +612,17 @@ impl LiveVoiceSession {
             // The turn's own counter, shared with the filler: whichever goes first takes the lower
             // `seq`, and the client's queue plays them in exactly that order (G2).
             let seq = self.turn_seq.fetch_add(1, Ordering::SeqCst);
-            if self.send_speech(LiveVoiceSpeech::new(generation, seq, &pcm, current.last)) {
+            let sent = self.send_speech(LiveVoiceSpeech::new(generation, seq, &pcm, current.last));
+            if sent {
+                tracing::info!(
+                    agent_id = %self.session.0,
+                    generation,
+                    segment,
+                    seq,
+                    bytes = pcm.len(),
+                    final = current.last,
+                    "live voice segment sent"
+                );
                 self.reply_segments.fetch_add(1, Ordering::SeqCst);
             }
             if self.is_stopped() {
@@ -609,6 +631,13 @@ impl LiveVoiceSession {
             }
             match segments.next() {
                 Some(next) => {
+                    tracing::info!(
+                        agent_id = %self.session.0,
+                        generation,
+                        segment = segment + 1,
+                        chars = next.text.chars().count(),
+                        "live voice segment synthesis started"
+                    );
                     pending = Some(synthesise(engines, &next.text));
                     current = next;
                 }
