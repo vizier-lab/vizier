@@ -478,6 +478,12 @@ note that called it optional):** an utterance opened before `turn_start` with ra
 under ratio alone and would be **held** under AND, so it fails if `opened_at` is still a gate by
 accident. It has no sample in the log, so the ordering is **injected** in the test - and that is sound:
 the test asserts the rule, not the recording. Write it with the behaviour tests, not after them.
+**And one claim about that window must not be quoted as evidence:** the argument that aborting there is
+"free" because `turn_start` precedes the model by 1-4 s and no audio has been sent yet is a **design
+argument, not a measurement**. It rests on mechanism alone, with **zero samples** in the log. It was
+good enough to choose the shape; it is not good enough to be reported as an observation. If a
+held-interruption complaint arrives about this window, the first thing to read is `sequence=` on the
+held line - the turn number, not the clock - and that is what the field exists for.
 
 - [ ] LV-EMPTY-REPLY-SILENT **A reply with no content passes as a turn.** Four of the eight turns on
   topic `cEKjwtlxZ7` produced `content: ""` — no text, no speech, and no word to the person that
