@@ -44,7 +44,7 @@ flowchart LR
         PLAY["player.ts<br/>AudioContext, one queue"]
         SPK["Speakers"]
         BTN["LiveVoiceButton<br/>starts and ends the call"]
-        BAR["LiveVoicePanel<br/>floats, draggable, one End"]
+        ROW["LiveVoiceRow<br/>one line in the composer, one End"]
     end
     subgraph Server["Vizier server"]
         SOCK["Topic socket<br/>channel.rs:818 JSON only"]
@@ -61,7 +61,7 @@ flowchart LR
     end
     MIC --> WORKLET --> CAP --> VAD --> SM
     BTN --> SM
-    BAR --> SM
+    ROW --> SM
     SM -->|"live_voice_audio<br/>speech_start, utterance_end"| SOCK
     SOCK --> DISP --> REG --> SES
     SES --> UTT --> ENG
@@ -130,15 +130,15 @@ marked interrupted; if the abort lands before any `Message`, the turn ends as `A
 "Stopped by you", with no invented partial text.
 
 **FR-018 is withdrawn (User, 2026-11-08 17:27) — and §4's rule is the reason it could be.** The session
-speaks only the turns it submitted. A typed message is not one of them: typing during a session sends
-`live_voice_interrupt { reason: "typed" }` (the audio stops, FR-025) and then an ordinary chat request on
-the same socket, answered as text. Making its reply audible would have meant a second submission path
-into the session, which is more surface than the behaviour is worth — the User chose text only.
+speaks only the turns it submitted. A typed message is not one of them: it is an ordinary chat request
+on the same socket, answered as text, and whatever is already audible keeps playing — **FR-025 is
+deferred with C7**, so typing does not stop the audio in this release. The client keeps the
+`interrupt{reason:"typed"}` path for the release that brings C7 back, and nothing calls it today.
 
 **FR-042 — the thinking indicator keeps §4's rule honest.** Since the session speaks only its own turns
 and the model is not streaming, the gap between "request accepted" and "first segment" is real and can
 be long (FR-017 lets the agent take that time). The session already emits `live_voice_state` with
-`state: "waiting"` at turn start; FR-042 requires the panel to render that as **thinking** and to keep it
+`state: "waiting"` at turn start; FR-042 requires the row to render that as **thinking** and to keep it
 visually distinct from `reconnecting`. No new frame: `waiting` gains an obligation it did not have
 before, which is why `contracts` documents it under the state word rather than as a new type.
 
@@ -254,7 +254,7 @@ gate — a reply at 80 % volume, no headphones, ten minutes, no self-interruptio
 2026-11-08 (Clarifications C7, `spec.md` US3 `Priority: backlog`, FR-020/FR-021 struck as deferred,
 `tasks.md` T051–T057 `[BACKLOG]`). The sequence below is kept because the mechanism it uses is the one
 barge-in already needs — `interrupt` moves the generation, cancels the turn, and ends no session — so
-reinstating the control later is one more control on the panel and one more frame, not a new design. Nothing here is built now, and
+reinstating the control later is one more control on the row and one more frame, not a new design. Nothing here is built now, and
 no checkpoint waits on it.
 
 ```mermaid
@@ -295,7 +295,7 @@ session returns to `listening` and waits. That is why it works where speaking ov
 | `vad.ts` | energy gate on 20 ms windows, adaptive noise floor (rolling p10), start threshold, 800 ms hangover, playback guard (threshold +12 dB and 150 ms blind window while a segment is audible) | no model, no wasm, no network |
 | `session.ts` | states of FR-006, generation guard, frame codec, `too_short` decision | no audio, no DOM; pure and unit-tested |
 | `player.ts` | one `AudioContext` resumed on the control press, `AudioBufferSourceNode`s scheduled back to back on the context clock, `stop()` closes every source and drains the queue | never re-schedules a stale generation |
-| `LiveVoicePanel.tsx` | renders the panel **over** the conversation (C9, FR-049): drag by the header, clamp so no edge leaves the window, re-clamp on resize, keep the position for the life of the call (FR-048), one End (FR-045) | no route of its own, no dimming overlay, no second control that ends the call, no session state — it reads the state word the session sends and calls one callback |
+| `LiveVoiceRow.tsx` | the row **inside the composer's own meta line** (C11, B1-1): 24 px, **0 px added**, state word, microphone glyph + `mic on`/`mic off`, elastic waveform, timer, one End; terminal states keep the reason with `Start again`/`Try again` (FR-045) | no route, no panel, no drag, no dimming overlay, no second control that ends the call, no session state — it reads the view the session sends and calls one callback. It gives up the model chip first, then the waveform, then nothing: the microphone and the state word never shrink (FR-049, floor 240 px) |
 
 `stop()` must be synchronous with the click: `SC-003` (200 ms) is measured from the press to silence,
 and a `Promise` chain that awaits the socket would blow it.
@@ -331,9 +331,9 @@ below is 2.57 s before the model has produced anything.
 * **I6** After an interruption no `live_voice_speech` of the old generation is ever played (FR-022).
 * **I7** Every terminal transition emits exactly one `live_voice_state` with a reason and releases
   the microphone track within 2 s (SC-007).
-* **I8** A typed message during a session stops the audio exactly like the button (FR-025) and is
-  answered **as text with nothing spoken** (FR-018 withdrawn, 2026-11-08): the session schedules no
-  audio for a turn it did not submit.
+* **I8** A typed message during a session is answered **as text with nothing spoken** (FR-018
+  withdrawn, 2026-11-08): the session schedules no audio for a turn it did not submit. It does **not**
+  stop the audio — FR-025 is deferred with C7, and the client path that would do it has no caller.
 * **I9** No `live_voice_speech` frame ever reaches `publish_session_event` (control frames do, by
   design); a backlogged socket loses speech frames only, never a `SessionFrame::Response`, and never a
   control frame (§11, D9).
@@ -467,7 +467,7 @@ live_voice_start (conversation B, same Principal)
     ├─ 4. old.end(reason: "moved")         ← stop audio, release the mic, state{ended,moved} on A
     ├─ 5. wait for old's task to be gone   ← the "one microphone open once" guarantee (SC-011)
     ├─ 6. insert new session under B       ← routing index (VizierSession) + owner index
-    └─ 7. state{live, "listening"} on B    ← the panel opens here, FR-050
+    └─ 7. state{live, "listening"} on B    ← the row appears here, FR-050
 ```
 
 * **Three starts, three outcomes, one lookup each.** Same conversation from the owner's current socket →
@@ -479,8 +479,8 @@ live_voice_start (conversation B, same Principal)
   wants, and it is the one case where the new start loses.
 * **The order is the invariant.** Steps 2–4 happen before 5, and 5 finishes before 6: there is never a
   moment with two registry entries, and never a moment with two open microphones on the server side.
-  The client's old panel closes on step 4's frame; the new panel only exists after step 7, so the two
-  panels are never both live either.
+  The old conversation's row closes on step 4's frame; the new row only exists after step 7, so the two
+  rows are never both live either.
 * **The turn is cancelled, not carried.** FR-052 is not a new path: it is §4's fixed order (stop the
   audio, then `AgentsClient::abort`) with the reason recorded as `moved` instead of `barge_in` or
   `button`. The partial `Message` is kept exactly as D1 keeps it, in conversation **A**, which is where
@@ -489,7 +489,7 @@ live_voice_start (conversation B, same Principal)
   adopts (§10 I5, I6).
 * **Transcripts do not move.** The session holds no history; A's transcript is A's, B's is B's, and the
   spoken turns of the old call stay in the conversation that heard them. This is what makes FR-051 a
-  cheap promise: the reason is a notice on the closed panel (Q10 default), not an invented message, and
+  cheap promise: the reason is a notice on the old conversation's row (Q10 default), not an invented message, and
   the history it sits beside is untouched.
 * **A refusal still exists, in exactly one place.** Q2: a second **tab on the same conversation** is
   refused (`session_active`), because there the microphone is already in that conversation and the

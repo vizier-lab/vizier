@@ -271,21 +271,26 @@ rewriting the analyst's text wholesale: each row names the file and what it now 
 | C-12 | `quickstart.md` gains a scripted `dummyplug` half and a measurement step | `quickstart.md` | C1 — the constitution's e2e gate had nothing to run |
 | C-13 | tasks: T038/T039 now render the terminal states with their reason and no interrupt control, move the elapsed counter out of the announced text, and require the design system instead of a stylesheet | `tasks.md` | Lead's review, 2026-11-08 — `LiveVoiceBar.tsx:46-47` drops `ended` and `failed` while `session.ts:314-316` and `:324` already hold the reason: FR-006, FR-029, FR-030 |
 | C-14 | tasks: T038 keeps the state words English, and `start()` clears the previous session's notice | `tasks.md` | same review — one Indonesian word in a bar of eight English ones widened it 2.3× in the designer's render; `session.ts:112-114` never resets `view.notice`, so an old reason can surface inside a healthy session |
-| C-15 | **C9 (2026-11-09 06:52): the surface is a floating panel, not a screen and not a route.** US6, FR-043…FR-046 rewritten, **FR-048** (drag, clamp, resize, position) and **FR-049** (the conversation behind stays readable and usable) new, SC-010 reworded, wireframe replaced; `Tasks` target is `LiveVoicePanel.tsx`. C-13 and C-14 above were written against `LiveVoiceBar.tsx` and are **superseded, not withdrawn** — the bar is archived, its two behaviours (terminal reasons with no interrupt control, English state words, cleared notice) still bind the panel | `spec.md`, `tasks.md`, `architecture.md` §1, §8, `@teteh-desener`'s render | the User's decision, and the full screen could not promise FR-049: a screen cannot leave the conversation readable behind it |
+| C-15 | **C9 (2026-11-09 06:52): the surface is a floating panel, not a screen and not a route.** US6, FR-043…FR-046 rewritten, **FR-048** (drag, clamp, resize, position) and **FR-049** (the conversation behind stays readable and usable) new, SC-010 reworded, wireframe replaced; `Tasks` target is `LiveVoicePanel.tsx`. C-13 and C-14 above were written against `LiveVoiceBar.tsx` and are **superseded, not withdrawn** — the bar is archived, its two behaviours (terminal reasons with no interrupt control, English state words, cleared notice) still bind the panel | `spec.md`, `tasks.md`, `architecture.md` §1, §8, `@teteh-desener`'s render | the User's decision, and the full screen could not promise FR-049: a screen cannot leave the conversation readable behind it **Superseded by C11 (2026-11-09 16:07), and this row is now history, not a promise:** the floating panel was cancelled — the surface is one row inside the composer's own meta line (surface B1-1), 24 px, 0 px added. FR-048 (drag) and Q9 (remembered position) retire with it (`spec.md:106`, `spec.md:980`); FR-049 now constrains the row (`spec.md:570`); what survives from the panel work is the order in which the row gives up its own detail, which `spec.md:203-210` carries and T094 tests. |
 | C-16 | **C10 (2026-11-09 06:52): one live session per person, and it moves.** FR-005 rewritten, **FR-050**, **FR-051**, **FR-052** new, SC-011 new, Q4 and Q8 closed, Q2 narrowed to "second tab on the same conversation is refused", contract gains `ended{reason:"moved"}` and the "1 session in total" limit row; `architecture.md` §3 (two indexes, per-process honest limit) and a new §13 (the move: generation → abort → `ended{moved}` → new session, transcript stays) | `spec.md`, `tasks.md`, `contracts/live-voice-frames.md`, `architecture.md` §3, §10 I10, §13 | the User's decision. It is the one place the feature gets *less* permissive on purpose; the refusal that remains is the second tab, where the microphone is already in that conversation |
 
 **Canonical baseline for anything quoting counts**: `specs/055-live-voice/tasks.md` at the commit
-being read — **`dbc50b37` at the time of writing** — carrying **97 tasks (T001–T097, 7 of them
-`[BACKLOG]`)**, counted with `grep -cE '^- \[ \] T[0-9]{3}'` (the id sits outside the bold so one
-pattern counts all of them).
+being read — **`cf663414`, the commit this paragraph was last corrected at (2026-11-10)** — carrying
+**111 tasks (T001–T111)**, **64 `[x]` / 47 `[ ]`**, **7 `[BACKLOG]`**, **one superseded (T093)**, counted with
+`grep -cE '^- \[[ x]\] T[0-9]{3}'` (the id sits outside the bold so one pattern counts all of them).
+**T111 is `[PROVISIONAL]`**: it carries Level 1 of the latency work, whose direction the User approved
+on 2026-11-10 and whose start is not scheduled — do not count it as committed work.
 
 The history of that number, so an older figure can be dated instead of argued about: 88 → 92 at
 `c760cdb3` with C8–C12 (the surface became a surface of its own — FR-044/FR-045 —, the composer bar
 was archived, the interrupt control went to the backlog as T051–T058, and barge-in moved from the
 start of speech to the end of the utterance), then **92 → 97 at `dbc50b37`** with C15–C16 (the
-floating panel with FR-048/FR-049, and the move with FR-050/FR-051/FR-052 + SC-011). Any other number
-in an older message or report is stale, including the "85" and the "86" this file and two commit
-messages used to repeat.
+floating panel with FR-048/FR-049, and the move with FR-050/FR-051/FR-052 + SC-011), then **97 → 98**
+(design tokens), then **98 → 108** at 2026-11-09 16:07 with the spec's C11–C14 (a row instead of a
+panel, the retirement of a surface, the media contract), then **108 → 110** at 16:35 with the ninth
+spec delta (the socket question closed; a scoped key for outsiders), then **110 → 111** with the
+provisional T111. Any other number in an older message or report is stale, including the "97" this
+paragraph itself used to carry, and the "85"/"86" before that.
 
 ---
 
@@ -301,3 +306,41 @@ What is **not** closed and cannot be closed here: RK-1 (long answers are silent 
 finishes) is a requirement question for the User, and the live-provider audio pass stays manual.
 
 Implementation belongs to `@sepuh-be`; verification of the result belongs to `@teteh-qa`.
+
+---
+
+## 8. What is still not covered (verified 2026-11-10 at `cf663414` + Sepuh's uncommitted T110 r2)
+
+Written because a green gate is not the same as a closed gap. Every line below was checked with a
+`grep`/`sed` against the tree named in the heading, and each one names what would close it.
+
+**1. N2 — `idle_stop_seconds` is declared, defaulted, tested, and read by nothing.** The field is at
+`crates/vizier-core/src/schema/agent.rs:230` with a default of `180` at `:242`; it is asserted in that
+file's tests (`:616`, `:623-627`) and in `crates/vizier-core/src/service/agents.rs:1253`. No
+production path reads it: a person who starts a session and walks away leaves the microphone open for
+as long as the window is open. Closed by FR-029 (Opsi A, the server ends an idle session) — the same
+work that closes gap 2.
+
+**2. FR-029 / Opsi A — the server never ends a session on its own.** `last_speech_at` has **0 hits**
+in `crates/` and `webui/app` (working tree and `cf663414`), and `EndReason::Idle` is produced only by
+a test fixture (`crates/vizier-core/src/live_voice/frame.rs:420`) — the enum variant exists and
+nothing in production emits it. **T026 was ticked while its own text promised exactly
+`last_speech_at` + an idle timer**; it is unchecked again as of 2026-11-10, reason on
+`specs/055-live-voice/tasks.md:138`.
+
+**3. G3 fast-path — accepted deviation, not switchable per request.** The gate is the first condition
+of the branch, `if !req.spoken { return false; }` (`crates/vizier-core/src/agents/agent/mod.rs:2372`),
+and `VizierRequest` carries no `without_tools` field: the deviation was taken deliberately so the
+public contract does not grow, and its cost is that a client cannot turn the fast path off for one
+request. Its only observable is the counter `FAST_PATH_RETRIES` (`mod.rs:2353`, read at `:2360`,
+incremented at `:1293`) — a number in a log, not in a response.
+
+**4. The waveform is drawn but never moves.** `level` is initialised to `0`
+(`webui/app/lib/liveVoice/session.ts:115`) and only ever re-set to `0` (`:402`); nothing assigns it
+from an analyser or from the microphone. This is the designer's "visible but not moving, because
+`loud = 0`" seen from the client side. The rest of QA's V1–V11 findings sit behind it; this is the
+one the User will notice first.
+
+**Checked and NOT a gap** (so the same worry is not raised twice): `key_lapsed` is present at
+`cf663414` — definition `crates/vizier-http/src/topic.rs:67`, call at `:415`, five test assertions
+`:209-213`. It was reported as "zero hits" against an older tree; that report is stale.
