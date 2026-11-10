@@ -353,10 +353,12 @@ be started.
   **FINAL SHAPE — read this block and stop; everything below it is the reasoning and the two rules
   that were proposed and rejected on the way here.**
   ```
-  abort_turn  ONLY when  ratio = audio_ms / wall_ms < 5.0     (> 5.0 is a burst, held)
+  abort_turn  ONLY when  ratio = audio_ms / wall_ms < 5.0   AND   utterance.opened_at >= turn.started_at
     wall_ms == 0 counts as a burst, never as infinity
-  origin is a DIAGNOSTIC ONLY: opened_before_turn=true|false is logged, decides nothing
-  every decision logs: decision=abort|held, ratio, audio_ms, wall_ms, topic, utterance_id
+    audio_ms == 0 counts as a burst too: no audio is not a low ratio
+    ratio > 5.0 is a burst whatever the origin says (held, warn)
+    ratio in 2.0-5.0 with origin satisfied aborts, logged at debug with decision=abort
+  every decision logs: decision=abort|held, reason=, ratio, audio_ms, wall_ms, topic, utterance_id
   ```
   **The guard must not be built on either of the two obvious conditions — both were measured and both
   fail.** Over 19 utterances on 20:08–20:13, audio-duration ÷ wall-clock-duration is **1.0×** for a
@@ -383,10 +385,10 @@ be started.
   and keep killing the first answer, which is the bug this exists to stop. The limit comes from physics,
   not from a sample spread: a person cannot speak five times faster than time. All 16 real utterances
   measured about **1.0x**, so 5 gives a 5x margin above them.
-  **There is exactly ONE gate, and it is the ratio. The origin is a diagnostic field, not a
-  condition** (PM, 2026-11-10 21:05, withdrawing the origin-as-gate ruling of 20 minutes earlier).
-  `abort_turn` may be called **only when `ratio < 5.0`**; `opened_before_turn=true|false` is written to
-  the log and decides nothing. The reason is the log itself, checked case by case before agreeing:
+  **Two conditions, and BOTH are needed — neither one alone survives the log** (PM final, 2026-11-10
+  21:07, settling a ruling that was changed twice before it). `abort_turn` is called only when
+  `ratio < 5.0` **and** `utterance.opened_at >= turn.started_at`; either condition reading "burst" holds
+  the turn. The reason is the log, checked case by case, and it is asymmetric:
   | case | order in the log | ratio | origin as the gate | **ratio alone** |
   |---|---|---|---|---|
   | 20:08:14, killed | `open` .818824 -> `turn_start` .818945 (open **121 us first**) | 1 370x | no abort, fixed | no abort |
@@ -394,19 +396,32 @@ be started.
   | 20:11:48, not killed | `turn_start` 20:11:26.485673 -> `open` 20:11:48.389813 (open **21 s later**) | 4 641x | **abort: wrong** | no abort |
   | 20:10:05, not killed | `open` 20:10:05 -> `turn_start` 20:10:09 | 9.8x | no abort | no abort |
   | 20:12:32, real interruption | `turn_start` 20:12:29.710 -> `open` 20:12:32.116 | **1.0x** | abort | abort |
-  The origin condition **fails on two of the three cases it was supposed to settle**, and one of those
-  failures is the kill this task exists to remove. The ratio gets all five right without a miss. So the
-  second condition is not a stronger net — it is a net with a hole that looks more careful.
-  **Do not revive it.** It was considered, measured, and withdrawn; the paragraph that proposed it was
-  built on a table in which two rows had the order reversed. Anyone re-adding "opened_at > turn_started"
-  as a gate re-opens `LV-BARGE-BEFORE-AUDIO` for the first answer of every call.
-  **Consequences of dropping it, both good:** the 3.4 s window between `close_utterance` and `turn_start`
-  **is no longer a gap** — an utterance opened inside it is judged purely on its ratio, and a genuine
-  1.0x interruption there may still abort — so it comes off the "not closed" list; and
-  `reason=opened-before-turn` is not needed as a holding reason, because nothing is ever held for origin.
-  **`wall_ms == 0` must not divide.** Two of our five cases carry 0.2 ms and 0.6 ms, and a first chunk can
-  land in the same millisecond as `open_utterance`; `wall_ms == 0` is treated as a burst (held), never as
-  an infinity that slips through the comparison.
+  **Origin alone fails on the two cases it was invented for**, and one failure is the kill this task
+  exists to remove: at 20:09:25 `turn_start` .700115 came **104 us before** `open_utterance` .700219, so
+  ordering says "abort a 3 320x burst"; at 20:11:48 the utterance opened **21 s after** the turn, so
+  ordering says "abort a 4 641x burst". The two events are **microseconds apart**, so their order is
+  decided by task scheduling and not by anything a person did — an origin-only guard is a coin toss on
+  the very call it exists to save. **Do not build it alone; that is measured, not preferred.**
+  **Ratio alone also fails, in the opposite direction, and that is why it is not dropped either:** it
+  answers nothing about an utterance that carries a normal ratio but cannot be an interruption, i.e. one
+  opened inside the 3.4 s `close_utterance -> turn_start` window — there the person starts speaking
+  while the agent has not made a sound yet, and ratio would let the close abort a turn nobody heard.
+  **Combined, the wrong origin verdicts never execute**, because the ratio holds those cases first; and
+  the combined rule gets all five cases right. That is the whole argument for AND: not that origin is
+  right, but that it can only ever add a hold, never remove one.
+  **The cost, stated plainly:** an utterance opened inside that 3.4 s window with a genuine 1.0x ratio
+  is **held**, so the agent talks to the end and cannot be cut. That is the price of never losing the
+  first answer of a call again, and it disappears when `transcribe` leaves the socket loop and the
+  window shrinks to about zero.
+  **A third signal exists and is NOT adopted:** the turn was **0.35 ms** old when 20:09:25 closed it,
+  which no interruption can explain. It is recorded because it may matter later; adding it now would be
+  one more signal decided on no separating data.
+  **`wall_ms` must not divide, and must not be rounded to whole milliseconds.** Three of the five cases
+  last **241 us, 584 us and 668 us**; in integer milliseconds two of them are `0`, and `audio/0` is a
+  panic in integer arithmetic and an infinity in float. So the clock is kept in **microseconds or as
+  `f64`**, and `wall_ms == 0` still has an explicit branch -> `held`, never an infinity that slips
+  through the comparison. `audio_ms == 0` likewise: **no audio is not a low ratio**, it is `held` with
+  `reason=no-audio`.
   **This is a heuristic and it must say so:** 5 is a **named constant**, never a literal inside a
   function, with the physics above written beside it. If we ever throw away a real interruption, it has
   to be visible in the log rather than discovered from a complaint — so **every** guard decision writes
@@ -427,20 +442,30 @@ be started.
   then 117 chunks in one second). Moving `transcribe` out of the socket loop costs little and saves **0 ms**
   of latency, but it removes the cause rather than the symptom. It touches the `touch`/`busy` path that
   keeps FR-029's Option A honest, so **Q5 (a silent session ends by itself) is part of this gate.**
-  **The 3.4 s window between `close_utterance` and `turn_start` is not a gap any more.** It was only ever
-  one under the origin condition: an utterance opened inside that window sits before the next
-  `turn_start`, so that rule forbade aborting it. With the ratio as the only gate, an utterance opened in
-  the window is judged on its ratio alone and a genuine 1.0x interruption there may still cut the answer.
-  Nothing is held "because of origin", so there is no `reason=opened-before-turn` to grep for.
+  **The 3.4 s window between `close_utterance` and `turn_start` is the accepted cost, and it is logged.**
+  An utterance opened inside that window sits before the next `turn_start`, so the origin condition holds
+  its close: the agent keeps talking and cannot be cut until it finishes. That is not a regression —
+  today the close aborts a turn nobody has heard — and it is not the defect the person reported, which
+  happens on every call rather than in a short gap after speaking. Every such hold writes
+  `decision=held reason=opened-before-turn`, so a complaint of "I could not cut in" can be traced to
+  this case by grep instead of by guesswork, and it disappears when `transcribe` leaves the loop.
   **What this does NOT close:** until that move lands, a **legitimate** interruption arriving during a
-  stalled socket can read a high ratio and be held; an utterance shorter than about 300 ms makes the
-  ratio noisy and stays on the server's `too_short` path, not this one; and `channels != 1`, PCM-only
-  models outside the name pattern, and the 263 ms `speaking` are untouched.
+  stalled socket can read a high ratio and be held, and one arriving inside the 3.4 s window is held for
+  its origin; an utterance shorter than about 300 ms makes the ratio noisy and stays on the server's
+  `too_short` path, not this one; and `channels != 1`, PCM-only models outside the name pattern, and the
+  263 ms `speaking` are untouched.
+  **`held` is not `discarded`, and that is not decided.** A held utterance is still transcribed and still
+  becomes a turn — 20:10:05 was held and `turn_start` 20:10:09.332 followed, with `segment sent` at
+  20:10:15.851. So the guard protects a running turn; it does not stop a burst from becoming a message.
+  Whether it should is undecidable from this data: 3 000 ms of audio arriving in 305 ms is either (a) a
+  real voice held up in the socket, in which case the turn is legitimate, or (b) audio that should never
+  have been sent, in which case we are storing words nobody said. Only a client-side log can separate
+  those, and there is not one yet. Recorded, not fixed.
   **Gate, red first — three cases, because only three ever reached the guard.** The `cancelled` flag is
   `true` only at **20:08:14.819**, **20:09:25.700** and **20:12:32.921**, so: **20:08:14 (1 370x) held**
   (first turn of `dPg_xlZut8`) · **20:09:25 (3 320x) held** (first turn of `cEKjwtlxZ7`) ·
-  **20:12:32 (1.0x) aborts** (a real interruption) · plus **Q5 green**. Nothing is ever held for origin,
-  so the gate carries no `reason=` clause. **20:10:05 (9.8x) and 20:11:48 (4 641x) are NOT gate
+  **20:12:32 (1.0x) aborts** (a real interruption) · plus **Q5 green**, plus **`wall_ms == 0` -> held**
+  and **`audio_ms == 0` -> held** as cases of their own. **20:10:05 (9.8x) and 20:11:48 (4 641x) are NOT gate
   material:** both logged `cancelled=false` with no turn busy, so they prove the burst arrived and say
   nothing about what the guard does with it — a test written from either would pass without the fix.
   **History, so nobody rebuilds the rejected rule.** Two guards were proposed on the way here and both
