@@ -350,7 +350,8 @@ be started.
   cancelled=true generation=3` -> `reply abandoned … at="the synthesis finished after the reply was
   over"`, with zero `segment sent`. The person sees "the first answer has no voice" and every answer
   after it is fine, because later turns are no longer brand new when their `close` arrives.
-**THE RULE — one condition, and this block is the whole of it.**
+**THE RULE — gate: ratio only (PM, 2026-11-10 21:11); the utterance's origin is a diagnostic, not a
+gate. This block is the whole of it, and nothing above or below widens it.**
 ```
 abort_turn  ONLY when  ratio = audio_ms / wall_ms < 5.0
   audio_ms  from the PCM actually received (len / 32 for 16 kHz mono 16-bit), never chunks x 100
