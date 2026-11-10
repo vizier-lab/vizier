@@ -375,9 +375,10 @@ be started.
   and keep killing the first answer, which is the bug this exists to stop. The limit comes from physics,
   not from a sample spread: a person cannot speak five times faster than time. All 16 real utterances
   measured about **1.0x**, so 5 gives a 5x margin above them.
-  **Second condition, both required:** `utterance.opened_at < turn.started_at` — an utterance opened
-  before the turn existed cannot have interrupted it. Each condition fails alone: the ratio is noisy on a
-  very short utterance, and the origin alone misses a burst opened after the turn started. And one class
+  **Second condition, both required:** `utterance.opened_at >= turn.started_at` — an utterance opened
+  **before** the turn existed cannot have interrupted it, so its close must never abort. Each condition
+  fails alone: the ratio is noisy on a very short utterance, and the origin alone misses a burst
+  opened after the turn started. And one class
   that looks like a hole is not one, which is worth writing down: an utterance opened **after** the turn
   started but carrying held audio is caught by the **ratio**, not by the origin — the origin condition is
   the narrower of the two, never the only one doing work.
@@ -405,8 +406,8 @@ be started.
   stalled socket can read a high ratio and be held; an utterance shorter than about 300 ms makes the
   ratio noisy and stays on the server's `too_short` path, not this one; and `channels != 1`, PCM-only
   models outside the name pattern, and the 263 ms `speaking` are untouched.
-  **Gate, red first:** 1.0x (the real 805 ms interruption at 20:12:32) **must** abort · 1 370x / 3 320x /
-  4 641x **must not** abort · 9.8x **must not** abort · the origin condition · Q5 green.
+  **Gate, red first:** 1.0x (the real 805 ms interruption at 20:12:32) **must** abort · 20:09:25 **must
+  not** abort · 1 370x / 3 320x / 4 641x / 9.8x **must not** abort · the origin condition · Q5 green.
   **The origin condition cannot stand alone, and one kill case proves it.** The ordering rule was checked
   against both kills before it was accepted, because it rests entirely on that ordering:
   | kill case | order in the log | origin rule | result |
