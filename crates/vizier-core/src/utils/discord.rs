@@ -27,47 +27,96 @@ fn message_chunks(content: String) -> Vec<String> {
     }
 
     const FENCE: &str = "```";
-    // A continuation can need an opening and closing fence, each with a newline.
-    const FENCE_OVERHEAD: usize = 8;
     let contains_fence = content
         .lines()
         .any(|line| line.trim_start().starts_with(FENCE));
-    let chunk_limit = if contains_fence {
-        MESSAGE_LIMIT - FENCE_OVERHEAD
-    } else {
-        MESSAGE_LIMIT
-    };
-    let mut inside_fence = false;
+    if !contains_fence {
+        return MarkdownSplitter::new(MESSAGE_LIMIT)
+            .chunks(&content)
+            .map(str::to_string)
+            .collect();
+    }
 
-    MarkdownSplitter::new(chunk_limit)
-        .chunks(&content)
-        .map(|raw| {
-            let started_inside = inside_fence;
-            for line in raw.lines() {
-                if line.trim_start().starts_with(FENCE) {
-                    inside_fence = !inside_fence;
+    let mut chunks = Vec::new();
+    let mut chunk = String::with_capacity(MESSAGE_LIMIT);
+    let mut opening_fence: Option<&str> = None;
+
+    for line in content.split_inclusive('\n') {
+        if line.trim_start().starts_with(FENCE) {
+            if let Some(opening) = opening_fence {
+                if chunk.chars().count() + line.chars().count() > MESSAGE_LIMIT {
+                    finish_fenced_chunk(&mut chunks, &mut chunk);
+                    reopen_fence(&mut chunk, opening);
+                }
+                chunk.push_str(line);
+                opening_fence = None;
+            } else {
+                let closing_len = FENCE.len() + 1;
+                if !chunk.is_empty()
+                    && chunk.chars().count() + line.chars().count() + closing_len > MESSAGE_LIMIT
+                {
+                    chunks.push(std::mem::take(&mut chunk));
+                }
+                chunk.push_str(line);
+                opening_fence = Some(line.trim_end_matches(['\r', '\n']));
+            }
+            continue;
+        }
+
+        let mut rest = line;
+        while !rest.is_empty() {
+            let closing_len = opening_fence.map(|_| FENCE.len() + 1).unwrap_or_default();
+            let available = MESSAGE_LIMIT - chunk.chars().count() - closing_len;
+            if available == 0 {
+                if let Some(opening) = opening_fence {
+                    finish_fenced_chunk(&mut chunks, &mut chunk);
+                    reopen_fence(&mut chunk, opening);
+                } else {
+                    chunks.push(std::mem::take(&mut chunk));
+                }
+                continue;
+            }
+
+            let (prefix, remaining) = split_at_char_limit(rest, available);
+            chunk.push_str(prefix);
+            rest = remaining;
+            if !rest.is_empty() {
+                if let Some(opening) = opening_fence {
+                    finish_fenced_chunk(&mut chunks, &mut chunk);
+                    reopen_fence(&mut chunk, opening);
+                } else {
+                    chunks.push(std::mem::take(&mut chunk));
                 }
             }
+        }
+    }
 
-            if !started_inside && !inside_fence {
-                return raw.to_string();
-            }
+    if opening_fence.is_some() {
+        finish_fenced_chunk(&mut chunks, &mut chunk);
+    } else if !chunk.is_empty() {
+        chunks.push(chunk);
+    }
+    chunks
+}
 
-            let mut chunk = String::with_capacity(raw.len() + FENCE_OVERHEAD);
-            if started_inside {
-                chunk.push_str(FENCE);
-                chunk.push('\n');
-            }
-            chunk.push_str(raw);
-            if inside_fence {
-                if !raw.ends_with('\n') {
-                    chunk.push('\n');
-                }
-                chunk.push_str(FENCE);
-            }
-            chunk
-        })
-        .collect()
+fn split_at_char_limit(value: &str, limit: usize) -> (&str, &str) {
+    value
+        .char_indices()
+        .nth(limit)
+        .map_or((value, ""), |(index, _)| value.split_at(index))
+}
+
+fn finish_fenced_chunk(chunks: &mut Vec<String>, chunk: &mut String) {
+    if !chunk.ends_with('\n') {
+        chunk.push('\n');
+    }
+    chunk.push_str("```");
+    chunks.push(std::mem::take(chunk));
+}
+
+fn reopen_fence(chunk: &mut String, opening: &str) {
+    chunk.push_str(opening);
+    chunk.push('\n');
 }
 
 /// Post `content`, split at Discord's limit, and return the id of every message that was
@@ -153,10 +202,29 @@ mod tests {
         assert!(chunks.len() > 1);
         assert!(chunks.iter().all(|chunk| chunk.chars().count() <= MESSAGE_LIMIT));
         assert!(
-            chunks
-                .iter()
-                .all(|chunk| chunk.lines().filter(|line| line.trim_start().starts_with("```")).count() % 2 == 0),
-            "each Discord message must contain a complete code fence: {chunks:#?}"
+            chunks.iter().all(|chunk| {
+                let fences = chunk
+                    .lines()
+                    .filter(|line| line.trim_start().starts_with("```"))
+                    .collect::<Vec<_>>();
+                fences.len() == 2 && fences[0] == "```js" && fences[1] == "```"
+            }),
+            "each Discord message must contain a complete language-tagged code fence: {chunks:#?}"
+        );
+    }
+
+    #[test]
+    fn a_fence_language_never_becomes_code_block_content() {
+        let content = format!(
+            "use execute_python\n```js\n{{\n  \"code\": \"{}\"\n}}\n```",
+            "x".repeat(MESSAGE_LIMIT * 2)
+        );
+
+        let chunks = message_chunks(content);
+
+        assert!(
+            chunks.iter().all(|chunk| !chunk.lines().any(|line| line == "js")),
+            "the fence language must stay attached to its opening backticks: {chunks:#?}"
         );
     }
 }

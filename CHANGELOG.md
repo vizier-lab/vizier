@@ -10,7 +10,7 @@ All notable changes to this project will be documented in this file.
   Integrations › Addons page. Creation and the upgrade backfill no longer seed it (spec 036 FR-015a)
 ### 🐛 Bug Fixes
 
-- Keep long Discord tool-call arguments inside balanced code fences when messages are split.
+- Keep long Discord tool-call arguments inside balanced, language-tagged code fences when messages are split.
 
 ## [0.15.1] - 2026-11-07
 
