@@ -11,7 +11,7 @@ design_ref:   055-live-voice-screen.figcraft@02ddd7b4 (291 259 B) — B1-1, fram
              **@02ddd7b4, bukan @7072fe9f:** 2026-11-10 09:17 label `CANONICAL` dicabut dari `6188`/`6190`
              (nama frame saja — 6 909 node sebelum dan sesudah, 44 frame, ketiga PNG byte-identik).
              Untuk gambar, rujuk `f1308ffc…`; hash `.figcraft` lama tidak lagi sah.
-             Cakupan: **8/15 tergambar penuh · 1 n/a-menurut-desain (`listening`) · 6 n/a bertanggal**.
+             Cakupan: **7/15 tergambar penuh · 1 sebagian (`unavailable` — bentuknya ada, kalimatnya belum) · 7 n/a + alasan**.
 approved:     — (tanggal + siapa)
 viewport:     desktop saja — min 900×600, default 1280×800 (tanpa breakpoint ponsel; 375 px bukan cakupan 055)
 PIC:          desain = kolom "digambar apa" · data = kolom "butuh data apa" · QA = kolom "lulusnya kayak apa"
@@ -22,7 +22,7 @@ p95_budget:   — ms (ambang kapan skeleton/transisi muncul jadi angka, bukan se
 
 ## Tabel
 
-15 baris. Kolom QA, data dan desain terisi. Kolom data diisi sepuh-be 2026-11-10 dari kode @ `b6cc0b40`; kolom desain diisi teteh-desener 2026-11-10 dari `document.json` `055-live-voice-screen.figcraft@02ddd7b4` — **8 baris tergambar penuh, 1 n/a menurut desain, 6 n/a bertanggal** (tiap baris yang tidak digambar membawa tanggal keputusan, bukan `open`).
+15 baris. Kolom QA, data dan desain terisi. Kolom data diisi sepuh-be 2026-11-10 dari kode @ `b6cc0b40`; kolom desain diisi teteh-desener 2026-11-10 dari `document.json` `055-live-voice-screen.figcraft@02ddd7b4` — **7 baris tergambar penuh, 1 sebagian, 7 n/a + alasan** (tiap baris yang tidak digambar membawa tanggal keputusan, bukan `open`). Dihitung dari `document.json` @ `02ddd7b4`: `9679` = App `idle` + `R2` (`connecting`) + `S1`–`S5` (`speaking`, `thinking`, `reconnecting`, `ended`, `failed`) = **7**; `9462` S3 = `unavailable` (**1 sebagian** — `S3/End` 106×24 ada, `S3/state` berbunyi «microphone blocked» padahal `missing` bisa `recognizer` atau `voice`); sisanya **7 n/a**.
 
 | ID | state | dipicu kapan | digambar apa | butuh data apa | lulusnya kayak apa |
 |---|---|---|---|---|---|
@@ -93,7 +93,7 @@ sekali melainkan cabang `!capability` yang merender pill non-tombol. Menguji `da
 
 ## Status (2026-11-10 08:58 WIB)
 
-- baris: **15** · kolom QA terisi: **15** · kolom data terisi: **15** · kolom desain: **15 diisi — 6 tergambar penuh · 2 sebagian · 7 n/a + alasan**
+- baris: **15** · kolom QA terisi: **15** · kolom data terisi: **15** · kolom desain: **15 diisi — 7 tergambar penuh · 1 sebagian (`unavailable`) · 7 n/a + alasan**
 - pemilik pengisian: desain (kol 3, sudah — 2026-11-10) · data (kol 4, sudah) · QA (kol 5, sudah).
 - tiga hal yang **tidak** diisi tapi diputuskan: `level` tanpa penulis, `interrupted` tanpa produsen, `no-speech` punya dua jalur data.
 - sumber angka: `spec.md@ef846fbd` (FR-004 `:505`, FR-049 `:570`), kode di `LiveVoiceRow.tsx`
