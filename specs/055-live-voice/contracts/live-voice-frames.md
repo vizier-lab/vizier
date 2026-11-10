@@ -149,7 +149,10 @@ provider_failed | unintelligible | moved | key_revoked | key_expired`.
 **`key_revoked` and `key_expired` are new (C15, 2026-11-09 16:35).** A third-party client reaches this
 feature with a scoped API key (FR-061), and that key can be taken away while a call is running:
 revocation or expiry ends the session through the ordinary release path, with the reason the client
-shows, rather than being noticed at the next connection (FR-063).
+shows, rather than being noticed at the next connection (FR-063). The two differ in one thing only:
+**revocation is timed** — within 1 s of the delete (SC-013) — while **expiry is enforced at the next
+frame on the same connection** and carries no deadline at all (FR-063a). A client must not promise
+its person a deadline for expiry.
 
 **`moved` is new (spec C10, 2026-11-09).** There is exactly one live session per person, so a
 `live_voice_start` that arrives for a *different* conversation or agent is not a second session: the
@@ -357,7 +360,7 @@ partnership becomes an incident. FR-062; measured by SC-013 against an explicit 
 
 | Event | What the server does | What the client sees |
 |---|---|---|
-| key expired | the next request is refused; a **live** session ends | `ended` with reason `key_expired` |
+| key expired (FR-063a) | the next request is refused; a **live** session ends **at the next frame on the same connection** — no timer, and therefore **no time bound** | `ended` with reason `key_expired` |
 | key revoked | as above, within 1 s of the revocation | `ended` with reason `key_revoked` |
 | key rotated (new key, old one retired) | the old key stops working; a session opened with it ends | reason `key_revoked` on the old session |
 | key scoped without live voice | refused before any state exists | `error` with `kind: "forbidden"` |
