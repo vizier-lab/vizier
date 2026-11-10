@@ -360,7 +360,15 @@ be started.
   neither aborts the turn nor opens a new one** — logged at `warn` with the ratio, the audio length and
   the topic. At or below 5 it is behaviour as it is today, unchanged; the 2-5 grey zone is treated as a
   real interruption but logged at `debug` with its ratio, so that a report of "my interruption was
-  refused" arrives with a number instead of a guess.
+  refused" arrives with a number instead of a guess. The shape, exactly:
+  `ratio > 5.0` -> burst, no abort, `warn!(ratio, audio_ms, wall_ms, topic)` ·
+  `2.0 <= ratio <= 5.0` -> a real interruption, `debug!(ratio)` for the audit ·
+  `ratio < 2.0` -> a real interruption, no extra line.
+  **Why 5.0 and not 3.0:** both sit far above the 1.0x that all 16 real utterances measured, so the only
+  band they disagree on is **3.0-5.0** — and there 3.0 would hold back an interruption that might be
+  genuine while 5.0 lets it through, which is exactly today's behaviour. So 5.0 regresses nothing: it
+  only silences the physically impossible cases at 9.8x and above. Anything lower turns a safety net into
+  a policy that stops people interrupting, which FR-024/FR-027 never agreed to.
   **Why 5 and not 100 ("safely in the middle"):** 9.8x is also impossible for a human voice — 3 000 ms
   of audio cannot arrive inside 305 ms of wall clock. It was called a legitimate turn because it
   *produced* a turn, not because its contents were legitimate; an upper threshold would let 9.8x through
@@ -369,7 +377,10 @@ be started.
   measured about **1.0x**, so 5 gives a 5x margin above them.
   **Second condition, both required:** `utterance.opened_at < turn.started_at` — an utterance opened
   before the turn existed cannot have interrupted it. Each condition fails alone: the ratio is noisy on a
-  very short utterance, and the origin alone misses a burst opened after the turn started.
+  very short utterance, and the origin alone misses a burst opened after the turn started. And one class
+  that looks like a hole is not one, which is worth writing down: an utterance opened **after** the turn
+  started but carrying held audio is caught by the **ratio**, not by the origin — the origin condition is
+  the narrower of the two, never the only one doing work.
   **This is a heuristic and it must say so:** 5 is a **named constant**, never a literal inside a
   function, with the physics above written beside it. Every discarded burst logs its ratio, audio length
   and topic — if we ever throw away a real interruption, it has to be visible in the log rather than
