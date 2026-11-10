@@ -1,11 +1,9 @@
 # 055 — Release checklist
 
-**Written by `@teteh-qa` at `70806654`** (parent; `design 021ab46`, `webui c1dabc6`), 2026-11-09, and
-**re-verified at `70806654`**: every `[QA]` line below was re-read against this tree, not carried over.
-Since the first draft, T102 landed `unsupported_audio` (`de006e3e`, pin `2569aa34`); C6b (API key scope) sits
-**uncommitted in the working copy - 12 files `M`** and is therefore in no gate below.
-Scope: what a person running the release binary must actually check, and what **cannot** be checked on this
-machine. This is a test plan, not a claim that anything below has passed.
+**Written by `@teteh-qa`.** First draft at `vizier@70806654`; **re-verified at `vizier@57321373` + `webui@08cf067a`**
+(36 commits newer than the `cd624227` baseline PM handed over), in a separate `git worktree` at `~/qa-055`, so nothing
+here was measured in the User's working tree. Every `[QA]` line below was run **there**, and the numbers in A1/A3/A4/A5/A6
+are now measured rather than quoted from an implementer.
 
 **Two evidence classes, used on every line:**
 
@@ -71,12 +69,12 @@ Run these first: a red here invalidates section B.
 
 | # | Command (exact) | Expected | How you know it failed |
 |---|---|---|---|
-| A1 | `cd webui && npx vitest run app/lib/liveVoice app/screens/chat` | green, 1 skipped | non-zero exit, or a red naming `LiveVoiceRow`, `Composer` or `session` |
+| A1 | `cd webui && npx vitest run app/lib/liveVoice app/screens/chat` | **12 files, 145 passed | 1 skipped, EXIT=0** (measured) | non-zero exit, or a red naming `LiveVoiceRow`, `Composer` or `session` |
 | A2 | `cd webui && npx tsc --noEmit` | `EXIT=2` with **one** error: `TS7016` `rehype-katex` (`app/screens/shared/Markdown.tsx:4`) | any *other* TS error is new |
-| A3 | `env -u PYTHONHOME -u PYTHONPATH cargo test -p vizier-core --features provider-live-voice --lib live_voice` | 23 passed [lap] | any failure. Crate + feature minimum; never `--workspace` |
-| A4 | `env -u PYTHONHOME -u PYTHONPATH cargo test -p vizier-http --features live-voice` | 11 suites ok [lap] | any failure |
-| A5 | `cd webui && npx playwright test --list e2e/live-voice-row.spec.ts e2e/live-voice-lifecycle.spec.ts e2e/live-voice-failures.spec.ts` | prints a list, exit 0 | parse error. **A list is not a pass** — it only proves the selectors are syntactically valid |
-| A6 | `node design/scripts/lint-tokens.mjs app` | 15 violations, all pre-existing (`WorkspaceSidebar`, `SideCard`, `WorkspaceHeader`) [lap] | **any** violation whose path is `LiveVoiceRow` or `liveVoice` — a raw hex or a raw spacing step got in |
+| A3 | `env -u PYTHONHOME -u PYTHONPATH cargo test -p vizier-core --features provider-live-voice --lib live_voice` | **48 passed, 0 failed, EXIT=0** (measured) | any failure. Crate + feature minimum; never `--workspace` |
+| A4 | `env -u PYTHONHOME -u PYTHONPATH cargo test -p vizier-http --features live-voice` | **11 blocks `test result: ok`, 100 passed, 0 failed** (measured) | any failure |
+| A5 | `cd webui && npx playwright test --list e2e/live-voice-row.spec.ts e2e/live-voice-lifecycle.spec.ts e2e/live-voice-failures.spec.ts` | **16 tests in 3 files** (8 per project x 2 projects), exit 0 (measured 2026-11-10) | parse error. **A list is not a pass** — it only proves the selectors are syntactically valid |
+| A6 | `node design/scripts/lint-tokens.mjs webui/app` from the repo root (**not** `app`: the script resolves against the cwd, and `app` silently lints nothing and exits 0) | **10 violations, exit 1**, all pre-existing (`SideCard` x2, `WorkspaceHeader` x2, `WorkspaceSidebar` x6) - measured 2026-11-10, replacing the earlier "15" [lap] | **any** violation whose path is `LiveVoiceRow` or `liveVoice` — a raw hex or a raw spacing step got in |
 | A7 | `grep -n 'Interrupt' webui/app/screens/chat/LiveVoiceRow.tsx webui/app/screens/chat/LiveVoiceControl.tsx` | **`LiveVoiceRow.tsx:48` only** - the state word `'Interrupted'` inside `rowWord()`; `LiveVoiceControl.tsx` **0** | any hit that renders a **button or label** named Interrupt, or any hit outside `rowWord()`. A bare `grep -c` reports `1` here and is a false alarm - read the line, not the count |
 | A8 | `grep -n 'MANUAL_SPEECH_SURFACES' webui/app/screens/chat/Composer.tsx` | one constant = `false`, plus its two uses (mic, spoken-reply toggle) | a `true` default: the retired surfaces (FR-053/T107) reappear |
 | A9 | read `rowWord()` in `webui/app/screens/chat/LiveVoiceRow.tsx:37-58` | `Connecting…`, `Thinking`, `Listening`, `Speaking`, `Interrupted`, `Reconnecting`, `Ended`, `Failed` | a missing word, or `Thinking` and `Reconnecting` sharing one |
@@ -137,6 +135,29 @@ Start the release binary, open a chat with an agent configured per §0.1, then w
 | Echo and reconnection under real packet loss | needs a real network and real audio | not provable here |
 
 ---
+
+## C2. Two defects I found while verifying (not on the list above)
+
+**1. The published contract has no word for a reason the server sends.**
+`crates/vizier-http/src/topic.rs:451` and `:563` send `kind: EndReason::UnsupportedAudio`, i.e. the wire
+word `unsupported_audio` (`crates/vizier-core/src/live_voice/frame.rs:119`). The contract's reason
+vocabulary (`contracts/live-voice-frames.md:145-147` and again `:339-341`) lists **17** words and omits it;
+`grep -c unsupported_audio` on the contract file = **0**. Line `:342` then promises the opposite of what the
+code does: *"a client MUST NOT receive a reason it has no word for."* A third-party client built from the
+published document will meet an unnamed reason on its first bad `live_voice_start`. Owner is the contract's,
+not mine.
+
+**2. `tasks.md` undercounts and one of its ids points at a path that never existed.**
+111 task ids (T001-T111, T111 is the `[PROVISIONAL]` reply-segmentation task), **65 checked / 46 open**;
+`[BACKLOG]` = **9**. T095/T096/T097 and T110 are checked now, so the earlier "4 landed but unticked" gap is
+closed - but the ids are **111, not 110**. Several bodies still name `webui/app/screens/livevoice/...`, a
+directory that does not exist; the files live in `screens/chat/`.
+
+**Fixed since my first draft, verified:** SC-001 no longer calls itself a release gate (`spec.md:627` now
+reads *"is the figure this document records"*), so the contradiction in section D below is history, not a
+live defect. The greyed pill is still a `<span>` and `liveVoiceMissing` is still not passed from
+`chat.tsx:558`, so FR-004's *where to set it* half remains unshown - cosmetic, and I say so rather than
+call it broken.
 
 ## D. The thresholds — recorded today, **not** a gate
 
