@@ -365,3 +365,26 @@ Kang menjawab item 4 (*"Boleh deh"*). Ini yang berubah dan yang tidak:
 - **Karena itu, yang mengubah T111 jadi bisa dijadwalkan bukan "boleh", tapi tiga hal ini:** (1) asesmen saya dengan angka yang diukur ulang pada satu turn nyata; (2) DoD tertulis; (3) slot WIP `@sepuh-be` kosong — sekarang tidak, karena `T110` di `gate` dan `GI-01`/`GI-02` di `antre`.
 
 **Kalau yang kang maksud "Boleh" adalah *mulai bangun sekarang*:** itu keputusan prioritas dan sah — tapi tetap butuh DoD lebih dulu, dan tetap antre di belakang T110. Sebut satu baris, dan saya tulis brief-nya hari ini.
+
+## Latency: garis persetujuan (2026-11-10 20:56, keputusan `@bro-pm`, ditulis Lead)
+
+Ditulis di sini **dan** di `tasks.md:365` (`## Latency iteration — what is approved, what is not`)
+supaya tidak ada yang mengerjakan hal yang hanya "disetujui di chat".
+
+| Hal | Status | Catatan |
+|---|---|---|
+| STT parsial **bentuk A** (transkripsi lebih awal, submit tetap saat ucapan ditutup) | **DISETUJUI** | FR-010/FR-011 utuh, Q12 tidak tersentuh |
+| STT parsial **bentuk B** (submit hipotesis sebelum ditutup) | **TIDAK** | mengubah FR-011 `spec.md:515` + menyentuh Q12 — keputusan produk |
+| Hangover 800 → 250 ms | **BUKAN KEPUTUSAN** | 800 ms = default FR-010 `spec.md:514`; dan **tidak** mengubah SC-001 (mark & pipa bergeser bersama) — hanya rasa, −550 ms |
+| TTS segmen-1 = kalimat pertama | **UTANG, bukan scope baru** | FR-013 `spec.md:517` sudah mewajibkannya; hari ini dilanggar |
+| Level 2 (turn spekulatif) | **TIDAK DIPUTUSKAN DI DOKUMEN** | dibawa ke kang sebagai satu kalimat; risiko: tool call spekulatif bisa bertindak sebelum diminta |
+| Ganti model TTS | **TIDAK DIPUTUSKAN DI DOKUMEN** | suara agent berubah = keputusan kang |
+
+**Lantai terukur (bukan asumsi):** dari 12 pasangan `synthesis started`→`segment sent` di dua binary,
+`ms ≈ 2329 + 474 × detik audio`; segmen terpendek yang pernah terukur (1,76 s audio, 21 karakter) tetap
+**3 157 ms**. Jadi segmen-pertama ≈**3,2 s** dengan provider ini, dan target 3 detik end-to-end tidak
+tercapai tanpa mengganti suara. Angka boleh dikutip: **3 turn = asap · 20 = sementara · ≥50 = resmi**;
+di bawah 50 laporkan median + rentang, jangan p90/p99.
+
+**Sampel 10 Nov bukan sampel bersih** — `LV-BARGE-BEFORE-AUDIO` membuang turn pertama tiap call. Ukur
+sesudah tiga cacat ditutup.

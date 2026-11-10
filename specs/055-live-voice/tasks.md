@@ -292,7 +292,7 @@ chat behind it; end the call; the panel is gone, both turns present, the control
 - [ ] T086 [P] Script SC-005 in `webui/e2e/live-voice-first-use.spec.ts`: a session on a fresh browser profile, no prior knowledge of the feature — the clock runs from the first paint of the chat screen to the first audible reply, and the test fails above 20 s including the microphone permission prompt. The permission dialog is stubbed (`grantPermissions`) so the measurement is the product's, not the browser's dialog (`analysis.md` M4)
 - [ ] T087 [P] Assert FR-008 in `crates/vizier-core/src/live_voice/session.rs` and `crates/vizier-http/tests/live_voice_session.rs`: a session reads the agent's configured model and speech settings and writes none of them — after a full turn the agent config is byte-identical, and a typed turn started in the same conversation uses the same model the voice turn did (`analysis.md` M2)
 - [ ] T088 Hand the branch to `@teteh-qa` for `speckit-analyze` and `speckit-checklist`
-- [ ] T111 [PROVISIONAL] **The reply as it is made** (FR-065 to FR-070, SC-014): make a turn deliver its reply in segments instead of one finished message, and let the first reach the client while later ones are still produced. The finished message MUST still arrive at the end and the conversation MUST keep exactly one copy (FR-069), so this is an addition on the way to the same end state, and the new frames MUST be published as a versioned contract change (FR-070) because that contract is public. The pieces, in the order that keeps the tree buildable: (a) a frame shape for a segment of *text* alongside the existing `live_voice_speech` segment, so text and speech arrive on one clock; (b) the turn path stops waiting for `VizierResponseContent::Message` before it speaks anything (`crates/vizier-core/src/live_voice/session.rs:417`); (c) interruption abandons segments **in flight**, not only the queue (FR-066); (d) the stored reply is the reply that was made, once (FR-067); (e) a mid-reply ending says where it stopped (FR-068). **Not part of this release's gate**: it waits on the Lead's assessment and the User's answer to Q12, and **no latency number is attached to it** until that assessment exists. **Do not start without that answer** — the point of writing it down is that it is testable the moment it is chosen, not that it is scheduled.
+- [ ] T111 [PROVISIONAL] **The reply as it is made** (FR-065 to FR-070, SC-014): make a turn deliver its reply in segments instead of one finished message, and let the first reach the client while later ones are still produced. The finished message MUST still arrive at the end and the conversation MUST keep exactly one copy (FR-069), so this is an addition on the way to the same end state, and the new frames MUST be published as a versioned contract change (FR-070) because that contract is public. The pieces, in the order that keeps the tree buildable: (a) a frame shape for a segment of *text* alongside the existing `live_voice_speech` segment, so text and speech arrive on one clock; (b) the turn path stops waiting for `VizierResponseContent::Message` before it speaks anything (`crates/vizier-core/src/live_voice/session.rs:417`); (c) interruption abandons segments **in flight**, not only the queue (FR-066); (d) the stored reply is the reply that was made, once (FR-067); (e) a mid-reply ending says where it stopped (FR-068). **Not part of this release's gate**: it waits on the Lead's assessment **only** — Q12 was answered on 2026-11-10 06:39 (`spec.md:694`, and again 09:37), so the person's answer is no longer a waiting condition and must not be asked again — and **no latency number is attached to it** until that assessment exists. **Do not start without that answer** — the point of writing it down is that it is testable the moment it is chosen, not that it is scheduled.
 
 ---
 
@@ -360,6 +360,54 @@ be started.
   faster first answer the client then refuses to play is worse than the wait. **No new number is
   promised to the person until it is measured**, and the three causes must be attributed separately
   when it is.
+---
+
+## Latency iteration — what is approved, what is not (2026-11-10, `@bro-pm` ruling)
+
+Written down because a decision that lives only in the chat is not a decision. **Do not widen any of
+these without a new ruling.** The three defects above are the order of work; this section is what is
+allowed *after* them, and it is not a schedule.
+
+- **`STT partial, form A` — APPROVED.** Begin transcribing before the utterance closes, but still
+  submit only when it closes. FR-010/FR-011 stay intact and Q12 is untouched: it is engineering, not
+  a contract change. Carrying task must cite this line.
+- **`STT partial, form B` — NOT APPROVED.** Submitting a hypothesis before the utterance closes was
+  never approved and must not be started on the grounds that "partial was agreed". It changes FR-011
+  (`spec.md:515`, nothing may be added to the conversation on the person's behalf) because a revised
+  transcript can put words in their mouth that they never said, and it touches Q12. That is a product
+  decision, not an optimisation.
+- **`Hangover 800 -> 250 ms` — NOT A DECISION.** 800 ms is FR-010's *default* (`spec.md:514`); nothing
+  approved changing it. It is also **not** a latency saving in the criterion: SC-001's mark starts when
+  the hangover fires (`latency.md:16`), so shortening it moves both ends together and leaves the figure
+  unchanged. What it improves is the **felt** delay from the person stopping to the first word, about
+  **550 ms**, and it must be reported that way and never as "SC-001 improved".
+- **`TTS segment 1 = first sentence` — OWED, not new scope.** FR-013 (`spec.md:517`) already requires
+  speech to begin at the first speakable segment and not to wait for the reply's last sentence; today
+  the turn waits for the whole message. Paying that debt is a delivery of FR-013 through FR-065/FR-070,
+  with the frame change published as a contract change (FR-070). It is **not** a latency feature.
+- **`Level 2 (speculative turn)` — NOT DECIDED HERE.** It goes to the person as one sentence, with the
+  risk named: a speculative turn can act before it was asked. The Lead and the PM do not decide it in
+  a document.
+- **`Replacing the TTS model` — NOT DECIDED HERE.** It changes the agent's voice, so it is the person's
+  call, not the team's.
+
+### The floor, measured rather than assumed
+
+Twelve `synthesis started -> segment sent` pairs across two binaries fit `ms ≈ 2329 + 474 × audio
+seconds`; the shortest segment ever measured (1.76 s of audio, 21 characters) still cost **3 157 ms**.
+So the first spoken segment costs **~3.2 s with this provider no matter how short the reply is**, and a
+three-second end-to-end target is unreachable without replacing the voice. Budget of the components
+from the 20:12 session on `:9998` (`8f159f2b`), 88 + 82 characters, **14 591 ms** to the first word:
+recognition 4 024 · agent queue 30 · model 4 279 · first segment 6 256. No number may be quoted to the
+person before the harness below exists, and the sample taken today is **not** a clean sample because
+`LV-BARGE-BEFORE-AUDIO` discards the first turn of every call.
+
+### Measurement gates before any number is quoted
+
+`latency.md` records that no minimum sample count was ever agreed. It is agreed now: **3 turns is a
+smoke check, 20 is a provisional figure, 50 or more is a figure that may be quoted**; p90/p99 are not
+used as a gate below 50, and below 50 a median and a range are reported instead.
+
 
 ---
 
