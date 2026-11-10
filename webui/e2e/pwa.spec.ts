@@ -2,12 +2,15 @@ import type { Page } from '@playwright/test'
 import { expect, test } from './fixtures'
 import { login } from './fixtures'
 
-/** Whether the worker has been registered. The app registers it once it has booted. */
-async function registered(page: Page): Promise<boolean> {
+/** Whether the worker is in charge: registered and activated, not merely asked for. */
+async function activated(page: Page): Promise<boolean> {
     // `waitForFunction` does not await an async predicate, so this polls for itself.
     for (let i = 0; i < 60; i++) {
-        const count = await page.evaluate(async () => (await navigator.serviceWorker.getRegistrations()).length)
-        if (count > 0) return true
+        const ready = await page.evaluate(async () => {
+            const registrations = await navigator.serviceWorker.getRegistrations()
+            return registrations.some((r) => r.active?.state === 'activated')
+        })
+        if (ready) return true
         await page.waitForTimeout(250)
     }
     return false
@@ -15,7 +18,8 @@ async function registered(page: Page): Promise<boolean> {
 
 /** Whether the page is under the worker's control, which takes a reload to happen. */
 async function controlled(page: Page): Promise<boolean> {
-    if (!(await registered(page))) return false
+    // The worker has to be in charge before the reload, or the reload is not controlled either.
+    if (!(await activated(page))) return false
     // The worker does not claim the clients it did not serve, so the reload gives it control.
     await page.reload()
     return page
