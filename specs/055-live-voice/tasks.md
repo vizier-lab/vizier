@@ -401,9 +401,13 @@ first answer of every call, which is the defect this task exists to remove.
 `open_utterance` and `turn_start` is a race, not a meaning:
 - `20:08:14` `open` .818824 -> `turn_start` .818945 (**121 us** apart) -> `cancelled=true`
 - `20:09:25` `turn_start` .700115 -> `open` .700219 (**104 us** apart) -> `cancelled=true`
-- `20:11:48` `turn_start` 20:11:26.485673 -> `open` 20:11:48.389813 (**21 s** apart) -> `cancelled=false`
-Origin as the gate leaves the 20:09:25 kill alive (ordering says "abort a 3 320x burst") and would
-wrongly abort the 20:11:48 burst. The ratio holds all three. That is measured, not preferred.
+- `20:11:48` `turn_start` 20:11:26.485673 -> `open` 20:11:48.389813 (21 s apart) -> **`cancelled=false`**:
+  no turn was busy (the 20:11:26 reply had already finished), so it is **not a kill case** and cannot be
+  used as evidence either way. It is listed only to stop it being mistaken for one - a test written from
+  it passes with and without the guard.
+Origin as the gate leaves the 20:09:25 kill alive, because its ordering says "abort a 3 320x burst";
+the ratio holds it. That is one measured case, and it is the reported defect - enough. The ratio is not
+preferred, it is the only one of the two that is exercised at all.
 **It is a net, not a cure.** The cause that **is** proven: the socket is not read while recognition runs
 inline (`crates/vizier-http/src/topic.rs:912`, `:936`; the 16:33 call carried `idle_for_ms=11768` and
 then 117 chunks in one second). "The client sent a held-then-dumped burst" is **not** proven - a stalled
