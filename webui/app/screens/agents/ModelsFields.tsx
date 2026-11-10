@@ -151,7 +151,7 @@ export function ModelsFields({ form, errors, set }: Props) {
                                 label="Provider"
                                 options={options(TTS_PROVIDERS)}
                                 value={form.ttsProvider}
-                                onChange={(ttsProvider) => set({ ttsProvider, ttsModel: '', ttsVoice: '' })}
+                                onChange={(ttsProvider) => set({ ttsProvider, ttsModel: '', ttsVoice: '', liveVoiceTouched: true })}
                             />
                             {form.ttsProvider === 'openrouter' ? (
                                 <MediaModelSelect capability="speech" model={form.ttsModel} fallbackDefault={TTS_DEFAULT_MODELS.openrouter} media={ttsMedia} onChange={(ttsModel) => set({ ttsModel })} />
@@ -179,7 +179,7 @@ export function ModelsFields({ form, errors, set }: Props) {
 
                     <ToggleSection title="Speech-to-Text" description="Understand voice messages." checked={form.stt} onCheckedChange={(stt) => set({ stt })}>
                         <div className="grid grid-cols-1 gap-16 sm:grid-cols-2">
-                            <Select label="Provider" options={options(STT_PROVIDERS)} value={form.sttProvider} onChange={(sttProvider) => set({ sttProvider, sttModel: '' })} />
+                            <Select label="Provider" options={options(STT_PROVIDERS)} value={form.sttProvider} onChange={(sttProvider) => set({ sttProvider, sttModel: '', liveVoiceTouched: true })} />
                             {form.sttProvider === 'openrouter' ? (
                                 <MediaModelSelect
                                     capability="transcription"
@@ -209,14 +209,18 @@ export function ModelsFields({ form, errors, set }: Props) {
                     >
                         <div className="flex flex-col gap-12">
                             <p className="type-small text-faint">
-                                Recogniser <span className="font-mono">{form.sttProvider}</span> · Voice{' '}
-                                <span className="font-mono">{form.ttsProvider}</span>. Change either with the providers above.
+                                The call uses the two providers above — recogniser{' '}
+                                <span className="font-mono">{form.sttProvider}</span>, voice{' '}
+                                <span className="font-mono">{form.ttsProvider}</span>. Change either with the providers
+                                above, save, then open a new call.
                             </p>
-                            <p className="type-small text-faint">
-                                The local models — <span className="font-mono">whisper</span> and{' '}
-                                <span className="font-mono">kokoro</span> — download their weights on first use: a few minutes,
-                                and no key needed.
-                            </p>
+                            {(form.sttProvider === 'whisper' || form.ttsProvider === 'kokoro') && (
+                                <p className="type-small text-faint">
+                                    The local models — <span className="font-mono">whisper</span> and{' '}
+                                    <span className="font-mono">kokoro</span> — download their weights on first use: a few
+                                    minutes, and no key needed.
+                                </p>
+                            )}
                             {errors.liveVoice && <p className="type-small text-failed-text">{errors.liveVoice}</p>}
                         </div>
                     </ToggleSection>
