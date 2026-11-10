@@ -22,15 +22,16 @@ environment` header on purpose. **No line of this document was proved by real au
 
 ## 0. Prerequisites — the two things that make a correct binary look broken
 
-**0.1 `live_voice` is off per agent by default, and there is no UI switch to turn it on.** [QA]
+**0.1 `live_voice` is off per agent by default, and one switch turns it on.** [QA]
 
 - `crates/vizier-core/src/schema/agent.rs:240-241` — `stt: None`, `tts: None`; and
   `crates/vizier-core/src/service/agents.rs:509` — `live_voice: …enabled && has_recogniser && has_voice`.
   Three conditions, all false on a fresh agent.
-- **T041 (the per-agent switch in `webui/app/lib/agentForm.ts`) is not implemented**: `grep -c live_voice`
-  in `agentForm.ts` and `screens/agents/ModelsFields.tsx` = **0 / 0** [QA]. The WebUI only *reads*
-  `detail.live_voice` (`webui/app/routes/chat.tsx:115`).
-- So enabling it is a config write, not a click: `PUT /api/v1/agents/{agent_id}`
+- **CORRECTED 2026-11-10:** when this checklist was first written T041 did not exist (both files read 0).
+  It landed as `c683f077` (pin `cd624227`): the agent page now has a `Live voice` switch
+  (`webui/app/screens/agents/ModelsFields.tsx:205-223`) that borrows the two providers above it. **Enabling
+  it is a click**, and the config write below is only the fallback for an API-only or headless setup.
+- The fallback, when there is no UI: `PUT /api/v1/agents/{agent_id}`
   (`crates/vizier-http/src/api/v1/agents/mod.rs:106`), whose handler takes a full `CreateAgentRequest`
   (`mod.rs:318-324`), with the speech halves and the block below:
 
@@ -165,7 +166,7 @@ the spec's own assumptions. I read documents and code; I ran no browser session.
 
 ---
 
-**Most likely way the User's own test fails, in one line:** the binary is right and the pill never appears —
-`live_voice` is off for the agent, `stt`/`tts` are unconfigured, and **there is no switch in the UI to turn it
-on** (§0.1). The release note must ship that config write, not only the command that starts the binary.
+**Most likely way the User's own test fails, in one line:** the binary is right and the pill is greyed — the agent's
+`Live voice` switch is off, or one of the two providers behind it is unconfigured (§0.1). Since `c683f077` that is
+a click, not a config write, so the release note should say **where the switch is**, not only how to start the binary.
 
