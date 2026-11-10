@@ -100,6 +100,12 @@ What the review of the whole branch found, and what the branch does about it.
       optimisation, and it was throwing the script out before the chrome was painted.
 - [X] T027 Check the offline surface where it is drawn: the sign-in screen and the signed-in
       shell, and that the served worker belongs to this build.
+- [X] T028 Serve the worker `no-store`: a CDN in front overrides the origin's `no-cache` with its
+      own browser TTL, and a pinned worker is an old app. With the build's stamp on it, a
+      deployment now reaches the browser when it happens.
+- [X] T029 Wait for the worker to be *activated* before reloading in the e2e check: a
+      registration that is still installing is not in charge yet, and the reload was not
+      controlled either.
 
 ## Not done, and why
 

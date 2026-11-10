@@ -143,8 +143,17 @@ The issue asks for four decisions. This branch takes a position on each, and say
 
 - **A miss on `assets()` cannot always be a 404.** The client-side router owns about thirty
   routes, and the fallback to the shell is what makes them work. The rule used here: a miss is a
-  404 when the last path segment has a file extension, and the shell otherwise. `/settings/roles`
-  still gets the shell; `/nope.js` is a 404.
+  404 when the last path segment carries the extension of a static file, and the shell otherwise.
+  `/settings/roles` still gets the shell; `/nope.js` does not. (The extension, not a bare dot: a
+  memory document named `notes.v1.md` is addressed as `notes.v1`, and its route is a route.)
+
+## The worker is never stored
+
+The worker is served `no-store`, not `no-cache`. A CDN in front of the server may keep its own
+copy and hand the browser a stale one whatever the origin says — Cloudflare's default browser TTL
+is four hours for a `.js` file, which is long enough to pin a worker for a whole afternoon. The
+worker also carries the id of the build it belongs to, so a new build is a new worker: the two
+together mean a deployment reaches the browser when it happens, not when a cache expires.
 
 ## The branches
 

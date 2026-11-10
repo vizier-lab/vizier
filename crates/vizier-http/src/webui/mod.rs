@@ -7,11 +7,14 @@ struct WebUI;
 
 /// The cache policy for a static file: the shell must be revalidated, hashed assets never.
 ///
-/// The worker at the origin root is revalidated, or the browser pins a stale one and the app
-/// never updates. The built assets are content-hashed, so they can be kept for a year.
+/// The worker at the origin root is never stored: a CDN in front may keep its own copy and hand
+/// the browser a stale one, and a stale worker means an old app. The built assets are
+/// content-hashed, so they can be kept for a year.
 fn cache_control(path: &str) -> &'static str {
     let file = path.rsplit('/').next().unwrap_or(path);
-    if file == "index.html" || file == "service-worker.js" || file == "manifest.webmanifest" {
+    if file == "service-worker.js" {
+        "no-store"
+    } else if file == "index.html" || file == "manifest.webmanifest" {
         "no-cache"
     } else if path.starts_with("assets/") {
         "public, max-age=31536000, immutable"
@@ -93,7 +96,7 @@ mod tests {
     #[test]
     fn the_shell_is_revalidated_and_hashed_assets_are_not() {
         assert_eq!(cache_control("index.html"), "no-cache");
-        assert_eq!(cache_control("service-worker.js"), "no-cache");
+        assert_eq!(cache_control("service-worker.js"), "no-store");
         assert_eq!(cache_control("manifest.webmanifest"), "no-cache");
         assert_eq!(
             cache_control("assets/root-Bp7Ii7RU.css"),
