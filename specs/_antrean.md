@@ -138,9 +138,9 @@ Peninjau yang wajar: `@teteh-qa` (ia sudah membaca diff tes sebagai bagian gate-
 | ID | Judul | Status | Pemilik | Sejak | R: | Diblokir oleh |
 |---|---|---|---|---|---|---|
 | `AQ-001` | Rekonsiliasi checkbox `specs/055-live-voice/tasks.md` dengan riwayat git (label `docs`) | **`selesai`** | Lead | 9 Nov 2026 20:45 WIB | `tanpa-spec:docs` — allowlist `specs/**` | - · diterima kang **10 Nov 2026 09:36** (*"Ok terima"*) |
-| `T110` | Kunci yang dicabut/kedaluwarsa mengakhiri sesi live yang ia buka (FR-063, SC-013) | `gate` (ronde 2 selesai) | `@sepuh-be` | 9 Nov 2026 21:32 WIB | `FR-063` | **menunggu tanda tangan perilaku `@teteh-qa`** (`qa-plan` 4 skenario, entry 813). Gate teknis saya ✅ untuk `30500bf5` + `093c2b92`. Terbuka dan tidak menghalangi: `GI-01` (SC-013 ≤1 s), `GI-05` (pencabutan tidak dicek per frame) |
+| `T110` | Kunci yang dicabut/kedaluwarsa mengakhiri sesi live yang ia buka (FR-063, FR-063a) | **`siap-kirim`** | `@sepuh-be` | 9 Nov 2026 21:32 WIB | `FR-063` | tiga tanda tangan lengkap 10 Nov 11:51 — teknis (saya, `30500bf5` + `093c2b92`), perilaku (`@teteh-qa` **PASS WITH KNOWN ISSUES**), visual tidak diminta (bukan `ui`). **`FR-063` belum tertutup**: `GI-01` (1 detik tidak terukur), `GI-02` (jalur cabut komposisi + route tanpa tes), `GI-05` (dicabut masih bisa `start` di socket terbuka) |
 | `GI-01` | SC-013: sesi berakhir **≤1 detik** setelah kunci dicabut — belum ada alat yang mengukur jeda nyata dari HTTP revoke sampai frame sampai ke klien | `antre` | `@sepuh-be` | 10 Nov 2026 09:20 WIB | `FR-063` | butuh uji waktu dengan server hidup; bukan tes unit |
-| `GI-02` | FR-063: **turn yang berjalan dibatalkan** saat kunci dicabut — kode memanggil `abort_turn` (`session.rs:541-542`), tapi tak satu pun tes `key_tests` meng-assert bahwa turn berhenti | `antre` | `@sepuh-be` | 10 Nov 2026 09:20 WIB | `FR-063` | satu assert baru di `key_tests`; belum ditulis |
+| `GI-02` | **Jalur cabut tidak punya tes yang menyentuh socket maupun route.** Dua lubang: (a) `revoking_a_key_ends_its_call_and_leaves_the_others_alone` (`session.rs:970`) hanya meng-assert jumlah/state — **nol** assert `Command("abort")`; (b) `grep -rn 'delete_api_key' crates/vizier-http/tests crates/vizier-http/src/api` → **0 hit tes**, jadi `api_keys.rs:110-121` (delete → `end_owned_by_key`) tidak pernah dieksekusi tes mana pun | `antre` | `@sepuh-be` | 10 Nov 2026 09:20 WIB | `FR-063` | satu tes di harness in-crate ronde 2: panggil `delete` lewat service/route untuk kunci yang punya sesi berjalan → sesi `Ended` + `key_revoked` + tepat satu `command:abort`. Deskripsi lama ("tak satu pun tes meng-assert") dikoreksi: tes itu kini **ada**, untuk jalur kedaluwarsa |
 | `GI-03` | **Kedaluwarsa ditegakkan pada frame berikutnya**, bukan pada detiknya (`topic.rs:410-415`). Sesi yang **diam** hidup melewati masa berlaku kuncinya dan tidak ada yang mengakhirinya — bukan "salah label `idle`", karena idle-stop (`T062`) belum ada | `antre` | `@sepuh-be` | 10 Nov 2026 09:40 WIB | **`FR-063a`** | **diputuskan 10 Nov 09:48:** perilaku ini sekarang **dijanjikan** oleh FR-063a (`spec.md` @ `28ed1668`), bukan cacat. Yang tersisa cuma interaksi dengan `T062` (ordering dependency), bukan timer penyapu |
 | `GI-04` | Skenario 4 qa-plan (alasan `key_revoked` sampai ke layar) lulus **secara komposisi**, bukan satu assert: kalimatnya diuji `session.test.ts:210-213`, mekanisme terminal diuji dengan alasan `idle` di `:702` | `antre` | `@sepuh-be` | 10 Nov 2026 09:40 WIB | `FR-063` | satu tes klien yang mengirim `key_revoked` dan membaca kalimatnya di baris |
 | `GI-05` | FR-064: **pencabutan tidak dicek per frame.** `key_lapsed` (`topic.rs:67-74`) hanya membaca `principal.method` yang distempel sekali saat koneksi dibuka (`topic.rs:243`); pencabutan hanya didorong `delete_api_key`. Socket yang masih terbuka bisa mengirim `live_voice_start` lagi dengan kunci yang sudah dicabut | `antre` | `@sepuh-be` | 10 Nov 2026 09:50 WIB | `FR-064` | **belum dibuktikan** (tidak ada tes). Satu tes "revoke → `start` lagi di socket yang sama" menyelesaikannya; temuan `@system-analyst`, bukan asumsi |
@@ -148,6 +148,9 @@ Peninjau yang wajar: `@teteh-qa` (ia sudah membaca diff tes sebagai bagian gate-
 | `GI-07` | **Jalur kedaluwarsa di socket tidak punya tes yang melewati socket.** | **`selesai`** | `@sepuh-be` | 10 Nov 2026 11:20 WIB | `FR-063` | ditutup `093c2b92` (ronde 2 T110): dua tes in-crate, 6 passed, dan terbukti gagal-nya dengan mutasi — lihat §Gate teknis — T110 ronde 2 |
 
 **Catatan penomoran (10 Nov 09:15):** bukti AQ-001 di bawah berlaku untuk **110 task** dan dibekukan di commit-commitnya. Sesudahnya `@system-analyst` menambahkan **T111 [PROVISIONAL]** (`a53bfcb5`, disempurnakan `ef846fbd`), jadi hitungan hari ini **111 task: 65 `[x]` / 46 `[ ]`** — bukan 110/45. Penambahan itu diterima Lead: isinya provisional, menunggu asesmen saya + Q12 dari kang, dan **tidak** masuk gate rilis ini.
+
+
+**Catatan angka (10 Nov 11:55):** `tasks.md` sekarang **111 task, 65 `[x]` / 46 `[ ]`** — angka yang **sama** dengan catatan 09:15, tapi **komposisinya berbeda**: `T026` belum dicentang ulang (`77117f9d`) dan `T110` baru dicentang hari ini. Jangan kutip 65/46 tanpa menyebut komposisinya; dua keadaan berbeda bisa menghasilkan angka identik.
 
 ## Tanda tangan — AQ-001
 
@@ -305,6 +308,22 @@ Gagal di **assertion perilaku**, bukan kompilasi — persis yang `GI-07` minta. 
 **Satu assert lebih lemah dari DoD, dan saya putuskan: diterima.** DoD meminta literal `busy == false`; `busy` privat di `vizier-core` (`session.rs:71`). Yang dipakai sebagai gantinya: `run_turn` menerbitkan `Waiting` sebelum frame (di-assert), dan `abort_turn` **hanya** mengirim `Command("abort")` kalau flag menyala lalu menghapusnya di swap yang sama (`session.rs:250-251`) — jadi "tepat satu abort" membuktikan turn tadi jalan dan sekarang tidak. Saya terima karena bukti perilaku lebih kuat dari bacaan flag.
 
 **Koreksi untuk catatan:** pilihannya **tidak** biner "accessor produksi atau tidak sama sekali". Ada jalan ketiga tanpa menyentuh produksi — panggil `abort_turn` sekali lagi sesudah frame (API publik, `session.rs:246`) dan assert **tidak ada** abort kedua; itu membuktikan `busy == false` secara literal. Harganya satu assert. Dicatat sebagai **minor, tidak memblokir**; kalau `GI-05` menyentuh harness yang sama, tambahkan di situ.
+
+
+## Verdict QA T110 ronde 2 + koreksi saya (10 Nov 2026 11:51–11:55)
+
+`@teteh-qa`: **PASS WITH KNOWN ISSUES**, satu pesan, mention Lead + PM (aturan gate dipatuhi). Teknis sudah ✅, visual tidak diminta (bukan `ui`) → **`T110` = `siap-kirim`**; `selesai` hanya setelah kang terima.
+
+**Dua koreksi QA yang saya verifikasi sendiri dan terima:**
+
+1. **"Tiga dari empat skenario qa-plan tertutup" itu salah, betul dua.** `revoking_a_key_ends_its_call_and_leaves_the_others_alone` (`session.rs:970`) meng-assert `ended == 1`, state ketiga sesi, dan isi registry — **nol** assert `Command("abort")`. Tes yang meng-assert abort adalah jalur **kedaluwarsa**. Jadi skenario 1 (cabut) lulus **secara komposisi**. Saya yang mengucapkannya terlalu cepat, dan QA menangkapnya dengan `grep`, bukan dengan selera.
+2. **Pin `webui` di commit gate adalah `8929bbed`, bukan `7b7c9a3`.** `git ls-tree 98a99a1a webui` → `8929bbed…`; `7b7c9a3` **ancestor**-nya (`git merge-base --is-ancestor` → true). Isinya masuk, tapi yang dipin lain. Saya menyebut rentang, bukan commit — persis kebiasaan yang kita haramkan.
+
+**Lubang baru dari QA, saya verifikasi dan lipat:** `grep -rn 'delete_api_key' crates/vizier-http/tests crates/vizier-http/src/api` → **0 hit**. Route pencabutan tidak pernah dieksekusi tes; yang diuji hanya registry di bawahnya (`api_keys.rs:110-121` memanggil `end_owned_by_key`). Bentuknya persis `GI-07` di sisi berlawanan → **dilebur ke `GI-02`**, bukan baris baru: satu seam (jalur cabut), satu `R: FR-063`.
+
+**`tasks.md` — `T110` dicentang** dengan penanda `Landed vizier@093c2b92 (with vizier@30500bf5); the gate it names passed.` dan tiga batasnya ditulis di baris itu: `SC-013` 1 detik belum diukur, jalur cabut komposisi, `GI-05` terbuka. Centang = task mendarat, **bukan** `FR-063` tertutup.
+
+**Tabrakan angka:** `tasks.md` = **111 task, 65 `[x]` / 46 `[ ]`** — identik dengan catatan 09:15 tapi **komposisi berbeda** (`T026` belum dicentang ulang di `77117f9d`, `T110` baru dicentang). Angka yang sama, keadaan yang beda; wajib disebut bersama komposisinya.
 
 ## Keputusan rotasi kunci (FR-063), 10 Nov 2026 09:20
 
