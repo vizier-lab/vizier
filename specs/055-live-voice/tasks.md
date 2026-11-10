@@ -375,6 +375,11 @@ it was supposed to prevent — an utterance opened during the 3.4 s between `clo
 while the agent was still thinking could not cut the answer at all. Under the ratio alone that same
 utterance measures about 1.0x and aborts as it should. `opened_at` survives as a **diagnostic
 (`opened_before_turn=true|false`)**, never as a gate.
+The sample count settled it too: **the origin condition was never exercised by a single case** - every
+burst in the log sits at 9.8x or above, where the ratio already holds it. So `opened_at` is **not a
+prerequisite for tomorrow's work**: no `opened_at` on `Utterance`, no `turn_started_at` on the session,
+and **no `reason=opened-before-turn`**; the reasons this guard emits are `burst` and `no-audio` only. A
+diagnostic origin can be added later as a plain log field, never as a gate.
 **Why the ratio and not a duration or "has it spoken yet":** measured over 19 utterances on
 20:08-20:13, audio duration / wall-clock duration is **1.0x** for a person actually speaking and
 **1 370x, 3 320x, 4 641x** for audio that arrived in one dump (tens of microseconds of wall clock
