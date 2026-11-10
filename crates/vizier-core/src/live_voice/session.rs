@@ -225,6 +225,28 @@ impl LiveVoiceSession {
         tracing::debug!(trigger, idle_for_ms, topic = %self.topic(), "lv_idle reset");
     }
 
+    /// Say why a reply stopped before the person heard all of it (FR-032, FR-052).
+    ///
+    /// A cancelled segment and a finished one used to look identical in the log, so "the voice
+    /// stops after two answers" could be neither proved nor disproved from a run — the only trace
+    /// was a turn that ended early, with no field saying whether the person interrupted, the socket
+    /// closed, or the session was ended. The two numbers that separate those cases are the
+    /// generation the segment was produced in and the generation now: equal means the reply is
+    /// intact and something else ended it, different means it was genuinely interrupted.
+    ///
+    /// `at` is the only thing that varies between call sites, so a log reader can tell the three
+    /// brackets around the synthesis apart without a second token.
+    fn note_abandoned(&self, generation: u64, at: &'static str) {
+        tracing::debug!(
+            agent_id = %self.session.0,
+            generation,
+            current_generation = self.generation(),
+            stopped = self.is_stopped(),
+            at,
+            "live voice reply abandoned"
+        );
+    }
+
     /// The topic this call is on, as the idle log names it. A call without one logs `-`.
     fn topic(&self) -> &str {
         self.session.2.as_deref().unwrap_or("-")
@@ -522,8 +544,13 @@ impl LiveVoiceSession {
         // cost the sum of N syntheses before the last one was heard — the gap between sentences the
         // person noticed — for no reason: sending is instant, and the client queues gaplessly.
         let mut pending = Some(synthesise(engines, &current.text));
+        // Which segment the reply stopped on, counted from one: the number a person reporting
+        // "it stopped after the second answer" can be matched against.
+        let mut segment = 0u32;
         loop {
+            segment += 1;
             if self.generation() != generation || self.is_stopped() {
+                self.note_abandoned(generation, "before the synthesis was awaited");
                 abort(pending.take());
                 return Ok(false);
             }
@@ -532,6 +559,19 @@ impl LiveVoiceSession {
                 Ok(Err(e)) => {
                     // FR-032: the text is already on screen; say the voice failed and listen
                     // again rather than ending the session.
+                    //
+                    // It is said twice on purpose: to the person as a frame, and to the log as a
+                    // line. The frame is what they see and it is gone the moment they look away;
+                    // the line is what a report of "the sound stopped" can be checked against.
+                    // The provider's own message goes through unwrapped — a summary is what made
+                    // this unreportable in the first place.
+                    tracing::warn!(
+                        agent_id = %self.session.0,
+                        generation,
+                        segment,
+                        error = %e,
+                        "live voice synthesis failed"
+                    );
                     self.publish(LiveVoiceControl::Error {
                         kind: EndReason::ProviderFailed,
                         message: e.to_string(),
@@ -540,13 +580,19 @@ impl LiveVoiceSession {
                     return Ok(false);
                 }
                 // The task was cancelled — only this function cancels it, so the session is over.
-                Err(_) => return Ok(false),
+                // Logged like the other two: a cancelled join handle is the one ending that leaves
+                // no frame and no error behind, so a line here is all there would ever be.
+                Err(_) => {
+                    self.note_abandoned(generation, "the synthesis task was cancelled");
+                    return Ok(false);
+                }
             };
             // The synthesis may have taken long enough for the person to cut in. Sending it anyway
             // would put a stale sentence in their ear *after* they interrupted — the one thing the
             // generation counter exists to prevent (FR-022). The check is here and at the top of
             // the loop because the two bracket the await.
             if self.generation() != generation || self.is_stopped() {
+                self.note_abandoned(generation, "the synthesis finished after the reply was over");
                 abort(pending.take());
                 return Ok(false);
             }
