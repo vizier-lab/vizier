@@ -3,7 +3,12 @@
 // listed here.
 const SHELL = ['/index.html', '/favicon.svg', '/manifest.webmanifest', '/icons/icon.svg', '/icons/icon-192.png']
 
-const CACHE = 'vizier-shell-v1'
+// The build this worker belongs to. The build stamps it, so a new build is a new worker and the
+// browser offers it; without a stamp every build would ship the same bytes and nothing would.
+const BUILD = '__VIZIER_BUILD__'
+
+const CACHE = `vizier-shell-${BUILD}`
+const PREFIX = 'vizier-shell-'
 
 // The shell is precached; the install does NOT skipWaiting — a new worker waits for the
 // person to choose it (see the message handler).
@@ -17,8 +22,13 @@ self.addEventListener('message', (event) => {
 })
 
 self.addEventListener('activate', (event) => {
+    // Only Vizier's own caches: this origin may hold others.
     event.waitUntil(
-        caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
+        caches
+            .keys()
+            .then((keys) =>
+                Promise.all(keys.filter((k) => k.startsWith(PREFIX) && k !== CACHE).map((k) => caches.delete(k)))
+            )
     )
 })
 
@@ -49,7 +59,8 @@ self.addEventListener('fetch', (event) => {
                 .then((response) => {
                     if (response.ok && response.type === 'basic') {
                         const copy = response.clone()
-                        caches.open(CACHE).then((cache) => cache.put(request, copy))
+                        // The write has to outlive the response, or the worker may stop before it lands.
+                        event.waitUntil(caches.open(CACHE).then((cache) => cache.put(request, copy)))
                     }
                     return response
                 })
