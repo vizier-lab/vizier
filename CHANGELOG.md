@@ -8,6 +8,9 @@ All notable changes to this project will be documented in this file.
 
 - *(office)* [**breaking**] New agents are created without the Office addon: install it on the agent's
   Integrations › Addons page. Creation and the upgrade backfill no longer seed it (spec 036 FR-015a)
+### 🐛 Bug Fixes
+
+- Keep long Discord tool-call arguments inside balanced, language-tagged code fences when messages are split.
 
 ## [0.15.1] - 2026-11-07
 
