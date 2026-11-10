@@ -358,7 +358,10 @@ abort_turn  ONLY when  ratio = audio_ms / wall_ms < 5.0
             milliseconds would round two of them to 0
   wall_ms == 0  -> held, never infinity (division by zero is not a theoretical case here)
   audio_ms == 0 -> held too: no audio is not a low ratio
-every decision logs: decision=abort|held, reason=, ratio, audio_ms, wall_ms, topic, utterance_id
+every decision logs: decision=abort|held, reason=, ratio, audio_ms, wall_ms, topic, utterance_id,
+        sequence=<which turn of this session> - so a report of "my interruption was refused" can be
+        matched to a turn without guessing from the clock; `sequence` rides the warn line only, not
+        the grey-zone debug line
 levels: held at warn (the only branch that can make a person say "my interruption was refused", so it
         must not depend on a debug filter); the 2.0-5.0 grey zone at debug with decision=
 ```
