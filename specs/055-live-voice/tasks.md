@@ -401,9 +401,15 @@ told apart from a bug when they report one.
 - `20:08:14` `open` .818824 -> `turn_start` .818945 (**121 us** apart, open first) -> `cancelled=true`
 - `20:09:25` `turn_start` .700115 -> `open` .700219 (**104 us** apart, turn first) -> `cancelled=true`
 - `20:11:48` `turn_start` 20:11:26.485673 -> `open` 20:11:48.389813 (**21 s** apart) -> `cancelled=false`
-Ordering alone says "abort the 3 320x burst at 20:09:25", which leaves the reported defect alive, and
-would wrongly abort the 4 641x burst at 20:11:48. Second, it buys nothing: every burst in the log is
-**9.8x or above**, so the ratio already holds all of them. Deterministic beats wider coverage.
+Ordering alone says "abort the 3 320x burst at 20:09:25", which leaves the reported defect alive — that
+one case is enough, and it is the case the person actually reported. Second, it buys nothing: every burst
+in the log is **9.8x or above**, so the ratio already holds all of them. Deterministic beats wider
+coverage.
+**20:11:48 is not a third kill, and must not be cited as one.** Its close logged `cancelled=false` because
+no turn was busy (the 20:11:26 reply had already finished), so `abort_turn` cancelled nothing there with
+the origin rule and cancels nothing without it. A test written from it passes with and without the guard -
+the same trap as 20:10:05, one paragraph below. It is listed above only because its 21 s gap is the
+clearest demonstration that the ordering is a race, not because it broke anything.
 **Do not reinstate it.** `opened_at` survives as a diagnostic only.
 **It is a net, not a cure.** The cause that **is** proven: the socket is not read while recognition runs
 inline (`crates/vizier-http/src/topic.rs:912`, `:936`; the 16:33 call carried `idle_for_ms=11768` and
