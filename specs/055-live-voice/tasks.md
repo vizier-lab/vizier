@@ -356,35 +356,41 @@ be started.
   milliseconds of wall clock carrying 800–3 100 ms of audio): so a duration threshold that drops the
   burst also drops a real 805 ms interruption, and `segment sent >= 1` would disable the legitimate
   case below (the person really did interrupt; the audio simply had not been sent yet). What separates
-  them is **how fast the audio arrived**, not how long it was. **The line is decided (PM, 2026-11-10 21:01): a ratio of audio_ms / wall_ms >= 3.0 is a backlog burst
-  and MUST NOT abort** — a microphone records in real time, so genuine speech cannot exceed **1.0x**
-  (all 16 real utterances measured about 1.0x), and 9.8x means 3 000 ms of audio arrived inside 305 ms,
-  so at least 2 700 ms was held somewhere and is only now arriving; the gap from 1.0x to 9.8x is nearly
-  an order of magnitude, so 3.0x clears jitter and chunk quantisation without approaching any real case.
-  **The 20:10:05 case at 9.8x is therefore a burst, not an interruption.** That it once became a real
-  turn (turn_start 20:10:09.332) proves the server opened and transcribed it, not that a person was
-  speaking; holding the abort there costs nothing, because the utterance is still transcribed and the
-  turn still runs.
-  **Two conditions, both required, because each fails alone:** the ratio above, **and**
-  utterance.opened_at < turn.started_at — an utterance opened before the turn existed cannot have
-  interrupted it. The ratio alone is noisy on a very short utterance, and the origin alone misses a
-  burst opened after the turn started.
-  **The decision must be observable:** every guard decision writes one log line carrying audio_ms,
-  wall_ms, ratio and decision (abort / held). 3.0 is a choice under uncertainty and has to be
-  retestable, not final; without that line the next report argues from memory again.
-  **And the guard is a dressing — the cause goes in the same package.** The burst exists because the
-  socket is not read while recognition runs inline (crates/vizier-http/src/topic.rs:912, :936; the
-  16:33 call carried idle_for_ms=11768 and then 117 chunks in one second). Moving transcribe out of the
-  socket loop costs little and saves **0 ms** of latency, but it removes the **cause** rather than the
-  symptom. It touches the touch/busy path that keeps FR-029's Option A honest, so **Q5 (a silent
-  session ends by itself) is part of this gate, not optional.**
+  them is **how fast the audio arrived**, not how long it was. **The line is decided (PM, 2026-11-10 21:02): a ratio of audio_ms / wall_ms > 5 is a burst, and a burst
+  neither aborts the turn nor opens a new one** — logged at `warn` with the ratio, the audio length and
+  the topic. At or below 5 it is behaviour as it is today, unchanged; the 2-5 grey zone is treated as a
+  real interruption but logged at `debug` with its ratio, so that a report of "my interruption was
+  refused" arrives with a number instead of a guess.
+  **Why 5 and not 100 ("safely in the middle"):** 9.8x is also impossible for a human voice — 3 000 ms
+  of audio cannot arrive inside 305 ms of wall clock. It was called a legitimate turn because it
+  *produced* a turn, not because its contents were legitimate; an upper threshold would let 9.8x through
+  and keep killing the first answer, which is the bug this exists to stop. The limit comes from physics,
+  not from a sample spread: a person cannot speak five times faster than time. All 16 real utterances
+  measured about **1.0x**, so 5 gives a 5x margin above them.
+  **Second condition, both required:** `utterance.opened_at < turn.started_at` — an utterance opened
+  before the turn existed cannot have interrupted it. Each condition fails alone: the ratio is noisy on a
+  very short utterance, and the origin alone misses a burst opened after the turn started.
+  **This is a heuristic and it must say so:** 5 is a **named constant**, never a literal inside a
+  function, with the physics above written beside it. Every discarded burst logs its ratio, audio length
+  and topic — if we ever throw away a real interruption, it has to be visible in the log rather than
+  discovered from a complaint.
+  **And it is a net, not a cure.** The real cause is that audio arrives in a held-then-dumped burst;
+  until that is proven and closed, this only dampens the symptom, and that goes in the DoD as a case this
+  does **not** close. It must not be used to declare `LV-BARGE-BEFORE-AUDIO` finished: the DoD stays that
+  **the first turn of a session must not die before it makes a sound**, and the test must be **red**
+  without the guard. The guard also stays if the client ever stops sending bursts, because another client
+  or a stalled network produces the same shape.
+  **Cause in the same package.** The burst exists because the socket is not read while recognition runs
+  inline (`crates/vizier-http/src/topic.rs:912`, `:936`; the 16:33 call carried `idle_for_ms=11768` and
+  then 117 chunks in one second). Moving `transcribe` out of the socket loop costs little and saves **0 ms**
+  of latency, but it removes the cause rather than the symptom. It touches the `touch`/`busy` path that
+  keeps FR-029's Option A honest, so **Q5 (a silent session ends by itself) is part of this gate.**
   **What this does NOT close:** until that move lands, a **legitimate** interruption arriving during a
-  stalled socket can read a high ratio and be held by this guard; an utterance shorter than about
-  300 ms makes the ratio noisy and stays on the server's too_short path, not this one; and
-  channels != 1, PCM-only models outside the name pattern, and the 263 ms speaking are untouched.
-  **Gate, red first:** three fixtures — 1.0x (the real 805 ms interruption at 20:12:32) **must** abort ·
-  1 370x / 3 320x / 4 641x **must not** abort · 9.8x **must not** abort — plus the origin condition, and
-  Q5 green.
+  stalled socket can read a high ratio and be held; an utterance shorter than about 300 ms makes the
+  ratio noisy and stays on the server's `too_short` path, not this one; and `channels != 1`, PCM-only
+  models outside the name pattern, and the 263 ms `speaking` are untouched.
+  **Gate, red first:** 1.0x (the real 805 ms interruption at 20:12:32) **must** abort · 1 370x / 3 320x /
+  4 641x **must not** abort · 9.8x **must not** abort · the origin condition · Q5 green.
 - [ ] LV-EMPTY-REPLY-SILENT **A reply with no content passes as a turn.** Four of the eight turns on
   topic `cEKjwtlxZ7` produced `content: ""` — no text, no speech, and no word to the person that
   anything went wrong. An empty answer must become a named error, in the same spirit as the JSON-body
