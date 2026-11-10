@@ -793,8 +793,24 @@ impl TopicConnection {
                     return;
                 }
                 let settings = config.tools.live_voice.settings.clone();
+                // Which engine this call is about to use, and where that answer came from. The
+                // question "did I switch to the online provider, and is the call using it?" was
+                // answered four times by inference and never by a line, so it gets one: the pair
+                // the call will actually run with, and whether it came from the live voice block
+                // or fell back to the two pickers above it (`from_live_voice`).
                 let stt = settings.stt.clone().unwrap_or_else(|| config.tools.stt.settings.clone());
                 let tts = settings.tts.clone().unwrap_or_else(|| config.tools.tts.settings.clone());
+                tracing::info!(
+                    agent_id = %self.session.0,
+                    stt_provider = ?stt.provider,
+                    stt_model = stt.model.as_deref().unwrap_or("-"),
+                    stt_from_live_voice = settings.stt.is_some(),
+                    tts_provider = ?tts.provider,
+                    tts_model = tts.model.as_deref().unwrap_or("-"),
+                    tts_voice = tts.voice.as_deref().unwrap_or("-"),
+                    tts_from_live_voice = settings.tts.is_some(),
+                    "live voice engines chosen for this call"
+                );
                 let engines = match vizier_core::live_voice::CascadeEngines::new(
                     &stt,
                     &tts,
