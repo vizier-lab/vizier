@@ -128,6 +128,8 @@ Dicatat terpisah dari status task, sesuai permintaan `@bro-pm`:
 |---|---|---|---|---|---|---|
 | `AQ-001` | Rekonsiliasi checkbox `specs/055-live-voice/tasks.md` dengan riwayat git (label `docs`) | `siap-kirim` | Lead | 9 Nov 2026 20:45 WIB | `tanpa-spec:docs` — allowlist `specs/**` | - |
 | `T110` | Kunci yang dicabut/kedaluwarsa mengakhiri sesi live yang ia buka (FR-063, SC-013) | `gate` | `@sepuh-be` | 9 Nov 2026 21:32 WIB | `FR-063` | tanda tangan **teknis ✅ 10 Nov 09:15** (DoD v2, 5/5 tes modul + flag-off); menunggu **tanda tangan perilaku QA** (4 skenario). SC-013 "1 detik" **belum terbukti** — lihat §DoD |
+| `GI-01` | SC-013: sesi berakhir **≤1 detik** setelah kunci dicabut — belum ada alat yang mengukur jeda nyata dari HTTP revoke sampai frame sampai ke klien | `antre` | `@sepuh-be` | 10 Nov 2026 09:20 WIB | `FR-063` | butuh uji waktu dengan server hidup; bukan tes unit |
+| `GI-02` | FR-063: **turn yang berjalan dibatalkan** saat kunci dicabut — kode memanggil `abort_turn` (`session.rs:541-542`), tapi tak satu pun tes `key_tests` meng-assert bahwa turn berhenti | `antre` | `@sepuh-be` | 10 Nov 2026 09:20 WIB | `FR-063` | satu assert baru di `key_tests`; belum ditulis |
 
 **Catatan penomoran (10 Nov 09:15):** bukti AQ-001 di bawah berlaku untuk **110 task** dan dibekukan di commit-commitnya. Sesudahnya `@system-analyst` menambahkan **T111 [PROVISIONAL]** (`a53bfcb5`, disempurnakan `ef846fbd`), jadi hitungan hari ini **111 task: 65 `[x]` / 46 `[ ]`** — bukan 110/45. Penambahan itu diterima Lead: isinya provisional, menunggu asesmen saya + Q12 dari kang, dan **tidak** masuk gate rilis ini.
 
@@ -155,6 +157,14 @@ Dicatat terpisah dari status task, sesuai permintaan `@bro-pm`:
 **45 yang sengaja masih `[ ]`**: fixture VAD (T004), baseline (T006), indikator FR-042 e2e (T039), tombol arsip yang bukan lagi pintu masuk (T037), saklar per-agen (T041), counter backlog (T042), ducking & burst pendek (T047, T048), e2e barge-in/interrupt (T049, T056), seluruh backlog interrupt (T051–T057), siklus & penolakan koneksi kedua (T061–T065), tes kegagalan server (T066), superseded (T093), registri & alasan tertinggal (T095–T097), instrumentasi server (T077), dan seluruh gerbang rilis (T078–T088) serta fase kunci pihak ketiga (T100–T110).
 
 
+
+## Keputusan rotasi kunci (FR-063), 10 Nov 2026 09:20
+
+**Temuan `@teteh-qa`:** `grep -rn rotate crates/vizier-http/src/api/v1` → **0 hit**. FR-063 menyebut kunci "can be rotated", tapi tidak ada route rotasi.
+
+**Keputusan saya, dengan buktinya:** rotasi **tidak butuh route sendiri** — ia komposisi dua route yang sudah ada: `create_api_key` (`crates/vizier-http/src/api/v1/auth.rs:294`) dan `delete_api_key` (`:404`). Kontrak sudah menuliskannya begitu: *"key rotated (new key, old one retired) → the old key stops working; a session opened with it ends | reason `key_revoked`"* (`contracts/live-voice-frames.md:362`). Jadi requirement punya pembawa; yang kurang hanya **satu baris di `spec.md`** yang menyebut "rotate = buat kunci baru + cabut yang lama, dengan akibat yang sama seperti revoke". Itu semantik spec → `@system-analyst`, bukan saya.
+
+**Yang tidak saya putuskan:** apakah rotasi harus punya endpoint atomik sendiri (supaya tidak ada jendela dua kunci aktif). Kalau kang mau itu, ia requirement baru, bukan penafsiran FR-063.
 ## DoD — T110 (v2, 10 Nov 2026 09:15 — DoD #3 lama diganti karena **gate hijau palsu**)
 
 **Kenapa diganti:** `cargo test -p vizier-core --features provider-live-voice end_owned_by_key` keluar dengan **exit 0 sambil menjalankan nol tes** — `end_owned_by_key` adalah nama *method* (`session.rs:519`), bukan nama tes, jadi filter mencocokkan nol fungsi dan Rust tetap melaporkan `test result: ok`. Diukur ulang: **7 target, 7x `running 0 tests`, exit 0.** Temuan `@teteh-qa` 9 Nov 21:45; saya reproduksi sendiri 10 Nov.
