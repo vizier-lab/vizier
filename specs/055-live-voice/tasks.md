@@ -368,7 +368,9 @@ abort_turn  ONLY when  ratio = audio_ms / wall_ms < 5.0
 every decision logs: decision=abort|held, reason=<burst|no-audio>, ratio, audio_ms,
         wall_ms, topic, utterance_id, sequence=<which turn of this session> - so a report of "my
         interruption was refused" can be matched to a turn without guessing from the clock; sequence
-        and reason ride the warn line only, not the grey-zone debug line
+        and reason ride the warn line only, not the grey-zone debug line. **One field, one name:** the
+        PM calls it `turn_seq`, the log calls it `sequence=`; implement `sequence=` and nothing else,
+        because that is the name the runbook greps
 levels: held at warn (the only branch that can make a person say "my interruption was refused", so it
         must not depend on a debug filter); the grey zone `2.0 <= ratio < 5.0` at debug with
         decision=abort. The boundary is `< 5.0` in both places on purpose, so exactly 5.0 is held and
