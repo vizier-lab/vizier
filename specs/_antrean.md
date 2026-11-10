@@ -138,9 +138,11 @@ Peninjau yang wajar: `@teteh-qa` (ia sudah membaca diff tes sebagai bagian gate-
 | ID | Judul | Status | Pemilik | Sejak | R: | Diblokir oleh |
 |---|---|---|---|---|---|---|
 | `AQ-001` | Rekonsiliasi checkbox `specs/055-live-voice/tasks.md` dengan riwayat git (label `docs`) | **`selesai`** | Lead | 9 Nov 2026 20:45 WIB | `tanpa-spec:docs` — allowlist `specs/**` | - · diterima kang **10 Nov 2026 09:36** (*"Ok terima"*) |
-| `T110` | Kunci yang dicabut/kedaluwarsa mengakhiri sesi live yang ia buka (FR-063, SC-013) | `gate` | `@sepuh-be` | 9 Nov 2026 21:32 WIB | `FR-063` | tanda tangan **teknis ✅ 10 Nov 09:15** (DoD v2, 5/5 tes modul + flag-off); menunggu **tanda tangan perilaku QA** (4 skenario). SC-013 "1 detik" **belum terbukti** — lihat §DoD |
+| `T110` | Kunci yang dicabut/kedaluwarsa mengakhiri sesi live yang ia buka (FR-063, SC-013) | `aktif` (ronde 1) | `@sepuh-be` | 9 Nov 2026 21:32 WIB | `FR-063` | QA menolak tanda tangan 10 Nov 09:38: **jalur kedaluwarsa tidak membatalkan turn** (`topic.rs:417` memanggil `end()` saja, tanpa `abort_turn`) — beda dengan jalur cabut (`end_owned_by_key` → `abort_turn` + `end` + `remove`). Diverifikasi Lead di kode. Brief + DoD perbaikan: §DoD — T110 ronde 1 |
 | `GI-01` | SC-013: sesi berakhir **≤1 detik** setelah kunci dicabut — belum ada alat yang mengukur jeda nyata dari HTTP revoke sampai frame sampai ke klien | `antre` | `@sepuh-be` | 10 Nov 2026 09:20 WIB | `FR-063` | butuh uji waktu dengan server hidup; bukan tes unit |
 | `GI-02` | FR-063: **turn yang berjalan dibatalkan** saat kunci dicabut — kode memanggil `abort_turn` (`session.rs:541-542`), tapi tak satu pun tes `key_tests` meng-assert bahwa turn berhenti | `antre` | `@sepuh-be` | 10 Nov 2026 09:20 WIB | `FR-063` | satu assert baru di `key_tests`; belum ditulis |
+| `GI-03` | FR-063 huruf pertama: **kedaluwarsa hanya ditegakkan saat frame datang** (`topic.rs:410-415`), jadi sesi yang diam melewati masa berlaku kunci tetap hidup sampai frame berikutnya atau sampai pengaman idle memutusnya dengan alasan `idle` | `antre` | `@sepuh-be` | 10 Nov 2026 09:40 WIB | `FR-063` | butuh keputusan biaya: timer penyapu untuk seluruh registry, atau catatan di `spec.md` bahwa kedaluwarsa ditegakkan pada frame berikutnya (semantik `@system-analyst`) |
+| `GI-04` | Skenario 4 qa-plan (alasan `key_revoked` sampai ke layar) lulus **secara komposisi**, bukan satu assert: kalimatnya diuji `session.test.ts:210-213`, mekanisme terminal diuji dengan alasan `idle` di `:702` | `antre` | `@sepuh-be` | 10 Nov 2026 09:40 WIB | `FR-063` | satu tes klien yang mengirim `key_revoked` dan membaca kalimatnya di baris |
 
 **Catatan penomoran (10 Nov 09:15):** bukti AQ-001 di bawah berlaku untuk **110 task** dan dibekukan di commit-commitnya. Sesudahnya `@system-analyst` menambahkan **T111 [PROVISIONAL]** (`a53bfcb5`, disempurnakan `ef846fbd`), jadi hitungan hari ini **111 task: 65 `[x]` / 46 `[ ]`** — bukan 110/45. Penambahan itu diterima Lead: isinya provisional, menunggu asesmen saya + Q12 dari kang, dan **tidak** masuk gate rilis ini.
 
@@ -169,6 +171,29 @@ Peninjau yang wajar: `@teteh-qa` (ia sudah membaca diff tes sebagai bagian gate-
 
 
 
+## DoD — T110 ronde 1 (10 Nov 2026 09:40): jalur kedaluwarsa wajib membatalkan turn
+
+**Cacatnya, dari kode bukan dari laporan:** dua jalur menuju `KeyExpired`, hanya satu yang membatalkan turn.
+- **Cabut** — `delete_api_key` → `end_owned_by_key` (`session.rs:651-675`): `abort_turn(BargeIn)` → `end(reason)` → `remove`. Turn berhenti.
+- **Kedaluwarsa** — `topic.rs:417-419`: `session.end(EndReason::KeyExpired)` → `sessions.remove(...)`. **Tanpa `abort_turn`.** `end()` hanya membatalkan utterance user (`session.rs:219-221`), tidak mengirim `Command("abort")`; itu pekerjaan `abort_turn` (`session.rs:246-262`).
+
+Akibatnya persis yang diperingatkan `session.rs:236-238`: agen tetap bekerja, jawabannya tetap ditulis dan tetap masuk riwayat, padahal sesi sudah `ended`. FR-063 menuntut tiga: alasan, mic dilepas, **turn dibatalkan** — jalur kedaluwarsa memenuhi dua.
+
+**Perbaikan yang diminta:** satu tempat. Jalur kedaluwarsa di `topic.rs` memakai urutan yang sama dengan `end_owned_by_key` — `abort_turn` dulu, lalu `end`, lalu `remove`. Tidak ada API baru, tidak ada tipe baru. Kalau `topic.rs` tidak punya akses ke `abort_turn` yang async di titik itu, pindahkan urutannya ke satu method registry (`end_one(&session, reason)`) supaya dua jalur memakai satu fungsi — **jangan** menyalin tiga baris itu.
+
+**DoD (perintah + keluaran yang harus kelihatan):**
+
+| # | Perintah | Output harapan |
+|---|---|---|
+| 1 | `cargo test -p vizier-core --features provider-live-voice live_voice::session::key_tests` | `running ≥5 tests`, semua lulus — jalur cabut tidak rusak |
+| 2 | Tes **baru** di modul yang sama: sesi dengan turn berjalan, lalu alasan `KeyExpired` | meng-assert **tiga hal**: `ended` diberitakan dengan `key_expired`; `busy` kembali `false`; **`Command("abort")` benar-benar terkirim** ke transport (tangkap lewat transport uji — mekanismenya sudah ada di `session_on_transport`) |
+| 3 | `cargo test -p vizier-core --features provider-live-voice` (crate berfitur) | `0 failed`; sebut jumlah `passed` apa adanya |
+| 4 | `cd webui && npm test -- session` | tidak berubah: 65 passed / 1 skipped |
+
+**Batas:** tes #2 harus gagal di kode sekarang dan lulus sesudahnya — kalau ia lulus sebelum perbaikan, tesnya salah tempat, bukan kodenya benar. Lampirkan **dua** keluaran itu di laporan.
+
+**WIP:** `T110` kembali ke `aktif` (ronde 1 dari maks 2). Ini ronde yang sama, bukan task baru — tidak menambah slot.
+
 ## Keputusan rotasi kunci (FR-063), 10 Nov 2026 09:20
 
 **Temuan `@teteh-qa`:** `grep -rn rotate crates/vizier-http/src/api/v1` → **0 hit**. FR-063 menyebut kunci "can be rotated", tapi tidak ada route rotasi.
@@ -186,7 +211,7 @@ Peninjau yang wajar: `@teteh-qa` (ia sudah membaca diff tes sebagai bagian gate-
 |---|---|---|---|
 | 1 | `cargo test -p vizier-core --features provider-live-voice live_voice::session::key_tests` | `running 5 tests` · 5 lulus · 0 gagal | ✅ **5 passed / 0 failed**, 1.33 s, exit 0 |
 | 2 | `cargo check -p vizier-core` (tanpa fitur) | `Finished`, exit 0 — FR-041: build tanpa `provider-live-voice` tetap jalan | ✅ exit 0, 44,85 s |
-| 3 | `cargo test -p vizier-core --lib live_voice` (tanpa fitur) | **6 tes** lulus — semuanya tes *setting agent* (`schema::agent`, `service::agents::live_voice_input_tests`), **nol** tes modul `live_voice` | ✅ 6 passed / 0 failed |
+| 3 | `cargo test -p vizier-core --lib live_voice` (tanpa fitur) | `running 6 tests` — **6 `schema::agent`/`service::agents::live_voice_input_tests`, 0 dari modul `live_voice`**. Angka 6 tidak boleh dibaca sebagai "modul live_voice lulus tanpa fitur" | ✅ 6 passed / 0 failed, 0 dari modul `live_voice` |
 | 4 | `cd webui && npm test -- session` | `key_revoked` beda kalimat dari `key_expired` dan dari `pressed_again` | ✅ diukur `@teteh-qa`: 2 file, **65 passed / 1 skipped**, 922 ms |
 
 **Yang DoD ini tetap belum buktikan — wajib disebut di laporan gate:**
