@@ -156,8 +156,11 @@ export class LiveVoiceClient {
         this.startedAt = this.now()
         this.view.elapsedMs = 0
         // Nothing from the last visit is remembered (T063): an old reason, a stale transcript or a
-        // leftover notice would greet the person as if it were news about this session.
+        // leftover notice would greet the person as if it were news about this session. The
+        // transcript was named here but not cleared, so a new call opened showing what the previous
+        // one heard (F4).
         this.view.notice = null
+        this.view.transcript = ''
         this.move('connecting')
         const sent = this.deps.send(startFrame(this.deps.language))
         if (!sent) {

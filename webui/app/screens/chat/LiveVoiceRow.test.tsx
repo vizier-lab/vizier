@@ -146,3 +146,41 @@ describe('the live row', () => {
         expect(render({ state: 'speaking', micOpen: true })).toContain('text-live')
     })
 })
+
+/**
+ * F4 — the transcript on screen while the call runs.
+ *
+ * It used to be rendered only in `LiveVoiceBar`, which stopped being drawn when the row replaced
+ * it: the words were in state, never on screen, and a person saw them only after a refresh as the
+ * stored message. These assert the row itself, and that it costs no height.
+ */
+describe('F4 — the words that were heard', () => {
+    it('shows the transcript while the call is live', () => {
+        const html = render({ state: 'listening', micOpen: true, transcript: 'what time is the standup' })
+        expect(html).toContain('data-transcript')
+        expect(html).toContain('what time is the standup')
+        // The waveform gives way to it — one flexible slot, not two, so the row keeps its height.
+        expect(html).not.toContain('data-bars')
+    })
+
+    it('keeps the waveform when nothing has been heard yet', () => {
+        const html = render({ state: 'listening', micOpen: true, transcript: '' })
+        expect(html).not.toContain('data-transcript')
+        expect(html).toContain('data-bars')
+    })
+
+    it('an ending still shows its reason rather than the last words', () => {
+        const html = render({ state: 'ended', transcript: 'what time is the standup', notice: 'live voice is off' })
+        expect(html).toContain('live voice is off')
+        expect(html).not.toContain('data-transcript')
+    })
+
+    it('never wraps, so the row cannot grow past its 24 px', () => {
+        const html = render({ state: 'listening', micOpen: true, transcript: 'a very long sentence '.repeat(20) })
+        const slot = html.slice(html.indexOf('data-transcript'))
+        const tag = slot.slice(0, slot.indexOf('>'))
+        expect(tag).toContain('truncate')
+        expect(tag).toContain('whitespace-nowrap')
+        expect(tag).toContain('flex-1')
+    })
+})

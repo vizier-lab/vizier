@@ -230,9 +230,22 @@ export function LiveVoiceRow({
                 <span>{view.micOpen ? 'mic on' : 'mic off'}</span>
             </span>
 
+            {/* The middle slot, which costs no height: the reason when the call is over, the
+                words that were heard while it runs, the waveform otherwise. The transcript used to
+                live only in `LiveVoiceBar`, which stopped being rendered when the row replaced it —
+                so it was in state and never on screen, and a person saw it only after a refresh,
+                as the stored message (F4). */}
             {idle && reason ? (
                 <span className="min-w-0 flex-1 truncate whitespace-nowrap text-faint" title={reason}>
                     {reason}
+                </span>
+            ) : view.transcript ? (
+                <span
+                    data-transcript
+                    className="min-w-0 flex-1 truncate whitespace-nowrap text-soft"
+                    title={view.transcript}
+                >
+                    {view.transcript}
                 </span>
             ) : (
                 <Waveform level={view.level} />

@@ -1148,6 +1148,33 @@ describe('C5/A — an idle ending, a second visit, a hidden window', () => {
         expect(h.client.currentState).toBe('listening')
     })
 
+    it('F4: a new call does not open showing what the last one heard', async () => {
+        const h = driven()
+        await h.client.start()
+        h.client.onFrame({
+            live_voice: { type: 'transcript', utterance_id: 'u-1', text: 'what time is standup', submitted: true },
+        })
+        expect(h.last().transcript).toBe('what time is standup')
+        h.client.stop('pressed_again')
+
+        await h.client.start()
+        // The comment in `start()` promised this and the code did not do it.
+        expect(h.last().transcript).toBe('')
+    })
+
+    it('F4: the transcript follows each utterance while the call runs', async () => {
+        const h = driven()
+        await h.client.start()
+        for (const [id, text] of [
+            ['u-1', 'first thing I said'],
+            ['u-2', 'second thing I said'],
+        ] as const) {
+            h.client.onFrame({ live_voice: { type: 'transcript', utterance_id: id, text, submitted: true } })
+            expect(h.last().transcript).toBe(text)
+            expect(h.client.currentState, 'and the call is still live').toBe('listening')
+        }
+    })
+
     it('T063: a new session reaches connecting before the device is open', async () => {
         // The permission prompt, held open: the promise resolves only when the test says so.
         const pending: ((value: { stop(): void; open: boolean }) => void)[] = []
