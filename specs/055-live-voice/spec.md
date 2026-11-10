@@ -674,7 +674,7 @@ colour **and** marker (FR-042).
 **Do not take any retired surface's pixel floor, narrowing order or placement as a requirement for
 the row.** The row's own constraints are FR-043, FR-044 and FR-049 and nothing else.
 
-## Open Questions (for the User — five live, each with a default; the closed ones kept as a record)
+## Open Questions (for the User — six live, each with a default; the closed ones kept as a record)
 
 Nothing here blocks the plan: each has a decision taken in planning that the plan and the contracts
 already follow. Changing one is a change of scope, not a rewrite.
@@ -687,6 +687,7 @@ already follow. Changing one is a change of scope, not a rewrite.
 | **Q5** | How visible should "this message was spoken" and "this reply was interrupted" be in the conversation? | A small badge with a tooltip, nothing more (FR-011, FR-023). | Hiding the badges makes the conversation read like typing; making them loud makes voice turns look like errors. |
 | ~~**Q11**~~ | Which transport carries the audio path (FR-054)? | **Answered by the User, 2026-11-09 16:35: the WebSocket.** *"kalo liat concern yang disampein SA sama lead sih gw setuju pake websocket dulu aja kalo gitu."* The carrier is **`ws-json-pcm16`** — the path already implemented and tested. The media track stays in the contract as the **reserved** value `media-track`, not as the shipped one, and nothing built for it (setup frames, peer registry, Opus decoder, relay) is written. *The numbers that made this a real choice are kept in `plan.md` so a future decision does not start from zero: str0m +22 crates, 36 s probe build, 583 MB `target`, 1,25 GB peak RSS, Opus decoder + relay required.* | The socket path inherits the work already done: the 46 green client tests, the per-connection lane, the backlog bound and `stall`. What it does **not** do is hide packet loss — no jitter buffer, no PLC, no FEC — so packet loss is a hole in the sound, not a retry. T047's ducking and the 150 ms guard carry the echo and talk-over cases, and the speaker sweep decides whether they are enough (SC-008). |
 | **Q12** | Does the reply start being built **before** the person stops talking — a speculative answer to a half-heard question — or does it start when they stop? | **Held; the reply-as-it-is-made work (FR-065 to FR-070) comes first.** Decided by the User on 2026-11-10 06:39: *"level 1 dulu aja deh bro, tapi kalo pas gw tes terus latency nya masih kerasa ganggu baru gw minta level 2"* — so this is a decision to wait, not an open technical puzzle. The Lead's assessment gives three reasons it is not a small extension: (a) recognition is **whole-clip** today (`stt/mod.rs:77-83`), so a partial hypothesis needs a streaming recogniser first; (b) this machine is already CPU-bound with whisper and kokoro competing, and re-decoding a moving window every ~500 ms would starve them; and (c) — the one that decides it — **a speculative turn can act before it is asked to**: a generation built on a half-heard question that is then discarded may already have run `execute_python` or a shell command, so a discarded answer can leave real effects behind. | If the User asks for it, it is its own project: streaming recognition, a speculative turn with an explicit discard rule that forbids side effects before commitment, and a contract for a reply that may be abandoned. The cost of getting (c) wrong is not tokens, it is a half-heard instruction that ran. |
+| **Q13** | The spoken-reply toggle leaves the UI (C12). A person who can type but would rather listen now has exactly one way to hear an answer: a live call. Is that acceptable? | **Yes, for this release**: C12 stands, and FR-053 keeps the providers, so the toggle can return without a rebuild. | If not, the toggle is the one manual speech surface worth keeping in the composer — which reopens C12 for that half only, and costs a control the row does not have. |
 | ~~**Q4**~~ | A hard cap on concurrent live sessions? | **Answered by the User, 2026-11-09 06:52: exactly one — per person, across every conversation and agent (C10, FR-005).** | — |
 | ~~**Q6**~~ | What else does the live row carry besides the four required things? | **Closed 2026-11-09 as design's call within a stated bound**: the level of the person's voice and the elapsed time, and nothing that survives FR-049's order of surrender. Reopening it means a fourth thing competing for one line, which is why it is not a question but a constraint. | — |
 | ~~**Q7**~~ | Can the person reach the conversation (and type in it) while the call is open? | **Closed by C11 (2026-11-09 16:07): yes, structurally.** A row inside the composer's meta line adds no height and covers nothing, so the conversation and its input are reachable by construction rather than by an answer (FR-049); typed messages stay text-only (FR-025 deferred). | — |
@@ -899,3 +900,127 @@ hops measured at 10.66 s and 2.42 s, the first segment's synthesis time) belong 
 and are not mine to assume. It also does not touch the four fixes already in hand (F1 to F4): those are
 implementation against requirements that already exist, and this delta is about the requirement they will
 eventually need.
+
+## Delta Log — 2026-11-10 09:00 (the brief was already in the document, and one of its clauses must not be applied)
+
+Source: a scheduled brief of 2026-11-10 09:00 carrying four User decisions of 2026-11-09 16:07 and
+asking that they be written here because they were "not yet in the document". They were: three of the
+four were written on 2026-11-09 (`aecf38d1`, `518da0fb`), one of them **more narrowly than the brief
+says**, and the fourth was **overtaken by the User's own answer twenty-eight minutes later**. So this
+delta is a verification with addresses, one sentence loud enough that nobody applies the stale clause
+later, and the list of documents that still owe a pass.
+
+**Baseline, locked before reading anything** — `specs/055-live-voice` at `28160187` (branch
+`055-live-voice`):
+
+| Measure | Value | Pattern |
+|---|---|---|
+| task lines | **111** — 46 open, 65 done | `grep -cE '^- \[[ xX]\] T[0-9]{3}' tasks.md` |
+| `[BACKLOG]` | **9** | `grep -c '\[BACKLOG\]' tasks.md` |
+| `[SUPERSEDED` | **1** task (T093) | `grep -cE '^- \[[ xX]\] T[0-9]{3} \*\*\[SUPERSEDED' tasks.md` — the bare `grep -c '\[SUPERSEDED'` gives **2**, because line 402 also says the word about T093. A prose line is not a task |
+| FR ids | **70** used · **5** struck · **65** live | `grep -oE 'FR-[0-9]{3}' spec.md \| sort -u \| wc -l`; struck: `grep -oE '~~\*\*FR-[0-9]{3}' spec.md \| sort -u \| wc -l` |
+| SC ids | **14** | `grep -oE 'SC-[0-9]{3}' spec.md \| sort -u \| wc -l` |
+| live questions | **6** (Q13 added below) | the Open Questions table |
+
+While this delta was being written the branch moved: HEAD advanced to `45c0b639` (`perf(055)`, touching only `crates/vizier-core/src/agents/agent/mod.rs`). The counts above were re-taken there and are identical — they are stable across both commits, and this line exists so the next reader does not have to reconcile two hashes.
+
+The figures in `review.md:277` (**97 tasks at `dbc50b37`**, 7 `[BACKLOG]`) are four decisions old and
+must not be quoted. A bolded bullet can eat an id, which is why the count above uses a pattern the id
+cannot escape: `^- \[[ xX]\] T[0-9]{3}`.
+
+### The four items, and where each one already lives
+
+| # | The brief says | What this document already says | Where, and when |
+|---|---|---|---|
+| 1 | The surface is **one row in the chat**; the floating panel is cancelled | **C11**: the call is the composer's own meta line, at 0 px added height — not a floating panel, not a screen, not a route, not a rail. US6 rewritten; FR-043…FR-046 and FR-049 rewritten around the row; **FR-048 and Q9 struck** (a row has no position to clamp or remember); T093 is the one `[SUPERSEDED]` task and names itself as such | C11 row · `Session 2026-11-09 16:07` · US6 at `:420` · FR-043…FR-049 · `aecf38d1`, amended at 17:31 (`a1afa47b`) |
+| 2 | STT and TTS are **deprecated** — check FR-003, FR-041, T014, T015, `sttEnabled` | **C12** deprecates the **surfaces, not the code**: the record control and the spoken-reply toggle leave the conversation's UI (FR-053, T107); providers, tools, flags and build capability stay, because *"incase kedepannya kepake buat UI lain"* (User, 16:16). **FR-003 and FR-041 are therefore left bit for bit** — the brief's instruction to "check" them ends in that check: they got *harder*, not narrower | C12 · FR-053 · T107, T108 · `aecf38d1` |
+| 3 | Transport is **WebRTC for audio + WebSocket for chat/transcript**; supersede the `ClientConnection::send` lane, `LIVE_VOICE_SOCKET_BACKLOG=16`, the `stall` frame | **Not applied — see the next section.** The User closed Q11 on the **socket** at 16:35 | Q11 row · C13 · `518da0fb` |
+| 4 | "Standalone" is a **public contract**, explained in ≤ 5 plain sentences | **C14/C15** and a four-sentence paragraph at `:288` ("Standalone means the audio capability is a thing a stranger can use without our client…") with the six surfaces that must be public and the five that stay internal; enforced by FR-058, FR-059, FR-061…FR-064, SC-012/SC-013 | `:281-312` · FR-058…FR-064 · `518da0fb` |
+
+**On item 2, one reading is recorded rather than re-asked.** "Deprecated" in the brief is future tense and
+unqualified; in this document it means the **surface** is gone, the capability is not. That is not my
+inference: it is the User's own qualifier at 16:16, and T108 exists to keep it honest (a build without
+live voice still chats, still transcribes uploads, still speaks on request). If a later instruction wants
+the *code* gone too, it is a new decision with a task and a migration for anyone who enabled the tools.
+Nobody should read this delta as permission to delete the providers.
+
+### The clause that must not be applied: the transport
+
+The brief's third item is the state of the question **before** the User answered it. At 16:35, after the
+Lead's cost note, they said:
+
+> *"kalo liat concern yang disampein SA sama lead sih gw setuju pake websocket dulu aja kalo gitu."*
+
+So **Q11 is closed on the socket** (`ws-json-pcm16`), the per-connection lane with
+`LIVE_VOICE_SOCKET_BACKLOG = 16` and the `stall` frame is **the shipped path**, not something to
+supersede, and `media-track` stays in the contract as a **reserved** value rather than the implemented
+one. Writing item 3 as instructed would reverse a later decision by the same person — the one error this
+delta exists to prevent. What the brief *is* right about is the shape of the split: **audio on its own
+lane, chat and transcript on the ordered broadcast**. That shape is C13 and it shipped; only the carrier
+differs from what the brief assumed.
+
+Applying this delta therefore changes **no requirement**: FR-054…FR-057 and FR-060 keep their carrier.
+The measured cost of the option that lost (str0m, +22 crates) stays where it is — in `plan.md`, as a
+number, not in this document as a preference.
+
+### Carrier audit — every FR this brief touches
+
+| FR | Carriers in `tasks.md` | Verdict |
+|---|---|---|
+| FR-003 | T014 | carried, done |
+| FR-041 | T014, **T108** | carried, T108 open |
+| FR-043 | T038, T040, T089 | carried, done |
+| FR-044 | T038 | carried, done |
+| FR-045 | T038, T090 | carried, done |
+| FR-046 | T040, T091 | carried, done |
+| FR-047 | T047 | carried, open |
+| FR-048 | T093 `[SUPERSEDED by C11]` | retired with the panel — **not** a promise, and the task says so itself |
+| FR-049 | T038, T040, T089, T094 | carried, done |
+| FR-053 | T107 | carried, done |
+| FR-054 | T020, T021, T022 | carried, done |
+| FR-055 | T029 | carried, done |
+| FR-056 | T101 | carried, open |
+| FR-057 | T102 | carried, done |
+| FR-058 | T100, T105, T106 | carried, open |
+| **FR-059** | no task of its own — **T105 publishes the boundary, T106 proves it** | recorded here so it is not mistaken for an orphan: the conformance test *is* the test of "a stranger needs none of our internals" |
+| **FR-060** | none — satisfied **vacuously** on the socket, stated at `:582` | not a promise without an executor: it applies again the moment anything relays audio |
+| FR-061…FR-064 | T100, T109, T110 | T109 done, the rest open |
+
+**Result: no FR touched by this brief is carried only by a `[BACKLOG]` task.** The only BACKLOG-only
+requirements remain FR-020/FR-021, which C7 deferred on purpose. That is the rule-8 check and it passes —
+with FR-059 and FR-060 written down instead of left to look like gaps.
+
+### Documents still owing a pass (owner: `@mamang-lead-be`)
+
+These are **listed, not edited here** — the same convention as the RK-1 row of the 06:35 delta. Each one
+still describes the C9 panel as the shipped surface, or asserts a behaviour the spec has since deferred.
+Until they are rewritten two sources of truth exist, and `spec.md` wins.
+
+| Document | Lines | What it still says | Should say |
+|---|---|---|---|
+| `architecture.md` | 47, 141, 257, 298, 470, 482-483, 492 | `LiveVoicePanel` "floats, draggable, one End"; "FR-042 requires the panel to render that as thinking"; a component-table row for `LiveVoicePanel.tsx` with "drag by the header, clamp, re-clamp on resize, position for the life of the call (FR-048)"; "the panel opens here"; "notice on the closed panel" | the row (`LiveVoiceRow.tsx`), the composer's meta line, no geometry, and the reason as a notice on the row |
+| `architecture.md` | 133, 334 (I8) | "typing during a session sends `live_voice_interrupt {reason: \"typed\"}` (**the audio stops**, FR-025)"; I8 repeats it as an invariant | FR-025 is **deferred with C7**; `spec.md:481` is the truth — the reply keeps playing, the typed turn queues and is answered as text |
+| `architecture.md` | 17 | registry is `LiveVoiceSessions` in `session.rs`, "no separate `registry.rs` module" | **correct — verified**: `ls crates/vizier-core/src/live_voice/` has no `registry.rs`. Nothing to change; listed because the brief named it |
+| `tasks.md` | 241-249, 354, 358 | Phase 8 heading "The call **floats over** the conversation (C9)", goal and independent test describing a draggable panel, the demo as "the floating panel" | Phase 8 is US6 v3: the row in the composer's meta line. The delta note at `:401` already says so; the phase did not follow |
+| `plan.md` | 238, 259 | Phase E goal "the floating panel exists and can be dragged"; exit criterion "opens the floating panel and it drags within bounds" | the row opens with 0 px added and gives up detail in FR-049's order |
+| `plan.md` | 255 | step 3 ends with a leftover "(default: no — the conversation view is what the call replaces)", contradicting the clause before it | drop the leftover; FR-025 is deferred, nothing stops the audio |
+| `quickstart.md` | 137 | the e2e row promises "the interruption path and the floating panel" | the interruption path and the row |
+| `review.md` | 274 (C-15) | "the surface is a **floating panel**… FR-048 (drag, clamp, resize, position) and FR-049 new… C-13 and C-14 are superseded, not withdrawn" | C-15 is itself superseded by C11: FR-048 and Q9 retire, FR-049 is about the row, and what survives from the panel work is the state words and the never-give-up-the-microphone rule |
+| `review.md` | 277-288 | "Canonical baseline… **97 tasks at `dbc50b37`**, 7 `[BACKLOG]`" | **111 tasks, 9 `[BACKLOG]`, one task superseded (T093) at `28160187`**, with the patterns in the table above |
+| `analysis.md` | 226 | "T089..T097 cover the panel and the move" | T089…T097 cover the row and the move; T093 is superseded |
+| `diagrams.md` | 168 | history list: bar → screen → draggable panel → rail → row | **correct as history** — leave it |
+
+**Tests for withdrawn behaviour: swept, and two results.** No `LiveVoicePanel` component, unit test or
+e2e file remains (`grep -rln LiveVoicePanel crates webui docs` returns nothing), so nothing is green
+against the panel. The one surviving "typed" assertion is
+`crates/vizier-http/tests/live_voice_barge_in.rs:268`, which checks that the three interrupt **reason
+strings** are distinct on the wire — a vocabulary test, not a behaviour test, and it should stay: the
+value is part of the contract even while FR-025 is deferred. It must not be cited as evidence that
+typing stops the audio.
+
+### One open question, and it is a cost, not a decision
+
+Q13 is added to the table: removing the spoken-reply toggle leaves a person who can type but would
+rather listen with exactly one way to hear an answer — a live call. The default is "yes, that is
+acceptable for this release", because FR-053 keeps the code and the toggle can come back without a
+rebuild. It is written down so the trade-off is visible, not to re-open C12.
