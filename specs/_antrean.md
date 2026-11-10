@@ -127,7 +127,9 @@ Dicatat terpisah dari status task, sesuai permintaan `@bro-pm`:
 | ID | Judul | Status | Pemilik | Sejak | R: | Diblokir oleh |
 |---|---|---|---|---|---|---|
 | `AQ-001` | Rekonsiliasi checkbox `specs/055-live-voice/tasks.md` dengan riwayat git (label `docs`) | `siap-kirim` | Lead | 9 Nov 2026 20:45 WIB | `tanpa-spec:docs` — allowlist `specs/**` | - |
-| `T110` | Kunci yang dicabut/kedaluwarsa mengakhiri sesi live yang ia buka (FR-063, SC-013) | `gate` | `@sepuh-be` | 9 Nov 2026 21:32 WIB | `FR-063` | DoD **sudah ditulis** (lihat §DoD — T110 di bawah); yang belum: gate teknis saya, lalu tanda tangan QA. Kode mendarat di `vizier@449aca26` + `webui@7b7c9a3` **sebelum** brief — dicatat sebagai insiden, bukan dilewati |
+| `T110` | Kunci yang dicabut/kedaluwarsa mengakhiri sesi live yang ia buka (FR-063, SC-013) | `gate` | `@sepuh-be` | 9 Nov 2026 21:32 WIB | `FR-063` | tanda tangan **teknis ✅ 10 Nov 09:15** (DoD v2, 5/5 tes modul + flag-off); menunggu **tanda tangan perilaku QA** (4 skenario). SC-013 "1 detik" **belum terbukti** — lihat §DoD |
+
+**Catatan penomoran (10 Nov 09:15):** bukti AQ-001 di bawah berlaku untuk **110 task** dan dibekukan di commit-commitnya. Sesudahnya `@system-analyst` menambahkan **T111 [PROVISIONAL]** (`a53bfcb5`, disempurnakan `ef846fbd`), jadi hitungan hari ini **111 task: 65 `[x]` / 46 `[ ]`** — bukan 110/45. Penambahan itu diterima Lead: isinya provisional, menunggu asesmen saya + Q12 dari kang, dan **tidak** masuk gate rilis ini.
 
 ## Tanda tangan — AQ-001
 
@@ -153,20 +155,24 @@ Dicatat terpisah dari status task, sesuai permintaan `@bro-pm`:
 **45 yang sengaja masih `[ ]`**: fixture VAD (T004), baseline (T006), indikator FR-042 e2e (T039), tombol arsip yang bukan lagi pintu masuk (T037), saklar per-agen (T041), counter backlog (T042), ducking & burst pendek (T047, T048), e2e barge-in/interrupt (T049, T056), seluruh backlog interrupt (T051–T057), siklus & penolakan koneksi kedua (T061–T065), tes kegagalan server (T066), superseded (T093), registri & alasan tertinggal (T095–T097), instrumentasi server (T077), dan seluruh gerbang rilis (T078–T088) serta fase kunci pihak ketiga (T100–T110).
 
 
-## DoD — T110 (ditulis 9 Nov 2026 21:36, setelah kode mendarat)
+## DoD — T110 (v2, 10 Nov 2026 09:15 — DoD #3 lama diganti karena **gate hijau palsu**)
 
-Urutannya salah dan saya catat begitu: DoD seharusnya mendahului kode. Isinya tetap wajib lulus sebelum baris ini boleh `siap-kirim`.
+**Kenapa diganti:** `cargo test -p vizier-core --features provider-live-voice end_owned_by_key` keluar dengan **exit 0 sambil menjalankan nol tes** — `end_owned_by_key` adalah nama *method* (`session.rs:519`), bukan nama tes, jadi filter mencocokkan nol fungsi dan Rust tetap melaporkan `test result: ok`. Diukur ulang: **7 target, 7x `running 0 tests`, exit 0.** Temuan `@teteh-qa` 9 Nov 21:45; saya reproduksi sendiri 10 Nov.
 
-**Perintah + output harapan** (fitur minimum, satu crate sekali jalan):
+> **Aturan baru (berlaku semua DoD):** perintah `cargo test <filter>` yang menjalankan **0 tes tetap exit 0**. DoD wajib menyebut **jumlah tes yang harus jalan** (`running N tests`, N > 0) atau memakai path modul lengkap. Exit code saja bukan bukti.
 
-| # | Perintah | Output harapan |
-|---|---|---|
-| 1 | `cargo test -p vizier-core --features provider-live-voice revoking_a_key_ends_its_call_and_leaves_the_others_alone` | 1 lulus, 0 gagal; sesi milik kunci lain **tidak** ikut berakhir |
-| 2 | `cargo test -p vizier-core --features provider-live-voice a_session_a_person_opened_has_no_key_to_revoke` | 1 lulus — sesi yang dibuka orang (bukan kunci) tidak punya kunci untuk dicabut |
-| 3 | `cargo test -p vizier-core --features provider-live-voice end_owned_by_key` | lulus untuk `KeyRevoked` **dan** `KeyExpired`; `key-nobody-used` mengembalikan 0 |
-| 4 | `cargo test -p vizier-core` (tanpa fitur) | lulus — build tanpa `provider-live-voice` tidak melihat kode ini (FR-041) |
-| 5 | `cd webui && npm test -- session` | `humanReason('key_revoked')` beda dari `key_expired` dan dari `pressed_again`; keduanya memuat "revoked"/"expired" |
+| # | Perintah | Output harapan | Diukur 10 Nov 09:15 |
+|---|---|---|---|
+| 1 | `cargo test -p vizier-core --features provider-live-voice live_voice::session::key_tests` | `running 5 tests` · 5 lulus · 0 gagal | ✅ **5 passed / 0 failed**, 1.33 s, exit 0 |
+| 2 | `cargo check -p vizier-core` (tanpa fitur) | `Finished`, exit 0 — FR-041: build tanpa `provider-live-voice` tetap jalan | ✅ exit 0, 44,85 s |
+| 3 | `cargo test -p vizier-core --lib live_voice` (tanpa fitur) | **6 tes** lulus — semuanya tes *setting agent* (`schema::agent`, `service::agents::live_voice_input_tests`), **nol** tes modul `live_voice` | ✅ 6 passed / 0 failed |
+| 4 | `cd webui && npm test -- session` | `key_revoked` beda kalimat dari `key_expired` dan dari `pressed_again` | ✅ diukur `@teteh-qa`: 2 file, **65 passed / 1 skipped**, 922 ms |
 
-**Yang DoD ini belum buktikan, dan wajib disebut di laporan gate:** SC-013 menuntut sesi berakhir **dalam 1 detik** setelah pencabutan. Tes #1–#3 membuktikan *jalur* dan *alasan*, bukan *jeda waktunya*. Bukti 1 detik butuh uji waktu nyata (server hidup, kunci dicabut saat jawaban berjalan) — belum ada, dan tidak boleh diklaim ada.
+**Yang DoD ini tetap belum buktikan — wajib disebut di laporan gate:**
+- **SC-013 "within 1 s"** — belum ada alat. Tes #1 membuktikan jalur, alasan, dan pembersihan registry; tidak ada yang mengukur jeda nyata dari HTTP revoke sampai frame sampai ke klien. Butuh uji waktu dengan server hidup.
+- **"Turn in flight is cancelled" tidak di-assert.** Kode memanggil `abort_turn` sebelum `end` (`session.rs:541-542`), tapi lima tes `key_tests` hanya menyatakan jumlah, alasan, state, dan isi registry.
+- **Sisi klien diuji lewat jalur generik**, bukan lewat alasan kunci (`session.test.ts:692` `provider_failed`, `:702` `idle`). Jalurnya sama, tapi "sama" itu inferensi.
 
-**Pemilik:** gate teknis saya · tanda tangan perilaku `@teteh-qa` (task perilaku → `qa-plan` wajib 3–5 skenario, bukan `N/A`).
+**Batas gate yang lebar, dan bukan milik fitur ini:** `cargo test -p vizier-core` (seluruh crate, tanpa fitur) = **1733 lulus, 8 gagal**; kedelapan kegagalan semuanya `projects::tools::lsp_tests` + `service::project_lsp` ("the server never became ready", 20 s), **repro sendirian** setelah `cargo build -p vizier-core --example fake_lsp`. Itu fitur 054, bukan 055 — makanya DoD #2/#3 di atas dipersempit, bukan gate dibiarkan merah karena warisan fitur lain.
+
+**Pemilik:** gate teknis saya **✅ 10 Nov** (baris #1–#3) · tanda tangan perilaku `@teteh-qa` (task perilaku → `qa-plan` 4 skenario sudah ditulis QA; belum tanda tangan).
