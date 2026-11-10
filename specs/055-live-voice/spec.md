@@ -979,7 +979,7 @@ number, not in this document as a preference.
 | FR-003 | T014 | carried, done |
 | FR-041 | T014, **T108** | carried, T108 open |
 | FR-043 | T038, T040, T089 | carried, done |
-| FR-044 | T038 | carried, done |
+| FR-044 | T038 | **not carried** — T038 draws the row but not the agent's name (`agentName` has **0** hits in the row at `webui@34e7060`); a carrier is owed, and **T112** is the proposed id while it is not yet in `tasks.md` |
 | FR-045 | T038, T090 | carried, done |
 | FR-046 | T040, T091 | carried, done |
 | FR-047 | T047 | carried, open |
@@ -1176,7 +1176,8 @@ renumbers nothing**.
 |---|---|---|---|
 | FR-003 | T014 | `[x]` | carried |
 | FR-041 | T014, **T108** | `[x]`, `[ ]` | carried — T108 is the harder half (two speech paths coexist) |
-| FR-006, FR-038, FR-042, FR-044 | T038, T039 | `[x]` | carried |
+| FR-006, FR-038, FR-042 | T038, T039 | `[x]` | carried |
+| FR-044 | T038 | `[x]` | **not carried** — the row exists, the agent's name does not; a carrier is owed (T112 proposed). Corrected at 12:52 |
 | FR-043, FR-046, FR-049 | T038, T040, T089, T094 | `[x]` | carried |
 | FR-045 | T038, T090 | `[x]` | carried; **T052/T053 (`[BACKLOG]`) add a control to it — they are not its carrier** |
 | FR-047 | T047 | `[ ]` | carried, open — the release still owes SC-008 |
@@ -1302,7 +1303,7 @@ session: the agent the call is with, …"*, with no clause allowing another surf
 
 **This is an implementation defect, not a specification one, and the carrier is dishonest.** `T038` is
 already `[x]` (`tasks.md:150`) and its own text promises *"It shows the agent … (FR-044)"*, while
-`LiveVoiceRowProps` carries only `view`, `capability` and `elapsedSeconds` and the render body
+`LiveVoiceRowProps` carries no agent at all (corrected at 12:52: the interface has seven members — `view`, `capability`, `missing`, `elapsedSeconds`, `onStart`, `onEnd`, `onRestart` — the point being that none of them is an agent) and the render body
 (`:205-260`) holds the state word, the marker, the microphone, the reason/transcript/waveform slot, the
 timer and End — and no agent. That is the same class as `T026` earlier today: a tick that disagrees with
 its own sentence. **Un-ticking it is the Lead's file, not mine**, and it is recorded here rather than
@@ -1373,4 +1374,31 @@ the Lead's file, as recorded at 12:25. The geometric carrier is `T094`'s narrow-
 tests 292 rather than 240 — a one-number change to the Lead's file, **recorded here and not made here**.
 `T038` itself does not move: the row's nearest element to this is the agent's name, whose width the
 designer measures.
+
+## Delta Log — 2026-11-10 12:52 (FR-044 was marked carried by a task that does not carry it)
+
+`@mamang-lead-be` read the carrier map and found it saying something the code does not: **FR-044 is marked
+`carried, done` through T038**, while T038's own sentence promises *"It shows the agent … (FR-044)"* and the
+row it produced has no agent in it.
+
+**The three measurements, at `eb927905` / `webui@34e7060`.** (1) `tasks.md:150` is `- [x] T038` and its text
+contains "It shows the agent, the FR-006 state word …, (FR-044)". (2) `grep -c agentName
+webui/app/screens/chat/LiveVoiceRow.tsx` → **0**; `LiveVoiceRowProps` (`:17-29`) has seven members — `view`,
+`capability`, `missing`, `elapsedSeconds`, `onStart`, `onEnd`, `onRestart` — and no agent among them. (3) `LiveVoiceControl` receives `agentId` and
+nothing else about the agent (`Composer.tsx:471-476`), while the display name it would need is already in
+the composer's scope: `routes/chat.tsx:103` `const agentName = agent?.name ?? agentId`, passed down at
+`:387`. So the work is not hidden behind a component that already has the data — it was never wired, and the
+name exists one level above where the row is rendered.
+
+**Two rows corrected, not one.** The standalone table at `:982` is the one that was found; the carrier audit
+further down grouped *"FR-006, FR-038, FR-042, FR-044 | T038, T039 | `[x]` | carried"*, repeating the same
+claim in a second place. Both now say FR-044 is **not** carried and that a carrier is owed. T112 is named
+only as the **proposed** id: an id that is not in `tasks.md` is not a carrier either, and this delta exists
+precisely because the document said "done" about work nobody had taken.
+
+**What this delta does not do.** It does not add the task: `tasks.md` is the Lead's file and this round's
+standing instruction is that I do not write it, so the text for T112 is handed over in the thread instead.
+It does not re-decide the floor — but T038's line still reads "Floor 240 px", which is the 12:40 decision's
+consequence inside the Lead's file, recorded here and not edited here.
+
 
