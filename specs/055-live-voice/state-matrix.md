@@ -24,7 +24,7 @@ code_ref:     webui@8929bbed (659 baris `session.ts`) · crates @ `0c158da8` —
              (`frame.rs`, `session.rs`), `frames.ts` dan `LiveVoiceRow.tsx` diverifikasi di pin yang sama.
 periksa:      git ls-tree HEAD webui | awk '{print $3}'                      # ≠ 8929bbed → angka di tabel belum diperiksa ulang
              git log -1 --format=%h -- specs/055-live-voice/spec.md          # ≠ pin di spec_ref → pin spec menua
-             git show 8929bbed:app/lib/liveVoice/session.ts | sed -n '628p'  # satu sitasi, satu bukti
+             git -C webui show 8929bbed:app/lib/liveVoice/session.ts | sed -n '628p'  # satu sitasi, satu bukti (dari root repo; `webui` submodule)
 approved:     — (tanggal + siapa)
 viewport:     desktop saja — min 900×600, default 1280×800 (tanpa breakpoint ponsel; 375 px bukan cakupan 055)
 PIC:          desain = kolom "digambar apa" · data = kolom "butuh data apa" · QA = kolom "lulusnya kayak apa"
