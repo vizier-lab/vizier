@@ -1290,9 +1290,10 @@ impl VizierAgent {
             if fast && response.content.iter().any(|part| matches!(part, AssistantPart::ToolCall { .. })) {
                 fast = false;
                 tools = &full_tools;
-                FAST_PATH_MISSES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let retries = FAST_PATH_RETRIES.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
                 tracing::warn!(
                     turn_depth = turn_depth,
+                    retries,
                     "the fast path guessed wrong: the model asked for a tool, so the turn is retried with the toolset"
                 );
                 response = model
@@ -2349,11 +2350,14 @@ const FAST_PATH_WORK_WORDS: &[&str] = &[
 ///
 /// Read rather than logged and forgotten: if this grows past roughly one turn in ten, the predicate
 /// is too loose and the next step is to narrow it, not to explain the number away.
-static FAST_PATH_MISSES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static FAST_PATH_RETRIES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 /// How often the fast path guessed wrong in this process (G3).
+///
+/// Exposed rather than only logged, because the ratio is what decides whether the predicate stays:
+/// more than roughly one turn in ten means it is too loose and should be narrowed.
 pub fn fast_path_misses() -> u64 {
-    FAST_PATH_MISSES.load(std::sync::atomic::Ordering::Relaxed)
+    FAST_PATH_RETRIES.load(std::sync::atomic::Ordering::Relaxed)
 }
 
 /// Whether this turn may be answered with no tools at all (G3).
@@ -2362,10 +2366,18 @@ pub fn fast_path_misses() -> u64 {
 /// the safe one. `history` is the turn's own: a conversation that already used a tool is the most
 /// likely to need one again, whatever the next sentence looks like.
 fn fast_path_ok(req: &VizierRequest, history: &[Message]) -> bool {
+    // Only a spoken turn. A typed message tolerates latency in a way a conversation does not, so
+    // the extra hop a wrong guess costs is not worth the risk of an agent that lost its tools —
+    // and this whole speed-up was defined for `run_turn`, not for the keyboard.
+    if !req.spoken {
+        return false;
+    }
     let text = match &req.content {
         VizierRequestContent::Chat(text) => text.as_str(),
         _ => return false,
     };
+    // `>=`: a message of exactly 120 characters is not small talk. `chars()`, not bytes — a
+    // question in a script outside ASCII is not longer for taking more bytes.
     if text.chars().count() >= FAST_PATH_MAX_CHARS {
         return false;
     }
@@ -3070,7 +3082,17 @@ mod fast_path_tests {
 
     use super::*;
 
+    /// A spoken turn, which is the only kind the fast path serves.
     fn asked(text: &str) -> VizierRequest {
+        VizierRequest {
+            content: VizierRequestContent::Chat(text.to_string()),
+            spoken: true,
+            ..Default::default()
+        }
+    }
+
+    /// The same words typed: the path is not for the keyboard.
+    fn typed(text: &str) -> VizierRequest {
         VizierRequest {
             content: VizierRequestContent::Chat(text.to_string()),
             ..Default::default()
@@ -3091,10 +3113,9 @@ mod fast_path_tests {
         for text in ["halo, apa kabar?", "thanks!", "what's the time of day", "good morning"] {
             assert!(fast_path_ok(&asked(text), &[]), "{text}");
         }
-        // A spoken turn is not treated differently: same rules, same answer.
-        let mut spoken = asked("halo, apa kabar?");
-        spoken.spoken = true;
-        assert!(fast_path_ok(&spoken, &[]));
+        // The same words typed keep the toolset: a typed turn is out of scope, and losing tools
+        // there is a risk with no latency to win.
+        assert!(!fast_path_ok(&typed("halo, apa kabar?"), &[]));
     }
 
     #[test]
