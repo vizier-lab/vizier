@@ -22,7 +22,9 @@ use crate::live_voice::frame::{
 use crate::live_voice::segmenter;
 use crate::live_voice::utterance::Utterance;
 use crate::schema::agent::LiveVoiceSettings;
-use crate::schema::{VizierRequest, VizierRequestContent, VizierResponseContent, VizierSession};
+use crate::schema::{
+    VizierRequest, VizierRequestContent, VizierResponse, VizierResponseContent, VizierSession,
+};
 use crate::transport::{SessionEvent, SessionFrame, VizierTransport};
 
 /// The words a filler may say (G2).
@@ -250,6 +252,25 @@ impl LiveVoiceSession {
     /// The topic this call is on, as the idle log names it. A call without one logs `-`.
     fn topic(&self) -> &str {
         self.session.2.as_deref().unwrap_or("-")
+    }
+
+    /// Put a turn's reply on the conversation's broadcast, where every surface draws it from.
+    ///
+    /// The typed path does this in `topic.rs:1327-1333`: it takes the request's reply channel and
+    /// republishes every response as `SessionFrame::Response`, so the thread learns about the answer
+    /// as it arrives. This session's channel is private (`reply_channel`, `:670`) and was only ever
+    /// read to be spoken — so an answer given by voice reached the speaker and never the thread. The
+    /// words showed up only after something re-read storage (a reload, or `refreshHistory` when the
+    /// row went back to `listening`), which is exactly the report: "the sound comes, the text only
+    /// after I refresh".
+    ///
+    /// Same frame, same broadcast, no new contract: a message that arrives on the conversation is
+    /// drawn by the same reducer whether it was typed or spoken.
+    fn publish_reply(&self, response: &VizierResponse) {
+        self.transport.publish_session_event(SessionEvent {
+            session: self.session.clone(),
+            frame: SessionFrame::Response(response.clone()),
+        });
     }
 
     /// Re-bind the lane to the socket that just reconnected, without disturbing the session.
@@ -697,6 +718,9 @@ impl LiveVoiceSession {
             if self.generation() != generation || self.is_stopped() {
                 break;
             }
+            // Drawn first, spoken second: the person reads the answer while it is being said, and a
+            // reply that is interrupted mid-sentence is still in the thread.
+            self.publish_reply(&frame);
             match frame.content {
                 VizierResponseContent::Message { content, .. } => {
                     // The reply's text is saved by the turn itself; speaking is the extra.
@@ -2212,5 +2236,108 @@ mod idle_tests {
         tokio::time::advance(Duration::from_secs(3600)).await;
         assert_eq!(registry.sweep(tokio::time::Instant::now()).await, 0);
         assert!(!session.is_stopped());
+    }
+}
+
+
+#[cfg(test)]
+mod reply_tests {
+    //! A reply that is spoken must also reach the conversation's surface (F4 follow-up).
+    //!
+    //! The report: "the agent's text does not appear in the thread until I refresh; the sound comes
+    //! right away." The typed path republishes each response on the session broadcast
+    //! (`topic.rs:1327-1333`); this session's channel is private and was only ever spoken, so the
+    //! thread learned about it only when something re-read storage. `run_turn` publishes now, and
+    //! this test fails the moment that call is removed.
+
+    use super::*;
+    use crate::schema::agent::LiveVoiceSettings;
+    use crate::schema::{VizierChannelId, VizierSession};
+    use crate::transport::VizierTransport;
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    /// A voice that says nothing: this test is about the text, not the sound.
+    struct SilentVoice;
+
+    #[async_trait::async_trait]
+    impl crate::live_voice::engines::LiveVoiceEngines for SilentVoice {
+        async fn transcribe(
+            &self,
+            _wav: &[u8],
+            _filename: &str,
+            _language: Option<&str>,
+        ) -> crate::Result<String> {
+            Ok("hello".into())
+        }
+
+        async fn speak(&self, _text: &str) -> crate::Result<Vec<u8>> {
+            Ok(Vec::new())
+        }
+    }
+
+    #[tokio::test]
+    async fn the_answer_is_published_where_the_thread_draws_it() {
+        let transport = VizierTransport::new();
+        let mut inbox = transport.register_agent("helper".into()).await;
+        let (out_tx, _lane) = tokio::sync::mpsc::channel::<serde_json::Value>(64);
+        let session = LiveVoiceSession::new(
+            VizierSession(
+                "helper".into(),
+                VizierChannelId::from_web("olive", "web"),
+                Some("topic-reply".into()),
+            ),
+            "olive".into(),
+            None,
+            LiveVoiceSettings::default(),
+            ClientConnection::new(out_tx),
+            transport.clone(),
+        );
+        session.set_state(SessionState::Listening);
+        let mut events = transport.subscribe_session_events();
+
+        let running = session.clone();
+        tokio::spawn(async move {
+            running.run_turn(Arc::new(SilentVoice), "hello".into()).await
+        });
+        let submitted = tokio::time::timeout(Duration::from_secs(5), inbox.recv_request())
+            .await
+            .expect("the turn submits its request")
+            .expect("the inbox is open");
+
+        // The agent answers on the channel the turn handed it, exactly as the real one does.
+        let reply = submitted.response_tx.expect("the turn hands over a reply channel");
+        reply
+            .send_async(VizierResponse {
+                timestamp: crate::time::now(),
+                content: VizierResponseContent::Message {
+                    content: "the answer, as words".into(),
+                    stats: None,
+                },
+                attachments: vec![],
+                ..Default::default()
+            })
+            .await
+            .expect("the channel is open");
+
+        // The thread draws from this bus. Before the fix nothing arrived here at all.
+        let mut drawn = String::new();
+        for _ in 0..200 {
+            while let Ok(event) = events.try_recv() {
+                if let SessionFrame::Response(response) = event.frame
+                    && let VizierResponseContent::Message { content, .. } = response.content
+                {
+                    drawn = content;
+                }
+            }
+            if !drawn.is_empty() {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(
+            drawn, "the answer, as words",
+            "the spoken answer must also be published: without it the text only exists after a reload"
+        );
     }
 }
