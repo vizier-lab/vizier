@@ -22,7 +22,7 @@ The design separates what belongs to the **app** from what belongs to the **agen
   agent's details. The bell stays at the right.
 - Everything about one agent (Core, Memory, Tasks, Artifacts, Skills, Dreams, Channels, Addons,
   MCP, Usage, Secrets, Config) lives on one **Agent details** page, reached from that button.
-- The menu drawer holds the app only: Chat, Home, Settings, Theme.
+- The menu drawer holds the app only: Home, Chat, Settings, Theme.
 - Choosing an agent and choosing a topic are bottom sheets, not dropdowns.
 - There is no bottom bar, and no control in the top bar has a border.
 
@@ -36,7 +36,7 @@ The desktop layout does not change.
 - The agent switcher sheet: agents, then workspaces, each row with its own details button.
 - The Agent details route, `/:agentId/details`.
 - A back bar on every agent page on a phone, returning to Agent details.
-- The menu drawer: Chat, Home, Settings, Theme, and the person (profile, sign out).
+- The menu drawer: Home, Chat, Settings, Theme, and the person (profile, sign out).
 - Home on a phone: an AGENTS list and a WORKSPACES list, each with a + beside its heading.
 - Safe-area insets for the top bar and the composer.
 
@@ -116,7 +116,7 @@ the agents and the workspaces; select one.
 **Acceptance Scenarios**:
 
 1. **Given** any phone screen, **When** the person presses ☰, **Then** a left drawer lists
-   Chat, Home, Settings and Theme, and the person's own row with profile and sign out (hidden in
+   Home, Chat, Settings and Theme, and the person's own row with profile and sign out (hidden in
    the desktop app, as today).
 2. **Given** the drawer, **Then** the current place is marked, and choosing a row closes it.
 

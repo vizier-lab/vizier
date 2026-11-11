@@ -66,7 +66,7 @@ layout is checked by the Playwright mobile projects.
 - [X] T015 Add `app/screens/shell/AgentSwitcherSheet.tsx`: agents then workspaces in a bottom
       `SlideOver`, the current one marked, each row's details button to `/{agent}/details`, no
       "New agent".
-- [X] T016 Add `app/screens/shell/MobileNavDrawer.tsx`: Chat, Home, Settings, Theme (the
+- [X] T016 Add `app/screens/shell/MobileNavDrawer.tsx`: Home, Chat, Settings, Theme (the
       appearance store's `toggleMode`, shown only when the theme has both variants), and the
       person's row with profile and sign out (Sign out hidden in desktop mode, as `ShellRail`
       does).
