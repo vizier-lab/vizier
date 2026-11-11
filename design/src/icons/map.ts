@@ -68,6 +68,7 @@ import {
   Settings,
   Shield,
   Slash,
+  SlidersHorizontal,
   SmilePlus,
   Square,
   SquareTerminal,
@@ -180,6 +181,8 @@ export const icons = {
   "volume-2": Volume2,
   // Found in the final checks: Telegram in the conversation picker
   "paper-plane": Send,
+  // The phone shell (spec 056): the agent details button beside the agent in the top bar
+  "sliders": SlidersHorizontal,
 } satisfies Record<string, LucideIcon>;
 
 export type IconName = keyof typeof icons;
@@ -271,6 +274,7 @@ export const lucideNames: Record<IconName, string> = {
   "arrow-up-right": "arrow-up-right",
   "volume-2": "volume-2",
   "paper-plane": "send",
+  "sliders": "sliders-horizontal",
 };
 
 export const iconNames = Object.keys(icons) as IconName[];
