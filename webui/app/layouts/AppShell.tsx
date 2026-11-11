@@ -42,7 +42,7 @@ export default function AppShell() {
     const loadWorkspaces = useWorkspaces((s) => s.load)
     const workspaceList = useWorkspaces((s) => s.list)
     const mobile = useMobile()
-    const shellHeight = useStandaloneHeight(mobile)
+    const installed = useInstalledIOS()
 
     // iOS scrolls the page up to keep a focused field above the keyboard, and leaves it there when
     // the keyboard goes away, so the whole shell sits a little high. Put the page back once focus
@@ -221,7 +221,7 @@ export default function AppShell() {
                       title: view === 'settings' ? 'Settings' : view === 'workspace' ? (workspaceName ?? 'Workspace') : 'Vizier',
                   }
         return (
-            <div className="fixed inset-x-0 top-0 flex h-dvh min-w-0 flex-col bg-panel pb-safe text-fg" style={shellHeight ? { height: shellHeight } : undefined} onClick={onClick}>
+            <div className="flex h-dvh min-w-0 flex-col bg-panel pb-safe text-fg" style={installed ? { height: '100lvh' } : undefined} onClick={onClick}>
                 {!ownsTopBar && (
                     <MobileTopBar
                         {...bar}
@@ -271,32 +271,15 @@ export default function AppShell() {
 }
 
 /**
- * The installed app on iOS: after the keyboard closes it can keep reporting the shorter height
- * (dvh and innerHeight both stay short), which leaves a gap under the page. The page never gets
- * taller than what was drawn before any keyboard, so keep the tallest height seen in each
- * orientation and ignore the drops. The screen size is not it: the app's view is shorter.
+ * The installed app on iOS draws the page over the whole screen, but once the keyboard has been
+ * up `dvh` comes back short (812 of 874 on an iPhone 16 Pro) and stays there, lifting the composer.
+ * `lvh` does not move, and in the installed app there is no browser toolbar for it to count. The
+ * shell stays in the flow: a fixed one is cut at the shorter viewport and leaves a black band.
  */
-function useStandaloneHeight(mobile: boolean): string | undefined {
-    const standalone = typeof navigator !== 'undefined' && (navigator as Navigator & { standalone?: boolean }).standalone === true
-    const [height, setHeight] = useState<string | undefined>(undefined)
+function useInstalledIOS(): boolean {
+    const [installed, setInstalled] = useState(false)
     useEffect(() => {
-        if (!mobile || !standalone) {
-            setHeight(undefined)
-            return
-        }
-        const tallest = { portrait: 0, landscape: 0 }
-        const update = () => {
-            const key = window.matchMedia('(orientation: portrait)').matches ? 'portrait' : 'landscape'
-            tallest[key] = Math.max(tallest[key], window.innerHeight)
-            setHeight(`${tallest[key]}px`)
-        }
-        update()
-        window.addEventListener('resize', update)
-        window.addEventListener('orientationchange', update)
-        return () => {
-            window.removeEventListener('resize', update)
-            window.removeEventListener('orientationchange', update)
-        }
-    }, [mobile, standalone])
-    return height
+        setInstalled((navigator as Navigator & { standalone?: boolean }).standalone === true)
+    }, [])
+    return installed
 }
