@@ -6,7 +6,7 @@ import { Button, Dialog, Modal, Notice, Radio, Skeleton, SwitchRow } from '@vizi
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ApiError } from '../../api/client'
 import { transport } from '../../api/transport'
-import { buildCreateRequest, createShare, sharePath, type CreatedShare } from '../../api/shares'
+import { buildCreateRequest, createShare, searchPeople, sharePath, type Audience, type CreatedShare, type PersonMatch } from '../../api/shares'
 import { buildPreview, formatBytes, type Preview } from '../../lib/share/preview'
 import { serializeConversation, ShareError, type SerializeResult } from '../../lib/share/serialize'
 import { toast } from '../../stores/toasts'
@@ -58,8 +58,13 @@ export function createFailure(e: unknown): string {
 }
 
 /** The one call that stores something: builds the request from what was previewed and sends it. */
-export async function createLink(choice: { agentId: string; topicId: string; title: string }, result: SerializeResult, origin: string): Promise<string> {
-    const made = await createShare(buildCreateRequest({ ...choice, audience: 'public' }, result))
+export async function createLink(
+    choice: { agentId: string; topicId: string; title: string; audience?: Audience; people?: string[] },
+    result: SerializeResult,
+    origin: string
+): Promise<string> {
+    const audience = choice.audience ?? 'public'
+    const made = await createShare(buildCreateRequest({ ...choice, audience }, result))
     return linkFor(origin, made)
 }
 
@@ -75,6 +80,12 @@ type Props = {
 export function ShareDialog({ open, onClose, agentId, topicId, title, agentName }: Props) {
     const desktop = transport.authMode === 'desktop'
     const [includeTrail, setIncludeTrail] = useState(false)
+    const [audience, setAudience] = useState<Audience>('public')
+    const [people, setPeople] = useState<PersonMatch[]>([])
+    const [peopleQuery, setPeopleQuery] = useState('')
+    const [peopleMatches, setPeopleMatches] = useState<PersonMatch[]>([])
+    const [searchingPeople, setSearchingPeople] = useState(false)
+    const [peopleError, setPeopleError] = useState<string | null>(null)
     const [result, setResult] = useState<SerializeResult | null>(null)
     const [loadError, setLoadError] = useState<string | null>(null)
     const [loading, setLoading] = useState(false)
@@ -88,11 +99,63 @@ export function ShareDialog({ open, onClose, agentId, topicId, title, agentName 
     useEffect(() => {
         if (open) {
             setIncludeTrail(false)
+            setAudience('public')
+            setPeople([])
+            setPeopleQuery('')
+            setPeopleMatches([])
+            setPeopleError(null)
             setCreated(null)
             setCreateError(null)
             setPreviewing(false)
         }
     }, [open])
+
+    // Search people by query prefix when audience is 'specific'
+    useEffect(() => {
+        if (audience !== 'specific') return
+        const q = peopleQuery.trim()
+        if (q.length < 2) {
+            setPeopleMatches([])
+            setSearchingPeople(false)
+            return
+        }
+        const ctl = new AbortController()
+        setSearchingPeople(true)
+        const t = setTimeout(() => {
+            searchPeople(q, ctl.signal)
+                .then((matches) => {
+                    if (!ctl.signal.aborted) {
+                        setPeopleMatches(matches.filter((m) => !people.some((p) => p.user_id === m.user_id)))
+                        setPeopleError(null)
+                    }
+                })
+                .catch((err) => {
+                    if (!ctl.signal.aborted) {
+                        setPeopleError(err instanceof Error ? err.message : 'Could not search people')
+                    }
+                })
+                .finally(() => {
+                    if (!ctl.signal.aborted) setSearchingPeople(false)
+                })
+        }, 200)
+        return () => {
+            clearTimeout(t)
+            ctl.abort()
+        }
+    }, [audience, peopleQuery, people])
+
+    const addPerson = (p: PersonMatch) => {
+        if (people.length >= 50) return
+        if (!people.some((existing) => existing.user_id === p.user_id)) {
+            setPeople([...people, p])
+        }
+        setPeopleQuery('')
+        setPeopleMatches([])
+    }
+
+    const removePerson = (userId: string) => {
+        setPeople(people.filter((p) => p.user_id !== userId))
+    }
 
     // Read the conversation (the trail switch changes what is in it). Reads only.
     useEffect(() => {
@@ -113,10 +176,21 @@ export function ShareDialog({ open, onClose, agentId, topicId, title, agentName 
 
     const create = useCallback(async () => {
         if (!result || !preview?.canShare) return
+        if (audience === 'specific' && people.length === 0) return
         setCreating(true)
         setCreateError(null)
         try {
-            const link = await createLink({ agentId, topicId, title }, result, window.location.origin)
+            const link = await createLink(
+                {
+                    agentId,
+                    topicId,
+                    title,
+                    audience,
+                    people: audience === 'specific' ? people.map((p) => p.user_id) : undefined,
+                },
+                result,
+                window.location.origin
+            )
             setCreated(link)
             void navigator.clipboard?.writeText(link).then(() => toast.success('Link copied'), () => undefined)
         } catch (e) {
@@ -124,7 +198,7 @@ export function ShareDialog({ open, onClose, agentId, topicId, title, agentName 
         } finally {
             setCreating(false)
         }
-    }, [result, preview, agentId, topicId, title])
+    }, [result, preview, agentId, topicId, title, audience, people])
 
     const copy = () => {
         if (!created) return
@@ -134,6 +208,13 @@ export function ShareDialog({ open, onClose, agentId, topicId, title, agentName 
         )
     }
 
+    const audienceLabel =
+        audience === 'public'
+            ? 'Anyone with the link'
+            : audience === 'signed_in'
+            ? 'Anyone signed in on this instance'
+            : `Specific people (${plural(people.length, 'person', 'people')})`
+
     return (
         <>
             <Dialog
@@ -142,7 +223,7 @@ export function ShareDialog({ open, onClose, agentId, topicId, title, agentName 
                 title="Share this conversation"
                 confirmLabel={created || desktop ? '' : 'Create link'}
                 confirmLoading={creating}
-                confirmDisabled={!preview?.canShare || loading}
+                confirmDisabled={!preview?.canShare || loading || (audience === 'specific' && people.length === 0)}
                 onConfirm={() => void create()}
                 onCancel={onClose}
             >
@@ -160,15 +241,88 @@ export function ShareDialog({ open, onClose, agentId, topicId, title, agentName 
                             <Button onClick={copy}>Copy</Button>
                             <Button variant="primary" onClick={onClose}>Done</Button>
                         </div>
+                        <p className="type-small text-muted">Who can open it: <span className="text-fg">{audienceLabel}</span> (cannot be changed after creating).</p>
                         <p className="type-small text-muted">{COPY_WARNING}</p>
                     </div>
                 ) : (
                     <div className="flex flex-col gap-16">
                         <fieldset className="flex flex-col gap-6">
                             <legend className="type-ui-medium text-fg">Who can open it</legend>
-                            <Radio name="audience" label="Specific people (coming soon)" disabled checked={false} readOnly />
-                            <Radio name="audience" label="Anyone signed in on this instance (coming soon)" disabled checked={false} readOnly />
-                            <Radio name="audience" label="Anyone with the link (public)" checked readOnly />
+                            <Radio
+                                name="audience"
+                                label="Specific people"
+                                checked={audience === 'specific'}
+                                onChange={() => setAudience('specific')}
+                            />
+                            {audience === 'specific' && (
+                                <div className="flex flex-col gap-8 pl-24">
+                                    <div className="relative">
+                                        <input
+                                            type="search"
+                                            aria-label="Add people by username"
+                                            placeholder="Search username (at least 2 characters)…"
+                                            value={peopleQuery}
+                                            onChange={(e) => setPeopleQuery(e.target.value)}
+                                            className="w-full rounded-md border border-border-strong bg-raised px-10 py-6 type-ui-xs text-fg placeholder:text-muted focus:border-ink"
+                                        />
+                                        {searchingPeople && <span className="absolute right-8 top-8 type-ui-xs text-muted">Searching…</span>}
+                                        {peopleMatches.length > 0 && (
+                                            <ul
+                                                role="listbox"
+                                                aria-label="Matching users"
+                                                className="absolute z-10 mt-4 max-h-48 w-full overflow-auto rounded-md border border-border-strong bg-raised py-4 shadow-lg"
+                                            >
+                                                {peopleMatches.map((match) => (
+                                                    <li key={match.user_id}>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => addPerson(match)}
+                                                            className="w-full px-10 py-6 text-left type-ui-xs text-fg hover:bg-hover"
+                                                        >
+                                                            {match.username}
+                                                        </button>
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                        )}
+                                    </div>
+                                    {peopleError && <p className="type-small text-failed-text">{peopleError}</p>}
+                                    {people.length > 0 ? (
+                                        <div className="flex flex-wrap gap-6" aria-label="Selected people">
+                                            {people.map((p) => (
+                                                <span
+                                                    key={p.user_id}
+                                                    className="inline-flex items-center gap-4 rounded-xs border border-border-strong bg-raised px-6 py-2 type-ui-xs text-fg"
+                                                >
+                                                    {p.username}
+                                                    <button
+                                                        type="button"
+                                                        aria-label={`Remove ${p.username}`}
+                                                        onClick={() => removePerson(p.user_id)}
+                                                        className="type-ui-xs text-muted hover:text-fg"
+                                                    >
+                                                        ×
+                                                    </button>
+                                                </span>
+                                            ))}
+                                        </div>
+                                    ) : (
+                                        <p className="type-small text-muted">Name at least one person to share with.</p>
+                                    )}
+                                </div>
+                            )}
+                            <Radio
+                                name="audience"
+                                label="Anyone signed in on this instance"
+                                checked={audience === 'signed_in'}
+                                onChange={() => setAudience('signed_in')}
+                            />
+                            <Radio
+                                name="audience"
+                                label="Anyone with the link (public)"
+                                checked={audience === 'public'}
+                                onChange={() => setAudience('public')}
+                            />
                         </fieldset>
 
                         <SwitchRow label="Include the agent's activity trail (tool calls and results)" helper={TRAIL_HELP} checked={includeTrail} onCheckedChange={setIncludeTrail} />

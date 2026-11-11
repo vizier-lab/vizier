@@ -11,7 +11,7 @@ import { SnapshotView } from '../viewer/SnapshotView'
 export type ShareView =
     | { state: 'loading' }
     | { state: 'ok'; snapshot: Snapshot }
-    | { state: 'unavailable'; signIn: boolean }
+    | { state: 'unavailable'; signIn: boolean; message?: string }
     | { state: 'damaged'; message: string }
     | { state: 'needs_newer'; message: string }
 
@@ -19,7 +19,13 @@ export type ShareView =
 export function viewFor(result: { data: unknown } | { error: unknown }): ShareView {
     if ('error' in result) {
         const e = result.error
-        return { state: 'unavailable', signIn: e instanceof ApiError && e.status === 401 }
+        const is401 = e instanceof ApiError && e.status === 401
+        const is429 = e instanceof ApiError && e.status === 429
+        return {
+            state: 'unavailable',
+            signIn: is401,
+            ...(is429 ? { message: RATE_LIMITED } : {}),
+        }
     }
     const data = result.data as { snapshot?: unknown } | null
     const parsed = parseSnapshot(data?.snapshot)
@@ -28,14 +34,19 @@ export function viewFor(result: { data: unknown } | { error: unknown }): ShareVi
 }
 
 export const UNAVAILABLE = "This link isn't available."
+export const RATE_LIMITED = 'Too many requests. Try again later.'
 export const DAMAGED = 'This file is damaged or was edited, so it was not opened.'
 
-export function Neutral({ message, signIn }: { message: string; signIn?: boolean }) {
+export function Neutral({ message, signIn, shareId }: { message: string; signIn?: boolean; shareId?: string }) {
+    const returnTo = shareId ? `/share/${encodeURIComponent(shareId)}` : undefined
     return (
         <main className="mx-auto flex min-h-screen max-w-md flex-col items-center justify-center gap-16 px-24 text-center">
             <Notice tone="info" title={message} />
             {signIn && (
-                <Link to="/login">
+                <Link
+                    to={returnTo ? `/login?returnTo=${encodeURIComponent(returnTo)}` : '/login'}
+                    state={returnTo ? { from: returnTo } : undefined}
+                >
                     <Button variant="primary">Sign in</Button>
                 </Link>
             )}
@@ -73,7 +84,7 @@ export default function Share() {
         case 'ok':
             return <SnapshotView snapshot={view.snapshot} />
         case 'unavailable':
-            return <Neutral message={UNAVAILABLE} signIn={view.signIn} />
+            return <Neutral message={view.message ?? UNAVAILABLE} signIn={view.signIn} shareId={shareId} />
         case 'needs_newer':
             return <Neutral message={view.message} />
         default:

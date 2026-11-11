@@ -63,6 +63,26 @@ describe('creating the link', () => {
         expect(req.removals).toEqual(result.removals)
     })
 
+    it('sends signed_in and specific requests with appropriate audience and people', async () => {
+        const { result } = await previewOf(false)
+        await createLink({ agentId: 'a1', topicId: 't1', title: 'T', audience: 'signed_in' }, result, 'https://vizier.example')
+        expect(create).toHaveBeenLastCalledWith(expect.objectContaining({ audience: 'signed_in' }))
+
+        await createLink(
+            { agentId: 'a1', topicId: 't1', title: 'T', audience: 'specific', people: ['u-bob'] },
+            result,
+            'https://vizier.example'
+        )
+        expect(create).toHaveBeenLastCalledWith(expect.objectContaining({ audience: 'specific', people: ['u-bob'] }))
+    })
+
+    it('renders all three audience choices when opened', () => {
+        const html = renderToString(<ShareDialog open={true} onClose={() => undefined} agentId="a" topicId="t" title="T" agentName="A" />)
+        expect(html).toContain('Specific people')
+        expect(html).toContain('Anyone signed in on this instance')
+        expect(html).toContain('Anyone with the link (public)')
+    })
+
     it('a closed dialog (cancel) reads and stores nothing', () => {
         const html = renderToString(<ShareDialog open={false} onClose={() => undefined} agentId="a" topicId="t" title="T" agentName="A" />)
         expect(html).not.toContain('Create link')
