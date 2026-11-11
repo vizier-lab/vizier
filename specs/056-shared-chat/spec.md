@@ -12,6 +12,18 @@
 
 A person shares one of their chats with an agent as a **snapshot**: a frozen, read-only copy. They can share it as a **link**, choosing who may open it (named people on this Vizier instance, anyone signed in to this instance, or anyone with the link), or as a single **offline file** (`.vizier.html`) that opens in a browser with no connection. The agent's activity trail is left out unless the person asks for it, and certain things are never shared at all. This spec covers **sharing only**. Continuing a shared conversation with one's own agent (the issue's "fork", which the maintainer reframed as "import conversation") is a separate, later spec and is not specified here.
 
+## Clarifications
+
+### Session 2026-11-11
+
+The product owner was not available. Each question was answered with the most conservative option (least data exposed, least privilege, least surprise) and may be overruled.
+
+- Q: Beyond choosing the audience, what guards the creation of an "anyone with the link" share, and may such a share be listed or summarised by services outside the instance? → A: A second, explicit confirmation that states anyone holding the link can read it without signing in. The page asks not to be listed by search engines and gives no title, excerpt, author or picture to link previews. The one permission still covers all three audiences.
+- Q: When naming specific people, what can the search reveal about the instance's users, and to whom? → A: Only to a person who may share, only after at least 2 typed characters, at most 10 matches per search, each showing display name and username and nothing else, limited to 30 searches per minute.
+- Q: What does a viewer of a share learn about its audience and its other viewers? → A: Nothing. The shared view shows neither the kind of audience, nor the named people, nor how many there are, nor who else has opened it.
+- Q: What does the administrative list show about a share the administrator is not in the audience of? → A: Author, agent, kind of audience, number of named people, date and size. Not the title (it is derived from the conversation) and not who the named people are.
+- Q: Who may read the record of share actions, and are openings of a share recorded? → A: The author reads the record of their own shares. An administrator reads every record under the same limits as the administrative list. Openings are not recorded per viewer.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Share a chat as a link with a chosen audience (Priority: P1)
@@ -27,10 +39,10 @@ A person has a conversation worth showing: an answer, some generated images, a 3
 1. **Given** a person who may share and a chat with at least one completed exchange, **When** they choose Share, **Then** they see a preview of the snapshot and a choice of three audiences, and nothing has been stored or sent anywhere yet.
 2. **Given** the preview, **When** they choose "specific people", pick two people and confirm, **Then** they get a link, and only they and those two people, signed in, can open it.
 3. **Given** the preview, **When** they choose "anyone on this instance" and confirm, **Then** every signed-in user of the instance can open the link and a signed-out visitor cannot.
-4. **Given** the preview, **When** they choose "anyone with the link" and confirm, **Then** the link opens for a signed-out visitor in a browser that has never visited the instance.
+4. **Given** the preview, **When** they choose "anyone with the link" and confirm, **Then** they are asked once more, with a statement that anyone holding the link can read it without signing in, and only after agreeing do they get a link, which opens for a signed-out visitor in a browser that has never visited the instance.
 5. **Given** a visitor who is not in a share's audience, **When** they open the link, **Then** they see the same "not available" page they would see for a link that never existed, with nothing that reveals the share, its title, its author or its audience.
 6. **Given** a signed-out visitor on the "not available" page, **When** they sign in as a person who is in the audience, **Then** they land on the shared conversation.
-7. **Given** an open shared conversation, **When** the visitor looks for ways to act on it, **Then** there is no way to send a message, react, edit, or reach the original chat or any of the author's other chats.
+7. **Given** an open shared conversation, **When** the visitor looks for ways to act on it, **Then** there is no way to send a message, react, edit, or reach the original chat or any of the author's other chats, and nothing shows who else may open it or has opened it.
 8. **Given** a person without the permission to share, **When** they open a chat, **Then** no Share action is offered, and a direct attempt to create a share is refused.
 
 ---
@@ -107,7 +119,7 @@ A person can see every link they have shared, with its audience and date, open i
 3. **Given** a public share, **When** its author revokes it, **Then** within 5 minutes no new visitor anywhere can open it.
 4. **Given** a share for specific people, **When** its author removes one of them, **Then** that person's next attempt gets the "not available" page. **When** the author tries to add a person or change the audience to a wider one, **Then** that is not offered, and they are pointed to creating a new share.
 5. **Given** a chat that has live shares, **When** its author opens it, **Then** the chat shows that it is shared and leads to those shares.
-6. **Given** an administrator, **When** they list shares on the instance, **Then** they see each share's title, author, agent, audience, date and size, and can revoke any. Opening a share they are not in the audience of gets the "not available" page.
+6. **Given** an administrator, **When** they list shares on the instance, **Then** they see each share's author, agent, kind of audience, number of named people, date and size, and can revoke any. They see a share's title and the names of its named people only when they are in its audience. Opening a share they are not in the audience of gets the "not available" page.
 7. **Given** an administrator revokes someone's share, **When** that happens, **Then** the author is told which share was revoked.
 8. **Given** a share exists, **When** its author edits, continues, clears or deletes the original chat, or the agent is deleted, **Then** the share shows exactly what it showed when it was created.
 
@@ -172,7 +184,9 @@ Reading a share needs no permission to share and no access to the agent the conv
 **Audience**
 
 - **FR-011**: When creating a link share, the person MUST choose exactly one audience: specific people on this instance, anyone signed in to this instance, or anyone with the link. No audience MUST be preselected in a way that lets a public share be created without choosing it.
-- **FR-012**: For "specific people", the person MUST be able to find people by name or username through a search, without browsing a full list of users, and name up to 50.
+- **FR-053**: Creating an "anyone with the link" share MUST require a second, explicit confirmation, separate from the choice of audience, stating that anyone who holds the link can read the conversation without signing in. Declining it MUST create nothing. The permission to share (FR-001) covers all three audiences: no further permission or setting is needed.
+- **FR-054**: A public share MUST ask not to be listed or kept by search engines and other automated collectors, and MUST offer no descriptive summary of itself (title, excerpt, author, picture) for link previews. Its content is given only to a visitor who opens the link.
+- **FR-012**: For "specific people", the person MUST be able to find people by name or username through a search, without browsing a full list of users, and name up to 50. The search MUST be available only to a person who may share, MUST return nothing until at least 2 characters are typed, MUST return at most 10 matches, each showing a display name and a username and nothing else about that person, and MUST be limited to 30 searches per minute per person.
 - **FR-013**: Access MUST follow the "Audience by viewer" table. Reading a share MUST NOT require the permission to share or access to the agent.
 - **FR-014**: A visitor who may not read a share MUST get one "not available" response that is identical whether the share is restricted, revoked or never existed, in what is shown and in anything else the visitor can observe about the response. It MUST NOT reveal the title, author, agent or audience. Shown to a signed-out visitor, it MUST always offer signing in, and signing in as an allowed person MUST lead to the share.
 
@@ -202,7 +216,7 @@ Reading a share needs no permission to share and no access to the agent the conv
 **The shared view**
 
 - **FR-029**: A shared view MUST be read-only: no composer, no reactions, no editing, no continuing the conversation, and no import or fork in this version.
-- **FR-030**: A shared view MUST state that it is a shared copy, when it was shared, the agent it was with, and (if shown) by whom, and MUST be usable on a phone-sized screen and with a keyboard and a screen reader.
+- **FR-030**: A shared view MUST state that it is a shared copy, when it was shared, the agent it was with, and (if shown) by whom, and MUST be usable on a phone-sized screen and with a keyboard and a screen reader. It MUST tell a viewer nothing about the share's audience or its other viewers: not the kind of audience, not the named people, not how many there are, and not who else has opened it. Only the author sees a share's audience.
 - **FR-031**: Links in a shared conversation MUST be followed only by a deliberate action of the viewer, with the destination shown first.
 
 **The offline file**
@@ -221,7 +235,7 @@ Reading a share needs no permission to share and no access to the agent the conv
 - **FR-040**: A public share MUST NOT be kept by any intermediary or browser for longer than 5 minutes without checking again. A share with a restricted audience MUST NOT be kept by any shared intermediary at all.
 - **FR-041**: A share's audience MUST NOT be widened after creation: no change from a narrower audience to a wider one, and no adding people. The author MUST be able to remove named people, with effect from that person's next attempt. To reach more people, the person creates a new share.
 - **FR-042**: Shares MUST NOT expire by themselves.
-- **FR-043**: A holder of `all_agents:share_conversations` (an administrator, for this feature) MUST be able to list every link share on the instance by its metadata (title, author, agent, audience, date, size) and revoke any. That list and that right MUST NOT give access to any snapshot's content: the administrator reads a share only if the audience includes them.
+- **FR-043**: A holder of `all_agents:share_conversations` (an administrator, for this feature) MUST be able to list every link share on the instance by its metadata (author, agent, kind of audience, number of named people, date, size) and revoke any. That list and that right MUST NOT give access to any snapshot's content: the administrator reads a share only if the audience includes them. For a share whose audience does not include the administrator, the list MUST NOT show the title, which is derived from the conversation, or who the named people are.
 - **FR-044**: When someone other than the author revokes a share, the author MUST be told which share it was.
 - **FR-045**: Deleting a person's account MUST revoke their link shares and remove them from the audience of other people's shares. Losing the permission to share, or access to the agent, MUST leave existing shares working and still manageable by their author.
 
@@ -236,7 +250,7 @@ Reading a share needs no permission to share and no access to the agent the conv
 **Consistency**
 
 - **FR-051**: Every rule above MUST hold identically however a share is requested or opened, including direct requests that bypass the interface.
-- **FR-052**: Creating a share, revoking one and changing its named people MUST be recorded with who did it and when, without recording the snapshot's content.
+- **FR-052**: Creating a share, revoking one and changing its named people MUST be recorded with who did it and when, without recording the snapshot's content. The author MUST be able to read the record of their own shares. An administrator (FR-043) MUST be able to read every record, under the same limits as the administrative list: no title and no names of named people for a share whose audience does not include them. Openings of a share MUST NOT be recorded per viewer, and nobody, the author included, is shown who opened a share.
 
 ### Key Entities
 
@@ -263,8 +277,8 @@ Reading a share needs no permission to share and no access to the agent the conv
 - **SC-010**: After the original chat, its files and its agent are deleted, 100% of existing shares of it display unchanged.
 - **SC-011**: A public share of a 200-message conversation with 10 pictures is readable within 3 seconds of opening the link on an ordinary connection, and the preview for it appears within 3 seconds of pressing Share.
 - **SC-012**: 1,000 visitors opening one public share within a minute do not slow an ongoing chat on the same instance by more than 10%.
-- **SC-013**: An administrator outside a share's audience obtains 0 bytes of its conversation content through any surface, while being able to list and revoke it.
-- **SC-014**: Every stated limit (5 MB, 20 MB, 1 MB per picture or clip, 10 per hour, 200 live, 250 MB, 50 named people, 60 failed attempts per minute) is enforced, and each refusal names the limit and its value.
+- **SC-013**: An administrator outside a share's audience obtains 0 bytes of its conversation content, and neither its title nor the names of its named people, through any surface, while being able to list and revoke it.
+- **SC-014**: Every stated limit (5 MB, 20 MB, 1 MB per picture or clip, 10 per hour, 200 live, 250 MB, 50 named people, 10 matches and 30 searches per minute when finding people, 60 failed attempts per minute) is enforced, and each refusal names the limit and its value.
 - **SC-015**: Two confirmations of one Share dialog within one second produce exactly one share in 100% of trials.
 - **SC-016**: A snapshot holds enough to rebuild the conversation's order, authorship and message text exactly, checked by comparing a shared snapshot with its source for a set of test conversations, so a later import needs no change to existing shares.
 
@@ -279,7 +293,7 @@ Reading a share needs no permission to share and no access to the agent the conv
 - **Offline files are out of Vizier's hands**: no revocation, no audience, no proof of authenticity. A signature that would let Vizier verify a file is left to the import spec, which is where verification would matter.
 - **Open pages are not recalled**: revocation stops new visits. It does not reach into a page already open or a copy a viewer saved.
 - **No notification to named people**: the author sends the link themselves. Telling named people through the inbox can be added later.
-- **No view counts or analytics** in this version.
+- **No view counts or analytics** in this version, and no record of who opened a share (FR-052).
 - **Seeded roles**: the built-in superadmin role receives both permissions on upgrade, as it does for other new permissions. No other existing role gains them, so sharing is opt-in per role.
 - **Limits are fixed numbers** in this version, not settings.
 - **Design**: the Share dialog, the preview, the shared view, the list of shares and the offline file's look are new UI and are drawn before they are built, as the project requires.
@@ -292,7 +306,7 @@ Each of these was decided here with a best guess so that planning can start. Non
 1. **Permission names.** The maintainer wrote `:share_conversations`. This spec reads that as the action part and follows the existing `<scope>_agents:<action>` form: `owned_agents:share_conversations` and `all_agents:share_conversations` (FR-001).
 2. **One permission for all three audiences.** Whoever may share may share publicly. A separate permission or an instance setting for public shares is not included.
 3. **The all-agents scope doubles as the administrative right** to list and revoke any share (FR-043), instead of a third permission.
-4. **Administrators cannot read shares outside their audience**, only their metadata. The title counts as metadata.
+4. **Administrators cannot read shares outside their audience**, only their metadata. The title and the names of the named people do not count as metadata and are withheld (FR-043, clarified 2026-11-11).
 5. **Snapshot is immutable, revocation deletes it for good** (FR-005, FR-039). There is no "update this share" and no undo.
 6. **Short public cache life: 5 minutes.** The issue proposed one year, immutable. That would make revocation impossible for anything already cached, so this spec differs from the issue on purpose (FR-039, FR-040). The cost is that a very popular public share asks more of the instance than the issue intended. SC-012 bounds it.
 7. **Audience can only narrow** (FR-041).
@@ -307,3 +321,7 @@ Each of these was decided here with a best guess so that planning can start. Non
 16. **The numbers**: 5 MB per link share, 20 MB per file, 10 shares per hour, 200 live shares and 250 MB per person, 50 named people, 2,000 messages, 60 failed attempts per minute (FR-046 to FR-049).
 17. **Only the author downloads the offline file** of a link share. Viewers get no download button (FR-036).
 18. **Whole conversation only**, no message range.
+19. **Public shares need a second confirmation and stay out of search engines and link previews** (FR-053, FR-054), with no extra permission or instance setting. A stricter choice the product owner may prefer: public sharing switched off until an administrator allows it.
+20. **Finding people is narrow**: 2 characters, 10 matches, display name and username only, 30 searches per minute, only for people who may share (FR-012).
+21. **Viewers learn nothing about the audience or other viewers** (FR-030). Named people cannot see who else was named.
+22. **Share actions are recorded, openings are not** (FR-052). The author cannot see who opened a share.
