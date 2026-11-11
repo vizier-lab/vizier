@@ -20,7 +20,7 @@ The design separates what belongs to the **app** from what belongs to the **agen
 
 - The top bar carries the agent. Its body switches agents; a button on its side opens the
   agent's details. The bell stays at the right.
-- Everything about one agent (Core, Memory, Tasks, Artifacts, Skills, Dreams, Channels, Addons,
+- Everything about one agent (Memory, Tasks, Artifacts, Skills, Dreams, Channels, Addons,
   MCP, Usage, Secrets, Config) lives on one **Agent details** page, reached from that button.
 - The menu drawer holds the app only: Home, Chat, Settings, Theme.
 - Choosing an agent and choosing a topic are bottom sheets, not dropdowns.
@@ -153,6 +153,8 @@ the agents and the workspaces; select one.
 - **FR-010** No horizontal scroll at 360px on any route, including `/{agent}/details`.
 
 ## Decisions
+
+0. **No Core row.** Core is the memory document `core/soul`, so Memory already reaches it. Decided by the maintainer, 2026-11-11.
 
 1. **Tasks live in Agent details, not the drawer.** The API is per agent; a cross-agent list
    would need a new endpoint or one request per agent. Decided by the maintainer, 2026-11-11.
