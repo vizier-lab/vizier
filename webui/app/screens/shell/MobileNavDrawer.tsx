@@ -9,7 +9,7 @@ import { useSession } from '../../stores/session'
 import { useWorkspaces } from '../../stores/workspaces'
 
 /**
- * The phone's menu (spec 056): the app, not the agent. Chat, Home, Settings and Theme, and the
+ * The phone's menu (spec 056): the app, not the agent. Home, Chat, Settings and Theme, and the
  * person at the foot. Everything about one agent is on its details page, reached from the top bar.
  */
 export function MobileNavDrawer() {
@@ -32,8 +32,8 @@ export function MobileNavDrawer() {
     return (
         <SlideOver open={open} side="left" title="Vizier" onClose={() => setOpen(false)} className="w-304!">
             <nav aria-label="Main" className="flex flex-col gap-2">
-                {chatAgent && <NavItem icon="chat" label="Chat" href={`/${chatAgent}/chat`} active={inChat} />}
                 <NavItem icon="home" label="Home" href="/" active={pathname === '/'} />
+                {chatAgent && <NavItem icon="chat" label="Chat" href={`/${chatAgent}/chat`} active={inChat} />}
             </nav>
             <div className="h-px shrink-0 bg-border" />
             <div className="flex flex-col gap-2">

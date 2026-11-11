@@ -86,7 +86,7 @@ export function ConversationHeader({
                         onSwitch: () => setSwitcherOpen(true),
                         onDetails: () => navigate(detailsPath(agentId)),
                     }}
-                    topic={{ title, meta, onTopic: () => setOpen(true), actions: mobileTrailing }}
+                    topic={{ title, onTopic: () => setOpen(true), actions: mobileTrailing }}
                     trailing={<NotificationsBell />}
                 />
                 <SlideOver open={open} side="bottom" title="Topics" onClose={() => setOpen(false)}>

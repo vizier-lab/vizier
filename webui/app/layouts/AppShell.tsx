@@ -220,7 +220,7 @@ export default function AppShell() {
                       title: view === 'settings' ? 'Settings' : view === 'workspace' ? (workspaceName ?? 'Workspace') : 'Vizier',
                   }
         return (
-            <div className="flex h-dvh min-w-0 flex-col bg-panel pb-safe text-fg" onClick={onClick}>
+            <div className="fixed inset-0 flex min-w-0 flex-col bg-panel pb-safe text-fg" onClick={onClick}>
                 {!ownsTopBar && (
                     <MobileTopBar
                         {...bar}
