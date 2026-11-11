@@ -153,6 +153,16 @@
   --shadow-dialog: var(--vz-shadow-dialog);
 }
 
+/* iOS Safari zooms the page into any field set under 16px and leaves it zoomed. Touch screens get
+   16px fields; unlayered so the type utilities on the field do not win. */
+@media (hover: none) and (pointer: coarse) {
+  textarea,
+  select,
+  input:not([type="checkbox"], [type="radio"], [type="range"], [type="color"], [type="file"]) {
+    font-size: max(16px, 1em);
+  }
+}
+
 @layer base {
   html {
     background: var(--vz-ground);

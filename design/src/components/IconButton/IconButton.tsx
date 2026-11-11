@@ -72,7 +72,7 @@ export function IconButton({
         <span
           aria-hidden
           // The ring is the ground colour, so the badge reads on a bare (ghost) icon as well as a framed one.
-          className="absolute -top-3 -right-3 flex h-17 min-w-17 items-center justify-center rounded-pill bg-live px-4 type-mono-xs text-ground ring-2 ring-ground"
+          className="absolute -top-1 -right-1 flex h-17 min-w-17 items-center justify-center rounded-pill bg-live px-4 type-mono-xs text-ground ring-2 ring-ground"
         >
           {unread > 99 ? "99+" : unread}
         </span>
