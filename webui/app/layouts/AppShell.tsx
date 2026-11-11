@@ -271,26 +271,31 @@ export default function AppShell() {
 }
 
 /**
- * The installed app on iOS fills the whole screen, but after the keyboard closes it can keep
- * reporting the shorter height (dvh and the layout viewport both stay short), and lvh can be
- * taller than what is drawn. The screen itself is the one height that is always right there.
+ * The installed app on iOS: after the keyboard closes it can keep reporting the shorter height
+ * (dvh and innerHeight both stay short), which leaves a gap under the page. The page never gets
+ * taller than what was drawn before any keyboard, so keep the tallest height seen in each
+ * orientation and ignore the drops. The screen size is not it: the app's view is shorter.
  */
 function useStandaloneHeight(mobile: boolean): string | undefined {
     const standalone = typeof navigator !== 'undefined' && (navigator as Navigator & { standalone?: boolean }).standalone === true
-    const read = () => {
-        const portrait = window.matchMedia('(orientation: portrait)').matches
-        return `${portrait ? Math.max(screen.width, screen.height) : Math.min(screen.width, screen.height)}px`
-    }
-    const [height, setHeight] = useState<string | undefined>(() => (mobile && standalone ? read() : undefined))
+    const [height, setHeight] = useState<string | undefined>(undefined)
     useEffect(() => {
-        if (!mobile || !standalone) return setHeight(undefined)
-        const update = () => setHeight(read())
+        if (!mobile || !standalone) {
+            setHeight(undefined)
+            return
+        }
+        const tallest = { portrait: 0, landscape: 0 }
+        const update = () => {
+            const key = window.matchMedia('(orientation: portrait)').matches ? 'portrait' : 'landscape'
+            tallest[key] = Math.max(tallest[key], window.innerHeight)
+            setHeight(`${tallest[key]}px`)
+        }
         update()
-        window.addEventListener('orientationchange', update)
         window.addEventListener('resize', update)
+        window.addEventListener('orientationchange', update)
         return () => {
-            window.removeEventListener('orientationchange', update)
             window.removeEventListener('resize', update)
+            window.removeEventListener('orientationchange', update)
         }
     }, [mobile, standalone])
     return height
