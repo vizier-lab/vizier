@@ -74,3 +74,20 @@ export const FromTheLeft: Story = {
     }
   },
 };
+
+/** A phone's bottom sheet (spec 056): the agent switcher and the topic picker. Esc, the scrim and × close it. */
+export const BottomSheet: Story = {
+  args: { title: "Switch agent", footer: undefined },
+  render: function Render(args) {
+    return (
+      <div className="w-402">
+        <SlideOver {...args} side="bottom" open onClose={() => {}} />
+      </div>
+    );
+  },
+  play: async ({ canvasElement }) => {
+    const heading = canvasElement.querySelector("h2")?.getBoundingClientRect();
+    if (!heading || heading.width < 100) throw new Error("the sheet is not showing");
+    if (heading.top < window.innerHeight / 3) throw new Error(`the sheet is not at the bottom: its title is at ${heading.top}px`);
+  },
+};
