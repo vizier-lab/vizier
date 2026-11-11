@@ -64,7 +64,7 @@ export function MobileTopBar({
   const live = agent ? agent.state === "live" || agent.state === "running" : false;
   return (
     <header className={cx("flex shrink-0 flex-col bg-ground pt-safe", topic && "border-b border-border", className)} {...rest}>
-      <div className="flex h-56 items-center gap-4 px-8">
+      <div className="mt-8 flex h-56 items-center gap-4 px-8">
         {onBack ? (
           <IconButton variant="ghost" size="lg" icon="chevron-left" aria-label={backLabel} onClick={onBack} />
         ) : onMenu ? (
