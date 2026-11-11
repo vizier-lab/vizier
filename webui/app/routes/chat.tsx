@@ -44,6 +44,7 @@ import { toast } from '../stores/toasts'
 import { canManageArtifacts, canUseProjects } from '../lib/access'
 import { useTurns } from '../stores/turns'
 import { conversationTitle } from '../lib/conversations'
+import { useMobile } from '../lib/useMobile'
 
 const EMPTY = emptyTopic()
 // The strip's own margin under the composer, and the air between it and the panel.
@@ -303,8 +304,12 @@ export default function Chat() {
 
     // Deleting the conversation on screen: the server refuses while a turn runs in it.
     const [deleting, setDeleting] = useState<DeleteTarget | null>(null)
+    // On a phone the two sit bare at the end of the topic row (spec 056: no control has a border).
+    const mobile = useMobile()
+    const headerButton = mobile ? ('ghost' as const) : undefined
     const deleteConversation = topicId ? (
         <IconButton
+            variant={headerButton}
             icon="trash"
             aria-label="Delete conversation"
             onClick={() => setDeleting({ topic: topicId, title })}
@@ -315,6 +320,7 @@ export default function Chat() {
     // a project it is a new project session, created server-side so it is listed immediately.
     const newConversation = (
         <IconButton
+            variant={headerButton}
             icon="plus"
             aria-label={projectId ? 'New project session' : 'New conversation'}
             onClick={() => {
