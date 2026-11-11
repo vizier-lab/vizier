@@ -59,5 +59,15 @@ export function ActivityTrail({ state, title, counts, defaultExpanded, children,
 
 /** A non-call item on the spine (a Thought, a Notice), aligned with the call names. */
 export function TrailItem({ className, ...rest }: HTMLAttributes<HTMLLIElement>) {
-  return <li className={cx("relative py-4 pl-24", className)} {...rest} />;
+  return (
+    <li
+      className={cx(
+        "relative py-4 pl-24",
+        // The spine runs on through it to the next call, as it does through a Thought.
+        "not-last:after:absolute not-last:after:top-0 not-last:after:-bottom-8 not-last:after:left-6 not-last:after:w-px not-last:after:bg-border-strong not-last:after:content-['']",
+        className,
+      )}
+      {...rest}
+    />
+  );
 }
