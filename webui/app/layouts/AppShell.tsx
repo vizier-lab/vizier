@@ -42,6 +42,7 @@ export default function AppShell() {
     const loadWorkspaces = useWorkspaces((s) => s.load)
     const workspaceList = useWorkspaces((s) => s.list)
     const mobile = useMobile()
+    const shellHeight = useStandaloneHeight(mobile)
 
     // iOS scrolls the page up to keep a focused field above the keyboard, and leaves it there when
     // the keyboard goes away, so the whole shell sits a little high. Put the page back once focus
@@ -220,7 +221,7 @@ export default function AppShell() {
                       title: view === 'settings' ? 'Settings' : view === 'workspace' ? (workspaceName ?? 'Workspace') : 'Vizier',
                   }
         return (
-            <div className="fixed inset-x-0 top-0 flex h-lvh min-w-0 flex-col bg-panel pb-safe text-fg" onClick={onClick}>
+            <div className="fixed inset-x-0 top-0 flex h-dvh min-w-0 flex-col bg-panel pb-safe text-fg" style={shellHeight ? { height: shellHeight } : undefined} onClick={onClick}>
                 {!ownsTopBar && (
                     <MobileTopBar
                         {...bar}
@@ -267,4 +268,30 @@ export default function AppShell() {
             <NewAgentDialog />
         </div>
     )
+}
+
+/**
+ * The installed app on iOS fills the whole screen, but after the keyboard closes it can keep
+ * reporting the shorter height (dvh and the layout viewport both stay short), and lvh can be
+ * taller than what is drawn. The screen itself is the one height that is always right there.
+ */
+function useStandaloneHeight(mobile: boolean): string | undefined {
+    const standalone = typeof navigator !== 'undefined' && (navigator as Navigator & { standalone?: boolean }).standalone === true
+    const read = () => {
+        const portrait = window.matchMedia('(orientation: portrait)').matches
+        return `${portrait ? Math.max(screen.width, screen.height) : Math.min(screen.width, screen.height)}px`
+    }
+    const [height, setHeight] = useState<string | undefined>(() => (mobile && standalone ? read() : undefined))
+    useEffect(() => {
+        if (!mobile || !standalone) return setHeight(undefined)
+        const update = () => setHeight(read())
+        update()
+        window.addEventListener('orientationchange', update)
+        window.addEventListener('resize', update)
+        return () => {
+            window.removeEventListener('orientationchange', update)
+            window.removeEventListener('resize', update)
+        }
+    }, [mobile, standalone])
+    return height
 }

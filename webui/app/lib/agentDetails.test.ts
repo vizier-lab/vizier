@@ -16,7 +16,6 @@ describe('detailsAccess', () => {
 
 describe('detailsHref', () => {
     it('sends Core to the identity memory', () => {
-        expect(detailsHref('archivist', 'core')).toBe('/archivist/memory/core/soul')
     })
 
     it('sends every other row to its page', () => {

@@ -20,9 +20,9 @@ export function detailsAccess(access: AgentAccess): { hidden: AgentDetailsPage[]
     return { hidden, disabled: access.editAgent ? [] : ['config'] }
 }
 
-/** Where a row of an agent's details leads. Core is the identity memory, `core/soul`. */
+/** Where a row of an agent's details leads. */
 export function detailsHref(agentId: string, page: AgentDetailsPage): string {
-    return page === 'core' ? `/${agentId}/memory/core/soul` : `/${agentId}${PAGE_PATH[page]}`
+    return `/${agentId}${PAGE_PATH[page]}`
 }
 
 /** An agent's details page. */
