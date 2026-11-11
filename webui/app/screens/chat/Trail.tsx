@@ -132,7 +132,9 @@ function Event({ event, live }: { event: TrailEvent; live: boolean }) {
         case 'narration':
             return (
                 <TrailItem>
-                    <Markdown>{event.text}</Markdown>
+                    <Markdown size="document" tone="muted">
+                        {event.text}
+                    </Markdown>
                 </TrailItem>
             )
         case 'tool':
