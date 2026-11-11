@@ -34,6 +34,10 @@ pub struct HTTPState {
     /// One visit write per person a minute. Visits are still recorded, but nothing reads
     /// them since spec 029 removed the overview feed; tracked for #82.
     pub visit_throttle: Arc<vizier_core::utils::rate_limit::RateLimiter>,
+    /// Shares a person may create (`specs/055-shared-chat`): 10 an hour.
+    pub share_creates: Arc<vizier_core::utils::rate_limit::RateLimiter>,
+    /// Refused or unknown share reads per address: 30 a minute.
+    pub share_misses: Arc<vizier_core::utils::rate_limit::RateLimiter>,
 }
 
 impl HTTPState {
@@ -45,4 +49,20 @@ impl HTTPState {
             .flatten()
             .is_some()
     }
+}
+
+/// 10 creates per person per hour (`specs/055-shared-chat` R12).
+pub(crate) fn share_creates_limiter() -> Arc<vizier_core::utils::rate_limit::RateLimiter> {
+    Arc::new(vizier_core::utils::rate_limit::RateLimiter::new(
+        vizier_core::service::shares::CREATES_PER_HOUR,
+        std::time::Duration::from_secs(60 * 60),
+    ))
+}
+
+/// 30 refused reads per address per minute.
+pub(crate) fn share_misses_limiter() -> Arc<vizier_core::utils::rate_limit::RateLimiter> {
+    Arc::new(vizier_core::utils::rate_limit::RateLimiter::new(
+        vizier_core::service::shares::MISSES_PER_MINUTE,
+        std::time::Duration::from_secs(60),
+    ))
 }

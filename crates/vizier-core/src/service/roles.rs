@@ -175,4 +175,25 @@ mod model_override_tests {
             assert!(create(&services, &admin(), "Bad role", vec![alias.into()]).await.is_err());
         }
     }
+
+    #[tokio::test]
+    async fn the_share_permissions_are_accepted_and_no_other_name_is() {
+        let dir = tempfile::tempdir().unwrap();
+        let deps = crate::dependencies::VizierDependencies::new(crate::config::VizierConfig {
+            workspace: dir.path().to_string_lossy().to_string(),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+        let services = Services::new(deps);
+        let names = vec![
+            "all_agents:share_conversations".to_string(),
+            "owned_agents:share_conversations".to_string(),
+        ];
+        let role = create(&services, &admin(), "Sharers", names.clone()).await.unwrap();
+        assert_eq!(role.permissions, names);
+        for bad in ["conversations:share", "share_conversations", "all_agents:share"] {
+            assert!(create(&services, &admin(), "Bad", vec![bad.into()]).await.is_err(), "{bad}");
+        }
+    }
 }

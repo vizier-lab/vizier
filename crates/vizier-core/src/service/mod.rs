@@ -19,6 +19,7 @@ pub mod roles;
 pub mod api_keys;
 pub mod profile;
 pub mod project_lsp;
+pub mod shares;
 pub mod projects;
 pub mod workspaces;
 pub mod setup;

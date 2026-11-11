@@ -273,6 +273,8 @@ mod tests {
                 1,
                 std::time::Duration::from_secs(60),
             )),
+            share_creates: crate::state::share_creates_limiter(),
+            share_misses: crate::state::share_misses_limiter(),
         };
         (state, dir)
     }

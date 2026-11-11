@@ -82,6 +82,8 @@ pub(crate) fn new_state(runtime: &VizierRuntime, auth: state::AuthMode) -> HTTPS
             1,
             std::time::Duration::from_secs(60),
         )),
+        share_creates: crate::state::share_creates_limiter(),
+        share_misses: crate::state::share_misses_limiter(),
     }
 }
 
@@ -310,10 +312,16 @@ where
         api::v1::notifications::chats,
         api::v1::notifications::read_chat,
         api::v1::notifications::stream,
+        api::v1::shares::create,
+        api::v1::shares::read,
     ),
     components(
         schemas(
             crate::models::page::SortOrder,
+            vizier_core::storage::share::Audience,
+            vizier_core::service::shares::CreateShareRequest,
+            vizier_core::service::shares::CreatedShare,
+            vizier_core::service::shares::ShareView,
             vizier_core::catalogue::media::MediaCapability,
             vizier_core::catalogue::media::MediaModelSummary,
             api::v1::catalogue::MediaModels,
