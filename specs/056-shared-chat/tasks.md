@@ -168,15 +168,15 @@ description: "Task list for Shared Chat Snapshots"
 
 ### Tests for User Story 5 (write first)
 
-- [ ] T061 [P] [US5] Route tests in `crates/vizier-http/tests/shares.rs`: `GET /shares` returns only the caller's, newest first, never content, with `removals` and `people_count`; `all=true` refused for a normal user, allowed for system and `all_agents:share_conversations`, adds `creator_name`; DELETE by author 204, by admin 204, by someone else 404, repeated 204, unknown 404; after DELETE an anonymous GET is 401 and a signed-in GET is 404 immediately at the origin
-- [ ] T062 [P] [US5] Service/storage tests in `crates/vizier-core/src/service/shares.rs`: deleting a user deletes their shares (US5.6) and their audience rows; deleting the source topic or agent does not touch shares (US5.5); revoked shares do not count toward the 200 cap
-- [ ] T063 [P] [US5] Cache-window test in `crates/vizier-http/tests/shares.rs`: public responses never carry `immutable` or `max-age` above 300; a revoked share served from a simulated shared cache stops within 300 s (assert the header contract)
+- [x] T061 [P] [US5] Route tests in `crates/vizier-http/tests/shares.rs`: `GET /shares` returns only the caller's, newest first, never content, with `removals` and `people_count`; `all=true` refused for a normal user, allowed for system and `all_agents:share_conversations`, adds `creator_name`; DELETE by author 204, by admin 204, by someone else 404, repeated 204, unknown 404; after DELETE an anonymous GET is 401 and a signed-in GET is 404 immediately at the origin
+- [x] T062 [P] [US5] Service/storage tests in `crates/vizier-core/src/service/shares.rs`: deleting a user deletes their shares (US5.6) and their audience rows; deleting the source topic or agent does not touch shares (US5.5); revoked shares do not count toward the 200 cap
+- [x] T063 [P] [US5] Cache-window test in `crates/vizier-http/tests/shares.rs`: public responses never carry `immutable` or `max-age` above 300; a revoked share served from a simulated shared cache stops within 300 s (assert the header contract)
 
 ### Implementation for User Story 5
 
-- [ ] T064 [US5] Implement `list_mine`, `list_all` (paged) and `revoke` in `crates/vizier-core/src/service/shares.rs` and the handlers `GET /shares`, `DELETE /shares/{share_id}` in `crates/vizier-http/src/api/v1/shares.rs`, with routes under `require_auth`
-- [ ] T065 [US5] Call `delete_shares_by_creator` from the user-deletion path in `crates/vizier-core/src/service/users.rs`
-- [ ] T066 [US5] Create `webui/app/screens/settings/MySharesPage.tsx` (mockup 3: title, audience, trail, created, copy, revoke with confirm; admin "All shares" with author column), route and entry in `webui/app/screens/settings/SettingsSidebar.tsx` shown only with the permission
+- [x] T064 [US5] Implement `list_mine`, `list_all` (paged) and `revoke` in `crates/vizier-core/src/service/shares.rs` and the handlers `GET /shares`, `DELETE /shares/{share_id}` in `crates/vizier-http/src/api/v1/shares.rs`, with routes under `require_auth`
+- [x] T065 [US5] Call `delete_shares_by_creator` from the user-deletion path in `crates/vizier-core/src/service/users.rs`
+- [x] T066 [US5] Create `webui/app/screens/settings/MySharesPage.tsx` (mockup 3: title, audience, trail, created, copy, revoke with confirm; admin "All shares" with author column), route and entry in `webui/app/screens/settings/SettingsSidebar.tsx` shown only with the permission
 - [ ] T067 [US5] Playwright scenario 5 in `webui/e2e/share.spec.ts`: create, list, revoke, open from a new context; admin revokes someone else's; a non-admin cannot see the "All shares" toggle
 
 **Checkpoint**: shares can be undone.
@@ -191,19 +191,19 @@ description: "Task list for Shared Chat Snapshots"
 
 ### Tests for User Story 4 (write first)
 
-- [ ] T068 [P] [US4] `webui/app/lib/share/embed.test.ts`: `embedJson` output never contains `</script`, `<!--`, `<script`, raw `<`, `>`, `&`, U+2028, U+2029; `JSON.parse` of the extracted text equals the input; 5 MiB random-Unicode round trip; hostile fixtures survive embedding
-- [ ] T069 [P] [US4] `webui/app/lib/share/export.test.ts`: the produced file contains exactly one snapshot tag and one viewer script, no `http://`/`https://` URL outside text content, no `<link>`, `@import`, `url(http`, `<base>`, `<form>`; the title is HTML-escaped; the file name rules (slug, 60 chars, unicode title, empty title → `conversation`, path separators and reserved Windows names removed)
-- [ ] T070 [P] [US4] `webui/app/viewer/main.test.tsx`: reading the embedded tag with damaged JSON, missing tag, schema failure, future `format_version`, and the hostile fixtures renders only the damaged / needs-newer / inert output and executes nothing (`window.__pwned` undefined)
+- [x] T068 [P] [US4] `webui/app/lib/share/embed.test.ts`: `embedJson` output never contains `</script`, `<!--`, `<script`, raw `<`, `>`, `&`, U+2028, U+2029; `JSON.parse` of the extracted text equals the input; 5 MiB random-Unicode round trip; hostile fixtures survive embedding
+- [x] T069 [P] [US4] `webui/app/lib/share/export.test.ts`: the produced file contains exactly one snapshot tag and one viewer script, no `http://`/`https://` URL outside text content, no `<link>`, `@import`, `url(http`, `<base>`, `<form>`; the title is HTML-escaped; the file name rules (slug, 60 chars, unicode title, empty title → `conversation`, path separators and reserved Windows names removed)
+- [x] T070 [P] [US4] `webui/app/viewer/main.test.tsx`: reading the embedded tag with damaged JSON, missing tag, schema failure, future `format_version`, and the hostile fixtures renders only the damaged / needs-newer / inert output and executes nothing (`window.__pwned` undefined)
 - [ ] T071 [P] [US4] Playwright scenario 6 in `webui/e2e/share.spec.ts`: export in the WebUI, open the file by `file://` with the context offline, assert content, 3D interaction, zero requests (including none to `/api/v1/shares`, FR-031), zero console errors; scenario 7: open each file of `fixtures/hostile/` as a `.vizier.html` and assert nothing runs and no outbound request is made
 
 ### Implementation for User Story 4
 
-- [ ] T072 [US4] Implement `webui/app/viewer/main.tsx`: read `#vizier-snapshot` with `textContent`, parse, validate with `schema.ts`, mount `SnapshotView`; damaged and needs-newer pages (mockup 2); CSP meta from T004
-- [ ] T073 [US4] Finish `webui/vite.viewer.config.ts` and `package.json` so `npm run build` leaves `build/client/viewer-template.html` with a single marker; implement the two-template variant only if T004 showed the three bundle is too heavy
-- [ ] T074 [P] [US4] Create `webui/app/lib/share/embed.ts` (`embedJson`) and `slug.ts`
-- [ ] T075 [US4] Create `webui/app/lib/share/export.ts`: fetch the template, substitute marker with the escaped snapshot, escape the title, return a Blob; save through `transport.saveFile` (desktop) or an anchor download (browser)
-- [ ] T076 [US4] Add the "Offline file" tab to `ShareDialog.tsx` with the same preview and removals, no audience controls, and a line saying nothing is stored on the server; wire `run` logic per T004's decision
-- [ ] T077 [US4] Verify `crates/vizier-http` serves `viewer-template.html` from the embedded assets unchanged and that the binary build (`cargo build -p vizier`) includes it (manual run of the binary, per the constitution's build-pipeline rule)
+- [x] T072 [US4] Implement `webui/app/viewer/main.tsx`: read `#vizier-snapshot` with `textContent`, parse, validate with `schema.ts`, mount `SnapshotView`; damaged and needs-newer pages (mockup 2); CSP meta from T004
+- [x] T073 [US4] Finish `webui/vite.viewer.config.ts` and `package.json` so `npm run build` leaves `build/client/viewer-template.html` with a single marker; implement the two-template variant only if T004 showed the three bundle is too heavy
+- [x] T074 [P] [US4] Create `webui/app/lib/share/embed.ts` (`embedJson`) and `slug.ts`
+- [x] T075 [US4] Create `webui/app/lib/share/export.ts`: fetch the template, substitute marker with the escaped snapshot, escape the title, return a Blob; save through `transport.saveFile` (desktop) or an anchor download (browser)
+- [x] T076 [US4] Add the "Offline file" tab to `ShareDialog.tsx` with the same preview and removals, no audience controls, and a line saying nothing is stored on the server; wire `run` logic per T004's decision
+- [x] T077 [US4] Verify `crates/vizier-http` serves `viewer-template.html` from the embedded assets unchanged and that the binary build (`cargo build -p vizier`) includes it (manual run of the binary, per the constitution's build-pipeline rule)
 
 **Checkpoint**: all five stories work.
 

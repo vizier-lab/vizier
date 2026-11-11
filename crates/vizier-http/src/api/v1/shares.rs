@@ -14,11 +14,11 @@ use vizier_core::{
     auth::Principal,
     service::{
         ServiceError,
-        shares::{self as service, CreatedShare, ShareRead, ShareView},
+        shares::{self as service, CreatedShare, ShareListItem, ShareRead, ShareView},
     },
 };
 
-pub use vizier_core::service::shares::{CreateShareRequest, PersonMatch};
+pub use vizier_core::service::shares::{CreateShareRequest, PersonMatch, ShareListItem};
 
 use crate::{
     api::v1::integrations::{fail, ok, svc},
@@ -222,4 +222,64 @@ pub async fn read(
     };
     guard_headers(response.headers_mut());
     response
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct ListSharesQuery {
+    pub before: Option<i64>,
+    pub limit: Option<usize>,
+    pub all: Option<bool>,
+}
+
+#[utoipa::path(
+    get,
+    path = "/shares",
+    params(
+        ("before" = Option<i64>, Query, description = "Keyset pagination: created_at timestamp"),
+        ("limit" = Option<usize>, Query, description = "Max items to return (≤ 100, default 50)"),
+        ("all" = Option<bool>, Query, description = "List all shares across instance (requires admin)")
+    ),
+    responses(
+        (status = 200, description = "List of shares", body = APIResponse<Vec<ShareListItem>>),
+        (status = 401, description = "Authentication required"),
+        (status = 403, description = "all=true requires admin permission")
+    )
+)]
+pub async fn list(
+    State(state): State<HTTPState>,
+    Extension(user): Extension<Principal>,
+    axum::extract::Query(query): axum::extract::Query<ListSharesQuery>,
+) -> Response {
+    let limit = query.limit.unwrap_or(50);
+    let all = query.all.unwrap_or(false);
+    let result = if all {
+        service::list_all(&svc(&state), &user, query.before, limit).await
+    } else {
+        service::list_mine(&svc(&state), &user, query.before, limit).await
+    };
+    match result {
+        Ok(items) => ok(StatusCode::OK, items),
+        Err(e) => refusal(e),
+    }
+}
+
+#[utoipa::path(
+    delete,
+    path = "/shares/{share_id}",
+    params(("share_id" = String, Path, description = "21 URL-safe characters")),
+    responses(
+        (status = 204, description = "Revoked (or already revoked)"),
+        (status = 401, description = "Authentication required"),
+        (status = 404, description = "Unknown share or not authorized to revoke")
+    )
+)]
+pub async fn revoke(
+    State(state): State<HTTPState>,
+    Extension(user): Extension<Principal>,
+    Path(share_id): Path<String>,
+) -> Response {
+    match service::revoke(&svc(&state), &user, &share_id).await {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(e) => refusal(e),
+    }
 }

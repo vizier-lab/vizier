@@ -231,11 +231,17 @@ pub fn v1(state: HTTPState) -> Router<HTTPState> {
                 .layer(axum::extract::DefaultBodyLimit::max(
                     vizier_core::service::shares::MAX_BODY_BYTES,
                 ))
+                .get(shares::list)
                 .layer(middleware::from_fn_with_state(state.clone(), require_auth)),
         )
         .route(
             "/shares/{share_id}",
-            get(shares::read).layer(middleware::from_fn_with_state(state.clone(), optional_auth)),
+            get(shares::read)
+                .layer(middleware::from_fn_with_state(state.clone(), optional_auth))
+                .delete(
+                    shares::revoke
+                        .layer(middleware::from_fn_with_state(state.clone(), require_auth)),
+                ),
         )
         // The catalogue: readable by any signed-in user; logos are public.
         .nest("/catalogue", catalogue::catalogue(state.clone()))

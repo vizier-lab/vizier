@@ -472,6 +472,144 @@ pub async fn search_people(
     Ok(matches)
 }
 
+/// A share item in a list (`GET /shares`).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+pub struct ShareListItem {
+    pub share_id: String,
+    pub title: String,
+    pub agent_id: String,
+    pub agent_name: String,
+    pub topic_id: String,
+    pub audience: Audience,
+    pub people_count: usize,
+    pub include_trail: bool,
+    pub size_bytes: i64,
+    pub created_at: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub revoked_at: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "utoipa", schema(value_type = Option<Object>))]
+    pub removals: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub creator_name: Option<String>,
+}
+
+/// List the caller's shares, newest first (`GET /shares`).
+pub async fn list_mine(
+    s: &Services,
+    who: &Principal,
+    before: Option<i64>,
+    limit: usize,
+) -> Result<Vec<ShareListItem>, ServiceError> {
+    let storage = &s.deps().storage;
+    let limit = limit.clamp(1, 100);
+    let summaries = storage
+        .list_shares_by_creator(&who.user_id, before, limit)
+        .await
+        .map_err(|e| storage_error("Failed to list shares", e))?;
+
+    let mut items = Vec::with_capacity(summaries.len());
+    for summary in summaries {
+        let r = summary.record;
+        let agent = storage.get_agent(&r.agent_id).await.ok().flatten();
+        let agent_name = agent.map(|a| a.name).unwrap_or_else(|| r.agent_id.clone());
+        let removals = serde_json::from_str(&r.removals_json).ok();
+        items.push(ShareListItem {
+            share_id: r.share_id,
+            title: r.title,
+            agent_id: r.agent_id,
+            agent_name,
+            topic_id: r.topic_id,
+            audience: r.audience,
+            people_count: summary.people_count,
+            include_trail: r.include_trail,
+            size_bytes: r.size_bytes,
+            created_at: r.created_at,
+            revoked_at: r.revoked_at,
+            removals,
+            creator_name: None,
+        });
+    }
+    Ok(items)
+}
+
+/// List all shares across the instance (`GET /shares?all=true`). Requires admin/system.
+pub async fn list_all(
+    s: &Services,
+    who: &Principal,
+    before: Option<i64>,
+    limit: usize,
+) -> Result<Vec<ShareListItem>, ServiceError> {
+    let is_admin = who.role.is_system || access::can(who, PERMISSION_ALL);
+    if !is_admin {
+        return Err(forbidden());
+    }
+    let storage = &s.deps().storage;
+    let limit = limit.clamp(1, 100);
+    let summaries = storage
+        .list_all_shares(before, limit)
+        .await
+        .map_err(|e| storage_error("Failed to list all shares", e))?;
+
+    let mut items = Vec::with_capacity(summaries.len());
+    for summary in summaries {
+        let r = summary.record;
+        let agent = storage.get_agent(&r.agent_id).await.ok().flatten();
+        let agent_name = agent.map(|a| a.name).unwrap_or_else(|| r.agent_id.clone());
+        let removals = serde_json::from_str(&r.removals_json).ok();
+        let creator = storage.get_user_by_id(&r.creator_id).await.ok().flatten();
+        let creator_name = Some(creator.map(|u| u.username).unwrap_or_else(|| r.creator_id.clone()));
+        items.push(ShareListItem {
+            share_id: r.share_id,
+            title: r.title,
+            agent_id: r.agent_id,
+            agent_name,
+            topic_id: r.topic_id,
+            audience: r.audience,
+            people_count: summary.people_count,
+            include_trail: r.include_trail,
+            size_bytes: r.size_bytes,
+            created_at: r.created_at,
+            revoked_at: r.revoked_at,
+            removals,
+            creator_name,
+        });
+    }
+    Ok(items)
+}
+
+/// Revoke a share (`DELETE /shares/{share_id}`).
+pub async fn revoke(
+    s: &Services,
+    who: &Principal,
+    share_id: &str,
+) -> Result<(), ServiceError> {
+    if !is_valid_share_id(share_id) {
+        return Err(ServiceError::NotFound(SHARE_UNAVAILABLE.into()));
+    }
+    let storage = &s.deps().storage;
+    let share = match storage.get_share(share_id).await {
+        Ok(Some(s)) => s,
+        Ok(None) => return Err(ServiceError::NotFound(SHARE_UNAVAILABLE.into())),
+        Err(e) => return Err(storage_error("Failed to read share", e)),
+    };
+    let is_admin = who.role.is_system || access::can(who, PERMISSION_ALL);
+    let is_author = share.record.creator_id == who.user_id;
+    if !is_author && !is_admin {
+        return Err(ServiceError::NotFound(SHARE_UNAVAILABLE.into()));
+    }
+    if share.record.revoked_at.is_some() {
+        return Ok(());
+    }
+    let now = crate::time::now().timestamp_millis();
+    let _ = storage
+        .revoke_share(share_id, &who.user_id, now)
+        .await
+        .map_err(|e| storage_error("Failed to revoke share", e))?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -803,5 +941,59 @@ mod service_tests {
             method: crate::auth::AuthMethod::Password,
         };
         assert!(search_people(&w.s, &root_principal, "al").await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn list_and_revoke_behavior_and_user_deletion_cascade() {
+        let w = world().await;
+        let s1 = create(&w.s, &w.owner, &body("dp-a", "public", None)).await.unwrap().share_id;
+        let s2 = create(&w.s, &w.owner, &body("dp-a", "signed_in", None)).await.unwrap().share_id;
+
+        // list_mine returns owner's shares newest first
+        let mine = list_mine(&w.s, &w.owner, None, 50).await.unwrap();
+        assert_eq!(mine.len(), 2);
+        assert_eq!(mine[0].share_id, s2);
+        assert_eq!(mine[1].share_id, s1);
+        assert!(mine[0].creator_name.is_none());
+
+        // other person's list_mine is empty
+        let other_mine = list_mine(&w.s, &w.other, None, 50).await.unwrap();
+        assert!(other_mine.is_empty());
+
+        // non-admin list_all is 403 forbidden
+        assert_eq!(list_all(&w.s, &w.plain, None, 50).await.unwrap_err().status(), 403);
+
+        // system role list_all succeeds and includes creator_name
+        let root_role = w.s.deps().storage.create_role("system-admin", vec![], true).await.unwrap();
+        let root_user = w.s.deps().storage.create_user("root-admin", "", &root_role.role_id).await.unwrap();
+        let root_p = Principal {
+            user_id: root_user.user_id,
+            username: root_user.username,
+            role: root_role,
+            method: crate::auth::AuthMethod::Password,
+        };
+        let all = list_all(&w.s, &root_p, None, 50).await.unwrap();
+        assert!(all.len() >= 2);
+        assert!(all.iter().any(|i| i.share_id == s1 && i.creator_name.as_deref() == Some("alice")));
+
+        // revoke by unauthorized user returns 404
+        assert_eq!(revoke(&w.s, &w.plain, &s1).await.unwrap_err().status(), 404);
+
+        // revoke by author succeeds
+        assert!(revoke(&w.s, &w.owner, &s1).await.is_ok());
+        // second revoke is 204 no-op
+        assert!(revoke(&w.s, &w.owner, &s1).await.is_ok());
+
+        // read revoked is refused
+        assert_eq!(read(&w.s, Some(&w.owner), &s1).await.unwrap_err().status(), 404);
+
+        // revoked shares do not count toward cap
+        let active = w.s.deps().storage.count_active_by_creator(&w.owner.user_id).await.unwrap();
+        assert_eq!(active, 1);
+
+        // user deletion deletes their shares and audience rows
+        let deleted = w.s.deps().storage.delete_shares_by_creator(&w.owner.user_id).await.unwrap();
+        assert_eq!(deleted, 2);
+        assert_eq!(w.s.deps().storage.count_active_by_creator(&w.owner.user_id).await.unwrap(), 0);
     }
 }

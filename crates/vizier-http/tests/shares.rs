@@ -490,3 +490,98 @@ async fn search_people_endpoint_searches_and_enforces_permissions() {
     // Static route precedence: /shares/people is not matched as /shares/{share_id}
     assert_ne!(ok.status, 404);
 }
+
+#[tokio::test]
+async fn list_shares_returns_caller_shares_and_enforces_admin_for_all() {
+    let e = env().await;
+
+    // Create 2 shares as Alice
+    let pub_id = create(&e, &e.alice, json!({"audience": "public", "title": "Alice Public"})).await.json()["data"]["share_id"].as_str().unwrap().to_string();
+    let spec_id = create(&e, &e.alice, json!({"audience": "specific", "people": [e.bob_id.clone()], "title": "Alice Specific"})).await.json()["data"]["share_id"].as_str().unwrap().to_string();
+
+    // Anonymous GET /shares -> 401
+    let anon = send(&e.router, "GET", "/shares", None, None, &[]).await;
+    assert_eq!(anon.status, 401);
+
+    // Alice GET /shares -> returns 2 items, newest first, with people_count
+    let alice_list = send(&e.router, "GET", "/shares", Some(&e.alice), None, &[]).await;
+    assert_eq!(alice_list.status, 200);
+    let items = alice_list.json()["data"].as_array().unwrap().clone();
+    assert_eq!(items.len(), 2);
+    assert_eq!(items[0]["share_id"], spec_id);
+    assert_eq!(items[0]["people_count"], 1);
+    assert_eq!(items[1]["share_id"], pub_id);
+    assert_eq!(items[1]["people_count"], 0);
+    // Never contains snapshot content
+    assert!(items[0].get("snapshot").is_none());
+    assert!(items[0].get("snapshot_json").is_none());
+    assert!(items[0].get("creator_name").is_none());
+
+    // Bob GET /shares -> empty list
+    let bob_list = send(&e.router, "GET", "/shares", Some(&e.bob), None, &[]).await;
+    assert_eq!(bob_list.status, 200);
+    assert_eq!(bob_list.json()["data"].as_array().unwrap().len(), 0);
+
+    // Bob GET /shares?all=true -> 403 forbidden
+    let bob_all = send(&e.router, "GET", "/shares?all=true", Some(&e.bob), None, &[]).await;
+    assert_eq!(bob_all.status, 403);
+
+    // Root (system) GET /shares?all=true -> 200 with creator_name
+    let root_all = send(&e.router, "GET", "/shares?all=true", Some(&e.root), None, &[]).await;
+    assert_eq!(root_all.status, 200);
+    let all_items = root_all.json()["data"].as_array().unwrap().clone();
+    assert!(all_items.len() >= 2);
+    assert_eq!(all_items.iter().find(|i| i["share_id"] == pub_id).unwrap()["creator_name"], "alice");
+}
+
+#[tokio::test]
+async fn revoke_share_lifecycle_and_immediate_origin_effect() {
+    let e = env().await;
+    let pub_id = create(&e, &e.alice, json!({"audience": "public"})).await.json()["data"]["share_id"].as_str().unwrap().to_string();
+
+    // Anonymous DELETE -> 401
+    let anon = send(&e.router, "DELETE", &format!("/shares/{pub_id}"), None, None, &[]).await;
+    assert_eq!(anon.status, 401);
+
+    // Bob (not author, not admin) DELETE -> 404 (neutral, does not confirm ID)
+    let bob_del = send(&e.router, "DELETE", &format!("/shares/{pub_id}"), Some(&e.bob), None, &[]).await;
+    assert_eq!(bob_del.status, 404);
+
+    // Non-existent ID DELETE by Alice -> 404
+    let unknown_del = send(&e.router, "DELETE", "/shares/ZZZZZZZZZZZZZZZZZZZZZ", Some(&e.alice), None, &[]).await;
+    assert_eq!(unknown_del.status, 404);
+
+    // Alice (author) DELETE -> 204
+    let del = send(&e.router, "DELETE", &format!("/shares/{pub_id}"), Some(&e.alice), None, &[]).await;
+    assert_eq!(del.status, 204);
+
+    // Repeated DELETE -> 204 (idempotent)
+    let repeat_del = send(&e.router, "DELETE", &format!("/shares/{pub_id}"), Some(&e.alice), None, &[]).await;
+    assert_eq!(repeat_del.status, 204);
+
+    // After revoke: Anonymous GET -> 401
+    let anon_get = send(&e.router, "GET", &format!("/shares/{pub_id}"), None, None, &[]).await;
+    assert_eq!(anon_get.status, 401);
+
+    // After revoke: Signed-in GET -> 404 immediately at origin
+    let signed_get = send(&e.router, "GET", &format!("/shares/{pub_id}"), Some(&e.alice), None, &[]).await;
+    assert_eq!(signed_get.status, 404);
+
+    // Admin (root) can revoke someone else's share
+    let pub2_id = create(&e, &e.alice, json!({"audience": "public"})).await.json()["data"]["share_id"].as_str().unwrap().to_string();
+    let root_del = send(&e.router, "DELETE", &format!("/shares/{pub2_id}"), Some(&e.root), None, &[]).await;
+    assert_eq!(root_del.status, 204);
+}
+
+#[tokio::test]
+async fn cache_window_asserts_contract_max_age_and_no_immutable() {
+    let e = env().await;
+    let pub_id = create(&e, &e.alice, json!({"audience": "public"})).await.json()["data"]["share_id"].as_str().unwrap().to_string();
+
+    let res = send(&e.router, "GET", &format!("/shares/{pub_id}"), None, None, &[]).await;
+    assert_eq!(res.status, 200);
+    let cc = res.header("cache-control").unwrap();
+    // Must never be immutable (so revocation takes effect within 300s)
+    assert!(!cc.contains("immutable"));
+    assert_eq!(cc, "public, max-age=300, s-maxage=300");
+}

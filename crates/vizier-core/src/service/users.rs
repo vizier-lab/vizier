@@ -5,7 +5,10 @@ use crate::{
     access,
     auth::{AuthMethod, Principal, password},
     service::{ServiceError, Services},
-    storage::user::{Role, User, UserStorage},
+    storage::{
+        share::ShareStorage,
+        user::{Role, User, UserStorage},
+    },
 };
 
 /// Logs `e` and returns an internal error carrying only `message`.
@@ -212,6 +215,10 @@ pub async fn delete(services: &Services, principal: &Principal, user_id: &str) -
     {
         return Err(bad("Cannot delete system user"));
     }
+    storage
+        .delete_shares_by_creator(user_id)
+        .await
+        .map_err(|e| fail("Failed to delete user's shares", e))?;
     storage
         .delete_user(user_id)
         .await
