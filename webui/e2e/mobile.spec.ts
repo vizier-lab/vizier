@@ -7,6 +7,7 @@ const ROUTES = [
     '/',
     '/agents/new',
     `/${AGENT}/chat`,
+    `/${AGENT}/details`,
     `/${AGENT}/core`,
     `/${AGENT}/core/edit`,
     `/${AGENT}/memory`,
@@ -48,31 +49,62 @@ test.describe('Phone layout (quickstart §8, SC-008)', () => {
         })
     }
 
-    test('Home: a top bar with the wordmark, a drawer for the nav, and the court as a list', async ({ page }) => {
+    test('Home: the agents and the Workspaces as lists, and a drawer for the app', async ({ page }) => {
         await page.goto('/')
         await expect(page.getByRole('button', { name: 'Open menu' })).toBeVisible()
         await expect(page.getByRole('navigation', { name: 'Main' })).toBeHidden()
-        await expect(page.getByRole('region', { name: 'The court' })).toBeVisible()
-        await expect(page.getByRole('img', { name: 'vizier' })).toBeVisible()
+        const agents = page.getByRole('region', { name: 'Agents' })
+        await expect(agents).toBeVisible()
+        await expect(agents.getByRole('link', { name: new RegExp(AGENT) })).toBeVisible()
+        await expect(agents.getByRole('button', { name: 'New agent' })).toBeVisible()
+        // The phone's Home is the lists: no greeting, no activity panel.
+        await expect(page.getByRole('region', { name: 'The court' })).toHaveCount(0)
 
         await page.getByRole('button', { name: 'Open menu' }).click()
         const nav = page.getByRole('dialog').getByRole('navigation', { name: 'Main' })
         await expect(nav).toBeVisible()
-        await nav.getByRole('link', { name: 'Settings' }).click()
+        await expect(nav.getByRole('link', { name: 'Home' })).toBeVisible()
+        await page.getByRole('dialog').getByRole('link', { name: 'Settings' }).click()
         await expect(page).toHaveURL(/\/settings\/profile/)
         // Choosing a page closes the drawer.
         await expect(page.getByRole('dialog')).toBeHidden()
     })
 
-    test('Chat: the top bar names the topic and the agent, and the panel is a sheet', async ({ page }) => {
+    test('Chat: the agent switches from its name and opens its details from the side', async ({ page }) => {
         await page.goto(`/${AGENT}/chat`)
         await expect(page.getByRole('button', { name: 'Open menu' })).toBeVisible()
         await expect(page.getByRole('navigation', { name: 'Main' })).toBeHidden()
-        await expect(page.getByRole('complementary', { name: 'Conversation details' })).toHaveCount(0)
 
-        await page.getByRole('button', { name: 'Conversation details' }).click()
-        await expect(page.getByRole('dialog', { name: 'Conversation details' })).toBeVisible()
-        await expect(page.getByText('Recalled memory')).toBeVisible()
+        await page.getByRole('button', { name: `${AGENT}, switch agent` }).click()
+        const sheet = page.getByRole('dialog', { name: 'Switch agent' })
+        await expect(sheet).toBeVisible()
+        // No "New agent" in the switcher: Home has it.
+        await expect(sheet.getByText('New agent')).toHaveCount(0)
+        await sheet.getByRole('button', { name: `${AGENT} details` }).click()
+        await expect(page).toHaveURL(new RegExp(`/${AGENT}/details$`))
+        await expect(page.getByRole('dialog', { name: 'Switch agent' })).toBeHidden()
+    })
+
+    test('Agent details: every page of the agent, and back up from one', async ({ page }) => {
+        await page.goto(`/${AGENT}/chat`)
+        await page.getByRole('button', { name: `${AGENT} details` }).click()
+        await expect(page).toHaveURL(new RegExp(`/${AGENT}/details$`))
+        for (const group of ['The agent', 'Essentials', 'Connections', 'Running it']) {
+            await expect(page.getByRole('region', { name: group })).toBeVisible()
+        }
+        await page.getByRole('link', { name: 'Memory' }).click()
+        await expect(page).toHaveURL(new RegExp(`/${AGENT}/memory`))
+        await page.getByRole('button', { name: `Back to ${AGENT}` }).click()
+        await expect(page).toHaveURL(new RegExp(`/${AGENT}/details$`))
+    })
+
+    test('Chat: the topics are a sheet', async ({ page }) => {
+        await page.goto(`/${AGENT}/chat`)
+        // The bar's second row: a fresh chat's topic is untitled.
+        await page.getByRole('button', { name: 'Untitled conversation' }).click()
+        await expect(page.getByRole('dialog', { name: 'Topics' })).toBeVisible()
+        await page.keyboard.press('Escape')
+        await expect(page.getByRole('dialog', { name: 'Topics' })).toBeHidden()
     })
 })
 
