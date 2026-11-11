@@ -4,13 +4,15 @@ import { cx } from "../../lib/cx";
 export type ProseProps = {
   /** Reply: chat replies at reading size. Document: Core and the skill editor. */
   size?: "reply" | "document";
+  /** Muted: prose on the trail (a thought, narration between rounds) reads quieter than a reply. */
+  tone?: "default" | "muted";
 } & HTMLAttributes<HTMLDivElement>;
 
 // Rendered markdown, styled through its elements so any renderer's output fits.
 const BASE = [
-  "text-fg",
   "[&>*+*]:mt-12",
-  "[&_h1]:type-title [&_h2]:type-heading [&_h3]:type-body-strong [&_h1]:text-fg [&_h2]:text-fg [&_h3]:text-fg",
+  // Headings take the root's colour, so a muted Prose mutes them too.
+  "[&_h1]:type-title [&_h2]:type-heading [&_h3]:type-body-strong",
   "[&_:is(h1,h2,h3)+*]:mt-8",
   "[&_ul]:list-disc [&_ol]:list-decimal [&_:is(ul,ol)]:pl-20 [&_li+li]:mt-4",
   "[&_a]:text-fg [&_a]:underline [&_a]:underline-offset-2",
@@ -27,6 +29,11 @@ const BASE = [
 ].join(" ");
 
 /** Rendered markdown (X49): headings, paragraphs, lists, tables, code, quotes. */
-export function Prose({ size = "reply", className, ...rest }: ProseProps) {
-  return <div className={cx(BASE, size === "reply" ? "type-prose" : "type-body-para", className)} {...rest} />;
+export function Prose({ size = "reply", tone = "default", className, ...rest }: ProseProps) {
+  return (
+    <div
+      className={cx(BASE, size === "reply" ? "type-prose" : "type-body-para", tone === "muted" ? "text-muted" : "text-fg", className)}
+      {...rest}
+    />
+  );
 }
