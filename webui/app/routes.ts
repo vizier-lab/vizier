@@ -40,6 +40,8 @@ export default [
             route(':agentId/integrations/addons', 'routes/integrations-addons.tsx'),
             route(':agentId/integrations/mcp', 'routes/integrations-mcp.tsx'),
             route(':agentId/settings', 'routes/redirect-agent-settings.tsx'),
+            // The phone's way into an agent's pages (spec 056); a wide screen goes to config.
+            route(':agentId/details', 'routes/agent-details.tsx'),
 
             layout('layouts/SettingsLayout.tsx', [
                 route('settings', 'routes/redirect-settings.tsx'),
