@@ -1,4 +1,4 @@
-import { IconButton, MobileTopBar, ShellFrame, SlideOver } from '@vizier/design'
+import { Button, MobileTopBar, ShellFrame } from '@vizier/design'
 import { useEffect, useMemo, useState, type MouseEvent } from 'react'
 import { Outlet, useLocation, useMatches, useNavigate, useParams } from 'react-router'
 import { motion } from 'motion/react'
@@ -16,13 +16,16 @@ import { NotificationsBell } from '../screens/shared/NotificationsBell'
 import { NotificationToasts } from '../screens/shared/NotificationToasts'
 import { InsecureNetworkNotice } from '../screens/shared/InsecureNetworkNotice'
 import { OfflineBanner } from '../screens/shared/OfflineBanner'
-import { NewAgentDialog, withNewAgent } from '../screens/agents/NewAgentDialog'
+import { NewAgentDialog } from '../screens/agents/NewAgentDialog'
 import { SettingsSidebar } from '../screens/settings/SettingsSidebar'
 import { AgentSidebar } from '../screens/shell/AgentSidebar'
 import { WorkspaceColumn } from '../screens/workspaces/WorkspaceColumn'
 import { useWorkspaces } from '../stores/workspaces'
 import { viewOf } from '../screens/shell/pages'
 import { ShellRail } from '../screens/shell/ShellRail'
+import { MobileNavDrawer } from '../screens/shell/MobileNavDrawer'
+import { AgentSwitcherSheet } from '../screens/shell/AgentSwitcherSheet'
+import { detailsPath } from '../lib/agentDetails'
 import { useSession } from '../stores/session'
 import { getInstanceZone } from '../api/endpoints/timezone'
 import { setInstanceZone } from '../lib/timezone'
@@ -30,20 +33,23 @@ import { ToastRegion } from './ToastRegion'
 
 export default function AppShell() {
     const navigate = useNavigate()
-    const { pathname, search } = useLocation()
+    const { pathname } = useLocation()
     const params = useParams()
     const matches = useMatches()
     const { can } = useSession()
     const start = useAgents((s) => s.start)
+    const agents = useAgents((s) => s.agents)
     const loadWorkspaces = useWorkspaces((s) => s.load)
+    const workspaceList = useWorkspaces((s) => s.list)
     const mobile = useMobile()
-    const navOpen = useNav((s) => s.open)
     const setNavOpen = useNav((s) => s.setOpen)
     const sidebarCollapsed = useNav((s) => s.sidebarCollapsed)
     const toggleSidebar = useNav((s) => s.toggleSidebar)
     const resetNotifications = useNotifications((s) => s.reset)
     const setViewing = useNotifications((s) => s.setViewing)
-    const [drawerAgent, setDrawerAgent] = useState<string>()
+    const setSwitcherOpen = useNav((s) => s.setSwitcherOpen)
+    const lastAgent = useNav((s) => s.lastAgent)
+    const setLastAgent = useNav((s) => s.setLastAgent)
     // Times are drawn in the instance's zone, so the pages wait for it. If it can't be read they
     // carry on in the browser's zone rather than show nothing.
     const [zoneKnown, setZoneKnown] = useState(false)
@@ -89,8 +95,11 @@ export default function AppShell() {
     }, [resetNotifications])
     // A reply to the conversation on screen is read on arrival, not toasted.
     useEffect(() => setViewing(pathname), [pathname, setViewing])
-    // Choosing a page closes the drawer.
-    useEffect(() => setNavOpen(false), [pathname, setNavOpen])
+    // Choosing a page closes the drawer and the agent switcher.
+    useEffect(() => {
+        setNavOpen(false)
+        setSwitcherOpen(false)
+    }, [pathname, setNavOpen, setSwitcherOpen])
     // A chat brings its own top bar, which has the topic and the agent's status.
     const ownsTopBar = /^\/[^/]+\/(?:projects\/[^/]+\/)?chat(\/|$)/.test(pathname)
 
@@ -99,10 +108,10 @@ export default function AppShell() {
             ? params.agentId
             : undefined
     const view = viewOf(pathname, routeAgent)
-    // The drawer on a phone keeps showing the last agent while you are on Home or Settings.
+    // A phone keeps the last agent (the drawer's Chat, the mark on Home) while you are on Home or Settings.
     useEffect(() => {
-        if (routeAgent) setDrawerAgent(routeAgent)
-    }, [routeAgent])
+        if (routeAgent) setLastAgent(routeAgent)
+    }, [routeAgent, setLastAgent])
     // Ctrl B (or ⌘B) shuts the agent column. A rich text editor keeps the key for bold.
     useEffect(() => {
         if (mobile || view !== 'agent') return
@@ -173,23 +182,31 @@ export default function AppShell() {
         ) : null
 
     if (mobile) {
-        const drawerView = view === 'bare' && drawerAgent ? 'agent' : view
+        const agentName = routeAgent ? (agents.find((a) => a.agent_id === routeAgent)?.name ?? routeAgent) : undefined
+        const onDetails = !!routeAgent && pathname === detailsPath(routeAgent)
+        const workspaceName = view === 'workspace' ? workspaceList.find((w) => w.id === params.workspaceId)?.name : undefined
+        // Inside an agent the bar goes back up (a page to the agent's details, the details to its
+        // chat); everywhere else it opens the menu.
+        const bar =
+            view === 'agent' && routeAgent
+                ? onDetails
+                    ? { onBack: () => navigate(`/${routeAgent}/chat`), backLabel: `Back to ${agentName}'s chat`, title: 'Agent' }
+                    : { onBack: () => navigate(detailsPath(routeAgent)), backLabel: `Back to ${agentName}`, title: agentName }
+                : {
+                      onMenu: () => setNavOpen(true),
+                      title: view === 'settings' ? 'Settings' : view === 'workspace' ? (workspaceName ?? 'Workspace') : 'Vizier',
+                  }
         return (
-            <div
-                className="flex h-dvh min-w-0 flex-col bg-panel text-fg"
-                onClick={onClick}
-            >
+            <div className="flex h-dvh min-w-0 flex-col bg-panel pb-safe text-fg" onClick={onClick}>
                 {!ownsTopBar && (
                     <MobileTopBar
-                        onMenu={() => setNavOpen(true)}
+                        {...bar}
                         trailing={
-                            <div className="flex items-center gap-4">
-                                {pathname === '/' && can('all_agents:create') && (
-                                    <IconButton
-                                        icon="plus"
-                                        aria-label="New agent"
-                                        onClick={() => navigate(withNewAgent(`${pathname}${search}`))}
-                                    />
+                            <div className="flex items-center">
+                                {onDetails && (
+                                    <Button variant="ghost" size="sm" trailingIcon="chevron-down" onClick={() => setSwitcherOpen(true)}>
+                                        Switch
+                                    </Button>
                                 )}
                                 <NotificationsBell />
                             </div>
@@ -200,16 +217,8 @@ export default function AppShell() {
                     {notices}
                     {page}
                 </main>
-                <SlideOver open={navOpen} title="Menu" side="left" onClose={() => setNavOpen(false)}>
-                    <div className="-m-20 flex h-[calc(100%+40px)] bg-shell">
-                        <ShellRail pathname={pathname} view={view} routeAgent={routeAgent} />
-                        {drawerView === 'agent' && (routeAgent ?? drawerAgent) ? (
-                            <AgentSidebar agentId={(routeAgent ?? drawerAgent)!} />
-                        ) : drawerView === 'settings' ? (
-                            <SettingsSidebar active={settingsPage} admin={admin} />
-                        ) : null}
-                    </div>
-                </SlideOver>
+                <MobileNavDrawer />
+                <AgentSwitcherSheet current={routeAgent ?? lastAgent} />
                 <NotificationsPopup />
                 <NotificationToasts />
                 <ToastRegion />
