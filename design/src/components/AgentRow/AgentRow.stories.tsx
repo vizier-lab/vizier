@@ -25,3 +25,14 @@ export const List: Story = {
     </>
   ),
 };
+
+/** The phone's agent switcher (spec 056): the current agent marked, a details button on each row, no chevron. */
+export const Switcher: Story = {
+  render: () => (
+    <div className="flex flex-col gap-2">
+      <AgentRow agentId="Archivist" name="Archivist" state="running" detail="replying" selected chevron={false} onSelect={() => {}} onDetails={() => {}} className="rounded-lg" />
+      <AgentRow agentId="Scout" name="Scout" state="live" chevron={false} onSelect={() => {}} onDetails={() => {}} className="rounded-lg" />
+      <AgentRow agentId="Quill" name="Quill" state="stopped" chevron={false} onSelect={() => {}} onDetails={() => {}} className="rounded-lg" />
+    </div>
+  ),
+};
