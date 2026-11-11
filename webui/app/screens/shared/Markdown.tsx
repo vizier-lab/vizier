@@ -9,7 +9,11 @@ import { highlightCode } from '../../lib/highlight'
 import { remarkBreaks } from '../../lib/remarkBreaks'
 import { Mermaid } from './Mermaid'
 
-type Props = { children: string; size?: ComponentProps<typeof Prose>['size'] }
+type Props = {
+    children: string
+    size?: ComponentProps<typeof Prose>['size']
+    tone?: ComponentProps<typeof Prose>['tone']
+}
 
 // Module level: a fresh plugin array on every render re-parses the whole document each time.
 const PLUGINS: NonNullable<ComponentProps<typeof ReactMarkdown>['remarkPlugins']> = [remarkGfm, remarkBreaks, remarkMath]
@@ -71,9 +75,9 @@ const components: ComponentProps<typeof ReactMarkdown>['components'] = {
  * diagram) and math (`$…$` and `$$…$$`, through KaTeX). A fence always wins: `$` inside one is
  * source, because the highlighter reads it as text and KaTeX never sees it.
  */
-export function Markdown({ children, size = 'reply' }: Props) {
+export function Markdown({ children, size = 'reply', tone }: Props) {
     return (
-        <Prose size={size}>
+        <Prose size={size} tone={tone}>
             <ReactMarkdown remarkPlugins={PLUGINS} rehypePlugins={REHYPE} components={components}>
                 {children}
             </ReactMarkdown>
