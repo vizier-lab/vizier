@@ -7,12 +7,14 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { ApiError } from '../../api/client'
 import { transport } from '../../api/transport'
 import { buildCreateRequest, createShare, searchPeople, sharePath, type Audience, type CreatedShare, type PersonMatch } from '../../api/shares'
+import { exportOfflineSnapshot } from '../../lib/share/export'
 import { buildPreview, formatBytes, type Preview } from '../../lib/share/preview'
 import { serializeConversation, ShareError, type SerializeResult } from '../../lib/share/serialize'
 import { toast } from '../../stores/toasts'
 import { SnapshotView } from '../../viewer/SnapshotView'
 
 export const DESKTOP_NOTICE = 'A link needs a server others can reach. Use Offline file.'
+export const OFFLINE_NOTICE = 'Nothing is stored on the server. The offline file contains everything needed to view the conversation interactively in any web browser without an internet connection.'
 export const COPY_WARNING = 'Anyone with the link can read this. You can revoke it later, but a copy someone already made cannot be taken back.'
 export const TRAIL_HELP = 'Off: only what you and the agent said, plus images and pages.'
 
@@ -79,6 +81,7 @@ type Props = {
 
 export function ShareDialog({ open, onClose, agentId, topicId, title, agentName }: Props) {
     const desktop = transport.authMode === 'desktop'
+    const [tab, setTab] = useState<'link' | 'offline'>(desktop ? 'offline' : 'link')
     const [includeTrail, setIncludeTrail] = useState(false)
     const [audience, setAudience] = useState<Audience>('public')
     const [people, setPeople] = useState<PersonMatch[]>([])
@@ -91,6 +94,8 @@ export function ShareDialog({ open, onClose, agentId, topicId, title, agentName 
     const [loading, setLoading] = useState(false)
     const [creating, setCreating] = useState(false)
     const [createError, setCreateError] = useState<string | null>(null)
+    const [exporting, setExporting] = useState(false)
+    const [exportError, setExportError] = useState<string | null>(null)
     const [created, setCreated] = useState<string | null>(null)
     const [previewing, setPreviewing] = useState(false)
     const run = useRef(0)
@@ -98,6 +103,7 @@ export function ShareDialog({ open, onClose, agentId, topicId, title, agentName 
     // Start clean each time it opens.
     useEffect(() => {
         if (open) {
+            setTab(desktop ? 'offline' : 'link')
             setIncludeTrail(false)
             setAudience('public')
             setPeople([])
@@ -106,9 +112,11 @@ export function ShareDialog({ open, onClose, agentId, topicId, title, agentName 
             setPeopleError(null)
             setCreated(null)
             setCreateError(null)
+            setExporting(false)
+            setExportError(null)
             setPreviewing(false)
         }
-    }, [open])
+    }, [open, desktop])
 
     // Search people by query prefix when audience is 'specific'
     useEffect(() => {
@@ -159,7 +167,7 @@ export function ShareDialog({ open, onClose, agentId, topicId, title, agentName 
 
     // Read the conversation (the trail switch changes what is in it). Reads only.
     useEffect(() => {
-        if (!open || desktop) return
+        if (!open) return
         const mine = ++run.current
         setLoading(true)
         setLoadError(null)
@@ -170,9 +178,24 @@ export function ShareDialog({ open, onClose, agentId, topicId, title, agentName 
         return () => {
             run.current++
         }
-    }, [open, desktop, agentId, topicId, agentName, title, includeTrail])
+    }, [open, agentId, topicId, agentName, title, includeTrail])
 
     const preview = result ? buildPreview(result) : null
+
+    const doExport = useCallback(async () => {
+        if (!result?.snapshot) return
+        setExporting(true)
+        setExportError(null)
+        try {
+            const { filename } = await exportOfflineSnapshot(result.snapshot)
+            toast.success(`Exported ${filename}`)
+            onClose()
+        } catch (e) {
+            setExportError(e instanceof Error ? e.message : 'Could not export file.')
+        } finally {
+            setExporting(false)
+        }
+    }, [result, onClose])
 
     const create = useCallback(async () => {
         if (!result || !preview?.canShare) return
@@ -221,114 +244,179 @@ export function ShareDialog({ open, onClose, agentId, topicId, title, agentName 
                 open={open}
                 size="lg"
                 title="Share this conversation"
-                confirmLabel={created || desktop ? '' : 'Create link'}
-                confirmLoading={creating}
-                confirmDisabled={!preview?.canShare || loading || (audience === 'specific' && people.length === 0)}
-                onConfirm={() => void create()}
+                confirmLabel={
+                    tab === 'link'
+                        ? created || desktop ? '' : 'Create link'
+                        : exporting ? 'Exporting…' : 'Export file'
+                }
+                confirmLoading={tab === 'link' ? creating : exporting}
+                confirmDisabled={
+                    tab === 'link'
+                        ? !preview?.canShare || loading || (audience === 'specific' && people.length === 0)
+                        : !preview?.canShare || loading || exporting
+                }
+                onConfirm={() => {
+                    if (tab === 'link') void create()
+                    else void doExport()
+                }}
                 onCancel={onClose}
             >
-                <div role="tablist" aria-label="How to share" className="flex gap-8">
-                    <button type="button" role="tab" aria-selected="true" className="type-ui-medium text-fg underline underline-offset-4">Link</button>
+                <div role="tablist" aria-label="How to share" className="flex gap-16 border-b border-border pb-8">
+                    <button
+                        type="button"
+                        role="tab"
+                        aria-selected={tab === 'link'}
+                        onClick={() => setTab('link')}
+                        className={tab === 'link' ? 'type-ui-medium text-fg underline underline-offset-8 font-semibold' : 'type-ui-medium text-muted hover:text-fg'}
+                    >
+                        Link
+                    </button>
+                    <button
+                        type="button"
+                        role="tab"
+                        aria-selected={tab === 'offline'}
+                        onClick={() => setTab('offline')}
+                        className={tab === 'offline' ? 'type-ui-medium text-fg underline underline-offset-8 font-semibold' : 'type-ui-medium text-muted hover:text-fg'}
+                    >
+                        Offline file
+                    </button>
                 </div>
 
-                {desktop ? (
-                    <Notice tone="info" title={DESKTOP_NOTICE} />
-                ) : created ? (
-                    <div className="flex flex-col gap-12">
-                        <p className="type-ui text-muted">The link is ready and copied.</p>
-                        <div className="flex items-center gap-8">
-                            <input readOnly aria-label="Link" value={created} onFocus={(e) => e.currentTarget.select()} className="min-w-0 flex-1 rounded-md border border-border-strong bg-raised px-10 py-6 type-mono-xs text-fg" />
-                            <Button onClick={copy}>Copy</Button>
-                            <Button variant="primary" onClick={onClose}>Done</Button>
+                {tab === 'link' ? (
+                    desktop ? (
+                        <Notice tone="info" title={DESKTOP_NOTICE} />
+                    ) : created ? (
+                        <div className="flex flex-col gap-12">
+                            <p className="type-ui text-muted">The link is ready and copied.</p>
+                            <div className="flex items-center gap-8">
+                                <input readOnly aria-label="Link" value={created} onFocus={(e) => e.currentTarget.select()} className="min-w-0 flex-1 rounded-md border border-border-strong bg-raised px-10 py-6 type-mono-xs text-fg" />
+                                <Button onClick={copy}>Copy</Button>
+                                <Button variant="primary" onClick={onClose}>Done</Button>
+                            </div>
+                            <p className="type-small text-muted">Who can open it: <span className="text-fg">{audienceLabel}</span> (cannot be changed after creating).</p>
+                            <p className="type-small text-muted">{COPY_WARNING}</p>
                         </div>
-                        <p className="type-small text-muted">Who can open it: <span className="text-fg">{audienceLabel}</span> (cannot be changed after creating).</p>
-                        <p className="type-small text-muted">{COPY_WARNING}</p>
-                    </div>
-                ) : (
-                    <div className="flex flex-col gap-16">
-                        <fieldset className="flex flex-col gap-6">
-                            <legend className="type-ui-medium text-fg">Who can open it</legend>
-                            <Radio
-                                name="audience"
-                                label="Specific people"
-                                checked={audience === 'specific'}
-                                onChange={() => setAudience('specific')}
-                            />
-                            {audience === 'specific' && (
-                                <div className="flex flex-col gap-8 pl-24">
-                                    <div className="relative">
-                                        <input
-                                            type="search"
-                                            aria-label="Add people by username"
-                                            placeholder="Search username (at least 2 characters)…"
-                                            value={peopleQuery}
-                                            onChange={(e) => setPeopleQuery(e.target.value)}
-                                            className="w-full rounded-md border border-border-strong bg-raised px-10 py-6 type-ui-xs text-fg placeholder:text-muted focus:border-ink"
-                                        />
-                                        {searchingPeople && <span className="absolute right-8 top-8 type-ui-xs text-muted">Searching…</span>}
-                                        {peopleMatches.length > 0 && (
-                                            <ul
-                                                role="listbox"
-                                                aria-label="Matching users"
-                                                className="absolute z-10 mt-4 max-h-48 w-full overflow-auto rounded-md border border-border-strong bg-raised py-4 shadow-lg"
-                                            >
-                                                {peopleMatches.map((match) => (
-                                                    <li key={match.user_id}>
+                    ) : (
+                        <div className="flex flex-col gap-16">
+                            <fieldset className="flex flex-col gap-6">
+                                <legend className="type-ui-medium text-fg">Who can open it</legend>
+                                <Radio
+                                    name="audience"
+                                    label="Specific people"
+                                    checked={audience === 'specific'}
+                                    onChange={() => setAudience('specific')}
+                                />
+                                {audience === 'specific' && (
+                                    <div className="flex flex-col gap-8 pl-24">
+                                        <div className="relative">
+                                            <input
+                                                type="search"
+                                                aria-label="Add people by username"
+                                                placeholder="Search username (at least 2 characters)…"
+                                                value={peopleQuery}
+                                                onChange={(e) => setPeopleQuery(e.target.value)}
+                                                className="w-full rounded-md border border-border-strong bg-raised px-10 py-6 type-ui-xs text-fg placeholder:text-muted focus:border-ink"
+                                            />
+                                            {searchingPeople && <span className="absolute right-8 top-8 type-ui-xs text-muted">Searching…</span>}
+                                            {peopleMatches.length > 0 && (
+                                                <ul
+                                                    role="listbox"
+                                                    aria-label="Matching users"
+                                                    className="absolute z-10 mt-4 max-h-48 w-full overflow-auto rounded-md border border-border-strong bg-raised py-4 shadow-lg"
+                                                >
+                                                    {peopleMatches.map((match) => (
+                                                        <li key={match.user_id}>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => addPerson(match)}
+                                                                className="w-full px-10 py-6 text-left type-ui-xs text-fg hover:bg-hover"
+                                                            >
+                                                                {match.username}
+                                                            </button>
+                                                        </li>
+                                                    ))}
+                                                </ul>
+                                            )}
+                                        </div>
+                                        {peopleError && <p className="type-small text-failed-text">{peopleError}</p>}
+                                        {people.length > 0 ? (
+                                            <div className="flex flex-wrap gap-6" aria-label="Selected people">
+                                                {people.map((p) => (
+                                                    <span
+                                                        key={p.user_id}
+                                                        className="inline-flex items-center gap-4 rounded-xs border border-border-strong bg-raised px-6 py-2 type-ui-xs text-fg"
+                                                    >
+                                                        {p.username}
                                                         <button
                                                             type="button"
-                                                            onClick={() => addPerson(match)}
-                                                            className="w-full px-10 py-6 text-left type-ui-xs text-fg hover:bg-hover"
+                                                            aria-label={`Remove ${p.username}`}
+                                                            onClick={() => removePerson(p.user_id)}
+                                                            className="type-ui-xs text-muted hover:text-fg"
                                                         >
-                                                            {match.username}
+                                                            ×
                                                         </button>
-                                                    </li>
+                                                    </span>
                                                 ))}
-                                            </ul>
+                                            </div>
+                                        ) : (
+                                            <p className="type-small text-muted">Name at least one person to share with.</p>
                                         )}
                                     </div>
-                                    {peopleError && <p className="type-small text-failed-text">{peopleError}</p>}
-                                    {people.length > 0 ? (
-                                        <div className="flex flex-wrap gap-6" aria-label="Selected people">
-                                            {people.map((p) => (
-                                                <span
-                                                    key={p.user_id}
-                                                    className="inline-flex items-center gap-4 rounded-xs border border-border-strong bg-raised px-6 py-2 type-ui-xs text-fg"
-                                                >
-                                                    {p.username}
-                                                    <button
-                                                        type="button"
-                                                        aria-label={`Remove ${p.username}`}
-                                                        onClick={() => removePerson(p.user_id)}
-                                                        className="type-ui-xs text-muted hover:text-fg"
-                                                    >
-                                                        ×
-                                                    </button>
-                                                </span>
-                                            ))}
-                                        </div>
-                                    ) : (
-                                        <p className="type-small text-muted">Name at least one person to share with.</p>
-                                    )}
-                                </div>
-                            )}
-                            <Radio
-                                name="audience"
-                                label="Anyone signed in on this instance"
-                                checked={audience === 'signed_in'}
-                                onChange={() => setAudience('signed_in')}
-                            />
-                            <Radio
-                                name="audience"
-                                label="Anyone with the link (public)"
-                                checked={audience === 'public'}
-                                onChange={() => setAudience('public')}
-                            />
-                        </fieldset>
+                                )}
+                                <Radio
+                                    name="audience"
+                                    label="Anyone signed in on this instance"
+                                    checked={audience === 'signed_in'}
+                                    onChange={() => setAudience('signed_in')}
+                                />
+                                <Radio
+                                    name="audience"
+                                    label="Anyone with the link (public)"
+                                    checked={audience === 'public'}
+                                    onChange={() => setAudience('public')}
+                                />
+                            </fieldset>
 
+                            <SwitchRow label="Include the agent's activity trail (tool calls and results)" helper={TRAIL_HELP} checked={includeTrail} onCheckedChange={setIncludeTrail} />
+
+                            <section className="flex flex-col gap-6" aria-label="What will be shared">
+                                <h3 className="type-ui-medium text-fg">What will be shared</h3>
+                                {loading && !preview && <Skeleton variant="lines" lines={2} />}
+                                {loadError && <Notice tone="failed" title="The conversation could not be read">{loadError}</Notice>}
+                                {preview && (
+                                    <>
+                                        <p className="type-ui text-fg">{summaryLine(preview)}</p>
+                                        {leftOutLines(preview).length > 0 && (
+                                            <div>
+                                                <p className="type-small text-muted">Left out automatically:</p>
+                                                <ul className="list-disc pl-20 type-small text-muted">
+                                                    {leftOutLines(preview).map((l) => <li key={l}>{l}</li>)}
+                                                </ul>
+                                            </div>
+                                        )}
+                                        {warningLines(preview).map((w) => <p key={w} role="alert" className="type-small text-retrying">⚠ {w}</p>)}
+                                        {preview.notes.map((n) => <p key={n} className="type-small text-muted">{n}</p>)}
+                                        {preview.refusal && (
+                                            <Notice tone="failed" title={preview.refusal.message}>
+                                                {preview.refusal.options.length > 0 && <ul className="list-disc pl-20">{preview.refusal.options.map((o) => <li key={o}>{o}</li>)}</ul>}
+                                            </Notice>
+                                        )}
+                                        <div><Button onClick={() => setPreviewing(true)} disabled={!result}>Preview what a visitor sees</Button></div>
+                                    </>
+                                )}
+                            </section>
+
+                            {createError && <Notice tone="failed" title={createError} />}
+                            <p className="type-small text-muted">{COPY_WARNING}</p>
+                        </div>
+                    )
+                ) : (
+                    <div className="flex flex-col gap-16">
+                        <Notice tone="info" title={OFFLINE_NOTICE} />
                         <SwitchRow label="Include the agent's activity trail (tool calls and results)" helper={TRAIL_HELP} checked={includeTrail} onCheckedChange={setIncludeTrail} />
 
-                        <section className="flex flex-col gap-6" aria-label="What will be shared">
-                            <h3 className="type-ui-medium text-fg">What will be shared</h3>
+                        <section className="flex flex-col gap-6" aria-label="What will be exported">
+                            <h3 className="type-ui-medium text-fg">What will be exported</h3>
                             {loading && !preview && <Skeleton variant="lines" lines={2} />}
                             {loadError && <Notice tone="failed" title="The conversation could not be read">{loadError}</Notice>}
                             {preview && (
@@ -354,8 +442,7 @@ export function ShareDialog({ open, onClose, agentId, topicId, title, agentName 
                             )}
                         </section>
 
-                        {createError && <Notice tone="failed" title={createError} />}
-                        <p className="type-small text-muted">{COPY_WARNING}</p>
+                        {exportError && <Notice tone="failed" title={exportError} />}
                     </div>
                 )}
             </Dialog>

@@ -54,6 +54,7 @@ export default [
                 route('settings/password', 'routes/redirect-password.tsx'),
                 route('settings/desktop', 'routes/settings-desktop.tsx'),
                 route('settings/api-keys', 'routes/settings-api-keys.tsx'),
+                route('settings/shares', 'routes/settings-shares.tsx'),
                 route('settings/providers', 'routes/settings-providers.tsx'),
                 route('settings/providers/add', 'routes/settings-providers-add.tsx'),
                 route('settings/users', 'routes/settings-users.tsx'),
