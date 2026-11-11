@@ -505,7 +505,7 @@ export default function Chat() {
                     className="pointer-events-none absolute inset-x-0 bottom-0 z-10"
                 >
                     <div aria-hidden className="absolute inset-0 bg-gradient-to-t from-panel via-panel/80 to-transparent" />
-                    <div className="pointer-events-auto relative mx-auto w-full max-w-4xl px-24 pt-24 pb-16">
+                    <div className="pointer-events-auto relative mx-auto w-full max-w-4xl px-24 pt-24 pb-16 max-lg:px-12 max-lg:pt-16 max-lg:pb-4">
                     <SideChatPanel
                         key={sideChat.id}
                         open={sideChat.open}
