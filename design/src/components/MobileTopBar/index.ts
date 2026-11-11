@@ -1,1 +1,1 @@
-export { MobileTopBar, type MobileTopBarProps } from "./MobileTopBar";
+export { MobileTopBar, type MobileTopBarAgent, type MobileTopBarProps } from "./MobileTopBar";
