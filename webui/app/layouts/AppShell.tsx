@@ -42,6 +42,29 @@ export default function AppShell() {
     const loadWorkspaces = useWorkspaces((s) => s.load)
     const workspaceList = useWorkspaces((s) => s.list)
     const mobile = useMobile()
+
+    // iOS scrolls the page up to keep a focused field above the keyboard, and leaves it there when
+    // the keyboard goes away, so the whole shell sits a little high. Put the page back once focus
+    // has left every field.
+    useEffect(() => {
+        if (!mobile) return
+        let timer: number | undefined
+        const settle = () => {
+            window.clearTimeout(timer)
+            timer = window.setTimeout(() => {
+                const el = document.activeElement
+                const typing = el instanceof HTMLElement && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))
+                if (!typing && (window.scrollY || window.visualViewport?.offsetTop)) window.scrollTo(0, 0)
+            }, 150)
+        }
+        window.addEventListener('focusout', settle)
+        window.visualViewport?.addEventListener('resize', settle)
+        return () => {
+            window.clearTimeout(timer)
+            window.removeEventListener('focusout', settle)
+            window.visualViewport?.removeEventListener('resize', settle)
+        }
+    }, [mobile])
     const setNavOpen = useNav((s) => s.setOpen)
     const sidebarCollapsed = useNav((s) => s.sidebarCollapsed)
     const toggleSidebar = useNav((s) => s.toggleSidebar)
@@ -203,7 +226,7 @@ export default function AppShell() {
                         {...bar}
                         trailing={
                             <div className="flex items-center">
-                                {onDetails && (
+                                {(onDetails || view === 'workspace') && (
                                     <Button variant="ghost" size="sm" trailingIcon="chevron-down" onClick={() => setSwitcherOpen(true)}>
                                         Switch
                                     </Button>
