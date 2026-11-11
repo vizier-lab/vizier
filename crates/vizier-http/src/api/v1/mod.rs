@@ -221,6 +221,11 @@ pub fn v1(state: HTTPState) -> Router<HTTPState> {
         // here, the innermost body limit, which beats the router-wide `disable()`; reading is
         // open to anyone, with a session only when there is one.
         .route(
+            "/shares/people",
+            get(shares::search_people)
+                .layer(middleware::from_fn_with_state(state.clone(), require_auth)),
+        )
+        .route(
             "/shares",
             post(shares::create)
                 .layer(axum::extract::DefaultBodyLimit::max(

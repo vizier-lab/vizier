@@ -426,6 +426,52 @@ pub async fn read(
     })
 }
 
+/// A matching user for naming in `specific` audience (`GET /shares/people?q=`).
+/// Returns only `user_id` and `username` (no email or role leaks).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+pub struct PersonMatch {
+    pub user_id: String,
+    pub username: String,
+}
+
+/// Search enabled users by username prefix for the specific audience picker.
+/// Requires a share permission (`PERMISSION_ALL` or `PERMISSION_OWNED`), or system role.
+/// Returns at most 20 matches.
+pub async fn search_people(
+    s: &Services,
+    who: &Principal,
+    q: &str,
+) -> Result<Vec<PersonMatch>, ServiceError> {
+    let has_share_perm = who.role.is_system
+        || who.role.permissions.iter().any(|p| p == PERMISSION_ALL || p == PERMISSION_OWNED);
+    if !has_share_perm {
+        return Err(forbidden());
+    }
+    let query = q.trim();
+    if query.chars().count() < 2 {
+        return Err(invalid("Search query must be at least 2 characters"));
+    }
+    let users = s
+        .deps()
+        .storage
+        .list_users()
+        .await
+        .map_err(|e| storage_error("Failed to list users", e))?;
+    let q_lower = query.to_lowercase();
+    let mut matches: Vec<PersonMatch> = users
+        .into_iter()
+        .filter(|u| u.username.to_lowercase().starts_with(&q_lower))
+        .map(|u| PersonMatch {
+            user_id: u.user_id,
+            username: u.username,
+        })
+        .collect();
+    matches.sort_by(|a, b| a.username.cmp(&b.username));
+    matches.truncate(20);
+    Ok(matches)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -735,5 +781,27 @@ mod service_tests {
         assert_eq!(read(&w.s, Some(&w.plain), &id).await.unwrap_err().status(), 404);
         assert_eq!(read(&w.s, None, &id).await.unwrap_err().status(), 401);
         assert!(read(&w.s, Some(&w.owner), &id).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn search_people_filters_prefix_and_requires_permission() {
+        let w = world().await;
+        // query too short: 400
+        assert_eq!(search_people(&w.s, &w.owner, "a").await.unwrap_err().status(), 400);
+        // without permission: 403
+        assert_eq!(search_people(&w.s, &w.plain, "al").await.unwrap_err().status(), 403);
+        // with permission: prefix match
+        let found = search_people(&w.s, &w.owner, "al").await.unwrap();
+        assert!(found.iter().any(|u| u.username == "alice"));
+        // system role is allowed
+        let root = w.s.deps().storage.create_role("system-search", vec![], true).await.unwrap();
+        let root_user = w.s.deps().storage.create_user("root-search", "", &root.role_id).await.unwrap();
+        let root_principal = Principal {
+            user_id: root_user.user_id,
+            username: root_user.username,
+            role: root,
+            method: crate::auth::AuthMethod::Password,
+        };
+        assert!(search_people(&w.s, &root_principal, "al").await.is_ok());
     }
 }

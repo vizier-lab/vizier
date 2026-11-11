@@ -18,7 +18,7 @@ use vizier_core::{
     },
 };
 
-pub use vizier_core::service::shares::CreateShareRequest;
+pub use vizier_core::service::shares::{CreateShareRequest, PersonMatch};
 
 use crate::{
     api::v1::integrations::{fail, ok, svc},
@@ -51,6 +51,50 @@ fn guard_headers(headers: &mut HeaderMap) {
         HeaderName::from_static("x-robots-tag"),
         HeaderValue::from_static("noindex, nofollow"),
     );
+}
+
+/// Client address for miss rate limiting (X-Forwarded-For, X-Real-IP, or local fallback).
+fn client_address(headers: &HeaderMap) -> String {
+    if let Some(xff) = headers.get("x-forwarded-for").and_then(|v| v.to_str().ok()) {
+        if let Some(client) = xff.split(',').next().map(str::trim).filter(|s| !s.is_empty()) {
+            return client.to_string();
+        }
+    }
+    if let Some(rip) = headers.get("x-real-ip").and_then(|v| v.to_str().ok()) {
+        let client = rip.trim();
+        if !client.is_empty() {
+            return client.to_string();
+        }
+    }
+    "127.0.0.1".to_string()
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct PeopleQuery {
+    #[serde(default)]
+    pub q: String,
+}
+
+#[utoipa::path(
+    get,
+    path = "/shares/people",
+    params(("q" = String, Query, description = "Prefix match on username (≥ 2 characters)")),
+    responses(
+        (status = 200, description = "Matching people", body = APIResponse<Vec<PersonMatch>>),
+        (status = 400, description = "Query too short"),
+        (status = 401, description = "Authentication required"),
+        (status = 403, description = "Requires share permission")
+    )
+)]
+pub async fn search_people(
+    State(state): State<HTTPState>,
+    Extension(user): Extension<Principal>,
+    axum::extract::Query(query): axum::extract::Query<PeopleQuery>,
+) -> Response {
+    match service::search_people(&svc(&state), &user, &query.q).await {
+        Ok(people) => ok(StatusCode::OK, people),
+        Err(e) => refusal(e),
+    }
 }
 
 #[utoipa::path(
@@ -146,6 +190,29 @@ pub async fn read(
             response
         }
         Err(e) => {
+            let status = StatusCode::from_u16(e.status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+            if status == StatusCode::NOT_FOUND || status == StatusCode::UNAUTHORIZED {
+                let client = client_address(&request_headers);
+                if !state.share_misses.check(&client) {
+                    let wait = state
+                        .share_misses
+                        .retry_after(&client)
+                        .map_or(60, |d| d.as_secs().max(1));
+                    let mut response = fail(
+                        StatusCode::TOO_MANY_REQUESTS,
+                        "Too many requests; try again later",
+                        serde_json::json!({ "error": "rate_limited", "retry_after_secs": wait }),
+                    );
+                    if let Ok(value) = HeaderValue::from_str(&wait.to_string()) {
+                        response.headers_mut().insert(header::RETRY_AFTER, value);
+                    }
+                    response
+                        .headers_mut()
+                        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+                    guard_headers(response.headers_mut());
+                    return response;
+                }
+            }
             let mut response = refusal(e);
             response
                 .headers_mut()

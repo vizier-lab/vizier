@@ -314,6 +314,7 @@ where
         api::v1::notifications::stream,
         api::v1::shares::create,
         api::v1::shares::read,
+        api::v1::shares::search_people,
     ),
     components(
         schemas(
@@ -322,6 +323,7 @@ where
             vizier_core::service::shares::CreateShareRequest,
             vizier_core::service::shares::CreatedShare,
             vizier_core::service::shares::ShareView,
+            vizier_core::service::shares::PersonMatch,
             vizier_core::catalogue::media::MediaCapability,
             vizier_core::catalogue::media::MediaModelSummary,
             api::v1::catalogue::MediaModels,

@@ -371,3 +371,122 @@ async fn a_revoked_share_is_gone_at_the_origin_at_once() {
     assert_eq!(send(&e.router, "GET", &format!("/shares/{id}"), None, None, &[]).await.status, 401);
     assert_eq!(send(&e.router, "GET", &format!("/shares/{id}"), Some(&e.alice), None, &[]).await.status, 404);
 }
+
+#[tokio::test]
+async fn audience_viewer_matrix_and_people_validation() {
+    let e = env().await;
+    // Validation on create
+    // Specific requires 1-50 people
+    assert_eq!(create(&e, &e.alice, json!({"audience": "specific"})).await.status, 400);
+    assert_eq!(create(&e, &e.alice, json!({"audience": "specific", "people": []})).await.status, 400);
+    let too_many: Vec<String> = (0..51).map(|i| format!("user-{i}")).collect();
+    assert_eq!(create(&e, &e.alice, json!({"audience": "specific", "people": too_many})).await.status, 400);
+    // Duplicate people rejected
+    assert_eq!(create(&e, &e.alice, json!({"audience": "specific", "people": [e.bob_id.clone(), e.bob_id.clone()]})).await.status, 400);
+    // Unknown person rejected
+    assert_eq!(create(&e, &e.alice, json!({"audience": "specific", "people": ["non-existent-user-id"]})).await.status, 400);
+    // Public and SignedIn must not have people
+    assert_eq!(create(&e, &e.alice, json!({"audience": "public", "people": [e.bob_id.clone()]})).await.status, 400);
+    assert_eq!(create(&e, &e.alice, json!({"audience": "signed_in", "people": [e.bob_id.clone()]})).await.status, 400);
+
+    // 3 x 4 matrix
+    let pub_id = create(&e, &e.alice, json!({"audience": "public"})).await.json()["data"]["share_id"].as_str().unwrap().to_string();
+    let signed_id = create(&e, &e.alice, json!({"audience": "signed_in"})).await.json()["data"]["share_id"].as_str().unwrap().to_string();
+    let specific_id = create(&e, &e.alice, json!({"audience": "specific", "people": [e.bob_id.clone()]})).await.json()["data"]["share_id"].as_str().unwrap().to_string();
+
+    // 1. Public: author, named, other, anonymous all 200
+    for token in [Some(&e.alice), Some(&e.bob), Some(&e.root), None] {
+        let r = send(&e.router, "GET", &format!("/shares/{pub_id}"), token.copied(), None, &[]).await;
+        assert_eq!(r.status, 200);
+    }
+
+    // 2. SignedIn: author, named, other 200; anonymous 401
+    for token in [Some(&e.alice), Some(&e.bob), Some(&e.root)] {
+        let r = send(&e.router, "GET", &format!("/shares/{signed_id}"), token.copied(), None, &[]).await;
+        assert_eq!(r.status, 200);
+        assert_eq!(r.header("cache-control"), Some("private, no-store"));
+        assert_eq!(r.header("vary"), Some("Authorization, Cookie"));
+    }
+    let anon_signed = send(&e.router, "GET", &format!("/shares/{signed_id}"), None, None, &[]).await;
+    assert_eq!(anon_signed.status, 401);
+
+    // 3. Specific: author (alice) 200, named (bob) 200, other (root) 404, anonymous 401
+    let r_author = send(&e.router, "GET", &format!("/shares/{specific_id}"), Some(&e.alice), None, &[]).await;
+    assert_eq!(r_author.status, 200);
+    assert_eq!(r_author.header("cache-control"), Some("private, no-store"));
+
+    let r_named = send(&e.router, "GET", &format!("/shares/{specific_id}"), Some(&e.bob), None, &[]).await;
+    assert_eq!(r_named.status, 200);
+    assert_eq!(r_named.header("cache-control"), Some("private, no-store"));
+
+    let r_other = send(&e.router, "GET", &format!("/shares/{specific_id}"), Some(&e.root), None, &[]).await;
+    assert_eq!(r_other.status, 404);
+    assert_eq!(r_other.header("cache-control"), Some("no-store"));
+
+    let r_anon = send(&e.router, "GET", &format!("/shares/{specific_id}"), None, None, &[]).await;
+    assert_eq!(r_anon.status, 401);
+    assert_eq!(r_anon.header("cache-control"), Some("no-store"));
+}
+
+#[tokio::test]
+async fn share_miss_limiter_throttles_after_thirty_misses_per_address() {
+    let e = env().await;
+    let pub_id = create(&e, &e.alice, json!({})).await.json()["data"]["share_id"].as_str().unwrap().to_string();
+    let addr = ("x-forwarded-for", "192.168.1.100");
+
+    // 30 misses on non-existent share
+    for _ in 0..30 {
+        let r = send(&e.router, "GET", "/shares/ZZZZZZZZZZZZZZZZZZZZZ", None, None, &[addr]).await;
+        assert_eq!(r.status, 401);
+    }
+
+    // 31st miss from same address is 429
+    let r31 = send(&e.router, "GET", "/shares/ZZZZZZZZZZZZZZZZZZZZZ", None, None, &[addr]).await;
+    assert_eq!(r31.status, 429);
+    assert_eq!(r31.json()["data"]["error"], "rate_limited");
+    assert!(r31.header("retry-after").is_some());
+    assert_eq!(r31.header("cache-control"), Some("no-store"));
+
+    // Hits on real public links are NEVER throttled!
+    let real = send(&e.router, "GET", &format!("/shares/{pub_id}"), None, None, &[addr]).await;
+    assert_eq!(real.status, 200);
+
+    // Another client address has its own budget
+    let other_addr = ("x-forwarded-for", "192.168.1.101");
+    let r_other = send(&e.router, "GET", "/shares/ZZZZZZZZZZZZZZZZZZZZZ", None, None, &[other_addr]).await;
+    assert_eq!(r_other.status, 401);
+}
+
+#[tokio::test]
+async fn search_people_endpoint_searches_and_enforces_permissions() {
+    let e = env().await;
+
+    // Anonymous -> 401
+    let anon = send(&e.router, "GET", "/shares/people?q=bo", None, None, &[]).await;
+    assert_eq!(anon.status, 401);
+
+    // Caller without share permission (bob) -> 403
+    let forbidden = send(&e.router, "GET", "/shares/people?q=bo", Some(&e.bob), None, &[]).await;
+    assert_eq!(forbidden.status, 403);
+
+    // Query < 2 chars -> 400
+    let short = send(&e.router, "GET", "/shares/people?q=b", Some(&e.alice), None, &[]).await;
+    assert_eq!(short.status, 400);
+
+    // Caller with permission (alice) -> 200 with matching user
+    let ok = send(&e.router, "GET", "/shares/people?q=bo", Some(&e.alice), None, &[]).await;
+    assert_eq!(ok.status, 200);
+    let people = ok.json()["data"].as_array().unwrap().clone();
+    assert_eq!(people.len(), 1);
+    assert_eq!(people[0]["user_id"], e.bob_id);
+    assert_eq!(people[0]["username"], "bob");
+
+    // No sensitive fields leaked
+    let obj = people[0].as_object().unwrap();
+    let mut keys: Vec<_> = obj.keys().cloned().collect();
+    keys.sort();
+    assert_eq!(keys, ["user_id", "username"]);
+
+    // Static route precedence: /shares/people is not matched as /shares/{share_id}
+    assert_ne!(ok.status, 404);
+}
