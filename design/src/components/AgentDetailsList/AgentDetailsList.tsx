@@ -5,8 +5,7 @@ import { cx } from "../../lib/cx";
 import { ListItem } from "../ListItem/ListItem";
 import { ESSENTIALS, MENU_GROUPS, type EssentialPage, type MenuPage } from "../Shell/ContextSidebar";
 
-/** Core is the agent's identity, a memory at `core/soul`: the one row that is not a page of its own. */
-export type AgentDetailsPage = "core" | EssentialPage | MenuPage;
+export type AgentDetailsPage = EssentialPage | MenuPage;
 
 type Row = { page: AgentDetailsPage; label: string; icon: IconName };
 
@@ -17,7 +16,7 @@ const essential = (page: EssentialPage) => ESSENTIALS.find((p) => p.page === pag
  * agent column and menu, so a page added there shows here too.
  */
 export const AGENT_DETAILS_GROUPS: { label: string; rows: Row[] }[] = [
-  { label: "The agent", rows: [{ page: "core", label: "Core", icon: "core" }, essential("memory")] },
+  { label: "The agent", rows: [essential("memory")] },
   { label: "Essentials", rows: ESSENTIALS.filter((p) => p.page !== "memory") },
   ...MENU_GROUPS.map((g) => ({ label: g.label, rows: g.pages })),
 ];
