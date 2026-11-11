@@ -37,6 +37,8 @@ export type MobileTopBarProps = {
     /** "webui · new topic". */
     meta?: ReactNode;
     onTopic: () => void;
+    /** What acts on this conversation (new, delete), at the end of its row, never in the bar above. */
+    actions?: ReactNode;
   };
   /** The right slot: the bell, a + or the jobs count. */
   trailing?: ReactNode;
@@ -87,7 +89,7 @@ export function MobileTopBar({
                   state={agent.state}
                   font="mono-xs"
                   dot={false}
-                  label={agentStatusLabel(agent.state) ?? agent.state}
+                  label={agentStatusLabel(agent.state)}
                   detail={agent.detail}
                   className="min-w-0 truncate"
                 />
@@ -106,7 +108,7 @@ export function MobileTopBar({
         {trailing}
       </div>
       {topic && (
-        <div className="flex h-40 items-center gap-12 px-16">
+        <div className="flex h-44 items-center gap-12 px-16">
           <button
             type="button"
             onClick={topic.onTopic}
@@ -118,6 +120,7 @@ export function MobileTopBar({
           </button>
           <span className="flex-1" />
           {topic.meta != null && <span className="min-w-0 truncate type-mono-xs text-faint">{topic.meta}</span>}
+          {topic.actions != null && <span className="-mr-8 flex shrink-0 items-center">{topic.actions}</span>}
         </div>
       )}
     </header>

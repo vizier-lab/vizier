@@ -32,7 +32,17 @@ export const Chat: Story = {
       onSwitch: () => {},
       onDetails: () => {},
     },
-    topic: { title: "l15PmT7Vk_", meta: "webui · new topic", onTopic: () => {} },
+    topic: {
+      title: "l15PmT7Vk_",
+      meta: "webui · new topic",
+      onTopic: () => {},
+      actions: (
+        <>
+          <IconButton variant="ghost" icon="trash" aria-label="Delete conversation" />
+          <IconButton variant="ghost" icon="plus" aria-label="New conversation" />
+        </>
+      ),
+    },
     trailing: (
       <div className="flex items-center">
         <JobsPill count={1} compact />
