@@ -2939,9 +2939,11 @@ export interface components {
             status: number;
         };
         APIResponse_ShareView: {
-            /** @description A share as `GET /shares/{id}` returns it. No field depends on who asks. */
+            /**
+             * @description A share as `GET /shares/{id}` returns it. No field depends on who asks, and the audience
+             *     kind is not among them (FR-030): a reader is not told who else can read.
+             */
             data?: {
-                audience: components["schemas"]["Audience"];
                 /** Format: int64 */
                 created_at: number;
                 /** Format: int64 */
@@ -6308,9 +6310,11 @@ export interface components {
             title?: string | null;
             topic_id: string;
         };
-        /** @description A share as `GET /shares/{id}` returns it. No field depends on who asks. */
+        /**
+         * @description A share as `GET /shares/{id}` returns it. No field depends on who asks, and the audience
+         *     kind is not among them (FR-030): a reader is not told who else can read.
+         */
         ShareView: {
-            audience: components["schemas"]["Audience"];
             /** Format: int64 */
             created_at: number;
             /** Format: int64 */
@@ -12551,7 +12555,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description `trail_mismatch`: `include_trail` is false but the document holds trail parts */
+            /** @description `trail_mismatch`: `include_trail` is false but the document holds trail parts; `secret_detected`: the text holds a PEM private key or a vendor-prefixed token (last-resort backstop, not redaction) */
             422: {
                 headers: {
                     [name: string]: unknown;

@@ -8174,7 +8174,7 @@
             "description": "The body is over 5 MiB"
           },
           "422": {
-            "description": "`trail_mismatch`: `include_trail` is false but the document holds trail parts"
+            "description": "`trail_mismatch`: `include_trail` is false but the document holds trail parts; `secret_detected`: the text holds a PEM private key or a vendor-prefixed token (last-resort backstop, not redaction)"
           },
           "429": {
             "description": "10 creates an hour (with `retry_after_secs`), or 200 active shares"
@@ -13044,20 +13044,16 @@
         "properties": {
           "data": {
             "type": "object",
-            "description": "A share as `GET /shares/{id}` returns it. No field depends on who asks.",
+            "description": "A share as `GET /shares/{id}` returns it. No field depends on who asks, and the audience\nkind is not among them (FR-030): a reader is not told who else can read.",
             "required": [
               "share_id",
               "title",
               "created_at",
-              "audience",
               "include_trail",
               "format_version",
               "snapshot"
             ],
             "properties": {
-              "audience": {
-                "$ref": "#/components/schemas/Audience"
-              },
               "created_at": {
                 "type": "integer",
                 "format": "int64"
@@ -24844,20 +24840,16 @@
       },
       "ShareView": {
         "type": "object",
-        "description": "A share as `GET /shares/{id}` returns it. No field depends on who asks.",
+        "description": "A share as `GET /shares/{id}` returns it. No field depends on who asks, and the audience\nkind is not among them (FR-030): a reader is not told who else can read.",
         "required": [
           "share_id",
           "title",
           "created_at",
-          "audience",
           "include_trail",
           "format_version",
           "snapshot"
         ],
         "properties": {
-          "audience": {
-            "$ref": "#/components/schemas/Audience"
-          },
           "created_at": {
             "type": "integer",
             "format": "int64"
