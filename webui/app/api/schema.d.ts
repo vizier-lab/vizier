@@ -1636,9 +1636,25 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        get: operations["list"];
         put?: never;
         post: operations["create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/shares/people": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["search_people"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1655,7 +1671,7 @@ export interface paths {
         get: operations["read"];
         put?: never;
         post?: never;
-        delete?: never;
+        delete: operations["revoke"];
         options?: never;
         head?: never;
         patch?: never;
@@ -3370,6 +3386,15 @@ export interface components {
             /** Format: int32 */
             status: number;
         };
+        APIResponse_Vec_PersonMatch: {
+            data?: {
+                user_id: string;
+                username: string;
+            }[];
+            message?: string | null;
+            /** Format: int32 */
+            status: number;
+        };
         APIResponse_Vec_ProfileEntryResponse: {
             data?: {
                 /** @description The ARN exactly as saved (FR-027). */
@@ -3571,6 +3596,33 @@ export interface components {
                 timestamp?: string;
                 uid: string;
                 vizier_session: components["schemas"]["VizierSession"];
+            }[];
+            message?: string | null;
+            /** Format: int32 */
+            status: number;
+        };
+        APIResponse_Vec_ShareListItem: {
+            data?: {
+                agent_id: string;
+                agent_name: string;
+                audience: components["schemas"]["Audience"];
+                /** Format: int64 */
+                created_at: number;
+                creator_name?: string | null;
+                include_trail: boolean;
+                people_count: number;
+                removals?: Record<string, never> | null;
+                /** Format: int64 */
+                revoked_at?: number | null;
+                share_id: string;
+                /** Format: int64 */
+                size_bytes: number;
+                /**
+                 * @description Withheld (absent) in the administrator's list for a share whose audience does not
+                 *     include the administrator (FR-043): the title comes from the conversation.
+                 */
+                title?: string | null;
+                topic_id: string;
             }[];
             message?: string | null;
             /** Format: int32 */
@@ -5485,6 +5537,14 @@ export interface components {
             name: string;
             username: string;
         };
+        /**
+         * @description A matching user for naming in `specific` audience (`GET /shares/people?q=`).
+         *     Returns only `user_id` and `username` (no email or role leaks).
+         */
+        PersonMatch: {
+            user_id: string;
+            username: string;
+        };
         /** @enum {string} */
         PieceState: "running" | "answered" | "failed" | "timed_out" | "cancelled" | "interrupted";
         PlatformMessageId: {
@@ -6224,6 +6284,29 @@ export interface components {
         /** @description The answer of `GET /api/v1/utils/setup-state`. */
         SetupStates: {
             setups: components["schemas"]["SetupState"][];
+        };
+        /** @description A share item in a list (`GET /shares`). */
+        ShareListItem: {
+            agent_id: string;
+            agent_name: string;
+            audience: components["schemas"]["Audience"];
+            /** Format: int64 */
+            created_at: number;
+            creator_name?: string | null;
+            include_trail: boolean;
+            people_count: number;
+            removals?: Record<string, never> | null;
+            /** Format: int64 */
+            revoked_at?: number | null;
+            share_id: string;
+            /** Format: int64 */
+            size_bytes: number;
+            /**
+             * @description Withheld (absent) in the administrator's list for a share whose audience does not
+             *     include the administrator (FR-043): the title comes from the conversation.
+             */
+            title?: string | null;
+            topic_id: string;
         };
         /** @description A share as `GET /shares/{id}` returns it. No field depends on who asks. */
         ShareView: {
@@ -12377,6 +12460,47 @@ export interface operations {
             };
         };
     };
+    list: {
+        parameters: {
+            query?: {
+                /** @description Keyset pagination: created_at timestamp */
+                before?: number;
+                /** @description Max items to return (≤ 100, default 50) */
+                limit?: number;
+                /** @description List all shares across instance (requires admin) */
+                all?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description List of shares */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_Vec_ShareListItem"];
+                };
+            };
+            /** @description Authentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description all=true requires admin permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     create: {
         parameters: {
             query?: never;
@@ -12450,6 +12574,50 @@ export interface operations {
             };
         };
     };
+    search_people: {
+        parameters: {
+            query: {
+                /** @description Prefix match on username (≥ 2 characters) */
+                q: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Matching people */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_Vec_PersonMatch"];
+                };
+            };
+            /** @description Query too short */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Authentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Requires share permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     read: {
         parameters: {
             query?: never;
@@ -12486,6 +12654,41 @@ export interface operations {
                 content?: never;
             };
             /** @description `share_unavailable`: signed in, and the share is unknown, revoked, or not for this person (one body) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    revoke: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 21 URL-safe characters */
+                share_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Revoked (or already revoked) */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Authentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unknown share or not authorized to revoke */
             404: {
                 headers: {
                     [name: string]: unknown;
