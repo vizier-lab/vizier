@@ -3,7 +3,7 @@
 // or `api/`: the offline file has no server to talk to, and the bundle should not carry a client.
 import { createRoot } from 'react-dom/client'
 import { parseSnapshot } from '../lib/share/schema'
-import { DAMAGED, NeutralNotice } from './Neutral'
+import { DAMAGED, NeutralNotice, OFFLINE_BANNER } from './Neutral'
 import { SnapshotView } from './SnapshotView'
 
 const TAG_ID = 'vizier-snapshot'
@@ -22,7 +22,7 @@ if (el) {
             const parsed = parseSnapshot(JSON.parse(tag.textContent))
             if (parsed.ok) {
                 if (parsed.snapshot.title) document.title = `${parsed.snapshot.title.slice(0, 120)} · Vizier`
-                root.render(<SnapshotView snapshot={parsed.snapshot} />)
+                root.render(<SnapshotView snapshot={parsed.snapshot} banner={OFFLINE_BANNER} />)
             } else {
                 damaged(parsed.reason === 'needs_newer' ? parsed.message : DAMAGED)
             }

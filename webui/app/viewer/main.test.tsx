@@ -7,7 +7,7 @@ import { renderToString } from 'react-dom/server'
 import type { ReactElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { embedJson } from '../lib/share/embed'
-import { DAMAGED } from './Neutral'
+import { DAMAGED, OFFLINE_BANNER } from './Neutral'
 import { READ_ONLY_LINE } from './SnapshotView'
 
 let drawn: ReactElement | null = null
@@ -105,6 +105,7 @@ describe('main.tsx on the hostile fixtures', () => {
     it('a valid conversation is drawn read-only', async () => {
         const html = await boot([script(embedJson(validDoc))])
         expect(html).toContain('Trip planning')
+        expect(html).toContain(OFFLINE_BANNER) // FR-035: the file says it is an unverified copy
         expect(html).toContain(READ_ONLY_LINE.replace(/'/g, '&#x27;'))
         expect(html).not.toMatch(/<textarea|contenteditable/i)
     })

@@ -7,6 +7,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { ApiError } from '../../api/client'
 import { transport } from '../../api/transport'
 import { buildCreateRequest, createShare, searchPeople, sharePath, type Audience, type CreatedShare, type PersonMatch } from '../../api/shares'
+import { singleFlight } from '../../lib/share/singleFlight'
 import { exportOfflineSnapshot } from '../../lib/share/export'
 import { SHARE_LIMITS } from '../../lib/share/limits'
 import { buildPreview, formatBytes, type Preview } from '../../lib/share/preview'
@@ -16,6 +17,7 @@ import { SnapshotView } from '../../viewer/SnapshotView'
 
 export const DESKTOP_NOTICE = 'A link needs a server others can reach. Use Offline file.'
 export const OFFLINE_NOTICE = 'Nothing is stored on the server. The offline file contains everything needed to view the conversation interactively in any web browser without an internet connection.'
+export const OFFLINE_WARNING = 'Once you send this file to someone, it cannot be revoked or limited to an audience.'
 export const COPY_WARNING = 'Anyone with the link can read this. You can revoke it later, but a copy someone already made cannot be taken back.'
 export const PUBLIC_CONFIRM = 'I understand that anyone who has this link can read the conversation without signing in.'
 export const CHOOSE_AUDIENCE = 'Choose who can open the link. Nothing is chosen for you.'
@@ -105,6 +107,8 @@ export function ShareDialog({ open, onClose, agentId, topicId, title, agentName 
     const [created, setCreated] = useState<string | null>(null)
     const [previewing, setPreviewing] = useState(false)
     const run = useRef(0)
+    // FR-050: confirming twice (double click, key repeat) must create one share.
+    const createOnce = useRef(singleFlight<void>())
 
     // Start clean each time it opens.
     useEffect(() => {
@@ -204,32 +208,40 @@ export function ShareDialog({ open, onClose, agentId, topicId, title, agentName 
         }
     }, [result, onClose])
 
+    const doCreate = useCallback(
+        async (chosen: Audience) => {
+            if (!result) return
+            setCreating(true)
+            setCreateError(null)
+            try {
+                const link = await createLink(
+                    {
+                        agentId,
+                        topicId,
+                        title,
+                        audience: chosen,
+                        people: chosen === 'specific' ? people.map((p) => p.user_id) : undefined,
+                    },
+                    result,
+                    window.location.origin
+                )
+                setCreated(link)
+                void navigator.clipboard?.writeText(link).then(() => toast.success('Link copied'), () => undefined)
+            } catch (e) {
+                setCreateError(createFailure(e))
+            } finally {
+                setCreating(false)
+            }
+        },
+        [result, agentId, topicId, title, people]
+    )
+
     const create = useCallback(async () => {
         if (!result || !preview?.canShare || !audience) return
         if (audience === 'specific' && people.length === 0) return
         if (audience === 'public' && !confirmedPublic) return
-        setCreating(true)
-        setCreateError(null)
-        try {
-            const link = await createLink(
-                {
-                    agentId,
-                    topicId,
-                    title,
-                    audience,
-                    people: audience === 'specific' ? people.map((p) => p.user_id) : undefined,
-                },
-                result,
-                window.location.origin
-            )
-            setCreated(link)
-            void navigator.clipboard?.writeText(link).then(() => toast.success('Link copied'), () => undefined)
-        } catch (e) {
-            setCreateError(createFailure(e))
-        } finally {
-            setCreating(false)
-        }
-    }, [result, preview, agentId, topicId, title, audience, people, confirmedPublic])
+        await createOnce.current(() => doCreate(audience))
+    }, [result, preview, audience, people, confirmedPublic, doCreate])
 
     const copy = () => {
         if (!created) return
@@ -429,6 +441,7 @@ export function ShareDialog({ open, onClose, agentId, topicId, title, agentName 
                 ) : (
                     <div className="flex flex-col gap-16">
                         <Notice tone="info" title={OFFLINE_NOTICE} />
+                        <p role="note" className="type-small text-retrying">{OFFLINE_WARNING}</p>
                         <SwitchRow label="Include the agent's activity trail (tool calls and results)" helper={TRAIL_HELP} checked={includeTrail} onCheckedChange={setIncludeTrail} />
 
                         <section className="flex flex-col gap-6" aria-label="What will be exported">

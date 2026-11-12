@@ -11,3 +11,6 @@ export function NeutralNotice({ message }: { message: string }) {
         </main>
     )
 }
+
+/** Shown at the top of an offline file (FR-035): the file has left Vizier, which can neither vouch for it nor take it back. */
+export const OFFLINE_BANNER = 'Offline copy saved from Vizier. Vizier cannot verify it, limit who opens it or revoke it, and it may have been edited since.'

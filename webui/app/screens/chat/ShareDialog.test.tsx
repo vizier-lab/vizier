@@ -10,6 +10,7 @@ import { useSession } from '../../stores/session'
 const create = vi.hoisted(() => vi.fn(async () => ({ share_id: 'abc_DEF-123', url_path: '/share/abc_DEF-123', created_at: 1 })))
 vi.mock('../../api/shares', async (orig) => ({ ...(await orig<typeof import('../../api/shares')>()), createShare: create }))
 
+import { OFFLINE_WARNING } from './ShareDialog'
 import { SharedMark, sharedLabel } from './ConversationHeader'
 import { CHOOSE_AUDIENCE, COPY_WARNING, createFailure, createLink, DESKTOP_NOTICE, leftOutLines, PUBLIC_CONFIRM, ShareDialog, summaryLine, TRAIL_HELP, warningLines } from './ShareDialog'
 import { ConversationHeader, EMPTY_SHARE_REASON } from './ConversationHeader'
@@ -155,4 +156,8 @@ describe('the "this chat is shared" mark', () => {
         expect(one).toContain('href="/settings/shares"')
         expect(sharedLabel(3)).toBe('Shared: 3 live links')
     })
+})
+
+it('the offline tab warns that a file cannot be revoked or limited to an audience (FR-035)', () => {
+    expect(OFFLINE_WARNING).toMatch(/cannot be revoked or limited to an audience/)
 })
