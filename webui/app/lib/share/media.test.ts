@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { SessionFileRecord } from '../../api/frames'
-import { MediaBuilder, rewriteSpecFiles, sniffMime, specFileNames, stripJpegMetadata, stripPngMetadata } from './media'
+import { MediaBuilder, rewriteSpecFiles, sniffMime, specFileNames, stripGifMetadata, stripJpegMetadata, stripPngMetadata, stripWebpMetadata } from './media'
 import { SHARE_LIMITS } from './limits'
 import { loadConversation } from './testing'
 
@@ -86,7 +86,9 @@ describe('MediaBuilder', () => {
     })
     it('stops at 100 images', async () => {
         const names = Array.from({ length: 101 }, (_, i) => `f${i}.png`)
-        const b = new MediaBuilder(names.map(file), deps(PNG))
+        // Each name holds a different picture (same pixels, different trailing byte): content is what is counted.
+        const variant = (name: string) => Uint8Array.from([...PNG, Number(name.slice(1, -4))])
+        const b = new MediaBuilder(names.map(file), { fetchFile: async (f) => ({ bytes: variant(f.filename) }) })
         for (const n of names) await b.add(n)
         expect(Object.keys(b.media)).toHaveLength(SHARE_LIMITS.mediaItems)
         expect(b.left).toHaveLength(1)
@@ -112,5 +114,93 @@ describe('spec file names', () => {
     it('tolerates a spec without elements', () => {
         expect(specFileNames({})).toEqual([])
         expect(specFileNames(null)).toEqual([])
+    })
+})
+
+const u8 = (...parts: (string | number[])[]) => Uint8Array.from(Buffer.concat(parts.map((p) => (typeof p === 'string' ? Buffer.from(p, 'latin1') : Buffer.from(p)))))
+const le32 = (n: number) => [n & 255, (n >> 8) & 255, (n >> 16) & 255, (n >>> 24) & 255]
+const riffChunk = (type: string, data: number[] | string) => {
+    const d = typeof data === 'string' ? Array.from(Buffer.from(data, 'latin1')) : data
+    return [...Buffer.from(type, 'latin1'), ...le32(d.length), ...d, ...(d.length & 1 ? [0] : [])]
+}
+const webp = (...chunks: number[][]) => {
+    const body = chunks.flat()
+    return Uint8Array.from([...Buffer.from('RIFF'), ...le32(body.length + 4), ...Buffer.from('WEBP'), ...body])
+}
+
+describe('WebP and GIF metadata (even under 1 MiB)', () => {
+    it('drops EXIF and XMP chunks from a WebP, fixes the RIFF size and the VP8X flags, keeps the picture', () => {
+        const vp8x = riffChunk('VP8X', [0x0c, 0, 0, 0, 1, 0, 0, 1, 0, 0])
+        const src = webp(vp8x, riffChunk('VP8 ', 'PIXELS-ODD'), riffChunk('EXIF', 'GPS-SECRET-LAT'), riffChunk('XMP ', '<x:xmpmeta>author=bob</x:xmpmeta>'))
+        const out = stripWebpMetadata(src)
+        const text = Buffer.from(out).toString('latin1')
+        expect(text).not.toContain('GPS-SECRET')
+        expect(text).not.toContain('author=bob')
+        expect(text).toContain('PIXELS-ODD')
+        expect(sniffMime(out)).toBe('image/webp')
+        expect(new DataView(out.buffer).getUint32(4, true)).toBe(out.length - 8)
+        expect(out[12 + 8]).toBe(0) // VP8X flags no longer announce EXIF or XMP
+        expect(out.length).toBeLessThan(src.length)
+    })
+    it('leaves a WebP without metadata, and a damaged one, as they are', () => {
+        const plain = webp(riffChunk('VP8 ', 'PIXELS'))
+        expect(stripWebpMetadata(plain)).toBe(plain)
+        const bad = Uint8Array.from([...Buffer.from('RIFF'), ...le32(500), ...Buffer.from('WEBP'), ...Buffer.from('EXIF'), ...le32(9999)])
+        expect(stripWebpMetadata(bad)).toBe(bad)
+    })
+    it('drops comment and XMP application extensions from a GIF, keeps animation loop, delay and the frame', () => {
+        const sub = (s: string) => [s.length, ...Buffer.from(s, 'latin1'), 0]
+        const header = u8('GIF89a', [1, 0, 1, 0, 0x80, 0, 0], [0, 0, 0, 255, 255, 255])
+        const netscape = [0x21, 0xff, 11, ...Buffer.from('NETSCAPE2.0'), 3, 1, 0, 0, 0]
+        const xmp = [0x21, 0xff, 11, ...Buffer.from('XMP DataXMP'), ...sub('<x:xmpmeta>author=bob</x:xmpmeta>')]
+        const comment = [0x21, 0xfe, ...sub('taken at 12 Rue Secrète')]
+        const gce = [0x21, 0xf9, 4, 0, 10, 0, 0, 0]
+        const frame = [0x2c, 0, 0, 0, 0, 1, 0, 1, 0, 0, 2, 2, 0x44, 1, 0]
+        const src = Uint8Array.from([...header, ...netscape, ...comment, ...xmp, ...gce, ...frame, 0x3b])
+        const out = stripGifMetadata(src)
+        const text = Buffer.from(out).toString('latin1')
+        expect(text).not.toContain('Rue Sec')
+        expect(text).not.toContain('author=bob')
+        expect(text).toContain('NETSCAPE2.0')
+        expect(Array.from(out.subarray(-1))).toEqual([0x3b])
+        expect(Array.from(out.subarray(out.length - 1 - frame.length, -1))).toEqual(frame)
+        expect(out.length).toBeLessThan(src.length)
+    })
+    it('returns a damaged GIF unchanged', () => {
+        const bad = u8('GIF89a', [1, 0, 1, 0, 0, 0, 0], [0x21, 0xff, 11])
+        expect(stripGifMetadata(bad)).toBe(bad)
+    })
+    it('MediaBuilder strips them from small images too', async () => {
+        const src = webp(riffChunk('VP8 ', 'PIXELS'), riffChunk('EXIF', 'GPS-SECRET-LAT'))
+        const b = new MediaBuilder([file('p.webp')], { fetchFile: async () => ({ bytes: src }) })
+        expect(await b.add('p.webp')).toMatchObject({ ok: true })
+        expect(Buffer.from(b.media.m1.data, 'base64').toString('latin1')).not.toContain('GPS-SECRET')
+    })
+})
+
+describe('MediaBuilder keys by content, not by file name', () => {
+    const other = Uint8Array.from([...PNG, 0xaa])
+    it('two pasted image.png with different pictures are two entries, each with its own key', async () => {
+        const b = new MediaBuilder([], { fetchFile: async () => null })
+        const first = await b.add('image.png', PNG)
+        const second = await b.add('image.png', other)
+        expect(first).toEqual({ ok: true, key: 'm1' })
+        expect(second).toEqual({ ok: true, key: 'm2' })
+        expect(Object.keys(b.media)).toEqual(['m1', 'm2'])
+    })
+    it('one picture sent under two names is stored once', async () => {
+        const b = new MediaBuilder([], { fetchFile: async () => null })
+        expect(await b.add('a.png', PNG)).toEqual({ ok: true, key: 'm1' })
+        expect(await b.add('copy of a.png', Uint8Array.from(PNG))).toEqual({ ok: true, key: 'm1' })
+        expect(Object.keys(b.media)).toEqual(['m1'])
+    })
+    it('the same rejected content under two names is left out under each name', async () => {
+        const svg = Uint8Array.from(Buffer.from('<svg><script>1</script></svg>'))
+        const b = new MediaBuilder([], { fetchFile: async () => null })
+        await b.add('x.svg', svg)
+        const again = await b.add('y.svg', svg)
+        expect(again).toMatchObject({ ok: false, reason: 'unsupported' })
+        expect(again.ok === false && again.label).toContain('y.svg')
+        expect(b.left.map((l) => l.name)).toEqual(['x.svg', 'y.svg'])
     })
 })

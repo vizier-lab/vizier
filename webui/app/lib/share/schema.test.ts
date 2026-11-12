@@ -166,3 +166,31 @@ describe('jsonDepth', () => {
         expect(jsonDepth({ a: { b: [1] } })).toBe(3)
     })
 })
+
+describe('parseSnapshot: the bytes must be the type they claim (D11)', () => {
+    const b64 = (s: string) => Buffer.from(s, 'latin1').toString('base64')
+    const withMedia = (mime: string, data: string) =>
+        base({
+            media: { m1: { mime, bytes: 10, data } },
+            turns: [{ id: 't1', role: 'agent', at: 1, parts: [{ kind: 'media', key: 'm1', alt: 'x' }] }],
+        })
+
+    it('keeps a PNG that is a PNG', () => {
+        const s = ok(withMedia('image/png', PNG))
+        expect(Object.keys(s.media)).toEqual(['m1'])
+        expect(s.turns[0].parts[0]).toMatchObject({ kind: 'media' })
+    })
+    it.each([
+        ['svg bytes claimed as png', 'image/png', b64('<svg xmlns="http://www.w3.org/2000/svg"><script>1</script></svg>')],
+        ['html bytes claimed as jpeg', 'image/jpeg', b64('<html><script>alert(1)</script></html>')],
+        ['png bytes claimed as webp', 'image/webp', PNG],
+        ['png bytes claimed as gif', 'image/gif', PNG],
+        ['gif bytes claimed as png', 'image/png', b64('GIF89a\x01\x00\x01\x00\x00\x00\x00;')],
+        ['empty data', 'image/png', ''],
+        ['a RIFF that is not WebP', 'image/webp', b64('RIFF\x00\x00\x00\x00WAVEfmt ')],
+    ])('refuses %s, leaving a placeholder where it was used', (_n, mime, data) => {
+        const s = ok(withMedia(mime, data))
+        expect(s.media).toEqual({})
+        expect(s.turns[0].parts[0]).toMatchObject({ kind: 'placeholder' })
+    })
+})

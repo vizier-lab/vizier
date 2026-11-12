@@ -6,6 +6,7 @@ import { Link, useParams } from 'react-router'
 import { getShare } from '../api/shares'
 import { ApiError } from '../api/client'
 import { parseSnapshot, type Snapshot } from '../lib/share/schema'
+import { DAMAGED } from '../viewer/Neutral'
 import { SnapshotView } from '../viewer/SnapshotView'
 
 export type ShareView =
@@ -35,7 +36,7 @@ export function viewFor(result: { data: unknown } | { error: unknown }): ShareVi
 
 export const UNAVAILABLE = "This link isn't available."
 export const RATE_LIMITED = 'Too many requests. Try again later.'
-export const DAMAGED = 'This file is damaged or was edited, so it was not opened.'
+export { DAMAGED }
 
 export function Neutral({ message, signIn, shareId }: { message: string; signIn?: boolean; shareId?: string }) {
     const returnTo = shareId ? `/share/${encodeURIComponent(shareId)}` : undefined

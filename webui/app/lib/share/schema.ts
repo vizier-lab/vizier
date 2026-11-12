@@ -1,8 +1,9 @@
-// The snapshot format v1 (specs/055-shared-chat/contracts/snapshot-format.md), as the single
+// The snapshot format v1 (specs/056-shared-chat/contracts/snapshot-format.md), as the single
 // definition the serializer, the preview, the viewer and the tests share. Every document is hostile
 // input: unknown keys are dropped, unknown or malformed parts become placeholders, caps are enforced,
 // and only a structural failure of the whole document is "damaged".
 import { z } from 'zod'
+import { magicMatches } from './sniff'
 import { isAllowedMime, SHARE_LIMITS, SNAPSHOT_FORMAT_VERSION, type MediaMime } from './limits'
 
 export type PlaceholderReason = 'oversized' | 'missing' | 'unsupported'
@@ -246,6 +247,12 @@ export function parseSnapshot(input: unknown): ParseResult {
         }
         if (!BASE64.test(raw.data)) {
             refused.set(key, 'unsupported')
+            continue
+        }
+        // The claimed type must be the real one: a `image/png` whose bytes are SVG or HTML is not an image.
+        if (!magicMatches(raw.mime, raw.data)) {
+            refused.set(key, 'unsupported')
+            notes.push(`media ${key} refused: bytes are not ${raw.mime}`)
             continue
         }
         if (accepted >= SHARE_LIMITS.mediaItems) {

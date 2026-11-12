@@ -16,7 +16,14 @@ export interface ConversationFixture {
 
 export const loadConversation = (): ConversationFixture => JSON.parse(readFileSync(join(__dirname, 'fixtures', 'conversation.json'), 'utf8'))
 
-/** Serves the fixture's one-pixel PNG for every file, with no re-encoder. */
+/**
+ * Serves the fixture's one-pixel PNG for every file, with no re-encoder. Each file gets its own
+ * bytes (a distinct byte after the image, which the share drops): media is keyed by content, and
+ * the fixture's files are meant to be different pictures.
+ */
 export const pngDeps = (b64: string): MediaDeps => ({
-    fetchFile: async () => ({ bytes: Uint8Array.from(Buffer.from(b64, 'base64')) }),
+    fetchFile: async (file) => {
+        const salt = [...file.file_id].reduce((n, c) => (n * 31 + c.charCodeAt(0)) % 251, 7)
+        return { bytes: Uint8Array.from([...Buffer.from(b64, 'base64'), salt]) }
+    },
 })
