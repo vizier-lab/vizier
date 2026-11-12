@@ -92,7 +92,7 @@ rust-embed.workspace = true
 rust_xlsxwriter = { workspace = true, optional = true }
 schemars.workspace = true
 serde.workspace = true
-serde_json.workspace = true
+serde_json = { workspace = true, features = ["raw_value"] }
 serde_urlencoded.workspace = true
 serde_yaml.workspace = true
 sha2.workspace = true

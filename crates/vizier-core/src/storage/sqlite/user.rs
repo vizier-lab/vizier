@@ -128,10 +128,21 @@ impl UserStorage for SqlStorage {
 
     async fn delete_user(&self, user_id: &str) -> Result<()> {
         let conn = self.conn.lock()?;
+        // One transaction (FR-045): the person's shares go, they leave other shares'
+        // audiences, and the account goes, or nothing changes.
+        let tx = conn.unchecked_transaction()?;
+        conn.execute(
+            "DELETE FROM shared_snapshot_audience WHERE share_id IN
+                (SELECT share_id FROM shared_snapshot WHERE creator_id = ?1)",
+            params![user_id],
+        )?;
+        conn.execute("DELETE FROM shared_snapshot WHERE creator_id = ?1", params![user_id])?;
+        conn.execute("DELETE FROM shared_snapshot_audience WHERE user_id = ?1", params![user_id])?;
         let deleted = conn.execute(r#"DELETE FROM "user" WHERE user_id = ?1"#, params![user_id])?;
         if deleted == 0 {
             return Err(anyhow::anyhow!("User not found"));
         }
+        tx.commit()?;
         Ok(())
     }
 

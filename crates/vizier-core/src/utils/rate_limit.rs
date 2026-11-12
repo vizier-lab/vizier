@@ -10,8 +10,13 @@ use std::{
     time::{Duration, Instant},
 };
 
+/// The shared key of every key that arrives when the table is full.
+const OVERFLOW_KEY: &str = "\u{0}overflow";
+
 pub struct RateLimiter {
     max: usize,
+    /// At most this many distinct keys are tracked; further new keys share one bucket.
+    max_keys: usize,
     window: Duration,
     hits: Mutex<HashMap<String, VecDeque<Instant>>>,
 }
@@ -20,9 +25,17 @@ impl RateLimiter {
     pub fn new(max: usize, window: Duration) -> Self {
         Self {
             max,
+            max_keys: usize::MAX,
             window,
             hits: Mutex::new(HashMap::new()),
         }
+    }
+
+    /// Bound the table: once `max_keys` keys are live, a key not yet seen counts against one
+    /// shared bucket instead of growing the map (so many addresses cannot exhaust memory).
+    pub fn with_max_keys(mut self, max_keys: usize) -> Self {
+        self.max_keys = max_keys.max(1);
+        self
     }
 
     /// Count one hit for `key`; `false` (and nothing counted) when it is over the limit.
@@ -42,6 +55,7 @@ impl RateLimiter {
             }
             !times.is_empty()
         });
+        let key = if hits.contains_key(key) || hits.len() < self.max_keys { key } else { OVERFLOW_KEY };
         let times = hits.get(key)?;
         if times.len() < self.max {
             return None;
@@ -62,6 +76,7 @@ impl RateLimiter {
             }
             !times.is_empty()
         });
+        let key = if hits.contains_key(key) || hits.len() < self.max_keys { key } else { OVERFLOW_KEY };
         let times = hits.entry(key.to_string()).or_default();
         if times.len() >= self.max {
             return false;
@@ -107,5 +122,26 @@ mod tests {
         let hits = limiter.hits.lock().unwrap();
         assert!(!hits.contains_key("a"));
         assert!(hits.contains_key("b"));
+    }
+}
+
+#[cfg(test)]
+mod bounded_tests {
+    use super::*;
+
+    #[test]
+    fn a_full_table_does_not_grow_and_new_keys_share_one_bucket() {
+        let limiter = RateLimiter::new(2, Duration::from_secs(60)).with_max_keys(2);
+        let t0 = Instant::now();
+        assert!(limiter.check_at("a", t0));
+        assert!(limiter.check_at("b", t0));
+        // The table is full: "c" and "d" share the overflow bucket (2 hits), never new entries.
+        assert!(limiter.check_at("c", t0));
+        assert!(limiter.check_at("d", t0));
+        assert!(!limiter.check_at("e", t0));
+        assert!(limiter.hits.lock().unwrap().len() <= 3);
+        // Keys already tracked keep their own budget.
+        assert!(limiter.check_at("a", t0));
+        assert!(!limiter.check_at("a", t0));
     }
 }

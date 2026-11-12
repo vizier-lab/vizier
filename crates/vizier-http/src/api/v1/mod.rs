@@ -6,7 +6,7 @@ use reqwest::StatusCode;
 
 use crate::{
     api::v1::agents::agents,
-    auth::middleware::{PermissionState, require_auth, require_permission},
+    auth::middleware::{PermissionState, optional_auth, require_auth, require_permission},
     models::{
         self,
         response::{APIResponse, api_response},
@@ -24,6 +24,7 @@ pub mod notifications;
 pub mod overview;
 pub mod providers;
 pub mod range;
+pub mod shares;
 pub mod skill_support;
 pub mod skills;
 pub mod utils;
@@ -216,6 +217,32 @@ pub fn v1(state: HTTPState) -> Router<HTTPState> {
                 .layer(middleware::from_fn_with_state(state.clone(), require_auth)),
         )
         .route("/files/{file_id}", get(files::download_file))
+        // Shared chat snapshots (spec 056). Creating needs a session and is capped at 5 MiB
+        // here, the innermost body limit, which beats the router-wide `disable()`; reading is
+        // open to anyone, with a session only when there is one.
+        .route(
+            "/shares/people",
+            get(shares::search_people)
+                .layer(middleware::from_fn_with_state(state.clone(), require_auth)),
+        )
+        .route(
+            "/shares",
+            post(shares::create)
+                .layer(axum::extract::DefaultBodyLimit::max(
+                    vizier_core::service::shares::MAX_BODY_BYTES,
+                ))
+                .get(shares::list)
+                .layer(middleware::from_fn_with_state(state.clone(), require_auth)),
+        )
+        .route(
+            "/shares/{share_id}",
+            get(shares::read)
+                .layer(middleware::from_fn_with_state(state.clone(), optional_auth))
+                .merge(
+                    delete(shares::revoke)
+                        .layer(middleware::from_fn_with_state(state.clone(), require_auth)),
+                ),
+        )
         // The catalogue: readable by any signed-in user; logos are public.
         .nest("/catalogue", catalogue::catalogue(state.clone()))
         // Protected routes

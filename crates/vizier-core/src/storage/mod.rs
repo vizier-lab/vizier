@@ -62,6 +62,7 @@ pub mod memory;
 pub mod memory_bundle;
 pub mod notification;
 pub mod project;
+pub mod share;
 pub mod provider;
 pub mod question;
 pub mod reaction;
@@ -146,6 +147,7 @@ where
         + SecretStorage
         + NotificationStorage
         + ProjectStorage
+        + share::ShareStorage
         + WorkspaceStorage
         + QuestionStorage
         + SensitiveAskStorage,
