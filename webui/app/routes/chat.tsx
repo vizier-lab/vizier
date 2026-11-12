@@ -6,7 +6,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router'
 import { agentState, getAgent } from '../api/endpoints/agents'
 import { CHANNEL, listTopics, restartAgent } from '../api/endpoints/chat'
-import { listIntegrations } from '../api/endpoints/integrations'
 import { createProjectSession, projectChannel } from '../api/endpoints/projects'
 import type { Topic, Turn } from '../api/frames'
 import type { ClientCallView } from '../api/frames'
@@ -29,7 +28,6 @@ import { ChatStatusStrip } from '../screens/chat/ChatStatusStrip'
 import { ModelOverridePicker } from '../screens/chat/ModelOverridePicker'
 import { readModelOverride, writeModelOverride } from '../lib/modelOverride'
 import type { ModelOverride } from '../api/frames'
-import { HostExecutionNotice } from '../screens/projects/HostExecutionNotice'
 import {
     OpenProjectButton,
     ProjectsRefused,
@@ -122,26 +120,6 @@ export default function Chat() {
         }
     }, [agentId])
 
-    // The host-execution notice is only worth its line when this agent can actually run a
-    // command: the Shell addon, or a project whose own shell switch is on. Nothing is drawn
-    // until the addon list has arrived; if that read fails, the notice stays, because hiding a
-    // disclosure is the worse mistake.
-    const [shellAddon, setShellAddon] = useState<boolean>()
-    useEffect(() => {
-        let alive = true
-        setShellAddon(undefined)
-        listIntegrations(agentId, 'addon')
-            .then((list) => {
-                if (alive)
-                    setShellAddon((list?.items ?? []).some((i) => i.kind === 'shell' && i.enabled))
-            })
-            .catch(() => {
-                if (alive) setShellAddon(true)
-            })
-        return () => {
-            alive = false
-        }
-    }, [agentId])
 
     const [topics, setTopics] = useState<Topic[]>([])
     const userId = useSession((s) => s.user?.user_id)
@@ -516,10 +494,6 @@ export default function Chat() {
                         channelId={channel}
                         topicId={topicId ?? ''}
                         question={sideChat.question}
-                    />
-                    <HostExecutionNotice
-                        shell={!!shellAddon || !!project?.shell_enabled}
-                        className="mb-8"
                     />
                     <div ref={composerCard}>
                     <Composer
