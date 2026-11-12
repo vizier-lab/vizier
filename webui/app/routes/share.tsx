@@ -68,6 +68,15 @@ export default function Share() {
         return () => ctl.abort()
     }, [shareId])
 
+    // The page asks not to be listed by search engines (spec Clarifications); previews get no title.
+    useEffect(() => {
+        const meta = document.createElement('meta')
+        meta.name = 'robots'
+        meta.content = 'noindex, nofollow, noarchive'
+        document.head.appendChild(meta)
+        return () => meta.remove()
+    }, [])
+
     const title = view.state === 'ok' ? view.snapshot.title : ''
     useEffect(() => {
         // Text only: `document.title` never parses markup.

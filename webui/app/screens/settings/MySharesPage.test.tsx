@@ -63,7 +63,7 @@ describe('MySharesPage', () => {
             },
         })
         let html = renderToString(<MySharesPage />)
-        expect(html).not.toContain('All instance shares')
+        expect(html).not.toContain('All shares')
 
         // Admin
         useSession.setState({
@@ -75,6 +75,6 @@ describe('MySharesPage', () => {
             },
         })
         html = renderToString(<MySharesPage />)
-        expect(html).toContain('All instance shares')
+        expect(html).toContain('All shares')
     })
 })

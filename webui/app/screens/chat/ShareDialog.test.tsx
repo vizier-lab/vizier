@@ -10,7 +10,7 @@ import { useSession } from '../../stores/session'
 const create = vi.hoisted(() => vi.fn(async () => ({ share_id: 'abc_DEF-123', url_path: '/share/abc_DEF-123', created_at: 1 })))
 vi.mock('../../api/shares', async (orig) => ({ ...(await orig<typeof import('../../api/shares')>()), createShare: create }))
 
-import { COPY_WARNING, createFailure, createLink, DESKTOP_NOTICE, leftOutLines, ShareDialog, summaryLine, TRAIL_HELP, warningLines } from './ShareDialog'
+import { COPY_WARNING, createFailure, createLink, DESKTOP_NOTICE, leftOutLines, PUBLIC_CONFIRM, ShareDialog, summaryLine, TRAIL_HELP, warningLines } from './ShareDialog'
 import { ConversationHeader, EMPTY_SHARE_REASON } from './ConversationHeader'
 
 async function previewOf(includeTrail = false) {
@@ -81,6 +81,13 @@ describe('creating the link', () => {
         expect(html).toContain('Specific people')
         expect(html).toContain('Anyone signed in on this instance')
         expect(html).toContain('Anyone with the link (public)')
+    })
+
+    it('a public share asks for a second, explicit confirmation; the others do not', () => {
+        const html = renderToString(<ShareDialog open={true} onClose={() => undefined} agentId="a" topicId="t" title="T" agentName="A" />)
+        expect(html).toContain('without signing in')
+        expect(html).toContain(PUBLIC_CONFIRM.replace(/'/g, '&#x27;'))
+        expect(PUBLIC_CONFIRM).toMatch(/anyone who has this link/i)
     })
 
     it('a closed dialog (cancel) reads and stores nothing', () => {

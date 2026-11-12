@@ -128,4 +128,13 @@ describe('sendMessage in a copy', () => {
         expect(NOT_IN_A_COPY).toMatch(/copy/)
         await expect(h.run({ fn: 'x' })).rejects.toThrow() // no logic here: refused, never sent anywhere
     })
+
+    it('has landmarks and one level-one heading (T078)', () => {
+        const html = renderToString(<SnapshotView snapshot={snap()} />)
+        expect(html).toMatch(/<header/)
+        expect(html).toMatch(/<main/)
+        expect(html).toMatch(/<footer/)
+        expect(html.match(/<h1/g)).toHaveLength(1)
+        expect(html).toContain('aria-label="Person"')
+    })
 })

@@ -1,5 +1,5 @@
 import AxeBuilder from '@axe-core/playwright'
-import { createPlugAgent, expect, login, test } from './fixtures'
+import { createPlugAgent, expect, login, send, test } from './fixtures'
 
 const AGENT = 'e2e-plug'
 
@@ -24,6 +24,7 @@ const ROUTES = [
     '/settings/providers',
     '/settings/users',
     '/settings/roles',
+    '/settings/shares',
 ]
 
 /** Serious or critical problems, named so a failure says where to look. */
@@ -116,5 +117,70 @@ test.describe('Keyboard only (quickstart §8.3)', () => {
         const before = await box.isChecked()
         await page.keyboard.press('Space')
         expect(await box.isChecked()).toBe(!before)
+    })
+})
+
+test.describe('Sharing (spec 056, T078)', () => {
+    test.beforeEach(async ({ page }, info) => {
+        test.skip(!info.project.name.startsWith('desktop'), 'checked at desktop width in both themes')
+        await login(page)
+        await createPlugAgent(page, AGENT)
+        await page.goto(`/${AGENT}/chat`)
+        await send(page, `something to share ${Date.now()}`)
+        await expect(page.getByText(/dummyplug\/dummyplug/).first()).toBeVisible({ timeout: 30_000 })
+    })
+
+    const openDialog = async (page: import('@playwright/test').Page) => {
+        await page.getByRole('button', { name: /^Share this conversation/ }).first().click()
+        const dialog = page.getByRole('dialog', { name: 'Share this conversation' })
+        await expect(dialog).toBeVisible()
+        await expect(dialog.getByText(/ of 5\.0 MiB/)).toBeVisible({ timeout: 20_000 })
+        return dialog
+    }
+
+    test('the Share dialog has no serious or critical problems, with the people picker open', async ({ page }) => {
+        const dialog = await openDialog(page)
+        await dialog.getByRole('radio', { name: 'Specific people' }).check()
+        await expect(dialog.getByRole('searchbox', { name: 'Add people by username' })).toBeVisible()
+        expect(await violations(page)).toEqual([])
+    })
+
+    test('keyboard: Tab stays inside the dialog, the people picker is reachable and Escape closes it', async ({ page }) => {
+        const dialog = await openDialog(page)
+        // focus moved in, and a long run of Tab never leaves the dialog
+        for (let i = 0; i < 30; i++) {
+            await page.keyboard.press('Tab')
+            expect(await dialog.evaluate((d) => d.contains(document.activeElement))).toBe(true)
+        }
+        // the audience radios and the picker are on the keyboard path
+        await dialog.getByRole('radio', { name: 'Specific people' }).focus()
+        await page.keyboard.press('Space')
+        const search = dialog.getByRole('searchbox', { name: 'Add people by username' })
+        await search.focus()
+        await expect(search).toBeFocused()
+        await page.keyboard.type(process.env.VIZIER_USER ?? 'admin')
+        // a match is a button: Tab to it, Enter adds the person, and the chip can be removed by keyboard
+        const match = dialog.getByRole('list', { name: 'Matching users' }).getByRole('button').first()
+        if (await match.isVisible({ timeout: 3000 }).catch(() => false)) {
+            await match.focus()
+            await page.keyboard.press('Enter')
+            const remove = dialog.getByRole('button', { name: /^Remove / })
+            await expect(remove).toBeVisible()
+            await remove.focus()
+            await page.keyboard.press('Enter')
+            await expect(remove).toHaveCount(0)
+        }
+        await page.keyboard.press('Escape')
+        await expect(dialog).toBeHidden()
+    })
+
+    test('a public share is not created until the confirmation is ticked (by keyboard)', async ({ page }) => {
+        const dialog = await openDialog(page)
+        const create = dialog.getByRole('button', { name: 'Create link' })
+        await expect(create).toBeDisabled()
+        const box = dialog.getByRole('checkbox', { name: /anyone who has this link can read/i })
+        await box.focus()
+        await page.keyboard.press('Space')
+        await expect(create).toBeEnabled()
     })
 })

@@ -85,7 +85,7 @@ export function MySharesPage() {
                             size="sm"
                             onClick={() => setAll(true)}
                         >
-                            All instance shares
+                            All shares
                         </Button>
                     </div>
                 ) : undefined

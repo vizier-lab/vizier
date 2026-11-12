@@ -4,7 +4,7 @@
 // typing into the composer of a dummyplug agent, and links are opened in fresh browser contexts.
 import { test, expect, type Browser, type BrowserContext, type Page } from '@playwright/test'
 import { deflateSync } from 'node:zlib'
-import { readFileSync, readdirSync, rmSync, statSync } from 'node:fs'
+import { readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -106,8 +106,15 @@ async function openShare(page: Page) {
     await expect(page.getByText(/ of 5\.0 MiB/)).toBeVisible({ timeout: 20_000 }) // the preview line is there
 }
 
+/** An "anyone with the link" share needs its second, explicit confirmation before Create link is enabled. */
+async function confirmPublic(page: Page) {
+    const box = page.getByRole('checkbox', { name: /anyone who has this link can read/i })
+    if (await box.count()) await box.check()
+}
+
 /** From a ready dialog: Create link, return the id in the link shown. */
 async function create(page: Page): Promise<string> {
+    await confirmPublic(page)
     await page.getByRole('button', { name: 'Create link' }).click()
     const link = page.getByLabel('Link', { exact: true })
     await expect(link).toBeVisible({ timeout: 20_000 })
@@ -352,6 +359,20 @@ async function postSnapshot(who: Person, snapshot: any, over: Record<string, unk
 // =================================================================================================
 
 test.describe('The Share button and the preview dialog', () => {
+    test('FR: Create link stays disabled for an anyone-with-the-link share until it is confirmed', async ({ page }) => {
+        const alice = await person('sharer', 'conf')
+        await uiLogin(page, alice)
+        await page.goto(`/${alice.agent}/chat/${topicId('conf')}`)
+        await say(page, 'confirm before public')
+        await openShare(page)
+        const createBtn = page.getByRole('button', { name: 'Create link' })
+        await expect(createBtn).toBeDisabled()
+        await page.getByRole('checkbox', { name: /anyone who has this link can read/i }).check()
+        await expect(createBtn).toBeEnabled()
+        await page.getByRole('radio', { name: 'Anyone signed in on this instance' }).check()
+        await expect(createBtn).toBeEnabled()
+    })
+
     test('TP-04: Bob (no share permission) sees no Share button, and the API says 403', async ({ page }) => {
         const bob = await person('maker', 'bob')
         await uiLogin(page, bob)
@@ -412,6 +433,7 @@ test.describe('The Share button and the preview dialog', () => {
             return route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ success: false, error: { code: 'unavailable', message: 'storage is down' } }) })
         })
         await openShare(page)
+        await confirmPublic(page)
         await page.getByRole('button', { name: 'Create link' }).click()
         await expect.poll(() => hits).toBe(1)
         await expect(page.getByLabel('Link', { exact: true })).toHaveCount(0)
@@ -453,6 +475,7 @@ test.describe('The Share button and the preview dialog', () => {
         const posts: string[] = []
         page.on('request', (r) => r.method() === 'POST' && r.url().endsWith('/api/v1/shares') && posts.push(r.url()))
         await openShare(page)
+        await confirmPublic(page)
         await page.getByRole('button', { name: 'Create link' }).dblclick()
         const link = page.getByLabel('Link', { exact: true })
         await expect(link).toBeVisible({ timeout: 20_000 })
@@ -673,6 +696,7 @@ test.describe('Images', () => {
         const dialog = page.getByRole('dialog')
         // TP-10: labelled placeholder, listed in the preview, share still possible
         await expect(dialog.getByText(new RegExp(`${gone}.*(was replaced by a placeholder|no longer available)`))).toBeVisible()
+        await confirmPublic(page)
         await expect(page.getByRole('button', { name: 'Create link' })).toBeEnabled()
         const id = await create(page)
         const doc = (await stored(id)).data
@@ -974,3 +998,180 @@ test.describe('Hostile content', () => {
 
 // TP-17 (the desktop app) cannot be run here: it needs the Tauri shell, which has no server to reach.
 // TP-28 (a kind added by a later version is left out) is a vitest case: app/lib/share/kinds.test.ts.
+
+// =================================================================================================
+// Scenario 4 (US3): the audience table, and the sign-in round trip (T060, T059; TP-50..53)
+// =================================================================================================
+
+test.describe('Scenario 4: audiences', () => {
+    test('TP-50..53: specific / signed-in / public, opened as author, named person, other signed-in person and anonymous', async ({ browser }) => {
+        const author = await person('sharer', 'aud-a')
+        const named = await person('maker', 'aud-b')
+        const other = await person('maker', 'aud-c')
+        const snap = hostileSnapshot('Audience check', [{ kind: 'text', markdown: 'visible to the audience' }])
+        // the same endpoint the people picker uses (prefix search on username, enabled users only)
+        const found = await api('GET', `/shares/people?q=${encodeURIComponent(named.username.slice(0, 8))}`, author.token)
+        expect(found.status).toBe(200)
+        const namedId: string = found.data.find((m: { username: string }) => m.username === named.username)?.user_id
+        expect(namedId, 'the named person is found by the picker endpoint').toBeTruthy()
+        expect(Object.keys(found.data[0]).sort(), 'only user_id and username leave').toEqual(['user_id', 'username'])
+        const specific = await postSnapshot(author, snap, { audience: 'specific', people: [namedId] })
+        const signedIn = await postSnapshot(author, snap, { audience: 'signed_in' })
+        const pub = await postSnapshot(author, snap, { audience: 'public' })
+
+        // 3 shares x 4 viewers, as status codes of the API the page reads
+        const status = async (id: string, who?: Person) => (await api('GET', `/shares/${id}`, who?.token)).status
+        const table: Record<string, number[]> = {
+            // author, named, other signed-in, anonymous
+            specific: [await status(specific, author), await status(specific, named), await status(specific, other), await status(specific)],
+            signed_in: [await status(signedIn, author), await status(signedIn, named), await status(signedIn, other), await status(signedIn)],
+            public: [await status(pub, author), await status(pub, named), await status(pub, other), await status(pub)],
+        }
+        expect(table).toEqual({ specific: [200, 200, 404, 401], signed_in: [200, 200, 200, 401], public: [200, 200, 200, 200] })
+
+        // Unknown and restricted look the same to a stranger (FR-025): same status and same body
+        const unknown = await api('GET', '/shares/AAAAAAAAAAAAAAAAAAAAA')
+        const restricted = await api('GET', `/shares/${specific}`)
+        expect(unknown.status).toBe(restricted.status)
+        expect(unknown.text).toBe(restricted.text)
+        const unknownSigned = await api('GET', '/shares/AAAAAAAAAAAAAAAAAAAAA', other.token)
+        const restrictedSigned = await api('GET', `/shares/${specific}`, other.token)
+        expect(unknownSigned.status).toBe(restrictedSigned.status)
+        expect(unknownSigned.text).toBe(restrictedSigned.text)
+
+        // In the browser: the anonymous visitor is asked to sign in, signs in as the named person and lands on the share (TP-52)
+        const v = await visitor(browser)
+        await v.page.goto(`/share/${specific}`)
+        await expect(v.page.getByText("This link isn't available.")).toBeVisible()
+        await v.page.getByRole('link', { name: 'Sign in' }).click()
+        await expect(v.page).toHaveURL(new RegExp(`/login\\?returnTo=%2Fshare%2F${specific}`))
+        await v.page.getByLabel(/username/i).fill(named.username)
+        await v.page.getByLabel(/password/i).fill(PASSWORD)
+        await v.page.getByRole('button', { name: /sign in/i }).click()
+        await expect(v.page).toHaveURL(new RegExp(`/share/${specific}$`))
+        await expect(v.page.getByText('visible to the audience')).toBeVisible()
+        await v.context.close()
+
+        // Carol (signed in, not named) gets the neutral page without a sign-in button (TP-53)
+        const c = await visitor(browser)
+        await c.page.goto('/login')
+        await c.page.getByLabel(/username/i).fill(other.username)
+        await c.page.getByLabel(/password/i).fill(PASSWORD)
+        await c.page.getByRole('button', { name: /sign in/i }).click()
+        await expect(c.page).not.toHaveURL(/\/login/)
+        await c.page.goto(`/share/${specific}`)
+        await expect(c.page.getByText("This link isn't available.")).toBeVisible()
+        await expect(c.page.getByRole('link', { name: 'Sign in' })).toHaveCount(0)
+        await c.context.close()
+    })
+})
+
+// =================================================================================================
+// Scenario 5 (US5): create, list, revoke, open from a new context (T067; TP-58)
+// =================================================================================================
+
+test.describe('Scenario 5: My shares', () => {
+    test('TP-58: create, list, revoke, open from a new context; an administrator revokes another person\'s share; a non-admin has no All shares toggle', async ({ page, browser }) => {
+        const owner = await person('sharer', 'mine')
+        const id = await postSnapshot(owner, hostileSnapshot('My listed chat', [{ kind: 'text', markdown: 'hello list' }]))
+        await uiLogin(page, owner)
+        await page.goto('/settings/shares')
+        await expect(page.getByText('My listed chat')).toBeVisible()
+        await expect(page.getByRole('button', { name: /All shares/ })).toHaveCount(0)
+
+        await page.getByRole('button', { name: 'Revoke' }).first().click()
+        await page.getByRole('button', { name: 'Revoke link' }).click()
+        await expect(page.getByText('revoked').first()).toBeVisible()
+
+        const v = await visitor(browser)
+        await v.page.goto(`/share/${id}`)
+        await expect(v.page.getByText("This link isn't available.")).toBeVisible()
+        await v.context.close()
+
+        // an administrator revokes someone else's share
+        const theirs = await postSnapshot(owner, hostileSnapshot('Theirs', [{ kind: 'text', markdown: 'still here' }]))
+        expect((await api('GET', `/shares/${theirs}`)).status).toBe(200)
+        const adminPage = await (await browser.newContext({ baseURL: B })).newPage()
+        await uiLogin(adminPage, ADMIN)
+        await adminPage.goto('/settings/shares')
+        await adminPage.getByRole('button', { name: /All shares/ }).click()
+        await expect(adminPage.getByRole('columnheader', { name: 'Author' })).toBeVisible()
+        await adminPage.getByRole('row').filter({ hasText: owner.username }).getByRole('button', { name: 'Revoke' }).first().click()
+        await adminPage.getByRole('button', { name: 'Revoke link' }).click()
+        await expect.poll(async () => (await api('GET', `/shares/${theirs}`)).status).not.toBe(200)
+        await adminPage.context().close()
+    })
+})
+
+// =================================================================================================
+// Scenarios 6 and 7 (US4): the exported file (T071; TP-42, 70, 71, 74)
+// =================================================================================================
+
+test.describe('Scenario 6 and 7: the .vizier.html file', () => {
+    test('TP-70 / TP-71: export in the WebUI, open it by file:// with the network off: content, no requests, no console errors', async ({ page, browser }, info) => {
+        const alice = await person('sharer', 'file')
+        await uiLogin(page, alice)
+        await page.goto(`/${alice.agent}/chat/${topicId('file')}`)
+        await say(page, 'text for the offline file')
+        await shareButton(page).click()
+        await page.getByRole('tab', { name: 'Offline file' }).click()
+        await expect(page.getByText(/ of 5\.0 MiB/)).toBeVisible({ timeout: 20_000 })
+        const posts: string[] = []
+        page.on('request', (r) => r.method() === 'POST' && r.url().endsWith('/api/v1/shares') && posts.push(r.url()))
+        const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Export file' }).click()])
+        expect(download.suggestedFilename()).toMatch(/\.vizier\.html$/)
+        const path = info.outputPath('export.vizier.html')
+        await download.saveAs(path)
+        expect(posts, 'exporting stores nothing').toEqual([])
+
+        const context = await browser.newContext()
+        await context.setOffline(true)
+        const reqs: string[] = []
+        const errors: string[] = []
+        const p = await context.newPage()
+        p.on('request', (r) => !r.url().startsWith('file:') && !r.url().startsWith('data:') && !r.url().startsWith('blob:') && reqs.push(r.url()))
+        p.on('console', (m) => m.type() === 'error' && errors.push(m.text()))
+        p.on('pageerror', (e) => errors.push(String(e)))
+        await p.goto(`file://${path}`)
+        await expect(p.getByTestId('snapshot-view')).toBeVisible({ timeout: 15_000 })
+        await expect(p.getByText('text for the offline file').first()).toBeVisible()
+        await expect(p.getByRole('textbox')).toHaveCount(0)
+        expect(reqs, 'no network request, none to /api/v1/shares (FR-031)').toEqual([])
+        expect(errors, 'no console errors').toEqual([])
+        await context.close()
+    })
+
+    test('TP-74: each hostile fixture opened as a .vizier.html runs nothing and makes no outbound request', async ({ browser }, info) => {
+        const template = await (await fetch(`${B}/viewer-template.html`)).text()
+        const MARKER = '<!-- VIZIER_SNAPSHOT_MARKER -->'
+        const embed = (json: string) => json.replace(/</g, '\\u003c').replace(/>/g, '\\u003e').replace(/&/g, '\\u0026')
+        const files: [string, string][] = readdirSync(HOSTILE)
+            .filter((f) => f.endsWith('.json'))
+            .map((f) => [f, template.replace(MARKER, `<script type="application/json" id="vizier-snapshot">${embed(JSON.stringify(fixture(f)))}</script>`)] as [string, string])
+        files.push(['damaged.vizier.html', readFileSync(join(HOSTILE, 'damaged.vizier.html'), 'utf8')])
+        expect(files.length).toBeGreaterThanOrEqual(12)
+        for (const [name, html] of files) {
+            const path = info.outputPath(`hostile-${name.replace(/\.json$/, '')}.vizier.html`)
+            writeFileSync(path, html)
+            const context = await browser.newContext()
+            const p = await context.newPage()
+            const outbound: string[] = []
+            const dialogs: string[] = []
+            await p.addInitScript(() => {
+                ;(window as any).__flags = []
+            })
+            p.on('request', (r) => !/^(file|data|blob|about):/.test(r.url()) && outbound.push(r.url()))
+            p.on('dialog', (d) => {
+                dialogs.push(d.message())
+                void d.dismiss()
+            })
+            await p.goto(`file://${path}`)
+            await expect(p.locator('body')).not.toBeEmpty({ timeout: 15_000 })
+            await p.waitForTimeout(500)
+            expect(await p.evaluate(() => (window as any).__pwned), `${name}: window.__pwned`).toBeUndefined()
+            expect(dialogs, `${name}: dialogs`).toEqual([])
+            expect(outbound, `${name}: outbound requests`).toEqual([])
+            await context.close()
+        }
+    })
+})

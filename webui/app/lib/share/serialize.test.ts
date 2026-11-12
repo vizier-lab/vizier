@@ -178,3 +178,31 @@ describe('readAllHistory', () => {
         await expect(readAllHistory(reader(reqs), { pageSize: 10, maxRequests: 25 })).rejects.toBeInstanceOf(ShareError)
     })
 })
+
+describe('serializeEntries: Response bodies that belong to the activity trail', () => {
+    const resp = (uid: string, content: unknown): ChatMessage => ({ uid, seq: Number(uid.slice(1)), timestamp: '2026-11-08T10:00:00Z', content: { Response: { content, attachments: [] } } }) as unknown as ChatMessage
+    const person = (uid: string, chat: string): ChatMessage => ({ uid, seq: Number(uid.slice(1)), timestamp: '2026-11-08T09:59:00Z', content: { Request: { content: { chat }, timestamp: '2026-11-08T09:59:00Z', attachments: [] } } }) as unknown as ChatMessage
+    const entries = [
+        person('e1', 'hi'),
+        resp('e2', { thinking: 'REASONING-SEED-77' }),
+        resp('e3', { tool_choice: { name: 'shell_exec', args: { cmd: 'echo TOOLARG-SEED-88' } } }),
+        resp('e4', { tool_response: { response: 'TOOLRESULT-SEED-99' } }),
+        resp('e5', { message: { content: 'done' } }),
+    ]
+    const opts = { agentName: 'A', title: 'T', now: 1 }
+
+    it('trail off: no tool call, tool result or reasoning text reaches the snapshot', async () => {
+        const { snapshot } = await serializeEntries(entries, { ...opts, includeTrail: false })
+        const text = JSON.stringify(snapshot)
+        for (const seed of ['REASONING-SEED-77', 'TOOLARG-SEED-88', 'TOOLRESULT-SEED-99', 'shell_exec']) expect(text).not.toContain(seed)
+        expect(snapshot.turns.some((t) => t.trail)).toBe(false)
+        expect(text).toContain('done')
+    })
+
+    it('trail on: the tool use appears but reasoning still never does', async () => {
+        const { snapshot } = await serializeEntries(entries, { ...opts, includeTrail: true })
+        const text = JSON.stringify(snapshot)
+        expect(text).not.toContain('REASONING-SEED-77')
+        expect(text).toContain('TOOLRESULT-SEED-99')
+    })
+})

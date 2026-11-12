@@ -2,7 +2,7 @@
 // shows what a visitor would get and what was left out, and stores nothing until "Create link".
 // Cancel and Preview never call the share API; the preview draws the real viewer on the
 // in-memory snapshot.
-import { Button, Dialog, Modal, Notice, Radio, Skeleton, SwitchRow } from '@vizier/design'
+import { Button, Checkbox, Dialog, Modal, Notice, Radio, Skeleton, SwitchRow } from '@vizier/design'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ApiError } from '../../api/client'
 import { transport } from '../../api/transport'
@@ -16,6 +16,7 @@ import { SnapshotView } from '../../viewer/SnapshotView'
 export const DESKTOP_NOTICE = 'A link needs a server others can reach. Use Offline file.'
 export const OFFLINE_NOTICE = 'Nothing is stored on the server. The offline file contains everything needed to view the conversation interactively in any web browser without an internet connection.'
 export const COPY_WARNING = 'Anyone with the link can read this. You can revoke it later, but a copy someone already made cannot be taken back.'
+export const PUBLIC_CONFIRM = 'I understand that anyone who has this link can read the conversation without signing in.'
 export const TRAIL_HELP = 'Off: only what you and the agent said, plus images and pages.'
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`
@@ -89,6 +90,8 @@ export function ShareDialog({ open, onClose, agentId, topicId, title, agentName 
     const [peopleMatches, setPeopleMatches] = useState<PersonMatch[]>([])
     const [searchingPeople, setSearchingPeople] = useState(false)
     const [peopleError, setPeopleError] = useState<string | null>(null)
+    // FR: an "anyone with the link" share needs a second, explicit confirmation.
+    const [confirmedPublic, setConfirmedPublic] = useState(false)
     const [result, setResult] = useState<SerializeResult | null>(null)
     const [loadError, setLoadError] = useState<string | null>(null)
     const [loading, setLoading] = useState(false)
@@ -110,6 +113,7 @@ export function ShareDialog({ open, onClose, agentId, topicId, title, agentName 
             setPeopleQuery('')
             setPeopleMatches([])
             setPeopleError(null)
+            setConfirmedPublic(false)
             setCreated(null)
             setCreateError(null)
             setExporting(false)
@@ -200,6 +204,7 @@ export function ShareDialog({ open, onClose, agentId, topicId, title, agentName 
     const create = useCallback(async () => {
         if (!result || !preview?.canShare) return
         if (audience === 'specific' && people.length === 0) return
+        if (audience === 'public' && !confirmedPublic) return
         setCreating(true)
         setCreateError(null)
         try {
@@ -221,7 +226,7 @@ export function ShareDialog({ open, onClose, agentId, topicId, title, agentName 
         } finally {
             setCreating(false)
         }
-    }, [result, preview, agentId, topicId, title, audience, people])
+    }, [result, preview, agentId, topicId, title, audience, people, confirmedPublic])
 
     const copy = () => {
         if (!created) return
@@ -252,7 +257,7 @@ export function ShareDialog({ open, onClose, agentId, topicId, title, agentName 
                 confirmLoading={tab === 'link' ? creating : exporting}
                 confirmDisabled={
                     tab === 'link'
-                        ? !preview?.canShare || loading || (audience === 'specific' && people.length === 0)
+                        ? !preview?.canShare || loading || (audience === 'specific' && people.length === 0) || (audience === 'public' && !confirmedPublic)
                         : !preview?.canShare || loading || exporting
                 }
                 onConfirm={() => {
@@ -317,10 +322,10 @@ export function ShareDialog({ open, onClose, agentId, topicId, title, agentName 
                                                 onChange={(e) => setPeopleQuery(e.target.value)}
                                                 className="w-full rounded-md border border-border-strong bg-raised px-10 py-6 type-ui-xs text-fg placeholder:text-muted focus:border-ink"
                                             />
-                                            {searchingPeople && <span className="absolute right-8 top-8 type-ui-xs text-muted">Searching…</span>}
+                                            <span role="status" aria-live="polite" className="sr-only">{searchingPeople ? 'Searching…' : peopleQuery.trim().length >= 2 ? plural(peopleMatches.length, 'match', 'matches') : ''}</span>
+                                            {searchingPeople && <span aria-hidden="true" className="absolute right-8 top-8 type-ui-xs text-muted">Searching…</span>}
                                             {peopleMatches.length > 0 && (
                                                 <ul
-                                                    role="listbox"
                                                     aria-label="Matching users"
                                                     className="absolute z-10 mt-4 max-h-48 w-full overflow-auto rounded-md border border-border-strong bg-raised py-4 shadow-lg"
                                                 >
@@ -338,9 +343,9 @@ export function ShareDialog({ open, onClose, agentId, topicId, title, agentName 
                                                 </ul>
                                             )}
                                         </div>
-                                        {peopleError && <p className="type-small text-failed-text">{peopleError}</p>}
+                                        {peopleError && <p role="alert" className="type-small text-failed-text">{peopleError}</p>}
                                         {people.length > 0 ? (
-                                            <div className="flex flex-wrap gap-6" aria-label="Selected people">
+                                            <div role="group" className="flex flex-wrap gap-6" aria-label="Selected people">
                                                 {people.map((p) => (
                                                     <span
                                                         key={p.user_id}
@@ -375,6 +380,11 @@ export function ShareDialog({ open, onClose, agentId, topicId, title, agentName 
                                     checked={audience === 'public'}
                                     onChange={() => setAudience('public')}
                                 />
+                                {audience === 'public' && (
+                                    <div className="pl-24">
+                                        <Checkbox label={PUBLIC_CONFIRM} checked={confirmedPublic} onChange={(e) => setConfirmedPublic(e.target.checked)} />
+                                    </div>
+                                )}
                             </fieldset>
 
                             <SwitchRow label="Include the agent's activity trail (tool calls and results)" helper={TRAIL_HELP} checked={includeTrail} onCheckedChange={setIncludeTrail} />

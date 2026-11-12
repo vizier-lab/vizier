@@ -28,6 +28,7 @@ const ROUTES = [
     '/settings/providers/add',
     '/settings/users',
     '/settings/roles',
+    '/settings/shares',
 ]
 
 test.describe('Phone layout (quickstart §8, SC-008)', () => {
