@@ -2,7 +2,7 @@
 
 Spec: [spec.md](./spec.md) · Decisions: [research.md](./research.md) R4, R10, R11, R12.
 
-Nothing here alters an existing table (FR-036, SC-009). Both tables are created with `CREATE TABLE IF NOT EXISTS` (SQLite, `init_share_schema`) and by migration `0007_shared_snapshot.sql` (PostgreSQL). Times are Unix milliseconds (`crate::time::Timestamp`), as everywhere else.
+Nothing here alters an existing table (a rule of this plan, checked by T014; the spec's FR-051 and SC-010 depend on shares being self-contained). Both tables are created with `CREATE TABLE IF NOT EXISTS` (SQLite, `init_share_schema`) and by migration `0007_shared_snapshot.sql` (PostgreSQL). Times are Unix milliseconds (`crate::time::Timestamp`), as everywhere else.
 
 ## Table `shared_snapshot`
 
@@ -16,12 +16,12 @@ Nothing here alters an existing table (FR-036, SC-009). Both tables are created 
 | `audience` | TEXT NOT NULL | `specific` \| `signed_in` \| `public` |
 | `include_trail` | INTEGER NOT NULL | 0/1 |
 | `format_version` | INTEGER NOT NULL | 1 |
-| `size_bytes` | INTEGER NOT NULL | length of `snapshot_json` in bytes |
+| `size_bytes` | INTEGER NOT NULL | length of `snapshot_json` in bytes at creation (kept after revocation, for the list; the FR-047 total counts live shares only, DEFERRED T096) |
 | `created_at` | INTEGER NOT NULL | |
-| `revoked_at` | INTEGER NULL | non-null = revoked; the row and content stay until `purge` (below) |
+| `revoked_at` | INTEGER NULL | non-null = revoked. Revoking also sets `snapshot_json` to the empty string (FR-039): the row stays as a **tombstone** so the id keeps answering like an unknown one and the author's list can say "revoked" |
 | `revoked_by` | TEXT NULL | author or admin user id |
 | `removals_json` | TEXT NOT NULL | the removal report (counts by kind), shown in the author's list |
-| `snapshot_json` | TEXT NOT NULL | the document of `contracts/snapshot-format.md`, stored as received (bytes the person previewed) |
+| `snapshot_json` | TEXT NOT NULL | the document of `contracts/snapshot-format.md`, stored as received (bytes the person previewed); `''` after revocation |
 
 Indexes: `(creator_id, created_at DESC)` for "my shares"; `(created_at DESC)` for the admin list. `snapshot_json` is never selected by list queries.
 
@@ -44,19 +44,19 @@ Index: `(user_id)` (for a later "shared with me" list). Rows exist only when `au
 ## Lifecycle
 
 ```
-(none) ── create ──▶ active ── revoke ──▶ revoked ── purge (later) ──▶ (row deleted)
+(none) ── create ──▶ active ── revoke (text deleted) ──▶ tombstone ── purge (later) ──▶ (row deleted)
 ```
 
 - **create**: one transaction inserts the row and the audience rows. A primary-key clash is retried once with a new id.
-- **revoke**: `UPDATE … SET revoked_at = ?, revoked_by = ? WHERE share_id = ? AND revoked_at IS NULL`; a second call changes nothing and still answers success to the author (idempotent, so a double click is harmless).
+- **revoke** (FR-039): `UPDATE … SET revoked_at = ?, revoked_by = ?, snapshot_json = '' WHERE share_id = ? AND revoked_at IS NULL`: the snapshot body is deleted for good and the row remains as a tombstone; a second call changes nothing and still answers success to the author (idempotent, so a double click is harmless). The audience rows of a revoked share are no longer consulted.
 - **serve**: only `revoked_at IS NULL`.
-- **conversation deleted**: nothing happens (the snapshot is a copy, US5.5).
-- **author's account deleted**: the user-deletion service calls `delete_shares_by_creator` (US5.6). If the person is only disabled, shares stay.
-- **purge of revoked rows**: not in this version. A revoked row costs only its size and is kept so the author's list can say "revoked"; the 200-active cap does not count revoked ones. A retention purge can be added with the notification purge pattern when there is a reason.
+- **conversation deleted**: nothing happens (the snapshot is a copy: FR-005, User Story 5 scenario 8, SC-010).
+- **author's account deleted**: the user-deletion service calls `delete_shares_by_creator` and removes the person from the audiences of other people's shares (FR-045). Losing the permission to share, or access to the agent, changes nothing (FR-045). Accounts have no disabled state yet.
+- **purge of revoked rows**: not in this version. A tombstone costs a few hundred bytes (the content is gone) and is kept so the author's list can say "revoked"; the 200-active cap does not count revoked ones. A retention purge can be added with the notification purge pattern when there is a reason.
 
 ## Concurrency
 
-Two shares of one conversation, or a double click, are independent inserts with independent ids; there is no uniqueness on `(creator_id, topic_id)` (FR / edge case "Two shares at once"). The per-person active cap is checked inside the insert transaction so two parallel creates cannot both slip past it.
+Two shares of one conversation, or a double click, are independent inserts with independent ids; there is no uniqueness on `(creator_id, topic_id)` (spec edge case "Two simultaneous Share clicks"; FR-050 is the client's single-flight guard). The per-person active cap is checked inside the insert transaction so two parallel creates cannot both slip past it.
 
 ## Not stored
 

@@ -6,7 +6,7 @@
 
 ## Summary
 
-A person freezes one conversation into a **snapshot** and shares it as a link (audience: named people, anyone signed in, or anyone) or as a single offline `.vizier.html` file. The **WebUI does the work**: it builds the snapshot from saved history, drops the trail unless asked, removes recalled memory, reasoning, credential-shaped text and server paths, inlines raster media, shows an exact preview, and draws the result through one read-only viewer used by both the route `/share/:id` and the exported file. **Rust stays minimal and passive**: one new permission pair, two tables, one storage trait, one service module, five routes, an optional-auth middleware, and cache/robots headers. The server stores the document as received and serves it unchanged; it never rewrites it, and the viewer never trusts it. Forking/import is a separate later spec; the snapshot format reserves what it needs.
+A person freezes one conversation into a **snapshot** and shares it as a link (audience: named people, anyone signed in, or anyone) or as a single offline `.vizier.html` file. The **WebUI does the work**: it builds the snapshot from saved history, drops the trail unless asked, removes recalled memory, reasoning, credential-shaped text and server paths, inlines raster media, shows an exact preview, and draws the result through one read-only viewer used by both the route `/share/:id` and the exported file. **Rust stays minimal and passive**: one new permission pair, two tables, one storage trait, one service module, five routes (create, read, list, revoke, people search), an optional-auth middleware, and cache/robots headers. The server stores the document as received and serves it unchanged; it never rewrites it, and the viewer never trusts it. Forking/import is a separate later spec; the snapshot format reserves what it needs.
 
 Technical approach and every trade-off: [research.md](./research.md). Notable departures from issue #187, all in the spec's Clarifications and flagged for Darma: three audiences instead of public-only; two-tier permission names; a 5-minute cache instead of a year-long `immutable` (revocation must work); trail off by default; no fork.
 
@@ -24,11 +24,13 @@ Technical approach and every trade-off: [research.md](./research.md). Notable de
 
 **Project Type**: web application inside an existing Rust workspace plus the `webui` submodule (`design` only if a component is missing; none expected).
 
-**Performance Goals**: public read = one primary-key SELECT and a byte copy; 1,000 viewers/min leaves signed-in latency within 10% (SC-007); a typical conversation shares in < 30 s and opens in < 3 s (SC-001/002); serializing 200 messages + 10 images in the browser in < 2 s on a laptop.
+**Performance Goals**: public read = one primary-key SELECT and a byte copy; 1,000 viewers/min leaves signed-in latency within 10% (SC-012); a typical conversation shares in < 30 s (SC-001) and opens in < 3 s (SC-011); serializing 200 messages + 10 images in the browser in < 2 s on a laptop.
 
-**Constraints**: body ≤ 5 MiB, media ≤ 1 MiB each, 100 media items, 50 named people, 10 creates/hour/person, 200 active shares/person (research R12); no network request from an exported file; no existing table altered.
+**Constraints**: body ≤ 5 MiB, media ≤ 1 MiB each, 100 media items, 50 named people, 10 people matches and 30 searches a minute, 10 creates/hour/person, 200 active shares/person, 60 misses a minute per address (research R12; FR-012, FR-046 to FR-049); no network request from an exported file; no existing table altered.
 
 **Scale/Scope**: tens of thousands of shares per instance; two tables, ~12 WebUI modules, 5 routes.
+
+**Numbering**: requirement references in this plan and in the other documents use `spec.md` (FR-001 to FR-054, SC-001 to SC-016). Where the plan departs from the spec or leaves a requirement open, `analysis.md` says so.
 
 **Unknowns resolved in research**: where cleaning happens (R1), what is kept (R2), media (R3), storage (R4), viewer safety (R5), embedding (R6), caching vs revocation (R7), anonymous responses (R8), single-file build (R9), permission (R10), ids (R11), limits (R12), desktop (R13). One open technical risk, with a fallback: workers inside `file://` (spike T004).
 
@@ -69,7 +71,7 @@ specs/056-shared-chat/
 ├── mockups/share-ui.md  # design-first fallback
 ├── checklists/requirements.md
 ├── tasks.md             # /speckit-tasks
-└── analysis.md          # /speckit-analyze
+└── analysis.md          # consistency analysis: spec vs plan vs tasks vs code (round 2, by hand)
 ```
 
 ### Source Code (repository root)
@@ -139,7 +141,9 @@ Each phase is releasable alone; export does not block links.
 | Export size (three) | Measure; two templates (with/without three) if needed. |
 | 5 MiB cap versus image-heavy chats | Preview refuses with the size and options; re-encode to WebP first; the cap is a constant. |
 | `DefaultBodyLimit::disable()` at the router root | Explicit 413 conformance test. |
-| Specific-people links need sign-in return | `returnTo` plumbing exists; e2e covers it. |
+| Specific-people links need sign-in return | `returnTo` plumbing exists; the global 401 handler skips `/share/*` so the link survives (T102); e2e covers it. |
+| Cleaning happens in the browser, so a direct request can publish uncleaned text (FR-051) | Accepted for v1 (research R1, `analysis.md` A1); a server-side credential backstop that rejects, not rewrites, can be added without changing the contract. |
+| Requirements left open (FR-007 author name, FR-023, FR-041, FR-044, FR-046 file limit, FR-047 total, FR-052) | Listed with reasons in `tasks.md` Phase 9; none is silently dropped. |
 | Desktop has no reachable address | Export-only there (R13); stated in the dialog. |
 
 ## Complexity Tracking

@@ -299,6 +299,21 @@ Reading a share needs no permission to share and no access to the agent the conv
 - **Design**: the Share dialog, the preview, the shared view, the list of shares and the offline file's look are new UI and are drawn before they are built, as the project requires.
 - **Product principle for planning**: the maintainers want this feature to keep the server's part small and passive. That shapes the plan, not this spec, which says only what must be true.
 
+## Implementation Status: Deferred Requirements
+
+The requirements above are unchanged. These are not yet met by the implementation on this branch; each is tracked in `tasks.md` (Phase 9) with its reason, and none is dropped. The full cross-check is in `analysis.md`.
+
+| Requirement | State | Task |
+|---|---|---|
+| FR-041, removing named people from an existing share | **Deferred.** The backend has no route for it; the WebUI does not invent one. Until it exists the author revokes the share and creates a new one. Widening the audience is already impossible (no update route) | T091 |
+| FR-007, the author's display name (optional, defaults per audience) | Deferred. Needs a field in the snapshot format | T084 |
+| FR-023, leaving out all pictures and audio | Deferred | T087 |
+| FR-044, telling the author when someone else revokes | Deferred (backend) | T093 |
+| FR-046, a 20 MB limit for the offline file | Deferred; the stricter 5 MB link limit applies to both | T095 |
+| FR-047, 250 MB of snapshots per person | Deferred (backend) | T096 |
+| FR-052, the record of share actions | Deferred (backend) | T099 |
+| FR-030, no audience in the read response | Open defect (backend) | T104 |
+
 ## Open Decisions for the Product Owner
 
 Each of these was decided here with a best guess so that planning can start. None blocks planning. Each is a place where the product owner may want a different answer.

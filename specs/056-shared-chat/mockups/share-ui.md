@@ -11,7 +11,8 @@ Constitution: design before UI code. FigCraft is the preferred medium; this ASCI
 │  Who can open it                                                   │
 │   ( ) Specific people      [ add people…            ▾ ]            │
 │   ( ) Anyone signed in on this instance                            │
-│   (•) Anyone with the link                                         │
+│   ( ) Anyone with the link                                         │
+│       Choose who can open the link. Nothing is chosen for you.     │
 │                                                                    │
 │  [ ] Include the agent's activity trail (tool calls and results)   │
 │      Off: only what you and the agent said, plus images and pages. │
@@ -68,3 +69,4 @@ Damaged file: "This file is damaged or was edited, so it was not opened."
 - FigCraft **tidak dicoba**.
 - Implementasi UI (T036, T048, T033–T035) dilanjutkan **atas perintah delegator**, bukan karena tinjauan. Jika maintainer meninjau nanti, catat hasilnya di sini; T007 tetap belum dicentang.
 - Penyimpangan dari mockup di MVP ini: tab Offline file belum ada (US4); pilihan audiens selain "Anyone with the link" tampil nonaktif ("coming soon"); label giliran di penampil memakai "Person" bukan "You" (pengunjung bukan penulisnya).
+- Round 2 (2026-11-12): the mockup above no longer preselects "Anyone with the link" (FR-011); Create link stays disabled until an audience is chosen. The Offline file tab, the audience choices, the review warning (FR-020), the offline warning (FR-035), the "Shared: N live links" mark in the chat header (FR-038) and the Open / Download file actions in My shares (FR-036) now exist in code; this mockup still has not been reviewed by the maintainers. The "coming soon" deviation listed above is out of date.

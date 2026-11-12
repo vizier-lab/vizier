@@ -31,7 +31,7 @@
 
 ## Notes
 
-- Validated in one pass on 2026-11-11. No clarification questions were asked, as requested: every undecided point was decided with a best guess, recorded under Assumptions, and listed under "Open Decisions for the Product Owner" (18 items).
+- Validated in one pass on 2026-11-11. No clarification questions were asked, as requested: every undecided point was decided with a best guess, recorded under Assumptions, and listed under "Open Decisions for the Product Owner" (22 items after the 2026-11-11 clarifications).
 - Sources: issue #187 and the maintainer's two review comments, which override the issue. The fork (reframed by the maintainer as "import conversation") is out of scope. FR-009, FR-010 and SC-016 are the only obligations kept for it.
 - The spec differs from the issue on purpose in three places: a 5-minute public cache life instead of one year (open decision 6), activity excluded by default with a per-share option (the maintainer's request), and audience choice instead of public-only links (the maintainer's request).
 - The permission names `owned_agents:share_conversations` and `all_agents:share_conversations`, and the file ending `.vizier.html`, appear because they are the product surface administrators and people see, not implementation choices. The first is an assumption about the maintainer's `:share_conversations` (open decision 1).

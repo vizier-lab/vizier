@@ -36,6 +36,8 @@ curl -s -o /dev/null -w '%{http_code}\n' -X POST $B/api/v1/shares -H "Authorizat
 ```sh
 # 5 MiB + 1 byte body → 413 ; format_version 2 → 400 ; include_trail=false with trail parts → 422
 # not JSON → 400 ; title 121 chars → 400 ; 11th create in an hour → 429 with retry_after_secs
+# 61st miss from one address within a minute → 429 (FR-049)
+# GET /shares/people?q=a → 400 ; q=al → at most 10 matches ; 31st search in a minute → 429 (FR-012)
 # GET /api/v1/shares/short, /shares/../etc, /shares/%00, 22-char id → same 404/401 body as unknown
 ```
 
@@ -43,18 +45,18 @@ curl -s -o /dev/null -w '%{http_code}\n' -X POST $B/api/v1/shares -H "Authorizat
 
 Share from the chat header → preview counts match the fixture (messages, images, removals) → Create → copy link → open in a fresh context with no storage → text, image, 3D scene (canvas present, orbit changes the frame) and tabs work; composer is absent; `sendMessage` button is inert. Export → file saved → open via `file://` with `context.setOffline(true)` → same content, zero network requests (Playwright `request` listener), zero console errors.
 
-## 5. Hostile content (SC-004)
+## 5. Hostile content (SC-007)
 
 Fixtures in `webui/app/lib/share/fixtures/hostile/*.json` and `*.vizier.html` (script tags, `onerror`, `javascript:`, `</script><script>`, `<!--<script>`, SVG with script as `image/svg+xml` media, CSS `url(http://…)`, U+2028, giant string, 10 000 nested objects). Each opened in the viewer: `window.__pwned` stays undefined, no outbound request, a placeholder or inert text is shown.
 
-## 6. Redaction (SC-003)
+## 6. Redaction (SC-003, SC-004)
 
 Seed a dummyplug conversation with a tool result `sk-ant-…`, `AKIA…`, a PEM block, `/home/alice/.vizier/secret.txt`, a recalled passage. Serialize with trail off and on; the output (`JSON.stringify` of the whole document) contains none of the seeds; the preview counts match.
 
-## 7. Existing data untouched (SC-009)
+## 7. Existing data untouched (plan rule, T014; SC-010 for shares themselves)
 
-Start the new binary on a copy of an existing workspace database: `shared_snapshot` tables appear, `PRAGMA integrity_check` is ok, row counts of every pre-existing table are unchanged. Start the old binary on the same file: it runs. For PostgreSQL: apply `0007` to a database at `0006`, then run the storage tests with `VIZIER_TEST_POSTGRES_URL`.
+Start the new binary on a copy of an existing workspace database: `shared_snapshot` tables appear, `PRAGMA integrity_check` is ok, row counts of every pre-existing table are unchanged. Start the old binary on the same file: it runs. For PostgreSQL: apply `0007` to a database at `0006`, then run the storage tests with `VIZIER_TEST_DATABASE_URL` (the variable `tests_support.rs` reads).
 
-## 8. Load (SC-007)
+## 8. Load (SC-012)
 
 `oha -z 60s -c 50 $B/api/v1/shares/$ID` against a 2 MiB public snapshot while a signed-in `GET /api/v1/agents` is timed once a second; the median of the latter stays within 10 % of its idle value.

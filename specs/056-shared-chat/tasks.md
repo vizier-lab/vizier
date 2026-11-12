@@ -60,9 +60,9 @@ description: "Task list for Shared Chat Snapshots"
 - [X] T011 Create `crates/vizier-core/src/storage/sqlite/share.rs` with `init_share_schema` (both tables and indexes of `data-model.md`, `CREATE TABLE IF NOT EXISTS`) and the single implementation of `ShareStorage` against the backend-neutral `Connection`; call `init_share_schema` from `init_schema` in `crates/vizier-core/src/storage/sqlite/mod.rs` and declare `mod share;`
 - [X] T012 [P] Create `crates/vizier-core/src/storage/sql/postgres/migrations/0007_shared_snapshot.sql` (same columns, `TEXT COLLATE "C"` keys, `BIGINT` times, `ON DELETE CASCADE`) and register it in `crates/vizier-core/src/storage/sql/postgres/migrate.rs`
 - [X] T013 Register `ShareStorage` in the `VizierStorageProvider` supertrait list and `pub mod share;` in `crates/vizier-core/src/storage/mod.rs`; make `SqlStore` compile for both backends
-- [X] T014 Storage tests in `crates/vizier-core/src/storage/sqlite/share.rs` (and the shared SQL tests in `crates/vizier-core/src/storage/sql/tests.rs`, run on PostgreSQL when `VIZIER_TEST_POSTGRES_URL` is set): insert + get round trip keeps `snapshot_json` byte-identical; list never selects content; revoke is conditional and idempotent; audience rows cascade; `count_active_by_creator` ignores revoked; two parallel inserts at the cap leave at most the cap; the schema check (`expected_schema`) still passes; **existing tables unchanged** (SC-009: snapshot the `sqlite_master` rows of every other table before/after `init_share_schema`)
+- [X] T014 Storage tests in `crates/vizier-core/src/storage/sqlite/share.rs` (and the shared SQL tests in `crates/vizier-core/src/storage/sql/tests.rs`, run on PostgreSQL when `VIZIER_TEST_DATABASE_URL` is set): insert + get round trip keeps `snapshot_json` byte-identical; list never selects content; revoke is conditional and idempotent; audience rows cascade; `count_active_by_creator` ignores revoked; two parallel inserts at the cap leave at most the cap; the schema check (`expected_schema`) still passes; **existing tables unchanged** (SC-009: snapshot the `sqlite_master` rows of every other table before/after `init_share_schema`)
 - [X] T015 Create `crates/vizier-core/src/service/shares.rs` (consts from T002, `new_share_id()` = `nanoid!(21)`, `is_valid_share_id`, `ServiceError` mappings) and add `pub mod shares;` to `crates/vizier-core/src/service/mod.rs`; unit tests for the id validator (22 chars, 20 chars, `../`, `%00`, unicode look-alikes, empty)
-- [X] T016 [P] Add `share_creates` (10 per hour) and `share_misses` (30 per minute) `RateLimiter`s to `HTTPState` in `crates/vizier-http/src/state.rs`, construct them in `crates/vizier-http/src/lib.rs` `new_state`, and update the other constructor of the state in `crates/vizier-http/src/api/v1/notifications.rs` tests
+- [X] T016 [P] Add `share_creates` (10 per hour) and `share_misses` (60 per minute, FR-049) `RateLimiter`s to `HTTPState` in `crates/vizier-http/src/state.rs`, construct them in `crates/vizier-http/src/lib.rs` `new_state`, and update the other constructor of the state in `crates/vizier-http/src/api/v1/notifications.rs` tests
 - [X] T017 Add `optional_auth` to `crates/vizier-http/src/auth/middleware.rs` by extracting `require_auth`'s credential parsing into a shared function (no copy); it inserts `Option<Principal>` and never rejects; desktop mode yields the desktop principal; tests: no header, bad token, expired token (treated as anonymous), valid token, desktop
 - [X] T018 [P] Create `webui/app/lib/share/schema.ts`: the zod schema of `contracts/snapshot-format.md` v1 (strict, caps from `limits.ts`, unknown keys dropped, unknown part kinds → `placeholder`, `format_version` check returning `needs_newer` / `damaged`), with `schema.test.ts` over the fixtures from T003, T005, T006
 - [X] T019 [P] Create `webui/app/lib/share/kinds.ts`: the allow-list table of research R2 (`kind → trail-off | trail-on | never`), unknown kinds default to `never`; `kinds.test.ts` fails when a `SessionHistoryContent` variant known to `webui/app/api/frames.ts` is not listed
@@ -93,7 +93,7 @@ description: "Task list for Shared Chat Snapshots"
 - [X] T028 [US1] Create `crates/vizier-http/src/api/v1/shares.rs`: `POST /shares` and `GET /shares/{share_id}` handlers with `#[utoipa::path]`, the response headers of the contract, ETag/304, and the raw stored text embedded in the envelope without parsing it into a value; register the module in `crates/vizier-http/src/api/v1/mod.rs`
 - [X] T029 [US1] Wire routes in `crates/vizier-http/src/api/v1/mod.rs`: POST under `require_auth` with `DefaultBodyLimit::max(5 MiB)` and the `share_creates` limiter; GET with `optional_auth` and no `require_auth`
 - [X] T030 [P] [US1] Create `webui/app/lib/share/serialize.ts`: saved history (read **all** pages of `GET …/topic/{id}/history` until exhausted, bounded by the 5,000-turn cap with a refusal message) and session files → snapshot v1 using `kinds.ts`; turn grouping; question sets as read-only cards; `ui_render` calls become `ui` parts with the saved state as initial state; the redaction hook is a no-op until T045
-- [X] T031 [P] [US1] Create `webui/app/lib/share/media.ts`: collect names with `fileReferences` and attachments, fetch each file, allow-list raster MIME, re-encode to WebP once when over 1 MiB, EXIF dropped by the re-encode, otherwise placeholder (`oversized`, `missing`, `unsupported`); output the `media` map and rewrite spec file names to keys
+- [X] T031 [P] [US1] Create `webui/app/lib/share/media.ts`: collect names with `fileReferences` and attachments, fetch each file, allow-list raster MIME, re-encode to WebP once when over 1 MiB, otherwise placeholder (`oversized`, `missing`, `unsupported`); output the `media` map and rewrite spec file names to keys. Round 2: the cache is keyed by the **content hash**, not the file name (two pasted `image.png` stay two entries; one picture under two names is one entry); metadata (EXIF, XMP, comments, text chunks) is stripped from PNG, JPEG, WebP and GIF at any size, not only by the re-encode
 - [X] T032 [P] [US1] Create `webui/app/lib/share/preview.ts`: counts (messages, images, interactive pages, size, removals by kind), size-limit refusal with the options that reduce it, "turn in progress not included" note
 - [x] T033 [US1] Create `webui/app/viewer/SnapshotView.tsx`: header, turns, text through `react-markdown` + `remark-gfm` + `remark-math` + `rehype-katex` with no `rehype-raw`, links through `app/lib/generativeUi/links.ts` with `rel="noopener noreferrer nofollow"`, read-only footer line (mockup 2)
 - [x] T034 [US1] Extend the viewer for media and `ui` parts: images only from the `media` map via an `<img>` with allow-listed MIME; `ui` parts revalidated by `generativeUi/validate.ts` and drawn by the existing registry with a media resolver that reads the map instead of `transport.assetUrl`; `share/actions.ts` makes `sendMessage` visibly inert and keeps local state actions; Scene3D stays lazy in the route build
@@ -101,7 +101,7 @@ description: "Task list for Shared Chat Snapshots"
 - [x] T036 [US1] Create `webui/app/screens/chat/ShareDialog.tsx` (Link tab only for now, mockup 1) and add the Share button to `webui/app/screens/chat/ConversationHeader.tsx` (shared by agent chats and project chats), hidden without the permission (`webui/app/lib/access.ts` helper + test), disabled with a tooltip on an empty conversation, desktop notice in place of the Link tab
 - [x] T037 [P] [US1] Add a Content-Security-Policy and `Referrer-Policy: no-referrer` to the HTML served for `/share/*` in `crates/vizier-http/src/webui/mod.rs` (policy fixed by T004/R5), with a test that other paths are unchanged
 - [x] T038 [P] [US1] Write `docs/src/api-integration/shares.md` (the contract, the headers, the Cloudflare "cache eligible" rule for `/api/v1/shares/*`, why there is no `immutable`)
-- [ ] T039 [US1] Playwright `webui/e2e/share.spec.ts` scenario 1: create a public link in a seeded conversation, open it in a fresh context, assert text, image, canvas present and orbit changes the frame, tabs switch, no composer, `sendMessage` inert; scenario 2: original conversation deleted after sharing, link unchanged; the same flow from a project chat; the shared page is interactive in under 3 s (SC-002, local)
+- [ ] T039 [US1] Playwright `webui/e2e/share.spec.ts` scenario 1: create a public link in a seeded conversation, open it in a fresh context, assert text, image, canvas present and orbit changes the frame, tabs switch, no composer, `sendMessage` inert; scenario 2: original conversation deleted after sharing, link unchanged; the same flow from a project chat; the shared page is interactive in under 3 s (SC-011, local)
 
 **Checkpoint**: a public link works end to end. Do not ship before US2.
 
@@ -145,14 +145,14 @@ description: "Task list for Shared Chat Snapshots"
 - [X] T051 [P] [US3] Route tests in `crates/vizier-http/tests/shares.rs`: the full audience × viewer table (author, named, other signed-in, no session); `people` required/forbidden by audience; 0, 51, duplicate, unknown, disabled user ids → 400; unknown id and non-public-for-anonymous return the **identical** 401 body; signed-in unknown/revoked/not-named return the identical 404 body; non-public responses are `private, no-store` with `Vary` *(no "disabled user" case: accounts have no disabled state yet)*
 - [X] T052 [P] [US3] Test the miss limiter in `crates/vizier-http/tests/shares.rs`: 31 misses from one address in a minute → 429; hits on real public links are never counted; the window recovers *(window recovery is asserted on the limiter itself, `utils::rate_limit` tests; the HTTP tests use 60 per FR-049 and the peer address, not headers)*
 - [X] T053 [P] [US3] Service tests in `crates/vizier-core/src/service/shares.rs`: a named person who is later disabled or deleted is refused; the author is allowed on every audience; audience cannot change (there is no update route; assert 404/405 on `PUT /shares/{id}`)
-- [x] T054 [P] [US3] Vitest `webui/app/routes/share.test.tsx`: 401 → redirect to sign-in with `returnTo=/share/<id>`; after sign-in, 200 renders; 404 → neutral page without sign-in button; 429 → "try again later"
+- [x] T054 [P] [US3] Vitest `webui/app/routes/share.test.tsx` (view states) and `webui/app/routes/share.unauthorized.test.tsx` (round 2: the real 401 path through the transport and the session handler): a 401 on `/share/<id>` does not hard-redirect to a bare `/login`, so the page's sign-in link keeps `returnTo=/share/<id>`; any other page still goes to `/login`; 404 → neutral page without sign-in button; 429 → "try again later"
 
 ### Implementation for User Story 3
 
-- [X] T055 [US3] Add `GET /shares/people?q=` (signed in, needs a share permission, ≥ 2 characters, ≤ 20 results, enabled users only, returns `user_id` and `username` only) to `crates/vizier-core/src/service/shares.rs`, `crates/vizier-http/src/api/v1/shares.rs` and `contracts/share-api.md`; test that a person without the permission gets 403 and that no email or role leaks *(10 results, 30 a minute per FR-012; username only, no separate display name exists)*
+- [X] T055 [US3] Add `GET /shares/people?q=` (signed in, needs a share permission, ≥ 2 characters, ≤ 10 results, 30 searches a minute, enabled users only, returns `user_id` and `username` only) to `crates/vizier-core/src/service/shares.rs`, `crates/vizier-http/src/api/v1/shares.rs` and `contracts/share-api.md`; test that a person without the permission gets 403 and that no email or role leaks *(FR-012: 10 results, 30 a minute; username only because accounts have no separate display name, see analysis A6)*
 - [X] T056 [US3] Extend `create` in `crates/vizier-core/src/service/shares.rs` with `people` validation (exists, enabled, 1–50, dedupe) and store audience rows in the same transaction
 - [X] T057 [US3] Extend `read` with the R8 matrix using only `Audience::allows`/`cache_policy`, anonymous → 401 `sign_in_required` for anything that is not an active public share, signed-in non-allowed → 404, and count misses on `share_misses` keyed by client address
-- [x] T058 [US3] Add the audience selector and people picker (debounced `people` search) to `ShareDialog.tsx` per mockup 1; the choice is shown in the result and cannot be changed afterwards
+- [x] T058 [US3] Add the audience selector and people picker (debounced `people` search, at most 10 matches shown, username only) to `ShareDialog.tsx` per mockup 1; the choice is shown in the result and cannot be changed afterwards. No audience is preselected and Create stays disabled until one is chosen (FR-011)
 - [x] T059 [US3] Implement the 401 → sign-in → `returnTo` flow in `webui/app/routes/share.tsx` using `lib/returnTo.ts`
 - [ ] T060 [US3] Playwright scenario 4 in `webui/e2e/share.spec.ts`: three shares of one conversation, opened as author, named person, other signed-in person and anonymous; assert the 3 × 4 outcomes and that the unknown and restricted anonymous pages are indistinguishable
 
@@ -193,12 +193,12 @@ description: "Task list for Shared Chat Snapshots"
 
 - [x] T068 [P] [US4] `webui/app/lib/share/embed.test.ts`: `embedJson` output never contains `</script`, `<!--`, `<script`, raw `<`, `>`, `&`, U+2028, U+2029; `JSON.parse` of the extracted text equals the input; 5 MiB random-Unicode round trip; hostile fixtures survive embedding
 - [x] T069 [P] [US4] `webui/app/lib/share/export.test.ts`: the produced file contains exactly one snapshot tag and one viewer script, no `http://`/`https://` URL outside text content, no `<link>`, `@import`, `url(http`, `<base>`, `<form>`; the title is HTML-escaped; the file name rules (slug, 60 chars, unicode title, empty title → `conversation`, path separators and reserved Windows names removed)
-- [x] T070 [P] [US4] `webui/app/viewer/main.test.tsx`: reading the embedded tag with damaged JSON, missing tag, schema failure, future `format_version`, and the hostile fixtures renders only the damaged / needs-newer / inert output and executes nothing (`window.__pwned` undefined)
-- [ ] T071 [P] [US4] Playwright scenario 6 in `webui/e2e/share.spec.ts`: export in the WebUI, open the file by `file://` with the context offline, assert content, 3D interaction, zero requests (including none to `/api/v1/shares`, FR-031), zero console errors; scenario 7: open each file of `fixtures/hostile/` as a `.vizier.html` and assert nothing runs and no outbound request is made
+- [x] T070 [P] [US4] `webui/app/viewer/main.test.tsx` (rewritten in round 2): imports the real `main.tsx` against a stub DOM and a recording `createRoot`, loads every `fixtures/hostile/*.json` plus the damaged `.vizier.html`, and checks the output is inert text or the damaged / needs-newer page, that two snapshot tags are rejected (TP-75), that `main.tsx` and what it imports pull in no route, API client or transport, and that nothing sets `__pwned`
+- [ ] T071 [P] [US4] Playwright scenario 6 in `webui/e2e/share.spec.ts`: export in the WebUI, open the file by `file://` with the context offline, assert content, 3D interaction, zero requests (including none to `/api/v1/shares`, FR-033), zero console errors; scenario 7: open each file of `fixtures/hostile/` as a `.vizier.html` and assert nothing runs and no outbound request is made
 
 ### Implementation for User Story 4
 
-- [x] T072 [US4] Implement `webui/app/viewer/main.tsx`: read `#vizier-snapshot` with `textContent`, parse, validate with `schema.ts`, mount `SnapshotView`; damaged and needs-newer pages (mockup 2); CSP meta from T004
+- [x] T072 [US4] Implement `webui/app/viewer/main.tsx`: read `#vizier-snapshot` with `textContent`, parse, validate with `schema.ts`, mount `SnapshotView`; damaged and needs-newer pages (mockup 2); CSP meta from T004. Round 2: exactly one snapshot tag or the damaged page (TP-75); the entry no longer imports from `routes/` (it uses `viewer/Neutral.tsx`), so the single-file bundle carries no API client; the offline file shows an "unverified copy" banner (FR-035)
 - [x] T073 [US4] Finish `webui/vite.viewer.config.ts` and `package.json` so `npm run build` leaves `build/client/viewer-template.html` with a single marker; implement the two-template variant only if T004 showed the three bundle is too heavy
 - [x] T074 [P] [US4] Create `webui/app/lib/share/embed.ts` (`embedJson`) and `slug.ts`
 - [x] T075 [US4] Create `webui/app/lib/share/export.ts`: fetch the template, substitute marker with the escaped snapshot, escape the title, return a Blob; save through `transport.saveFile` (desktop) or an anchor download (browser)
@@ -220,38 +220,110 @@ description: "Task list for Shared Chat Snapshots"
 
 ---
 
+## Phase 9: Requirements without an earlier task (round 2)
+
+Added by the round-2 analysis (`analysis.md`). Each is marked done with its evidence, or DEFERRED with the reason; nothing is dropped silently.
+
+- [X] T085 FR-011: the audience is not preselected. `ShareDialog` opens with no choice, Create is disabled until one is chosen, `createLink` refuses a missing audience. Evidence: `ShareDialog.test.tsx` ("opens with no audience selected…", "refuses to create when no audience was chosen")
+- [X] T086 FR-020: the dialog tells the person that automatic removal cannot recognise everything and that they are responsible. Evidence: `REVIEW_WARNING`, `ShareDialog.test.tsx`
+- [ ] T084 FR-007 author name: DEFERRED. It needs a field in the snapshot (`source.author`, chosen at create time, so a cached public body stays viewer-independent, analysis A3), a switch in the dialog with the defaults of FR-007, and the viewer line. Format change: schedule it before the first release, because it touches the stored format
+- [ ] T087 FR-023 leave out all pictures and audio: DEFERRED. A switch in the dialog and a `skip` mode in `MediaBuilder` that counts them under `removals.media`; no backend change
+- [X] T088 FR-035: the Offline tab warns that a file cannot be revoked or limited to an audience, and the file opens with an "unverified copy" banner. Evidence: `OFFLINE_WARNING`, `OFFLINE_BANNER`, `main.test.tsx`. The "who saved it" name waits for T084
+- [X] T089 FR-036: My Shares has "Download file" for the author's own shares; it reads the share through `GET /shares/{id}` and exports it, creating nothing. Not shown in the administrator's "All shares" view. Evidence: `MySharesPage.test.tsx` (`ShareRow`)
+- [X] T090 FR-038: a chat with live shares shows "Shared: N live links", leading to My Shares. It reads the existing list (newest first, up to 5 pages of 100), so a person with more than 500 newer shares may not see the mark; no backend change. Evidence: `shares.test.ts`, `ShareDialog.test.tsx` ("the shared mark")
+- [ ] T091 FR-041 remove named people from an existing share: DEFERRED. The backend has no route (no `PATCH` or `DELETE …/people/{user_id}`), and a route must be designed with the audit record (T099) and the cache rules; it is not invented client-side. Until then the author revokes and re-shares. The audience still cannot widen (T053)
+- [X] T092 FR-043: `ShareListItem.title` is optional; My Shares shows "Title not shown" for a share the administrator is not in the audience of and offers only Revoke for it (no Open, Copy or Download). Evidence: `MySharesPage.test.tsx`
+- [ ] T093 FR-044 tell the author when someone else revokes: DEFERRED (backend: an inbox notification from `service::shares::revoke` when `by != creator`). Needs `cargo`
+- [X] T094 FR-045: deleting an account removes its shares and its place in other audiences. Evidence: `storage/sqlite/share.rs` test "FR-045", `service/users.rs` `delete_user`. Losing the permission leaves shares working: T062
+- [ ] T095 FR-046 offline file up to 20 MB: DEFERRED. The preview uses the 5 MiB link limit for the file too (stricter, safe). Needs a mode argument in `buildPreview`
+- [ ] T096 FR-047 250 MB of snapshots per person: DEFERRED (backend: sum of `size_bytes` of live shares inside the insert transaction, plus the refusal text). Needs `cargo`
+- [X] T097 FR-048 2,000 messages: `SHARE_LIMITS.turns` is 5,000 (a message is at most one turn), so a 2,000-message conversation that fits 5 MiB is shareable. Evidence: `limits.ts`, `serialize.test.ts` turn cap
+- [X] T098 FR-050 one share per double confirmation: `singleFlight` wraps the create call. Evidence: `singleFlight.test.ts`. The two-confirmations-in-one-second Playwright trial of SC-015 is part of T060
+- [ ] T099 FR-052 record of create, revoke and people changes, readable by the author and (limited) by the administrator: DEFERRED (backend: a `share_event` table and a route; needs `cargo`)
+- [X] T100 Redaction hardening: npm, Hugging Face, GitLab, SendGrid, Twilio, Google OAuth, Slack and Discord webhooks, Azure `AccountKey`, `Cookie` / `Set-Cookie`, `Authorization: Bearer`, database URL passwords containing `@`; `/proc /sys /dev /run /data /app /Library /Applications` and `~user`, `$HOME`, `%USERPROFILE%`, `\\?\` paths; a bare `/home/alice` becomes `~`; `max_token=2048` is no longer removed. Evidence: `redact.test.ts`, `paths.test.ts`
+- [X] T101 Media hardening: cache by content hash, WebP and GIF metadata stripped at any size, `parseSnapshot` checks the magic bytes against the claimed MIME. Evidence: `media.test.ts`, `schema.test.ts`
+- [X] T102 401 on `/share/:id` keeps `returnTo`: `redirectToLogin` skips `/share/*`. Evidence: `share.unauthorized.test.tsx`
+- [X] T103 Export: `buildOfflineHtml` uses function replacers, so `$&`, `$'`, `` $` `` and `$$` in a title or message cannot corrupt the file; file names with separators and reserved names are tested. Evidence: `export.test.ts`
+- [ ] T104 FR-030 / SC-013: `ShareView` (the `GET /shares/{id}` body) carries `audience`, so a named person or any signed-in reader can see the kind of audience in the response. Return it only to the author, or drop it (the viewer does not use it). Backend; needs `cargo`
+
+---
+
 ## Requirement traceability
 
-| Requirement | Tasks |
-|---|---|
-| FR-001 share from agent and project chats | T036, T039 |
-| FR-002 preview contents | T032, T044, T048 |
-| FR-003 frozen | T039, T062 |
-| FR-004, FR-006 content, format version | T018, T030, T034 |
-| FR-005 media inlined, placeholders | T031, T043 |
-| FR-007, FR-008 empty / over size | T023, T032, T036 |
-| FR-009 trail off by default | T042, T046, T048 |
-| FR-010 to FR-014 what is left out | T019, T040–T045, T047 |
-| FR-015, FR-016, FR-017 audiences, neutral answers, no widening | T010, T051, T053, T056, T057 |
-| FR-018 permission | T008, T009, T021, T036 |
-| FR-019, FR-020 revoke, lists, admin | T061, T064, T066, T067 |
-| FR-021 unguessable, noindex | T015, T022, T052 |
-| FR-022 rate limit | T016, T023 |
-| FR-023 permission is the only control | no code; documented in T049 |
-| FR-024 to FR-028 viewing safely | T018, T033–T035, T054, T068, T070 |
-| FR-029 to FR-032 offline file | T068–T077 |
-| FR-033 revocation window, cache | T022, T063, T081 |
-| FR-034 many viewers | T022, T081 (§8 load) |
-| FR-035 desktop | T036, T075, T076, T082 |
-| FR-036 no change to existing data | T014, T081 |
-| SC-001, SC-002 | T039, T081 |
-| SC-003 | T043 |
-| SC-004 | T005, T070, T071 |
-| SC-005 | T061, T063 |
-| SC-006 | T071 |
-| SC-007 | T081 |
-| SC-008 | T051, T060 |
-| SC-009 | T014, T081 |
+`spec.md` is the source of truth: FR-001 to FR-054 and SC-001 to SC-016 are its numbers. (Earlier drafts of this table used a different, shorter numbering; it was rewritten in round 2, see `analysis.md` A22.) "Done" means code and a test exist; "DEFERRED" means no code, with the reason in Phase 9.
+
+| Requirement | Tasks | Status |
+|---|---|---|
+| FR-001 permission pair | T008, T009, T021, T036 | done |
+| FR-002 only own conversations | T036 (history is read as the caller); the server cannot check content, see analysis A18 | done in UI, accepted limit on the server |
+| FR-003 agent and project chats, not Discord / Telegram / Workspaces / task chats | T036, T039 (the header gets a `share` target only on agent and project chats) | done |
+| FR-004 empty conversation refused, with the reason | T032, T036, T044 (TP-07) | done |
+| FR-005 snapshot never changes | T014, T039, T062 | done |
+| FR-006 content, order, running turn left out | T030, T032 (TP-09) | done |
+| FR-007 title, agent name, date, optional author name | T030, T035 (title, agent, date); author name T084 | partly: author name DEFERRED |
+| FR-008 nothing leads outside the snapshot | T018, T030 (serialize test "no person name, id or agent id") | done |
+| FR-009 self-describing, same snapshot for link and file | T018, T030, T074, `contracts/snapshot-format.md` | done |
+| FR-010 older versions stay readable | T018 (version gate; only v1 exists) | done |
+| FR-011 one audience, none preselected | T010, T058, T085 | done |
+| FR-012 find people: 2 chars, 10 matches, 30 / min, up to 50 named | T055, T058 | done |
+| FR-013 access table | T051, T053, T057, T060 | done |
+| FR-014 one "not available" response, sign-in always offered | T051, T054, T057, T059, T102 | done |
+| FR-015 trail off by default | T042, T046, T048 | done |
+| FR-016 never: secrets, server paths, recall, reasoning | T019, T040 to T045, T047, T100 | done (best effort for unknown secrets) |
+| FR-017 removal before store or download | T045 (in the browser, see analysis A1) | done, trust limit recorded |
+| FR-018 nothing cut silently | T031, T044, T048 | done |
+| FR-019 preview, nothing stored until confirmed | T032, T044, T048, T050 | done |
+| FR-020 review warning | T086 | done |
+| FR-021 pictures inside, raster only | T031, T101 | done |
+| FR-022 1 MB, reduce or placeholder | T031, T101 (TP-12) | done (pictures; audio becomes a placeholder) |
+| FR-023 leave out all pictures | T087 | DEFERRED |
+| FR-024 interactive results usable | T025, T034 | done |
+| FR-025 results only change the viewer's own display | T034, T070 (TP-44) | done |
+| FR-026 author logic isolated, time-limited | T004, T034 (TP-45) | done |
+| FR-027 everything is data | T033, T068, T070 | done |
+| FR-028 a signed-in viewer cannot be acted as | T035, T037, T070 | done |
+| FR-029 read-only | T025, T033 | done |
+| FR-030 shared copy, date, agent; nothing about audience or viewers | T033; the read response still carries `audience`, T104 | partly: server field open |
+| FR-031 links deliberate, destination shown | T033 (`SafeLink`, host shown when the label hides it) | done |
+| FR-032 one `.vizier.html` file | T074, T075, T073 | done |
+| FR-033 no network request | T069, T071, T004 | done in unit tests; Playwright T071 pending |
+| FR-034 no credential or address in the file | T069, T071 | done |
+| FR-035 who saved it, unverified copy, warning before download | T088 | partly: banner and warning done, author name with T084 |
+| FR-036 download creates no share; author downloads from a share | T075, T089 | done |
+| FR-037 desktop offers the file only | T036, T076, T082 | done |
+| FR-038 list, open, copy, revoke; chat shows it is shared | T064, T066, T090 | done |
+| FR-039 revoke deletes the snapshot, takes effect | T061, T063, T064 | done |
+| FR-040 cache limits | T022, T063 | done |
+| FR-041 audience cannot widen; author removes named people | T053 (no widening); T091 | partly: removal DEFERRED |
+| FR-042 no expiry | no code | done |
+| FR-043 admin list and revoke, no content, no title or names | T061, T064, T066, T092 | done |
+| FR-044 author told when someone else revokes | T093 | DEFERRED |
+| FR-045 account deletion revokes and removes from audiences | T062, T065, T094 | done |
+| FR-046 5 MB link, 20 MB file, refused not cut | T023, T032; the 20 MB file limit T095 | partly: file limit DEFERRED (5 MiB applies to both) |
+| FR-047 10 / hour, 200 live, 250 MB total | T016, T023; total T096 | partly: 250 MB DEFERRED |
+| FR-048 2,000 messages | T097 | done (cap is 5,000 turns) |
+| FR-049 unguessable id, 60 misses / min | T015, T016, T052 | done |
+| FR-050 one share per double confirmation | T098 | done (unit); Playwright pending |
+| FR-051 same rules for direct requests | T022, T023, T024; client-side removal cannot be enforced, analysis A1 | partly |
+| FR-052 record of create, revoke, people changes | T099 | DEFERRED |
+| FR-053 second confirmation for public | T048, T058 | done |
+| FR-054 noindex, no preview data | T022, T035, T037 | done |
+| SC-001 link in under 30 s | T039, T081 | pending (needs a run) |
+| SC-002 audience table 100% | T051, T060 | server done; Playwright pending |
+| SC-003 0 seeded items leak | T043 | done |
+| SC-004 trail off, 0 tool data | T042 (TP-20) | done |
+| SC-005 all removals accounted | T044 | done |
+| SC-006 offline file | T071 | pending |
+| SC-007 100 hostile conversations | T005, T070, T071 | 12 fixtures done; the 100-conversation set pending |
+| SC-008 interactive kinds respond | T025, T039 | done in unit tests |
+| SC-009 revoke effect | T061, T063 | done |
+| SC-010 unchanged after deletion | T039, T062 | server done; Playwright pending |
+| SC-011 3 s open, 3 s preview | T039, T081 | pending |
+| SC-012 1,000 viewers a minute | T081 (§8 load) | pending |
+| SC-013 admin gets 0 bytes, no title, no names | T051, T061, T092 | done except the `audience` field (T104) |
+| SC-014 every limit enforced and named | T023, T052, T055; DEFERRED limits T095, T096 | partly |
+| SC-015 two confirmations, one share | T098 | unit done; Playwright pending |
+| SC-016 order, authorship, text rebuilt exactly | T030, T018 | done |
 
 ## Dependencies and order
 
@@ -368,7 +440,7 @@ Types: **P** positive, **N** negative, **A** anomaly. "Owner" task = the task wh
 
 | ID | Type | Who does what | Expected | Owner |
 |---|---|---|---|---|
-| TP-90 | P | Upgrade a workspace with data | Boots; new tables created; old tables identical (SC-009) | T014, T081 |
+| TP-90 | P | Upgrade a workspace with data | Boots; new tables created; old tables identical (plan rule, T014) | T014, T081 |
 | TP-91 | P | Same on PostgreSQL | Migration 0007 applies | T081 |
 | TP-92 | A | Downgrade (old binary on new database) | Starts; the extra tables are ignored | T081 |
 | TP-93 | A | Role editor opened | New permission appears under "Sharing"; no default role has it | T008, T009 |
