@@ -8,6 +8,7 @@ import { ApiError } from '../../api/client'
 import { transport } from '../../api/transport'
 import { buildCreateRequest, createShare, searchPeople, sharePath, type Audience, type CreatedShare, type PersonMatch } from '../../api/shares'
 import { exportOfflineSnapshot } from '../../lib/share/export'
+import { SHARE_LIMITS } from '../../lib/share/limits'
 import { buildPreview, formatBytes, type Preview } from '../../lib/share/preview'
 import { serializeConversation, ShareError, type SerializeResult } from '../../lib/share/serialize'
 import { toast } from '../../stores/toasts'
@@ -17,6 +18,7 @@ export const DESKTOP_NOTICE = 'A link needs a server others can reach. Use Offli
 export const OFFLINE_NOTICE = 'Nothing is stored on the server. The offline file contains everything needed to view the conversation interactively in any web browser without an internet connection.'
 export const COPY_WARNING = 'Anyone with the link can read this. You can revoke it later, but a copy someone already made cannot be taken back.'
 export const PUBLIC_CONFIRM = 'I understand that anyone who has this link can read the conversation without signing in.'
+export const CHOOSE_AUDIENCE = 'Choose who can open the link. Nothing is chosen for you.'
 export const TRAIL_HELP = 'Off: only what you and the agent said, plus images and pages.'
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`
@@ -62,12 +64,13 @@ export function createFailure(e: unknown): string {
 
 /** The one call that stores something: builds the request from what was previewed and sends it. */
 export async function createLink(
-    choice: { agentId: string; topicId: string; title: string; audience?: Audience; people?: string[] },
+    choice: { agentId: string; topicId: string; title: string; audience: Audience; people?: string[] },
     result: SerializeResult,
     origin: string
 ): Promise<string> {
-    const audience = choice.audience ?? 'public'
-    const made = await createShare(buildCreateRequest({ ...choice, audience }, result))
+    // No default audience: a public link is never what happens when nothing was chosen (FR-011).
+    if (!choice.audience) throw new ShareError('audience', 'Choose who can open the link.')
+    const made = await createShare(buildCreateRequest(choice, result))
     return linkFor(origin, made)
 }
 
@@ -84,7 +87,7 @@ export function ShareDialog({ open, onClose, agentId, topicId, title, agentName 
     const desktop = transport.authMode === 'desktop'
     const [tab, setTab] = useState<'link' | 'offline'>(desktop ? 'offline' : 'link')
     const [includeTrail, setIncludeTrail] = useState(false)
-    const [audience, setAudience] = useState<Audience>('public')
+    const [audience, setAudience] = useState<Audience | null>(null)
     const [people, setPeople] = useState<PersonMatch[]>([])
     const [peopleQuery, setPeopleQuery] = useState('')
     const [peopleMatches, setPeopleMatches] = useState<PersonMatch[]>([])
@@ -108,7 +111,7 @@ export function ShareDialog({ open, onClose, agentId, topicId, title, agentName 
         if (open) {
             setTab(desktop ? 'offline' : 'link')
             setIncludeTrail(false)
-            setAudience('public')
+            setAudience(null)
             setPeople([])
             setPeopleQuery('')
             setPeopleMatches([])
@@ -137,7 +140,7 @@ export function ShareDialog({ open, onClose, agentId, topicId, title, agentName 
             searchPeople(q, ctl.signal)
                 .then((matches) => {
                     if (!ctl.signal.aborted) {
-                        setPeopleMatches(matches.filter((m) => !people.some((p) => p.user_id === m.user_id)))
+                        setPeopleMatches(matches.slice(0, SHARE_LIMITS.peopleResults).filter((m) => !people.some((p) => p.user_id === m.user_id)))
                         setPeopleError(null)
                     }
                 })
@@ -157,7 +160,7 @@ export function ShareDialog({ open, onClose, agentId, topicId, title, agentName 
     }, [audience, peopleQuery, people])
 
     const addPerson = (p: PersonMatch) => {
-        if (people.length >= 50) return
+        if (people.length >= SHARE_LIMITS.people) return
         if (!people.some((existing) => existing.user_id === p.user_id)) {
             setPeople([...people, p])
         }
@@ -202,7 +205,7 @@ export function ShareDialog({ open, onClose, agentId, topicId, title, agentName 
     }, [result, onClose])
 
     const create = useCallback(async () => {
-        if (!result || !preview?.canShare) return
+        if (!result || !preview?.canShare || !audience) return
         if (audience === 'specific' && people.length === 0) return
         if (audience === 'public' && !confirmedPublic) return
         setCreating(true)
@@ -241,6 +244,8 @@ export function ShareDialog({ open, onClose, agentId, topicId, title, agentName 
             ? 'Anyone with the link'
             : audience === 'signed_in'
             ? 'Anyone signed in on this instance'
+            : audience === null
+            ? 'Not chosen'
             : `Specific people (${plural(people.length, 'person', 'people')})`
 
     return (
@@ -257,7 +262,7 @@ export function ShareDialog({ open, onClose, agentId, topicId, title, agentName 
                 confirmLoading={tab === 'link' ? creating : exporting}
                 confirmDisabled={
                     tab === 'link'
-                        ? !preview?.canShare || loading || (audience === 'specific' && people.length === 0) || (audience === 'public' && !confirmedPublic)
+                        ? !preview?.canShare || loading || audience === null || (audience === 'specific' && people.length === 0) || (audience === 'public' && !confirmedPublic)
                         : !preview?.canShare || loading || exporting
                 }
                 onConfirm={() => {
@@ -305,6 +310,7 @@ export function ShareDialog({ open, onClose, agentId, topicId, title, agentName 
                         <div className="flex flex-col gap-16">
                             <fieldset className="flex flex-col gap-6">
                                 <legend className="type-ui-medium text-fg">Who can open it</legend>
+                                {audience === null && <p className="type-small text-muted">{CHOOSE_AUDIENCE}</p>}
                                 <Radio
                                     name="audience"
                                     label="Specific people"

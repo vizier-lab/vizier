@@ -10,7 +10,8 @@ import { useSession } from '../../stores/session'
 const create = vi.hoisted(() => vi.fn(async () => ({ share_id: 'abc_DEF-123', url_path: '/share/abc_DEF-123', created_at: 1 })))
 vi.mock('../../api/shares', async (orig) => ({ ...(await orig<typeof import('../../api/shares')>()), createShare: create }))
 
-import { COPY_WARNING, createFailure, createLink, DESKTOP_NOTICE, leftOutLines, PUBLIC_CONFIRM, ShareDialog, summaryLine, TRAIL_HELP, warningLines } from './ShareDialog'
+import { SharedMark, sharedLabel } from './ConversationHeader'
+import { CHOOSE_AUDIENCE, COPY_WARNING, createFailure, createLink, DESKTOP_NOTICE, leftOutLines, PUBLIC_CONFIRM, ShareDialog, summaryLine, TRAIL_HELP, warningLines } from './ShareDialog'
 import { ConversationHeader, EMPTY_SHARE_REASON } from './ConversationHeader'
 
 async function previewOf(includeTrail = false) {
@@ -53,7 +54,7 @@ describe('the dialog text', () => {
 describe('creating the link', () => {
     it('sends one public request carrying exactly what was previewed, and returns the link', async () => {
         const { result } = await previewOf(false)
-        const link = await createLink({ agentId: 'a1', topicId: 't1', title: 'T' }, result, 'https://vizier.example')
+        const link = await createLink({ agentId: 'a1', topicId: 't1', title: 'T', audience: 'public' }, result, 'https://vizier.example')
         expect(link).toBe('https://vizier.example/share/abc_DEF-123')
         expect(create).toHaveBeenCalledTimes(1)
         const req = (create.mock.calls[0] as unknown[])[0] as { audience: string; include_trail: boolean; snapshot: unknown; removals: unknown }
@@ -76,6 +77,23 @@ describe('creating the link', () => {
         expect(create).toHaveBeenLastCalledWith(expect.objectContaining({ audience: 'specific', people: ['u-bob'] }))
     })
 
+    it('refuses to create when no audience was chosen, and sends nothing', async () => {
+        const { result } = await previewOf(false)
+        // @ts-expect-error the type forbids it; a caller that gets past the type must still not publish
+        await expect(createLink({ agentId: 'a1', topicId: 't1', title: 'T' }, result, 'https://vizier.example')).rejects.toThrow(/Choose who/)
+        expect(create).not.toHaveBeenCalled()
+    })
+
+    it('opens with no audience selected and Create link disabled until one is chosen', () => {
+        const html = renderToString(<ShareDialog open={true} onClose={() => undefined} agentId="a" topicId="t" title="T" agentName="A" />)
+        expect(html.match(/<input[^>]*type="radio"/g)).toHaveLength(3)
+        expect(html).not.toContain('checked=""')
+        expect(html).toContain(CHOOSE_AUDIENCE)
+        // no public confirmation is offered before public is chosen
+        expect(html).not.toContain('without signing in.')
+        expect(html).toMatch(/<button[^>]*disabled[^>]*>[^<]*Create link/)
+    })
+
     it('renders all three audience choices when opened', () => {
         const html = renderToString(<ShareDialog open={true} onClose={() => undefined} agentId="a" topicId="t" title="T" agentName="A" />)
         expect(html).toContain('Specific people')
@@ -83,10 +101,7 @@ describe('creating the link', () => {
         expect(html).toContain('Anyone with the link (public)')
     })
 
-    it('a public share asks for a second, explicit confirmation; the others do not', () => {
-        const html = renderToString(<ShareDialog open={true} onClose={() => undefined} agentId="a" topicId="t" title="T" agentName="A" />)
-        expect(html).toContain('without signing in')
-        expect(html).toContain(PUBLIC_CONFIRM.replace(/'/g, '&#x27;'))
+    it('the public confirmation wording states that anyone holding the link can read without signing in', () => {
         expect(PUBLIC_CONFIRM).toMatch(/anyone who has this link/i)
     })
 
@@ -130,4 +145,14 @@ describe('the Share button', () => {
 
 it('has a desktop notice that points to the offline file', () => {
     expect(DESKTOP_NOTICE).toBe('A link needs a server others can reach. Use Offline file.')
+})
+
+describe('the "this chat is shared" mark', () => {
+    it('says how many live links, leads to the shares list, and is absent at zero', () => {
+        expect(renderToString(<StaticRouter location="/a/chat/t"><SharedMark count={0} /></StaticRouter>)).toBe('')
+        const one = renderToString(<StaticRouter location="/a/chat/t"><SharedMark count={1} /></StaticRouter>)
+        expect(one).toContain(sharedLabel(1))
+        expect(one).toContain('href="/settings/shares"')
+        expect(sharedLabel(3)).toBe('Shared: 3 live links')
+    })
 })

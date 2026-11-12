@@ -28,7 +28,8 @@ export interface CreatedShare {
 
 export interface ShareListItem {
     share_id: string
-    title: string
+    /** Absent for a share the administrator is not in the audience of (FR-043): it cannot be opened either. */
+    title?: string
     agent_id: string
     agent_name: string
     topic_id: string
@@ -116,3 +117,23 @@ export const searchPeople = (q: string, signal?: AbortSignal) => {
 
 /** The path a person opens, from the id the server returned. */
 export const sharePath = (shareId: string) => `/share/${encodeURIComponent(shareId)}`
+
+/** Live shares of one conversation among `items` (a share list). Pure. */
+export const liveSharesOf = (items: ShareListItem[], agentId: string, topicId: string) =>
+    items.filter((i) => i.agent_id === agentId && i.topic_id === topicId && !i.revoked_at)
+
+const PAGE = 100
+const MAX_PAGES = 5
+
+/** The person's live shares of this conversation, for the "this chat is shared" mark (FR-038). Reads the existing list, newest first, a few pages at most. */
+export async function sharesOfConversation(agentId: string, topicId: string, signal?: AbortSignal): Promise<ShareListItem[]> {
+    const found: ShareListItem[] = []
+    let before: number | undefined
+    for (let page = 0; page < MAX_PAGES; page++) {
+        const items = await listShares({ before, limit: PAGE }, signal)
+        found.push(...liveSharesOf(items, agentId, topicId))
+        if (items.length < PAGE) break
+        before = items[items.length - 1].created_at
+    }
+    return found
+}

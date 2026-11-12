@@ -1,4 +1,4 @@
-// Every limit of the shared-conversation feature in one place (specs/055-shared-chat research R12).
+// Every limit of the shared-conversation feature in one place (specs/056-shared-chat research R12).
 // The Rust twin is the consts at the top of `crates/vizier-core/src/service/shares.rs`; keep them equal.
 import { LIMITS } from '../generativeUi/limits'
 
@@ -27,7 +27,11 @@ export const SHARE_LIMITS = {
     trailArgumentBytes: 32 * 1024,
     createPerHour: 10,
     activePerPerson: 200,
-    missPerMinute: 30,
+    /** Failed opens of a share per visitor per minute (FR-049). */
+    missPerMinute: 60,
+    /** People search: most matches per search, searches per minute per person (FR-012). */
+    peopleResults: 10,
+    peopleSearchesPerMinute: 30,
 } as const
 
 /** Raster formats a snapshot may carry. SVG and everything else can hold script or be too big to vouch for. */
