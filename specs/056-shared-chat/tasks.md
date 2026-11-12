@@ -145,15 +145,15 @@ description: "Task list for Shared Chat Snapshots"
 - [ ] T051 [P] [US3] Route tests in `crates/vizier-http/tests/shares.rs`: the full audience × viewer table (author, named, other signed-in, no session); `people` required/forbidden by audience; 0, 51, duplicate, unknown, disabled user ids → 400; unknown id and non-public-for-anonymous return the **identical** 401 body; signed-in unknown/revoked/not-named return the identical 404 body; non-public responses are `private, no-store` with `Vary`
 - [ ] T052 [P] [US3] Test the miss limiter in `crates/vizier-http/tests/shares.rs`: 31 misses from one address in a minute → 429; hits on real public links are never counted; the window recovers
 - [ ] T053 [P] [US3] Service tests in `crates/vizier-core/src/service/shares.rs`: a named person who is later disabled or deleted is refused; the author is allowed on every audience; audience cannot change (there is no update route; assert 404/405 on `PUT /shares/{id}`)
-- [ ] T054 [P] [US3] Vitest `webui/app/routes/share.test.tsx`: 401 → redirect to sign-in with `returnTo=/share/<id>`; after sign-in, 200 renders; 404 → neutral page without sign-in button; 429 → "try again later"
+- [x] T054 [P] [US3] Vitest `webui/app/routes/share.test.tsx`: 401 → redirect to sign-in with `returnTo=/share/<id>`; after sign-in, 200 renders; 404 → neutral page without sign-in button; 429 → "try again later"
 
 ### Implementation for User Story 3
 
 - [ ] T055 [US3] Add `GET /shares/people?q=` (signed in, needs a share permission, ≥ 2 characters, ≤ 20 results, enabled users only, returns `user_id` and `username` only) to `crates/vizier-core/src/service/shares.rs`, `crates/vizier-http/src/api/v1/shares.rs` and `contracts/share-api.md`; test that a person without the permission gets 403 and that no email or role leaks
 - [ ] T056 [US3] Extend `create` in `crates/vizier-core/src/service/shares.rs` with `people` validation (exists, enabled, 1–50, dedupe) and store audience rows in the same transaction
 - [ ] T057 [US3] Extend `read` with the R8 matrix using only `Audience::allows`/`cache_policy`, anonymous → 401 `sign_in_required` for anything that is not an active public share, signed-in non-allowed → 404, and count misses on `share_misses` keyed by client address
-- [ ] T058 [US3] Add the audience selector and people picker (debounced `people` search) to `ShareDialog.tsx` per mockup 1; the choice is shown in the result and cannot be changed afterwards
-- [ ] T059 [US3] Implement the 401 → sign-in → `returnTo` flow in `webui/app/routes/share.tsx` using `lib/returnTo.ts`
+- [x] T058 [US3] Add the audience selector and people picker (debounced `people` search) to `ShareDialog.tsx` per mockup 1; the choice is shown in the result and cannot be changed afterwards
+- [x] T059 [US3] Implement the 401 → sign-in → `returnTo` flow in `webui/app/routes/share.tsx` using `lib/returnTo.ts`
 - [ ] T060 [US3] Playwright scenario 4 in `webui/e2e/share.spec.ts`: three shares of one conversation, opened as author, named person, other signed-in person and anonymous; assert the 3 × 4 outcomes and that the unknown and restricted anonymous pages are indistinguishable
 
 **Checkpoint**: audiences work.
@@ -212,7 +212,7 @@ description: "Task list for Shared Chat Snapshots"
 ## Phase 8: Polish and cross-cutting
 
 - [ ] T078 [P] Accessibility: dialog focus trap, labels, keyboard path for the people picker, viewer landmarks and contrast; add cases to `webui/e2e/a11y.spec.ts` and `webui/e2e/mobile.spec.ts`
-- [ ] T079 [P] Add a "Shared chat" paragraph to `CLAUDE.md` (architecture, where the pieces live, the security layers, the open import spec) — `AGENTS.md` is a symlink to it, so edit `CLAUDE.md` only
+- [x] T079 [P] Add a "Shared chat" paragraph to `CLAUDE.md` (architecture, where the pieces live, the security layers, the open import spec) — `AGENTS.md` is a symlink to it, so edit `CLAUDE.md` only
 - [ ] T080 [P] Add the `docs/src/SUMMARY.md` entries for the two new pages and run `just landing-build`
 - [ ] T081 Run the whole `specs/056-shared-chat/quickstart.md` (and time SC-001: Share → copied link under 30 s for a 200-message, 10-image chat) against a binary with a dummyplug agent (`just run-d`), including §7 on a copy of an existing workspace database and on PostgreSQL, and §8 with `oha`; record results at the bottom of the quickstart
 - [ ] T082 In the repository root run `cargo clippy --workspace`, `cargo nextest run -p vizier-core -p vizier-http`, `cargo test -p vizier-core --no-default-features`, `cd webui && npm run typecheck && npm test && npx playwright test e2e/share.spec.ts`, and `cd app && cargo test` (desktop dispatcher parity); fix what they show

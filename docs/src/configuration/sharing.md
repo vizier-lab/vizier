@@ -64,6 +64,10 @@ Deleting a user also deletes their shares.
 
 ## Availability
 
-The creating and reading side is available now (see [Shared Chat API](../api-integration/shares.md)). The "People" search for the audience picker, the **My shares** list, and revoking from the UI or `DELETE /api/v1/shares/{id}` are planned for a later phase; until then there is no self-service revoke.
+Everything above is available in the WebUI: the **Share** button in a chat (Link and Offline file tabs, with the audience choice and a people picker that searches usernames of enabled users), the sign-in round trip for a link opened signed out, and **Settings › Shared conversations** to copy or revoke your links (administrators can switch to all shares of the instance). The same operations are in the [Shared Chat API](../api-integration/shares.md).
+
+An "anyone with the link" share asks for a second, explicit confirmation before it can be created, because anyone holding the link can read it without signing in. The page asks search engines not to list it and gives link previews no title, excerpt, author or picture.
+
+Forking a shared conversation into your own agent is not part of this feature; it is planned as a separate "import conversation" spec.
 
 For caching behind Cloudflare, see the API page.

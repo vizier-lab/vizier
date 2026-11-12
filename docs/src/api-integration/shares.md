@@ -4,7 +4,7 @@ A share is a frozen snapshot of one conversation, stored on the instance and add
 
 All routes use the standard `APIResponse<T>` envelope under `/api/v1`.
 
-> **Implementation status.** `POST /shares` and `GET /shares/{share_id}` are implemented. `GET /shares/people`, `GET /shares` (list) and `DELETE /shares/{share_id}` (revoke) are specified but arrive in a later phase; see [Sharing](../configuration/sharing.md).
+> **Status.** All five routes are implemented: `POST /shares`, `GET /shares/{share_id}`, `GET /shares/people`, `GET /shares` (list) and `DELETE /shares/{share_id}` (revoke). There is no update, re-share or import route; see [Sharing](../configuration/sharing.md).
 
 ## Create: `POST /shares`
 
