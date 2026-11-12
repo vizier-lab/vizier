@@ -10,8 +10,8 @@ export type IconButtonProps = {
   /** Required: an icon-only control needs a name. */
   "aria-label": string;
   variant?: "secondary" | "ghost";
-  /** md 34 (toolbars), sm 26 (close × in panels). */
-  size?: "sm" | "md";
+  /** lg 44 (the phone top bar: a thumb's target), md 34 (toolbars), sm 26 (close × in panels). */
+  size?: "sm" | "md" | "lg";
   /** A toggle that is on. Sets aria-pressed. */
   selected?: boolean;
   /** A count badge in the corner, e.g. unread notifications. Hidden at zero, capped at 99+. */
@@ -31,7 +31,11 @@ const VARIANTS = {
   },
 };
 
-const SIZES = { sm: { box: "size-26 rounded-sm", icon: 13 }, md: { box: "size-34 rounded-md", icon: 15 } };
+const SIZES = {
+  sm: { box: "size-26 rounded-sm", icon: 13 },
+  md: { box: "size-34 rounded-md", icon: 15 },
+  lg: { box: "size-44 rounded-lg", icon: 18 },
+};
 
 /** An icon-only button (D11). Group them with `IconButtonGroup`. */
 export function IconButton({
@@ -67,7 +71,8 @@ export function IconButton({
       {unread > 0 && (
         <span
           aria-hidden
-          className="absolute -top-3 -right-3 flex h-17 min-w-17 items-center justify-center rounded-pill bg-live px-4 type-mono-xs text-ground"
+          // The ring is the ground colour, so the badge reads on a bare (ghost) icon as well as a framed one.
+          className="absolute -top-1 -right-1 flex h-17 min-w-17 items-center justify-center rounded-pill bg-live px-4 type-mono-xs text-ground ring-2 ring-ground"
         >
           {unread > 99 ? "99+" : unread}
         </span>

@@ -76,6 +76,13 @@ export const slideOverLeftMotion = {
   exit: { x: "-100%", transition: { duration: motionDurations.base, ease: motionEases.standard } },
 } as const;
 
+/** A bottom sheet on a phone (the agent switcher, the topic picker): it rises from the bottom edge. */
+export const slideOverBottomMotion = {
+  initial: { y: "100%" },
+  animate: { y: 0, transition: { duration: motionDurations.slow, ease: motionEases.arrive } },
+  exit: { y: "100%", transition: { duration: motionDurations.base, ease: motionEases.standard } },
+} as const;
+
 /** A menu or picker: fades with a small rise; dismissed even faster. */
 export const popoverMotion = {
   initial: { opacity: 0, y: 6 },

@@ -153,6 +153,16 @@
   --shadow-dialog: var(--vz-shadow-dialog);
 }
 
+/* iOS Safari zooms the page into any field set under 16px and leaves it zoomed. Touch screens get
+   16px fields; unlayered so the type utilities on the field do not win. */
+@media (hover: none) and (pointer: coarse) {
+  textarea,
+  select,
+  input:not([type="checkbox"], [type="radio"], [type="range"], [type="color"], [type="file"]) {
+    font-size: max(16px, 1em);
+  }
+}
+
 @layer base {
   html {
     background: var(--vz-ground);
@@ -239,4 +249,16 @@
   background-color: color-mix(in srgb, var(--vz-surface) 80%, transparent);
   -webkit-backdrop-filter: blur(16px) saturate(1.4);
   backdrop-filter: blur(16px) saturate(1.4);
+}
+
+/*
+ * Safe areas (spec 056). A phone with a notch or a home indicator reports its insets through
+ * env(); with viewport-fit=cover the page draws under them, so the top bar, the composer and
+ * every bottom sheet pad by them. Never a constant: each device reports its own.
+ */
+@utility pt-safe {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+@utility pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
 }

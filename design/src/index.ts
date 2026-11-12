@@ -10,7 +10,7 @@ export * from "./brand";
 
 // Helpers
 export { MiddleTruncate, middleTruncate, type MiddleTruncateProps } from "./lib/MiddleTruncate";
-export { MotionProvider, Presence, useNativeDialog, dialogMotion, slideOverMotion, popoverMotion, scrimMotion } from "./lib/Motion";
+export { MotionProvider, Presence, useNativeDialog, dialogMotion, slideOverMotion, slideOverBottomMotion, popoverMotion, scrimMotion } from "./lib/Motion";
 export { useDismiss, useBackdropDismiss } from "./lib/dismiss";
 export { useSchemeColors } from "./lib/useSchemeColors";
 
@@ -25,6 +25,7 @@ export * from "./components/AgentHeader";
 export * from "./components/AgentPreviewCard";
 export * from "./components/AgentReply";
 export * from "./components/AgentRow";
+export * from "./components/AgentDetailsList";
 export * from "./components/AgentStartingCard";
 export * from "./components/AgentSwitcher";
 export * from "./components/Attachment";
@@ -96,6 +97,7 @@ export * from "./components/MentionChip";
 export * from "./components/MentionNote";
 export * from "./components/MenuItem";
 export * from "./components/MobileTopBar";
+export * from "./components/SectionHeading";
 export * from "./components/NavItem";
 export * from "./components/NavSection";
 export * from "./components/NightStrip";

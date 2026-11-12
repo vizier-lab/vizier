@@ -8,7 +8,7 @@ export type BannerProps = {
   tone: BannerTone;
   /** The condition, one line: "Connection lost · reconnecting in 3 s". */
   title: ReactNode;
-  /** A second line (failed only). */
+  /** A second line (offline and failed): what stops working, and what keeps working. */
   message?: ReactNode;
   /** Buttons: "Retry now", "Open config". */
   actions?: ReactNode;
@@ -17,6 +17,9 @@ export type BannerProps = {
 /**
  * A persistent page-level condition (D26). Reconnected shows for 4 s, then
  * the caller removes it. Also used inline in chat for a lost connection.
+ *
+ * The offline tone says what is unavailable: the title names the condition and the
+ * message names what stops working and what keeps working.
  */
 export function Banner({ tone, title, message, actions, className, ...rest }: BannerProps) {
   if (tone === "failed") {
@@ -47,7 +50,14 @@ export function Banner({ tone, title, message, actions, className, ...rest }: Ba
       {...rest}
     >
       <span aria-hidden className={cx("size-7 shrink-0 rounded-pill", offline ? "bg-retrying" : "bg-live")} />
-      <p className="min-w-0 flex-1 type-small-medium text-fg">{title}</p>
+      {offline && message ? (
+        <div className="flex min-w-0 flex-1 flex-col gap-2">
+          <p className="type-small-medium text-fg">{title}</p>
+          <p className="type-ui text-muted">{message}</p>
+        </div>
+      ) : (
+        <p className="min-w-0 flex-1 type-small-medium text-fg">{title}</p>
+      )}
       {actions && <div className="flex shrink-0 items-center gap-8">{actions}</div>}
     </div>
   );
