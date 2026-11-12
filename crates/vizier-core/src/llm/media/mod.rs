@@ -40,6 +40,15 @@ pub fn media_base_url(id: &ProviderId) -> &'static str {
     }
 }
 
+/// A media type and its bytes as the `data:` URI image APIs accept for reference images.
+pub fn data_url(mime: &str, bytes: &[u8]) -> String {
+    use base64::Engine;
+    format!(
+        "data:{mime};base64,{}",
+        base64::engine::general_purpose::STANDARD.encode(bytes)
+    )
+}
+
 /// A provider's API key for a media feature, from Settings › Providers or its env vars.
 pub async fn api_key(deps: &VizierDependencies, id: &ProviderId) -> crate::Result<String> {
     let env = crate::llm::resolve::provider_env(&deps.catalogue, id);

@@ -11,11 +11,12 @@ use base64::Engine;
 use serde_json::{Value, json};
 
 use crate::embedding::VizierEmbeddingModel;
-use crate::image_generation::VizierImageGenModel;
+use crate::image_generation::{ReferenceImage, VizierImageGenModel};
 use crate::llm::auth::{CredentialSource, RequestInfo};
 use crate::llm::dialect::join_url;
 use crate::llm::error::LlmError;
 use crate::llm::http;
+use crate::llm::media::data_url;
 use crate::stt::VizierSttModel;
 use crate::tts::{VizierTtsModel, mp3_to_wav};
 use crate::{Result, VizierError};
@@ -201,9 +202,22 @@ fn parse_size(size: Option<&str>) -> (u32, u32) {
 }
 
 /// The path and body for one image request, from the factory-set API variant (research R4).
-fn image_request(api: ImageApi, model: &str, prompt: &str, size: Option<&str>) -> (&'static str, Value) {
+///
+/// A request carrying reference images becomes an edit: `/images/edits` for OpenAI and xAI,
+/// and the same `/images` call with `input_references` for OpenRouter. With no references the
+/// text-only bodies are exactly what they were.
+fn image_request(
+    api: ImageApi,
+    model: &str,
+    prompt: &str,
+    size: Option<&str>,
+    references: &[ReferenceImage],
+) -> Result<(&'static str, Value)> {
+    if !references.is_empty() {
+        return edit_request(api, model, prompt, size, references);
+    }
     let mut body = json!({"model": model, "prompt": prompt});
-    match api {
+    let path = match api {
         ImageApi::Generations(ImageSizing::Size) => {
             let (w, h) = parse_size(size);
             body["size"] = json!(format!("{w}x{h}"));
@@ -211,12 +225,12 @@ fn image_request(api: ImageApi, model: &str, prompt: &str, size: Option<&str>) -
             if !model.starts_with("gpt-image") {
                 body["response_format"] = json!("b64_json");
             }
-            ("/images/generations", body)
+            "/images/generations"
         }
         ImageApi::Generations(ImageSizing::AspectRatio(ratio)) => {
             body["response_format"] = json!("b64_json");
             body["aspect_ratio"] = json!(ratio);
-            ("/images/generations", body)
+            "/images/generations"
         }
         ImageApi::OpenRouter => {
             // OpenRouter normalizes the router's `size` convenience per provider, so it is
@@ -224,9 +238,63 @@ fn image_request(api: ImageApi, model: &str, prompt: &str, size: Option<&str>) -
             if let Some(size) = size {
                 body["size"] = json!(size);
             }
-            ("/images", body)
+            "/images"
         }
-    }
+    };
+    Ok((path, body))
+}
+
+/// The edit request for one API variant, given at least one reference image.
+fn edit_request(
+    api: ImageApi,
+    model: &str,
+    prompt: &str,
+    size: Option<&str>,
+    references: &[ReferenceImage],
+) -> Result<(&'static str, Value)> {
+    let mut body = json!({"model": model, "prompt": prompt});
+    let path = match api {
+        ImageApi::Generations(ImageSizing::Size) => {
+            // OpenAI's edit models are the GPT image models, which take input images as JSON
+            // references and default `size` to `auto`. Sending our text default would be
+            // rejected, so a size is sent only when the caller asked for one; the same applies
+            // to `response_format`, which these models refuse.
+            body["images"] = json!(references
+                .iter()
+                .map(|r| json!({"image_url": data_url(&r.mime, &r.data)}))
+                .collect::<Vec<_>>());
+            if let Some(size) = size {
+                body["size"] = json!(size);
+            }
+            "/images/edits"
+        }
+        ImageApi::OpenRouter => {
+            body["input_references"] = json!(references
+                .iter()
+                .map(|r| json!({"type": "image_url", "image_url": {"url": data_url(&r.mime, &r.data)}}))
+                .collect::<Vec<_>>());
+            if let Some(size) = size {
+                body["size"] = json!(size);
+            }
+            "/images"
+        }
+        ImageApi::Generations(ImageSizing::AspectRatio(_)) => {
+            // xAI's edit call takes one source image and, by default, keeps its aspect ratio;
+            // forcing the text call's ratio would defeat an edit, and the endpoint documents
+            // `aspect_ratio` rather than `size`, so neither is sent.
+            let [only] = references else {
+                return Err(VizierError(
+                    "image generation: xAI accepts one reference image per request".into(),
+                ));
+            };
+            body["image"] = json!({
+                "url": data_url(&only.mime, &only.data),
+                "type": "image_url",
+            });
+            "/images/edits"
+        }
+    };
+    Ok((path, body))
 }
 
 /// The media type of a base64 image reply: what the provider says, else PNG as before.
@@ -241,8 +309,13 @@ fn media_type_of(first: &Value) -> String {
 
 #[async_trait::async_trait]
 impl VizierImageGenModel for OpenAiImages {
-    async fn generate(&self, prompt: &str, size: Option<&str>) -> Result<(Vec<u8>, String)> {
-        let (path, body) = image_request(self.api, &self.endpoint.model, prompt, size);
+    async fn generate(
+        &self,
+        prompt: &str,
+        size: Option<&str>,
+        references: &[ReferenceImage],
+    ) -> Result<(Vec<u8>, String)> {
+        let (path, body) = image_request(self.api, &self.endpoint.model, prompt, size, references)?;
         let req = self
             .endpoint
             .post(path)
@@ -367,35 +440,142 @@ mod tests {
     /// `response_format`, and omits the size when nobody asked for one.
     #[test]
     fn openrouter_image_requests_go_to_images_with_the_size_as_given() {
-        let (path, body) = image_request(ImageApi::OpenRouter, "bytedance-seed/seedream-4.5", "a fox", None);
+        let (path, body) =
+            image_request(ImageApi::OpenRouter, "bytedance-seed/seedream-4.5", "a fox", None, &[])
+                .unwrap();
         assert_eq!(path, "/images");
         assert_eq!(body, json!({"model": "bytedance-seed/seedream-4.5", "prompt": "a fox"}));
 
-        let (_, body) = image_request(ImageApi::OpenRouter, "m", "a fox", Some("1792x1024"));
+        let (_, body) =
+            image_request(ImageApi::OpenRouter, "m", "a fox", Some("1792x1024"), &[]).unwrap();
         assert_eq!(body["size"], json!("1792x1024"));
         assert!(body.get("response_format").is_none(), "{body}");
 
         // A tier is passed through too: OpenRouter normalizes it per provider.
-        let (_, body) = image_request(ImageApi::OpenRouter, "m", "a fox", Some("2K"));
+        let (_, body) = image_request(ImageApi::OpenRouter, "m", "a fox", Some("2K"), &[]).unwrap();
         assert_eq!(body["size"], json!("2K"));
     }
 
     /// The OpenAI and xAI bodies are unchanged by the `ImageApi` split.
     #[test]
     fn generation_requests_keep_their_size_and_response_format() {
-        let (path, body) = image_request(ImageApi::Generations(ImageSizing::Size), "dall-e-3", "a fox", None);
+        let (path, body) =
+            image_request(ImageApi::Generations(ImageSizing::Size), "dall-e-3", "a fox", None, &[])
+                .unwrap();
         assert_eq!(path, "/images/generations");
         assert_eq!(body["size"], json!("256x256"));
         assert_eq!(body["response_format"], json!("b64_json"));
 
-        let (_, gpt) = image_request(ImageApi::Generations(ImageSizing::Size), "gpt-image-1", "a fox", Some("1024x1024"));
+        let (_, gpt) = image_request(
+            ImageApi::Generations(ImageSizing::Size),
+            "gpt-image-1",
+            "a fox",
+            Some("1024x1024"),
+            &[],
+        )
+        .unwrap();
         assert_eq!(gpt["size"], json!("1024x1024"));
         assert!(gpt.get("response_format").is_none(), "{gpt}");
 
-        let (_, xai) = image_request(ImageApi::Generations(ImageSizing::AspectRatio("16:9")), "grok", "a fox", None);
+        let (_, xai) = image_request(
+            ImageApi::Generations(ImageSizing::AspectRatio("16:9")),
+            "grok",
+            "a fox",
+            None,
+            &[],
+        )
+        .unwrap();
         assert_eq!(xai["aspect_ratio"], json!("16:9"));
         assert_eq!(xai["response_format"], json!("b64_json"));
         assert!(xai.get("size").is_none(), "{xai}");
+    }
+
+    fn one_reference() -> ReferenceImage {
+        ReferenceImage {
+            mime: "image/png".into(),
+            data: vec![1, 2, 3],
+        }
+    }
+
+    /// OpenAI's edit call takes JSON references, and never the text call's `256x256` default or
+    /// `response_format`, which the GPT image models refuse.
+    #[test]
+    fn openai_edits_send_references_and_only_an_explicit_size() {
+        let reference = one_reference();
+        let (path, body) = image_request(
+            ImageApi::Generations(ImageSizing::Size),
+            "gpt-image-1",
+            "make it blue",
+            None,
+            std::slice::from_ref(&reference),
+        )
+        .unwrap();
+        assert_eq!(path, "/images/edits");
+        assert_eq!(body["prompt"], json!("make it blue"));
+        assert_eq!(body["images"], json!([{"image_url": "data:image/png;base64,AQID"}]));
+        assert!(body.get("size").is_none(), "{body}");
+        assert!(body.get("response_format").is_none(), "{body}");
+
+        let (_, sized) = image_request(
+            ImageApi::Generations(ImageSizing::Size),
+            "gpt-image-1",
+            "make it blue",
+            Some("1536x1024"),
+            &[reference],
+        )
+        .unwrap();
+        assert_eq!(sized["size"], json!("1536x1024"));
+    }
+
+    #[test]
+    fn openrouter_edits_keep_the_images_path_and_send_input_references() {
+        let (path, body) = image_request(
+            ImageApi::OpenRouter,
+            "google/gemini-2.5-flash-image",
+            "make it blue",
+            None,
+            &[one_reference()],
+        )
+        .unwrap();
+        assert_eq!(path, "/images");
+        assert_eq!(
+            body["input_references"],
+            json!([{"type": "image_url", "image_url": {"url": "data:image/png;base64,AQID"}}])
+        );
+        assert!(body.get("size").is_none(), "{body}");
+    }
+
+    /// xAI edits are JSON with one `image`, at `/images/edits`; a second reference is refused
+    /// rather than sent to an endpoint that documents only one.
+    #[test]
+    fn xai_edits_take_one_reference_image() {
+        let api = ImageApi::Generations(ImageSizing::AspectRatio("1:1"));
+        let (path, body) = image_request(
+            api,
+            "grok-imagine-image-2.0",
+            "pencil sketch",
+            Some("1024x768"),
+            &[one_reference()],
+        )
+        .unwrap();
+        assert_eq!(path, "/images/edits");
+        assert_eq!(
+            body["image"],
+            json!({"url": "data:image/png;base64,AQID", "type": "image_url"})
+        );
+        // The edit keeps the source image's shape; the text call's ratio and size would fight it.
+        assert!(body.get("aspect_ratio").is_none(), "{body}");
+        assert!(body.get("size").is_none(), "{body}");
+
+        let error = image_request(
+            api,
+            "grok-imagine-image-2.0",
+            "pencil sketch",
+            None,
+            &[one_reference(), one_reference()],
+        )
+        .unwrap_err();
+        assert!(error.0.contains("one reference image"), "{error:?}");
     }
 
     #[test]

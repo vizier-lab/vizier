@@ -72,7 +72,7 @@ Shell, HTTP, Brave Search, Office and MCP servers are **addons**: they are attac
 | `tts` + `tts_settings` | bool + settings | `false` | `tts_generate` | Text → speech file in session files |
 | `stt` + `stt_settings` | bool + settings | `false` | `stt_transcribe` | Audio file → text; also used to auto-transcribe `audio_chat` requests |
 | `read_image` + `read_image_settings` | bool + settings | `false` | (changes `read_image_file`) | When enabled with a vision `provider` + `model`, `read_image_file` returns a text description instead of injecting the raw image |
-| `image_gen` + `image_gen_settings` | bool + settings | `false` | `image_generate` | Prompt → image file in session files |
+| `image_gen` + `image_gen_settings` | bool + settings | `false` | `image_generate` | Prompt → image file in session files; optionally conditions on session images for image-to-image |
 | `python` | `{enabled, code_mode}` | both `false` | `execute_python` (+ `list_tool_functions`, `describe_tool_function` in code mode) | See [Python sandbox & code mode](#python-sandbox--code-mode). `code_mode: true` without `enabled: true` is rejected with 400 |
 
 In the WebUI the boolean and its `_settings` are one form section; in the API they're separate fields (`brave_search: true` + `brave_search_settings: {...}`).
@@ -117,6 +117,18 @@ In the WebUI the boolean and its `_settings` are one form section; in the API th
 | `bedrock` | `amazon.nova-canvas-v1:0` | `amazon-bedrock` connection (access key pair + region) |
 
 `size` is optional. OpenRouter receives it as its `size` convenience (explicit pixels such as `1792x1024`, or a tier such as `2K`) and normalizes it per model; leave it empty to let the provider choose. Bedrock receives explicit `WxH` pixels (default `1024x1024`; Nova Canvas accepts 320–4096 per side, multiples of 16, aspect 1:4–4:1, under 4,194,304 pixels; Titan Image Generator V2 follows its own size table) and surfaces the provider's refusal for an unsupported size. The saved file keeps the media type the provider actually returned (PNG, JPEG, WebP or SVG) and its default filename extension follows that type.
+
+`reference_images` is optional: a list of session image filenames that turns the call into an image-to-image edit or style transfer. An image the user sent, one from `read_image_file`, or a previous `image_generate` result all work, and order is meaningful (the first image is the primary subject). Support by provider:
+
+| Provider | Reference images | Notes |
+|----------|------------------|-------|
+| `openrouter` | up to the model's limit | Sent as `input_references`; models that do not accept them return their own error |
+| `openai` | up to 16 | Sent to `/images/edits`, which only `gpt-image-*` models serve; `dall-e-3` cannot edit |
+| `xai` | one | Sent to `/images/edits`; the output keeps the source image's aspect ratio |
+| `bedrock` | up to 5 | Sent as an `IMAGE_VARIATION` task; PNG and JPEG only |
+| `huggingface`, `hyperbolic` | none | The call fails with a clear error rather than ignoring the images |
+
+A reference whose stored media type is not `image/*` is refused before any provider call.
 
 ### Choosing OpenRouter media models
 

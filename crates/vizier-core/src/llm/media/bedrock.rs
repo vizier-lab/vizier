@@ -8,7 +8,7 @@ use serde_json::{Value, json};
 use crate::Result;
 use crate::VizierError;
 use crate::embedding::VizierEmbeddingModel;
-use crate::image_generation::VizierImageGenModel;
+use crate::image_generation::{ReferenceImage, VizierImageGenModel};
 use crate::llm::bedrock::{model_path, parse_inference_profile_arn};
 use crate::llm::media::Endpoint;
 
@@ -301,11 +301,60 @@ fn image_body(prompt: &str, (width, height): (u32, u32)) -> Value {
     })
 }
 
+/// The most reference images Nova accepts in one variation request.
+const MAX_REFERENCE_IMAGES: usize = 5;
+
+/// The variation body: reference images steer the result, and the prompt still describes what
+/// to draw. Nova accepts JPEG and PNG references only, so anything else is refused here rather
+/// than as an opaque provider rejection.
+fn variation_body(
+    prompt: &str,
+    (width, height): (u32, u32),
+    references: &[ReferenceImage],
+) -> Result<Value> {
+    if references.len() > MAX_REFERENCE_IMAGES {
+        return Err(VizierError(format!(
+            "image generation: Bedrock accepts at most {MAX_REFERENCE_IMAGES} reference images, got {}",
+            references.len()
+        )));
+    }
+    let mut images = Vec::with_capacity(references.len());
+    for reference in references {
+        let base = reference.mime.split(';').next().unwrap_or(&reference.mime).trim();
+        if !matches!(base.to_ascii_lowercase().as_str(), "image/png" | "image/jpeg" | "image/jpg") {
+            return Err(VizierError(format!(
+                "image generation: Bedrock reference images must be PNG or JPEG, got '{base}'"
+            )));
+        }
+        images.push(base64::engine::general_purpose::STANDARD.encode(&reference.data));
+    }
+    Ok(json!({
+        "taskType": "IMAGE_VARIATION",
+        "imageVariationParams": {"images": images, "text": prompt},
+        "imageGenerationConfig": {
+            "numberOfImages": 1,
+            "quality": "standard",
+            "width": width,
+            "height": height,
+            "cfgScale": 8.0,
+        }
+    }))
+}
+
 #[async_trait::async_trait]
 impl VizierImageGenModel for BedrockImages {
-    async fn generate(&self, prompt: &str, size: Option<&str>) -> Result<(Vec<u8>, String)> {
+    async fn generate(
+        &self,
+        prompt: &str,
+        size: Option<&str>,
+        references: &[ReferenceImage],
+    ) -> Result<(Vec<u8>, String)> {
         let dimensions = parse_size(size)?;
-        let body = image_body(prompt, dimensions);
+        let body = if references.is_empty() {
+            image_body(prompt, dimensions)
+        } else {
+            variation_body(prompt, dimensions, references)?
+        };
         let response = self
             .endpoint
             .post_json(&model_path(&self.endpoint.model, "invoke"), &body)
@@ -428,6 +477,48 @@ mod tests {
                 }
             })
         );
+    }
+
+    fn one_reference() -> ReferenceImage {
+        ReferenceImage {
+            mime: "image/png".into(),
+            data: vec![1, 2, 3],
+        }
+    }
+
+    /// A reference-image request becomes the documented variation task, with the prompt still
+    /// describing the result and the images sent as bare base64.
+    #[test]
+    fn reference_images_become_the_variation_task() {
+        assert_eq!(
+            variation_body("a red fox", (1024, 1024), &[one_reference()]).unwrap(),
+            json!({
+                "taskType": "IMAGE_VARIATION",
+                "imageVariationParams": {"images": ["AQID"], "text": "a red fox"},
+                "imageGenerationConfig": {
+                    "numberOfImages": 1,
+                    "quality": "standard",
+                    "width": 1024,
+                    "height": 1024,
+                    "cfgScale": 8.0
+                }
+            })
+        );
+    }
+
+    /// Nova accepts JPEG and PNG references only, and at most five of them.
+    #[test]
+    fn variation_references_are_limited_to_png_and_jpeg_and_five_images() {
+        let gif = ReferenceImage {
+            mime: "image/gif".into(),
+            data: vec![1],
+        };
+        let error = variation_body("a fox", (1024, 1024), &[gif]).unwrap_err().0;
+        assert!(error.contains("PNG or JPEG"), "{error}");
+
+        let too_many = vec![one_reference(); MAX_REFERENCE_IMAGES + 1];
+        let error = variation_body("a fox", (1024, 1024), &too_many).unwrap_err().0;
+        assert!(error.contains("at most 5"), "{error}");
     }
 
     #[test]
@@ -579,7 +670,7 @@ mod tests {
         let body = r#"{"message":"The provided model identifier is invalid."}"#;
         let base = refusal_server(400, body).await;
         let images = BedrockImages::new(endpoint_at(&base, DEFAULT_IMAGE_MODEL)).unwrap();
-        let error = images.generate("a red fox", None).await.err().unwrap().0;
+        let error = images.generate("a red fox", None, &[]).await.err().unwrap().0;
         assert!(
             error.contains("The provided model identifier is invalid."),
             "the provider's words survive: {error}"
@@ -710,7 +801,7 @@ mod tests {
             ..endpoint_at(&base, DEFAULT_IMAGE_MODEL)
         })
         .unwrap();
-        let error = images.generate("a red fox", None).await.err().unwrap().0;
+        let error = images.generate("a red fox", None, &[]).await.err().unwrap().0;
         assert_eq!(
             error,
             format!("image generation: {}", chat_explanation()),
@@ -798,7 +889,7 @@ mod tests {
         .unwrap();
 
         let dir = tempfile::tempdir().unwrap();
-        if let Ok((bytes, mime)) = images.generate("a red fox", None).await {
+        if let Ok((bytes, mime)) = images.generate("a red fox", None, &[]).await {
             std::fs::write(dir.path().join(format!("img.{mime}")), bytes).unwrap();
         }
         assert!(
