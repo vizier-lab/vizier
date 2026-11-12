@@ -235,7 +235,7 @@ pub async fn require_auth(
     Ok(next.run(request).await)
 }
 
-/// For a route anyone may open but whose answer depends on who asks (`specs/055-shared-chat`):
+/// For a route anyone may open but whose answer depends on who asks (`specs/056-shared-chat`):
 /// inserts an `Option<Principal>` and never rejects. No credentials, a bad or expired token and
 /// an unknown key are all "no session"; the desktop app is always its one person.
 pub async fn optional_auth(

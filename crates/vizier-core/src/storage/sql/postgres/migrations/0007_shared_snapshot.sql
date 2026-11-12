@@ -1,4 +1,4 @@
--- Shared chat snapshots (specs/055-shared-chat data-model.md). The same shape as the SQLite
+-- Shared chat snapshots (specs/056-shared-chat data-model.md). The same shape as the SQLite
 -- `init_share_schema`. `snapshot_json` is TEXT, never JSONB, so the stored bytes are the bytes
 -- that were previewed.
 

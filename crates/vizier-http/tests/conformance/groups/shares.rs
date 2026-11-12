@@ -1,4 +1,4 @@
-//! Shared chat snapshots (`specs/055-shared-chat/contracts/share-api.md`).
+//! Shared chat snapshots (`specs/056-shared-chat/contracts/share-api.md`).
 //!
 //! Vectors must not change state (the harness sends each twice), so every `POST /shares` here
 //! is refused before anything is stored: `403` for a person who may not share (or an agent that
@@ -8,8 +8,8 @@
 //! worth comparing, and it is listed in `pending.txt` with that reason. It is covered by
 //! `tests/shares.rs` instead.
 //!
-//! The list (`GET /shares`) and revoke (`DELETE /shares/{share_id}`) vectors arrive with those
-//! routes (T064).
+//! List (`GET /shares`, `?all=true`), the people search and revoke (`DELETE`) of an id that is
+//! not there change nothing, so they run through both the router and the dispatcher as well.
 
 use crate::common::{Vector, v};
 use serde_json::json;
@@ -31,5 +31,15 @@ pub fn vectors() -> Vec<Vector> {
         v("POST", "/shares", Some(body("missing", wrong_version))),
         // Not a document at all.
         v("POST", "/shares", Some(json!({ "agent_id": "agent-a" }))),
+        // The caller's own list (empty), the administrator's list (403 unless allowed), paging.
+        v("GET", "/shares", None),
+        v("GET", "/shares?limit=5&before=1", None),
+        v("GET", "/shares?all=true", None),
+        // People search: too short, then a real query.
+        v("GET", "/shares/people?q=a", None),
+        v("GET", "/shares/people?q=ol", None),
+        // Revoking what is not there is the same 404 for everyone, whatever the id looks like.
+        v("DELETE", "/shares/ZZZZZZZZZZZZZZZZZZZZZ", None),
+        v("DELETE", "/shares/short", None),
     ]
 }

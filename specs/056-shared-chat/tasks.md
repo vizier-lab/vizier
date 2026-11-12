@@ -83,7 +83,7 @@ description: "Task list for Shared Chat Snapshots"
 - [X] T021 [P] [US1] Service tests in `crates/vizier-core/src/service/shares.rs`: create by owner with `owned_agents:share_conversations`; refused without it; refused for an agent they do not own with only the owned tier; allowed with the all tier; system bypass; read returns stored bytes unchanged; id collision retried once
 - [X] T022 [P] [US1] Route tests in `crates/vizier-http/tests/shares.rs`: POST 201 then anonymous GET 200 with `Cache-Control: public, max-age=300, s-maxage=300`, no `immutable`, `ETag`, `X-Robots-Tag: noindex, nofollow`, `Referrer-Policy: no-referrer`, `X-Content-Type-Options: nosniff`; `If-None-Match` → 304; body byte-identical to what was posted; no viewer-specific field
 - [X] T023 [P] [US1] Negative route tests in `crates/vizier-http/tests/shares.rs`: body 5 MiB + 1 → 413 (proves the route limit beats the router-wide `DefaultBodyLimit::disable()`); invalid JSON → 400; `format_version: 2` → 400; title 121 chars → 400; unknown top-level key handled per contract; empty `turns` → 400; 11th create in an hour → 429 with `retry_after_secs`; 201st active share → 429
-- [X] T024 [P] [US1] Conformance vectors in `crates/vizier-http/tests/conformance/groups/shares.rs` for POST/list/DELETE through router and dispatcher, and add `/shares/{share_id}` (GET) with the reason to `crates/vizier-http/tests/conformance/pending.txt` *(vektor POST + pending GET selesai; vektor `GET /shares` dan `DELETE` menunggu rute T064)*
+- [X] T024 [P] [US1] Conformance vectors in `crates/vizier-http/tests/conformance/groups/shares.rs` for POST/list/DELETE through router and dispatcher, and add `/shares/{share_id}` (GET) with the reason to `crates/vizier-http/tests/conformance/pending.txt` *(POST, list, people, DELETE vectors in; GET by id is in pending.txt)*
 - [x] T025 [P] [US1] Viewer tests in `webui/app/viewer/SnapshotView.test.tsx`: renders text, markdown, an image from `media`, a `ui` part (using `app/test/oneReact.ts`), a Scene3D part, a placeholder; has no composer, no send, no reaction, no delete
 
 ### Implementation for User Story 1
@@ -142,16 +142,16 @@ description: "Task list for Shared Chat Snapshots"
 
 ### Tests for User Story 3 (write first)
 
-- [ ] T051 [P] [US3] Route tests in `crates/vizier-http/tests/shares.rs`: the full audience × viewer table (author, named, other signed-in, no session); `people` required/forbidden by audience; 0, 51, duplicate, unknown, disabled user ids → 400; unknown id and non-public-for-anonymous return the **identical** 401 body; signed-in unknown/revoked/not-named return the identical 404 body; non-public responses are `private, no-store` with `Vary`
-- [ ] T052 [P] [US3] Test the miss limiter in `crates/vizier-http/tests/shares.rs`: 31 misses from one address in a minute → 429; hits on real public links are never counted; the window recovers
-- [ ] T053 [P] [US3] Service tests in `crates/vizier-core/src/service/shares.rs`: a named person who is later disabled or deleted is refused; the author is allowed on every audience; audience cannot change (there is no update route; assert 404/405 on `PUT /shares/{id}`)
+- [X] T051 [P] [US3] Route tests in `crates/vizier-http/tests/shares.rs`: the full audience × viewer table (author, named, other signed-in, no session); `people` required/forbidden by audience; 0, 51, duplicate, unknown, disabled user ids → 400; unknown id and non-public-for-anonymous return the **identical** 401 body; signed-in unknown/revoked/not-named return the identical 404 body; non-public responses are `private, no-store` with `Vary` *(no "disabled user" case: accounts have no disabled state yet)*
+- [X] T052 [P] [US3] Test the miss limiter in `crates/vizier-http/tests/shares.rs`: 31 misses from one address in a minute → 429; hits on real public links are never counted; the window recovers *(window recovery is asserted on the limiter itself, `utils::rate_limit` tests; the HTTP tests use 60 per FR-049 and the peer address, not headers)*
+- [X] T053 [P] [US3] Service tests in `crates/vizier-core/src/service/shares.rs`: a named person who is later disabled or deleted is refused; the author is allowed on every audience; audience cannot change (there is no update route; assert 404/405 on `PUT /shares/{id}`)
 - [x] T054 [P] [US3] Vitest `webui/app/routes/share.test.tsx`: 401 → redirect to sign-in with `returnTo=/share/<id>`; after sign-in, 200 renders; 404 → neutral page without sign-in button; 429 → "try again later"
 
 ### Implementation for User Story 3
 
-- [ ] T055 [US3] Add `GET /shares/people?q=` (signed in, needs a share permission, ≥ 2 characters, ≤ 20 results, enabled users only, returns `user_id` and `username` only) to `crates/vizier-core/src/service/shares.rs`, `crates/vizier-http/src/api/v1/shares.rs` and `contracts/share-api.md`; test that a person without the permission gets 403 and that no email or role leaks
-- [ ] T056 [US3] Extend `create` in `crates/vizier-core/src/service/shares.rs` with `people` validation (exists, enabled, 1–50, dedupe) and store audience rows in the same transaction
-- [ ] T057 [US3] Extend `read` with the R8 matrix using only `Audience::allows`/`cache_policy`, anonymous → 401 `sign_in_required` for anything that is not an active public share, signed-in non-allowed → 404, and count misses on `share_misses` keyed by client address
+- [X] T055 [US3] Add `GET /shares/people?q=` (signed in, needs a share permission, ≥ 2 characters, ≤ 20 results, enabled users only, returns `user_id` and `username` only) to `crates/vizier-core/src/service/shares.rs`, `crates/vizier-http/src/api/v1/shares.rs` and `contracts/share-api.md`; test that a person without the permission gets 403 and that no email or role leaks *(10 results, 30 a minute per FR-012; username only, no separate display name exists)*
+- [X] T056 [US3] Extend `create` in `crates/vizier-core/src/service/shares.rs` with `people` validation (exists, enabled, 1–50, dedupe) and store audience rows in the same transaction
+- [X] T057 [US3] Extend `read` with the R8 matrix using only `Audience::allows`/`cache_policy`, anonymous → 401 `sign_in_required` for anything that is not an active public share, signed-in non-allowed → 404, and count misses on `share_misses` keyed by client address
 - [x] T058 [US3] Add the audience selector and people picker (debounced `people` search) to `ShareDialog.tsx` per mockup 1; the choice is shown in the result and cannot be changed afterwards
 - [x] T059 [US3] Implement the 401 → sign-in → `returnTo` flow in `webui/app/routes/share.tsx` using `lib/returnTo.ts`
 - [ ] T060 [US3] Playwright scenario 4 in `webui/e2e/share.spec.ts`: three shares of one conversation, opened as author, named person, other signed-in person and anonymous; assert the 3 × 4 outcomes and that the unknown and restricted anonymous pages are indistinguishable
@@ -347,7 +347,7 @@ Types: **P** positive, **N** negative, **A** anomaly. "Owner" task = the task wh
 | TP-59 | A | Alice clicks Revoke twice | Both succeed; no error | T061 |
 | TP-60 | A | Bob is disabled / deleted after being named | Refused | T053 |
 | TP-61 | A | Alice's account is deleted | Her shares are revoked | T062 |
-| TP-62 | A | Someone scripts 1,000 random ids | Throttled after 30 misses/min per address; real links unaffected | T052 |
+| TP-62 | A | Someone scripts 1,000 random ids | Throttled after 60 misses/min per address; real links unaffected | T052 |
 | TP-63 | A | Source topic or agent deleted | Share still works | T062 |
 
 ### Offline file (US4)

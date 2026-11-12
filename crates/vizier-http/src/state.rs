@@ -34,10 +34,12 @@ pub struct HTTPState {
     /// One visit write per person a minute. Visits are still recorded, but nothing reads
     /// them since spec 029 removed the overview feed; tracked for #82.
     pub visit_throttle: Arc<vizier_core::utils::rate_limit::RateLimiter>,
-    /// Shares a person may create (`specs/055-shared-chat`): 10 an hour.
+    /// Shares a person may create (`specs/056-shared-chat`): 10 an hour.
     pub share_creates: Arc<vizier_core::utils::rate_limit::RateLimiter>,
-    /// Refused or unknown share reads per address: 30 a minute.
+    /// Refused or unknown share reads per address: 60 a minute.
     pub share_misses: Arc<vizier_core::utils::rate_limit::RateLimiter>,
+    /// People searches per person: 30 a minute.
+    pub share_searches: Arc<vizier_core::utils::rate_limit::RateLimiter>,
 }
 
 impl HTTPState {
@@ -51,7 +53,7 @@ impl HTTPState {
     }
 }
 
-/// 10 creates per person per hour (`specs/055-shared-chat` R12).
+/// 10 creates per person per hour (`specs/056-shared-chat` R12).
 pub(crate) fn share_creates_limiter() -> Arc<vizier_core::utils::rate_limit::RateLimiter> {
     Arc::new(vizier_core::utils::rate_limit::RateLimiter::new(
         vizier_core::service::shares::CREATES_PER_HOUR,
@@ -59,10 +61,22 @@ pub(crate) fn share_creates_limiter() -> Arc<vizier_core::utils::rate_limit::Rat
     ))
 }
 
-/// 30 refused reads per address per minute.
+/// 60 refused reads per address per minute. The table is capped so that many addresses cannot
+/// grow it without bound.
 pub(crate) fn share_misses_limiter() -> Arc<vizier_core::utils::rate_limit::RateLimiter> {
+    Arc::new(
+        vizier_core::utils::rate_limit::RateLimiter::new(
+            vizier_core::service::shares::MISSES_PER_MINUTE,
+            std::time::Duration::from_secs(60),
+        )
+        .with_max_keys(10_000),
+    )
+}
+
+/// 30 people searches per person per minute.
+pub(crate) fn share_searches_limiter() -> Arc<vizier_core::utils::rate_limit::RateLimiter> {
     Arc::new(vizier_core::utils::rate_limit::RateLimiter::new(
-        vizier_core::service::shares::MISSES_PER_MINUTE,
+        vizier_core::service::shares::SEARCHES_PER_MINUTE,
         std::time::Duration::from_secs(60),
     ))
 }

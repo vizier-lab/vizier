@@ -1,12 +1,14 @@
-//! Shared chat snapshots (`specs/055-shared-chat/contracts/share-api.md`). Authorization,
+//! Shared chat snapshots (`specs/056-shared-chat/contracts/share-api.md`). Authorization,
 //! validation and storage are in `vizier_core::service::shares`; these handlers translate, set
 //! the response headers of the contract, and hand the stored text to the client without
 //! parsing it into a value.
 
+use std::net::{IpAddr, SocketAddr};
+
 use axum::{
     Extension,
     body::Bytes,
-    extract::{Path, State, rejection::BytesRejection},
+    extract::{ConnectInfo, Path, State, rejection::BytesRejection},
     http::{HeaderMap, HeaderName, HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
 };
@@ -14,7 +16,7 @@ use vizier_core::{
     auth::Principal,
     service::{
         ServiceError,
-        shares::{self as service, CreatedShare, ShareListItem, ShareRead, ShareView},
+        shares::{self as service, CreatedShare, ShareRead, ShareView},
     },
 };
 
@@ -53,20 +55,46 @@ fn guard_headers(headers: &mut HeaderMap) {
     );
 }
 
-/// Client address for miss rate limiting (X-Forwarded-For, X-Real-IP, or local fallback).
-fn client_address(headers: &HeaderMap) -> String {
-    if let Some(xff) = headers.get("x-forwarded-for").and_then(|v| v.to_str().ok()) {
-        if let Some(client) = xff.split(',').next().map(str::trim).filter(|s| !s.is_empty()) {
-            return client.to_string();
+/// The key the miss limiter counts under.
+///
+/// The connection's own address is used. `X-Forwarded-For` / `X-Real-IP` are believed only when
+/// the connection comes from this machine (a reverse proxy in front of the server): anyone else
+/// could send those headers with any value and either dodge the limit or throw another person
+/// into their bucket. Behind the proxy the entry the proxy appended (the last one) is taken, not
+/// the first, which the caller wrote. IPv6 addresses count per /64. Without a peer address
+/// (in-process calls) every caller shares one bucket named `unknown`.
+pub(crate) fn client_address(peer: Option<IpAddr>, headers: &HeaderMap) -> String {
+    let Some(peer) = peer else {
+        return "unknown".to_string();
+    };
+    let forwarded = peer.is_loopback().then(|| {
+        let from = |name: &str| {
+            headers.get(name).and_then(|v| v.to_str().ok()).and_then(|v| {
+                v.split(',').next_back().and_then(|last| last.trim().parse::<IpAddr>().ok())
+            })
+        };
+        from("x-forwarded-for").or_else(|| from("x-real-ip"))
+    });
+    match forwarded.flatten().unwrap_or(peer) {
+        IpAddr::V4(v4) => v4.to_string(),
+        IpAddr::V6(v6) => {
+            let s = v6.segments();
+            format!("{:x}:{:x}:{:x}:{:x}::/64", s[0], s[1], s[2], s[3])
         }
     }
-    if let Some(rip) = headers.get("x-real-ip").and_then(|v| v.to_str().ok()) {
-        let client = rip.trim();
-        if !client.is_empty() {
-            return client.to_string();
-        }
+}
+
+/// `429` with `Retry-After`, the same body wherever a limit is hit.
+fn too_many(message: &str, wait: u64) -> Response {
+    let mut response = fail(
+        StatusCode::TOO_MANY_REQUESTS,
+        message.to_string(),
+        serde_json::json!({ "error": "rate_limited", "retry_after_secs": wait }),
+    );
+    if let Ok(value) = HeaderValue::from_str(&wait.to_string()) {
+        response.headers_mut().insert(header::RETRY_AFTER, value);
     }
-    "127.0.0.1".to_string()
+    response
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -91,6 +119,14 @@ pub async fn search_people(
     Extension(user): Extension<Principal>,
     axum::extract::Query(query): axum::extract::Query<PeopleQuery>,
 ) -> Response {
+    // 30 searches a minute per person (FR-012).
+    if !state.share_searches.check(&user.user_id) {
+        let wait = state
+            .share_searches
+            .retry_after(&user.user_id)
+            .map_or(60, |d| d.as_secs().max(1));
+        return too_many("You are searching too fast; try again later", wait);
+    }
     match service::search_people(&svc(&state), &user, &query.q).await {
         Ok(people) => ok(StatusCode::OK, people),
         Err(e) => refusal(e),
@@ -168,6 +204,7 @@ fn matches_etag(headers: &HeaderMap, share_id: &str) -> bool {
 pub async fn read(
     State(state): State<HTTPState>,
     Extension(viewer): Extension<Option<Principal>>,
+    peer: Option<Extension<ConnectInfo<SocketAddr>>>,
     Path(share_id): Path<String>,
     request_headers: HeaderMap,
 ) -> Response {
@@ -192,20 +229,13 @@ pub async fn read(
         Err(e) => {
             let status = StatusCode::from_u16(e.status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
             if status == StatusCode::NOT_FOUND || status == StatusCode::UNAUTHORIZED {
-                let client = client_address(&request_headers);
+                let client = client_address(peer.map(|Extension(ConnectInfo(a))| a.ip()), &request_headers);
                 if !state.share_misses.check(&client) {
                     let wait = state
                         .share_misses
                         .retry_after(&client)
                         .map_or(60, |d| d.as_secs().max(1));
-                    let mut response = fail(
-                        StatusCode::TOO_MANY_REQUESTS,
-                        "Too many requests; try again later",
-                        serde_json::json!({ "error": "rate_limited", "retry_after_secs": wait }),
-                    );
-                    if let Ok(value) = HeaderValue::from_str(&wait.to_string()) {
-                        response.headers_mut().insert(header::RETRY_AFTER, value);
-                    }
+                    let mut response = too_many("Too many requests; try again later", wait);
                     response
                         .headers_mut()
                         .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
@@ -281,5 +311,55 @@ pub async fn revoke(
     match service::revoke(&svc(&state), &user, &share_id).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(e) => refusal(e),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn headers(pairs: &[(&'static str, &str)]) -> HeaderMap {
+        let mut h = HeaderMap::new();
+        for (k, v) in pairs {
+            h.insert(*k, HeaderValue::from_str(v).unwrap());
+        }
+        h
+    }
+
+    fn ip(s: &str) -> Option<IpAddr> {
+        Some(s.parse().unwrap())
+    }
+
+    /// A caller cannot pick their own bucket with a header.
+    #[test]
+    fn forwarding_headers_are_ignored_unless_the_peer_is_this_machine() {
+        let spoof = headers(&[("x-forwarded-for", "9.9.9.9"), ("x-real-ip", "8.8.8.8")]);
+        assert_eq!(client_address(ip("203.0.113.7"), &spoof), "203.0.113.7");
+        assert_eq!(client_address(ip("203.0.113.7"), &HeaderMap::new()), "203.0.113.7");
+        // Different peers are different buckets, and no peer is one shared, named bucket.
+        assert_ne!(client_address(ip("203.0.113.7"), &spoof), client_address(ip("203.0.113.8"), &spoof));
+        assert_eq!(client_address(None, &spoof), "unknown");
+    }
+
+    #[test]
+    fn behind_a_local_proxy_the_entry_the_proxy_added_is_used() {
+        // The first entry is whatever the caller wrote; the last is the proxy's own.
+        let h = headers(&[("x-forwarded-for", "1.1.1.1, 198.51.100.4")]);
+        assert_eq!(client_address(ip("127.0.0.1"), &h), "198.51.100.4");
+        assert_eq!(client_address(ip("::1"), &h), "198.51.100.4");
+        let real = headers(&[("x-real-ip", "198.51.100.5")]);
+        assert_eq!(client_address(ip("127.0.0.1"), &real), "198.51.100.5");
+        // Garbage falls back to the peer.
+        let junk = headers(&[("x-forwarded-for", "not an ip")]);
+        assert_eq!(client_address(ip("127.0.0.1"), &junk), "127.0.0.1");
+    }
+
+    #[test]
+    fn ipv6_counts_per_slash_64() {
+        let a = client_address(ip("2001:db8:1:2:aaaa::1"), &HeaderMap::new());
+        let b = client_address(ip("2001:db8:1:2:bbbb::9"), &HeaderMap::new());
+        let c = client_address(ip("2001:db8:1:3::1"), &HeaderMap::new());
+        assert_eq!(a, b);
+        assert_ne!(a, c);
     }
 }

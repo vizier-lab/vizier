@@ -1,4 +1,4 @@
-//! Shared chat snapshots over the real router (`specs/055-shared-chat/contracts/share-api.md`).
+//! Shared chat snapshots over the real router (`specs/056-shared-chat/contracts/share-api.md`).
 //!
 //! One runtime, three people: `alice` (owns `agent-a`, holds `owned_agents:share_conversations`),
 //! `bob` (signed in, no share permission) and `root` (system). Requests go through
@@ -109,6 +109,19 @@ async fn send(
     body: Option<Vec<u8>>,
     extra: &[(&str, &str)],
 ) -> Reply {
+    send_from(router, method, path, token, body, extra, None).await
+}
+
+/// `send` as a connection from `peer` (what the server's listener adds to every request).
+async fn send_from(
+    router: &Router,
+    method: &str,
+    path: &str,
+    token: Option<&str>,
+    body: Option<Vec<u8>>,
+    extra: &[(&str, &str)],
+    peer: Option<std::net::SocketAddr>,
+) -> Reply {
     let mut req = Request::builder().method(method).uri(format!("/api/v1{path}"));
     if let Some(token) = token {
         req = req.header("authorization", format!("Bearer {token}"));
@@ -123,7 +136,11 @@ async fn send(
         }
         None => Body::empty(),
     };
-    let res = router.clone().oneshot(req.body(body).unwrap()).await.unwrap();
+    let mut req = req.body(body).unwrap();
+    if let Some(peer) = peer {
+        req.extensions_mut().insert(axum::extract::ConnectInfo(peer));
+    }
+    let res = router.clone().oneshot(req).await.unwrap();
     let status = res.status().as_u16();
     let headers = res.headers().clone();
     let bytes = axum::body::to_bytes(res.into_body(), 16 << 20).await.unwrap().to_vec();
@@ -396,13 +413,13 @@ async fn audience_viewer_matrix_and_people_validation() {
 
     // 1. Public: author, named, other, anonymous all 200
     for token in [Some(&e.alice), Some(&e.bob), Some(&e.root), None] {
-        let r = send(&e.router, "GET", &format!("/shares/{pub_id}"), token.copied(), None, &[]).await;
+        let r = send(&e.router, "GET", &format!("/shares/{pub_id}"), token.map(|t| t.as_str()), None, &[]).await;
         assert_eq!(r.status, 200);
     }
 
     // 2. SignedIn: author, named, other 200; anonymous 401
     for token in [Some(&e.alice), Some(&e.bob), Some(&e.root)] {
-        let r = send(&e.router, "GET", &format!("/shares/{signed_id}"), token.copied(), None, &[]).await;
+        let r = send(&e.router, "GET", &format!("/shares/{signed_id}"), token.map(|t| t.as_str()), None, &[]).await;
         assert_eq!(r.status, 200);
         assert_eq!(r.header("cache-control"), Some("private, no-store"));
         assert_eq!(r.header("vary"), Some("Authorization, Cookie"));
@@ -428,33 +445,128 @@ async fn audience_viewer_matrix_and_people_validation() {
     assert_eq!(r_anon.header("cache-control"), Some("no-store"));
 }
 
+const MISS: &str = "/shares/ZZZZZZZZZZZZZZZZZZZZZ";
+
+fn peer(ip: &str) -> Option<std::net::SocketAddr> {
+    Some(format!("{ip}:50000").parse().unwrap())
+}
+
+/// T052 / FR-049: 60 refused reads a minute per address; real public links are never counted.
 #[tokio::test]
-async fn share_miss_limiter_throttles_after_thirty_misses_per_address() {
+async fn share_miss_limiter_throttles_after_sixty_misses_per_address() {
     let e = env().await;
     let pub_id = create(&e, &e.alice, json!({})).await.json()["data"]["share_id"].as_str().unwrap().to_string();
-    let addr = ("x-forwarded-for", "192.168.1.100");
+    let a = peer("203.0.113.10");
 
-    // 30 misses on non-existent share
-    for _ in 0..30 {
-        let r = send(&e.router, "GET", "/shares/ZZZZZZZZZZZZZZZZZZZZZ", None, None, &[addr]).await;
+    // Hits on a real public link are not counted, however many there are.
+    for _ in 0..70 {
+        let r = send_from(&e.router, "GET", &format!("/shares/{pub_id}"), None, None, &[], a).await;
+        assert_eq!(r.status, 200);
+    }
+    for _ in 0..60 {
+        assert_eq!(send_from(&e.router, "GET", MISS, None, None, &[], a).await.status, 401);
+    }
+    let over = send_from(&e.router, "GET", MISS, None, None, &[], a).await;
+    assert_eq!(over.status, 429);
+    assert_eq!(over.json()["data"]["error"], "rate_limited");
+    assert!(over.header("retry-after").is_some());
+    assert_eq!(over.header("cache-control"), Some("no-store"));
+    assert_eq!(over.header("x-robots-tag"), Some("noindex, nofollow"));
+    // Signed-in misses are counted per address too.
+    let signed = send_from(&e.router, "GET", MISS, Some(&e.alice), None, &[], a).await;
+    assert_eq!(signed.status, 429);
+    // The real link still opens while the address is throttled.
+    let real = send_from(&e.router, "GET", &format!("/shares/{pub_id}"), None, None, &[], a).await;
+    assert_eq!(real.status, 200);
+    // Another address has its own budget.
+    assert_eq!(send_from(&e.router, "GET", MISS, None, None, &[], peer("203.0.113.11")).await.status, 401);
+}
+
+/// A caller cannot reach a fresh bucket by writing `X-Forwarded-For`, nor put somebody else
+/// into theirs; a proxy on this machine is believed.
+#[tokio::test]
+async fn forwarding_headers_do_not_choose_the_miss_bucket() {
+    let e = env().await;
+    let a = peer("203.0.113.20");
+    for i in 0..60 {
+        let spoof = format!("10.0.0.{i}");
+        let r = send_from(&e.router, "GET", MISS, None, None, &[("x-forwarded-for", &spoof)], a).await;
         assert_eq!(r.status, 401);
     }
+    let r = send_from(&e.router, "GET", MISS, None, None, &[("x-forwarded-for", "10.9.9.9")], a).await;
+    assert_eq!(r.status, 429, "a spoofed header did not buy a new budget");
+    // The victim named in a header is not throttled by it.
+    let victim = send_from(&e.router, "GET", MISS, None, None, &[], peer("198.51.100.99")).await;
+    assert_eq!(victim.status, 401);
+    // Behind a proxy on this machine the address it appended is the visitor.
+    let proxy = peer("127.0.0.1");
+    for _ in 0..60 {
+        let h = [("x-forwarded-for", "7.7.7.7, 192.0.2.50")];
+        assert_eq!(send_from(&e.router, "GET", MISS, None, None, &h, proxy).await.status, 401);
+    }
+    let h = [("x-forwarded-for", "7.7.7.7, 192.0.2.50")];
+    assert_eq!(send_from(&e.router, "GET", MISS, None, None, &h, proxy).await.status, 429);
+    let h = [("x-forwarded-for", "7.7.7.7, 192.0.2.51")];
+    assert_eq!(send_from(&e.router, "GET", MISS, None, None, &h, proxy).await.status, 401);
+}
 
-    // 31st miss from same address is 429
-    let r31 = send(&e.router, "GET", "/shares/ZZZZZZZZZZZZZZZZZZZZZ", None, None, &[addr]).await;
-    assert_eq!(r31.status, 429);
-    assert_eq!(r31.json()["data"]["error"], "rate_limited");
-    assert!(r31.header("retry-after").is_some());
-    assert_eq!(r31.header("cache-control"), Some("no-store"));
+/// T053: the audience cannot change, there is no update route.
+#[tokio::test]
+async fn a_share_cannot_be_edited() {
+    let e = env().await;
+    let id = create(&e, &e.alice, json!({"audience": "specific", "people": [e.bob_id.clone()]}))
+        .await
+        .json()["data"]["share_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    for method in ["PUT", "PATCH", "POST"] {
+        let body = Some(br#"{"audience":"public"}"#.to_vec());
+        let r = send(&e.router, method, &format!("/shares/{id}"), Some(&e.alice), body, &[]).await;
+        assert!(matches!(r.status, 404 | 405), "{method} -> {}", r.status);
+    }
+    let r = send(&e.router, "GET", &format!("/shares/{id}"), Some(&e.root), None, &[]).await;
+    assert_eq!(r.status, 404, "still only for the named");
+}
 
-    // Hits on real public links are NEVER throttled!
-    let real = send(&e.router, "GET", &format!("/shares/{pub_id}"), None, None, &[addr]).await;
-    assert_eq!(real.status, 200);
+/// A bad or expired token on the open route is "no session", not an error.
+#[tokio::test]
+async fn a_bad_token_on_a_public_link_reads_as_no_session() {
+    let e = env().await;
+    let id = create(&e, &e.alice, json!({})).await.json()["data"]["share_id"].as_str().unwrap().to_string();
+    let signed = create(&e, &e.alice, json!({"audience": "signed_in"})).await.json()["data"]["share_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert_eq!(send(&e.router, "GET", &format!("/shares/{id}"), Some("garbage"), None, &[]).await.status, 200);
+    assert_eq!(send(&e.router, "GET", &format!("/shares/{signed}"), Some("garbage"), None, &[]).await.status, 401);
+}
 
-    // Another client address has its own budget
-    let other_addr = ("x-forwarded-for", "192.168.1.101");
-    let r_other = send(&e.router, "GET", "/shares/ZZZZZZZZZZZZZZZZZZZZZ", None, None, &[other_addr]).await;
-    assert_eq!(r_other.status, 401);
+/// FR-012: 30 searches a minute per person.
+#[tokio::test]
+async fn people_search_is_limited_to_thirty_a_minute_per_person() {
+    let e = env().await;
+    for _ in 0..30 {
+        assert_eq!(send(&e.router, "GET", "/shares/people?q=bo", Some(&e.alice), None, &[]).await.status, 200);
+    }
+    let over = send(&e.router, "GET", "/shares/people?q=bo", Some(&e.alice), None, &[]).await;
+    assert_eq!(over.status, 429);
+    assert!(over.header("retry-after").is_some());
+    // Somebody else has their own budget.
+    assert_eq!(send(&e.router, "GET", "/shares/people?q=al", Some(&e.root), None, &[]).await.status, 200);
+}
+
+/// FR-039: revoking deletes the document, and the id then answers like one that never existed.
+#[tokio::test]
+async fn revoking_leaves_no_snapshot_behind_and_the_answers_stay_identical() {
+    let e = env().await;
+    let id = create(&e, &e.alice, json!({})).await.json()["data"]["share_id"].as_str().unwrap().to_string();
+    assert_eq!(send(&e.router, "DELETE", &format!("/shares/{id}"), Some(&e.alice), None, &[]).await.status, 204);
+    let kept = e.runtime.deps().storage.get_share(&id).await.unwrap().unwrap();
+    assert_eq!(kept.snapshot_json, "");
+    let gone = send(&e.router, "GET", &format!("/shares/{id}"), Some(&e.alice), None, &[]).await;
+    let unknown = send(&e.router, "GET", MISS, Some(&e.alice), None, &[]).await;
+    assert_eq!((gone.status, &gone.bytes), (unknown.status, &unknown.bytes));
 }
 
 #[tokio::test]
@@ -496,8 +608,8 @@ async fn list_shares_returns_caller_shares_and_enforces_admin_for_all() {
     let e = env().await;
 
     // Create 2 shares as Alice
-    let pub_id = create(&e, &e.alice, json!({"audience": "public", "title": "Alice Public"})).await.json()["data"]["share_id"].as_str().unwrap().to_string();
-    let spec_id = create(&e, &e.alice, json!({"audience": "specific", "people": [e.bob_id.clone()], "title": "Alice Specific"})).await.json()["data"]["share_id"].as_str().unwrap().to_string();
+    let pub_id = create(&e, &e.alice, json!({"audience": "public"})).await.json()["data"]["share_id"].as_str().unwrap().to_string();
+    let spec_id = create(&e, &e.alice, json!({"audience": "specific", "people": [e.bob_id.clone()]})).await.json()["data"]["share_id"].as_str().unwrap().to_string();
 
     // Anonymous GET /shares -> 401
     let anon = send(&e.router, "GET", "/shares", None, None, &[]).await;
@@ -532,6 +644,12 @@ async fn list_shares_returns_caller_shares_and_enforces_admin_for_all() {
     let all_items = root_all.json()["data"].as_array().unwrap().clone();
     assert!(all_items.len() >= 2);
     assert_eq!(all_items.iter().find(|i| i["share_id"] == pub_id).unwrap()["creator_name"], "alice");
+    // FR-043: a share whose audience does not include the administrator shows no title.
+    let specific = all_items.iter().find(|i| i["share_id"] == spec_id).unwrap();
+    assert!(specific.get("title").is_none(), "{specific}");
+    assert_eq!(specific["people_count"], 1);
+    assert!(!root_all.json().to_string().contains(&e.bob_id), "no names of the people");
+    assert_eq!(all_items.iter().find(|i| i["share_id"] == pub_id).unwrap()["title"], "Chat");
 }
 
 #[tokio::test]

@@ -1,4 +1,4 @@
-//! Shared chat snapshots (`specs/055-shared-chat`): create and read. The WebUI builds and cleans
+//! Shared chat snapshots (`specs/056-shared-chat`): create and read. The WebUI builds and cleans
 //! the snapshot; this layer only checks what is cheap and structural (it parses, the version,
 //! the known top-level keys, sizes, the trail flag, the audience shape), authorizes, and stores
 //! the received text unchanged. It never rewrites a snapshot, and it never logs content, titles
@@ -35,7 +35,12 @@ pub const MAX_TEXT_BYTES: usize = 256 * 1024;
 /// Creates per person per hour (the limiter lives on `HTTPState`).
 pub const CREATES_PER_HOUR: usize = 10;
 /// Unknown or refused reads per address per minute.
-pub const MISSES_PER_MINUTE: usize = 30;
+pub const MISSES_PER_MINUTE: usize = 60;
+/// People searches per person per minute, and matches per search (FR-012).
+pub const SEARCHES_PER_MINUTE: usize = 30;
+pub const MAX_PEOPLE_MATCHES: usize = 10;
+/// Raster formats a snapshot may carry (twin of `MEDIA_MIME_ALLOW` in the WebUI).
+const MEDIA_MIME_ALLOW: [&str; 4] = ["image/png", "image/jpeg", "image/webp", "image/gif"];
 /// Active shares per person.
 pub const MAX_ACTIVE_PER_PERSON: usize = 200;
 /// The only snapshot format this build reads and writes.
@@ -160,7 +165,7 @@ fn forbidden() -> ServiceError {
 }
 
 /// The document's own checks, with no change to it.
-fn check_snapshot(text: &str, include_trail: bool) -> Result<(), ServiceError> {
+fn check_snapshot(text: &str, include_trail: bool, title: &str) -> Result<(), ServiceError> {
     let doc: Value = serde_json::from_str(text).map_err(|_| invalid("The snapshot is not valid JSON"))?;
     let Value::Object(doc) = doc else {
         return Err(invalid("The snapshot must be an object"));
@@ -174,9 +179,14 @@ fn check_snapshot(text: &str, include_trail: bool) -> Result<(), ServiceError> {
     if doc.get("rehydration").is_some_and(|v| !v.is_null()) {
         return Err(invalid("rehydration must be null in format version 1"));
     }
-    if let Some(title) = doc.get("title") {
-        match title.as_str() {
-            Some(t) if t.chars().count() <= MAX_TITLE_CHARS => {}
+    if let Some(doc_title) = doc.get("title") {
+        match doc_title.as_str() {
+            Some(t) if t.chars().count() <= MAX_TITLE_CHARS => {
+                // The listed title and the document's are one text.
+                if t != title {
+                    return Err(invalid("The snapshot title differs from the share title"));
+                }
+            }
             _ => return Err(invalid("The snapshot title is not a string of at most 120 characters")),
         }
     }
@@ -190,6 +200,10 @@ fn check_snapshot(text: &str, include_trail: bool) -> Result<(), ServiceError> {
     if turns.len() > MAX_TURNS {
         return Err(ServiceError::TooLarge("The snapshot has too many turns".into()));
     }
+    let mut referenced: Vec<&str> = vec![];
+    if let Some(avatar) = doc.get("source").and_then(|s| s.get("agent_avatar")).and_then(Value::as_str) {
+        referenced.push(avatar);
+    }
     let mut trail_present = doc.get("include_trail").and_then(Value::as_bool).unwrap_or(false);
     for turn in turns {
         let Some(turn) = turn.as_object() else {
@@ -200,6 +214,12 @@ fn check_snapshot(text: &str, include_trail: bool) -> Result<(), ServiceError> {
             if parts.len() > MAX_PARTS {
                 return Err(ServiceError::TooLarge("A turn has too many parts".into()));
             }
+            referenced.extend(
+                parts
+                    .iter()
+                    .filter(|p| p.get("kind").and_then(Value::as_str) == Some("media"))
+                    .filter_map(|p| p.get("key").and_then(Value::as_str)),
+            );
             let too_long = parts.iter().any(|p| {
                 p.get("markdown").and_then(Value::as_str).is_some_and(|m| m.len() > MAX_TEXT_BYTES)
             });
@@ -211,11 +231,36 @@ fn check_snapshot(text: &str, include_trail: bool) -> Result<(), ServiceError> {
             trail_present = true;
         }
     }
-    if let Some(media) = doc.get("media") {
-        let media = media.as_object().ok_or_else(|| invalid("media must be an object"))?;
-        if media.len() > MAX_MEDIA_ITEMS {
-            return Err(ServiceError::TooLarge("The snapshot has too many media items".into()));
+    let empty = serde_json::Map::new();
+    let media = match doc.get("media") {
+        None | Some(Value::Null) => &empty,
+        Some(m) => m.as_object().ok_or_else(|| invalid("media must be an object"))?,
+    };
+    if media.len() > MAX_MEDIA_ITEMS {
+        return Err(ServiceError::TooLarge("The snapshot has too many media items".into()));
+    }
+    for item in media.values() {
+        let mime = item.get("mime").and_then(Value::as_str).unwrap_or("");
+        if !MEDIA_MIME_ALLOW.contains(&mime) {
+            return Err(invalid("A media item has a type that is not allowed"));
         }
+        let data = item.get("data").and_then(Value::as_str).unwrap_or("");
+        let padding = data.bytes().rev().take_while(|b| *b == b'=').count();
+        let decoded = (data.len() / 4 * 3).saturating_sub(padding);
+        if decoded == 0 || data.len() % 4 != 0 {
+            return Err(invalid("A media item has no valid data"));
+        }
+        if decoded > MAX_MEDIA_BYTES {
+            return Err(ServiceError::TooLarge("A media item is too large".into()));
+        }
+        if item.get("bytes").and_then(Value::as_u64).is_some_and(|b| b as usize != decoded) {
+            return Err(invalid("A media item's size does not match its data"));
+        }
+    }
+    // Everything a turn points at is in `media`. (The reverse is not an error: unreferenced
+    // items are dropped when the document is read.)
+    if referenced.iter().any(|key| !media.contains_key(*key)) {
+        return Err(invalid("The snapshot points at a media item that is not there"));
     }
     // Only the flag turned off is a contradiction: the document would carry what the person
     // was told would stay out. The document is not edited to fix it.
@@ -235,8 +280,8 @@ async fn check_people(
     audience: Audience,
     people: &Option<Vec<String>>,
 ) -> Result<Vec<String>, ServiceError> {
-    // The audience rule, as data: which audiences take a list. No audience is branched on here.
-    let takes_people = Audience::Specific == audience;
+    // The audience rule, as data: which audiences take a list.
+    let takes_people = audience.takes_people();
     match (takes_people, people) {
         (false, None) => Ok(vec![]),
         (false, Some(_)) => Err(invalid("people is only allowed for specific people")),
@@ -312,7 +357,7 @@ async fn create_with(
     if snapshot_json.len() > MAX_BODY_BYTES {
         return Err(ServiceError::TooLarge("The snapshot is too large to share".into()));
     }
-    check_snapshot(snapshot_json, req.include_trail)?;
+    check_snapshot(snapshot_json, req.include_trail, &req.title)?;
     let mut people = check_people(s, req.audience, &req.people).await?;
     // The author is always allowed; the list passed to `Audience::allows` includes them.
     people.sort();
@@ -435,41 +480,31 @@ pub struct PersonMatch {
     pub username: String,
 }
 
-/// Search enabled users by username prefix for the specific audience picker.
-/// Requires a share permission (`PERMISSION_ALL` or `PERMISSION_OWNED`), or system role.
-/// Returns at most 20 matches.
+/// Find people by the start of their username, for naming them in a `specific` share.
+/// Needs a share permission (or the system role) and at least 2 characters; at most
+/// [`MAX_PEOPLE_MATCHES`] matches, each with the id and username and nothing else. (Accounts
+/// have no display name and no disabled state in this version, so there is nothing more to
+/// show or to filter.) The per-person rate limit is applied by the HTTP layer.
 pub async fn search_people(
     s: &Services,
     who: &Principal,
     q: &str,
 ) -> Result<Vec<PersonMatch>, ServiceError> {
-    let has_share_perm = who.role.is_system
-        || who.role.permissions.iter().any(|p| p == PERMISSION_ALL || p == PERMISSION_OWNED);
-    if !has_share_perm {
+    let caller = Caller::from(who);
+    if !(caller.is_system || caller.has(PERMISSION_ALL) || caller.has(PERMISSION_OWNED)) {
         return Err(forbidden());
     }
     let query = q.trim();
     if query.chars().count() < 2 {
         return Err(invalid("Search query must be at least 2 characters"));
     }
-    let users = s
+    let found = s
         .deps()
         .storage
-        .list_users()
+        .search_people(query, MAX_PEOPLE_MATCHES)
         .await
-        .map_err(|e| storage_error("Failed to list users", e))?;
-    let q_lower = query.to_lowercase();
-    let mut matches: Vec<PersonMatch> = users
-        .into_iter()
-        .filter(|u| u.username.to_lowercase().starts_with(&q_lower))
-        .map(|u| PersonMatch {
-            user_id: u.user_id,
-            username: u.username,
-        })
-        .collect();
-    matches.sort_by(|a, b| a.username.cmp(&b.username));
-    matches.truncate(20);
-    Ok(matches)
+        .map_err(|e| storage_error("Failed to search people", e))?;
+    Ok(found.into_iter().map(|(user_id, username)| PersonMatch { user_id, username }).collect())
 }
 
 /// A share item in a list (`GET /shares`).
@@ -477,7 +512,10 @@ pub async fn search_people(
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct ShareListItem {
     pub share_id: String,
-    pub title: String,
+    /// Withheld (absent) in the administrator's list for a share whose audience does not
+    /// include the administrator (FR-043): the title comes from the conversation.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
     pub agent_id: String,
     pub agent_name: String,
     pub topic_id: String,
@@ -493,6 +531,13 @@ pub struct ShareListItem {
     pub removals: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub creator_name: Option<String>,
+}
+
+/// The system role or the all-agents share permission: may list and revoke every share
+/// (metadata only; reading content still follows the audience).
+fn is_admin(who: &Principal) -> bool {
+    let caller = Caller::from(who);
+    caller.is_system || caller.has(PERMISSION_ALL)
 }
 
 /// List the caller's shares, newest first (`GET /shares`).
@@ -517,7 +562,7 @@ pub async fn list_mine(
         let removals = serde_json::from_str(&r.removals_json).ok();
         items.push(ShareListItem {
             share_id: r.share_id,
-            title: r.title,
+            title: Some(r.title),
             agent_id: r.agent_id,
             agent_name,
             topic_id: r.topic_id,
@@ -541,14 +586,13 @@ pub async fn list_all(
     before: Option<i64>,
     limit: usize,
 ) -> Result<Vec<ShareListItem>, ServiceError> {
-    let is_admin = who.role.is_system || access::can(who, PERMISSION_ALL);
-    if !is_admin {
+    if !is_admin(who) {
         return Err(forbidden());
     }
     let storage = &s.deps().storage;
     let limit = limit.clamp(1, 100);
     let summaries = storage
-        .list_all_shares(before, limit)
+        .list_all_shares(&who.user_id, before, limit)
         .await
         .map_err(|e| storage_error("Failed to list all shares", e))?;
 
@@ -560,9 +604,16 @@ pub async fn list_all(
         let removals = serde_json::from_str(&r.removals_json).ok();
         let creator = storage.get_user_by_id(&r.creator_id).await.ok().flatten();
         let creator_name = Some(creator.map(|u| u.username).unwrap_or_else(|| r.creator_id.clone()));
+        // The title is shown only where the audience includes the administrator, decided by
+        // the same rule as a read (the author is always included).
+        let mut named = vec![r.creator_id.clone()];
+        if summary.viewer_named {
+            named.push(who.user_id.clone());
+        }
+        let may_read = r.audience.allows(Some(who), &named) == Access::Allowed;
         items.push(ShareListItem {
             share_id: r.share_id,
-            title: r.title,
+            title: may_read.then_some(r.title),
             agent_id: r.agent_id,
             agent_name,
             topic_id: r.topic_id,
@@ -594,7 +645,7 @@ pub async fn revoke(
         Ok(None) => return Err(ServiceError::NotFound(SHARE_UNAVAILABLE.into())),
         Err(e) => return Err(storage_error("Failed to read share", e)),
     };
-    let is_admin = who.role.is_system || access::can(who, PERMISSION_ALL);
+    let is_admin = is_admin(who);
     let is_author = share.record.creator_id == who.user_id;
     if !is_author && !is_admin {
         return Err(ServiceError::NotFound(SHARE_UNAVAILABLE.into()));
@@ -641,7 +692,7 @@ mod tests {
         assert!(!is_valid_share_id("abcdefghijklmnopqrs/u"), "slash");
     }
 
-    fn doc(edit: impl FnOnce(&mut Value)) -> String {
+    pub(super) fn doc(edit: impl FnOnce(&mut Value)) -> String {
         let mut v = serde_json::json!({
             "format_version": 1, "title": "t", "include_trail": false,
             "turns": [{"id": "t1", "role": "person", "parts": [{"kind": "text", "markdown": "hi"}]}],
@@ -653,17 +704,17 @@ mod tests {
 
     #[test]
     fn a_plain_document_passes_and_the_structural_rules_hold() {
-        assert!(check_snapshot(&doc(|_| {}), false).is_ok());
-        assert!(check_snapshot("{", false).is_err());
-        assert!(check_snapshot("[]", false).is_err());
-        assert!(check_snapshot(&doc(|v| v["format_version"] = 2.into()), false).is_err());
-        assert!(check_snapshot(&doc(|v| v["extra"] = 1.into()), false).is_err());
-        assert!(check_snapshot(&doc(|v| v["turns"] = serde_json::json!([])), false).is_err());
-        assert!(check_snapshot(&doc(|v| v["rehydration"] = 1.into()), false).is_err());
-        assert!(check_snapshot(&doc(|v| v["title"] = "x".repeat(121).into()), false).is_err());
+        assert!(check_snapshot(&doc(|_| {}), false, "t").is_ok());
+        assert!(check_snapshot("{", false, "t").is_err());
+        assert!(check_snapshot("[]", false, "t").is_err());
+        assert!(check_snapshot(&doc(|v| v["format_version"] = 2.into()), false, "t").is_err());
+        assert!(check_snapshot(&doc(|v| v["extra"] = 1.into()), false, "t").is_err());
+        assert!(check_snapshot(&doc(|v| v["turns"] = serde_json::json!([])), false, "t").is_err());
+        assert!(check_snapshot(&doc(|v| v["rehydration"] = 1.into()), false, "t").is_err());
+        assert!(check_snapshot(&doc(|v| v["title"] = "x".repeat(121).into()), false, "t").is_err());
         let long = "x".repeat(MAX_TEXT_BYTES + 1);
         assert!(matches!(
-            check_snapshot(&doc(|v| v["turns"][0]["parts"][0]["markdown"] = long.into()), false),
+            check_snapshot(&doc(|v| v["turns"][0]["parts"][0]["markdown"] = long.into()), false, "t"),
             Err(ServiceError::TooLarge(_))
         ));
     }
@@ -671,19 +722,20 @@ mod tests {
     #[test]
     fn trail_parts_with_the_flag_off_are_refused_and_never_rewritten() {
         let with_trail = doc(|v| v["turns"][0]["trail"] = serde_json::json!([{"kind": "tool_call", "name": "x"}]));
-        let err = check_snapshot(&with_trail, false).unwrap_err();
+        let err = check_snapshot(&with_trail, false, "t").unwrap_err();
         assert_eq!((err.status(), err.code()), (422, Some("trail_mismatch")));
-        assert!(check_snapshot(&with_trail, true).is_ok());
+        assert!(check_snapshot(&with_trail, true, "t").is_ok());
         // An empty trail is not trail.
-        assert!(check_snapshot(&doc(|v| v["turns"][0]["trail"] = serde_json::json!([])), false).is_ok());
+        assert!(check_snapshot(&doc(|v| v["turns"][0]["trail"] = serde_json::json!([])), false, "t").is_ok());
         // The document says it has a trail while the request says it has not.
-        assert_eq!(check_snapshot(&doc(|v| v["include_trail"] = true.into()), false).unwrap_err().status(), 422);
+        assert_eq!(check_snapshot(&doc(|v| v["include_trail"] = true.into()), false, "t").unwrap_err().status(), 422);
     }
 }
 
 #[cfg(test)]
 mod service_tests {
     use super::*;
+    use super::tests::doc;
     use crate::{auth::AuthMethod, config::VizierConfig, storage::user::Role};
 
     struct World {
@@ -921,79 +973,150 @@ mod service_tests {
         assert!(read(&w.s, Some(&w.owner), &id).await.is_ok());
     }
 
+
     #[tokio::test]
-    async fn search_people_filters_prefix_and_requires_permission() {
+    async fn search_people_is_a_prefix_search_for_people_who_may_share() {
         let w = world().await;
-        // query too short: 400
-        assert_eq!(search_people(&w.s, &w.owner, "a").await.unwrap_err().status(), 400);
-        // without permission: 403
-        assert_eq!(search_people(&w.s, &w.plain, "al").await.unwrap_err().status(), 403);
-        // with permission: prefix match
-        let found = search_people(&w.s, &w.owner, "al").await.unwrap();
-        assert!(found.iter().any(|u| u.username == "alice"));
-        // system role is allowed
-        let root = w.s.deps().storage.create_role("system-search", vec![], true).await.unwrap();
-        let root_user = w.s.deps().storage.create_user("root-search", "", &root.role_id).await.unwrap();
-        let root_principal = Principal {
-            user_id: root_user.user_id,
-            username: root_user.username,
-            role: root,
-            method: crate::auth::AuthMethod::Password,
-        };
-        assert!(search_people(&w.s, &root_principal, "al").await.is_ok());
+        // Fewer than two characters: 400. No share permission: 403.
+        assert_eq!(search_people(&w.s, &w.owner, "o").await.unwrap_err().status(), 400);
+        assert_eq!(search_people(&w.s, &w.owner, "  o ").await.unwrap_err().status(), 400);
+        assert_eq!(search_people(&w.s, &w.plain, "ot").await.unwrap_err().status(), 403);
+        // Prefix, case-insensitive; only the id and the username come back.
+        let found = search_people(&w.s, &w.owner, "OT").await.unwrap();
+        assert_eq!(found, vec![PersonMatch { user_id: w.other.user_id.clone(), username: "other".into() }]);
+        // Not a substring search, and not a wildcard one.
+        assert!(search_people(&w.s, &w.owner, "ther").await.unwrap().is_empty());
+        assert!(search_people(&w.s, &w.owner, "o%").await.unwrap().is_empty());
+        // System is allowed; at most ten matches.
+        for i in 0..12 {
+            w.s.deps().storage.create_user(&format!("zed{i:02}"), "hash", &w.plain.role.role_id).await.unwrap();
+        }
+        let found = search_people(&w.s, &w.root, "zed").await.unwrap();
+        assert_eq!(found.len(), MAX_PEOPLE_MATCHES);
+        assert_eq!(found[0].username, "zed00");
     }
 
     #[tokio::test]
-    async fn list_and_revoke_behavior_and_user_deletion_cascade() {
+    async fn list_all_withholds_the_title_of_shares_the_administrator_cannot_open() {
+        let w = world().await;
+        let admin = &w.sharer_all;
+        let private = create(&w.s, &w.owner, &body("dp-a", "specific", Some(vec![w.other.user_id.clone()])))
+            .await
+            .unwrap()
+            .share_id;
+        let naming = create(&w.s, &w.owner, &body("dp-a", "specific", Some(vec![admin.user_id.clone()])))
+            .await
+            .unwrap()
+            .share_id;
+        let signed = create(&w.s, &w.owner, &body("dp-a", "signed_in", None)).await.unwrap().share_id;
+        let own = create(&w.s, admin, &body("dp-a", "specific", Some(vec![w.other.user_id.clone()])))
+            .await
+            .unwrap()
+            .share_id;
+
+        assert_eq!(list_all(&w.s, &w.plain, None, 50).await.unwrap_err().status(), 403);
+        assert_eq!(list_all(&w.s, &w.owner, None, 50).await.unwrap_err().status(), 403);
+        let all = list_all(&w.s, admin, None, 50).await.unwrap();
+        let title_of = |id: &str| all.iter().find(|i| i.share_id == id).unwrap().title.clone();
+        assert_eq!(title_of(&private), None, "not for the administrator: no title");
+        assert_eq!(title_of(&naming).as_deref(), Some("A chat"));
+        assert_eq!(title_of(&signed).as_deref(), Some("A chat"));
+        assert_eq!(title_of(&own).as_deref(), Some("A chat"), "the author's own");
+        let row = all.iter().find(|i| i.share_id == private).unwrap();
+        // Metadata stays: author, agent, kind, count, size.
+        assert_eq!((row.creator_name.as_deref(), row.agent_id.as_str(), row.people_count), (Some("owner"), "dp-a", 1));
+        // Nothing of the withheld title or of who is named is anywhere in the output.
+        let json = serde_json::to_string(&all.iter().filter(|i| i.share_id == private).collect::<Vec<_>>()).unwrap();
+        assert!(!json.contains("A chat") && !json.contains(&w.other.user_id) && !json.contains("title"), "{json}");
+    }
+
+    #[tokio::test]
+    async fn revoking_deletes_the_snapshot_and_the_id_answers_like_an_unknown_one() {
+        let w = world().await;
+        let id = create(&w.s, &w.owner, &body("dp-a", "public", None)).await.unwrap().share_id;
+        let other_id = create(&w.s, &w.owner, &body("dp-a", "public", None)).await.unwrap().share_id;
+        // A stranger and an unknown id are refused alike.
+        let stranger = revoke(&w.s, &w.plain, &id).await.unwrap_err();
+        let unknown = revoke(&w.s, &w.plain, "ZZZZZZZZZZZZZZZZZZZZZ").await.unwrap_err();
+        assert_eq!((stranger.status(), stranger.message()), (unknown.status(), unknown.message()));
+        assert!(read(&w.s, None, &id).await.is_ok(), "still there");
+        // The author revokes; the second time is a no-op.
+        revoke(&w.s, &w.owner, &id).await.unwrap();
+        revoke(&w.s, &w.owner, &id).await.unwrap();
+        let kept = w.s.deps().storage.get_share(&id).await.unwrap().unwrap();
+        assert_eq!(kept.snapshot_json, "", "the document is gone, not only hidden");
+        assert_eq!(kept.record.revoked_by.as_deref(), Some(w.owner.user_id.as_str()));
+        assert_eq!(read(&w.s, None, &id).await.unwrap_err().status(), 401);
+        assert_eq!(read(&w.s, Some(&w.owner), &id).await.unwrap_err().status(), 404);
+        // An administrator may revoke any share, and the list shows it as revoked.
+        revoke(&w.s, &w.sharer_all, &other_id).await.unwrap();
+        assert_eq!(w.s.deps().storage.get_share(&other_id).await.unwrap().unwrap().snapshot_json, "");
+        let mine = list_mine(&w.s, &w.owner, None, 50).await.unwrap();
+        assert!(mine.iter().all(|i| i.revoked_at.is_some()));
+        assert_eq!(w.s.deps().storage.count_active_by_creator(&w.owner.user_id).await.unwrap(), 0);
+    }
+
+    #[tokio::test]
+    async fn list_mine_is_newest_first_and_only_mine() {
         let w = world().await;
         let s1 = create(&w.s, &w.owner, &body("dp-a", "public", None)).await.unwrap().share_id;
         let s2 = create(&w.s, &w.owner, &body("dp-a", "signed_in", None)).await.unwrap().share_id;
-
-        // list_mine returns owner's shares newest first
         let mine = list_mine(&w.s, &w.owner, None, 50).await.unwrap();
-        assert_eq!(mine.len(), 2);
-        assert_eq!(mine[0].share_id, s2);
-        assert_eq!(mine[1].share_id, s1);
-        assert!(mine[0].creator_name.is_none());
+        let ids: Vec<_> = mine.iter().map(|i| i.share_id.as_str()).collect();
+        assert_eq!(ids.len(), 2);
+        assert!(ids.contains(&s1.as_str()) && ids.contains(&s2.as_str()));
+        assert!(mine.iter().all(|i| i.creator_name.is_none() && i.title.as_deref() == Some("A chat")));
+        assert!(list_mine(&w.s, &w.other, None, 50).await.unwrap().is_empty());
+    }
 
-        // other person's list_mine is empty
-        let other_mine = list_mine(&w.s, &w.other, None, 50).await.unwrap();
-        assert!(other_mine.is_empty());
+    /// FR-045 through the service: deleting the account removes its shares and its place in
+    /// other people's audiences, and the removed id is never matched by anyone else.
+    #[tokio::test]
+    async fn deleting_an_account_removes_its_shares_and_audience_places() {
+        let w = world().await;
+        let mine = create(&w.s, &w.other, &body("dp-b", "public", None)).await;
+        assert_eq!(mine.unwrap_err().status(), 403, "other may not share dp-b; use sharer");
+        let theirs = create(&w.s, &w.sharer_all, &body("dp-b", "public", None)).await.unwrap().share_id;
+        let named = vec![w.other.user_id.clone(), w.plain.user_id.clone()];
+        let spec = create(&w.s, &w.owner, &body("dp-a", "specific", Some(named))).await.unwrap().share_id;
+        let admin = Principal { permissions: vec!["users:manage".into()], ..w.root.clone() };
+        crate::service::users::delete(&w.s, &admin, &w.sharer_all.user_id).await.unwrap();
+        assert!(w.s.deps().storage.get_share(&theirs).await.unwrap().is_none());
+        crate::service::users::delete(&w.s, &admin, &w.other.user_id).await.unwrap();
+        let left = w.s.deps().storage.get_share(&spec).await.unwrap().unwrap().people;
+        assert_eq!(left, vec![w.plain.user_id.clone()]);
+    }
 
-        // non-admin list_all is 403 forbidden
-        assert_eq!(list_all(&w.s, &w.plain, None, 50).await.unwrap_err().status(), 403);
+    fn with_media(edit: impl FnOnce(&mut Value)) -> String {
+        doc(|v| {
+            v["turns"][0]["parts"].as_array_mut().unwrap().push(serde_json::json!({"kind": "media", "key": "m1"}));
+            v["media"] = serde_json::json!({"m1": {"mime": "image/webp", "bytes": 6, "data": "AAAAAAAA"}});
+            edit(v);
+        })
+    }
 
-        // system role list_all succeeds and includes creator_name
-        let root_role = w.s.deps().storage.create_role("system-admin", vec![], true).await.unwrap();
-        let root_user = w.s.deps().storage.create_user("root-admin", "", &root_role.role_id).await.unwrap();
-        let root_p = Principal {
-            user_id: root_user.user_id,
-            username: root_user.username,
-            role: root_role,
-            method: crate::auth::AuthMethod::Password,
+    #[test]
+    fn media_is_checked_for_type_size_and_references() {
+        assert!(check_snapshot(&with_media(|_| {}), false, "t").is_ok());
+        let status = |edit: &dyn Fn(&mut Value)| {
+            check_snapshot(&with_media(|v| edit(v)), false, "t").unwrap_err().status()
         };
-        let all = list_all(&w.s, &root_p, None, 50).await.unwrap();
-        assert!(all.len() >= 2);
-        assert!(all.iter().any(|i| i.share_id == s1 && i.creator_name.as_deref() == Some("alice")));
+        assert_eq!(status(&|v| v["media"]["m1"]["mime"] = "image/svg+xml".into()), 400);
+        assert_eq!(status(&|v| v["media"]["m1"]["mime"] = "text/html".into()), 400);
+        assert_eq!(status(&|v| v["media"]["m1"]["bytes"] = 7.into()), 400, "size lies");
+        assert_eq!(status(&|v| v["media"]["m1"]["data"] = "".into()), 400);
+        assert_eq!(status(&|v| v["media"]["m1"]["data"] = "AAA".into()), 400, "not base64 length");
+        assert_eq!(status(&|v| v["turns"][0]["parts"][1]["key"] = "nope".into()), 400, "dangling key");
+        assert_eq!(status(&|v| v["source"] = serde_json::json!({"agent_avatar": "nope"})), 400);
+        let big = "A".repeat(((MAX_MEDIA_BYTES / 3) + 2) * 4);
+        assert_eq!(status(&|v| { v["media"]["m1"].as_object_mut().unwrap().remove("bytes"); v["media"]["m1"]["data"] = big.clone().into() }), 413);
+        // An unreferenced item is fine (dropped on read).
+        assert!(check_snapshot(&with_media(|v| { v["turns"][0]["parts"].as_array_mut().unwrap().pop(); }), false, "t").is_ok());
+    }
 
-        // revoke by unauthorized user returns 404
-        assert_eq!(revoke(&w.s, &w.plain, &s1).await.unwrap_err().status(), 404);
-
-        // revoke by author succeeds
-        assert!(revoke(&w.s, &w.owner, &s1).await.is_ok());
-        // second revoke is 204 no-op
-        assert!(revoke(&w.s, &w.owner, &s1).await.is_ok());
-
-        // read revoked is refused
-        assert_eq!(read(&w.s, Some(&w.owner), &s1).await.unwrap_err().status(), 404);
-
-        // revoked shares do not count toward cap
-        let active = w.s.deps().storage.count_active_by_creator(&w.owner.user_id).await.unwrap();
-        assert_eq!(active, 1);
-
-        // user deletion deletes their shares and audience rows
-        let deleted = w.s.deps().storage.delete_shares_by_creator(&w.owner.user_id).await.unwrap();
-        assert_eq!(deleted, 2);
-        assert_eq!(w.s.deps().storage.count_active_by_creator(&w.owner.user_id).await.unwrap(), 0);
+    #[test]
+    fn the_document_title_must_equal_the_share_title() {
+        assert!(check_snapshot(&doc(|_| {}), false, "t").is_ok());
+        assert_eq!(check_snapshot(&doc(|_| {}), false, "other").unwrap_err().status(), 400);
     }
 }

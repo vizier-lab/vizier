@@ -1,4 +1,4 @@
-//! The shared-snapshot tables (`specs/055-shared-chat/data-model.md`). Both are new, created
+//! The shared-snapshot tables (`specs/056-shared-chat/data-model.md`). Both are new, created
 //! with `CREATE TABLE IF NOT EXISTS`; nothing existing is altered (SC-009). The single
 //! implementation of [`ShareStorage`] is written against the backend-neutral `Connection`.
 //! `snapshot_json` is `TEXT`, so the stored bytes are the bytes that were previewed, and the
@@ -84,6 +84,7 @@ fn summaries(
             Ok(ShareSummary {
                 record: record_from(row)?,
                 people_count: row.get::<_, i64>(13)?.max(0) as usize,
+                viewer_named: row.get::<_, i64>(14)? != 0,
             })
         })?
         .collect::<crate::storage::sql::Result<Vec<_>>>()?;
@@ -93,15 +94,19 @@ fn summaries(
 fn list(
     conn: &Connection,
     creator: Option<&str>,
+    viewer: Option<&str>,
     before: Option<i64>,
     limit: usize,
 ) -> Result<Vec<ShareSummary>> {
+    // Column 13: how many people are named; column 14: whether `viewer` is one of them.
     let mut sql = format!(
         "SELECT {META}, \
-           (SELECT COUNT(*) FROM shared_snapshot_audience a WHERE a.share_id = s.share_id) \
+           (SELECT COUNT(*) FROM shared_snapshot_audience a WHERE a.share_id = s.share_id), \
+           CASE WHEN EXISTS (SELECT 1 FROM shared_snapshot_audience v \
+                             WHERE v.share_id = s.share_id AND v.user_id = ?) THEN 1 ELSE 0 END \
          FROM shared_snapshot s WHERE 1 = 1"
     );
-    let mut args: Vec<Box<dyn ToSql>> = vec![];
+    let mut args: Vec<Box<dyn ToSql>> = vec![Box::new(viewer.unwrap_or("").to_string())];
     if let Some(creator) = creator {
         sql.push_str(" AND s.creator_id = ?");
         args.push(Box::new(creator.to_string()));
@@ -202,18 +207,44 @@ impl ShareStorage for SqlStorage {
         limit: usize,
     ) -> Result<Vec<ShareSummary>> {
         let conn = self.conn.lock()?;
-        list(&conn, Some(creator_id), before, limit)
+        list(&conn, Some(creator_id), None, before, limit)
     }
 
-    async fn list_all_shares(&self, before: Option<i64>, limit: usize) -> Result<Vec<ShareSummary>> {
+    async fn list_all_shares(
+        &self,
+        viewer_id: &str,
+        before: Option<i64>,
+        limit: usize,
+    ) -> Result<Vec<ShareSummary>> {
         let conn = self.conn.lock()?;
-        list(&conn, None, before, limit)
+        list(&conn, None, Some(viewer_id), before, limit)
+    }
+
+    async fn search_people(&self, prefix: &str, limit: usize) -> Result<Vec<(String, String)>> {
+        // `LIKE` wildcards in what the person typed are literal characters.
+        let escaped = prefix
+            .to_lowercase()
+            .replace('\\', "\\\\")
+            .replace('%', "\\%")
+            .replace('_', "\\_");
+        let conn = self.conn.lock()?;
+        let mut stmt = conn.prepare(
+            r#"SELECT user_id, username FROM "user"
+               WHERE LOWER(username) LIKE ?1 ESCAPE '\'
+               ORDER BY username LIMIT ?2"#,
+        )?;
+        let rows = stmt
+            .query_map(params![format!("{escaped}%"), limit as i64], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?
+            .collect::<crate::storage::sql::Result<Vec<_>>>()?;
+        Ok(rows)
     }
 
     async fn revoke_share(&self, share_id: &str, by: &str, at: i64) -> Result<bool> {
         let conn = self.conn.lock()?;
         let changed = conn.execute(
-            "UPDATE shared_snapshot SET revoked_at = ?1, revoked_by = ?2
+            "UPDATE shared_snapshot SET revoked_at = ?1, revoked_by = ?2, snapshot_json = ''
              WHERE share_id = ?3 AND revoked_at IS NULL",
             params![at, by, share_id],
         )?;
@@ -243,6 +274,11 @@ impl ShareStorage for SqlStorage {
             "DELETE FROM shared_snapshot WHERE creator_id = ?1",
             params![creator_id],
         )?;
+        // FR-045: the person is no longer named on anyone else's share.
+        conn.execute(
+            "DELETE FROM shared_snapshot_audience WHERE user_id = ?1",
+            params![creator_id],
+        )?;
         tx.commit()?;
         Ok(n)
     }
@@ -253,7 +289,7 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use crate::storage::sql::SqlStore;
+    use crate::storage::{sql::SqlStore, user::UserStorage};
 
     /// SQLite in memory, or PostgreSQL (fully migrated) inside `on_postgres`.
     fn storage() -> SqlStorage {
@@ -323,7 +359,11 @@ mod tests {
         assert_eq!(mine[0].people_count, 2);
         let page = s.list_shares_by_creator("u1", Some(5), 1).await.unwrap();
         assert_eq!(page[0].record.share_id, "b");
-        assert_eq!(s.list_all_shares(None, 10).await.unwrap().len(), 4);
+        assert_eq!(s.list_all_shares("x", None, 10).await.unwrap().len(), 4);
+        // Only whether the asker is named is reported, never who is.
+        let all = s.list_all_shares("x", None, 10).await.unwrap();
+        let named: Vec<_> = all.iter().filter(|m| m.viewer_named).map(|m| m.record.share_id.as_str()).collect();
+        assert_eq!(named, ["d"]);
         // The listing SQL has no way to read the document.
         assert!(!META.contains("snapshot_json"));
     }
@@ -337,6 +377,51 @@ mod tests {
         assert!(!s.revoke_share("nope", "u1", 99).await.unwrap());
         let got = s.get_share("a").await.unwrap().unwrap().record;
         assert_eq!((got.revoked_at, got.revoked_by.as_deref()), (Some(50), Some("u1")));
+    }
+
+    /// FR-039: revoking deletes the snapshot text; the tombstone row stays.
+    #[tokio::test]
+    async fn revoking_deletes_the_snapshot_text_and_keeps_the_row() {
+        let s = storage();
+        s.insert_share(&share("a", "u1", Audience::Public, &[], 1), 200).await.unwrap();
+        assert!(!s.get_share("a").await.unwrap().unwrap().snapshot_json.is_empty());
+        assert!(s.revoke_share("a", "u1", 5).await.unwrap());
+        let got = s.get_share("a").await.unwrap().unwrap();
+        assert_eq!(got.snapshot_json, "");
+        assert_eq!(got.record.revoked_at, Some(5));
+        // The id stays taken, so a new share can never reuse it.
+        assert_eq!(
+            s.insert_share(&share("a", "u1", Audience::Public, &[], 6), 200).await.unwrap(),
+            InsertOutcome::IdTaken
+        );
+    }
+
+    #[tokio::test]
+    async fn people_search_is_a_literal_case_insensitive_prefix() {
+        let s = storage();
+        for name in ["Alice", "alina", "al_x", "bob"] {
+            s.create_user(name, "h", "role").await.unwrap();
+        }
+        let names = |v: Vec<(String, String)>| v.into_iter().map(|(_, n)| n).collect::<Vec<_>>();
+        assert_eq!(names(s.search_people("al", 10).await.unwrap()), ["Alice", "al_x", "alina"]);
+        assert_eq!(names(s.search_people("AL", 2).await.unwrap()).len(), 2);
+        // `_` and `%` are not wildcards.
+        assert_eq!(names(s.search_people("al_", 10).await.unwrap()), ["al_x"]);
+        assert!(s.search_people("%", 10).await.unwrap().is_empty());
+        assert!(s.search_people("a'; DROP TABLE \"user\";--", 10).await.unwrap().is_empty());
+    }
+
+    /// FR-045: one call removes the account, its shares and its place in other audiences.
+    #[tokio::test]
+    async fn deleting_a_user_takes_their_shares_and_audience_rows_with_it() {
+        let s = storage();
+        let u = s.create_user("gone", "h", "role").await.unwrap();
+        s.insert_share(&share("own", &u.user_id, Audience::Public, &[], 1), 200).await.unwrap();
+        s.insert_share(&share("theirs", "u1", Audience::Specific, &[&u.user_id, "u2"], 2), 200).await.unwrap();
+        s.delete_user(&u.user_id).await.unwrap();
+        assert!(s.get_share("own").await.unwrap().is_none());
+        assert_eq!(s.get_share("theirs").await.unwrap().unwrap().people, vec!["u2"]);
+        assert!(s.delete_user(&u.user_id).await.is_err());
     }
 
     #[tokio::test]

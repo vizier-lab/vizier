@@ -498,6 +498,7 @@ mod dummyplug_provider_tests {
             )),
             share_creates: crate::state::share_creates_limiter(),
             share_misses: crate::state::share_misses_limiter(),
+            share_searches: crate::state::share_searches_limiter(),
         };
         (state, dir)
     }

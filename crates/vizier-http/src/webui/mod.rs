@@ -9,7 +9,7 @@ use reqwest::{StatusCode, header};
 #[folder = "$OUT_DIR/webui"]
 struct WebUI;
 
-/// Policy for the HTML served under `/share/*` (specs/055-shared-chat R5/R8, fixed by spike T004).
+/// Policy for the HTML served under `/share/*` (specs/056-shared-chat R5/R8, fixed by spike T004).
 /// `'unsafe-inline'` is needed by the SPA's boot script; `'unsafe-eval'` and `worker-src blob:`
 /// by the generative-UI logic runner, whose sandboxed `srcdoc` frame inherits this policy
 /// (measured in Chromium, Firefox and WebKit: without them the worker's `Function` call fails).

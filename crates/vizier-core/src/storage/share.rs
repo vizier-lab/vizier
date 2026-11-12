@@ -1,4 +1,4 @@
-//! Shared chat snapshots (`specs/055-shared-chat/data-model.md`): a frozen, read-only copy of one
+//! Shared chat snapshots (`specs/056-shared-chat/data-model.md`): a frozen, read-only copy of one
 //! conversation, who may open it, and the revoked state. Storage is unaware of permissions; the
 //! service layer owns them. The snapshot text is stored and returned byte for byte.
 
@@ -92,6 +92,11 @@ impl Audience {
         }
     }
 
+    /// Whether a share of this audience names people (and must then list 1 to 50 of them).
+    pub fn takes_people(&self) -> bool {
+        matches!(self, Self::Specific)
+    }
+
     /// Only a public body is the same for everyone, so only it may be cached.
     pub fn cache_policy(&self) -> CachePolicy {
         match self {
@@ -136,6 +141,9 @@ pub struct ShareContent {
 pub struct ShareSummary {
     pub record: ShareRecord,
     pub people_count: usize,
+    /// Whether the person the list was made for is among the named people. Only filled by
+    /// [`ShareStorage::list_all_shares`]; the names themselves are never returned.
+    pub viewer_named: bool,
 }
 
 /// What an insert did.
@@ -165,15 +173,28 @@ pub trait ShareStorage {
         limit: usize,
     ) -> Result<Vec<ShareSummary>>;
 
-    /// Every share's metadata, newest first. No content.
-    async fn list_all_shares(&self, before: Option<i64>, limit: usize) -> Result<Vec<ShareSummary>>;
+    /// Every share's metadata, newest first. No content, no names; `viewer_id` only decides
+    /// `ShareSummary::viewer_named`.
+    async fn list_all_shares(
+        &self,
+        viewer_id: &str,
+        before: Option<i64>,
+        limit: usize,
+    ) -> Result<Vec<ShareSummary>>;
 
-    /// Set `revoked_at` on an active share. `true` only when this call revoked it.
+    /// Revoke an active share: set `revoked_at` and delete the snapshot text (the row stays so
+    /// that the id keeps answering like any unavailable one). `true` only when this call
+    /// revoked it.
     async fn revoke_share(&self, share_id: &str, by: &str, at: i64) -> Result<bool>;
 
     async fn count_active_by_creator(&self, creator_id: &str) -> Result<usize>;
 
-    /// Delete an author's shares (the account is gone). Returns how many.
+    /// Enabled people whose username starts with `prefix` (case-insensitive), by username,
+    /// as `(user_id, username)`. Nothing else about them is read.
+    async fn search_people(&self, prefix: &str, limit: usize) -> Result<Vec<(String, String)>>;
+
+    /// Delete an author's shares, and the person's place in other shares' audiences (the
+    /// account is gone). Returns how many shares were deleted.
     async fn delete_shares_by_creator(&self, creator_id: &str) -> Result<usize>;
 }
 
@@ -196,8 +217,13 @@ impl ShareStorage for VizierStorage {
         self.0.list_shares_by_creator(creator_id, before, limit).await
     }
 
-    async fn list_all_shares(&self, before: Option<i64>, limit: usize) -> Result<Vec<ShareSummary>> {
-        self.0.list_all_shares(before, limit).await
+    async fn list_all_shares(
+        &self,
+        viewer_id: &str,
+        before: Option<i64>,
+        limit: usize,
+    ) -> Result<Vec<ShareSummary>> {
+        self.0.list_all_shares(viewer_id, before, limit).await
     }
 
     async fn revoke_share(&self, share_id: &str, by: &str, at: i64) -> Result<bool> {
@@ -206,6 +232,10 @@ impl ShareStorage for VizierStorage {
 
     async fn count_active_by_creator(&self, creator_id: &str) -> Result<usize> {
         self.0.count_active_by_creator(creator_id).await
+    }
+
+    async fn search_people(&self, prefix: &str, limit: usize) -> Result<Vec<(String, String)>> {
+        self.0.search_people(prefix, limit).await
     }
 
     async fn delete_shares_by_creator(&self, creator_id: &str) -> Result<usize> {

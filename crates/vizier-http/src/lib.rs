@@ -84,6 +84,7 @@ pub(crate) fn new_state(runtime: &VizierRuntime, auth: state::AuthMode) -> HTTPS
         )),
         share_creates: crate::state::share_creates_limiter(),
         share_misses: crate::state::share_misses_limiter(),
+        share_searches: crate::state::share_searches_limiter(),
     }
 }
 
@@ -145,7 +146,11 @@ where
         health.mark_started();
         tracing::info!("http listening on port {}", config.port);
 
-        axum::serve(listener, app)
+        // The peer address is what the share-miss limiter keys on (not a header the caller sets).
+        axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+        )
             .with_graceful_shutdown(shutdown)
             .await
             .map_err(|e| VizierError(e.to_string()))
