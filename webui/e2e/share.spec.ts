@@ -252,7 +252,9 @@ test.describe('Scenario 1 and 2: share, open as a visitor, delete the original',
 
         const doc = (await stored(shareId)).data
         before = allText(doc.snapshot)
-        expect(doc.audience).toBe('public')
+        expect('audience' in doc, 'FR-030: no audience in the read response').toBe(false)
+        const mine = await api('GET', '/shares', alice.token)
+        expect(mine.data.find((x: any) => x.share_id === shareId)?.audience).toBe('public')
         expect(doc.include_trail).toBe(false)
         expect(Object.keys(doc.snapshot.media)).toHaveLength(1)
 

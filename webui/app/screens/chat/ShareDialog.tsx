@@ -52,10 +52,15 @@ export function warningLines(p: Preview): string[] {
 
 export const linkFor = (origin: string, created: Pick<CreatedShare, 'share_id'>) => `${origin}${sharePath(created.share_id)}`
 
+export const SECRET_DETECTED = 'secret_detected'
+export const SECRET_REFUSED = 'The server found what looks like a password, key or token in this conversation, so nothing was shared. Remove it from the conversation (or leave that part out) and try again.'
+
 /** The sentence for a failed create. */
 export function createFailure(e: unknown): string {
     if (e instanceof ShareError) return e.message
     if (e instanceof ApiError) {
+        // The server's last-resort backstop (FR-051). It names the kind of secret, never the text.
+        if (e.status === 422 && e.code === SECRET_DETECTED) return SECRET_REFUSED
         if (e.status === 429) return 'Too many shares just now. Try again in a little while.'
         if (e.status === 403) return 'You are not allowed to share this conversation.'
         if (e.status === 413) return 'This conversation is too large to share. Nothing was shared.'

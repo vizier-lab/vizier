@@ -49,7 +49,6 @@ export interface SharedConversation {
     share_id: string
     title: string
     created_at: number
-    audience: Audience
     include_trail: boolean
     format_version: number
     snapshot: unknown

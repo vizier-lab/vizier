@@ -12,7 +12,7 @@ vi.mock('../../api/shares', async (orig) => ({ ...(await orig<typeof import('../
 
 import { OFFLINE_WARNING, REVIEW_WARNING } from './ShareDialog'
 import { SharedMark, sharedLabel } from './ConversationHeader'
-import { CHOOSE_AUDIENCE, COPY_WARNING, createFailure, createLink, DESKTOP_NOTICE, leftOutLines, PUBLIC_CONFIRM, ShareDialog, summaryLine, TRAIL_HELP, warningLines } from './ShareDialog'
+import { CHOOSE_AUDIENCE, COPY_WARNING, createFailure, createLink, DESKTOP_NOTICE, leftOutLines, PUBLIC_CONFIRM, SECRET_REFUSED, ShareDialog, summaryLine, TRAIL_HELP, warningLines } from './ShareDialog'
 import { ConversationHeader, EMPTY_SHARE_REASON } from './ConversationHeader'
 
 async function previewOf(includeTrail = false) {
@@ -47,6 +47,9 @@ describe('the dialog text', () => {
         expect(createFailure(new ApiError(429, 'rate_limited', 'x'))).toMatch(/Too many/)
         expect(createFailure(new ApiError(403, 'forbidden', 'x'))).toMatch(/not allowed/)
         expect(createFailure(new ApiError(503, 'unavailable', 'Service Unavailable'))).toMatch(/Nothing was shared/)
+        expect(createFailure(new ApiError(422, 'secret_detected', 'The snapshot appears to contain a secret (GitHub token)'))).toBe(SECRET_REFUSED)
+        expect(createFailure(new ApiError(422, 'secret_detected', 'x'))).not.toMatch(/GitHub/)
+        expect(createFailure(new ApiError(422, 'trail_mismatch', 'Trail differs'))).toBe('Trail differs')
         expect(createFailure(new ApiError(413, 'too_large', 'x'))).toMatch(/too large/)
         expect(createFailure('weird')).toMatch(/could not be created/)
     })
