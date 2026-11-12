@@ -17,6 +17,8 @@ import { SnapshotView } from '../../viewer/SnapshotView'
 
 export const DESKTOP_NOTICE = 'A link needs a server others can reach. Use Offline file.'
 export const OFFLINE_NOTICE = 'Nothing is stored on the server. The offline file contains everything needed to view the conversation interactively in any web browser without an internet connection.'
+/** FR-020: removal is automatic and best effort; the person reads before sharing. */
+export const REVIEW_WARNING = 'Automatic removal cannot recognise everything sensitive that you or the agent may have written. Read the preview before you share: you are responsible for what leaves.'
 export const OFFLINE_WARNING = 'Once you send this file to someone, it cannot be revoked or limited to an audience.'
 export const COPY_WARNING = 'Anyone with the link can read this. You can revoke it later, but a copy someone already made cannot be taken back.'
 export const PUBLIC_CONFIRM = 'I understand that anyone who has this link can read the conversation without signing in.'
@@ -429,6 +431,7 @@ export function ShareDialog({ open, onClose, agentId, topicId, title, agentName 
                                                 {preview.refusal.options.length > 0 && <ul className="list-disc pl-20">{preview.refusal.options.map((o) => <li key={o}>{o}</li>)}</ul>}
                                             </Notice>
                                         )}
+                                        <p role="note" className="type-small text-muted">{REVIEW_WARNING}</p>
                                         <div><Button onClick={() => setPreviewing(true)} disabled={!result}>Preview what a visitor sees</Button></div>
                                     </>
                                 )}
@@ -466,7 +469,8 @@ export function ShareDialog({ open, onClose, agentId, topicId, title, agentName 
                                             {preview.refusal.options.length > 0 && <ul className="list-disc pl-20">{preview.refusal.options.map((o) => <li key={o}>{o}</li>)}</ul>}
                                         </Notice>
                                     )}
-                                    <div><Button onClick={() => setPreviewing(true)} disabled={!result}>Preview what a visitor sees</Button></div>
+                                    <p role="note" className="type-small text-muted">{REVIEW_WARNING}</p>
+                                        <div><Button onClick={() => setPreviewing(true)} disabled={!result}>Preview what a visitor sees</Button></div>
                                 </>
                             )}
                         </section>

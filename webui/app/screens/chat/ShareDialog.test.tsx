@@ -10,7 +10,7 @@ import { useSession } from '../../stores/session'
 const create = vi.hoisted(() => vi.fn(async () => ({ share_id: 'abc_DEF-123', url_path: '/share/abc_DEF-123', created_at: 1 })))
 vi.mock('../../api/shares', async (orig) => ({ ...(await orig<typeof import('../../api/shares')>()), createShare: create }))
 
-import { OFFLINE_WARNING } from './ShareDialog'
+import { OFFLINE_WARNING, REVIEW_WARNING } from './ShareDialog'
 import { SharedMark, sharedLabel } from './ConversationHeader'
 import { CHOOSE_AUDIENCE, COPY_WARNING, createFailure, createLink, DESKTOP_NOTICE, leftOutLines, PUBLIC_CONFIRM, ShareDialog, summaryLine, TRAIL_HELP, warningLines } from './ShareDialog'
 import { ConversationHeader, EMPTY_SHARE_REASON } from './ConversationHeader'
@@ -160,4 +160,9 @@ describe('the "this chat is shared" mark', () => {
 
 it('the offline tab warns that a file cannot be revoked or limited to an audience (FR-035)', () => {
     expect(OFFLINE_WARNING).toMatch(/cannot be revoked or limited to an audience/)
+})
+
+it('the review warning (FR-020) says removal cannot recognise everything and that the person is responsible', () => {
+    expect(REVIEW_WARNING).toMatch(/cannot recognise everything sensitive/)
+    expect(REVIEW_WARNING).toMatch(/responsible/)
 })
