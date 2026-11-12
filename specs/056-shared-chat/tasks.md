@@ -101,7 +101,7 @@ description: "Task list for Shared Chat Snapshots"
 - [x] T036 [US1] Create `webui/app/screens/chat/ShareDialog.tsx` (Link tab only for now, mockup 1) and add the Share button to `webui/app/screens/chat/ConversationHeader.tsx` (shared by agent chats and project chats), hidden without the permission (`webui/app/lib/access.ts` helper + test), disabled with a tooltip on an empty conversation, desktop notice in place of the Link tab
 - [x] T037 [P] [US1] Add a Content-Security-Policy and `Referrer-Policy: no-referrer` to the HTML served for `/share/*` in `crates/vizier-http/src/webui/mod.rs` (policy fixed by T004/R5), with a test that other paths are unchanged
 - [x] T038 [P] [US1] Write `docs/src/api-integration/shares.md` (the contract, the headers, the Cloudflare "cache eligible" rule for `/api/v1/shares/*`, why there is no `immutable`)
-- [ ] T039 [US1] Playwright `webui/e2e/share.spec.ts` scenario 1: create a public link in a seeded conversation, open it in a fresh context, assert text, image, canvas present and orbit changes the frame, tabs switch, no composer, `sendMessage` inert; scenario 2: original conversation deleted after sharing, link unchanged; the same flow from a project chat; the shared page is interactive in under 3 s (SC-011, local)
+- [x] T039 [US1] Playwright `webui/e2e/share.spec.ts` scenario 1: create a public link in a seeded conversation, open it in a fresh context, assert text, image, canvas present and orbit changes the frame, tabs switch, no composer, `sendMessage` inert; scenario 2: original conversation deleted after sharing, link unchanged; the same flow from a project chat; the shared page is interactive in under 3 s (SC-011, local)
 
 **Checkpoint**: a public link works end to end. Do not ship before US2.
 
@@ -128,7 +128,7 @@ description: "Task list for Shared Chat Snapshots"
 - [X] T047 [US2] Add the structural check `422 trail_mismatch` in `create` in `crates/vizier-core/src/service/shares.rs` (flag off but trail parts present) with a test; no content rewriting
 - [x] T048 [US2] Extend `ShareDialog.tsx`: trail switch off by default with the explanation text, the "Left out automatically" list with counts, warnings for placeholders, the sentence about copies that cannot be taken back, and a "Preview what a visitor sees" button that opens the real viewer on the in-memory snapshot
 - [x] T049 [P] [US2] Write `docs/src/configuration/sharing.md`: what is and is not included, how to review, what revoking can and cannot do
-- [ ] T050 [US2] Playwright scenario 3 in `webui/e2e/share.spec.ts`: seed secrets via dummyplug, share with trail off and on, fetch the stored document through the API, assert none of the seeds appear; cancel from the preview and assert `GET /shares` is empty
+- [x] T050 [US2] Playwright scenario 3 in `webui/e2e/share.spec.ts`: seed secrets via dummyplug, share with trail off and on, fetch the stored document through the API, assert none of the seeds appear; cancel from the preview and assert `GET /shares` is empty
 
 **Checkpoint**: US1 + US2 = MVP, releasable.
 
@@ -154,7 +154,7 @@ description: "Task list for Shared Chat Snapshots"
 - [X] T057 [US3] Extend `read` with the R8 matrix using only `Audience::allows`/`cache_policy`, anonymous → 401 `sign_in_required` for anything that is not an active public share, signed-in non-allowed → 404, and count misses on `share_misses` keyed by client address
 - [x] T058 [US3] Add the audience selector and people picker (debounced `people` search, at most 10 matches shown, username only) to `ShareDialog.tsx` per mockup 1; the choice is shown in the result and cannot be changed afterwards. No audience is preselected and Create stays disabled until one is chosen (FR-011)
 - [x] T059 [US3] Implement the 401 → sign-in → `returnTo` flow in `webui/app/routes/share.tsx` using `lib/returnTo.ts`
-- [ ] T060 [US3] Playwright scenario 4 in `webui/e2e/share.spec.ts`: three shares of one conversation, opened as author, named person, other signed-in person and anonymous; assert the 3 × 4 outcomes and that the unknown and restricted anonymous pages are indistinguishable
+- [x] T060 [US3] Playwright scenario 4 in `webui/e2e/share.spec.ts`: three shares of one conversation, opened as author, named person, other signed-in person and anonymous; assert the 3 × 4 outcomes and that the unknown and restricted anonymous pages are indistinguishable
 
 **Checkpoint**: audiences work.
 
@@ -177,7 +177,7 @@ description: "Task list for Shared Chat Snapshots"
 - [x] T064 [US5] Implement `list_mine`, `list_all` (paged) and `revoke` in `crates/vizier-core/src/service/shares.rs` and the handlers `GET /shares`, `DELETE /shares/{share_id}` in `crates/vizier-http/src/api/v1/shares.rs`, with routes under `require_auth`
 - [x] T065 [US5] Call `delete_shares_by_creator` from the user-deletion path in `crates/vizier-core/src/service/users.rs`
 - [x] T066 [US5] Create `webui/app/screens/settings/MySharesPage.tsx` (mockup 3: title, audience, trail, created, copy, revoke with confirm; admin "All shares" with author column), route and entry in `webui/app/screens/settings/SettingsSidebar.tsx` shown only with the permission
-- [ ] T067 [US5] Playwright scenario 5 in `webui/e2e/share.spec.ts`: create, list, revoke, open from a new context; admin revokes someone else's; a non-admin cannot see the "All shares" toggle
+- [x] T067 [US5] Playwright scenario 5 in `webui/e2e/share.spec.ts`: create, list, revoke, open from a new context; admin revokes someone else's; a non-admin cannot see the "All shares" toggle
 
 **Checkpoint**: shares can be undone.
 
@@ -194,7 +194,7 @@ description: "Task list for Shared Chat Snapshots"
 - [x] T068 [P] [US4] `webui/app/lib/share/embed.test.ts`: `embedJson` output never contains `</script`, `<!--`, `<script`, raw `<`, `>`, `&`, U+2028, U+2029; `JSON.parse` of the extracted text equals the input; 5 MiB random-Unicode round trip; hostile fixtures survive embedding
 - [x] T069 [P] [US4] `webui/app/lib/share/export.test.ts`: the produced file contains exactly one snapshot tag and one viewer script, no `http://`/`https://` URL outside text content, no `<link>`, `@import`, `url(http`, `<base>`, `<form>`; the title is HTML-escaped; the file name rules (slug, 60 chars, unicode title, empty title → `conversation`, path separators and reserved Windows names removed)
 - [x] T070 [P] [US4] `webui/app/viewer/main.test.tsx` (rewritten in round 2): imports the real `main.tsx` against a stub DOM and a recording `createRoot`, loads every `fixtures/hostile/*.json` plus the damaged `.vizier.html`, and checks the output is inert text or the damaged / needs-newer page, that two snapshot tags are rejected (TP-75), that `main.tsx` and what it imports pull in no route, API client or transport, and that nothing sets `__pwned`
-- [ ] T071 [P] [US4] Playwright scenario 6 in `webui/e2e/share.spec.ts`: export in the WebUI, open the file by `file://` with the context offline, assert content, 3D interaction, zero requests (including none to `/api/v1/shares`, FR-033), zero console errors; scenario 7: open each file of `fixtures/hostile/` as a `.vizier.html` and assert nothing runs and no outbound request is made
+- [x] T071 [P] [US4] Playwright scenario 6 in `webui/e2e/share.spec.ts`: export in the WebUI, open the file by `file://` with the context offline, assert content, 3D interaction, zero requests (including none to `/api/v1/shares`, FR-033), zero console errors; scenario 7: open each file of `fixtures/hostile/` as a `.vizier.html` and assert nothing runs and no outbound request is made
 
 ### Implementation for User Story 4
 
