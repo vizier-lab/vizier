@@ -203,7 +203,7 @@ async fn a_public_share_is_created_then_read_by_anyone_with_the_cache_headers() 
     keys.sort();
     assert_eq!(
         keys,
-        ["audience", "created_at", "format_version", "include_trail", "share_id", "snapshot", "title"]
+        ["created_at", "format_version", "include_trail", "share_id", "snapshot", "title"]
     );
 
     // Conditional read.

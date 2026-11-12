@@ -249,7 +249,7 @@ Reading a share needs no permission to share and no access to the agent the conv
 
 **Consistency**
 
-- **FR-051**: Every rule above MUST hold identically however a share is requested or opened, including direct requests that bypass the interface.
+- **FR-051**: Every rule above MUST hold identically however a share is requested or opened, including direct requests that bypass the interface. The one honest exception is secrets: the server refuses (`422 secret_detected`) only a snapshot holding a PEM private key or a vendor-prefixed token it can recognise with near certainty. It is a last-resort backstop, does NOT redact, and does not guarantee a clean snapshot; removing secrets stays with the client and the person's review.
 - **FR-052**: Creating a share, revoking one and changing its named people MUST be recorded with who did it and when, without recording the snapshot's content. The author MUST be able to read the record of their own shares. An administrator (FR-043) MUST be able to read every record, under the same limits as the administrative list: no title and no names of named people for a share whose audience does not include them. Openings of a share MUST NOT be recorded per viewer, and nobody, the author included, is shown who opened a share.
 
 ### Key Entities
@@ -312,7 +312,7 @@ The requirements above are unchanged. These are not yet met by the implementatio
 | FR-046, a 20 MB limit for the offline file | Deferred; the stricter 5 MB link limit applies to both | T095 |
 | FR-047, 250 MB of snapshots per person | Deferred (backend) | T096 |
 | FR-052, the record of share actions | Deferred (backend) | T099 |
-| FR-030, no audience in the read response | Open defect (backend) | T104 |
+| FR-030, no audience in the read response | Done | T104 |
 
 ## Open Decisions for the Product Owner
 

@@ -143,7 +143,7 @@ pub async fn search_people(
         (status = 401, description = "Missing or invalid credentials"),
         (status = 403, description = "Needs `owned_agents:share_conversations` for an agent the caller owns, or `all_agents:share_conversations`"),
         (status = 413, description = "The body is over 5 MiB"),
-        (status = 422, description = "`trail_mismatch`: `include_trail` is false but the document holds trail parts"),
+        (status = 422, description = "`trail_mismatch`: `include_trail` is false but the document holds trail parts; `secret_detected`: the text holds a PEM private key or a vendor-prefixed token (last-resort backstop, not redaction)"),
         (status = 429, description = "10 creates an hour (with `retry_after_secs`), or 200 active shares"),
         (status = 503, description = "Storage is unavailable")
     )

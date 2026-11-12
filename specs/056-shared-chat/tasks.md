@@ -244,7 +244,7 @@ Added by the round-2 analysis (`analysis.md`). Each is marked done with its evid
 - [X] T101 Media hardening: cache by content hash, WebP and GIF metadata stripped at any size, `parseSnapshot` checks the magic bytes against the claimed MIME. Evidence: `media.test.ts`, `schema.test.ts`
 - [X] T102 401 on `/share/:id` keeps `returnTo`: `redirectToLogin` skips `/share/*`. Evidence: `share.unauthorized.test.tsx`
 - [X] T103 Export: `buildOfflineHtml` uses function replacers, so `$&`, `$'`, `` $` `` and `$$` in a title or message cannot corrupt the file; file names with separators and reserved names are tested. Evidence: `export.test.ts`
-- [ ] T104 FR-030 / SC-013: `ShareView` (the `GET /shares/{id}` body) carries `audience`, so a named person or any signed-in reader can see the kind of audience in the response. Return it only to the author, or drop it (the viewer does not use it). Backend; needs `cargo`
+- [x] T104 FR-030 / SC-013: `ShareView` (the `GET /shares/{id}` body) carries `audience`, so a named person or any signed-in reader can see the kind of audience in the response. Return it only to the author, or drop it (the viewer does not use it). Backend; needs `cargo`
 
 ---
 
@@ -283,7 +283,7 @@ Added by the round-2 analysis (`analysis.md`). Each is marked done with its evid
 | FR-027 everything is data | T033, T068, T070 | done |
 | FR-028 a signed-in viewer cannot be acted as | T035, T037, T070 | done |
 | FR-029 read-only | T025, T033 | done |
-| FR-030 shared copy, date, agent; nothing about audience or viewers | T033; the read response still carries `audience`, T104 | partly: server field open |
+| FR-030 shared copy, date, agent; nothing about audience or viewers | T033; T104 | done |
 | FR-031 links deliberate, destination shown | T033 (`SafeLink`, host shown when the label hides it) | done |
 | FR-032 one `.vizier.html` file | T074, T075, T073 | done |
 | FR-033 no network request | T069, T071, T004 | done in unit tests; Playwright T071 pending |
@@ -320,7 +320,7 @@ Added by the round-2 analysis (`analysis.md`). Each is marked done with its evid
 | SC-010 unchanged after deletion | T039, T062 | server done; Playwright pending |
 | SC-011 3 s open, 3 s preview | T039, T081 | pending |
 | SC-012 1,000 viewers a minute | T081 (§8 load) | pending |
-| SC-013 admin gets 0 bytes, no title, no names | T051, T061, T092 | done except the `audience` field (T104) |
+| SC-013 admin gets 0 bytes, no title, no names | T051, T061, T092 | done |
 | SC-014 every limit enforced and named | T023, T052, T055; DEFERRED limits T095, T096 | partly |
 | SC-015 two confirmations, one share | T098 | unit done; Playwright pending |
 | SC-016 order, authorship, text rebuilt exactly | T030, T018 | done |

@@ -129,14 +129,14 @@ pub struct CreatedShare {
     pub created_at: i64,
 }
 
-/// A share as `GET /shares/{id}` returns it. No field depends on who asks.
+/// A share as `GET /shares/{id}` returns it. No field depends on who asks, and the audience
+/// kind is not among them (FR-030): a reader is not told who else can read.
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct ShareView {
     pub share_id: String,
     pub title: String,
     pub created_at: i64,
-    pub audience: Audience,
     pub include_trail: bool,
     pub format_version: i64,
     /// The stored document, as stored.
@@ -189,6 +189,14 @@ fn check_snapshot(text: &str, include_trail: bool, title: &str) -> Result<(), Se
             }
             _ => return Err(invalid("The snapshot title is not a string of at most 120 characters")),
         }
+    }
+    // Last-resort backstop, not redaction (FR-051). The message never carries the match.
+    if let Some(kind) = super::share_guard::find_secret(&doc, title) {
+        return Err(ServiceError::Invalid {
+            status: 422,
+            message: format!("The snapshot appears to contain a secret ({kind}). Remove it and share again"),
+            code: Some(super::share_guard::SECRET_DETECTED.into()),
+        });
     }
     let turns = doc
         .get("turns")
@@ -463,7 +471,6 @@ pub async fn read(
             share_id: record.share_id,
             title: record.title,
             created_at: record.created_at,
-            audience,
             include_trail: record.include_trail,
             format_version: record.format_version,
             snapshot,
@@ -905,6 +912,22 @@ mod service_tests {
         v["include_trail"] = true.into();
         assert!(create(&w.s, &w.owner, v.to_string().as_bytes()).await.is_ok());
         assert_eq!(w.s.deps().storage.count_active_by_creator(&w.owner.user_id).await.unwrap(), 1);
+    }
+
+    /// FR-051 backstop: a certain secret is refused with a stable code and is never echoed;
+    /// nothing is stored.
+    #[tokio::test]
+    async fn a_certain_secret_is_422_and_not_echoed() {
+        let w = world().await;
+        let key = "ghp_a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8";
+        let mut v: Value = serde_json::from_slice(&body("dp-a", "public", None)).unwrap();
+        v["snapshot"]["turns"][0]["parts"][0]["markdown"] = format!("my token is {key}").into();
+        let err = create(&w.s, &w.owner, v.to_string().as_bytes()).await.unwrap_err();
+        assert_eq!((err.status(), err.code()), (422, Some("secret_detected")));
+        assert!(!err.message().contains(key) && !err.message().contains("a1B2c3"));
+        assert_eq!(w.s.deps().storage.count_active_by_creator(&w.owner.user_id).await.unwrap(), 0);
+        v["snapshot"]["turns"][0]["parts"][0]["markdown"] = "the password is stored in a vault".into();
+        assert!(create(&w.s, &w.owner, v.to_string().as_bytes()).await.is_ok());
     }
 
     #[tokio::test]
