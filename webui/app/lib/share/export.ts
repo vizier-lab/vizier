@@ -9,11 +9,11 @@ export function buildOfflineHtml(template: string, snapshot: Snapshot): string {
     const escapedTitle = escapeHtml(snapshot.title ? `${snapshot.title.slice(0, 120)} · Vizier` : 'Vizier')
     const embeddedTag = `<script type="application/json" id="vizier-snapshot">${embedJson(snapshot)}</script>`
 
-    let html = template.replace(/<title>.*?<\/title>/i, `<title>${escapedTitle}</title>`)
+    let html = template.replace(/<title>.*?<\/title>/i, () => `<title>${escapedTitle}</title>`)
     if (html.includes(VIZIER_SNAPSHOT_MARKER)) {
-        html = html.replace(VIZIER_SNAPSHOT_MARKER, embeddedTag)
+        html = html.replace(VIZIER_SNAPSHOT_MARKER, () => embeddedTag)
     } else {
-        html = html.replace('</body>', `${embeddedTag}</body>`)
+        html = html.replace('</body>', () => `${embeddedTag}</body>`)
     }
     return html
 }
