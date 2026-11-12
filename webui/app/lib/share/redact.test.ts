@@ -166,3 +166,71 @@ describe('redactText: no false positives (TP-27)', () => {
         expect(Date.now() - t0).toBeLessThan(1500)
     })
 })
+
+describe('redactText: more credential shapes (D10)', () => {
+    const cases: [string, string, string][] = [
+        ['npm token', `//registry.npmjs.org/:_authToken=${j('npm_', 'AbCdEfGhIjKlMnOpQrStUvWxYz0123456789')}`, j('npm_', 'AbCdEfGhIjKlMnOpQrStUvWxYz0123456789')],
+        ['Hugging Face token', `HF ${j('hf_', 'AbCdEfGhIjKlMnOpQrStUvWxYzabcdefgh')}`, j('hf_', 'AbCdEfGhIjKlMnOpQrStUvWxYzabcdefgh')],
+        ['GitLab PAT', `glab ${j('glpat', '-', 'AbCdEfGhIjKlMnOpQrSt')}`, j('glpat', '-', 'AbCdEfGhIjKlMnOpQrSt')],
+        ['SendGrid key', `mail ${j('SG', '.', 'abcdefghijklmnopqrstuv', '.', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefg')}`, 'abcdefghijklmnopqrstuv'],
+        ['Twilio API key SID', `sid ${j('SK', '0123456789abcdef0123456789abcdef')}`, '0123456789abcdef0123456789abcdef'],
+        ['Twilio account SID', `acct ${j('AC', '0123456789abcdef0123456789abcdef')}`, '0123456789abcdef0123456789abcdef'],
+        ['Google OAuth access token', `Bearer-less ${j('ya29', '.', 'a0AfH6SMBxyzABCDEFGHIJKLMNOPQRST_uvw')}`, 'a0AfH6SMBxyzABCDEFGHIJKLMNOPQRST_uvw'],
+        ['Google OAuth client secret', `client_x ${j('GOCSPX', '-', 'AbCdEfGhIjKlMnOpQrStUvWxYz12')}`, 'AbCdEfGhIjKlMnOpQrStUvWxYz12'],
+        ['Slack webhook URL', `curl ${j('https://hooks.slack.com/services/', 'T01234567/B01234567/', 'abcdefghijklmnopqrstuvwx')}`, 'abcdefghijklmnopqrstuvwx'],
+        ['Azure AccountKey', 'DefaultEndpointsProtocol=https;AccountName=foo;AccountKey=abcdEFGH1234+/abcdEFGH1234abcdEFGH1234abcdEFGH1234abcdEFGH1234abcdEFGH123456==;EndpointSuffix=core.windows.net', 'abcdEFGH1234'],
+        ['Cookie header', 'GET / HTTP/1.1\nCookie: session=abc123def456; theme=dark\nAccept: */*', 'abc123def456'],
+        ['Set-Cookie header', 'Set-Cookie: sid=abc123def456; Path=/; HttpOnly', 'abc123def456'],
+        ['Cookie header inside a JSON string', String.raw`{"headers":"Cookie: sid=abc123def456; x=1\r\nHost: a"}`, 'abc123def456'],
+        ['Authorization: Bearer (lower case)', 'authorization: bearer q8Zr7Yx6Wv5Ut4Ss3Rr2', 'q8Zr7Yx6Wv5Ut4Ss3Rr2'],
+        ['Authorization header in a curl flag', `curl -H "Authorization: Bearer ${BEARER}" https://x.test`, BEARER],
+        ['Authorization header escaped in JSON', String.raw`{"h":"Authorization: Bearer ${BEARER}"}`, BEARER],
+        ['DB URL password holding @', 'postgres://admin:p@ss@word@db.internal:5432/app', 'ss@word'],
+        ['DB URL password holding @, no port', 'mongodb://root:hunter@2@mongo/db', 'hunter'],
+    ]
+    it.each(cases)('removes %s', (_name, input, secret) => {
+        const { text, count } = run(input)
+        expect(text).not.toContain(secret)
+        expect(count).toBeGreaterThan(0)
+        expect(text).toContain('[removed:')
+    })
+
+    it('keeps the host of a DB URL whose password held @', () => {
+        expect(run('postgres://admin:p@ss@word@db.internal:5432/app').text).toBe('postgres://admin:[removed: password]@db.internal:5432/app')
+    })
+    it('keeps the surrounding text of a Cookie line', () => {
+        const { text } = run('GET /\nCookie: session=abc123def456; theme=dark\nAccept: */*')
+        expect(text).toBe('GET /\nCookie: [removed: cookie]\nAccept: */*')
+    })
+    it('keeps the part of a Slack webhook that is not secret', () => {
+        expect(run(j('https://hooks.slack.com/services/', 'T01234567/B01234567/', 'abcdefghijklmnopqrstuvwx')).text).toBe('https://hooks.slack.com/services/[removed: token]')
+    })
+    it('counts one per credential', () => {
+        expect(run(`a ${j('npm_', 'AbCdEfGhIjKlMnOpQrStUvWxYz0123456789')} b ${j('hf_', 'AbCdEfGhIjKlMnOpQrStUvWxYzabcdefgh')}`).count).toBe(2)
+    })
+
+    it.each([
+        'max_token=2048',
+        'max_tokens: 4096',
+        'maxToken=2048',
+        'min_token = 1',
+        'prompt_token=512',
+        'token_limit=8000',
+        'context_token=128000',
+        'Cookie: is a header name',
+        'Cookies are small files. Cookie: a note',
+        'http://db.internal:5432/app',
+        'https://example.com:8080/a@b',
+        'ssh://git@github.com:org/repo.git',
+        'SK is short; AC0123 is short; SG.short.short',
+        'npm_install runs the script; hf_hub is a library; glpat-short',
+    ])('keeps %s', (s) => {
+        expect(run(s)).toEqual({ text: s, count: 0 })
+    })
+
+    it('still removes token= / password= whose name merely contains "max"', () => {
+        expect(run('maximum_password=hunter2xyz').text).toContain('[removed: password]')
+        expect(run('input_secret=hunter2xyz').text).toContain('[removed:')
+        expect(run('token=abcd1234efgh').text).toContain('[removed: token]')
+    })
+})

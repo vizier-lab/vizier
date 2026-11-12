@@ -74,3 +74,68 @@ describe('stripPaths: leaves alone', () => {
         expect(run(s)).toEqual({ text: s, count: 0 })
     })
 })
+
+describe('stripPaths: more roots, home directories and Windows forms (D10)', () => {
+    it.each([
+        ['/proc/1/environ', 'environ'],
+        ['/sys/class/net/eth0/address', 'address'],
+        ['/dev/shm/x.sock', 'x.sock'],
+        ['/run/secrets/db_pass', 'db_pass'],
+        ['/data/app/store.db', 'store.db'],
+        ['/app/server/main.py', 'main.py'],
+        ['/Library/Application Support/x/y.plist', 'y.plist'],
+        ['/Applications/Vizier.app/Contents/Info.plist', 'Info.plist'],
+        ['~alice/docs/a.txt', 'a.txt'],
+        ['$HOME/proj/a.txt', 'a.txt'],
+        ['${HOME}/proj/b.txt', 'b.txt'],
+        ['%USERPROFILE%\\Docs\\a.txt', 'a.txt'],
+        ['%APPDATA%\\Vizier\\cfg.json', 'cfg.json'],
+        ['\\\\?\\C:\\Users\\alice\\a.txt', 'a.txt'],
+        ['\\\\?\\UNC\\srv\\share\\a.txt', 'a.txt'],
+        ['\\\\.\\pipe\\vizier-ipc', 'vizier-ipc'],
+        ['cat /proc/self/environ | tr', 'cat environ | tr'],
+    ])('%s', (input, expected) => {
+        const { text, count } = run(input)
+        expect(text).toBe(expected)
+        expect(count).toBe(1)
+    })
+
+    it.each([
+        ['/home/alice', '~'],
+        ['cd /home/alice && ls', 'cd ~ && ls'],
+        ['/home/alice/', '~/'],
+        ['see /home/alice.', 'see ~.'],
+        ['/Users/bob', '~'],
+        ['C:\\Users\\alice', '~'],
+        ['C:/Users/alice/', '~/'],
+        ['file:///home/alice', '~'],
+        ['file:///C:/Users/alice', '~'],
+    ])('a bare home directory never leaks the user name: %s', (input, expected) => {
+        const { text, count } = run(input)
+        expect(text).toBe(expected)
+        expect(text).not.toMatch(/alice|bob/)
+        expect(count).toBe(1)
+    })
+
+    it('does not leak the user name through any form of the same home directory', () => {
+        for (const p of ['/home/alice', '/home/alice/', '/home/alice/x.txt', 'file:///home/alice', '"/home/alice"', '~alice/x.txt', 'C:\\Users\\alice\\x', '\\\\?\\C:\\Users\\alice\\x']) {
+            expect(run(p).text, p).not.toContain('alice')
+        }
+    })
+
+    it.each(['> /dev/null', '2>/dev/null', 'cat /dev/stdin', 'dd if=/dev/zero', 'read /dev/urandom'])('leaves a pseudo-device alone: %s', (s) => {
+        expect(run(s)).toEqual({ text: s, count: 0 })
+    })
+
+    it.each([
+        'GET /api/data and /api/app/list',
+        'open https://example.com/home/alice/page',
+        'the ~5 minutes it takes, ~approximately',
+        'use $HOME or %PATH% as variables',
+        'the data and app folders',
+        'a/b/c relative',
+        'price is $5/month',
+    ])('keeps %s', (s) => {
+        expect(run(s)).toEqual({ text: s, count: 0 })
+    })
+})

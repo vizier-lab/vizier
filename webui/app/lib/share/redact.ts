@@ -56,7 +56,9 @@ function keyRule(label: string, prefix: string, min: number, extra = ''): Rule {
     }
 }
 
-const SECRET_NAME = String.raw`(?:password|passwd|passphrase|pwd|secret|api[_-]?key|access[_-]?key|private[_-]?key|token|credentials?)`
+// A limit is not a secret: `max_token=2048`, `maxToken: 4096`, `prompt_token=…`.
+const NOT_A_LIMIT = String.raw`(?<!(?:max|min|num|total|prompt|completion|context|input|output)[_-]?)`
+const SECRET_NAME = String.raw`(?:password|passwd|passphrase|pwd|secret|api[_-]?key|access[_-]?key|private[_-]?key|${NOT_A_LIMIT}token|credentials?)`
 const STOP = new Set(['true', 'false', 'null', 'none', 'undefined', 'string', 'required', 'yes', 'no', 'empty', 'redacted'])
 
 const RULES: Rule[] = [
@@ -78,6 +80,41 @@ const RULES: Rule[] = [
     keyRule('token', 'github_pat_', 22),
     keyRule('token', 'xox[abprs]-', 10),
     keyRule('key', '(?:sk|rk)_(?:live|test)_', 16),
+    keyRule('token', 'npm_', 36),
+    keyRule('token', 'hf_', 30),
+    keyRule('token', 'glpat-', 20),
+    keyRule('token', 'ya29\\.', 20),
+    keyRule('key', 'GOCSPX-', 20),
+    {
+        // SendGrid: `SG.<22>.<43>`.
+        label: 'key',
+        re: new RegExp(`${NOT_BEFORE}SG\\.[A-Za-z0-9_-]{16,}\\.[A-Za-z0-9_-]{16,}`, 'g'),
+        accept: () => marker('key'),
+    },
+    {
+        // Twilio API key (`SK`) and account (`AC`) SIDs: 32 hex digits.
+        label: 'key',
+        re: new RegExp(`${NOT_BEFORE}(?:SK|AC)[0-9a-f]{32}${NOT_AFTER}`, 'g'),
+        accept: () => marker('key'),
+    },
+    {
+        // The secret is the path after `/services/` (Slack) or `/webhooks/<id>/` (Discord).
+        label: 'token',
+        re: /(hooks\.slack\.com\/services\/|discord(?:app)?\.com\/api\/webhooks\/)([A-Za-z0-9/_-]{8,})/gi,
+        accept: (m) => (m[2].startsWith('[removed') ? null : m[1] + marker('token')),
+    },
+    {
+        // Azure storage / service bus connection strings.
+        label: 'key',
+        re: /((?:Account|SharedAccess)Key=)([^;\s"'\\]{12,})/gi,
+        accept: (m) => m[1] + marker('key'),
+    },
+    {
+        // A `Cookie:` or `Set-Cookie:` header: name=value pairs up to the end of the line (or of the JSON string).
+        label: 'cookie',
+        re: new RegExp(`${NOT_BEFORE}((?:Set-)?Cookie\\\\?["']?\\s*[:=]\\s*)([^\\r\\n"\\\\]+)`, 'gi'),
+        accept: (m) => (/[A-Za-z0-9_.-]+=/.test(m[2]) && !m[2].startsWith('[removed') ? m[1] + marker('cookie') : null),
+    },
     keyRule('key', 'whsec_', 16),
     {
         label: 'token',
@@ -96,7 +133,8 @@ const RULES: Rule[] = [
     },
     {
         label: 'password',
-        re: /(:\/\/[^\s/:@"'<>\\]+:)([^\s/@"'<>\\]{3,})(@)/g,
+        // The password runs to the LAST `@` before the host (a password may hold an unescaped `@`).
+        re: /(:\/\/[^\s/:@"'<>\\]*:)([^\s/"'<>\\]{3,})(@)(?=[^\s@/"'<>\\]+(?:[:/?#]|[\s"'<>\\]|$))/g,
         accept: (m) => (m[2].startsWith('[removed') ? null : m[1] + marker('password') + m[3]),
     },
     {

@@ -3,7 +3,7 @@
 import { outsideData } from './redact'
 import type { Removals } from './schema'
 
-const ROOTS = 'home|root|Users|tmp|var|opt|etc|usr|mnt|srv|Volumes|private|media|workspace'
+const ROOTS = 'home|root|Users|tmp|var|opt|etc|usr|mnt|srv|Volumes|private|media|workspace|proc|sys|dev|run|data|app|Library|Applications|System|lib|lib64|bin|sbin|boot|snap|nix'
 const BAD = String.raw`"'` + '`<>|*?'
 // A directory name may hold single spaces between words when it is followed by a separator; the base name may not.
 const unixDir = `[^\\s/\\\\${BAD}]+(?: [^\\s/\\\\${BAD}]+)*`
@@ -21,7 +21,19 @@ const QUOTED = new RegExp(
 const WINDOWS = new RegExp(String.raw`(?<![A-Za-z0-9])[A-Za-z]:[\\/]+(?:${winDir}[\\/]+)*${winBase}`, 'g')
 const UNC = new RegExp(String.raw`(?<![\\\w])\\{2,4}[A-Za-z0-9_.-]+(?:\\{1,2}${winDir})*\\{1,2}${winBase}`, 'g')
 const UNIX = new RegExp(String.raw`(?<![\w./~@%-])/(?:${ROOTS})(?:/${unixDir})*/${unixBase}`, 'g')
-const TILDE = new RegExp(String.raw`(?<![\w./~@%-])~(?:/${unixDir})*/${unixBase}`, 'g')
+// `~/x/y` and `~alice/x/y`.
+const TILDE = new RegExp(String.raw`(?<![\w./~@%-])~(?:[A-Za-z_][\w.-]*)?(?:/${unixDir})*/${unixBase}`, 'g')
+// `$HOME/x`, `${HOME}/x`, `%USERPROFILE%\x`, `%APPDATA%\x`.
+const ENV_HOME = new RegExp(
+    String.raw`(?<![\w$%])(?:\$HOME|\$\{HOME\}|\$USERPROFILE|\$\{USERPROFILE\}|%(?:USERPROFILE|HOMEPATH|HOMEDRIVE|APPDATA|LOCALAPPDATA|TEMP|TMP)%)(?:[\\/]+${winDir})*[\\/]+${winBase}`,
+    'g'
+)
+// Win32 namespaces: `\\?\C:\Users\alice\a.txt`, `\\?\UNC\srv\share\a.txt`, `\\.\pipe\x`.
+const WIN_NS = new RegExp(String.raw`(?<![\\\w])\\\\[?.]\\(?:UNC\\|[A-Za-z]:\\+)?(?:${winDir}\\+)*${winBase}`, 'g')
+// A user's home directory by itself says who they are and nothing else: `/home/alice`, `C:\Users\alice`.
+const HOME_ONLY = /^(?:\/(?:home|Users)\/[^/\\]+|[A-Za-z]:[\\/]+Users[\\/]+[^\\/]+|~[^/\\]+)[\\/]*$/
+// Pseudo-devices every shell script uses; they name nothing about the machine.
+const HARMLESS = /^\/dev\/(?:null|zero|full|random|urandom|tty|stdin|stdout|stderr)$/
 
 const TRAILING = /[.,;:!?)\]}]+$/
 
@@ -45,6 +57,11 @@ function replacer(counts: Removals, quoted: boolean) {
             path = path.slice(0, path.length - t.length)
             tail = t
         }
+        if (HARMLESS.test(path)) return match
+        if (HOME_ONLY.test(path.replace(/^file:\/\/(?:localhost)?\/?(?=[A-Za-z]:)/, '').replace(/^file:\/\/(?:localhost)?/, ''))) {
+            counts.paths++
+            return '~' + tail
+        }
         const base = baseOf(path)
         if (!base) return match
         counts.paths++
@@ -61,6 +78,8 @@ function strip(part: string, counts: Removals): string {
             if (i % 2 === 1) return chunk
             return chunk
                 .replace(QUOTED, replacer(counts, true))
+                .replace(WIN_NS, replacer(counts, false))
+                .replace(ENV_HOME, replacer(counts, false))
                 .replace(UNC, replacer(counts, false))
                 .replace(WINDOWS, replacer(counts, false))
                 .replace(UNIX, replacer(counts, false))
