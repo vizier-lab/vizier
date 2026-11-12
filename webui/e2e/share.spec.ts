@@ -1,4 +1,4 @@
-// Shared conversation snapshots, US1 + US2 (specs/055-shared-chat, tasks T039 / T050, quickstart §4-§6).
+// Shared conversation snapshots, US1 + US2 (specs/056-shared-chat, tasks T039 / T050, quickstart §4-§6).
 // Everything is driven through the real WebUI against the running binary: people are real users
 // (created through the API with the roles the permission model needs), conversations are made by
 // typing into the composer of a dummyplug agent, and links are opened in fresh browser contexts.

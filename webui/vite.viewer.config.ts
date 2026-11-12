@@ -3,7 +3,7 @@ import { defineConfig } from 'vite'
 import { viteSingleFile } from 'vite-plugin-singlefile'
 import tsconfigPaths from 'vite-tsconfig-paths'
 
-// Single-file viewer template (specs/055-shared-chat R9): one HTML file with all script and CSS
+// Single-file viewer template (specs/056-shared-chat R9): one HTML file with all script and CSS
 // inlined, written to build/client/viewer-template.html after the SPA build.
 export default defineConfig({
     plugins: [tailwindcss(), tsconfigPaths(), viteSingleFile()],
