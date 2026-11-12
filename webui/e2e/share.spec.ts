@@ -64,10 +64,10 @@ async function person(kind: 'sharer' | 'maker' = 'sharer', tag = 'p'): Promise<P
     return { username, token, agent }
 }
 
-async function uiLogin(page: Page, who: { username: string }) {
+async function uiLogin(page: Page, who: { username: string; password?: string }) {
     await page.goto('/login')
     await page.getByLabel(/username/i).fill(who.username)
-    await page.getByLabel(/password/i).fill(PASSWORD)
+    await page.getByLabel(/password/i).fill(who.password ?? PASSWORD)
     await page.getByRole('button', { name: /sign in/i }).click()
     await expect(page).not.toHaveURL(/\/login/)
 }
@@ -108,6 +108,9 @@ async function openShare(page: Page) {
 
 /** An "anyone with the link" share needs its second, explicit confirmation before Create link is enabled. */
 async function confirmPublic(page: Page) {
+    // Nothing is preselected (FR-011): when the test chose nothing, it chooses the public link.
+    const radios = page.getByRole('radio')
+    if ((await radios.count()) && !(await page.getByRole('radio', { checked: true }).count())) await page.getByRole('radio', { name: /Anyone with the link/ }).check()
     const box = page.getByRole('checkbox', { name: /anyone who has this link can read/i })
     if (await box.count()) await box.check()
 }
@@ -368,7 +371,9 @@ test.describe('The Share button and the preview dialog', () => {
         await say(page, 'confirm before public')
         await openShare(page)
         const createBtn = page.getByRole('button', { name: 'Create link' })
-        await expect(createBtn).toBeDisabled()
+        await expect(createBtn).toBeDisabled() // nothing chosen yet (FR-011)
+        await page.getByRole('radio', { name: /Anyone with the link/ }).check()
+        await expect(createBtn).toBeDisabled() // chosen, not confirmed (FR-053)
         await page.getByRole('checkbox', { name: /anyone who has this link can read/i }).check()
         await expect(createBtn).toBeEnabled()
         await page.getByRole('radio', { name: 'Anyone signed in on this instance' }).check()
@@ -399,7 +404,8 @@ test.describe('The Share button and the preview dialog', () => {
         await expect(page.getByText('Nothing to share yet').first()).toBeVisible()
         await button.click({ force: true }).catch(() => undefined)
         await expect(page.getByRole('dialog')).toHaveCount(0)
-        expect(sent).toEqual([])
+        // Only the read of the person's own list (the "Shared: N" mark) may happen; nothing is created.
+        expect(sent.filter((x) => !x.startsWith('GET '))).toEqual([])
     })
 
     test('TP-25 / TP-18: Preview draws the real viewer; Cancel stores nothing and sends nothing', async ({ page }) => {
@@ -876,6 +882,12 @@ test.describe('Hostile content', () => {
 
     test('TP-40: <script>, <img onerror>, <iframe srcdoc>, <svg onload> are inert text (script-tag.json, onerror.json)', async ({ browser }) => {
         for (const name of ['script-tag.json', 'onerror.json']) {
+            if (name === 'onerror.json') {
+                // Its media part points at a key that is not in `media`: the server refuses it (FR-051); the viewer's own handling of it is run as a file in TP-74.
+                const r = await api('POST', '/shares', g1.token, { agent_id: g1.agent, topic_id: 'hostile', title: 'Hostile', audience: 'public', include_trail: false, removals: NO_REMOVALS, snapshot: fixture(name) })
+                expect([r.status, r.json?.message]).toEqual([400, 'The snapshot points at a media item that is not there'])
+                continue
+            }
             const id = await postSnapshot(g1, fixture(name))
             const v = await openHostile(browser, id)
             if (name === 'script-tag.json') {
@@ -914,14 +926,10 @@ test.describe('Hostile content', () => {
         await clean(v)
     })
 
-    test('TP-43: SVG with script or text/html as media become placeholders, never rendered', async ({ browser }) => {
-        const id = await postSnapshot(g1, fixture('svg-media.json'))
-        const v = await openHostile(browser, id)
-        const srcs = await v.page.locator('main img').evaluateAll((is) => is.map((i) => i.getAttribute('src') ?? ''))
-        expect(srcs.filter((s) => /svg|html/i.test(s.slice(0, 40)))).toEqual([])
-        await expect(v.page.getByRole('note')).toHaveCount(2)
-        expect(await v.page.locator('main object, main embed, main iframe').count()).toBe(0)
-        await clean(v)
+    test('TP-43: SVG with script or text/html as media: the server refuses it (the viewer\'s placeholders are run on the same file in TP-74)', async () => {
+        // The server refuses a media type that is not png/jpeg/webp/gif (FR-051).
+        const r = await api('POST', '/shares', g1.token, { agent_id: g1.agent, topic_id: 'hostile', title: 'Hostile', audience: 'public', include_trail: false, removals: NO_REMOVALS, snapshot: fixture('svg-media.json') })
+        expect([r.status, r.json?.message]).toEqual([400, 'A media item has a type that is not allowed'])
     })
 
     test('TP-44a: CSS url(http://...) and a <style> @import in a spec or a message fetch nothing', async ({ browser }) => {

@@ -126,8 +126,10 @@ test.describe('Sharing (spec 056, T078)', () => {
         await login(page)
         await createPlugAgent(page, AGENT)
         await page.goto(`/${AGENT}/chat`)
+        // A message typed before the page has hydrated is lost; wait, then send.
+        await page.waitForLoadState('networkidle')
         await send(page, `something to share ${Date.now()}`)
-        await expect(page.getByText(/dummyplug\/dummyplug/).first()).toBeVisible({ timeout: 30_000 })
+        await expect(page.getByRole('button', { name: /^Share this conversation$/ }).first()).toBeEnabled({ timeout: 30_000 })
     })
 
     const openDialog = async (page: import('@playwright/test').Page) => {
@@ -147,10 +149,12 @@ test.describe('Sharing (spec 056, T078)', () => {
 
     test('keyboard: Tab stays inside the dialog, the people picker is reachable and Escape closes it', async ({ page }) => {
         const dialog = await openDialog(page)
-        // focus moved in, and a long run of Tab never leaves the dialog
+        // focus moved in, and a long run of Tab never reaches the page behind
         for (let i = 0; i < 30; i++) {
             await page.keyboard.press('Tab')
-            expect(await dialog.evaluate((d) => d.contains(document.activeElement))).toBe(true)
+            // A native modal <dialog> makes the page behind inert; after its last control Tab hands focus to the browser's own UI (activeElement is <body>), never to the page.
+            const inside = await dialog.evaluate((d) => d.contains(document.activeElement) || document.activeElement === document.body)
+            expect(inside, `Tab ${i + 1}: ${await page.evaluate(() => { const a = document.activeElement; return a ? `${a.tagName} ${a.getAttribute('aria-label') ?? a.textContent?.slice(0, 40)}` : 'none' })}`).toBe(true)
         }
         // the audience radios and the picker are on the keyboard path
         await dialog.getByRole('radio', { name: 'Specific people' }).focus()
@@ -171,13 +175,17 @@ test.describe('Sharing (spec 056, T078)', () => {
             await expect(remove).toHaveCount(0)
         }
         await page.keyboard.press('Escape')
+        // In a search box the first Escape clears the typed text (the browser's own behaviour); the next one closes.
+        if (await dialog.isVisible()) await page.keyboard.press('Escape')
         await expect(dialog).toBeHidden()
     })
 
     test('a public share is not created until the confirmation is ticked (by keyboard)', async ({ page }) => {
         const dialog = await openDialog(page)
         const create = dialog.getByRole('button', { name: 'Create link' })
-        await expect(create).toBeDisabled()
+        await expect(create).toBeDisabled() // nothing chosen yet (FR-011)
+        await dialog.getByRole('radio', { name: /Anyone with the link/ }).check()
+        await expect(create).toBeDisabled() // chosen, not confirmed (FR-053)
         const box = dialog.getByRole('checkbox', { name: /anyone who has this link can read/i })
         await box.focus()
         await page.keyboard.press('Space')
