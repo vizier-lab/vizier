@@ -1,6 +1,7 @@
 import { IconButton } from '@vizier/design'
 import { useCallback, useMemo } from 'react'
 import { entryLabel } from '../../lib/notifications'
+import { useMobile } from '../../lib/useMobile'
 import { useAgents } from '../../stores/agents'
 import { useNotifications } from '../../stores/notifications'
 
@@ -22,6 +23,8 @@ export function NotificationsBell() {
         },
         [setAnchor]
     )
+    // A phone's top bar gives every control a thumb's 44px.
+    const mobile = useMobile()
     const setups = useAgents((s) => s.setups)
     const busy = useMemo(
         () =>
@@ -35,6 +38,7 @@ export function NotificationsBell() {
         <span ref={anchorRef} className="inline-flex">
             <IconButton
                 variant="ghost"
+                size={mobile ? 'lg' : 'md'}
                 icon="bell"
                 count={unread}
                 busy={busy}

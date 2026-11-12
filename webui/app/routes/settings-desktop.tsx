@@ -161,6 +161,12 @@ export default function SettingsDesktop() {
                                     />
                                 }
                             />
+                            {web!.allow_network && (
+                                <Notice tone="info" title="Install is loopback-only">
+                                    On other devices' addresses the browser treats the connection as insecure and refuses the
+                                    install. Use <code>http://127.0.0.1:&lt;port&gt;</code> on this computer.
+                                </Notice>
+                            )}
                             {url && (
                                 <p className="type-ui text-muted" role="status">
                                     Running at <code>{url}</code>

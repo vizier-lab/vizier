@@ -132,13 +132,17 @@ describe('applying', () => {
 describe('pre-paint script', () => {
     function run(stored: Record<string, string>, deviceIsDark = false) {
         const el = fakeElement()
+        const meta = fakeElement()
         const env = {
-            document: { documentElement: el },
+            document: {
+                documentElement: el,
+                querySelector: (s: string) => (s === 'meta[name="theme-color"]' ? meta : null),
+            },
             localStorage: { getItem: (k: string) => stored[k] ?? null },
             matchMedia: () => ({ matches: deviceIsDark }),
         }
         new Function('document', 'localStorage', 'matchMedia', PRE_PAINT_SCRIPT)(env.document, env.localStorage, env.matchMedia)
-        return el
+        return { ...el, meta }
     }
 
     it('does nothing with nothing stored', () => {
@@ -170,6 +174,28 @@ describe('pre-paint script', () => {
             const el = run({ 'vizier.scheme.paint': raw })
             expect(el.vars.size).toBe(0)
         }
+    })
+
+    it('paints the browser chrome to the stored scheme', () => {
+        expect(run({ 'vizier.theme': 'dark' }).meta.attrs.get('content')).toBe('#0b0b0c')
+        expect(run({ 'vizier.theme': 'light' }).meta.attrs.get('content')).toBe('#ffffff')
+    })
+
+    it('paints the browser chrome to the device when nothing is stored', () => {
+        expect(run({}, true).meta.attrs.get('content')).toBe('#0b0b0c')
+        expect(run({}, false).meta.attrs.get('content')).toBe('#ffffff')
+    })
+
+    it('paints the browser chrome even when the stored paint is damaged', () => {
+        const el = run({ 'vizier.theme': 'light', 'vizier.scheme.paint': '{oops' })
+        expect(el.vars.size).toBe(0)
+        expect(el.meta.attrs.get('content')).toBe('#ffffff')
+    })
+
+    it('paints the browser chrome to the variant a scheme forces', () => {
+        const el = run({ 'vizier.theme': 'light', 'vizier.scheme.paint': JSON.stringify(paintOf(nord)) })
+        expect(el.attrs.get('data-theme')).toBe('dark')
+        expect(el.meta.attrs.get('content')).toBe('#0b0b0c')
     })
 
     it('skips bad names and values', () => {
