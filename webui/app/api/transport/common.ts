@@ -121,9 +121,25 @@ export function setToken(token: string | null) {
     }
 }
 
+/**
+ * Where a 401 sends the person. `/share/*` is exempt: that page renders its own neutral
+ * "sign in" button carrying `returnTo=/share/<id>`, and a hard redirect to a bare `/login` would
+ * lose the link they came for. `/login` itself never redirects to itself.
+ */
+export function loginRedirectFor(pathname: string): string | null {
+    if (pathname === '/login' || pathname.startsWith('/share/')) return null
+    return '/login'
+}
+
+/** Clears nothing itself: sends the browser to the login page unless the current page handles 401 on its own. */
+export function redirectToLogin(pathname: string = location.pathname, assign: (url: string) => void = (u) => location.assign(u)) {
+    const to = loginRedirectFor(pathname)
+    if (to) assign(to)
+}
+
 let onUnauthorized: () => void = () => {
     setToken(null)
-    if (location.pathname !== '/login') location.assign('/login')
+    redirectToLogin()
 }
 
 /** The session store installs its own handler so a 401 also clears the stored user. */

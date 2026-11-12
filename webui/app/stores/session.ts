@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { setToken, getToken, setUnauthorizedHandler } from '../api/client'
+import { setToken, getToken, setUnauthorizedHandler, redirectToLogin } from '../api/client'
 import { transport, transportReady, type DesktopState } from '../api/transport'
 import { currentUser, login as apiLogin, type CurrentUser } from '../api/endpoints/auth'
 import type { Agent } from '../api/endpoints/agents'
@@ -74,5 +74,5 @@ export const useSession = create<SessionStore>()((set, get) => ({
 
 setUnauthorizedHandler(() => {
     useSession.getState().signOut()
-    if (typeof location !== 'undefined' && location.pathname !== '/login') location.assign('/login')
+    if (typeof location !== 'undefined') redirectToLogin()
 })
