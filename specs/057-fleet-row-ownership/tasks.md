@@ -237,7 +237,7 @@
 
 **Independent Test**: `specs/057-fleet-row-ownership/audit.md` covers the four required areas, every entry has a disposition, and every follow-up names a real issue.
 
-- [ ] T053 [US6] Search for anything [audit.md](audit.md) missed:
+- [X] T053 [US6] Search for anything [audit.md](audit.md) missed:
   - `rg "Mutex<Hash|static .*Lazy|OnceLock" crates/vizier-core/src`;
   - every `migration.` marker;
   - every startup-time `DELETE`/`UPDATE` left in `crates/vizier-core/src/dependencies.rs`.
@@ -249,9 +249,9 @@
 
 ## Phase 9: Polish & cross-cutting concerns
 
-- [ ] T055 [P] Create `docs/src/fleet/ownership-and-recovery.md`, explaining ownership scopes, the fence, what is refused, and what happens on takeover and in single node, in the voice of `docs/src/fleet/bus-contract.md`. Add it to `docs/src/SUMMARY.md` under the Fleet section.
-- [ ] T056 [P] Update `CLAUDE.md`. In **Durable turns**, replace "At startup `AgentHost::resend_pending_turns` re-sends …" with the claim-and-`recover_agent` description. Apply the same change to the startup-sweep sentences under **Background jobs** (storage), **Scheduler/Task runs**, **Scratchpad** and **Client tools**. Add a short **Row ownership** paragraph under the Fleet bus text: `owner_fence`, `FenceStorage::claim`, fenced writes, `recovery.rs`.
-- [ ] T057 [P] Update the "Durable turns" and startup-recovery sentences in `specs/023-persist-turn-activity/` only if they are referenced as current behaviour by `docs/src/`. Otherwise leave the old specs as history.
+- [X] T055 [P] Create `docs/src/fleet/ownership-and-recovery.md`, explaining ownership scopes, the fence, what is refused, and what happens on takeover and in single node, in the voice of `docs/src/fleet/bus-contract.md`. Add it to `docs/src/SUMMARY.md` under the Fleet section.
+- [X] T056 [P] Update `CLAUDE.md`. In **Durable turns**, replace "At startup `AgentHost::resend_pending_turns` re-sends …" with the claim-and-`recover_agent` description. Apply the same change to the startup-sweep sentences under **Background jobs** (storage), **Scheduler/Task runs**, **Scratchpad** and **Client tools**. Add a short **Row ownership** paragraph under the Fleet bus text: `owner_fence`, `FenceStorage::claim`, fenced writes, `recovery.rs`.
+- [X] T057 [P] Update the "Durable turns" and startup-recovery sentences in `specs/023-persist-turn-activity/` only if they are referenced as current behaviour by `docs/src/`. Otherwise leave the old specs as history.
 - [ ] T058 Run `cargo test --workspace`, `cargo clippy --workspace`, `cargo test -p vizier-core --no-default-features`, and the PostgreSQL run from quickstart §1. Paste the results into the PR description, with the delivery-order PR it belongs to.
 
 ---
