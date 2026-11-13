@@ -62,14 +62,18 @@ All three are in category `agents`, code-mode only, and are not available to dre
 
 | Tool | Input | Result |
 |---|---|---|
-| `list_detached_calls` | `state?` (`running` \| `done` \| `stopped` \| `all`, default `all`) | `{ "calls": [ {id, intent, state, elapsed_secs, delivered} ] }`, oldest first, this conversation only |
-| `get_detached_call` | `id` | `{ id, intent, state, started_at, elapsed_secs, timeout_secs, parent_id, delivered, tool_calls: [{name, ok, duration_ms}], outcome? }` (`outcome` once final); an unknown or other conversation's id is `{ "status": "not_found" }` |
-| `cancel_detached_call` | `id` | `{ "status": "cancelled" }`, `{ "status": "already_finished", "state": … }` or `{ "status": "not_found" }`; stops the script and what it is waiting on and cancels scripts launched from it; nothing is delivered |
+| `list_detached_scripts` | `state?` (`running` \| `done` \| `stopped` \| `all`, default `all`) | `{ "scripts": [ {id, intent, state, elapsed_secs, delivered} ] }`, oldest first, this conversation only |
+| `get_detached_script` | `id` | `{ id, intent, state, started_at, elapsed_secs, timeout_secs, parent_id, delivered, tool_calls: [{name, ok, duration_ms}], outcome? }` (`outcome` once final); an unknown or other conversation's id is `{ "status": "not_found" }` |
+| `cancel_detached_script` | `id` | `{ "status": "cancelled" }`, `{ "status": "already_finished", "state": … }` or `{ "status": "not_found" }`; stops the script and what it is waiting on and cancels scripts launched from it; nothing is delivered |
 
 Refusals are `status` results, never errors (the convention of the scratchpad and time tools).
+
+`tool_calls` here is deliberately the slim form (`name`, `ok`, `duration_ms`): the agent wrote the script and has its arguments in its own history, and the slim form keeps the reply small. The stored row and the HTTP detail keep the fuller `ToolInvocationRecord` (with `seq` and redacted argument previews) that the panel draws.
+
+Only the agent cancels in this feature; cancelling from the WebUI is deferred (contracts/http-and-frames.md, "Deferred").
 
 ## 5. Retired names
 
 `background_subagents`, `list_background_jobs` and `cancel_background_job` are in `RETIRED_TOOL_NAMES`; calling one raises:
 
-> `background_subagents was replaced: run execute_python with detached=true and call parallel_subagents (or any tool) inside it; see list_detached_calls, get_detached_call and cancel_detached_call.`
+> `background_subagents was replaced: run execute_python with detached=true and call parallel_subagents (or any tool) inside it; see list_detached_scripts, get_detached_script and cancel_detached_script.`

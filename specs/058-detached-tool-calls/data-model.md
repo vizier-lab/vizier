@@ -1,6 +1,6 @@
 # Data Model: Detached scripts
 
-## DetachedCall (table `detached_call`, behind `DetachedCallStorage`)
+## DetachedScript (table `detached_script`, behind `DetachedScriptStorage`)
 
 One row per detached `execute_python` run. Replaces `background_job` and `background_piece`, which are dropped.
 
@@ -33,25 +33,28 @@ One row per detached `execute_python` run. Replaces `background_job` and `backgr
 ## State machine
 
 ```
-            ┌────────── cancel (person or agent) ──────────► cancelled   (never delivered)
+            ┌────────── cancel (the agent; cascade) ───────► cancelled   (never delivered)
             │
  running ───┼── script returns ────────────────────────────► succeeded
             ├── script raises / hits a limit / is refused ─► failed
             ├── time limit reached ────────────────────────► timed_out
-            └── owner released / restart ──────────────────► interrupted
+            └── restart, owner released, agent instance ───► interrupted
+                stopped (update / restart)
 ```
 
+Deleting the agent stops its scripts and deletes their rows (no state change is recorded).
+
 - Every transition out of `running` is one guarded, fenced update (`WHERE id = ? AND state = 'running'`): of two racing causes exactly one wins, which makes "delivered or cancelled, never both" (FR-013) a database fact.
-- A final call that is not `cancelled` is **deliverable** until `delivered_at` is set.
+- A final script that is not `cancelled` is **deliverable** until `delivered_at` is set.
 
 ## Delivery claim
 
-`claim_deliverable(session) -> Vec<DetachedCall>`: one transaction that selects the session's deliverable rows, sets `delivered_at` on them and returns them in `finished_at` order. Called by the inner loop at a round boundary and by the `DetachedDelivery` handler; whichever runs first takes the rows.
+`claim_deliverable(session) -> Vec<DetachedScript>`: one transaction that selects the session's deliverable rows, sets `delivered_at` on them and returns them in `finished_at` order. Called by the inner loop at a round boundary and by the `DetachedDelivery` handler; whichever runs first takes the rows.
 
 ## Views
 
-- **`DetachedCallSnapshot`** (HTTP list and `SessionFrame::DetachedCall`): `id`, `intent`, `state`, `created_at`, `finished_at`, `timeout_secs`, `parent_id`, `delivered` (bool) and `tool_call_count`. Small enough to push on every change.
-- **`DetachedCallDetail`** (`GET …/{id}` only): the snapshot plus `code`, `tool_calls` and, once final, the `ExecutionReport` as `report`. The panel draws it with the trail's own run-detail component (code with line numbers and Copy, calls inside, output, result or traceback), so an entry reads exactly like the same script in the activity trail.
+- **`DetachedScriptSnapshot`** (HTTP list and `SessionFrame::DetachedScript`): `id`, `intent`, `state`, `created_at`, `finished_at`, `timeout_secs`, `parent_id`, `delivered` (bool) and `tool_call_count`. Small enough to push on every change.
+- **`DetachedScriptDetail`** (`GET …/{id}` only): the snapshot plus `code`, `tool_calls` and, once final, the `ExecutionReport` as `report`. The panel draws it with the trail's own run-detail component (code with line numbers and Copy, calls inside, output, result or traceback), so an entry reads exactly like the same script in the activity trail.
 - **Delivery message** (what the model reads): one user message headed `[Background work finished]`, one block per script (`id`, intent, elapsed, state, then the report's `result`, `stdout` and error, or the reason). Rendered by `render_delivery` in `agents/detached/delivery.rs`; the first line is the same in a round-boundary message and a wake-up turn.
 - **Handle** (what `execute_python` returns when detached): `{"detached": true, "id", "state": "running", "timeout_secs"}`.
 
@@ -63,6 +66,8 @@ One row per detached `execute_python` run. Replaces `background_job` and `backgr
 
 `ToolContext.detached: bool` (default false; true only inside a detached script). With `interactive: false` and `client: None` it is what removes the live-turn tools from the script's catalogue.
 
+`ToolContext.parent_detached_id: Option<String>` (set only inside a detached script, to its own id). `parallel_subagents` copies it onto the requests it sends (`VizierRequest.parent_detached_id`), and a sub-agent turn's `ToolContext` takes it from its request, so a script launched there records its parent.
+
 ## Removed
 
-`BackgroundJob`, `BackgroundPiece`, `BackgroundReport`, `JobKind`, `JobState`, `PieceState`, `ReportEntry`, the `background_job`/`background_piece` tables, and the `background` notification category. `Canceller` is reused.
+`BackgroundJob`, `BackgroundPiece`, `BackgroundReport`, `JobKind`, `JobState`, `PieceState`, `ReportEntry`, the `background_job`/`background_piece` tables, the `background_job` notification category (`NotificationCategory::BackgroundJob`) and its stored notification rows, which the drop migration deletes. `Canceller` is reused; in this feature it is only ever the agent.

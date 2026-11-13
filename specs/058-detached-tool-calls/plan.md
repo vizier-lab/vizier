@@ -14,9 +14,9 @@ Replace "background jobs" with one general option on `execute_python` only: `det
 
 **Primary Dependencies**: existing only: tokio, `tracing`, `serde_json`, `utoipa`, the SQL store (`SqlConn`/`Dialect`), the Fleet bus transport, Zustand, vitest. **No new crate or package.**
 
-**Storage**: one new table `detached_call` through `SqlStorage` (SQLite and PostgreSQL by the shared trait, a numbered PostgreSQL migration `0008`, idempotent SQLite schema init); the `background_job` and `background_piece` tables are dropped. Outcomes live in the row, not in blobs.
+**Storage**: one new table `detached_script` through `SqlStorage` (SQLite and PostgreSQL by the shared trait, a numbered PostgreSQL migration `0008`, idempotent SQLite schema init); the `background_job` and `background_piece` tables are dropped. Outcomes live in the row, not in blobs.
 
-**Testing**: `cargo test -p vizier-core` (bridge, claim, fence, recovery), `cargo test -p vizier-http` (routes, conformance vectors), `webui` vitest and `npm run typecheck`, `cargo clippy --workspace`; end to end: dummyplug steps in [quickstart.md](quickstart.md) per the constitution's e2e gate (the guidance-wording step is marked live).
+**Testing**: `cargo test -p vizier-core` (bridge, claim, fence, recovery), the same storage tests against PostgreSQL (`VIZIER_TEST_DATABASE_URL`), `cargo test -p vizier-http` (routes, conformance vectors), `webui` vitest and `npm run typecheck`, `cargo clippy --workspace`; end to end: dummyplug steps in [quickstart.md](quickstart.md) per the constitution's e2e gate (the guidance-wording step is marked live).
 
 **Target Platform**: the server (Linux, macOS, Docker) and the desktop app (Windows included); nothing platform-specific is added.
 
@@ -35,16 +35,16 @@ Replace "background jobs" with one general option on `execute_python` only: `det
 | Principle or rule | Verdict |
 |---|---|
 | **I. Lean by default** | Pass. Two optional fields on one existing tool instead of a second feature; one table replaces two; `run_script` is shared by the inline and detached paths; no dependency, flag or config added; net lines go down. Per-call detaching and named groups were designed and cut for this reason. |
-| **II. Trait-based extensibility** | Pass. What a detached script may call is decided by the existing `VizierTool::available(ctx)` seam (`interactive: false`, no client) plus one `ctx.detached` filter on turn-ending entries, so no code branches on a tool name; the existing `tool == "parallel_subagents"` name check in the bridge is **deleted**. New storage is a `DetachedCallStorage` supertrait member of `VizierStorageProvider`, implemented once on `SqlStorage`. |
+| **II. Trait-based extensibility** | Pass. What a detached script may call is decided by the existing `VizierTool::available(ctx)` seam (`interactive: false`, no client) plus one `ctx.detached` filter on turn-ending entries, so no code branches on a tool name; the existing `tool == "parallel_subagents"` name check in the bridge is **deleted**. New storage is a `DetachedScriptStorage` supertrait member of `VizierStorageProvider`, implemented once on `SqlStorage`. |
 | **III. Self-contained default** | Pass. SQLite default untouched; PostgreSQL gets the same table by the shared storage layer and an ordered migration. |
 | **IV. Portability** | Pass. No OS-specific code. Quickstart gives the Windows sleep form. |
-| **V. Unified errors and observability** | Pass. `crate::Result`, `tracing` only; spans `detached_call {tool}` as children of the turn's trace; refusals to the model are `status`/exception text, as the other code-mode tools. |
-| Design before UI code | Pass. Drawn in FigCraft (`Vizier shell.figcraft`, Shell · chosen, frames "058 · A" and "058 · B"): collapsible entries titled by the script's intent, trash cancel, and an expanded body that is the activity trail's own `RunDetail` (code, calls inside, result). |
+| **V. Unified errors and observability** | Pass. `crate::Result`, `tracing` only; spans `detached_script {tool}` as children of the turn's trace; refusals to the model are `status`/exception text, as the other code-mode tools. |
+| Design before UI code | Pass. Drawn in FigCraft (`Vizier shell.figcraft`, Shell · chosen, frames "058 · A" and "058 · B"): collapsible entries titled by the script's intent and an expanded body that is the activity trail's own `RunDetail` (code, calls inside, result). |
 | Optional capabilities behind a flag | N/A. Not optional; the capability is core engine behaviour and no flag changes an API shape. |
 | Roles and components independent | Pass. `agents/detached/` depends on trait seams (`VizierStorage`, `VizierTransport`) as `background/` did; testable alone. The gateway side reaches it only through the `AgentsClient`/service seam. |
 | Verify what a change touches | Pass. Touches `vizier-core`, `vizier-http`, `webui`, `design`; the PR runs those jobs and the `gate`. `Cargo.lock` and `Cargo.toml` are untouched. |
 | Dummyplug e2e | Pass. Quickstart steps 2 to 11, 14. |
-| Submodule branches | `design` and `webui` get branch `058-detached-tool-calls` (`just checkout`); commit order design → webui → vizier. |
+| Submodule branches | Every submodule (`design`, `webui`, `landing`, `dummyplug`) gets branch `058-detached-tool-calls` with `just checkout`; commit order design → webui → vizier. |
 | Conventional commits | Pass. Commits and the PR title: `feat(agents)!: replace background jobs with detached tool calls` (breaking). |
 | Row ownership (CLAUDE.md, spec 057) | Pass. Every write of in-flight work calls `check_fence`; `fence_tests.rs` gets one row per method; recovery runs on claim. |
 
@@ -73,13 +73,13 @@ specs/058-detached-tool-calls/
 crates/vizier-core/src/
 ├── agents/
 │   ├── detached/                       # NEW (replaces agents/background/)
-│   │   ├── mod.rs                      # DetachedCalls: launch, run task, cancel, cascade, claim wrapper
+│   │   ├── mod.rs                      # DetachedScripts: launch, run task, cancel, cascade, claim wrapper
 │   │   └── delivery.rs                 # render_delivery: the text of a round message and a wake-up turn
 │   ├── tools/
-│   │   ├── detached.rs                 # NEW: list/get/cancel_detached_call
+│   │   ├── detached.rs                 # NEW: list/get/cancel_detached_script
 │   │   ├── python/mod.rs               # detached + timeout_secs fields, run_script split, handle result
 │   │   ├── python/bridge.rs            # drop the parallel_subagents name check; tool_calls progress hook
-│   │   ├── mod.rs                      # ToolContext.detached, turn_catalogue filter, RETIRED_TOOL_NAMES
+│   │   ├── mod.rs                      # ToolContext.detached + parent_detached_id, turn_catalogue filter, RETIRED_TOOL_NAMES
 │   │   ├── subagents.rs                # drop background_subagents; keep parallel_subagents
 │   │   └── background_jobs.rs          # DELETED
 │   ├── agent/mod.rs                    # prompt_with: drain at the round boundary
@@ -87,13 +87,14 @@ crates/vizier-core/src/
 │   ├── process.rs                      # DetachedDelivery arm (claim, turn only if rows)
 │   └── background/                     # DELETED
 ├── schema/{detached.rs (NEW), background.rs (DELETED), request.rs, mod.rs}
-├── storage/{detached_call.rs (NEW), sqlite/detached_call.rs (NEW), fence.rs, mod.rs,
+├── storage/{detached_script.rs (NEW), sqlite/detached_script.rs (NEW), fence.rs, mod.rs,
 │            sqlite/fence_tests.rs, background_job.rs + sqlite/background_job.rs (DELETED),
-│            sql/postgres/migrations/0008_detached_calls.sql (NEW)}
+│            sql/postgres/migrations/0008_detached_scripts.sql (NEW)}
 ├── service/{detached.rs (NEW), jobs.rs (DELETED)}
 ├── recovery.rs, recovery_tests.rs      # interrupted sweep + delivery re-poke
+├── agents/{mod.rs, supervisor.rs}      # stop scripts on instance stop; storage/sqlite/agent.rs delete_agent
 ├── notifications/{mod.rs, text.rs}     # background_work category
-├── transport/mod.rs                    # SessionFrame::DetachedCall
+├── transport/mod.rs                    # SessionFrame::DetachedScript
 ├── channels/woken.rs                   # reads the new woken-turn frames
 ├── usage/mod.rs, utils/mod.rs, dependencies.rs
 └── tests: tests/agent_host.rs, tests/dummyplug_e2e.rs
@@ -104,7 +105,7 @@ crates/vizier-http/src/
 └── tests/conformance/groups/detached.rs (NEW) + pending.txt
 
 design/src/components/
-├── BackgroundWork/                     # NEW (replaces BackgroundJob/): collapsible entry, trash, Inspect details + stories
+├── BackgroundWork/                     # NEW (replaces BackgroundJob/): collapsible entry, RunDetail body + stories
 └── StatusStrip/                        # id "jobs" -> "work"
 
 webui/app/
@@ -118,12 +119,12 @@ CLAUDE.md                               # rewrite the Background jobs paragraphs
 crates/vizier-core/public-api.txt       # regenerated
 ```
 
-**Structure Decision**: a new `agents/detached/` module replaces `agents/background/` rather than growing it, since the unit of work changed from "sub-agent piece" to "tool call" and almost nothing of the old runner survives; `Canceller`, the depth constant and the timeout limits move over. The WebUI keeps its tray's screen and store; the design component is replaced because its shape (collapsible, trash, Inspect) differs from `BackgroundJob`.
+**Structure Decision**: a new `agents/detached/` module replaces `agents/background/` rather than growing it, since the unit of work changed from "sub-agent piece" to "tool call" and almost nothing of the old runner survives; `Canceller`, the depth constant and the timeout limits move over. The WebUI keeps its tray's screen and store; the design component is replaced because its shape (collapsible, `RunDetail` body) differs from `BackgroundJob`.
 
 ## Phases and order of work
 
-1. **Storage and schema**: `detached_call` table, `DetachedCallStorage`, fenced writes, the claim, migrations (drop old), fence tests. Landed first because everything reads it.
-2. **Engine**: `run_script` split, `detached` and `timeout_secs` on `execute_python`, `DetachedCalls` (task, cancel, cascade), `ToolContext.detached` and its catalogue filter, launch refusals, recovery. Bridge and catalogue tests.
+1. **Storage and schema**: `detached_script` table, `DetachedScriptStorage`, fenced writes, the claim, migrations (drop old), fence tests. Landed first because everything reads it.
+2. **Engine**: `run_script` split, `detached` and `timeout_secs` on `execute_python`, `DetachedScripts` (task, cancel, cascade), `ToolContext.detached` and its catalogue filter, launch refusals, recovery. Bridge and catalogue tests.
 3. **Delivery**: claim at the round boundary, `DetachedDelivery` request, `render_delivery`, guidance text, retired names.
 4. **Tools, service, HTTP, frames, notifications**, conformance vectors.
 5. **Removal**: delete the old module, tools, tables, routes, frames, request kind and every reference (SC-007 grep).
@@ -133,7 +134,9 @@ crates/vizier-core/public-api.txt       # regenerated
 ## Risks
 
 - **Hooks after the turn ends** (research D3): a detached task whose turn is gone must not fail on frame sends. Covered by quickstart step 6 and a unit test with a closed sender.
-- **Unknown notification category** (D9): the WebUI must tolerate old `background_job` rows for the retention window; verify first, skip them at read time if it does not.
+- **Old notification rows** (D9): settled. The drop migration deletes `background_job` notifications, so the unread count cannot include rows nobody can see.
+- **Agent stop and delete** (D4): scripts are not part of the agent instance, so the supervisor must stop them on update, restart and delete. A task and tests each.
+- **WebUI cancel is deferred** (D6): a person sees and inspects scripts but cannot stop one; only the agent can. The follow-up designs the gateway-to-owner cancel path for the Fleet.
 - **A detached `execute_python` returns a handle, not a report** (D10): the trail, message list and `ExecutionReport::ending_call` must accept it. A WebUI and a unit test row each.
 - **The sandbox's own limit** (`SandboxLimits.timeout`) is documented as a CPU clock limit in `sandbox/mod.rs`; confirm in the first engine task that a script mostly waiting on tools is bounded by wall time, as `execute_python`'s description promises, before reusing it for the detached limit.
 - **Breaking change**: agents whose saved guidance or users' habits call `background_subagents` get the retired-name message; release notes say so (`feat!`).

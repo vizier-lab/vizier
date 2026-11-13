@@ -4,7 +4,7 @@ Every decision below was checked against the code as of branch `058-detached-too
 
 ## D1. Where the `detached` option lives
 
-**Decision**: two new fields on `ExecutePythonInput` (`agents/tools/python/mod.rs`): `detached: bool` (default false) and `timeout_secs: Option<u64>` (1..=3600, default 600, used only when `detached` is true; setting it without `detached` is an error). `ExecutePython::call` keeps its inline path unchanged and, when `detached`, hands the same script to `DetachedCalls::launch` and returns a handle.
+**Decision**: two new fields on `ExecutePythonInput` (`agents/tools/python/mod.rs`): `detached: bool` (default false) and `timeout_secs: Option<u64>` (1..=3600, default 600, used only when `detached` is true; setting it without `detached` is an error). `ExecutePython::call` keeps its inline path unchanged and, when `detached`, hands the same script to `DetachedScripts::launch` and returns a handle.
 
 **Rationale**: every tool is called from `execute_python`, so one flag there detaches any tool call and needs no change to the sandbox, the bridge's argument handling, or any tool's schema. It also removes two problems of the per-call design: a tool that declares its own `detached` argument, and group semantics.
 
@@ -16,11 +16,13 @@ Every decision below was checked against the code as of branch `058-detached-too
 
 **Refused at launch**: a session that is a scheduled task or a dream (unattended: no one to deliver to; `VizierSession::is_scheduled_task()` and the dream-session check), and a launch at `MAX_BACKGROUND_DEPTH` (3, kept as the one depth constant, the field `ToolContext.background_depth`). A woken delivery turn *may* detach again.
 
+**A delivery turn is interactive**: `is_interactive_turn` returns true for `DetachedDelivery` in a conversation that has a person on it (the same rule as `Chat`), so the agent may ask a question about a result. The person started the work and is usually still there, and this matches `QuestionAnswer`, the other turn that follows up on a person's earlier message.
+
 **Rationale**: reuses the existing `available`/`interactive` seam (constitution II) instead of adding a flag per tool.
 
 ## D3. How a detached script runs
 
-**Decision**: `ExecutePython::call` is split: `run_script(code, limits, bridge) -> (ExecutionReport, attachments)` holds everything from "build the bridge" to "redact the report" and is called inline (as today) or from the detached task. `DetachedCalls::launch` records the row and `tokio::spawn`s a task that builds its own `RouterBridge` (context: a clone of the launching `ToolContext` with `background_depth + 1`, `interactive: false`, `client: None`, `detached: true`, fresh `pending_attachments`), and runs `run_script` with `SandboxLimits { timeout: the call's limit, .. }`. The limit therefore covers the whole script, tool waits included, as the spec says.
+**Decision**: `ExecutePython::call` is split: `run_script(code, limits, bridge) -> (ExecutionReport, attachments)` holds everything from "build the bridge" to "redact the report" and is called inline (as today) or from the detached task. `DetachedScripts::launch` records the row and `tokio::spawn`s a task that builds its own `RouterBridge` (context: a clone of the launching `ToolContext` with `background_depth + 1`, `interactive: false`, `client: None`, `detached: true`, fresh `pending_attachments`), and runs `run_script` with `SandboxLimits { timeout: the call's limit, .. }`. The limit therefore covers the whole script, tool waits included, as the spec says.
 
 **Rationale**: the existing bridge already gives the same permissions, hooks, per-tool timeout, redaction and invocation records (FR-009), and `RouterBridge` needs no change except deleting the `tool == "parallel_subagents"` name check: cancelling a detached script calls `SandboxBridge::cancel` (which the bridge already implements to stop an in-flight nested call) and aborts the task, and `parallel_subagents` aborts its own pieces when dropped.
 
@@ -32,9 +34,13 @@ Every decision below was checked against the code as of branch `058-detached-too
 
 ## D4. Records and ownership (spec 057)
 
-**Decision**: one `detached_call` table behind a new `DetachedCallStorage` supertrait member, replacing `background_job` and `background_piece`. Every write that advances a script (`open`, `close`, `cancel`, `claim`) goes through `check_fence` in its own transaction, carries `owner_node`/`owner_token`, scope `agent:{id}`; `fence_tests.rs` gets one row per method. `recover_agent` marks the claimed agent's `running` rows `interrupted` and re-sends the delivery request for sessions with undelivered final rows.
+**Decision**: one `detached_script` table behind a new `DetachedScriptStorage` supertrait member, replacing `background_job` and `background_piece`. Every write that advances a script (`open`, `close`, `cancel`, `claim`) goes through `check_fence` in its own transaction, carries `owner_node`/`owner_token`, scope `agent:{id}`; `fence_tests.rs` gets one row per method. `recover_agent` marks the claimed agent's `running` rows `interrupted` and re-sends the delivery request for sessions with undelivered final rows.
 
-**Dropped, not migrated**: PostgreSQL migration `0008_detached_calls.sql` creates the table and drops the two old ones; SQLite's `init_*_schema` creates it and runs `DROP TABLE IF EXISTS` on the old two. Both are migration code and get entries on #82.
+**Dropped, not migrated**: PostgreSQL migration `0008_detached_scripts.sql` creates the table and drops the two old ones; SQLite's `init_*_schema` creates it and runs `DROP TABLE IF EXISTS` on the old two. Both also `DELETE FROM notification WHERE category = 'background_job'`, so the unread count never includes rows no client can show (the list already drops an unknown category with `filter_map`, but the count queries are plain SQL). All of it is migration code and gets entries on #82.
+
+**Agent stop and delete**: scripts are tokio tasks, not part of an agent instance, so `AgentHost` must stop them itself. When the supervisor stops an instance (update, restart) it cancels the agent's in-memory tasks and moves their rows `running → interrupted` (fenced, the same transition recovery uses), and the new instance is sent `DetachedDelivery` for those sessions once it is up. `delete_agent` stops the tasks and deletes the agent's rows in its transaction, like every other per-agent table.
+
+**PostgreSQL**: the storage, claim and fence tests run against PostgreSQL as well (`VIZIER_TEST_DATABASE_URL`, the `managed-storage` CI job), as spec 057's did.
 
 **Stored text**: the row keeps the script's `intent` (the person-facing sentence, 500 characters), its `code` (so the panel can show it the way the trail does), the tool calls made so far (`ToolInvocationRecord`: name, argument preview, ok, duration), and on finish a bounded (32 KiB) copy of the outcome (the `ExecutionReport`). All of it passes the turn's `SecretRedactor` before it is written.
 
@@ -51,7 +57,15 @@ Every decision below was checked against the code as of branch `058-detached-too
 
 ## D6. Cancel, inspect, list
 
-**Decision**: three tools in the existing `agents` category, in `agents/tools/detached.rs`: `list_detached_calls`, `get_detached_call`, `cancel_detached_call`; not in `DREAM_TOOL_NAMES`. They replace `list_background_jobs` and `cancel_background_job`. Cancel is a guarded transition `running → cancelled`; the in-memory cancel signal (a `watch` per live task, as `BackgroundJobs.cancels` was) only stops the task, so losing the map in a restart cannot break exactly-once. Cancel cascades to rows whose `parent_id` is the cancelled script. `get_detached_call` includes the tool calls made so far, which the task keeps current by writing the list to the row when a call finishes (batched to at most one write per second).
+**Decision**: three tools in the existing `agents` category, in `agents/tools/detached.rs`: `list_detached_scripts`, `get_detached_script`, `cancel_detached_script`; not in `DREAM_TOOL_NAMES`. They replace `list_background_jobs` and `cancel_background_job`. Cancel is a guarded transition `running → cancelled`; the in-memory cancel signal (a `watch` per live task, as `BackgroundJobs.cancels` was) only stops the task, so losing the map in a restart cannot break exactly-once. Cancel cascades to rows whose `parent_id` is the cancelled script.
+
+**Who cancels**: only the agent, through `cancel_detached_script`. That tool runs in the process that owns the agent, so it can signal the task directly. Cancelling from the WebUI is **deferred**: in a Fleet the HTTP gateway is a different process from the owner, and a person's cancel would need its own path to the owner (`AgentsClient`, `agent.{id}.cmd`), which is designed with that follow-up.
+
+**Cascade across owners**: a nested script may belong to another agent (a sub-agent that detached), which in a Fleet may run elsewhere. The cascade moves those rows to `cancelled` in the database; a task also re-reads its own state whenever it writes progress and stops if it has been cancelled, so a nested script in another process stops at its next tool call at the latest. In one node the signal map stops it at once.
+
+**Parent id**: `ToolContext.parent_detached_id` (set only inside a detached script) is copied by `parallel_subagents` onto the requests it sends (`VizierRequest.parent_detached_id`), and from there into the sub-agent turn's `ToolContext`, so a launch in that turn records its parent.
+
+`get_detached_script` includes the tool calls made so far, which the task keeps current by writing the list to the row when a call finishes (batched to at most one write per second).
 
 **Rationale**: reusing the category avoids a 19th built-in category (which would touch `SANDBOX.md`, the reserved-name list and the table pinned by `every_tool_is_in_its_category`).
 
@@ -63,11 +77,11 @@ Every decision below was checked against the code as of branch `058-detached-too
 
 ## D8. HTTP and frames
 
-**Decision**: `/agents/{id}/channel/{channel}/topic/{topic}/detached-calls` (list), `/{call_id}` (get), `/{call_id}/cancel`. The `pieces/{ordinal}/history` route goes away. `SessionFrame::Job` becomes `SessionFrame::DetachedCall` carrying a snapshot; the WebUI frame `background_job` becomes `detached_call`. OpenAPI is regenerated (`webui/scripts/openapi.mjs`, `schema.d.ts`).
+**Decision**: `/agents/{id}/channel/{channel}/topic/{topic}/detached-scripts` (list) and `/{script_id}` (get), both reads; no cancel route (D6). The job routes, including `pieces/{ordinal}/history` and the job cancel route, go away. `SessionFrame::Job` becomes `SessionFrame::DetachedScript` carrying a snapshot; the WebUI frame `background_job` becomes `detached_script`. OpenAPI is regenerated (`webui/scripts/openapi.mjs`, `schema.d.ts`).
 
 ## D9. Notifications
 
-**Decision**: a final, non-cancelled script notifies once, category `background_work`, wording in `notifications/text.rs`. Old `background_job` rows age out under the 30-day retention; the WebUI must tolerate them. To be confirmed in the first WebUI task; fallback is a one-line skip of the old category at read time.
+**Decision**: a final, non-cancelled script notifies once, category `background_work`, wording in `notifications/text.rs`. Old `background_job` notification rows are **deleted** by the migration that drops the job tables (D4), and the `BackgroundJob` variant of `NotificationCategory` is removed, so neither core nor the WebUI ever meets the old category.
 
 ## D10. WebUI and design system
 

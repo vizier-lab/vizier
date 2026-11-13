@@ -22,6 +22,12 @@ cargo test -p vizier-core recovery
 cargo test -p vizier-http
 ```
 
+Against PostgreSQL (what the `managed-storage` CI job runs), from a shell with a disposable database; without the variable these tests pass trivially, so CI is the authority:
+
+```bash
+VIZIER_TEST_DATABASE_URL=postgres://postgres:vizier-test@127.0.0.1:5432/vizier cargo test -p vizier-core
+```
+
 ```bash
 cd webui && npm run typecheck && npx vitest run
 ```
@@ -42,8 +48,8 @@ Expected: all pass. The unit tests cover the launch refusals, the catalogue of a
    ```json
    {"tool": "execute_python", "arguments": {"intent": "run a slow command", "detached": true, "code": "shell_exec(command='sleep 10')\n'done'"}}
    ```
-   Expected: the call returns in under a second with `{"detached": true, "id": "d_…", "state": "running", …}`, and the trail shows it as running in the background. The Background work item in the status strip shows `1` with a live dot.
-2. `GET /api/v1/agents/dp/channel/<channel>/topic/<topic>/detached-calls` (or open the panel): one script, `running`, with the intent as its title.
+   Expected: the call returns in under a second with `{"detached": true, "id": "d_…", "state": "running", …}`, and the trail shows it as running in the background. The Background work item in the status strip shows `1` with a live dot **within 2 seconds** of sending (SC-004; time it).
+2. `GET /api/v1/agents/dp/channel/<channel>/topic/<topic>/detached-scripts` (or open the panel): one script, `running`, with the intent as its title.
 
 ## 3. Idle delivery wakes the conversation (dummyplug)
 
@@ -72,11 +78,11 @@ Expected: one row; one delivery carrying both answers when the script ends; each
 
 ## 7. Inspect and cancel (dummyplug)
 
-1. Detach `shell_exec(command='sleep 60')`; send `{"tool": "get_detached_call", "arguments": {"id": "<id>"}}`.
+1. Detach `shell_exec(command='sleep 60')`; send `{"tool": "get_detached_script", "arguments": {"id": "<id>"}}`.
    Expected: intent, state `running`, elapsed, limit, `tool_calls` listing `shell_exec` once it has started, no `outcome`.
-2. Open the Background work panel: the script shows with a trash icon; expand it for the same details.
-3. Press the trash icon (and, separately, send `{"tool": "cancel_detached_call", …}` for a second script).
-   Expected: the script reads `cancelled`, the sleeping process is gone, no delivery turn and no notification appear, and a repeat cancel answers `already_finished`.
+2. Open the Background work panel: the script shows with no cancel control (WebUI cancel is deferred); expand it and see its code, the calls made so far, and no result yet, as the activity trail would show it.
+3. Send `{"tool": "cancel_detached_script", "arguments": {"id": "<id>"}}`.
+   Expected: the script reads `cancelled` (the panel updates without a reload), the sleeping process is gone, no delivery turn and no notification appear, and a repeat cancel answers `already_finished`.
 4. Detach a script that calls `parallel_subagents` to a `dq` that runs its own detached script; cancel the outer.
    Expected: the outer and the inner both read `cancelled`.
 
@@ -97,6 +103,19 @@ Expected: after about 2 s the script reads `timed_out`, the process is gone, and
 1. Detach `sleep 60`, then kill the process hard.
 2. `just run` again.
    Expected: the script reads `interrupted`; the agent is woken once with a delivery that says the server restarted; no row is left `running`; the `owner_fence` token for `agent:dp` went up by one.
+3. Scale (SC-002, automated in `recovery_tests.rs`): with 50 running rows across several sessions, a claim of the agent marks all 50 `interrupted` and the deliveries that follow mark each delivered exactly once.
+
+## 10b. Agent update and delete (dummyplug)
+
+1. Detach `sleep 60`, then change `dp`'s configuration in the WebUI and save (an update restarts the instance).
+   Expected: the script reads `interrupted` at once, the sleeping process is gone, and the new instance is woken once with the interruption.
+2. Detach `sleep 60` again, then delete `dp`.
+   Expected: the sleeping process is gone and no `detached_script` row of `dp` is left.
+
+## 10c. A Workspace (dummyplug)
+
+In a Workspace with `dp` as a member, mention `@dp` with step 2's request.
+Expected: when the script ends, `dp` is woken in its own session for that topic, and its reply appears on the Workspace timeline like any reply to a mention.
 
 ## 11. Secrets (dummyplug)
 
@@ -114,7 +133,7 @@ Expected: the file is a session file of the conversation and is named in the del
 git grep -nE "background_subagents|list_background_jobs|cancel_background_job|BackgroundReport|background_job" -- crates webui/app docs CLAUDE.md
 ```
 
-Expected: only the `RETIRED_TOOL_NAMES` entries, the `DROP TABLE` migration lines and the #82 checklist entry (SC-007).
+Expected: only the `RETIRED_TOOL_NAMES` entries, the `DROP TABLE` and notification `DELETE` migration lines and the #82 checklist entry (SC-007). After a first start on an existing workspace, `SELECT COUNT(*) FROM notification WHERE category = 'background_job'` is 0.
 
 ## 14. Live (needs a real model)
 
