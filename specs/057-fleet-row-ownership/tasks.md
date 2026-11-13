@@ -243,7 +243,7 @@
   - every startup-time `DELETE`/`UPDATE` left in `crates/vizier-core/src/dependencies.rs`.
 
   Add a row for each new finding, with its disposition.
-- [ ] T054 [US6] Open the two follow-up issues the audit names (cross-node cancel of a background job; one-time migrations run by every node), after confirming their titles and bodies with the user. Use `gh issue create --repo vizier-lab/vizier`, label `enhancement`, referencing #159 and #164. Replace both `#TBD` in `specs/057-fleet-row-ownership/audit.md` with the issue numbers.
+- [X] T054 [US6] Open the two follow-up issues the audit names (cross-node cancel of a background job; one-time migrations run by every node), after confirming their titles and bodies with the user. Use `gh issue create --repo vizier-lab/vizier`, label `enhancement`, referencing #159 and #164. Replace both `#TBD` in `specs/057-fleet-row-ownership/audit.md` with the issue numbers.
 
 ---
 
