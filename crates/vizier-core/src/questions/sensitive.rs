@@ -182,25 +182,6 @@ pub async fn abandon_session(
     }
 }
 
-/// Startup sweep: a dialog cannot outlive the process awaiting it, so every ask still `open` is
-/// abandoned before any turn runs (research R9).
-pub async fn abandon_open_asks(storage: &VizierStorage) {
-    match storage.open_sensitive_asks_all().await {
-        Ok(asks) => {
-            let count = asks.len();
-            for ask in asks {
-                let _ = storage
-                    .close_sensitive_ask(&ask.ask_id, AskState::Abandoned)
-                    .await;
-            }
-            if count > 0 {
-                tracing::info!("abandoned {count} sensitive ask(s) left open by a restart");
-            }
-        }
-        Err(e) => tracing::warn!("could not sweep open sensitive asks: {e}"),
-    }
-}
-
 #[cfg(test)]
 mod tests {
 

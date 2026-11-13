@@ -397,18 +397,12 @@ impl BackgroundJobs {
         }
     }
 
-    /// Picks up the jobs a restart left open that a pending turn still backs
-    /// (`specs/023-persist-turn-activity`): a running job waits on its unfinished pieces'
-    /// sessions again and reports as usual; a reporting job's report turn is already journaled
-    /// and re-sent, so the job is only marked reported.
-    pub async fn recover(&self) {
-        let jobs = match self.storage.open_background_jobs().await {
-            Ok(jobs) => jobs,
-            Err(e) => {
-                tracing::warn!("could not read open background jobs to recover: {e}");
-                return;
-            }
-        };
+    /// Picks up the jobs a new owner of their launching agent kept open because a pending turn
+    /// still backs them (`specs/023-persist-turn-activity`, `specs/057-fleet-row-ownership`): a
+    /// running job waits on its unfinished pieces' sessions again and reports as usual; a
+    /// reporting job's report turn is already journaled and re-sent, so the job is only marked
+    /// reported. `jobs` are the ones `recovery::recover_agent` kept and re-owned.
+    pub async fn recover_jobs(&self, jobs: Vec<BackgroundJob>) {
         for job in jobs {
             match job.state {
                 JobState::Reporting => {

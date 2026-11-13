@@ -14,20 +14,39 @@ use crate::{
 #[async_trait::async_trait]
 pub trait ClientCallStorage {
     /// Record a call as `pending`, when it is made.
+    ///
+    /// Fenced: refused with `OwnershipLost` when a newer owner holds `agent:{agent_id}`
+    /// (specs/057 contracts/ownership.md).
     async fn open_client_call(&self, uid: &str, session: &VizierSession) -> Result<()>;
 
     /// Record how a call ended. Only a `pending` or `deferred` call changes, so a late write
     /// never overrides an outcome already recorded; returns whether this one applied.
+    ///
+    /// Fenced: refused with `OwnershipLost` when a newer owner holds `agent:{agent_id}`
+    /// (specs/057 contracts/ownership.md).
     async fn finish_client_call(&self, uid: &str, outcome: &ClientCallOutcome) -> Result<bool>;
 
     /// Replace the call's saved state, whatever its status.
+    ///
+    /// Fenced: refused with `OwnershipLost` when a newer owner holds `agent:{agent_id}`
+    /// (specs/057 contracts/ownership.md).
     async fn save_client_call_state(&self, uid: &str, state: &serde_json::Value) -> Result<()>;
 
     /// Startup sweep: a call cannot outlive the process awaiting it, so every `pending` one
     /// becomes `interrupted`.
     async fn interrupt_pending_client_calls(&self) -> Result<usize>;
 
+    /// Recovery of `agent:{agent_id}`: its `pending` calls whose owner is older than `below` (or
+    /// null) become `interrupted` and are re-owned by the held fence, in the same statement.
+    /// `deferred` calls are left as they are. Returns how many.
+    ///
+    /// Fenced: refused with `OwnershipLost` when a newer owner holds `agent:{agent_id}`.
+    async fn interrupt_expired_client_calls(&self, agent_id: &str, below: u64) -> Result<usize>;
+
     /// `pending → deferred`: the call waits for a client to reconnect (research R18).
+    ///
+    /// Fenced: refused with `OwnershipLost` when a newer owner holds `agent:{agent_id}`
+    /// (specs/057 contracts/ownership.md).
     async fn defer_client_call(&self, uid: &str) -> Result<bool>;
 
     /// Take the claim on a deferred call: exactly one gateway delivers it at a time.
@@ -70,6 +89,10 @@ impl ClientCallStorage for VizierStorage {
 
     async fn interrupt_pending_client_calls(&self) -> Result<usize> {
         self.0.interrupt_pending_client_calls().await
+    }
+
+    async fn interrupt_expired_client_calls(&self, agent_id: &str, below: u64) -> Result<usize> {
+        self.0.interrupt_expired_client_calls(agent_id, below).await
     }
 
     async fn defer_client_call(&self, uid: &str) -> Result<bool> {

@@ -12,6 +12,7 @@ use crate::schema::{
     IntegrationChanged, RevisionOrigin, RevisionTrigger,
 };
 use crate::storage::agent::AgentStorage;
+use crate::storage::fence::{Fence, FenceStorage, Scope};
 use crate::storage::integration::IntegrationStorage;
 use crate::storage::user::UserStorage;
 use crate::transport::VizierRequestEnvelope;
@@ -38,6 +39,14 @@ pub mod tools;
 
 /// How long an update waits for the old agent to stop before aborting it.
 const STOP_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// The node id a single node claims its agents under. A Fleet worker passes its own with
+/// [`AgentHost::with_node`].
+const LOCAL_NODE: &str = "local";
+
+/// The supervisor's backoff (2 s doubling to 5 min), which an incomplete recovery pass follows too.
+const RECOVERY_RETRY_FIRST: Duration = Duration::from_secs(2);
+const RECOVERY_RETRY_MAX: Duration = Duration::from_secs(300);
 
 /// How often the host refreshes the published health views. A view is good for ten
 /// seconds, so it is refreshed well inside that.
@@ -122,6 +131,14 @@ pub struct AgentHost {
     /// The commands the scoped subscriptions read, handled on the command loop like the
     /// fleet-wide ones.
     scoped_rx: mpsc::UnboundedReceiver<AgentCommand>,
+    /// The node this host claims its agents under (`specs/057-fleet-row-ownership`).
+    node: String,
+    /// Where each agent's ownership watcher reports that a newer owner has taken it.
+    lost_tx: mpsc::UnboundedSender<AgentId>,
+    lost_rx: mpsc::UnboundedReceiver<AgentId>,
+    /// The tasks tied to a held agent: its ownership watcher and any recovery retry. Aborted when
+    /// the agent is released.
+    owned_tasks: HashMap<AgentId, Vec<JoinHandle<()>>>,
 }
 
 impl AgentHost {
@@ -131,8 +148,18 @@ impl AgentHost {
     /// agent's *configuration* is read from storage, which is stored state and not the
     /// running agent's state.
     pub async fn new(deps: VizierDependencies, held: Vec<AgentId>) -> Result<Self> {
+        Self::with_node(deps, held, LOCAL_NODE).await
+    }
+
+    /// [`Self::new`] for a host that claims its agents under `node` (a Fleet worker's id).
+    pub async fn with_node(
+        deps: VizierDependencies,
+        held: Vec<AgentId>,
+        node: impl Into<String>,
+    ) -> Result<Self> {
         let commands = deps.transport.serve_agent_commands().await?;
         let (scoped_tx, scoped_rx) = mpsc::unbounded_channel();
+        let (lost_tx, lost_rx) = mpsc::unbounded_channel();
         let mut agents = Self {
             deps,
             commands,
@@ -142,6 +169,10 @@ impl AgentHost {
             scoped: HashMap::new(),
             scoped_tx,
             scoped_rx,
+            node: node.into(),
+            lost_tx,
+            lost_rx,
+            owned_tasks: HashMap::new(),
         };
 
         for agent_id in held {
@@ -162,16 +193,79 @@ impl AgentHost {
         Ok(agents)
     }
 
-    /// Take an agent on: subscribe to its subjects, register its request channel, re-send
-    /// the turns that were pending, and start it.
+    /// Take an agent on: subscribe to its subjects, register its request channel, claim its
+    /// ownership scope, recover what the previous owner left (re-sending its pending turns), and
+    /// start it.
     pub async fn take(&mut self, agent_id: AgentId, config: AgentConfig) -> Result<()> {
         tracing::info!("starting agent: {}", agent_id);
         let recv = self.deps.transport.register_agent(agent_id.clone()).await;
         self.subscribe_scoped(&agent_id).await?;
-        self.resend_pending_turns(&agent_id).await;
+        let fence = match self.claim(&agent_id).await {
+            Ok(fence) => fence,
+            Err(e) => {
+                // Not ours to run: leave its channel and commands to whoever owns it.
+                self.release_scoped(&agent_id);
+                self.deps.transport.unregister_agent(&agent_id).await;
+                return Err(e);
+            }
+        };
+        let recovered = crate::recovery::recover_agent(&self.deps, &agent_id, &fence).await;
+        if !recovered.complete {
+            self.retry_recovery(&agent_id, fence);
+        }
         self.start(agent_id.clone(), config, recv, None);
         self.publish_health(&agent_id);
         Ok(())
+    }
+
+    /// Claim `agent:{id}` for this host (single node: no lease, so it always succeeds) and watch
+    /// for the claim being superseded, which releases the agent (contract rule 6).
+    async fn claim(&mut self, agent_id: &AgentId) -> Result<Fence> {
+        let scope = Scope::Agent(agent_id.clone());
+        let fence = self
+            .deps
+            .storage
+            .claim(&scope, &self.node, None)
+            .await
+            .map_err(|e| anyhow::anyhow!("could not claim agent '{agent_id}': {e:#}"))?;
+        let mut lost = self.deps.storage.ownership_lost(&scope);
+        let (tx, id) = (self.lost_tx.clone(), agent_id.clone());
+        let watcher = tokio::spawn(async move {
+            loop {
+                if *lost.borrow() {
+                    let _ = tx.send(id);
+                    return;
+                }
+                if lost.changed().await.is_err() {
+                    return;
+                }
+            }
+        });
+        self.owned_tasks
+            .entry(agent_id.clone())
+            .or_default()
+            .push(watcher);
+        Ok(fence)
+    }
+
+    /// An incomplete recovery pass is repeated in the background with the supervisor's backoff,
+    /// until it is complete. A repeat does nothing twice (contracts/recovery.md).
+    fn retry_recovery(&mut self, agent_id: &AgentId, fence: Fence) {
+        let (deps, id) = (self.deps.clone(), agent_id.clone());
+        let retry = tokio::spawn(async move {
+            let mut delay = RECOVERY_RETRY_FIRST;
+            loop {
+                tokio::time::sleep(delay).await;
+                if crate::recovery::recover_agent(&deps, &id, &fence).await.complete {
+                    return;
+                }
+                delay = (delay * 2).min(RECOVERY_RETRY_MAX);
+            }
+        });
+        self.owned_tasks
+            .entry(agent_id.clone())
+            .or_default()
+            .push(retry);
     }
 
     /// Publish an agent's health view, so a gateway can read it without asking the owner.
@@ -190,6 +284,9 @@ impl AgentHost {
 
     /// Let an agent go. The running turns end the way a delete ends them.
     pub async fn release(&mut self, agent_id: &AgentId) -> Result<()> {
+        for task in self.owned_tasks.remove(agent_id).unwrap_or_default() {
+            task.abort();
+        }
         self.release_scoped(agent_id);
         self.deps.transport.unregister_agent(agent_id).await;
         if let Some(process) = self.processes.remove(agent_id) {
@@ -226,37 +323,6 @@ impl AgentHost {
     fn release_scoped(&mut self, agent_id: &AgentId) {
         if let Some(handle) = self.scoped.remove(agent_id) {
             handle.abort();
-        }
-    }
-
-    /// Requests accepted before vizier went down and not finished are sent again, in the
-    /// order they were accepted: a turn that had begun resumes, the rest run in turn
-    /// (`specs/023-persist-turn-activity`). Their replies are published on the session
-    /// events, where an open WebUI topic or a channel reader picks them up.
-    async fn resend_pending_turns(&self, agent_id: &AgentId) {
-        use crate::storage::turn::{TurnState, TurnStorage};
-        let pending = match self.deps.storage.pending_turns(agent_id).await {
-            Ok(pending) => pending,
-            Err(e) => {
-                tracing::error!(agent_id = %agent_id, "could not read pending turns: {e}");
-                return;
-            }
-        };
-        if pending.is_empty() {
-            return;
-        }
-        tracing::info!(agent_id = %agent_id, count = pending.len(), "re-sending turns that were pending at shutdown");
-        for turn in pending {
-            let envelope = crate::transport::VizierRequestEnvelope {
-                response_tx: self.deps.transport.broadcast_sender(turn.session.clone()).await.ok(),
-                session: turn.session,
-                request: turn.request,
-                turn_id: Some(turn.id),
-                resumed: turn.state == TurnState::Running,
-            };
-            if let Err(e) = self.deps.transport.resend(envelope).await {
-                tracing::warn!(agent_id = %agent_id, "could not re-send a pending turn: {e}");
-            }
         }
     }
 
@@ -310,6 +376,14 @@ impl AgentHost {
                     let ids: Vec<AgentId> = self.processes.keys().cloned().collect();
                     for agent_id in &ids {
                         self.publish_health(agent_id);
+                    }
+                }
+                // A newer owner claimed an agent this host holds: stop it here, and let the new
+                // owner resume its turns (specs/057 contract rule 6).
+                Some(agent_id) = self.lost_rx.recv() => {
+                    if self.processes.contains_key(&agent_id) {
+                        tracing::warn!(agent_id = %agent_id, "ownership moved to another node; released");
+                        let _ = self.release(&agent_id).await;
                     }
                 }
                 cmd = self.commands.recv() => match cmd {
@@ -585,6 +659,10 @@ impl AgentHost {
                 "failed to answer commands for agent '{}': {e}",
                 agent_id
             ));
+        }
+        // A new agent has nothing to recover, but it is owned like any other.
+        if let Err(e) = self.claim(&agent_id).await {
+            return AgentCommandResult::Error(format!("{e:#}"));
         }
         let summary = self.summary(&agent_id, &config).await;
         self.start(agent_id.clone(), config, recv, Some(built));

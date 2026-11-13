@@ -15,6 +15,9 @@ mod catalogue;
 mod client_call;
 pub(crate) mod core_revision;
 mod dream_journal;
+pub(crate) mod fence;
+#[cfg(test)]
+mod fence_tests;
 mod global_config;
 mod history;
 mod integration;
@@ -54,6 +57,9 @@ pub struct SqlStorage {
     pub(crate) cipher: crate::encryption::SecretCipher,
     /// Which integration settings are secret, from the kind registry.
     pub(crate) secret_paths: Arc<dyn crate::encryption::IntegrationSecretPaths>,
+    /// The ownership fences this process holds (`specs/057-fleet-row-ownership`, research R3).
+    /// Shared by every clone, so one process has one registry; empty until something claims.
+    pub(crate) fences: Arc<crate::storage::fence::Fences>,
 }
 
 /// The Memory Graph Index tables (`memory_node`/`memory_edge`, data-model.md) plus the derived
@@ -240,6 +246,7 @@ impl SqlStorage {
             session_files: tokio::sync::broadcast::channel(64).0,
             cipher: crate::encryption::SecretCipher::disabled(),
             secret_paths: Arc::new(crate::encryption::NoIntegrationSecretPaths),
+            fences: Arc::default(),
         }
     }
 
@@ -257,6 +264,7 @@ impl SqlStorage {
             session_files: tokio::sync::broadcast::channel(64).0,
             cipher,
             secret_paths,
+            fences: Arc::default(),
         }
     }
 
@@ -472,9 +480,57 @@ impl SqlStorage {
         // rows stay for the timeline's order. Every existing entry was a message, so the default
         // keeps them as they were read.
         add_column_if_missing(conn, "workspace_entry", "shown", "INTEGER NOT NULL DEFAULT 1")?;
+        init_ownership_schema(conn)?;
 
         Ok(())
     }
+}
+
+/// Row ownership (`specs/057-fleet-row-ownership/data-model.md`): the `owner_fence` table, one
+/// row per ownership scope, and the recovery indexes. Runs after the `init_*_schema` of the five
+/// tables of in-flight work, each of which adds its own owner columns ([`add_owner_columns`]).
+pub fn init_ownership_schema(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "
+        CREATE TABLE IF NOT EXISTS owner_fence (
+            scope       TEXT PRIMARY KEY,
+            node        TEXT NOT NULL,
+            token       INTEGER NOT NULL,
+            lease_token INTEGER,
+            claimed_at  TEXT NOT NULL
+        );
+        ",
+    )?;
+    let has = |table: &str| -> Result<bool> {
+        Ok(conn.query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
+            [table],
+            |row| row.get::<_, i64>(0),
+        )? > 0)
+    };
+    // The recovery predicates, per agent (`background_job (origin_agent, state)` is already
+    // `idx_bg_job_agent`).
+    if has("client_tool_call")? {
+        conn.execute_batch(
+            "CREATE INDEX IF NOT EXISTS idx_client_call_agent_status ON client_tool_call(agent_id, status);",
+        )?;
+    }
+    if has("sensitive_ask")? {
+        conn.execute_batch(
+            "CREATE INDEX IF NOT EXISTS idx_sa_agent_state ON sensitive_ask(agent_id, state);",
+        )?;
+    }
+    Ok(())
+}
+
+/// The `owner_node`/`owner_token` columns of a table of in-flight work (`session_turn`,
+/// `task_run`, `background_job`, `client_tool_call`, `sensitive_ask`), called by that table's own
+/// `init_*_schema`. A null `owner_token` is a row written before 057, read as owned by an expired
+/// owner; the ten `add_column_if_missing` calls and that rule are tracked for removal in #82.
+fn add_owner_columns(conn: &Connection, table: &str) -> Result<()> {
+    add_column_if_missing(conn, table, "owner_node", "TEXT")?;
+    add_column_if_missing(conn, table, "owner_token", "INTEGER")?;
+    Ok(())
 }
 
 /// The artifact tables (`specs/035-add-artifacts`, data-model.md §2). Metadata, change events
@@ -662,6 +718,7 @@ pub fn init_client_call_schema(conn: &Connection) -> Result<()> {
     // so an existing workspace gets the two columns here.
     add_column_if_missing(conn, "client_tool_call", "claimed_by", "TEXT")?;
     add_column_if_missing(conn, "client_tool_call", "claimed_at", "TEXT")?;
+    add_owner_columns(conn, "client_tool_call")?;
     Ok(())
 }
 
@@ -725,6 +782,7 @@ pub fn init_sensitive_ask_schema(conn: &Connection) -> Result<()> {
         CREATE INDEX IF NOT EXISTS idx_sa_open ON sensitive_ask(state) WHERE state = 'open';
         ",
     )?;
+    add_owner_columns(conn, "sensitive_ask")?;
     Ok(())
 }
 
@@ -793,6 +851,7 @@ pub fn init_turn_schema(conn: &Connection) -> Result<()> {
         CREATE INDEX IF NOT EXISTS idx_session_turn_agent ON session_turn (agent_id, id);
         ",
     )?;
+    add_owner_columns(conn, "session_turn")?;
     Ok(())
 }
 
@@ -877,6 +936,7 @@ pub fn init_task_run_schema(conn: &Connection) -> Result<()> {
         ",
     )?;
 
+    add_owner_columns(conn, "task_run")?;
     Ok(())
 }
 
@@ -989,6 +1049,7 @@ pub fn init_background_job_schema(conn: &Connection) -> Result<()> {
         ",
     )?;
 
+    add_owner_columns(conn, "background_job")?;
     Ok(())
 }
 

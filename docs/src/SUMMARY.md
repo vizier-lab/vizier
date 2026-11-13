@@ -49,3 +49,4 @@
 # Fleet
 
 - [Bus Contract](./fleet/bus-contract.md)
+- [Ownership and Recovery](./fleet/ownership-and-recovery.md)

@@ -1,6 +1,7 @@
 use crate::time::Timestamp;
 use crate::storage::sql::{self, OptionalExtension, params};
 use anyhow::Result;
+use crate::storage::fence::Scope;
 use chrono::NaiveDate;
 use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
@@ -345,6 +346,7 @@ impl HistoryStorage for SqlStorage {
 
         let conn = self.conn.lock()?;
         let tx = conn.unchecked_transaction()?;
+        super::fence::check_fence(&tx, &self.fences, &Scope::Agent(session.0.clone()))?;
         tx.execute(
             &insert_history_sql(tx.dialect()),
             params![
@@ -673,8 +675,10 @@ impl HistoryStorage for SqlStorage {
 
         let data = serde_json::to_string(&entry)?;
         let conn = self.conn.lock()?;
-        conn.execute(
-            &insert_history_sql(conn.dialect()),
+        let tx = conn.unchecked_transaction()?;
+        super::fence::check_fence(&tx, &self.fences, &Scope::Agent(session.0.clone()))?;
+        tx.execute(
+            &insert_history_sql(tx.dialect()),
             params![
                 uid,
                 session.0,
@@ -685,6 +689,7 @@ impl HistoryStorage for SqlStorage {
                 data
             ],
         )?;
+        tx.commit()?;
         Ok(entry)
     }
 

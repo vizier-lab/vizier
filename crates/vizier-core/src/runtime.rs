@@ -155,6 +155,9 @@ pub struct VizierRuntime {
     _lock: WorkspaceLock,
 }
 
+/// The node id a single node claims its scopes under.
+const SINGLE_NODE: &str = "local";
+
 impl VizierRuntime {
     /// Starts the engine on `options.config.workspace`. Must be called inside a tokio
     /// multi-thread runtime. Fails if the workspace is empty or already in use by another
@@ -177,6 +180,31 @@ impl VizierRuntime {
         let (events, _) = broadcast::channel(64);
         let mut subsystems = Subsystems::reporting(events.clone());
 
+        // The control scope is claimed and recovered before any agent starts, as the startup sweep
+        // of open task runs was: a run's pending turn must still be pending when it is judged
+        // (`specs/057-fleet-row-ownership` research R5). A single node claims it with no lease.
+        if roles.contains(ServerRole::Control) {
+            use crate::storage::fence::{FenceStorage, Scope};
+            let fence = deps
+                .storage
+                .claim(&Scope::Control, SINGLE_NODE, None)
+                .await
+                .map_err(|e| VizierError(format!("could not claim the control scope: {e:#}")))?;
+            if !crate::recovery::recover_control(&deps, &fence).await.complete {
+                let deps = deps.clone();
+                tokio::spawn(async move {
+                    let mut delay = std::time::Duration::from_secs(2);
+                    loop {
+                        tokio::time::sleep(delay).await;
+                        if crate::recovery::recover_control(&deps, &fence).await.complete {
+                            return;
+                        }
+                        delay = (delay * 2).min(std::time::Duration::from_secs(300));
+                    }
+                });
+            }
+        }
+
         let mut readers = None;
         if roles.contains(ServerRole::Worker) {
             // Placement decides which agents the local host holds; the host runs only those
@@ -192,9 +220,7 @@ impl VizierRuntime {
             )
             .await
             .map_err(err)?;
-            // After the agents re-sent their pending turns, so a recovered job finds them
-            // running.
-            deps.background_jobs.recover().await;
+            // Each agent's jobs were recovered when it was taken (`recovery::recover_agent`).
             subsystems.spawn("agent manager", async move { agents.run().await });
         }
 

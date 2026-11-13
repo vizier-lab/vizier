@@ -136,4 +136,8 @@ impl Dialect for SqliteDialect {
     fn next_sequence_value(&self, table: &str, column: &str) -> String {
         format!("(SELECT IFNULL(MAX({column}), 0) + 1 FROM {table})")
     }
+
+    fn share_lock_suffix(&self) -> &'static str {
+        ""
+    }
 }

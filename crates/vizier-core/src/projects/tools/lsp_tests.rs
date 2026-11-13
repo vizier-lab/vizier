@@ -21,8 +21,7 @@ use crate::{
 };
 
 fn fake_lsp() -> PathBuf {
-    let exe = std::env::current_exe().unwrap();
-    exe.parent().unwrap().parent().unwrap().join("examples").join("fake_lsp")
+    crate::tests_support::fake_lsp_path()
 }
 
 struct World {
@@ -99,10 +98,17 @@ impl World {
         let target = target_for("dp-a", self.project(), &file).expect("a target");
         let began = Instant::now();
         loop {
-            if matches!(self.project().lsp.ensure(&target), Availability::Ready(_)) {
+            let availability = self.project().lsp.ensure(&target);
+            if matches!(availability, Availability::Ready(_)) {
                 return;
             }
-            assert!(began.elapsed() < Duration::from_secs(20), "the server never became ready");
+            // Say why, so a failure on a machine nobody can reproduce on is still readable.
+            assert!(
+                began.elapsed() < Duration::from_secs(20),
+                "the server never became ready: {availability:?} (fixture {} exists: {})",
+                fake_lsp().display(),
+                fake_lsp().exists(),
+            );
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
     }
@@ -368,5 +374,8 @@ async fn a_config_file_in_the_project_changes_no_server() {
     let target = target_for("dp-a", w.project(), &file).unwrap();
     // Only a person's saved override (here the fake) decides the command.
     let command = target.server_override.unwrap().command;
-    assert!(command.ends_with("fake_lsp"), "{command}");
+    assert!(
+        std::path::Path::new(&command).file_stem().is_some_and(|stem| stem == "fake_lsp"),
+        "{command}"
+    );
 }

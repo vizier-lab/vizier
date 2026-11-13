@@ -97,6 +97,12 @@ pub async fn record_step(
             });
             Some(uid)
         }
+        // A newer owner holds this agent: the write was refused whole, and the watch on the
+        // scope is what stops the agent here (specs/057 research R4). Not an error to log.
+        Err(e) if crate::storage::fence::is_ownership_lost(&e) => {
+            tracing::debug!(agent_id = %session.0, "a turn step was refused: {e}");
+            None
+        }
         Err(e) => {
             tracing::error!(
                 agent_id = %session.0,
