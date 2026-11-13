@@ -14,7 +14,8 @@ One row per detached `execute_python` run. Replaces `background_job` and `backgr
 | `intent` | text | The `execute_python` `intent` sentence, cut to 500 characters. What people read. |
 | `state` | text | See state machine. |
 | `timeout_secs` | integer | 1..=3600, default 600. |
-| `tool_calls` | JSON | List of `{name, ok, duration_ms}` for the tool calls made so far (no arguments). Written when a call finishes, at most once per second. |
+| `code` | text | The script source (the 64 KiB script limit), redacted. The panel's Code section reads it; it is also in the turn's history. |
+| `tool_calls` | JSON | The calls made so far, as the trail shows them: `{seq, name, arguments, ok, duration_ms}` (`ToolInvocationRecord`), arguments redacted and cut to 500 characters each, the list cut at 32 KiB. Written when a call finishes, at most once per second. |
 | `created_at`, `finished_at` | epoch ms / null | `finished_at` is set with the final state. |
 | `outcome` | text, null | Redacted JSON `ExecutionReport`, or the failure or timeout message, cut to 32 KiB (the cut is marked). Set with the final state; kept until the conversation is deleted. |
 | `delivered_at` | epoch ms, null | Set by the delivery claim. Null on a final, non-cancelled row means "waiting to be delivered". |
@@ -25,7 +26,7 @@ One row per detached `execute_python` run. Replaces `background_job` and `backgr
 
 - `depth` < 3 at launch; `timeout_secs` in 1..=3600 and only with `detached`.
 - Refused at launch with no row: a scheduled-task or dream session.
-- `intent`, `tool_calls` and `outcome` pass the turn's `SecretRedactor` before they are stored.
+- `intent`, `code`, `tool_calls` and `outcome` pass the turn's `SecretRedactor` before they are stored.
 
 **Indexes**: `(agent_id, state)` (recovery, running list); `(session slug, state, delivered_at)` (the claim and the panel); `(parent_id)` (cancel cascade).
 
@@ -49,7 +50,8 @@ One row per detached `execute_python` run. Replaces `background_job` and `backgr
 
 ## Views
 
-- **`DetachedCallSnapshot`** (HTTP and `SessionFrame::DetachedCall`): `id`, `intent`, `state`, `created_at`, `finished_at`, `timeout_secs`, `parent_id`, `delivered` (bool), `tool_calls`, and `outcome_excerpt` (500 characters) for a final script. The full outcome is `GET …/{id}` only.
+- **`DetachedCallSnapshot`** (HTTP list and `SessionFrame::DetachedCall`): `id`, `intent`, `state`, `created_at`, `finished_at`, `timeout_secs`, `parent_id`, `delivered` (bool) and `tool_call_count`. Small enough to push on every change.
+- **`DetachedCallDetail`** (`GET …/{id}` only): the snapshot plus `code`, `tool_calls` and, once final, the `ExecutionReport` as `report`. The panel draws it with the trail's own run-detail component (code with line numbers and Copy, calls inside, output, result or traceback), so an entry reads exactly like the same script in the activity trail.
 - **Delivery message** (what the model reads): one user message headed `[Background work finished]`, one block per script (`id`, intent, elapsed, state, then the report's `result`, `stdout` and error, or the reason). Rendered by `render_delivery` in `agents/detached/delivery.rs`; the first line is the same in a round-boundary message and a wake-up turn.
 - **Handle** (what `execute_python` returns when detached): `{"detached": true, "id", "state": "running", "timeout_secs"}`.
 

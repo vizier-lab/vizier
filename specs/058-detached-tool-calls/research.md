@@ -36,7 +36,7 @@ Every decision below was checked against the code as of branch `058-detached-too
 
 **Dropped, not migrated**: PostgreSQL migration `0008_detached_calls.sql` creates the table and drops the two old ones; SQLite's `init_*_schema` creates it and runs `DROP TABLE IF EXISTS` on the old two. Both are migration code and get entries on #82.
 
-**Stored text**: the row keeps the script's `intent` (the person-facing sentence, 500 characters), the tool calls made so far as a small JSON list (name, ok, duration; arguments omitted, so no secret can be in it), and on finish a bounded (32 KiB), already-redacted copy of the outcome (the `ExecutionReport`). The script's code is not stored (it is in the turn's history).
+**Stored text**: the row keeps the script's `intent` (the person-facing sentence, 500 characters), its `code` (so the panel can show it the way the trail does), the tool calls made so far (`ToolInvocationRecord`: name, argument preview, ok, duration), and on finish a bounded (32 KiB) copy of the outcome (the `ExecutionReport`). All of it passes the turn's `SecretRedactor` before it is written.
 
 ## D5. Delivery: one atomic claim, two paths
 
@@ -71,7 +71,7 @@ Every decision below was checked against the code as of branch `058-detached-too
 
 ## D10. WebUI and design system
 
-**Decision**: change `design/` first (branch `058-detached-tool-calls`): `BackgroundJob` becomes a collapsible `BackgroundWork` entry (chevron, trash, Inspect details), `StatusStripItemId` `jobs` becomes `work`. Then `webui/`, then vizier's pins (design → webui → vizier). Entry shape: header is the script's **intent** (not a tool name), then handle and elapsed time; expanded, the tool calls made so far (name, ok, duration) and the outcome. The FigCraft drawing (frames "058 · A" and "058 · B") shows this shape (constitution: design before code).
+**Decision**: change `design/` first (branch `058-detached-tool-calls`): `BackgroundJob` becomes a collapsible `BackgroundWork` entry (chevron, trash, Inspect details), `StatusStripItemId` `jobs` becomes `work`. Then `webui/`, then vizier's pins (design → webui → vizier). Entry shape: header is the script's **intent** (not a tool name), then handle, elapsed time, a trash icon (running) and a chevron; expanded, it is the trail's own `RunDetail` (code with line numbers and Copy, "Calls inside" as `ScriptCall` rows, output, result or traceback), reused as is, so a script reads the same in the trail and in the panel. A still-running script shows Code and the calls finished so far (`ScriptCall` has no in-flight state, and none is added). The FigCraft drawing (frames "058 · A" and "058 · B") shows this shape (constitution: design before code).
 
 **Result rendering**: a detached `execute_python` call returns a handle, not an `ExecutionReport`; the trail and message renderers that read `ok`, `result`, `stdout` from an `execute_python` result must show the handle as "running in the background" (`lib/trail.ts`, `MessageList.tsx`), and `ExecutionReport::ending_call` must ignore it (it has no `tool_calls`).
 

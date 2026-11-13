@@ -10,7 +10,7 @@ Replaces `specs/012-background-subagent-results/contracts/http-api.md`. All rout
 | `GET …/detached-calls/{call_id}` | One call with its full outcome | 200 `DetachedCallDetail`; 404 |
 | `POST …/detached-calls/{call_id}/cancel` | Cancel a running call and the calls launched from it. Body `{ "reason"?: string }` (≤ 200 characters) | 200 with the cancelled snapshot; 409 with the snapshot if it was already final; 404 |
 
-`DetachedCallSnapshot` and `DetachedCallDetail` (the snapshot plus the full outcome) are in `data-model.md`; a snapshot carries the script's `intent` and its `tool_calls`. Removed: every `…/jobs…` route, including `pieces/{ordinal}/history`.
+`DetachedCallSnapshot` (the list and the frame: `intent`, `state`, times, `tool_call_count`) and `DetachedCallDetail` (the snapshot plus `code`, `tool_calls` and the final `report`) are in `data-model.md`. The panel fetches the detail when an entry is first expanded and refetches it when a frame says the script changed. Removed: every `…/jobs…` route, including `pieces/{ordinal}/history`.
 
 ## Session frame
 
