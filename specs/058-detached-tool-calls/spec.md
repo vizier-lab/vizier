@@ -10,85 +10,76 @@
 
 ## Overview
 
-Today an agent can run work in the background only through a dedicated feature: *background jobs*, started by the purpose-built `background_subagents` tool, which launches sub-agent conversations, waits for them and reports back into the originating conversation. Nothing else can run in the background: a slow shell command, a web fetch, a long search or an MCP call blocks the agent's turn until it finishes.
+A tool call normally blocks the agent until it finishes. A slow shell command, a large download, a long search, an MCP call or a question to another agent all hold the agent still.
 
-This feature replaces that special case with one general capability: a **detached** option on the agent's script execution. When a tool call in a script is marked detached, it runs on its own, the agent's turn continues at once, and the result is reported back when it is done. Any tool, including one that talks to another agent, can be detached, so a dedicated background sub-agent tool is no longer needed and is retired.
+This feature adds one general capability: a **detached** option on the agent's script execution. A tool call marked detached runs on its own, the script gets a handle at once, and the agent keeps working. When the call finishes, its result is delivered to the agent in its next inner loop iteration (its next round of thinking and acting), without waiting for the whole conversation turn to end. If the agent is idle when a call finishes, the conversation is woken with a turn of its own.
+
+This is a **full replacement** of the old "background jobs" feature. Its dedicated tools (`background_subagents` and the job list/cancel tools), its report mechanism and its stored job records are removed, not wrapped or kept compatible. Delegating to another agent in the background is simply a detached call to the tool that reaches that agent. `parallel_subagents` (blocking) is a separate feature and is unaffected.
 
 ## User Scenarios & Testing *(mandatory)*
 
-### User Story 1 - Run any slow tool without blocking the turn (Priority: P1)
+### User Story 1 - Run any slow tool without blocking the agent (Priority: P1)
 
-An agent needs a result that takes minutes (a long shell command, a large download, a slow search). It marks that call detached. The agent gets an immediate acknowledgement with a handle, keeps talking to the person or doing other work, and is woken with the result when the call finishes.
+An agent needs a result that takes minutes. It marks that call detached. It gets a handle immediately, keeps talking to the person or doing other work, and sees the result in its next inner loop iteration after the call finishes.
 
-**Why this priority**: This is the whole point of the feature and the capability background jobs only gave to sub-agents. It delivers value alone.
+**Why this priority**: This is the whole point of the feature and delivers value alone.
 
-**Independent Test**: With an offline test agent, detach a tool call that takes several seconds; verify the script continues immediately with a handle, and that a follow-up turn arrives carrying the call's result.
+**Independent Test**: With an offline test agent, detach a call that takes several seconds, then keep the agent working through further rounds; verify the script continued at once with a handle, and that the result shows up at the start of the first round after the call finished.
 
 **Acceptance Scenarios**:
 
 1. **Given** an agent running a script, **When** it detaches a tool call, **Then** the script receives a handle immediately and does not wait for the tool.
-2. **Given** a detached call that finishes successfully, **When** it completes, **Then** the originating conversation receives exactly one report containing the result, and the agent gets a turn to react to it.
-3. **Given** a detached call that fails or times out, **When** it ends, **Then** the report says so with the reason, instead of the result being lost.
-4. **Given** several detached calls started in one turn, **When** they finish at different times, **Then** the agent is not woken once per call in a storm of turns (see FR-009).
+2. **Given** a detached call that finishes while the agent is mid-turn, **When** the agent's current round ends, **Then** the result is part of the input of its next round in the same turn, not held until the conversation's next turn.
+3. **Given** a detached call that fails or times out, **When** it ends, **Then** the agent is told so with the reason, instead of the result being lost.
+4. **Given** the agent is idle (no turn running) when a call finishes, **When** it completes, **Then** the conversation is woken with a turn that carries the result.
 
 ---
 
 ### User Story 2 - Delegate to other agents without a dedicated tool (Priority: P1)
 
-An agent that used `background_subagents` to fan work out to sub-agents now does the same by detaching the ordinary calls that reach other agents. The behaviour people saw before (each piece runs in its own conversation, the results come back as one report) is preserved.
+An agent that needs several other agents to work in parallel detaches the ordinary calls that reach them, as a group if it wants one combined answer.
 
-**Why this priority**: It is the stated reason the old tool can be removed; without it the replacement is a regression.
+**Why this priority**: It is the stated reason the dedicated background sub-agent tool can go.
 
-**Independent Test**: Detach three sub-agent calls in one group; verify each runs in its own conversation, one combined report is delivered, and the old tool is no longer offered to the model.
+**Independent Test**: Detach three calls to other agents as one group; verify each runs in its own conversation, the agent receives one combined delivery once all three are final, and no background sub-agent tool is offered.
 
 **Acceptance Scenarios**:
 
-1. **Given** a script that detaches calls to other agents, **When** all finish, **Then** the originating conversation receives the answers, each attributed to its piece.
-2. **Given** an existing agent, **When** it starts after the upgrade, **Then** it is not offered `background_subagents`, and its guidance describes detaching instead.
+1. **Given** a group of detached calls to other agents, **When** the last member finishes, **Then** the agent receives all members' outcomes together, each attributed to its call.
+2. **Given** an ungrouped detached call, **When** it finishes, **Then** it is delivered on its own.
 
 ---
 
-### User Story 3 - See, cancel and survive restarts (Priority: P2)
+### User Story 3 - Inspect, cancel and see what is running (Priority: P2)
 
-A person watching a conversation sees which detached calls are running, can cancel one, and does not lose track of them when the server restarts. The existing tray of background jobs in the WebUI keeps working, now fed by detached calls.
+The agent can list its detached calls, inspect any one of them, and cancel one. A person can see a conversation's running detached calls and cancel one. After a server restart, calls that were in flight are shown as interrupted instead of running forever.
 
-**Why this priority**: Parity with what background jobs already offer; it makes the feature safe to rely on but is not needed for the first demo.
+**Why this priority**: Control and visibility make detaching safe to rely on, but the first demo does not need them.
 
-**Independent Test**: Start a long detached call, cancel it from the interface, and verify no report is sent; start another, restart the server, and verify it is shown as interrupted rather than silently vanishing.
+**Independent Test**: Start a long detached call; inspect it by handle (state, tool, elapsed time); cancel it as the agent, then repeat as a person; verify no result is ever delivered for it. Start another, restart the server, and verify it reads as interrupted.
 
 **Acceptance Scenarios**:
 
-1. **Given** a running detached call, **When** a person or the agent cancels it, **Then** it stops, is shown as cancelled, and never produces a report.
-2. **Given** a running detached call, **When** the server restarts, **Then** the call is shown as interrupted and the agent is told so, not left "running" forever.
+1. **Given** a running detached call, **When** the agent inspects it by handle, **Then** it sees the tool, its arguments summary, state, start time, elapsed time and time limit, and for a finished call its outcome.
+2. **Given** a running detached call, **When** the agent or a person cancels it, **Then** it stops, is shown as cancelled, and nothing is delivered for it.
 3. **Given** a detached call that launched further detached calls, **When** it is cancelled, **Then** the nested ones are cancelled too.
-
----
-
-### User Story 4 - Existing history and jobs keep working (Priority: P3)
-
-Conversations and stored jobs created before the change still display correctly, and a job that was in flight at upgrade is not corrupted.
-
-**Why this priority**: Compatibility only; no new capability.
-
-**Independent Test**: Open a conversation containing saved background-job entries and verify it renders; verify list and cancel of a legacy job still work.
-
-**Acceptance Scenarios**:
-
-1. **Given** a stored background job from before the change, **When** its conversation is opened, **Then** it reads as it did.
+4. **Given** a running detached call, **When** the server restarts, **Then** it is shown as interrupted and the agent is told so on its next opportunity.
 
 ---
 
 ### Edge Cases
 
 - A call that depends on the live turn (a client tool bound to an open socket, a question for the person, a turn-ending tool, a sensitive-input request) cannot be detached meaningfully; the attempt is refused with a message naming why.
-- Detaching inside a detached call (nesting) is allowed up to the same depth limit background jobs have; beyond it the call is refused.
-- The agent's turn ends before the detached call finishes: the call keeps running and the report wakes the conversation later, queued behind any turn that is running.
-- The originating conversation is deleted while a call runs: the call is cancelled and nothing is reported.
-- A detached call produces a very large result: the report carries a bounded excerpt and says it was cut, as a normal tool result would.
-- The agent is updated, restarted or deleted while calls run: behaviour matches background jobs today.
-- A secret-bearing result (`get_secret`): it is redacted in the report exactly as in a non-detached call.
-- Unattended contexts (dream cycle, scheduled tasks), where waking a conversation makes no sense: detaching is refused there.
-- The time limit is hit: the call is aborted and reported as timed out.
+- Detaching inside a detached call (nesting) is allowed up to a depth limit; beyond it the call is refused.
+- A call finishes while the agent is in the middle of a long script: nothing is injected into the running script; the result waits for the next round boundary.
+- A call finishes just as the agent is about to end its turn: the agent gets one more round to see it rather than the result being deferred to a later turn.
+- A group where one member is cancelled or fails: the group still delivers once every member is final, with that member's outcome stated.
+- The conversation is deleted while calls run: they are cancelled and nothing is delivered.
+- A detached call produces a very large result: the agent receives a bounded excerpt and is told it was cut, as for an inline call.
+- The agent is updated, restarted or deleted while calls run: calls are interrupted along with its running turns.
+- A secret-bearing result (`get_secret`): redacted in everything the agent, history and logs see, exactly as for an inline call.
+- Unattended contexts (dream cycle, scheduled tasks) have no one to deliver to: detaching is refused there.
+- The time limit is hit: the call is aborted and the agent is told it timed out.
 
 ## Requirements *(mandatory)*
 
@@ -96,44 +87,46 @@ Conversations and stored jobs created before the change still display correctly,
 
 - **FR-001**: Script execution MUST offer a `detached` option that makes a tool call run in the background; any tool reachable from a script MUST be detachable unless it falls in the refused set of FR-007.
 - **FR-002**: A detached call MUST return to the script immediately with a handle that identifies the call and its state, without waiting for the tool.
-- **FR-003**: When a detached call reaches a final state (succeeded, failed, timed out, cancelled, interrupted), the system MUST record it and, except when cancelled, deliver exactly one report to the originating conversation.
-- **FR-004**: A report MUST wake the conversation with a turn of its own, queued behind any running turn, using the same wake-up behaviour background reports have today, on every channel (WebUI, Discord, Telegram, workspaces).
-- **FR-005**: Each detached call MUST have a time limit, settable per call with a sensible default and a maximum, after which it is aborted and reported as timed out.
-- **FR-006**: A detached call MUST run with the same permissions, hooks, per-tool timeout, redaction and telemetry as the same call made inline.
+- **FR-003**: When a detached call reaches a final state (succeeded, failed, timed out, cancelled, interrupted), the system MUST record it and deliver its outcome to the agent exactly once, except for a cancelled call, which is never delivered.
+- **FR-004**: **Delivery while a turn is running.** An outcome that is ready while the agent has a turn running MUST be made part of the agent's input at its next inner loop iteration in that same turn. It MUST NOT wait for the conversation's next turn, and it MUST NOT be injected into a script that is still running. If the agent is about to end its turn while outcomes are pending delivery, it MUST get one more round to see them.
+- **FR-005**: **Delivery while idle.** An outcome that is ready when the agent has no turn running MUST wake the conversation with a turn of its own, on every channel (WebUI, Discord, Telegram, workspaces), queued behind any turn that starts in the meantime.
+- **FR-006**: Outcomes ready at the same moment MUST be delivered together in one iteration or one wake-up, never as a storm of turns.
 - **FR-007**: The system MUST refuse to detach a call that depends on the live turn (client tools, questions to the person, turn-ending tools, sensitive input) and MUST refuse detaching in unattended contexts, each with an explanatory message.
-- **FR-008**: Detached calls MUST nest to a bounded depth; deeper attempts are refused.
-- **FR-009**: Calls started together as a named group MUST report together: the report is held until every member is final, preserving the single combined report of `background_subagents`. Ungrouped calls report when each finishes, and reports that are ready at about the same time MUST reach the agent in one wake-up.
-- **FR-010**: People MUST be able to list a conversation's detached calls and cancel one; the agent MUST be able to do the same for its own. Cancelling cascades to calls launched from the cancelled one and never sends a report.
-- **FR-011**: Detached calls MUST survive turn boundaries but not a server restart; after a restart each in-flight call MUST be shown as interrupted and the agent informed, as background jobs are today.
-- **FR-012**: Exactly-once reporting MUST hold: a call is either reported or cancelled, never both, and never reported twice, including across restarts and ownership changes in a fleet.
-- **FR-013**: The `background_subagents` tool MUST be removed from what agents are offered; the guidance agents read MUST describe the detached option instead. `parallel_subagents` (blocking) is unaffected.
-- **FR-014**: The existing job tray in the WebUI, the job list and cancel endpoints and the agent's list and cancel tools MUST keep working, backed by detached calls. Saved history and stored jobs from before the change MUST still read correctly.
-- **FR-015**: Detached calls MUST be traceable: a detached call's work appears as a child of the trace that started it, and usage accounting attributes the cost to the same agent and conversation.
-- **FR-016**: Documentation MUST describe the detached option, the refused cases, reporting and cancellation, and note the retirement of `background_subagents`.
+- **FR-008**: Each detached call MUST have a time limit, settable per call with a default and a maximum, after which it is aborted and reported as timed out.
+- **FR-009**: A detached call MUST run with the same permissions, hooks, per-tool timeout, redaction and telemetry as the same call made inline, and its work MUST appear as a child of the trace that started it with cost attributed to the same agent and conversation.
+- **FR-010**: Detached calls MUST nest to a bounded depth; deeper attempts are refused.
+- **FR-011**: Calls started in a named group MUST be delivered together once every member is final. Ungrouped calls are delivered as each finishes (subject to FR-006).
+- **FR-012**: The agent MUST be able to list its conversation's detached calls, inspect any single call by handle (tool, arguments summary, state, start and elapsed time, time limit, and the outcome once final) and cancel a call. People MUST be able to see a conversation's detached calls and cancel one. Cancelling cascades to calls launched from the cancelled one and never delivers anything.
+- **FR-013**: Detached calls MUST survive turn boundaries but not a server restart; after a restart each in-flight call MUST be shown as interrupted and the agent informed.
+- **FR-014**: Exactly-once delivery MUST hold: a call is delivered or cancelled, never both and never twice, including across restarts and ownership changes in a fleet.
+- **FR-015**: The old background-jobs feature MUST be removed entirely: its dedicated tools, report mechanism, records and the guidance that describes them. Agents MUST be told in their guidance how to detach instead. No compatibility with old jobs or their saved entries is provided.
+- **FR-016**: Documentation MUST describe the detached option, the refused cases, delivery timing (mid-turn and idle), inspection and cancellation.
 
 ### Key Entities
 
 - **Detached call**: one tool call running in the background: who started it (agent, conversation, turn), which tool, its state, start and end times, time limit, optional group, optional parent call (for nesting). Holds no result text beyond what a normal tool result holds in history.
-- **Group**: an optional label tying several detached calls from one turn so they report together.
-- **Report**: the single wake-up delivered to the originating conversation, carrying each member's outcome.
+- **Group**: an optional label tying several detached calls from one turn so they are delivered together.
+- **Delivery**: the hand-off of one or more final outcomes to the agent, either into its next inner round or as a wake-up turn.
 
 ## Success Criteria *(mandatory)*
 
 ### Measurable Outcomes
 
 - **SC-001**: An agent can detach any non-refused tool and continue its script in under one second regardless of how long the tool takes.
-- **SC-002**: 100% of detached calls that end in a non-cancelled state produce exactly one report; zero duplicate or missing reports across a restart test of 50 in-flight calls.
-- **SC-003**: Every scenario previously done with `background_subagents` (fan-out, combined report, cancel, nesting, restart) can be reproduced with detached calls, and no agent guidance still refers to the old tool.
-- **SC-004**: A person can see a running detached call in the conversation within 2 seconds of its start and cancel it, and the cancelled call produces no further activity.
-- **SC-005**: Conversations and jobs created before the upgrade open and display without errors in 100% of the cases in the compatibility test set.
-- **SC-006**: In an offline end-to-end run, detaching a 10-second call lets the agent answer the person in under 2 seconds, then deliver the result when the call ends.
+- **SC-002**: 100% of detached calls that end in a non-cancelled state are delivered exactly once; zero duplicate or missing deliveries across a restart test of 50 in-flight calls.
+- **SC-003**: A result that is ready during a running turn is seen by the agent in the first round that starts after it became ready, in 100% of test runs, with no extra conversation turn created.
+- **SC-004**: A person can see a running detached call within 2 seconds of its start and cancel it, and a cancelled call produces no further activity.
+- **SC-005**: The agent can inspect any of its detached calls by handle and get the state in under one second.
+- **SC-006**: In an offline end-to-end run, detaching a 10-second call lets the agent answer the person in under 2 seconds, then act on the result when the call ends.
+- **SC-007**: After the change, no tool, endpoint, stored record or guidance text of the old background-jobs feature remains.
 
 ## Assumptions
 
 - "Detached" is a per-call option of script execution; marking a whole script detached is a convenience on the same mechanism, not a separate one.
-- The existing background-job machinery (records, runner, report wake-up, cancel cascade, depth limit, exactly-once transition) is the foundation; this feature generalises its unit of work from "sub-agent piece" to "tool call" rather than building a second system.
-- Sub-agent work in a detached call keeps today's behaviour of running in its own fresh conversation.
-- Detached calls do not persist across a server restart (as today); durable resumption is out of scope.
-- Default and maximum time limits stay the same as background jobs (600 s default, 3600 s maximum).
-- Removal of `background_subagents` is a deliberate breaking change for agents that call it by name; a retired-name message tells the model to detach instead. Compatibility code is added to the pre-1.0 removal checklist (#82).
-- Out of scope: new WebUI visuals (the existing tray is reused, so no FigCraft pass), a general job scheduler, and streaming partial output from a detached call.
+- The old background-jobs design does not constrain this one: its records, report turns, per-piece sessions and tray are replaced, and any part worth keeping is re-specified above.
+- Sub-agent work in a detached call runs in its own fresh conversation, as any call to another agent does.
+- Detached calls do not persist across a server restart; durable resumption is out of scope.
+- Default time limit 600 s and maximum 3600 s are carried over as sensible defaults, not as compatibility.
+- The person-facing view of running calls is the existing job tray of the WebUI repointed at detached calls; no new visual design is needed, so no FigCraft pass.
+- Deleting the old feature is a breaking change for anything calling it by name; the removal and any migration code are listed on #82 when planned.
+- Out of scope: a general job scheduler, durable resumption, and streaming partial output from a detached call.
