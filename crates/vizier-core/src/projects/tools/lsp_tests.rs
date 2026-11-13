@@ -99,10 +99,17 @@ impl World {
         let target = target_for("dp-a", self.project(), &file).expect("a target");
         let began = Instant::now();
         loop {
-            if matches!(self.project().lsp.ensure(&target), Availability::Ready(_)) {
+            let availability = self.project().lsp.ensure(&target);
+            if matches!(availability, Availability::Ready(_)) {
                 return;
             }
-            assert!(began.elapsed() < Duration::from_secs(20), "the server never became ready");
+            // Say why, so a failure on a machine nobody can reproduce on is still readable.
+            assert!(
+                began.elapsed() < Duration::from_secs(20),
+                "the server never became ready: {availability:?} (fixture {} exists: {})",
+                fake_lsp().display(),
+                fake_lsp().exists(),
+            );
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
     }

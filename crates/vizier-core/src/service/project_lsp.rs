@@ -431,10 +431,11 @@ mod service_tests {
         host.ensure(&target);
         let began = std::time::Instant::now();
         let server = loop {
-            if let Availability::Ready(server) = host.ensure(&target) {
-                break server;
+            let availability = host.ensure(&target);
+            if let Availability::Ready(server) = &availability {
+                break server.clone();
             }
-            assert!(began.elapsed() < std::time::Duration::from_secs(15), "never ready");
+            assert!(began.elapsed() < std::time::Duration::from_secs(15), "never ready: {availability:?}");
             tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         };
 
