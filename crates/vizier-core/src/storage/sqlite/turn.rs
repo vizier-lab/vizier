@@ -37,7 +37,7 @@ fn pending(conn: &Connection, agent_id: &str, below: Option<u64>) -> Result<Vec<
     // `below` keeps only the rows whose owner is older than it (or null): the expired ones.
     let mut stmt = conn.prepare(
         "SELECT id, session, request, state, request_uid FROM session_turn \
-         WHERE agent_id = ?1 AND (?2 IS NULL OR owner_token IS NULL OR owner_token < ?2) ORDER BY id",
+         WHERE agent_id = ?1 AND (CAST(?2 AS BIGINT) IS NULL OR owner_token IS NULL OR owner_token < CAST(?2 AS BIGINT)) ORDER BY id",
     )?;
     let rows = stmt.query_map(params![agent_id, below.map(|t| t as i64)], |row| {
         Ok((
