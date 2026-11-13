@@ -10,14 +10,14 @@ Replaces `specs/012-background-subagent-results/contracts/http-api.md`. All rout
 | `GET …/detached-calls/{call_id}` | One call with its full outcome | 200 `DetachedCallDetail`; 404 |
 | `POST …/detached-calls/{call_id}/cancel` | Cancel a running call and the calls launched from it. Body `{ "reason"?: string }` (≤ 200 characters) | 200 with the cancelled snapshot; 409 with the snapshot if it was already final; 404 |
 
-`DetachedCallSnapshot` and `DetachedCallDetail` are in `data-model.md`. Removed: every `…/jobs…` route, including `pieces/{ordinal}/history`.
+`DetachedCallSnapshot` and `DetachedCallDetail` (the snapshot plus the full outcome) are in `data-model.md`; a snapshot carries the script's `intent` and its `tool_calls`. Removed: every `…/jobs…` route, including `pieces/{ordinal}/history`.
 
 ## Session frame
 
 `SessionFrame::DetachedCall(DetachedCallSnapshot)` replaces `SessionFrame::Job`. It is published on every state change of a call (launch, final, cancel) over the existing session-event broadcast, after the database commit, and reaches every socket subscribed to the session. The topic socket sends it as:
 
 ```json
-{ "type": "detached_call", "call": { "id": "d_k3x9a1b2", "tool": "web_fetch", "state": "running", … } }
+{ "type": "detached_call", "call": { "id": "d_k3x9a1b2", "intent": "check both vendor pages", "state": "running", … } }
 ```
 
 and the WebUI's `lib/frames.ts` reducer keeps a map of calls by id (a final call stays in the map for the tray's Done tab). A reopened page reads the list route first, then applies frames.

@@ -6,7 +6,7 @@
 
 ## Summary
 
-Replace "background jobs" with one general option: any tool call in a script can carry the reserved keyword `detached` and then runs in its own task while the agent continues. The call's outcome is stored (bounded, redacted) and **delivered exactly once** by an atomic database claim, taken either by the agent's inner loop at its next round boundary or, if no turn is running, by a queued delivery request that wakes the conversation. Agents inspect, list and cancel calls with three tools; people do the same from a collapsible **Background work** panel (drawn in `Vizier shell.figcraft`). The old feature (`background_subagents`, its job and piece tables, the report turn, the job routes and the tray code) is removed, not wrapped. See [research.md](research.md) for the decisions.
+Replace "background jobs" with one general option on `execute_python` only: `detached: true` (plus an optional `timeout_secs`) runs the whole script in its own task while the agent continues, and since every tool is called from a script, any tool call can run in the background. The script's outcome (its `ExecutionReport`, bounded and redacted) is stored and **delivered exactly once** by an atomic database claim, taken either by the agent's inner loop at its next round boundary or, if no turn is running, by a queued delivery request that wakes the conversation. Agents inspect, list and cancel scripts with three tools; people do the same from a collapsible **Background work** panel (first drawn in `Vizier shell.figcraft`, to be redrawn around the script's intent). The old feature (`background_subagents`, its job and piece tables, the report turn, the job routes and the tray code) is removed, not wrapped. See [research.md](research.md) for the decisions.
 
 ## Technical Context
 
@@ -34,12 +34,12 @@ Replace "background jobs" with one general option: any tool call in a script can
 
 | Principle or rule | Verdict |
 |---|---|
-| **I. Lean by default** | Pass. One reserved argument instead of a second feature; one table replaces two; one shared invocation function serves both the inline and detached paths; no dependency, flag or config added; net lines go down. |
-| **II. Trait-based extensibility** | Pass. "May this tool be detached" is the trait method `detachable()` (default true) surfaced on `CatalogueEntry`, so no code branches on a tool name; the existing `tool == "parallel_subagents"` name check in the bridge is **deleted**. New storage is a `DetachedCallStorage` supertrait member of `VizierStorageProvider`, implemented once on `SqlStorage`. |
+| **I. Lean by default** | Pass. Two optional fields on one existing tool instead of a second feature; one table replaces two; `run_script` is shared by the inline and detached paths; no dependency, flag or config added; net lines go down. Per-call detaching and named groups were designed and cut for this reason. |
+| **II. Trait-based extensibility** | Pass. What a detached script may call is decided by the existing `VizierTool::available(ctx)` seam (`interactive: false`, no client) plus one `ctx.detached` filter on turn-ending entries, so no code branches on a tool name; the existing `tool == "parallel_subagents"` name check in the bridge is **deleted**. New storage is a `DetachedCallStorage` supertrait member of `VizierStorageProvider`, implemented once on `SqlStorage`. |
 | **III. Self-contained default** | Pass. SQLite default untouched; PostgreSQL gets the same table by the shared storage layer and an ordered migration. |
 | **IV. Portability** | Pass. No OS-specific code. Quickstart gives the Windows sleep form. |
 | **V. Unified errors and observability** | Pass. `crate::Result`, `tracing` only; spans `detached_call {tool}` as children of the turn's trace; refusals to the model are `status`/exception text, as the other code-mode tools. |
-| Design before UI code | Pass. Drawn in FigCraft (`Vizier shell.figcraft`, Shell · chosen, frames "058 · A" and "058 · B", saved 2026-11-13), including the collapsible entries, trash cancel and Inspect view. |
+| Design before UI code | Pass with one task owed. Drawn in FigCraft (`Vizier shell.figcraft`, Shell · chosen, frames "058 · A" and "058 · B", saved 2026-11-13): collapsible entries, trash cancel, Inspect view. The drawing shows a tool name, goal and group line per entry; before the UI is built it is redrawn to the final shape (title = intent, expanded = tool calls made and outcome, no group line). |
 | Optional capabilities behind a flag | N/A. Not optional; the capability is core engine behaviour and no flag changes an API shape. |
 | Roles and components independent | Pass. `agents/detached/` depends on trait seams (`VizierStorage`, `VizierTransport`) as `background/` did; testable alone. The gateway side reaches it only through the `AgentsClient`/service seam. |
 | Verify what a change touches | Pass. Touches `vizier-core`, `vizier-http`, `webui`, `design`; the PR runs those jobs and the `gate`. `Cargo.lock` and `Cargo.toml` are untouched. |
@@ -77,8 +77,9 @@ crates/vizier-core/src/
 │   │   └── delivery.rs                 # render_delivery: the text of a round message and a wake-up turn
 │   ├── tools/
 │   │   ├── detached.rs                 # NEW: list/get/cancel_detached_call
-│   │   ├── python/bridge.rs            # reserved kwarg, refusals, shared invocation function
-│   │   ├── mod.rs                      # CatalogueEntry.detachable, VizierTool::detachable(), RETIRED_TOOL_NAMES
+│   │   ├── python/mod.rs               # detached + timeout_secs fields, run_script split, handle result
+│   │   ├── python/bridge.rs            # drop the parallel_subagents name check; tool_calls progress hook
+│   │   ├── mod.rs                      # ToolContext.detached, turn_catalogue filter, RETIRED_TOOL_NAMES
 │   │   ├── subagents.rs                # drop background_subagents; keep parallel_subagents
 │   │   └── background_jobs.rs          # DELETED
 │   ├── agent/mod.rs                    # prompt_with: drain at the round boundary
@@ -122,7 +123,7 @@ crates/vizier-core/public-api.txt       # regenerated
 ## Phases and order of work
 
 1. **Storage and schema**: `detached_call` table, `DetachedCallStorage`, fenced writes, the claim, migrations (drop old), fence tests. Landed first because everything reads it.
-2. **Engine**: shared invocation function, reserved kwarg, `DetachedCalls`, task and cancel, `detachable()`, refusals, recovery. Bridge tests.
+2. **Engine**: `run_script` split, `detached` and `timeout_secs` on `execute_python`, `DetachedCalls` (task, cancel, cascade), `ToolContext.detached` and its catalogue filter, launch refusals, recovery. Bridge and catalogue tests.
 3. **Delivery**: claim at the round boundary, `DetachedDelivery` request, `render_delivery`, guidance text, retired names.
 4. **Tools, service, HTTP, frames, notifications**, conformance vectors.
 5. **Removal**: delete the old module, tools, tables, routes, frames, request kind and every reference (SC-007 grep).
@@ -131,10 +132,11 @@ crates/vizier-core/public-api.txt       # regenerated
 
 ## Risks
 
-- **Hooks after the turn ends** (D3): a detached task whose turn is gone must not fail on frame sends. Covered by quickstart step 6 and a unit test with a closed sender.
-- **Unknown notification category** (D10): the WebUI must tolerate old `background_job` rows for the retention window; verify first, skip them at read time if it does not.
+- **Hooks after the turn ends** (research D3): a detached task whose turn is gone must not fail on frame sends. Covered by quickstart step 6 and a unit test with a closed sender.
+- **Unknown notification category** (D9): the WebUI must tolerate old `background_job` rows for the retention window; verify first, skip them at read time if it does not.
+- **A detached `execute_python` returns a handle, not a report** (D10): the trail, message list and `ExecutionReport::ending_call` must accept it. A WebUI and a unit test row each.
+- **The sandbox's own limit** (`SandboxLimits.timeout`) is documented as a CPU clock limit in `sandbox/mod.rs`; confirm in the first engine task that a script mostly waiting on tools is bounded by wall time, as `execute_python`'s description promises, before reusing it for the detached limit.
 - **Breaking change**: agents whose saved guidance or users' habits call `background_subagents` get the retired-name message; release notes say so (`feat!`).
-- **Group scope** is one script run, not a turn (D6); documented in the contract and guidance.
 
 ## Complexity Tracking
 
