@@ -95,7 +95,7 @@ The agent can list its detached calls, inspect any one of them, and cancel one. 
 - **FR-008**: Each detached call MUST have a time limit, settable per call with a default and a maximum, after which it is aborted and reported as timed out.
 - **FR-009**: A detached call MUST run with the same permissions, hooks, per-tool timeout, redaction and telemetry as the same call made inline, and its work MUST appear as a child of the trace that started it with cost attributed to the same agent and conversation.
 - **FR-010**: Detached calls MUST nest to a bounded depth; deeper attempts are refused.
-- **FR-011**: Calls started in a named group MUST be delivered together once every member is final. Ungrouped calls are delivered as each finishes (subject to FR-006).
+- **FR-011**: Calls started in a named group (a group is scoped to one script run) MUST be delivered together once every member is final. Ungrouped calls are delivered as each finishes (subject to FR-006).
 - **FR-012**: The agent MUST be able to list its conversation's detached calls, inspect any single call by handle (tool, arguments summary, state, start and elapsed time, time limit, and the outcome once final) and cancel a call. People MUST be able to see a conversation's detached calls and cancel one. Cancelling cascades to calls launched from the cancelled one and never delivers anything.
 - **FR-013**: Detached calls MUST survive turn boundaries but not a server restart; after a restart each in-flight call MUST be shown as interrupted and the agent informed.
 - **FR-014**: Exactly-once delivery MUST hold: a call is delivered or cancelled, never both and never twice, including across restarts and ownership changes in a fleet.
@@ -104,7 +104,7 @@ The agent can list its detached calls, inspect any one of them, and cancel one. 
 
 ### Key Entities
 
-- **Detached call**: one tool call running in the background: who started it (agent, conversation, turn), which tool, its state, start and end times, time limit, optional group, optional parent call (for nesting). Holds no result text beyond what a normal tool result holds in history.
+- **Detached call**: one tool call running in the background: who started it (agent, conversation, turn), which tool, its state, start and end times, time limit, optional group, optional parent call (for nesting). Keeps a bounded (32 KiB), redacted copy of its outcome until it is delivered and for later inspection, until the conversation is deleted.
 - **Group**: an optional label tying several detached calls from one turn so they are delivered together.
 - **Delivery**: the hand-off of one or more final outcomes to the agent, either into its next inner round or as a wake-up turn.
 
@@ -122,7 +122,7 @@ The agent can list its detached calls, inspect any one of them, and cancel one. 
 
 ## Assumptions
 
-- "Detached" is a per-call option of script execution; marking a whole script detached is a convenience on the same mechanism, not a separate one.
+- "Detached" is a per-call option of script execution (a reserved argument on every tool function); there is no whole-script option.
 - The old background-jobs design does not constrain this one: its records, report turns, per-piece sessions and tray are replaced, and any part worth keeping is re-specified above.
 - Sub-agent work in a detached call runs in its own fresh conversation, as any call to another agent does.
 - Detached calls do not persist across a server restart; durable resumption is out of scope.
