@@ -233,3 +233,26 @@ macro_rules! postgres_tests {
         }
     };
 }
+
+/// Where the `fake_lsp` example was built: the `examples` folder of the nearest ancestor of this
+/// test binary that has one. The binary sits in `target/debug/deps/` on an older cargo and in
+/// `target/debug/build/<package>/<hash>/` on a newer one, so a fixed number of `parent()`s finds
+/// the example on one and not the other.
+pub fn fake_lsp_path() -> std::path::PathBuf {
+    let exe = std::env::current_exe().expect("the test binary's path");
+    let names: &[&str] = if cfg!(windows) { &["fake_lsp.exe", "fake_lsp"] } else { &["fake_lsp"] };
+    for dir in exe.ancestors().skip(1) {
+        for name in names {
+            let candidate = dir.join("examples").join(name);
+            if candidate.is_file() {
+                return candidate;
+            }
+        }
+    }
+    // Not built: name where cargo would have put it, so the failure says what to build.
+    exe.ancestors()
+        .nth(2)
+        .unwrap_or(&exe)
+        .join("examples")
+        .join("fake_lsp")
+}

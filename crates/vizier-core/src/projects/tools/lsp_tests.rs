@@ -21,8 +21,7 @@ use crate::{
 };
 
 fn fake_lsp() -> PathBuf {
-    let exe = std::env::current_exe().unwrap();
-    exe.parent().unwrap().parent().unwrap().join("examples").join("fake_lsp")
+    crate::tests_support::fake_lsp_path()
 }
 
 struct World {
@@ -375,5 +374,8 @@ async fn a_config_file_in_the_project_changes_no_server() {
     let target = target_for("dp-a", w.project(), &file).unwrap();
     // Only a person's saved override (here the fake) decides the command.
     let command = target.server_override.unwrap().command;
-    assert!(command.ends_with("fake_lsp"), "{command}");
+    assert!(
+        std::path::Path::new(&command).file_stem().is_some_and(|stem| stem == "fake_lsp"),
+        "{command}"
+    );
 }

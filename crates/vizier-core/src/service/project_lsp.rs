@@ -348,8 +348,7 @@ mod service_tests {
     }
 
     fn fake_target(world: &World) -> Target {
-        let exe = std::env::current_exe().unwrap();
-        let program = exe.parent().unwrap().parent().unwrap().join("examples").join("fake_lsp");
+        let program = crate::tests_support::fake_lsp_path();
         Target {
             agent_id: "dp-a".into(),
             project_id: world.project_id.clone(),

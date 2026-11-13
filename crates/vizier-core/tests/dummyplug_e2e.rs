@@ -729,13 +729,18 @@ async fn a_project_edit_learns_what_it_broke_from_a_language_server() {
     };
     dummyplug.ready().await;
 
-    let fake = std::env::current_exe()
-        .unwrap()
-        .parent()
-        .and_then(|p| p.parent())
-        .unwrap()
-        .join("examples")
-        .join("fake_lsp");
+    let fake = {
+        let exe = std::env::current_exe().unwrap();
+        let names: &[&str] =
+            if cfg!(windows) { &["fake_lsp.exe", "fake_lsp"] } else { &["fake_lsp"] };
+        // `target/debug/deps/` on an older cargo, `target/debug/build/<package>/<hash>/` on a
+        // newer one: look in every ancestor.
+        exe.ancestors()
+            .skip(1)
+            .flat_map(|dir| names.iter().map(move |name| dir.join("examples").join(name)))
+            .find(|candidate| candidate.is_file())
+            .unwrap_or_else(|| exe.parent().unwrap().parent().unwrap().join("examples").join("fake_lsp"))
+    };
     assert!(fake.exists(), "build the fixture first: cargo build -p vizier-core --example fake_lsp");
 
     let dir = tempfile::tempdir().unwrap();
