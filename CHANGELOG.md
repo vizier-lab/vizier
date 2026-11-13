@@ -2,16 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [0.16.0-rc.1] - 2026-11-13
 
-### 💥 Breaking Changes
+### 🚀 Features
 
-- *(office)* [**breaking**] New agents are created without the Office addon: install it on the agent's
-  Integrations › Addons page. Creation and the upgrade backfill no longer seed it (spec 036 FR-015a)
+- *(office)* [**breaking**] Stop seeding the Office addon on new agents
+- *(office)* [**breaking**] Stop seeding the Office addon on new agents (#195)
+- *(image-gen)* Accept reference images for image-to-image (#200)
+- Installable web app (PWA) and the phone shell (#199)
+
 ### 🐛 Bug Fixes
 
-- Keep long Discord tool-call arguments inside balanced, language-tagged code fences when messages are split.
+- *(workspace)* Make the mention rule state its cost and its way out
+- *(discord)* Balance split tool-call code fences
+- *(discord)* Preserve split fence languages
+- *(discord)* Balance split tool-call code fences (#198)
 
+### ⚙️ Miscellaneous Tasks
+
+- *(submodules)* Pick up the trail spine and narration fixes
+- *(submodules)* Drop the host-execution and install notices
 ## [0.15.1] - 2026-11-07
 
 ### 🚀 Features
@@ -37,6 +47,7 @@ All notable changes to this project will be documented in this file.
 - Bump landing to the launch video hero (#193)
 - Bump webui to the voice capture worklet fix
 - Build the language-server fixture before the managed storage tests
+- Bump version to 0.15.1
 ## [0.15.0] - 2026-11-07
 
 ### 🚀 Features

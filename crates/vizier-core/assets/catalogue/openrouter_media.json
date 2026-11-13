@@ -1,7 +1,8 @@
 {
   "schema": 1,
-  "fetched_at": "2026-11-07T19:53:30Z",
+  "fetched_at": "2026-11-13T02:41:58Z",
   "speech": [
+    {"id": "speechify/simba-3.5", "name": "Speechify: Simba 3.5", "voices": ["geffen_32", "alec", "alfonso", "alicia", "alton", "amon", "ankit", "anthony", "archie", "arun", "beatrice_32", "belinda", "benjamin", "bertha", "beth", "beverly", "brenda", "bridget", "bwyneth", "byronagent"]},
     {"id": "assemblyai/assemblyai-tts-1", "name": "AssemblyAI: TTS 1", "voices": ["aai-antonioluis", "aai-audrey", "aai-carrie", "aai-constanza", "aai-donatien", "aai-ernest", "aai-ewald", "aai-gunther", "aai-hailey", "aai-jorg", "aai-kyla", "aai-magdalena", "aai-malvina", "aai-nancy", "aai-oriol", "aai-peter", "aai-sara", "aai-steven", "aai-titus", "aai-troy"]},
     {"id": "heygen/heygen-voice-1-turbo", "name": "HeyGen: HeyGen Voice Turbo", "voices": ["nadine", "tabitha", "bram", "gareth", "noelle", "meredith", "sabrina", "lucian", "weston", "vincent"]},
     {"id": "heygen/heygen-voice-1-turbo:free", "name": "HeyGen: HeyGen Voice Turbo (free)", "voices": ["nadine", "tabitha", "bram", "gareth", "noelle", "meredith", "sabrina", "lucian", "weston", "vincent"]},
@@ -42,6 +43,7 @@
     {"id": "mistralai/voxtral-mini-tts-2603", "name": "Mistral: Voxtral Mini TTS", "voices": ["en_paul_sad", "en_paul_neutral", "en_paul_happy", "en_paul_frustrated", "en_paul_excited", "en_paul_confident", "en_paul_cheerful", "en_paul_angry", "gb_oliver_neutral", "gb_oliver_sad", "gb_oliver_excited", "gb_oliver_curious", "gb_oliver_confident", "gb_oliver_cheerful", "gb_oliver_angry", "gb_jane_sarcasm", "gb_jane_confused", "gb_jane_shameful", "gb_jane_sad", "gb_jane_neutral", "gb_jane_jealousy", "gb_jane_frustrated", "gb_jane_curious", "gb_jane_confident", "fr_marie_sad", "fr_marie_neutral", "fr_marie_happy", "fr_marie_excited", "fr_marie_curious", "fr_marie_angry"]}
   ],
   "transcription": [
+    {"id": "x-ai/grok-stt-2.0", "name": "SpaceXAI: Grok STT 2.0"},
     {"id": "moondream/parakeet-ultra", "name": "Moondream: Parakeet Ultra"},
     {"id": "nvidia/nemotron-3.5-transcribe", "name": "NVIDIA: Nemotron 3.5 Transcribe"},
     {"id": "mistralai/voxtral-small-transcribe-3-0", "name": "Mistral: Voxtral Small Transcribe 3"},
@@ -74,6 +76,9 @@
     {"id": "openai/gpt-4o-transcribe", "name": "OpenAI: GPT-4o Transcribe"}
   ],
   "image": [
+    {"id": "bytedance-seed/seedream-5-5", "name": "ByteDance Seed: Seedream 5.5", "aspect_ratios": ["1:1", "1:2", "2:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "9:19.5", "19.5:9", "9:20", "20:9", "9:21", "21:9", "auto"], "resolutions": ["1K", "1.5K", "2K"]},
+    {"id": "minimax/minimax-h3-image-highspeed", "name": "MiniMax: MiniMax H3 Image Highspeed", "aspect_ratios": ["1:1", "1:2", "1:3", "2:1", "2:3", "3:1", "2.35:1", "3:2", "3:4", "4:3", "4:5", "5:2", "5:4", "5:7", "7:5", "9:16", "16:9", "9:19.5", "19.5:9", "9:20", "20:9", "9:21", "21:9", "auto"], "resolutions": ["1K", "2K", "4K"]},
+    {"id": "minimax/minimax-h3-image", "name": "MiniMax: MiniMax H3 Image", "aspect_ratios": ["1:1", "1:2", "1:3", "2:1", "2:3", "3:1", "2.35:1", "3:2", "3:4", "4:3", "4:5", "5:2", "5:4", "5:7", "7:5", "9:16", "16:9", "9:19.5", "19.5:9", "9:20", "20:9", "9:21", "21:9", "auto"], "resolutions": ["1K", "2K", "4K"]},
     {"id": "openai/gpt-image-2.6-sunburst", "name": "OpenAI: GPT Image 2.6 Sunburst", "aspect_ratios": ["1:1", "3:2", "2:3", "4:3", "3:4", "16:9", "9:16", "21:9", "auto"], "resolutions": []},
     {"id": "openai/gpt-image-2.6-flare", "name": "OpenAI: GPT Image 2.6 Flare", "aspect_ratios": ["1:1", "3:2", "2:3", "4:3", "3:4", "16:9", "9:16", "21:9", "auto"], "resolutions": []},
     {"id": "sourceful/riverflow-v2.6-pro", "name": "Sourceful: Riverflow V2.6 Pro", "aspect_ratios": ["1:1", "4:3", "3:4", "3:2", "2:3", "5:4", "4:5", "16:9", "9:16", "21:9", "auto"], "resolutions": ["1K", "2K", "4K"]},
