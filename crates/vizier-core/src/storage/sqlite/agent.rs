@@ -160,6 +160,11 @@ impl AgentStorage for SqlStorage {
             "DELETE FROM session_turn WHERE agent_id = ?1",
             params![agent_id],
         )?;
+        // Its ownership fence (spec 057): a re-created agent of the same id starts a new scope.
+        conn.execute(
+            "DELETE FROM owner_fence WHERE scope = ?1",
+            params![format!("agent:{agent_id}")],
+        )?;
         // Its Telegram side-chat deletion ledger (spec 033): message ids only, but still its own.
         conn.execute(
             "DELETE FROM state WHERE key = ?1",

@@ -18,6 +18,7 @@ use crate::{
         client_call::ClientCallStorage,
         dream::DreamStorage,
         dream_journal::DreamJournalStorage,
+        fence::{Fence, FenceStorage, Scope},
         global_config::GlobalConfigStorage,
         history::HistoryStorage,
         integration::IntegrationStorage,
@@ -54,6 +55,7 @@ pub mod diff;
 pub mod document;
 pub mod dream;
 pub mod dream_journal;
+pub mod fence;
 pub mod global_config;
 pub mod history;
 pub mod integration;
@@ -148,7 +150,8 @@ where
         + ProjectStorage
         + WorkspaceStorage
         + QuestionStorage
-        + SensitiveAskStorage,
+        + SensitiveAskStorage
+        + FenceStorage,
 {
 }
 
@@ -162,6 +165,22 @@ impl VizierStorage {
 }
 
 impl VizierStorageProvider for VizierStorage {}
+
+#[async_trait::async_trait]
+impl FenceStorage for VizierStorage {
+    async fn claim(
+        &self,
+        scope: &Scope,
+        node: &str,
+        lease: Option<vizier_schema::FencingToken>,
+    ) -> Result<Fence> {
+        self.0.claim(scope, node, lease).await
+    }
+
+    fn ownership_lost(&self, scope: &Scope) -> tokio::sync::watch::Receiver<bool> {
+        self.0.ownership_lost(scope)
+    }
+}
 
 #[async_trait::async_trait]
 impl SsoSessionStorage for VizierStorage {

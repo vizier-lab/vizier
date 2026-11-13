@@ -22,8 +22,8 @@
 
 **Purpose**: the schema every story writes to.
 
-- [ ] T001 Create `core/storage/sql/postgres/migrations/0007_row_ownership.sql`. It creates `owner_fence (scope TEXT COLLATE "C" PRIMARY KEY, node TEXT COLLATE "C" NOT NULL, token BIGINT NOT NULL, lease_token BIGINT, claimed_at TEXT COLLATE "C" NOT NULL)` and adds `owner_node TEXT COLLATE "C"` and `owner_token BIGINT` (both nullable, `ADD COLUMN IF NOT EXISTS`) to `session_turn`, `task_run`, `background_job`, `client_tool_call` and `sensitive_ask`. It adds indexes `client_tool_call (agent_id, status)`, `sensitive_ask (agent_id, state)` and `background_job (origin_agent, state)` (`CREATE INDEX IF NOT EXISTS`). Head comment in the style of `0002_client_call_claim.sql`: why the columns exist, and that `0001` is never edited. Register the file wherever `core/storage/sql/postgres/migrate.rs` lists migrations.
-- [ ] T002 [P] In `core/storage/sqlite/mod.rs`, add `CREATE TABLE IF NOT EXISTS owner_fence (scope TEXT PRIMARY KEY, node TEXT NOT NULL, token INTEGER NOT NULL, lease_token INTEGER, claimed_at TEXT NOT NULL)`. Add the ten owner columns with `add_column_if_missing(conn, "<table>", "owner_node", "TEXT")` and `(…, "owner_token", "INTEGER")` next to each table's existing schema init, and the three indexes from T001.
+- [X] T001 Create `core/storage/sql/postgres/migrations/0007_row_ownership.sql`. It creates `owner_fence (scope TEXT COLLATE "C" PRIMARY KEY, node TEXT COLLATE "C" NOT NULL, token BIGINT NOT NULL, lease_token BIGINT, claimed_at TEXT COLLATE "C" NOT NULL)` and adds `owner_node TEXT COLLATE "C"` and `owner_token BIGINT` (both nullable, `ADD COLUMN IF NOT EXISTS`) to `session_turn`, `task_run`, `background_job`, `client_tool_call` and `sensitive_ask`. It adds indexes `client_tool_call (agent_id, status)`, `sensitive_ask (agent_id, state)` and `background_job (origin_agent, state)` (`CREATE INDEX IF NOT EXISTS`). Head comment in the style of `0002_client_call_claim.sql`: why the columns exist, and that `0001` is never edited. Register the file wherever `core/storage/sql/postgres/migrate.rs` lists migrations.
+- [X] T002 [P] In `core/storage/sqlite/mod.rs`, add `CREATE TABLE IF NOT EXISTS owner_fence (scope TEXT PRIMARY KEY, node TEXT NOT NULL, token INTEGER NOT NULL, lease_token INTEGER, claimed_at TEXT NOT NULL)`. Add the ten owner columns with `add_column_if_missing(conn, "<table>", "owner_node", "TEXT")` and `(…, "owner_token", "INTEGER")` next to each table's existing schema init, and the three indexes from T001.
 - [ ] T003 [P] Add one checklist entry to issue #82 (comment on it with `gh issue comment 82 --repo vizier-lab/vizier`, after confirming the text with the user). It covers the ten `add_column_if_missing` calls from T002 and the rule "a null `owner_token` is a row from before 057, owned by an expired owner" (research R9), naming `storage/sqlite/mod.rs` and the recovery predicates in `core/recovery.rs` as the code that depends on it.
 
 ---
@@ -34,25 +34,25 @@
 
 **⚠️ No user-story work can begin until this phase is complete.**
 
-- [ ] T004 Create `core/storage/fence.rs`, with `mod fence;` added in `core/storage/mod.rs`. It contains:
+- [X] T004 Create `core/storage/fence.rs`, with `mod fence;` added in `core/storage/mod.rs`. It contains:
   - `enum Scope { Agent(AgentId), Control }`, with `Display` as `agent:{id}` / `control`.
   - `struct Fence { scope, node: String, token: u64 }`.
   - `struct OwnershipLost { scope: String }`, with a hand-written `Display` ("ownership of {scope} moved to a newer owner") and `std::error::Error`, following `agents_client.rs`.
   - `fn is_ownership_lost(&anyhow::Error) -> bool`, using `downcast_ref`.
   - `struct Fences`: `Mutex<HashMap<String, Fence>>` for held fences, plus `Mutex<HashMap<String, watch::Sender<bool>>>` for lost signals. Methods: `hold(Fence)`, `held(&Scope) -> Option<u64>`, `mark_lost(&Scope)` (sets the signal, logs `tracing::warn!` once per scope), `lost(&Scope) -> watch::Receiver<bool>`. Entries are never removed (research R3).
   - `trait FenceStorage { async fn claim(&self, scope: &Scope, node: &str, lease: Option<vizier_schema::FencingToken>) -> anyhow::Result<Fence>; fn ownership_lost(&self, scope: &Scope) -> watch::Receiver<bool>; }`.
-- [ ] T005 Add `fn share_lock_suffix(&self) -> &'static str` to the `Dialect` trait in `core/storage/sql/mod.rs`, returning `" FOR SHARE"` in `core/storage/sql/postgres.rs` and `""` in `core/storage/sql/sqlite.rs`. Its doc comment says why: a claim must wait for fenced writes in flight (research R2).
-- [ ] T006 [P] Add `pub fn postgres_store_pair() -> Option<(SqlStore, SqlStore)>` to `core/tests_support.rs`: two pools on **one** freshly migrated schema, built like `postgres_store()` but with the schema created and migrated once. Also add a helper that builds an `SqlStorage` with its own `Fences` from a store, so a test has two independent "nodes".
-- [ ] T007 Add `pub(crate) fences: Arc<Fences>` to `SqlStorage` in `core/storage/sqlite/mod.rs`, initialised empty in every constructor (`new`, `with_secrets`, and any test constructor).
-- [ ] T008 Create `core/storage/sqlite/fence.rs`, with `mod fence;` in `core/storage/sqlite/mod.rs`. It contains:
+- [X] T005 Add `fn share_lock_suffix(&self) -> &'static str` to the `Dialect` trait in `core/storage/sql/mod.rs`, returning `" FOR SHARE"` in `core/storage/sql/postgres.rs` and `""` in `core/storage/sql/sqlite.rs`. Its doc comment says why: a claim must wait for fenced writes in flight (research R2).
+- [X] T006 [P] Add `pub fn postgres_store_pair() -> Option<(SqlStore, SqlStore)>` to `core/tests_support.rs`: two pools on **one** freshly migrated schema, built like `postgres_store()` but with the schema created and migrated once. Also add a helper that builds an `SqlStorage` with its own `Fences` from a store, so a test has two independent "nodes".
+- [X] T007 Add `pub(crate) fences: Arc<Fences>` to `SqlStorage` in `core/storage/sqlite/mod.rs`, initialised empty in every constructor (`new`, `with_secrets`, and any test constructor).
+- [X] T008 Create `core/storage/sqlite/fence.rs`, with `mod fence;` in `core/storage/sqlite/mod.rs`. It contains:
   - `impl FenceStorage for SqlStorage`, where `claim` is one upsert:
     - **Fleet** (`lease = Some(t)`): `INSERT … VALUES (?scope, ?node, 1, ?t, ?now) ON CONFLICT (scope) DO UPDATE SET token = owner_fence.token + 1, node = excluded.node, lease_token = excluded.lease_token, claimed_at = excluded.claimed_at WHERE owner_fence.lease_token IS NULL OR owner_fence.lease_token < excluded.lease_token RETURNING token`. No row returned → `Err(OwnershipLost)`.
     - **Single node** (`lease = None`): the same upsert without the `WHERE`, writing `lease_token = NULL`.
     - Use `time::stored_now()` for `claimed_at`. On success, call `self.fences.hold(fence)`.
   - `pub(crate) fn check_fence(tx: &Connection, fences: &Fences, scope: &Scope) -> anyhow::Result<()>`. It returns `Ok` at once when `fences.held(scope)` is `None`. Otherwise it runs `SELECT token FROM owner_fence WHERE scope = ?1{share_lock_suffix}` and, when the stored token differs from the held one, calls `fences.mark_lost(scope)` and returns `Err(OwnershipLost)`.
-- [ ] T009 Add `FenceStorage` to the `VizierStorageProvider` supertrait list in `core/storage/mod.rs`, and delegate `impl FenceStorage for VizierStorage` (the same `self.0.…` pattern as `storage/turn.rs`).
-- [ ] T010 [P] In `core/storage/sqlite/agent.rs`, make `delete_agent` delete the `owner_fence` row `agent:{id}` in its transaction (data-model.md, "Rules").
-- [ ] T011 Unit tests in `core/storage/sqlite/fence.rs`, registered with `postgres_tests!`:
+- [X] T009 Add `FenceStorage` to the `VizierStorageProvider` supertrait list in `core/storage/mod.rs`, and delegate `impl FenceStorage for VizierStorage` (the same `self.0.…` pattern as `storage/turn.rs`).
+- [X] T010 [P] In `core/storage/sqlite/agent.rs`, make `delete_agent` delete the `owner_fence` row `agent:{id}` in its transaction (data-model.md, "Rules").
+- [X] T011 Unit tests in `core/storage/sqlite/fence.rs`, registered with `postgres_tests!`:
   - `claim_is_monotonic_across_instances`: two `SqlStorage` over one store, alternating single-node claims, so each token is strictly greater than the last.
   - `late_claim_refused`: claim with `Some(6)`, then with `Some(5)`, which returns `OwnershipLost` and leaves the token unchanged.
   - `single_node_after_fleet_and_back`: a `None` claim after `Some(9)` succeeds, and a later `Some(1)` succeeds because the stored `lease_token` is null.

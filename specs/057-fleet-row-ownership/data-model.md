@@ -41,7 +41,7 @@ Added to `session_turn`, `task_run`, `background_job`, `client_tool_call` and `s
 
 **Indexes** for the recovery predicates:
 - `session_turn (agent_id, id)` exists already and covers the per-agent scan.
-- New: `client_tool_call (agent_id, status)`, `sensitive_ask (agent_id, state)`, `background_job (origin_agent, state)`. `task_run (state)` exists.
+- New: `client_tool_call (agent_id, status)`, `sensitive_ask (agent_id, state)`. `background_job (origin_agent, state)` (`idx_bg_job_agent`) and `task_run (state)` exist.
 
 ## State transitions and their fence
 

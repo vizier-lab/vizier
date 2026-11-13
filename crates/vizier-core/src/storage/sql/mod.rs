@@ -488,6 +488,12 @@ pub trait Dialect: Send + Sync {
     /// order: `MAX + 1` on SQLite (safe under its single writer), `DEFAULT` on PostgreSQL, where
     /// the column is an identity.
     fn next_sequence_value(&self, table: &str, column: &str) -> String;
+    /// Appended to the `SELECT` of `owner_fence` in a fenced write: `" FOR SHARE"` on PostgreSQL,
+    /// so a claim of the scope (an `UPDATE` of that row) waits for every fenced write already in
+    /// progress and none commits after the claim that superseded it
+    /// (`specs/057-fleet-row-ownership` research R2). Empty on SQLite, where `BEGIN IMMEDIATE`
+    /// already serialises every writer.
+    fn share_lock_suffix(&self) -> &'static str;
 }
 
 /// Which backend a store runs on, for diagnostics and backend-specific setup only.
