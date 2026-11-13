@@ -16,6 +16,8 @@ mod client_call;
 pub(crate) mod core_revision;
 mod dream_journal;
 pub(crate) mod fence;
+#[cfg(test)]
+mod fence_tests;
 mod global_config;
 mod history;
 mod integration;
@@ -485,10 +487,8 @@ impl SqlStorage {
 }
 
 /// Row ownership (`specs/057-fleet-row-ownership/data-model.md`): the `owner_fence` table, one
-/// row per ownership scope, and the `owner_node`/`owner_token` columns on the five tables of
-/// in-flight work. Runs after their own `init_*_schema`. A null `owner_token` is a row written
-/// before 057, read as owned by an expired owner; the ten `add_column_if_missing` calls and that
-/// rule are tracked for removal in #82.
+/// row per ownership scope, and the recovery indexes. Runs after the `init_*_schema` of the five
+/// tables of in-flight work, each of which adds its own owner columns ([`add_owner_columns`]).
 pub fn init_ownership_schema(conn: &Connection) -> Result<()> {
     conn.execute_batch(
         "
@@ -508,21 +508,6 @@ pub fn init_ownership_schema(conn: &Connection) -> Result<()> {
             |row| row.get::<_, i64>(0),
         )? > 0)
     };
-    for table in [
-        "session_turn",
-        "task_run",
-        "background_job",
-        "client_tool_call",
-        "sensitive_ask",
-    ] {
-        // Unit tests stand up one table at a time; a table that is not there gets its columns
-        // when it is.
-        if !has(table)? {
-            continue;
-        }
-        add_column_if_missing(conn, table, "owner_node", "TEXT")?;
-        add_column_if_missing(conn, table, "owner_token", "INTEGER")?;
-    }
     // The recovery predicates, per agent (`background_job (origin_agent, state)` is already
     // `idx_bg_job_agent`).
     if has("client_tool_call")? {
@@ -535,6 +520,16 @@ pub fn init_ownership_schema(conn: &Connection) -> Result<()> {
             "CREATE INDEX IF NOT EXISTS idx_sa_agent_state ON sensitive_ask(agent_id, state);",
         )?;
     }
+    Ok(())
+}
+
+/// The `owner_node`/`owner_token` columns of a table of in-flight work (`session_turn`,
+/// `task_run`, `background_job`, `client_tool_call`, `sensitive_ask`), called by that table's own
+/// `init_*_schema`. A null `owner_token` is a row written before 057, read as owned by an expired
+/// owner; the ten `add_column_if_missing` calls and that rule are tracked for removal in #82.
+fn add_owner_columns(conn: &Connection, table: &str) -> Result<()> {
+    add_column_if_missing(conn, table, "owner_node", "TEXT")?;
+    add_column_if_missing(conn, table, "owner_token", "INTEGER")?;
     Ok(())
 }
 
@@ -723,6 +718,7 @@ pub fn init_client_call_schema(conn: &Connection) -> Result<()> {
     // so an existing workspace gets the two columns here.
     add_column_if_missing(conn, "client_tool_call", "claimed_by", "TEXT")?;
     add_column_if_missing(conn, "client_tool_call", "claimed_at", "TEXT")?;
+    add_owner_columns(conn, "client_tool_call")?;
     Ok(())
 }
 
@@ -786,6 +782,7 @@ pub fn init_sensitive_ask_schema(conn: &Connection) -> Result<()> {
         CREATE INDEX IF NOT EXISTS idx_sa_open ON sensitive_ask(state) WHERE state = 'open';
         ",
     )?;
+    add_owner_columns(conn, "sensitive_ask")?;
     Ok(())
 }
 
@@ -854,6 +851,7 @@ pub fn init_turn_schema(conn: &Connection) -> Result<()> {
         CREATE INDEX IF NOT EXISTS idx_session_turn_agent ON session_turn (agent_id, id);
         ",
     )?;
+    add_owner_columns(conn, "session_turn")?;
     Ok(())
 }
 
@@ -938,6 +936,7 @@ pub fn init_task_run_schema(conn: &Connection) -> Result<()> {
         ",
     )?;
 
+    add_owner_columns(conn, "task_run")?;
     Ok(())
 }
 
@@ -1050,6 +1049,7 @@ pub fn init_background_job_schema(conn: &Connection) -> Result<()> {
         ",
     )?;
 
+    add_owner_columns(conn, "background_job")?;
     Ok(())
 }
 

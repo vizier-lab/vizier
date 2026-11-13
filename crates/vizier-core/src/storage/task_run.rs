@@ -22,6 +22,9 @@ pub struct InterruptedRun {
 #[async_trait::async_trait]
 pub trait TaskRunStorage {    /// Open a run. Called before the agent starts, so a run that dies with the
     /// process is still accounted for.
+    ///
+    /// Fenced: refused with `OwnershipLost` when a newer owner holds `control`
+    /// (specs/057 contracts/ownership.md).
     async fn open_task_run(
         &self,
         agent_id: AgentId,
@@ -31,6 +34,9 @@ pub trait TaskRunStorage {    /// Open a run. Called before the agent starts, so
     ) -> Result<i64>;
 
     /// Close it in a terminal state. Nothing re-opens a closed run.
+    ///
+    /// Fenced: refused with `OwnershipLost` when a newer owner holds `control`
+    /// (specs/057 contracts/ownership.md).
     async fn close_task_run(
         &self,
         id: i64,

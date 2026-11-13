@@ -70,7 +70,7 @@
 
 ### Tests for User Story 2 ⚠️ (write first, see them fail)
 
-- [ ] T012 [P] [US2] Create `core/storage/sqlite/fence_tests.rs`, with `#[cfg(test)] mod fence_tests;` in `core/storage/sqlite/mod.rs`. Write one test per scope row of the contract table, each using `postgres_store_pair()` with A and B where B claimed after A:
+- [X] T012 [P] [US2] Create `core/storage/sqlite/fence_tests.rs`, with `#[cfg(test)] mod fence_tests;` in `core/storage/sqlite/mod.rs`. Write one test per scope row of the contract table, each using `postgres_store_pair()` with A and B where B claimed after A:
   - `stale_history_save_refused`: covers `save_session_history` and `save_checkpoint`.
   - `stale_turn_transition_refused`: covers `start_turn`, `set_turn_request_uid`, `note_resume`, `finish_turn` and `cancel_session_turns`.
   - `stale_client_call_write_refused`: covers open, finish, defer and state save.
@@ -79,19 +79,19 @@
   - `stale_task_run_write_refused`: scope `control`, open and close.
 
   Each test asserts `is_ownership_lost(&err)`, that A's `ownership_lost` receiver reads `true`, that the row or entry is unchanged when read back, and that B's identical write succeeds.
-- [ ] T013 [P] [US2] In the same file, add `claim_waits_for_inflight_write`, which runs on PostgreSQL only. A opens a fenced history write and holds its transaction (a test hook, or a direct `Connection` transaction running `check_fence` then sleeping). B's `claim` must not return until A commits, and A's write must then be visible to a read after the claim (research R2).
-- [ ] T014 [P] [US2] In the same file, add `unfenced_writer_unaffected`: a third store holding no fence writes history into `agent:x`'s session after B's claim and succeeds (contract rule 5).
+- [X] T013 [P] [US2] In the same file, add `claim_waits_for_inflight_write`, which runs on PostgreSQL only. A opens a fenced history write and holds its transaction (a test hook, or a direct `Connection` transaction running `check_fence` then sleeping). B's `claim` must not return until A commits, and A's write must then be visible to a read after the claim (research R2).
+- [X] T014 [P] [US2] In the same file, add `unfenced_writer_unaffected`: a third store holding no fence writes history into `agent:x`'s session after B's claim and succeeds (contract rule 5).
 
 ### Implementation for User Story 2
 
-- [ ] T015 [US2] In `core/storage/sqlite/history.rs`, call `check_fence(&tx, &self.fences, &Scope::Agent(session.0.clone()))` first in `save_session_history`, in `save_checkpoint` and in every other history method that inserts or updates entries of a session. A method that writes without a transaction today gets one, using `conn.unchecked_transaction()` as `save_session_history` does.
-- [ ] T016 [P] [US2] In `core/storage/sqlite/turn.rs`, wrap `start_turn`, `set_turn_request_uid`, `note_resume`, `finish_turn` and `cancel_session_turns` in a transaction that calls `check_fence` for `agent:{agent_id}`. Read `agent_id` from the row, in the same transaction, for the id-only methods. Leave `accept_turn` unfenced: the sender writes it, and in a Fleet that is a gateway.
-- [ ] T017 [P] [US2] In `core/storage/sqlite/client_call.rs`, fence `open_client_call`, `finish_client_call`, `defer_client_call` and `save_client_call_state` for `agent:{agent_id}`, and write `owner_node`/`owner_token` from the held fence in `open_client_call` (`NULL` when none is held). Leave `claim_client_call` and `release_client_call_claim` unfenced: they are the gateway's delivery lease (#163).
-- [ ] T018 [P] [US2] In `core/storage/sqlite/question.rs`, fence the sensitive-ask open and close writes for `agent:{agent_id}`, and write the owner columns on open.
-- [ ] T019 [P] [US2] In `core/storage/sqlite/background_job.rs`, fence `open_background_job`, `close_background_piece` and `transition_background_job` for `agent:{origin_agent}`, keeping every existing `WHERE state = ?from` guard. Write the owner columns on open. For the id-only methods, read `origin_agent` in the same transaction.
-- [ ] T020 [P] [US2] In `core/storage/sqlite/task_run.rs`, fence `open_task_run` and `close_task_run` for `Scope::Control`, and write the owner columns on open.
-- [ ] T021 [US2] In `core/agents/steps.rs`, change `record_step` so that on `fence::is_ownership_lost(&e)` it logs at `debug` and returns `None` without the `error!` line. Keep `seal_open_calls` as it is: its saves are fenced, so an ex-owner's seal is refused by T015 (research R4, FR-008).
-- [ ] T022 [US2] Add a short doc comment on each fenced method in `core/storage/turn.rs`, `client_call.rs`, `question.rs`, `background_job.rs`, `task_run.rs` and `history.rs` (the trait files): "Fenced: refused with `OwnershipLost` when a newer owner holds `<scope>` (specs/057 contracts/ownership.md)."
+- [X] T015 [US2] In `core/storage/sqlite/history.rs`, call `check_fence(&tx, &self.fences, &Scope::Agent(session.0.clone()))` first in `save_session_history`, in `save_checkpoint` and in every other history method that inserts or updates entries of a session. A method that writes without a transaction today gets one, using `conn.unchecked_transaction()` as `save_session_history` does.
+- [X] T016 [P] [US2] In `core/storage/sqlite/turn.rs`, wrap `start_turn`, `set_turn_request_uid`, `note_resume`, `finish_turn` and `cancel_session_turns` in a transaction that calls `check_fence` for `agent:{agent_id}`. Read `agent_id` from the row, in the same transaction, for the id-only methods. Leave `accept_turn` unfenced: the sender writes it, and in a Fleet that is a gateway.
+- [X] T017 [P] [US2] In `core/storage/sqlite/client_call.rs`, fence `open_client_call`, `finish_client_call`, `defer_client_call` and `save_client_call_state` for `agent:{agent_id}`, and write `owner_node`/`owner_token` from the held fence in `open_client_call` (`NULL` when none is held). Leave `claim_client_call` and `release_client_call_claim` unfenced: they are the gateway's delivery lease (#163).
+- [X] T018 [P] [US2] In `core/storage/sqlite/question.rs`, fence the sensitive-ask open and close writes for `agent:{agent_id}`, and write the owner columns on open.
+- [X] T019 [P] [US2] In `core/storage/sqlite/background_job.rs`, fence `open_background_job`, `close_background_piece` and `transition_background_job` for `agent:{origin_agent}`, keeping every existing `WHERE state = ?from` guard. Write the owner columns on open. For the id-only methods, read `origin_agent` in the same transaction.
+- [X] T020 [P] [US2] In `core/storage/sqlite/task_run.rs`, fence `open_task_run` and `close_task_run` for `Scope::Control`, and write the owner columns on open.
+- [X] T021 [US2] In `core/agents/steps.rs`, change `record_step` so that on `fence::is_ownership_lost(&e)` it logs at `debug` and returns `None` without the `error!` line. Keep `seal_open_calls` as it is: its saves are fenced, so an ex-owner's seal is refused by T015 (research R4, FR-008).
+- [X] T022 [US2] Add a short doc comment on each fenced method in `core/storage/turn.rs`, `client_call.rs`, `question.rs`, `background_job.rs`, `task_run.rs` and `history.rs` (the trait files): "Fenced: refused with `OwnershipLost` when a newer owner holds `<scope>` (specs/057 contracts/ownership.md)."
 
 **Checkpoint**: T012–T014 pass on PostgreSQL. `cargo test -p vizier-core` passes on SQLite, unchanged: nothing claims yet, so every write is unfenced.
 

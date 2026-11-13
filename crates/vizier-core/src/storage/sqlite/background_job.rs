@@ -3,6 +3,8 @@ use std::collections::HashMap;
 
 use crate::storage::sql::{self, Connection, OptionalExtension, Row, ToSql, params};
 use anyhow::Result;
+use crate::storage::fence::{Fences, Scope};
+use crate::storage::sqlite::fence::check_fence;
 use chrono::{TimeZone, Local};
 
 use crate::{
@@ -130,15 +132,37 @@ fn load_jobs(conn: &Connection, filter: &str, params: &[&dyn ToSql]) -> Result<V
 
 const IN_FLIGHT: &str = "state IN ('running', 'reporting')";
 
+/// Refuse a write of job `job_id` when a newer owner holds its launching agent's scope. The agent
+/// is read from the row in the writer's transaction; a missing row has nothing to protect.
+fn check_job_fence(tx: &Connection, fences: &Fences, job_id: &str) -> Result<()> {
+    let agent = tx
+        .query_all(
+            "SELECT origin_agent FROM background_job WHERE id = ?1",
+            params![job_id],
+        )?
+        .first()
+        .map(|row| row.get::<_, String>(0))
+        .transpose()?;
+    match agent {
+        Some(agent) => check_fence(tx, fences, &Scope::Agent(agent)),
+        None => Ok(()),
+    }
+}
+
 #[async_trait::async_trait]
 impl BackgroundJobStorage for SqlStorage {
     async fn open_background_job(&self, job: BackgroundJob) -> Result<()> {
+        // A job is owned by its launching agent's scope: its runner lives in that process.
+        let scope = Scope::Agent(job.origin.0.clone());
+        let (owner_node, owner_token) = self.fences.owner_of(&scope);
         let conn = self.conn.lock()?;
         let tx = conn.transaction()?;
+        check_fence(&tx, &self.fences, &scope)?;
         tx.execute(
             "INSERT INTO background_job (id, kind, origin_agent, origin_channel, origin_topic, \
-             depth, timeout_secs, created_at, finished_at, state, cancelled_by, reason) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+             depth, timeout_secs, created_at, finished_at, state, cancelled_by, reason, \
+             owner_node, owner_token) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
             params![
                 job.id,
                 job.kind.as_str(),
@@ -152,6 +176,8 @@ impl BackgroundJobStorage for SqlStorage {
                 job.state.as_str(),
                 job.cancelled_by.as_ref().map(Canceller::to_column),
                 job.reason,
+                owner_node,
+                owner_token,
             ],
         )?;
         for piece in &job.pieces {
@@ -186,7 +212,9 @@ impl BackgroundJobStorage for SqlStorage {
         finished_at: Timestamp,
     ) -> Result<()> {
         let conn = self.conn.lock()?;
-        conn.execute(
+        let tx = conn.unchecked_transaction()?;
+        check_job_fence(&tx, &self.fences, job_id)?;
+        tx.execute(
             "UPDATE background_piece SET state = ?1, reason = ?2, finished_at = ?3 \
              WHERE job_id = ?4 AND ordinal = ?5 AND state = 'running'",
             params![
@@ -197,6 +225,7 @@ impl BackgroundJobStorage for SqlStorage {
                 ordinal as i64,
             ],
         )?;
+        tx.commit()?;
         Ok(())
     }
 
@@ -211,6 +240,7 @@ impl BackgroundJobStorage for SqlStorage {
     ) -> Result<bool> {
         let conn = self.conn.lock()?;
         let tx = conn.transaction()?;
+        check_job_fence(&tx, &self.fences, job_id)?;
         // `reporting` is not terminal, so it leaves `finished_at` unset.
         let finished_at = (to != JobState::Reporting).then(|| at.timestamp_millis());
         // The `state = from` predicate is the whole exactly-once guarantee: the runner and a

@@ -1,5 +1,7 @@
 use crate::time::Timestamp;
 use anyhow::Result;
+use crate::storage::fence::Scope;
+use crate::storage::sqlite::fence::check_fence;
 use chrono::{TimeZone, Local};
 
 use crate::storage::sql::{self, Row, ToSql, params, params_from_iter};
@@ -55,19 +57,26 @@ impl TaskRunStorage for SqlStorage {
         ran_at: Timestamp,
         session_key: String,
     ) -> Result<i64> {
+        let (owner_node, owner_token) = self.fences.owner_of(&Scope::Control);
         let conn = self.conn.lock()?;
-        let id = conn.query_row(
-            "INSERT INTO task_run (agent_id, task_slug, ran_at, finished_at, session_key, state) \
-             VALUES (?1, ?2, ?3, NULL, ?4, ?5) RETURNING id",
+        let tx = conn.unchecked_transaction()?;
+        check_fence(&tx, &self.fences, &Scope::Control)?;
+        let id = tx.query_row(
+            "INSERT INTO task_run (agent_id, task_slug, ran_at, finished_at, session_key, state, \
+             owner_node, owner_token) \
+             VALUES (?1, ?2, ?3, NULL, ?4, ?5, ?6, ?7) RETURNING id",
             params![
                 agent_id,
                 task_slug,
                 ran_at.timestamp_millis(),
                 session_key,
                 TaskRunState::Running.as_str(),
+                owner_node,
+                owner_token,
             ],
             |row| row.get(0),
         )?;
+        tx.commit()?;
 
         Ok(id)
     }
@@ -79,9 +88,11 @@ impl TaskRunStorage for SqlStorage {
         finished_at: Timestamp,
     ) -> Result<()> {
         let conn = self.conn.lock()?;
+        let tx = conn.unchecked_transaction()?;
+        check_fence(&tx, &self.fences, &Scope::Control)?;
         // `state = 'running'` in the predicate is what makes a terminal state terminal:
         // a late close cannot overwrite one already recorded.
-        conn.execute(
+        tx.execute(
             "UPDATE task_run SET state = ?1, finished_at = ?2 WHERE id = ?3 AND state = ?4",
             params![
                 state.as_str(),
@@ -90,6 +101,7 @@ impl TaskRunStorage for SqlStorage {
                 TaskRunState::Running.as_str(),
             ],
         )?;
+        tx.commit()?;
         Ok(())
     }
 

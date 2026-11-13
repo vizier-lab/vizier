@@ -15,10 +15,16 @@ use crate::{
 #[async_trait::async_trait]
 pub trait BackgroundJobStorage {
     /// Job and pieces in one transaction, before any piece is dispatched.
+    ///
+    /// Fenced: refused with `OwnershipLost` when a newer owner holds `agent:{origin_agent}`
+    /// (specs/057 contracts/ownership.md).
     async fn open_background_job(&self, job: BackgroundJob) -> Result<()>;
 
     /// Close one piece. Only a `running` piece is closed, so a late close cannot overwrite
     /// a state already recorded (a cancel, or the sweep).
+    ///
+    /// Fenced: refused with `OwnershipLost` when a newer owner holds `agent:{origin_agent}`
+    /// (specs/057 contracts/ownership.md).
     async fn close_background_piece(
         &self,
         job_id: &str,
@@ -32,6 +38,9 @@ pub trait BackgroundJobStorage {
     /// `reporting` (to `reported`/`undelivered`). Returns false if the guard did not match,
     /// i.e. someone else already moved the job. Cancelling also closes the job's still-running
     /// pieces.
+    ///
+    /// Fenced: refused with `OwnershipLost` when a newer owner holds `agent:{origin_agent}`
+    /// (specs/057 contracts/ownership.md).
     async fn transition_background_job(
         &self,
         job_id: &str,

@@ -1,4 +1,6 @@
 use anyhow::Result;
+use crate::storage::fence::Scope;
+use crate::storage::sqlite::fence::check_fence;
 
 
 use crate::storage::sql::{self, params};
@@ -8,14 +10,37 @@ use crate::{
     storage::{client_call::ClientCallStorage, sqlite::SqlStorage},
 };
 
+impl SqlStorage {
+    /// Refuse a write of client call `uid` when a newer owner holds its agent's scope. The agent
+    /// is read from the row, in the writer's transaction; a missing row has nothing to protect.
+    fn check_call_fence(&self, tx: &sql::Connection, uid: &str) -> Result<()> {
+        let agent = tx
+            .query_all(
+                "SELECT agent_id FROM client_tool_call WHERE history_uid = ?1",
+                params![uid],
+            )?
+            .first()
+            .map(|row| row.get::<_, String>(0))
+            .transpose()?;
+        match agent {
+            Some(agent) => check_fence(tx, &self.fences, &Scope::Agent(agent)),
+            None => Ok(()),
+        }
+    }
+}
+
 #[async_trait::async_trait]
 impl ClientCallStorage for SqlStorage {
     async fn open_client_call(&self, uid: &str, session: &VizierSession) -> Result<()> {
+        let scope = Scope::Agent(session.0.clone());
+        let (owner_node, owner_token) = self.fences.owner_of(&scope);
         let conn = self.conn.lock()?;
-        conn.execute(
+        let tx = conn.unchecked_transaction()?;
+        check_fence(&tx, &self.fences, &scope)?;
+        tx.execute(
             "INSERT INTO client_tool_call
-                (history_uid, agent_id, channel, topic, status, created_at)
-             VALUES (?1, ?2, ?3, ?4, 'pending', ?5)
+                (history_uid, agent_id, channel, topic, status, created_at, owner_node, owner_token)
+             VALUES (?1, ?2, ?3, ?4, 'pending', ?5, ?6, ?7)
              ON CONFLICT DO NOTHING",
             params![
                 uid,
@@ -23,8 +48,11 @@ impl ClientCallStorage for SqlStorage {
                 session.1.to_slug(),
                 session.2,
                 crate::time::stored_now(),
+                owner_node,
+                owner_token,
             ],
         )?;
+        tx.commit()?;
         Ok(())
     }
 
@@ -34,23 +62,29 @@ impl ClientCallStorage for SqlStorage {
             .map(|detail| serde_json::to_string(&detail))
             .transpose()?;
         let conn = self.conn.lock()?;
+        let tx = conn.unchecked_transaction()?;
+        self.check_call_fence(&tx, uid)?;
         // Only an open call changes, which is what makes an outcome final: a late write
         // changes nothing.
-        let changed = conn.execute(
+        let changed = tx.execute(
             "UPDATE client_tool_call SET status = ?1, detail = ?2, finished_at = ?3
              WHERE history_uid = ?4 AND status IN ('pending', 'deferred')",
             params![outcome.status(), detail, crate::time::stored_now(), uid],
         )?;
+        tx.commit()?;
         Ok(changed > 0)
     }
 
     async fn save_client_call_state(&self, uid: &str, state: &serde_json::Value) -> Result<()> {
         let state = serde_json::to_string(state)?;
         let conn = self.conn.lock()?;
-        conn.execute(
+        let tx = conn.unchecked_transaction()?;
+        self.check_call_fence(&tx, uid)?;
+        tx.execute(
             "UPDATE client_tool_call SET state = ?1, state_updated_at = ?2 WHERE history_uid = ?3",
             params![state, crate::time::stored_now(), uid],
         )?;
+        tx.commit()?;
         Ok(())
     }
 
@@ -65,10 +99,13 @@ impl ClientCallStorage for SqlStorage {
 
     async fn defer_client_call(&self, uid: &str) -> Result<bool> {
         let conn = self.conn.lock()?;
-        let changed = conn.execute(
+        let tx = conn.unchecked_transaction()?;
+        self.check_call_fence(&tx, uid)?;
+        let changed = tx.execute(
             "UPDATE client_tool_call SET status = 'deferred' WHERE history_uid = ?1 AND status = 'pending'",
             [uid],
         )?;
+        tx.commit()?;
         Ok(changed > 0)
     }
 

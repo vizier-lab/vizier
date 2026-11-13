@@ -122,11 +122,17 @@ impl QuestionStorage for VizierStorage {
 #[async_trait::async_trait]
 pub trait SensitiveAskStorage {
     /// Record an ask as `open`, when the dialog goes up.
+    ///
+    /// Fenced: refused with `OwnershipLost` when a newer owner holds `agent:{agent_id}`
+    /// (specs/057 contracts/ownership.md).
     async fn open_sensitive_ask(&self, record: &crate::questions::model::SensitiveAskRecord)
     -> Result<()>;
 
     /// Close an open ask with `state`. Only an `open` row changes, so a late submission after a
     /// timeout cannot reopen or rewrite one (FR-049). Returns whether this call closed it.
+    ///
+    /// Fenced: refused with `OwnershipLost` when a newer owner holds `agent:{agent_id}`
+    /// (specs/057 contracts/ownership.md).
     async fn close_sensitive_ask(
         &self,
         ask_id: &str,

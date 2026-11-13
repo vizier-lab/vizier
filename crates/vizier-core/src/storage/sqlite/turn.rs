@@ -1,5 +1,7 @@
 use crate::storage::sql::{self, Connection, params};
 use anyhow::Result;
+use crate::storage::fence::Scope;
+use crate::storage::sqlite::fence::check_fence;
 
 
 use crate::{
@@ -70,6 +72,22 @@ fn pending(conn: &Connection, agent_id: &str) -> Result<Vec<PendingTurn>> {
     Ok(out)
 }
 
+impl SqlStorage {
+    /// Refuse a write of turn `id` when a newer owner holds its agent's scope. The agent is read
+    /// from the row, in the writer's transaction; a missing row has nothing to protect.
+    fn check_turn_fence(&self, tx: &Connection, id: i64) -> Result<()> {
+        let agent = tx
+            .query_all("SELECT agent_id FROM session_turn WHERE id = ?1", params![id])?
+            .first()
+            .map(|row| row.get::<_, String>(0))
+            .transpose()?;
+        match agent {
+            Some(agent) => check_fence(tx, &self.fences, &Scope::Agent(agent)),
+            None => Ok(()),
+        }
+    }
+}
+
 #[async_trait::async_trait]
 impl TurnStorage for SqlStorage {
     async fn accept_turn(&self, session: &VizierSession, request: &VizierRequest) -> Result<i64> {
@@ -92,24 +110,34 @@ impl TurnStorage for SqlStorage {
     }
 
     async fn start_turn(&self, id: i64) -> Result<()> {
-        self.conn.lock()?.execute(
+        let conn = self.conn.lock()?;
+        let tx = conn.unchecked_transaction()?;
+        self.check_turn_fence(&tx, id)?;
+        tx.execute(
             "UPDATE session_turn SET state = 'running', started_at = ?2 WHERE id = ?1",
             params![id, crate::time::stored_now()],
         )?;
+        tx.commit()?;
         Ok(())
     }
 
     async fn set_turn_request_uid(&self, id: i64, uid: &str) -> Result<()> {
-        self.conn.lock()?.execute(
+        let conn = self.conn.lock()?;
+        let tx = conn.unchecked_transaction()?;
+        self.check_turn_fence(&tx, id)?;
+        tx.execute(
             "UPDATE session_turn SET request_uid = ?2 WHERE id = ?1",
             params![id, uid],
         )?;
+        tx.commit()?;
         Ok(())
     }
 
     async fn note_resume(&self, id: i64, steps: usize) -> Result<u32> {
         let conn = self.conn.lock()?;
-        let (count, at): (i64, i64) = conn.query_row(
+        let tx = conn.unchecked_transaction()?;
+        self.check_turn_fence(&tx, id)?;
+        let (count, at): (i64, i64) = tx.query_row(
             "SELECT resume_count, steps_at_resume FROM session_turn WHERE id = ?1",
             [id],
             |row| Ok((row.get(0)?, row.get(1)?)),
@@ -119,28 +147,31 @@ impl TurnStorage for SqlStorage {
         } else {
             1
         };
-        conn.execute(
+        tx.execute(
             "UPDATE session_turn SET resume_count = ?2, steps_at_resume = ?3 WHERE id = ?1",
             params![id, next, steps as i64],
         )?;
+        tx.commit()?;
         Ok(next as u32)
     }
 
     async fn finish_turn(&self, id: i64) -> Result<()> {
-        self.conn
-            .lock()?
-            .execute("DELETE FROM session_turn WHERE id = ?1", [id])?;
+        let conn = self.conn.lock()?;
+        let tx = conn.unchecked_transaction()?;
+        self.check_turn_fence(&tx, id)?;
+        tx.execute("DELETE FROM session_turn WHERE id = ?1", [id])?;
+        tx.commit()?;
         Ok(())
     }
 
     async fn cancel_session_turns(&self, session: &VizierSession) -> Result<usize> {
         let (agent_id, channel, topic) = key(session);
-        Ok(delete_session(
-            &self.conn.lock()?,
-            agent_id,
-            &channel,
-            topic,
-        )?)
+        let conn = self.conn.lock()?;
+        let tx = conn.unchecked_transaction()?;
+        check_fence(&tx, &self.fences, &Scope::Agent(agent_id.to_owned()))?;
+        let removed = delete_session(&tx, agent_id, &channel, topic)?;
+        tx.commit()?;
+        Ok(removed)
     }
 
     async fn pending_turns(&self, agent_id: &str) -> Result<Vec<PendingTurn>> {

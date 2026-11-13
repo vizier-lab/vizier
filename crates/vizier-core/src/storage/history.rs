@@ -36,6 +36,8 @@ pub trait HistoryStorage {
         Ok(None)
     }
 
+    /// Fenced: refused with `OwnershipLost` when a newer owner holds `agent:{agent_id}`
+    /// (specs/057 contracts/ownership.md).
     async fn save_session_history(
         &self,
         session: VizierSession,
@@ -76,6 +78,8 @@ pub trait HistoryStorage {
         before: Option<Timestamp>,
     ) -> Result<(Vec<SessionHistory>, Option<String>)>;
 
+    /// Fenced: refused with `OwnershipLost` when a newer owner holds `agent:{agent_id}`
+    /// (specs/057 contracts/ownership.md).
     async fn save_checkpoint(
         &self,
         session: VizierSession,

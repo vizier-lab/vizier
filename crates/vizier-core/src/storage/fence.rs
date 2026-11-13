@@ -94,6 +94,15 @@ impl Fences {
             .map(|fence| fence.token)
     }
 
+    /// The `(owner_node, owner_token)` a row opened now is stamped with: this process's fence for
+    /// `scope`, or nulls when it holds none (a gateway, or a test with no claim).
+    pub fn owner_of(&self, scope: &Scope) -> (Option<String>, Option<i64>) {
+        match self.held.lock().get(&scope.to_string()) {
+            Some(fence) => (Some(fence.node.clone()), Some(fence.token as i64)),
+            None => (None, None),
+        }
+    }
+
     /// A fenced write of `scope` was refused: flip its signal (and log it) the first time.
     pub fn mark_lost(&self, scope: &Scope) {
         let key = scope.to_string();

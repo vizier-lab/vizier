@@ -27,19 +27,34 @@ pub trait TurnStorage {
     async fn accept_turn(&self, session: &VizierSession, request: &VizierRequest) -> Result<i64>;
 
     /// The turn has begun to run.
+    ///
+    /// Fenced: refused with `OwnershipLost` when a newer owner holds `agent:{agent_id}`
+    /// (specs/057 contracts/ownership.md).
     async fn start_turn(&self, id: i64) -> Result<()>;
 
     /// The history uid of the turn's saved `Request` entry.
+    ///
+    /// Fenced: refused with `OwnershipLost` when a newer owner holds `agent:{agent_id}`
+    /// (specs/057 contracts/ownership.md).
     async fn set_turn_request_uid(&self, id: i64, uid: &str) -> Result<()>;
 
     /// A resume of the turn is about to run, with `steps` entries after its request. Returns
     /// the new count of resumes without progress: reset to 1 when `steps` grew since the last.
+    ///
+    /// Fenced: refused with `OwnershipLost` when a newer owner holds `agent:{agent_id}`
+    /// (specs/057 contracts/ownership.md).
     async fn note_resume(&self, id: i64, steps: usize) -> Result<u32>;
 
     /// The turn ended in any way: delete its row.
+    ///
+    /// Fenced: refused with `OwnershipLost` when a newer owner holds `agent:{agent_id}`
+    /// (specs/057 contracts/ownership.md).
     async fn finish_turn(&self, id: i64) -> Result<()>;
 
     /// Delete every row of a session (an abort).
+    ///
+    /// Fenced: refused with `OwnershipLost` when a newer owner holds `agent:{agent_id}`
+    /// (specs/057 contracts/ownership.md).
     async fn cancel_session_turns(&self, session: &VizierSession) -> Result<usize>;
 
     /// An agent's rows, in the order they were accepted.
