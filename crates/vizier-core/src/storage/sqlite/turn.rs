@@ -33,11 +33,13 @@ pub fn delete_session(
     )
 }
 
-fn pending(conn: &Connection, agent_id: &str) -> Result<Vec<PendingTurn>> {
+fn pending(conn: &Connection, agent_id: &str, below: Option<u64>) -> Result<Vec<PendingTurn>> {
+    // `below` keeps only the rows whose owner is older than it (or null): the expired ones.
     let mut stmt = conn.prepare(
-        "SELECT id, session, request, state, request_uid FROM session_turn WHERE agent_id = ?1 ORDER BY id",
+        "SELECT id, session, request, state, request_uid FROM session_turn \
+         WHERE agent_id = ?1 AND (?2 IS NULL OR owner_token IS NULL OR owner_token < ?2) ORDER BY id",
     )?;
-    let rows = stmt.query_map([agent_id], |row| {
+    let rows = stmt.query_map(params![agent_id, below.map(|t| t as i64)], |row| {
         Ok((
             row.get::<_, i64>(0)?,
             row.get::<_, String>(1)?,
@@ -175,7 +177,52 @@ impl TurnStorage for SqlStorage {
     }
 
     async fn pending_turns(&self, agent_id: &str) -> Result<Vec<PendingTurn>> {
-        pending(&self.conn.lock()?, agent_id)
+        pending(&self.conn.lock()?, agent_id, None)
+    }
+
+    async fn expired_turns(&self, agent_id: &str, below: u64) -> Result<Vec<PendingTurn>> {
+        pending(&self.conn.lock()?, agent_id, Some(below))
+    }
+
+    async fn sessions_with_pending_turns_of(&self, agent_id: &str) -> Result<Vec<VizierSession>> {
+        let conn = self.conn.lock()?;
+        let mut stmt = conn.prepare("SELECT DISTINCT session FROM session_turn WHERE agent_id = ?1")?;
+        let rows = stmt.query_map([agent_id], |row| row.get::<_, String>(0))?;
+        let mut out = vec![];
+        for row in rows {
+            if let Ok(session) = serde_json::from_str(&row?) {
+                out.push(session);
+            }
+        }
+        Ok(out)
+    }
+
+    async fn claim_turn_on_receipt(&self, id: i64) -> Result<bool> {
+        let conn = self.conn.lock()?;
+        let tx = conn.unchecked_transaction()?;
+        let agent = tx
+            .query_all("SELECT agent_id FROM session_turn WHERE id = ?1", params![id])?
+            .first()
+            .map(|row| row.get::<_, String>(0))
+            .transpose()?;
+        let Some(agent) = agent else {
+            // Finished or cancelled in the meantime: nothing to take, nothing to run.
+            return Ok(false);
+        };
+        let scope = Scope::Agent(agent);
+        check_fence(&tx, &self.fences, &scope)?;
+        let (node, token) = self.fences.owner_of(&scope);
+        let Some(token) = token else {
+            // No fence held (a single process before any claim, or a test): every delivery runs.
+            return Ok(true);
+        };
+        let taken = tx.execute(
+            "UPDATE session_turn SET owner_node = ?2, owner_token = ?3 \
+             WHERE id = ?1 AND (owner_token IS NULL OR owner_token < ?3)",
+            params![id, node, token],
+        )?;
+        tx.commit()?;
+        Ok(taken > 0)
     }
 
     async fn sessions_with_pending_turns(&self) -> Result<Vec<VizierSession>> {

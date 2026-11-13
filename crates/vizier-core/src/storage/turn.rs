@@ -62,6 +62,23 @@ pub trait TurnStorage {
 
     /// Every session that has a row, for the startup clean-up.
     async fn sessions_with_pending_turns(&self) -> Result<Vec<VizierSession>>;
+
+    /// The sessions of one agent that have a row (`specs/057-fleet-row-ownership`).
+    async fn sessions_with_pending_turns_of(&self, agent_id: &str) -> Result<Vec<VizierSession>>;
+
+    /// An agent's rows whose owner is older than `below`, in the order they were accepted: the
+    /// turns a new owner of `agent:{agent_id}` re-sends. A null owner is a row written before
+    /// ownership existed.
+    async fn expired_turns(&self, agent_id: &str, below: u64) -> Result<Vec<PendingTurn>>;
+
+    /// The owner of `agent:{agent_id}` takes the row on receiving it. `true` when this call took
+    /// it (its owner was null or older than the held fence), `false` for a duplicate delivery of
+    /// a row already taken, which the caller drops. `true` when this process holds no fence for
+    /// the agent. Keeps `resume_count`/`steps_at_resume`.
+    ///
+    /// Fenced: refused with `OwnershipLost` when a newer owner holds `agent:{agent_id}`
+    /// (specs/057 contracts/ownership.md).
+    async fn claim_turn_on_receipt(&self, id: i64) -> Result<bool>;
 }
 
 #[async_trait::async_trait]
@@ -96,5 +113,17 @@ impl TurnStorage for VizierStorage {
 
     async fn sessions_with_pending_turns(&self) -> Result<Vec<VizierSession>> {
         self.0.sessions_with_pending_turns().await
+    }
+
+    async fn sessions_with_pending_turns_of(&self, agent_id: &str) -> Result<Vec<VizierSession>> {
+        self.0.sessions_with_pending_turns_of(agent_id).await
+    }
+
+    async fn expired_turns(&self, agent_id: &str, below: u64) -> Result<Vec<PendingTurn>> {
+        self.0.expired_turns(agent_id, below).await
+    }
+
+    async fn claim_turn_on_receipt(&self, id: i64) -> Result<bool> {
+        self.0.claim_turn_on_receipt(id).await
     }
 }

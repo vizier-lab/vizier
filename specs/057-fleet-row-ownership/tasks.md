@@ -105,37 +105,37 @@
 
 ### Tests for User Story 1 ⚠️
 
-- [ ] T023 [P] [US1] In `core/storage/sqlite/turn.rs` tests (registered with `postgres_tests!`):
+- [X] T023 [P] [US1] In `core/storage/sqlite/turn.rs` tests (registered with `postgres_tests!`):
   - `claim_on_receipt_once`: claiming the same row twice with one token returns `true` then `false`.
   - `claim_on_receipt_keeps_resume_count`.
   - `expired_turns_for_agent_only`: rows of `x` under token 1, rows of `y` under C's token; after B claims `x`, only `x`'s rows are selected.
-- [ ] T024 [P] [US1] Create `core/recovery_tests.rs` (`#[cfg(test)] mod recovery_tests;` in `core/lib.rs`) with:
+- [X] T024 [P] [US1] Create `core/recovery_tests.rs` (`#[cfg(test)] mod recovery_tests;` in `core/lib.rs`) with:
   - `takeover_resends_exactly_expired_turns`: uses a test `VizierDependencies` from the existing test helpers, plus a transport whose `resend` is recorded.
   - `resume_limit_across_owners`: A, B and C each resume the same turn without progress, and the third resume past `MAX_RESUMES_WITHOUT_PROGRESS` is given up.
   - `scratch_kept_for_pending_turn_cleared_otherwise`.
   - `racing_recoverers_resend_safely`: B and C both run the turn step on 1,000 queued rows; every row is received and claimed exactly once (SC-003, turn half).
-- [ ] T025 [P] [US1] In `crates/vizier-core/tests/agent_host.rs`, add `ownership_lost_releases_agent`. Start an `AgentHost` holding `x`, make another store claim `agent:x`, then trigger a fenced write from the host. The agent's inbox is unregistered and its instance stopped, and no reply content is sent on the requester's stream (FR-008).
+- [X] T025 [P] [US1] In `crates/vizier-core/tests/agent_host.rs`, add `ownership_lost_releases_agent`. Start an `AgentHost` holding `x`, make another store claim `agent:x`, then trigger a fenced write from the host. The agent's inbox is unregistered and its instance stopped, and no reply content is sent on the requester's stream (FR-008).
 
 ### Implementation for User Story 1
 
-- [ ] T026 [US1] In `core/storage/turn.rs` (trait + `VizierStorage` delegate) and `core/storage/sqlite/turn.rs`:
+- [X] T026 [US1] In `core/storage/turn.rs` (trait + `VizierStorage` delegate) and `core/storage/sqlite/turn.rs`:
   - Add `claim_turn_on_receipt(&self, id: i64) -> Result<bool>`: `UPDATE session_turn SET owner_token = ?mine, owner_node = ?node WHERE id = ? AND (owner_token IS NULL OR owner_token < ?mine)`, fenced, with `?mine` taken from the held `agent:{agent_id}` fence. It returns `true` when no fence is held (single process before any claim).
   - Change `pending_turns(agent_id)` to also take `below: u64` and select only rows with `owner_token IS NULL OR owner_token < below`.
   - Make `sessions_with_pending_turns` take `agent_id: Option<&str>`.
-- [ ] T027 [US1] In `core/storage/scratch.rs` / `core/storage/sqlite/scratch.rs` and `core/storage/session.rs` / `core/storage/sqlite/session.rs`, add an `agent_id: &str` parameter to `clear_scratch_except` and `reset_thinking_except`, limiting both to that agent's rows (FR-021).
-- [ ] T028 [US1] Create `core/recovery.rs` (`pub mod recovery;` in `core/lib.rs`) with `pub struct Recovered { pub complete: bool }` and `pub async fn recover_agent(deps: &VizierDependencies, agent_id: &AgentId, fence: &Fence) -> Recovered`. Implement steps 3 and 5 of [contracts/recovery.md](contracts/recovery.md):
+- [X] T027 [US1] In `core/storage/scratch.rs` / `core/storage/sqlite/scratch.rs` and `core/storage/session.rs` / `core/storage/sqlite/session.rs`, add an `agent_id: &str` parameter to `clear_scratch_except` and `reset_thinking_except`, limiting both to that agent's rows (FR-021).
+- [X] T028 [US1] Create `core/recovery.rs` (`pub mod recovery;` in `core/lib.rs`) with `pub struct Recovered { pub complete: bool }` and `pub async fn recover_agent(deps: &VizierDependencies, agent_id: &AgentId, fence: &Fence) -> Recovered`. Implement steps 3 and 5 of [contracts/recovery.md](contracts/recovery.md):
   - **Scratch and thinking**: reset thinking marks and clear scratch of the agent's sessions with no pending turn, using T027 and `sessions_with_pending_turns(Some(agent_id))`.
   - **Turns**: re-send the agent's `pending_turns(agent_id, fence.token)` in id order. Move the body of `AgentHost::resend_pending_turns` here (same `VizierRequestEnvelope`, `broadcast_sender`, `resumed` when `running`).
   - A failed step sets `complete = false` and logs `warn!`.
   - Leave numbered placeholders, as comments naming the task that fills them: T045 for steps 1 and 2, T037 for step 4.
-- [ ] T029 [US1] In `core/agents/process.rs`, where an envelope with a `turn_id` arrives at `agent_process` (before it is queued or spawned), call `storage.claim_turn_on_receipt(id)`. On `Ok(false)` drop the envelope with a `debug!` ("duplicate delivery") and send nothing on its `response_tx`. On `Err(e)` with `is_ownership_lost(&e)`, drop it too; the release (T031) follows.
-- [ ] T030 [US1] In `core/agents/mod.rs`, change `AgentHost::take`:
+- [X] T029 [US1] In `core/agents/process.rs`, where an envelope with a `turn_id` arrives at `agent_process` (before it is queued or spawned), call `storage.claim_turn_on_receipt(id)`. On `Ok(false)` drop the envelope with a `debug!` ("duplicate delivery") and send nothing on its `response_tx`. On `Err(e)` with `is_ownership_lost(&e)`, drop it too; the release (T031) follows.
+- [X] T030 [US1] In `core/agents/mod.rs`, change `AgentHost::take`:
   - After `register_agent` and `subscribe_scoped`, call `self.deps.storage.claim(&Scope::Agent(id), node, None)`. The node is the id `SingleNodePlacement` already carries; pass it into `AgentHost::new` from `runtime.rs`.
   - Then call `recovery::recover_agent` in place of `resend_pending_turns`, and delete that method.
   - When `Recovered.complete` is false, spawn a retry loop with the supervisor's backoff (2 s doubling to 5 min) that calls `recover_agent` again until it is complete, and stops if the agent is released.
   - A failed `claim` logs an `error!` and does not start the agent.
-- [ ] T031 [US1] In `core/agents/mod.rs`, for every held agent, select on `storage.ownership_lost(&Scope::Agent(id))` in `AgentHost::run`'s loop (a per-agent watch merged into the existing `select!`, as `scoped_rx` is). When it fires, call `self.release(&id)` and log `warn!(agent_id, "ownership moved to another node; released")` (contract rule 6).
-- [ ] T032 [US1] In `core/dependencies.rs`, delete `clear_orphaned_scratch` and its call: it now runs per agent inside `recover_agent`.
+- [X] T031 [US1] In `core/agents/mod.rs`, for every held agent, select on `storage.ownership_lost(&Scope::Agent(id))` in `AgentHost::run`'s loop (a per-agent watch merged into the existing `select!`, as `scoped_rx` is). When it fires, call `self.release(&id)` and log `warn!(agent_id, "ownership moved to another node; released")` (contract rule 6).
+- [X] T032 [US1] In `core/dependencies.rs`, delete `clear_orphaned_scratch` and its call: it now runs per agent inside `recover_agent`.
 
 **Checkpoint**: T023–T025 pass. A single-node `just run` restart resumes a mid-turn conversation as before (quickstart §2).
 
@@ -149,7 +149,7 @@
 
 ### Tests for User Story 3 ⚠️
 
-- [ ] T033 [P] [US3] In `core/recovery_tests.rs`, add:
+- [X] T033 [P] [US3] In `core/recovery_tests.rs`, add:
   - `control_takeover_interrupts_unbacked_runs_once`.
   - `control_takeover_keeps_backed_runs`.
   - `agent_takeover_interrupts_unbacked_jobs_once`.
@@ -161,24 +161,24 @@
 
 ### Implementation for User Story 3
 
-- [ ] T034 [P] [US3] In `core/storage/task_run.rs` / `core/storage/sqlite/task_run.rs`:
+- [X] T034 [P] [US3] In `core/storage/task_run.rs` / `core/storage/sqlite/task_run.rs`:
   - Change `open_task_runs` to take `below: u64` (rows with `owner_token IS NULL OR owner_token < below`).
   - Change `interrupt_open_task_runs_except(keep)` to also take `below` and set `owner_token`/`owner_node` from the held control fence in the same fenced `UPDATE`.
   - Add `reown_task_runs(ids: &[i64])` for the kept ones.
-- [ ] T035 [P] [US3] In `core/storage/background_job.rs` / `core/storage/sqlite/background_job.rs`:
+- [X] T035 [P] [US3] In `core/storage/background_job.rs` / `core/storage/sqlite/background_job.rs`:
   - Add an `origin: &str` and a `below: u64` parameter to `open_background_jobs` and `interrupt_open_background_jobs_except`, with re-owning in the same fenced statement.
   - Add `reown_background_jobs(ids)`.
-- [ ] T036 [US3] In `core/agents/background/mod.rs`, change `BackgroundJobs::recover()` to `recover_origin(&self, origin: &AgentId, below: u64)`. It only acts on that origin's open jobs, re-owns the kept ones before restarting `run_job` or marking `reported`, and keeps the rest of its logic unchanged.
-- [ ] T037 [US3] In `core/recovery.rs`, fill step 4 of `recover_agent`. Move `background_jobs_backed_by_turns` from `core/dependencies.rs`, narrowed to the origin agent, then:
+- [X] T036 [US3] In `core/agents/background/mod.rs`, change `BackgroundJobs::recover()` to `recover_origin(&self, origin: &AgentId, below: u64)`. It only acts on that origin's open jobs, re-owns the kept ones before restarting `run_job` or marking `reported`, and keeps the rest of its logic unchanged.
+- [X] T037 [US3] In `core/recovery.rs`, fill step 4 of `recover_agent`. Move `background_jobs_backed_by_turns` from `core/dependencies.rs`, narrowed to the origin agent, then:
   - interrupt the unbacked jobs (T035);
   - send one `notifications.job_ended(…, JobState::Interrupted, …)` per interrupted job (the job half of `record_interrupted`);
   - call `deps.background_jobs.recover_origin(agent_id, fence.token)`.
-- [ ] T038 [US3] In `core/recovery.rs`, add `pub async fn recover_control(deps, fence) -> Recovered`. Move the `interrupt_orphaned_task_runs` logic from `core/dependencies.rs` (keep runs whose session has a pending turn, interrupt the rest with `below = fence.token`). Re-own the kept runs, and send one `task_run_ended(…, Interrupted, …)` per interrupted run (the run half of `record_interrupted`, including the task-title lookup).
-- [ ] T039 [US3] In `core/scheduler/mod.rs`, make `VizierScheduler::recover` read `open_task_runs(below)` with the token from `recover_control`'s fence. Pass the fence in, or store it on the scheduler when `VizierScheduler::new` is given it.
-- [ ] T040 [US3] In `core/runtime.rs`:
+- [X] T038 [US3] In `core/recovery.rs`, add `pub async fn recover_control(deps, fence) -> Recovered`. Move the `interrupt_orphaned_task_runs` logic from `core/dependencies.rs` (keep runs whose session has a pending turn, interrupt the rest with `below = fence.token`). Re-own the kept runs, and send one `task_run_ended(…, Interrupted, …)` per interrupted run (the run half of `record_interrupted`, including the task-title lookup).
+- [X] T039 [US3] In `core/scheduler/mod.rs`, make `VizierScheduler::recover` read `open_task_runs(below)` with the token from `recover_control`'s fence. Pass the fence in, or store it on the scheduler when `VizierScheduler::new` is given it.
+- [X] T040 [US3] In `core/runtime.rs`:
   - Before `VizierScheduler::new`/`run` (only when the scheduler role is spawned), call `deps.storage.claim(&Scope::Control, node, None)`, then `recovery::recover_control`. Retry an incomplete one as in T030, and refuse to spawn the scheduler if the claim fails.
   - Remove the `deps.background_jobs.recover().await` call after `AgentHost::new`: it now runs per agent (T037).
-- [ ] T041 [US3] In `core/dependencies.rs`, delete `interrupt_orphaned_task_runs`, `interrupt_orphaned_background_jobs`, `background_jobs_backed_by_turns`, `record_interrupted`, their call sites, and the `interrupted_runs`/`interrupted_jobs` locals.
+- [X] T041 [US3] In `core/dependencies.rs`, delete `interrupt_orphaned_task_runs`, `interrupt_orphaned_background_jobs`, `background_jobs_backed_by_turns`, `record_interrupted`, their call sites, and the `interrupted_runs`/`interrupted_jobs` locals.
 
 **Checkpoint**: T033 passes on both backends; quickstart §3 shows the same picked-up and interrupted outcomes as before, with one notification each.
 
@@ -192,7 +192,7 @@
 
 ### Tests for User Story 4 ⚠️
 
-- [ ] T042 [P] [US4] In `core/recovery_tests.rs`, add:
+- [X] T042 [P] [US4] In `core/recovery_tests.rs`, add:
   - `agent_takeover_interrupts_pending_client_calls_only`.
   - `deferred_client_call_survives_takeover`: after B's claim, `claim_client_call` by one claimant succeeds and a second fails.
   - `agent_takeover_abandons_open_asks`.
@@ -200,10 +200,10 @@
 
 ### Implementation for User Story 4
 
-- [ ] T043 [P] [US4] In `core/storage/client_call.rs` / `core/storage/sqlite/client_call.rs`, change `interrupt_pending_client_calls()` to `interrupt_pending_client_calls(agent_id: &str, below: u64)`: `status = 'pending' AND agent_id = ? AND (owner_token IS NULL OR owner_token < ?)`, re-owned in the same fenced `UPDATE`.
-- [ ] T044 [P] [US4] In `core/storage/question.rs` / `core/storage/sqlite/question.rs`, add `abandon_open_sensitive_asks(agent_id, below) -> Result<usize>`, a single fenced `UPDATE` that re-owns. In `core/questions/sensitive.rs`, replace `abandon_open_asks(storage)` with a per-agent version that calls it.
-- [ ] T045 [US4] In `core/recovery.rs`, fill steps 1 and 2 of `recover_agent` with T043 and T044, logging counts as the old sweeps did.
-- [ ] T046 [US4] In `core/dependencies.rs`, delete `interrupt_orphaned_client_calls`, the `abandon_open_asks` call and its comment.
+- [X] T043 [P] [US4] In `core/storage/client_call.rs` / `core/storage/sqlite/client_call.rs`, change `interrupt_pending_client_calls()` to `interrupt_pending_client_calls(agent_id: &str, below: u64)`: `status = 'pending' AND agent_id = ? AND (owner_token IS NULL OR owner_token < ?)`, re-owned in the same fenced `UPDATE`.
+- [X] T044 [P] [US4] In `core/storage/question.rs` / `core/storage/sqlite/question.rs`, add `abandon_open_sensitive_asks(agent_id, below) -> Result<usize>`, a single fenced `UPDATE` that re-owns. In `core/questions/sensitive.rs`, replace `abandon_open_asks(storage)` with a per-agent version that calls it.
+- [X] T045 [US4] In `core/recovery.rs`, fill steps 1 and 2 of `recover_agent` with T043 and T044, logging counts as the old sweeps did.
+- [X] T046 [US4] In `core/dependencies.rs`, delete `interrupt_orphaned_client_calls`, the `abandon_open_asks` call and its comment.
 
 **Checkpoint**: T042 passes; `VizierDependencies::new` no longer runs any in-flight sweep. Check with `rg "interrupt_orphaned|abandon_open_asks|clear_orphaned_scratch" crates/vizier-core/src/dependencies.rs`, which must print nothing.
 
@@ -217,13 +217,13 @@
 
 ### Tests for User Story 5 ⚠️
 
-- [ ] T047 [P] [US5] In `core/recovery_tests.rs`, add `single_node_restart_outcome_unchanged` (registered with `postgres_tests!`). Seed one of each in-flight record kind with `owner_token` set by a first process's claim, start a second test "process" (a new `SqlStorage` with fresh `Fences` on the same store), and claim every agent and control with `None`. Assert the per-kind outcome against a table written from today's sweep semantics: turn re-sent `resumed`; backed run and job picked up; unbacked ones interrupted with one notification each; pending call interrupted; deferred call kept; ask abandoned; scratch kept only for sessions with a turn.
-- [ ] T048 [P] [US5] In `core/recovery_tests.rs`, add `legacy_rows_recovered_once`. Rows with a null `owner_token` are recovered by the first claim and not by a second claim of the same process.
-- [ ] T049 [P] [US5] In `core/recovery_tests.rs`, add `single_node_never_refused`. Run a full turn's writes (history, turn transitions, a client call, a job) after a `None` claim; none returns `OwnershipLost`.
+- [X] T047 [P] [US5] In `core/recovery_tests.rs`, add `single_node_restart_outcome_unchanged` (registered with `postgres_tests!`). Seed one of each in-flight record kind with `owner_token` set by a first process's claim, start a second test "process" (a new `SqlStorage` with fresh `Fences` on the same store), and claim every agent and control with `None`. Assert the per-kind outcome against a table written from today's sweep semantics: turn re-sent `resumed`; backed run and job picked up; unbacked ones interrupted with one notification each; pending call interrupted; deferred call kept; ask abandoned; scratch kept only for sessions with a turn.
+- [X] T048 [P] [US5] In `core/recovery_tests.rs`, add `legacy_rows_recovered_once`. Rows with a null `owner_token` are recovered by the first claim and not by a second claim of the same process.
+- [X] T049 [P] [US5] In `core/recovery_tests.rs`, add `single_node_never_refused`. Run a full turn's writes (history, turn transitions, a client call, a job) after a `None` claim; none returns `OwnershipLost`.
 
 ### Implementation for User Story 5
 
-- [ ] T050 [US5] Read `core/runtime.rs` and `core/agents/mod.rs` end to end and confirm the startup order. In a single node: `VizierDependencies::new` (no sweeps), then `AgentHost::new` (per agent: claim, then `recover_agent`), then the control claim and `recover_control`, then the scheduler's `recover`, then `run`. Fix anything that makes a recovered job or run start before the pending turns it waits on have been re-sent, or say why it is safe in a code comment at the call site (research R5, "Ordering checked against today").
+- [X] T050 [US5] Read `core/runtime.rs` and `core/agents/mod.rs` end to end and confirm the startup order. In a single node: `VizierDependencies::new` (no sweeps), then `AgentHost::new` (per agent: claim, then `recover_agent`), then the control claim and `recover_control`, then the scheduler's `recover`, then `run`. Fix anything that makes a recovered job or run start before the pending turns it waits on have been re-sent, or say why it is safe in a code comment at the call site (research R5, "Ordering checked against today").
 - [ ] T051 [US5] Run quickstart §2–§4 against `just run` with a `dummyplug` agent and record the outcomes (pass or fail, with log excerpts) in a "Verification" section appended to `specs/057-fleet-row-ownership/quickstart.md`.
 - [ ] T052 [US5] Time 200 dummyplug turns of five tool calls each on SQLite, before and after the branch, using `scripts/` if a harness exists, otherwise a short loop over the HTTP API. Record both numbers in the same Verification section (SC-007).
 
@@ -306,3 +306,14 @@ Phases 1–4 (Setup, Foundational, US2, US1): a turn moves between owners exactl
 4. **PR 4** = Phases 8–9: audit, follow-up issues, docs.
 
 Rebase each PR on `master` before opening it: #160–#163 touch `transport/mod.rs`, `agents/mod.rs`, `agents/process.rs`, `dependencies.rs` and `runtime.rs` too.
+
+## Implementation notes (PR 3)
+
+Where the code differs from the wording above, and why:
+
+- **T026, T034, T035, T043, T044**: the storage methods are *added* beside the old ones (`expired_turns`, `sessions_with_pending_turns_of`, `expired_task_runs`, `interrupt_expired_task_runs_except`, `expired_background_jobs`, `interrupt_expired_background_jobs_except`, `interrupt_expired_client_calls`, `abandon_open_sensitive_asks`) instead of changing the signatures of `pending_turns`, `sessions_with_pending_turns`, `open_task_runs` and `open_background_jobs`, which seven other callers use for unrelated reads. The old startup-sweep methods stay on the traits, unused by the engine.
+- **T036**: `BackgroundJobs::recover` became `recover_jobs(jobs)`, taking the jobs `recover_agent` kept and re-owned, rather than rescanning by token: a repeated pass must not restart a runner.
+- **T039**: `VizierScheduler::recover` is unchanged. After `recover_control` the runs still open are exactly the kept ones, already re-owned, so it reads all open runs.
+- **T040**: the control claim and `recover_control` run before `AgentHost::new`, not after, as the old sweep ran before agents: a run's pending turn must still be pending when it is judged.
+- **T023**: its three cases are covered in `recovery_tests.rs` (`a_turn_is_claimed_once_on_receipt`, `the_resume_counter_survives_a_change_of_owner`, `takeover_resends_exactly_expired_turns`); they run on SQLite only, since they build a full `VizierDependencies`.
+- **T051, T052** are not done: the server binary does not build on Windows (`daemonize`), so quickstart §2–§4 and the timing run need a Linux or macOS host.

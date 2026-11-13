@@ -154,6 +154,12 @@ pub trait SensitiveAskStorage {
 
     /// Every open ask in the database: startup has no conversation to scope to (research R9).
     async fn open_sensitive_asks_all(&self) -> Result<Vec<crate::questions::model::SensitiveAskRecord>>;
+
+    /// Recovery of `agent:{agent_id}`: its `open` asks whose owner is older than `below` (or null)
+    /// become `abandoned` and are re-owned by the held fence, in one statement. Returns how many.
+    ///
+    /// Fenced: refused with `OwnershipLost` when a newer owner holds `agent:{agent_id}`.
+    async fn abandon_open_sensitive_asks(&self, agent_id: &str, below: u64) -> Result<usize>;
 }
 
 #[async_trait::async_trait]
@@ -186,6 +192,10 @@ impl SensitiveAskStorage for VizierStorage {
         state: crate::questions::model::AskState,
     ) -> Result<Vec<crate::questions::model::SensitiveAskRecord>> {
         self.0.sensitive_asks(session, state).await
+    }
+
+    async fn abandon_open_sensitive_asks(&self, agent_id: &str, below: u64) -> Result<usize> {
+        self.0.abandon_open_sensitive_asks(agent_id, below).await
     }
 
     async fn open_sensitive_asks_all(

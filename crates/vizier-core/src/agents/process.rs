@@ -161,6 +161,26 @@ pub async fn agent_process(
                 let turn = TurnRef { id: envelope.turn_id, resumed: envelope.resumed };
                 tracing::trace!(agent_id = %session.0, channel = ?session.1, "incoming request");
 
+                // The owner takes a journaled turn on receipt (specs/057 research R6). A turn
+                // already taken was delivered twice (a re-send racing a live delivery): drop
+                // it, so it runs once. A refused claim means a newer owner holds this agent.
+                if let Some(id) = turn.id {
+                    match deps.storage.claim_turn_on_receipt(id).await {
+                        Ok(true) => {}
+                        Ok(false) => {
+                            tracing::debug!(agent_id = %agent_id, turn = id, "dropping a duplicate delivery of a turn");
+                            continue;
+                        }
+                        Err(e) if crate::storage::fence::is_ownership_lost(&e) => {
+                            tracing::debug!(agent_id = %agent_id, turn = id, "dropping a turn: {e}");
+                            continue;
+                        }
+                        Err(e) => {
+                            tracing::warn!(agent_id = %agent_id, turn = id, "could not claim a turn on receipt, running it anyway: {e}");
+                        }
+                    }
+                }
+
                 // A side chat must leave no trace (FR-006): it never creates or titles the
                 // session's detail row, and never touches the conversation itself. The
                 // on-the-record decision lives in one testable predicate (research R2).

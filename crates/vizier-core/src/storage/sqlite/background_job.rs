@@ -414,6 +414,81 @@ impl BackgroundJobStorage for SqlStorage {
         Ok(swept)
     }
 
+    async fn expired_background_jobs(&self, origin: &str, below: u64) -> Result<Vec<BackgroundJob>> {
+        let conn = self.conn.lock()?;
+        let (origin, below) = (origin.to_owned(), below as i64);
+        load_jobs(
+            &conn,
+            &format!("{IN_FLIGHT} AND origin_agent = ?1 AND (owner_token IS NULL OR owner_token < ?2)"),
+            &[&origin, &below],
+        )
+    }
+
+    async fn interrupt_expired_background_jobs_except(
+        &self,
+        origin: &str,
+        below: u64,
+        keep: &[String],
+    ) -> Result<Vec<InterruptedJob>> {
+        let scope = Scope::Agent(origin.to_owned());
+        let (node, token) = self.fences.owner_of(&scope);
+        let conn = self.conn.lock()?;
+        let tx = conn.transaction()?;
+        check_fence(&tx, &self.fences, &scope)?;
+        let now = crate::time::now().timestamp_millis();
+        let open: Vec<(String, String, String, String, Option<String>)> = {
+            let mut stmt = tx.prepare(&format!(
+                "SELECT id, origin_agent, kind, origin_channel, origin_topic \
+                 FROM background_job WHERE {IN_FLIGHT} AND origin_agent = ?1 \
+                 AND (owner_token IS NULL OR owner_token < ?2) ORDER BY created_at, id"
+            ))?;
+            stmt.query_map(params![origin, below as i64], |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                ))
+            })?
+            .collect::<sql::Result<_>>()?
+        };
+        let mut swept = vec![];
+        for (id, origin_agent, kind, channel, topic) in &open {
+            if keep.contains(id) {
+                // Kept for `BackgroundJobs::recover_jobs`: still open, now ours.
+                tx.execute(
+                    "UPDATE background_job SET owner_node = ?2, owner_token = ?3 WHERE id = ?1",
+                    params![id, node, token],
+                )?;
+                continue;
+            }
+            tx.execute(
+                "UPDATE background_piece SET state = 'interrupted', finished_at = ?1 \
+                 WHERE job_id = ?2 AND state = 'running'",
+                params![now, id],
+            )?;
+            tx.execute(
+                "UPDATE background_job SET state = 'interrupted', finished_at = ?1, \
+                 owner_node = ?3, owner_token = ?4 WHERE id = ?2",
+                params![now, id, node, token],
+            )?;
+            if let (Some(kind), Ok(channel)) = (
+                crate::schema::JobKind::from_str(kind),
+                serde_json::from_str::<VizierChannelId>(channel),
+            ) {
+                swept.push(InterruptedJob {
+                    id: id.clone(),
+                    agent_id: origin_agent.clone(),
+                    kind,
+                    origin: VizierSession(origin_agent.clone(), channel, topic.clone()),
+                });
+            }
+        }
+        tx.commit()?;
+        Ok(swept)
+    }
+
     async fn interrupt_open_background_jobs(&self) -> Result<usize> {
         let conn = self.conn.lock()?;
         let tx = conn.transaction()?;

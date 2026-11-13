@@ -86,6 +86,14 @@ impl Fences {
         }
     }
 
+    /// Drop the fence held for `scope`, with its row gone (an agent deleted): a later agent of the
+    /// same id is claimed afresh.
+    pub fn forget(&self, scope: &Scope) {
+        let key = scope.to_string();
+        self.held.lock().remove(&key);
+        self.lost.lock().remove(&key);
+    }
+
     /// The token this process holds for `scope`, or `None` when it never claimed it.
     pub fn held(&self, scope: &Scope) -> Option<u64> {
         self.held

@@ -97,6 +97,23 @@ impl ClientCallStorage for SqlStorage {
         )?)
     }
 
+    async fn interrupt_expired_client_calls(&self, agent_id: &str, below: u64) -> Result<usize> {
+        let scope = Scope::Agent(agent_id.to_owned());
+        let (node, token) = self.fences.owner_of(&scope);
+        let conn = self.conn.lock()?;
+        let tx = conn.unchecked_transaction()?;
+        check_fence(&tx, &self.fences, &scope)?;
+        let changed = tx.execute(
+            "UPDATE client_tool_call SET status = 'interrupted', finished_at = ?1, \
+             owner_node = ?2, owner_token = ?3 \
+             WHERE status = 'pending' AND agent_id = ?4 \
+             AND (owner_token IS NULL OR owner_token < ?5)",
+            params![crate::time::stored_now(), node, token, agent_id, below as i64],
+        )?;
+        tx.commit()?;
+        Ok(changed)
+    }
+
     async fn defer_client_call(&self, uid: &str) -> Result<bool> {
         let conn = self.conn.lock()?;
         let tx = conn.unchecked_transaction()?;

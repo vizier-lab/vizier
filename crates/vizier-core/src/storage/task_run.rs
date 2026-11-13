@@ -77,6 +77,21 @@ pub trait TaskRunStorage {    /// Open a run. Called before the agent starts, so
     /// Returns the runs it closed, so each can be recorded as a notification.
     async fn interrupt_open_task_runs_except(&self, keep: &[i64]) -> Result<Vec<InterruptedRun>>;
 
+    /// The `Running` rows whose owner is older than `below` (or null): the runs a new owner of
+    /// `control` recovers (`specs/057-fleet-row-ownership`).
+    async fn expired_task_runs(&self, below: u64) -> Result<Vec<TaskRun>>;
+
+    /// Recovery of `control`: the expired runs not in `keep` become `Interrupted` and every one
+    /// of them, kept or not, is re-owned by the held fence, in the same statement. Returns the
+    /// runs it closed, so each can be recorded as a notification.
+    ///
+    /// Fenced: refused with `OwnershipLost` when a newer owner holds `control`.
+    async fn interrupt_expired_task_runs_except(
+        &self,
+        below: u64,
+        keep: &[i64],
+    ) -> Result<Vec<InterruptedRun>>;
+
     /// Called from task deletion: a new task reusing a freed slug must find no rows.
     async fn delete_task_runs(&self, agent_id: AgentId, task_slug: String) -> Result<()>;
 }
@@ -144,6 +159,18 @@ impl TaskRunStorage for VizierStorage {
 
     async fn interrupt_open_task_runs_except(&self, keep: &[i64]) -> Result<Vec<InterruptedRun>> {
         self.0.interrupt_open_task_runs_except(keep).await
+    }
+
+    async fn expired_task_runs(&self, below: u64) -> Result<Vec<TaskRun>> {
+        self.0.expired_task_runs(below).await
+    }
+
+    async fn interrupt_expired_task_runs_except(
+        &self,
+        below: u64,
+        keep: &[i64],
+    ) -> Result<Vec<InterruptedRun>> {
+        self.0.interrupt_expired_task_runs_except(below, keep).await
     }
 
     async fn delete_task_runs(&self, agent_id: AgentId, task_slug: String) -> Result<()> {

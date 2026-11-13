@@ -210,12 +210,16 @@ impl SessionStorage for SqlStorage {
         Ok(ids)
     }
 
-    async fn reset_thinking_except(&self, keep: &[crate::schema::VizierSession]) -> Result<usize> {
+    async fn reset_thinking_except(
+        &self,
+        agent_id: &str,
+        keep: &[crate::schema::VizierSession],
+    ) -> Result<usize> {
         let conn = self.conn.lock()?;
         let rows: Vec<(String, String, Option<String>, String)> = {
             let mut stmt =
-                conn.prepare("SELECT agent_id, channel, topic, data FROM session_detail")?;
-            stmt.query_map([], |row| {
+                conn.prepare("SELECT agent_id, channel, topic, data FROM session_detail WHERE agent_id = ?1")?;
+            stmt.query_map([agent_id], |row| {
                 Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
             })?
             .collect::<sql::Result<_>>()?

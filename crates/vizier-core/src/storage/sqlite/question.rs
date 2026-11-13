@@ -399,6 +399,29 @@ impl crate::storage::question::SensitiveAskStorage for SqlStorage {
         Ok(records)
     }
 
+    async fn abandon_open_sensitive_asks(&self, agent_id: &str, below: u64) -> Result<usize> {
+        let scope = crate::storage::fence::Scope::Agent(agent_id.to_owned());
+        let (node, token) = self.fences.owner_of(&scope);
+        let conn = self.conn.lock()?;
+        let tx = conn.unchecked_transaction()?;
+        crate::storage::sqlite::fence::check_fence(&tx, &self.fences, &scope)?;
+        let changed = tx.execute(
+            "UPDATE sensitive_ask SET state = 'abandoned', closed_at = ?1, \
+             owner_node = ?2, owner_token = ?3 \
+             WHERE state = 'open' AND agent_id = ?4 \
+             AND (owner_token IS NULL OR owner_token < ?5)",
+            params![
+                millis(crate::time::now()),
+                node,
+                token,
+                agent_id,
+                below as i64
+            ],
+        )?;
+        tx.commit()?;
+        Ok(changed)
+    }
+
     async fn open_sensitive_asks_all(
         &self,
     ) -> Result<Vec<crate::questions::model::SensitiveAskRecord>> {

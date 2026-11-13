@@ -241,6 +241,71 @@ impl TaskRunStorage for SqlStorage {
         Ok(swept)
     }
 
+    async fn expired_task_runs(&self, below: u64) -> Result<Vec<TaskRun>> {
+        let conn = self.conn.lock()?;
+        let sql = format!(
+            "SELECT {RUN_COLUMNS} FROM task_run WHERE state = ?1 \
+             AND (owner_token IS NULL OR owner_token < ?2) ORDER BY id"
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let runs = stmt
+            .query_map(params![TaskRunState::Running.as_str(), below as i64], run_from_row)?
+            .filter_map(|r| r.ok())
+            .flatten()
+            .collect();
+        Ok(runs)
+    }
+
+    async fn interrupt_expired_task_runs_except(
+        &self,
+        below: u64,
+        keep: &[i64],
+    ) -> Result<Vec<InterruptedRun>> {
+        let (node, token) = self.fences.owner_of(&Scope::Control);
+        let conn = self.conn.lock()?;
+        let tx = conn.unchecked_transaction()?;
+        check_fence(&tx, &self.fences, &Scope::Control)?;
+        let open: Vec<(i64, String, String)> = {
+            let mut stmt = tx.prepare(
+                "SELECT id, agent_id, task_slug FROM task_run WHERE state = ?1 \
+                 AND (owner_token IS NULL OR owner_token < ?2) ORDER BY id",
+            )?;
+            stmt.query_map(params![TaskRunState::Running.as_str(), below as i64], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+            })?
+            .collect::<sql::Result<_>>()?
+        };
+        let mut swept = vec![];
+        for (id, agent_id, task_slug) in open {
+            if keep.contains(&id) {
+                // Kept for `VizierScheduler::recover`: still running, now ours.
+                tx.execute(
+                    "UPDATE task_run SET owner_node = ?2, owner_token = ?3 WHERE id = ?1",
+                    params![id, node, token],
+                )?;
+                continue;
+            }
+            tx.execute(
+                "UPDATE task_run SET state = ?1, finished_at = ?2, owner_node = ?4, owner_token = ?5 \
+                 WHERE id = ?3",
+                params![
+                    TaskRunState::Interrupted.as_str(),
+                    crate::time::now().timestamp_millis(),
+                    id,
+                    node,
+                    token
+                ],
+            )?;
+            swept.push(InterruptedRun {
+                id,
+                agent_id,
+                task_slug,
+            });
+        }
+        tx.commit()?;
+        Ok(swept)
+    }
+
     async fn interrupt_open_task_runs(&self) -> Result<usize> {
         let conn = self.conn.lock()?;
         let swept = conn.execute(

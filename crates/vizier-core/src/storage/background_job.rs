@@ -95,6 +95,24 @@ pub trait BackgroundJobStorage {
         &self,
         keep: &[String],
     ) -> Result<Vec<InterruptedJob>>;
+
+    /// The in-flight jobs launched by `origin` whose owner is older than `below` (or null), with
+    /// their pieces: what a new owner of `agent:{origin}` recovers
+    /// (`specs/057-fleet-row-ownership`).
+    async fn expired_background_jobs(&self, origin: &str, below: u64) -> Result<Vec<BackgroundJob>>;
+
+    /// Recovery of `agent:{origin}`: its expired jobs not in `keep` become `interrupted` (with
+    /// their running pieces), and every expired job, kept or not, is re-owned by the held fence,
+    /// in the same statement. Returns the jobs it closed, so each can be recorded as a
+    /// notification.
+    ///
+    /// Fenced: refused with `OwnershipLost` when a newer owner holds `agent:{origin}`.
+    async fn interrupt_expired_background_jobs_except(
+        &self,
+        origin: &str,
+        below: u64,
+        keep: &[String],
+    ) -> Result<Vec<InterruptedJob>>;
 }
 
 /// A job the startup sweep just marked `interrupted`, named for its notification.
@@ -188,6 +206,21 @@ impl BackgroundJobStorage for VizierStorage {
 
     async fn interrupt_open_background_jobs(&self) -> Result<usize> {
         self.0.interrupt_open_background_jobs().await
+    }
+
+    async fn expired_background_jobs(&self, origin: &str, below: u64) -> Result<Vec<BackgroundJob>> {
+        self.0.expired_background_jobs(origin, below).await
+    }
+
+    async fn interrupt_expired_background_jobs_except(
+        &self,
+        origin: &str,
+        below: u64,
+        keep: &[String],
+    ) -> Result<Vec<InterruptedJob>> {
+        self.0
+            .interrupt_expired_background_jobs_except(origin, below, keep)
+            .await
     }
 }
 
