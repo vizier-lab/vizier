@@ -53,19 +53,20 @@ Worker A is paused (a long garbage-collection pause, a frozen VM, a network spli
 
 ---
 
-### User Story 3 - Scheduled runs and background jobs are recovered once when control changes hands (Priority: P2)
+### User Story 3 - Scheduled runs and background jobs are recovered once when their owner changes (Priority: P2)
 
-The control leader that runs the scheduler is lost while a scheduled task run and a background job are open. The standby becomes leader. It marks exactly those runs and jobs as interrupted (so they show as lost, and the people who should be told are told once), and does not touch runs and jobs still owned by a healthy node.
+A scheduled task run belongs to the control leader that fired it; a background job belongs to the worker running the agent that launched it, because that is where the job waits on its pieces. When either owner is lost, the node that takes over decides each open record once: a run or job whose work is still alive (a pending turn behind it) is picked up and finished as usual, and the rest are marked interrupted, so they show as lost and the people who should be told are told once. Records still owned by a healthy node are not touched.
 
-**Why this priority**: Scheduled work and background jobs are less interactive than a live turn, and today's outcome for them on restart is already "interrupted". What matters is that the outcome is applied once, to the right rows, and never to a run another node is still running.
+**Why this priority**: Scheduled work and background jobs are less interactive than a live turn, and today's outcome for them on restart is already "picked up if a turn still backs it, otherwise interrupted". What matters is that the outcome is applied once, to the right rows, and never to a run another node is still running.
 
-**Independent Test**: With two simulated control owners, open a task run and a background job under owner A, expire A's leadership, have B become leader, and check that exactly those rows become interrupted with one notification each, while rows owned by a live owner remain running.
+**Independent Test**: With two simulated owners, open a task run under control owner A and a background job under worker owner A, expire A, have B take over, and check that exactly those rows are resolved (picked up if backed, otherwise interrupted with one notification each), while rows owned by a live owner remain running.
 
 **Acceptance Scenarios**:
 
-1. **Given** a task run and a background job are open under the control leader A, **When** A's leadership expires and B becomes leader, **Then** both are marked interrupted, and each produces exactly one notification.
-2. **Given** a background job is moving from running to reporting, **When** two owners race to finish or interrupt it, **Then** exactly one transition wins and the job is either reported or interrupted, never both.
-3. **Given** a background job is still being run by a live owner, **When** a different node becomes control leader, **Then** that job is not interrupted.
+1. **Given** a task run open under control leader A with no pending turn behind it, **When** A's leadership expires and B becomes leader, **Then** the run is marked interrupted and produces exactly one notification.
+2. **Given** a task run open under A whose turn is still pending or running on a live worker, **When** B becomes leader, **Then** B waits for that turn and records the run's outcome when it ends, as a restart does today.
+3. **Given** a background job is moving from running to reporting, **When** two owners race to finish or interrupt it, **Then** exactly one transition wins and the job is either reported or interrupted, never both.
+4. **Given** a background job whose launching agent is still owned by a live worker, **When** another agent or the control leader changes hands, **Then** that job is not touched.
 
 ---
 
@@ -124,7 +125,7 @@ The operator, or the next developer working on Fleet, can read one place that li
 - **Rows written before this feature** (no owner recorded) are treated as belonging to an expired owner, so they are recovered on the first takeover, exactly once.
 - **A stale write that partly succeeded.** Refusal is per write and all-or-nothing: a step save that would also change turn state is either fully stored or fully refused.
 - **The refused ex-owner holds a reply sender.** A person's live connection must not get a second, conflicting reply from the ex-owner; the ex-owner's refusal ends its stream without a final answer, and the reply comes from the new owner.
-- **Control-owned rows when the leader changes but the worker does not.** A task run's turn runs on a worker; the run record belongs to control. Losing the control leader interrupts the run record only if the run is not still being answered by a live worker; whether the run's answer can still be recorded after a leader change is decided in planning (see Assumptions).
+- **Control-owned rows when the leader changes but the worker does not.** A task run's turn runs on a worker; the run record belongs to control. A new leader picks up a run whose turn is still pending (it waits for the turn to end and records the outcome, as a restart does today) and interrupts only the runs with nothing behind them.
 
 ## Requirements *(mandatory)*
 
@@ -132,8 +133,8 @@ The operator, or the next developer working on Fleet, can read one place that li
 
 **Ownership**
 
-- **FR-001**: Every in-flight turn, task run, background job and client tool call MUST record which owner holds it, until when that owner's lease runs, and the ownership token the owner held when it claimed the record.
-- **FR-002**: Turns and client tool calls MUST be owned through the agent's lease (one owner worker per agent); task runs and background jobs MUST be owned through the control leader's lease.
+- **FR-001**: Every in-flight turn, task run, background job and client tool call MUST record which owner holds it and the ownership token the owner held when it claimed the record. Whether that owner's lease is still valid MUST be decided by the lease authority and the current ownership token, never by comparing a time written by one node with another node's clock.
+- **FR-002**: Turns, client tool calls and background jobs MUST be owned through the lease of their agent (for a background job, the agent that launched it, whose process runs the job); task runs MUST be owned through the control leader's lease.
 - **FR-003**: Ownership tokens MUST only increase for a given lease, so a later owner's token is always greater than any earlier owner's.
 - **FR-004**: Records that existed before this feature MUST be readable and MUST be treated as held by an expired owner.
 
@@ -149,7 +150,7 @@ The operator, or the next developer working on Fleet, can read one place that li
 
 - **FR-010**: The startup sweeps for turns, task runs, background jobs and client tool calls MUST be replaced by a recovery routine that acts only on records whose owner's lease has expired.
 - **FR-011**: When a worker takes over an agent's lease, it MUST recover that agent's expired records: running turns are re-sent as resumed from their last saved step and queued turns are re-sent in their original order (as today), and pending client calls are swept to interrupted while deferred ones are kept.
-- **FR-012**: When a node becomes control leader, it MUST recover expired control-owned records: open task runs and background jobs are marked interrupted and recorded as notifications exactly once (as today).
+- **FR-012**: The recovery of task runs (when a node becomes control leader) and of background jobs (when their launching agent is taken over) MUST keep today's outcome: a record a pending turn still backs is picked up and finished as usual, every other one is marked interrupted and recorded as a notification exactly once.
 - **FR-013**: Recovery MUST claim each record for the new owner in the same indivisible step that decides it is expired, so two nodes recovering at once never both recover the same record.
 - **FR-014**: Recovery MUST never touch a record whose owner still holds a valid lease.
 - **FR-015**: The count of resumes without progress MUST be kept with the turn record and carried across a change of owner, and the existing limit on resumes without progress MUST apply across nodes.
@@ -199,7 +200,8 @@ The operator, or the next developer working on Fleet, can read one place that li
 - **Worker and control roles are not yet live** (#166–#170). This feature builds the ownership, fencing and recovery mechanisms and proves them with simulated owners; wiring them to real worker takeover and leader election is done by those roles. The recovery routine is designed so those roles only need to call it at takeover.
 - **Shared database** means the PostgreSQL backend; **embedded database** means SQLite, which stays single-process. Multi-owner tests run against PostgreSQL (the managed-storage CI job).
 - **The resume counter already lives in the turn record** today; this feature keeps it there and makes sure it is carried, not reset, across owners.
-- **A task run's record belongs to control while its turn runs on a worker.** Whether a run whose turn is still alive on a worker should be interrupted on a leader change, or picked up by the new leader to record its answer, is a planning decision; the default is that the new leader re-attaches to runs whose turn is still owned by a live worker and interrupts only the rest.
+- **A task run's record belongs to control while its turn runs on a worker.** The new leader re-attaches to runs whose turn is still pending (today's restart behaviour, which already waits on the session's events rather than on the old process) and interrupts only the rest.
+- **A background job belongs to the agent that launched it**, not to control: its runner lives in the process that launched it, so a lost control leader must not interrupt it and a lost worker must. Moving the runner to control is a later Fleet decision (#168) and would only change which owner a new job is written under.
 - **Ownership-lost handling on the ex-owner** stops the turn silently; the person sees only the new owner's reply. No notification or log beyond a warning is produced by the ex-owner.
 - **Notification watermarks and migration state keys** are audited; they are changed here only if the audit finds them unsafe and the fix is small, otherwise they become follow-up issues.
 - **No UI change**: this is backend work, so no FigCraft pass is needed.
