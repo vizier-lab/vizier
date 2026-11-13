@@ -39,7 +39,7 @@ Replace "background jobs" with one general option on `execute_python` only: `det
 | **III. Self-contained default** | Pass. SQLite default untouched; PostgreSQL gets the same table by the shared storage layer and an ordered migration. |
 | **IV. Portability** | Pass. No OS-specific code. Quickstart gives the Windows sleep form. |
 | **V. Unified errors and observability** | Pass. `crate::Result`, `tracing` only; spans `detached_call {tool}` as children of the turn's trace; refusals to the model are `status`/exception text, as the other code-mode tools. |
-| Design before UI code | Pass with one task owed. Drawn in FigCraft (`Vizier shell.figcraft`, Shell · chosen, frames "058 · A" and "058 · B", saved 2026-11-13): collapsible entries, trash cancel, Inspect view. The drawing shows a tool name, goal and group line per entry; before the UI is built it is redrawn to the final shape (title = intent, expanded = tool calls made and outcome, no group line). |
+| Design before UI code | Pass. Drawn in FigCraft (`Vizier shell.figcraft`, Shell · chosen, frames "058 · A" and "058 · B"): collapsible entries titled by the script's intent, trash cancel, an expanded view listing the tool calls made so far. |
 | Optional capabilities behind a flag | N/A. Not optional; the capability is core engine behaviour and no flag changes an API shape. |
 | Roles and components independent | Pass. `agents/detached/` depends on trait seams (`VizierStorage`, `VizierTransport`) as `background/` did; testable alone. The gateway side reaches it only through the `AgentsClient`/service seam. |
 | Verify what a change touches | Pass. Touches `vizier-core`, `vizier-http`, `webui`, `design`; the PR runs those jobs and the `gate`. `Cargo.lock` and `Cargo.toml` are untouched. |

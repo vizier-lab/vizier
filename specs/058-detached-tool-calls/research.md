@@ -71,7 +71,7 @@ Every decision below was checked against the code as of branch `058-detached-too
 
 ## D10. WebUI and design system
 
-**Decision**: change `design/` first (branch `058-detached-tool-calls`): `BackgroundJob` becomes a collapsible `BackgroundWork` entry (chevron, trash, Inspect details), `StatusStripItemId` `jobs` becomes `work`. Then `webui/`, then vizier's pins (design → webui → vizier). Entry shape: header is the script's **intent** (not a tool name), then handle and elapsed time; expanded, the tool calls made so far (name, ok, duration) and the outcome. The first FigCraft drawing (frames "058 · A" and "058 · B") shows tool names and a group line; it is redrawn to this shape before the UI is built (constitution: design before code).
+**Decision**: change `design/` first (branch `058-detached-tool-calls`): `BackgroundJob` becomes a collapsible `BackgroundWork` entry (chevron, trash, Inspect details), `StatusStripItemId` `jobs` becomes `work`. Then `webui/`, then vizier's pins (design → webui → vizier). Entry shape: header is the script's **intent** (not a tool name), then handle and elapsed time; expanded, the tool calls made so far (name, ok, duration) and the outcome. The FigCraft drawing (frames "058 · A" and "058 · B") shows this shape (constitution: design before code).
 
 **Result rendering**: a detached `execute_python` call returns a handle, not an `ExecutionReport`; the trail and message renderers that read `ok`, `result`, `stdout` from an `execute_python` result must show the handle as "running in the background" (`lib/trail.ts`, `MessageList.tsx`), and `ExecutionReport::ending_call` must ignore it (it has no `tool_calls`).
 
