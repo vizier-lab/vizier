@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Custom tools mockup</title>
+<style>
+  :root { --bg:#fafafa; --panel:#fff; --line:#e4e4e7; --text:#18181b; --muted:#52525b; --faint:#5f5f67; --chip:#f4f4f5; --warn:#71717a; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#09090b; --panel:#111113; --line:#27272a; --text:#f4f4f5; --muted:#a1a1aa; --faint:#71717a; --chip:#18181b; } }
+  :root[data-theme="dark"] { --bg:#09090b; --panel:#111113; --line:#27272a; --text:#f4f4f5; --muted:#a1a1aa; --faint:#71717a; --chip:#18181b; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:14px/1.45 ui-sans-serif,system-ui,sans-serif; }
+  .note { max-width:1080px; margin:16px auto; padding:0 16px; color:var(--muted); font-size:12px; }
+  .frame { max-width:1080px; margin:0 auto 40px; padding:0 16px; }
+  h1 { font-size:18px; margin:0; } h2 { font-size:13px; margin:0; text-transform:none; }
+  .label { font-size:12px; letter-spacing:.04em; text-transform:uppercase; color:var(--faint); margin:28px 0 8px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:10px; }
+  .header { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:16px 0; }
+  .sub { color:var(--muted); font-size:13px; }
+  .btn { border:1px solid var(--line); background:var(--panel); color:var(--text); border-radius:7px; padding:5px 10px; font-size:12px; cursor:pointer; }
+  .btn.primary { background:var(--text); color:var(--bg); border-color:var(--text); }
+  .icon { width:28px; height:28px; display:inline-grid; place-items:center; border-radius:6px; border:1px solid transparent; color:var(--muted); }
+  .icon:hover { border-color:var(--line); }
+  .group { margin-bottom:14px; }
+  .ghead { display:flex; align-items:center; justify-content:space-between; padding:10px 14px; border-bottom:1px solid var(--line); }
+  .ghead .d { color:var(--muted); font-size:12px; }
+  .row { display:grid; grid-template-columns:minmax(0,1fr) auto auto 36px; gap:12px; align-items:center; padding:10px 14px; border-bottom:1px solid var(--line); }
+  .row:last-child { border-bottom:0; }
+  .row .n { font-family:ui-monospace,monospace; font-size:13px; }
+  .row .desc { color:var(--muted); font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .meta { color:var(--faint); font-size:12px; white-space:nowrap; }
+  .chip { display:inline-block; background:var(--chip); border:1px solid var(--line); border-radius:999px; padding:0 7px; font-size:12px; color:var(--muted); }
+  .attn { display:inline-flex; gap:4px; align-items:center; font-size:12px; color:var(--text); border:1px dashed var(--muted); border-radius:999px; padding:0 7px; }
+  .switch { width:30px; height:17px; border-radius:99px; background:var(--text); position:relative; }
+  .switch::after { content:""; position:absolute; top:2px; left:15px; width:13px; height:13px; border-radius:50%; background:var(--bg); }
+  .switch.off { background:var(--line); } .switch.off::after { left:2px; }
+  .off-row .n, .off-row .desc { color:var(--faint); }
+  .split { display:grid; grid-template-columns: 1fr 300px; gap:14px; }
+  .tabs { display:flex; gap:16px; padding:0 14px; border-bottom:1px solid var(--line); }
+  .tab { padding:10px 0; color:var(--muted); font-size:13px; } .tab.on { color:var(--text); box-shadow: inset 0 -2px 0 var(--text); }
+  pre { margin:0; padding:14px; font:12px/1.55 ui-monospace,monospace; overflow:auto; }
+  .add { background:color-mix(in srgb, var(--text) 7%, transparent); } .del { color:var(--faint); text-decoration:line-through; }
+  .side { padding:14px; display:grid; gap:10px; font-size:13px; } .side dt { color:var(--faint); font-size:12px; text-transform:uppercase; letter-spacing:.04em; } .side dd { margin:0; }
+  .hist { padding:0; margin:0; list-style:none; } .hist li { padding:8px 14px; border-bottom:1px solid var(--line); display:flex; justify-content:space-between; font-size:12px; }
+  .field { display:grid; gap:4px; margin-bottom:12px; } .field label { font-size:12px; color:var(--muted); }
+  input, select, textarea { width:100%; background:var(--panel); color:var(--text); border:1px solid var(--line); border-radius:7px; padding:7px 9px; font:inherit; }
+  textarea { font:12px/1.5 ui-monospace,monospace; min-height:120px; }
+  .dialog { max-width:440px; padding:16px; box-shadow:0 10px 30px rgba(0,0,0,.12); }
+  .dhead { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }
+  .problems { border:1px solid var(--line); border-radius:8px; padding:10px 12px; font-size:12px; margin-bottom:12px; }
+  .problems li { margin:2px 0; } .problems code { font-size:12px; }
+  .actions { display:flex; justify-content:flex-end; gap:8px; }
+  .phone { width:375px; max-width:100%; }
+  @media (max-width:760px) { .split { grid-template-columns:1fr; } .row { grid-template-columns:minmax(0,1fr) 36px; } .row .meta, .row .chips { display:none; } }
+</style>
+</head>
+<body>
+<p class="note">Spec 061 mockup (T059), HTML because the constitution allows it in place of FigCraft. Monochrome, built from the existing agent-page vocabulary (Secrets / Skills): page header, grouped cards, switches, history list, diff view, design <code>Dialog</code>. Toggle theme: <button class="btn" onclick="document.documentElement.dataset.theme = document.documentElement.dataset.theme==='dark'?'light':'dark'">light / dark</button></p>
+
+<div class="frame">
+  <div class="label">1 · Custom tools page (person who can edit the agent)</div>
+  <div class="header">
+    <div><h1>Custom tools</h1><div class="sub">Tools this agent made from its own scripts. It creates them; you can switch them off, edit, roll back or delete.</div></div>
+    <button class="btn">Activity</button>
+  </div>
+
+  <div class="card group">
+    <div class="ghead"><div><h2>reports</h2><div class="d">Pull and send the weekly status reports</div></div><span class="icon" title="Rename or describe category">✎</span></div>
+    <div class="row"><div><div class="n">weekly_digest</div><div class="desc">Summarise a topic's notes from the last week into the digests bundle</div></div><div class="chips"><span class="chip">v3</span> <span class="chip">model-backed</span></div><div class="meta">a dream · 2 h ago</div><div class="switch"></div></div>
+    <div class="row"><div><div class="n">send_report</div><div class="desc">Post the digest to the team channel</div> <span class="attn">⚠ needs attention: missing stripe_list_charges</span></div><div class="chips"><span class="chip">v1</span></div><div class="meta">you · yesterday</div><div class="switch"></div></div>
+  </div>
+
+  <div class="card group">
+    <div class="ghead"><div><h2>maths</h2><div class="d">Small arithmetic helpers</div></div><span class="icon">✎</span></div>
+    <div class="row off-row"><div><div class="n">echo_sum</div><div class="desc">Add two integers · switched off by alice</div></div><div class="chips"><span class="chip">v4</span></div><div class="meta">alice · 3 d ago</div><div class="switch off"></div></div>
+  </div>
+
+  <div class="card group">
+    <div class="ghead"><div><h2>custom</h2><div class="d">Tools you made that have no category yet</div></div><span class="icon">✎</span></div>
+    <div class="row"><div><div class="n">loose</div><div class="desc">Quick lookup</div></div><div class="chips"><span class="chip">v1</span></div><div class="meta">you · 5 d ago</div><div class="switch"></div></div>
+  </div>
+  <p class="sub">Empty state: “No custom tools yet. The agent makes them when it saves a workflow it repeats; dreams make them too.”</p>
+
+  <div class="label">2 · Tool view (opened from a row)</div>
+  <div class="split">
+    <div class="card">
+      <div class="header" style="padding:12px 14px;border-bottom:1px solid var(--line)"><div><h1 style="font-family:ui-monospace,monospace;font-size:15px">weekly_digest</h1><div class="sub">reports · version 3 of 3</div></div><div style="display:flex;gap:6px"><button class="btn">Delete</button><button class="btn primary">Edit</button></div></div>
+      <div class="tabs"><span class="tab on">Script</span><span class="tab">Input</span><span class="tab">Diff</span></div>
+<pre>notes = memory_search(query=input["topic"], limit=input["limit"])
+titles = [p["title"] for p in notes["passages"]]
+memory_write(bundle="digests", path=input["topic"], content="\n".join(titles))
+{"count": len(titles), "titles": titles}</pre>
+      <div class="tabs" style="border-top:1px solid var(--line)"><span class="tab on">Diff v2 → v3</span></div>
+<pre><span class="del">notes = memory_search(query=input["topic"])</span>
+<span class="add">notes = memory_search(query=input["topic"], limit=input["limit"])</span>
+ titles = [p["title"] for p in notes["passages"]]</pre>
+    </div>
+    <div class="card">
+      <dl class="side">
+        <div><dt>Calls</dt><dd><code>memory_search</code>, <code>memory_write</code></dd></div>
+        <div><dt>Called by</dt><dd><code>send_report</code></dd></div>
+        <div><dt>Last called</dt><dd>today, 09:12</dd></div>
+      </dl>
+      <div class="label" style="margin:0;padding:0 14px 6px">History</div>
+      <ul class="hist">
+        <li><span>v3 · a dream (2026-11-14)</span><span>2 h ago</span></li>
+        <li><span>v2 · you · “tidy”</span><span><button class="btn">Restore</button></span></li>
+        <li><span>v1 · you · created</span><span><button class="btn">Restore</button></span></li>
+        <li><span>switched on · alice</span><span>4 d ago</span></li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="label">3 · Editor (dialog) with a refusal, and a new category asking for a description</div>
+  <div class="card dialog">
+    <div class="dhead"><h2>Edit weekly_digest</h2><span class="icon">×</span></div>
+    <div class="problems"><strong>Not saved, fix these:</strong><ul><li><code>unknown_tool</code> memory_serch is not a tool the agent has. Did you mean memory_search?</li><li><code>script_syntax</code> line 2, column 40: expected ')'</li></ul></div>
+    <div class="field"><label>Description</label><input value="Summarise a topic's notes from the last week"></div>
+    <div class="field"><label>Category</label><select><option>reports</option><option>maths</option><option>custom</option><option>New category…</option></select></div>
+    <div class="field"><label>New category description (required for a new category)</label><input placeholder="One line saying what it is for"></div>
+    <div class="field"><label>Input schema (JSON)</label><textarea>{"type":"object","properties":{"topic":{"type":"string"}}}</textarea></div>
+    <div class="field"><label>Script</label><textarea>notes = memory_serch(query=input["topic"]</textarea></div>
+    <div class="actions"><button class="btn">Cancel</button><button class="btn primary">Save as v4</button></div>
+    <p class="sub" style="margin:10px 0 0">Conflict: “This tool changed since you opened it (now v4). Reload to see the change, then edit again.” [Reload]</p>
+  </div>
+
+  <div class="label">4 · Category dialog · 5 · Delete confirmation</div>
+  <div style="display:flex;gap:14px;flex-wrap:wrap">
+    <div class="card dialog"><div class="dhead"><h2>Category reports</h2><span class="icon">×</span></div><div class="field"><label>Name</label><input value="reports"></div><div class="field"><label>Description</label><input value="Pull and send the weekly status reports"></div><p class="sub">The agent sees the change from its next turn. Tools keep their names.</p><div class="actions"><button class="btn">Cancel</button><button class="btn primary">Save</button></div></div>
+    <div class="card dialog"><div class="dhead"><h2>Delete weekly_digest?</h2><span class="icon">×</span></div><p class="sub">Its 3 versions are deleted. send_report calls it and will need attention. The deletion stays in Activity.</p><div class="actions"><button class="btn">Cancel</button><button class="btn primary">Delete</button></div></div>
+  </div>
+
+  <div class="label">6 · View-only person · 7 · Phone</div>
+  <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-start">
+    <div class="card group" style="flex:1;min-width:300px"><div class="ghead"><div><h2>reports</h2><div class="d">Pull and send the weekly status reports</div></div></div>
+      <div class="row" style="grid-template-columns:minmax(0,1fr) auto"><div><div class="n">weekly_digest</div><div class="desc">No switch, edit, delete or category edit</div></div><div class="meta">v3 · a dream</div></div></div>
+    <div class="card phone"><div class="ghead"><div><h2>reports</h2><div class="d">Pull and send…</div></div><span class="icon">✎</span></div>
+      <div class="row"><div><div class="n">weekly_digest</div><div class="desc">v3 · a dream · 2 h ago</div></div><div class="switch"></div></div>
+      <div class="row"><div><div class="n">send_report</div><div class="desc">⚠ needs attention</div></div><div class="switch"></div></div></div>
+  </div>
+</div>
+</body>
+</html>

@@ -265,6 +265,7 @@ fn env() -> Env {
         project: None,
         detached: false,
         parent_detached_id: None,
+        custom: Default::default(),
     };
     Env { storage, manager, ctx, _dir: dir }
 }

@@ -112,12 +112,71 @@ fn allowed(spec: &ProjectToolSpec, project: &ProjectTurnContext) -> bool {
     }
 }
 
+/// The project coding tools as a per-turn source (`specs/061-agent-custom-tools` R1): offered
+/// by this turn's saved mode (`specs/041-project-coding-workspace` R10), with the `coding` line
+/// whenever a project context exists.
+pub struct ProjectSource;
+
+impl ProjectSource {
+    pub const ID: &'static str = "project";
+}
+
+#[async_trait::async_trait]
+impl crate::agents::tools::turn_source::TurnToolSource for ProjectSource {
+    fn id(&self) -> &'static str {
+        Self::ID
+    }
+
+    async fn entries(
+        &self,
+        _router: &crate::agents::tools::ToolRouter,
+        ctx: &ToolContext,
+    ) -> Vec<CatalogueEntry> {
+        ctx.project.as_ref().map(|project| offered(project)).unwrap_or_default()
+    }
+
+    fn categories(
+        &self,
+        _router: &crate::agents::tools::ToolRouter,
+        ctx: &ToolContext,
+    ) -> Vec<crate::agents::tools::CategorySummary> {
+        match ctx.project {
+            Some(_) => vec![crate::agents::tools::CategorySummary {
+                name: crate::agents::tools::ToolCategory::Coding.name().into(),
+                description: crate::agents::tools::ToolCategory::Coding.description().into(),
+            }],
+            None => vec![],
+        }
+    }
+
+    fn output_schema(&self, _ctx: &ToolContext, name: &str) -> Option<serde_json::Value> {
+        output_schema(name)
+    }
+
+    async fn call(
+        &self,
+        name: &str,
+        arguments: String,
+        ctx: &ToolContext,
+        _env: &crate::agents::tools::turn_source::BridgeEnv<'_>,
+    ) -> anyhow::Result<crate::schema::VizierResponse> {
+        // The registry re-checks what this turn may use (contract §1).
+        let value = call(name, arguments, ctx).await?;
+        Ok(crate::schema::VizierResponse {
+            timestamp: crate::time::now(),
+            content: crate::schema::VizierResponseContent::ToolResponse { response: value },
+            attachments: vec![],
+            ..Default::default()
+        })
+    }
+}
+
 fn entry(spec: &ProjectToolSpec) -> CatalogueEntry {
     let tool = spec.tool;
     CatalogueEntry {
         name: tool.tool_name(),
         category: crate::agents::tools::ToolCategory::Coding.name().to_string(),
-        target: ToolTarget::Project,
+        target: ToolTarget::Turn { source: ProjectSource::ID },
         definition: flagged_definition(tool),
         ends_turn: tool.ends_turn(),
     }

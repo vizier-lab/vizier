@@ -63,6 +63,7 @@ fn ctx(session: VizierSession, depth: u8) -> ToolContext {
         project: None,
         detached: false,
         parent_detached_id: None,
+        custom: Default::default(),
     }
 }
 
@@ -107,6 +108,7 @@ fn hanging(dropped: Arc<AtomicBool>) -> ScriptRunner {
                 error: None,
                 duration_ms: 5,
                 ends_turn: false,
+                calls: vec![],
             }]);
             std::future::pending::<()>().await;
             unreachable!()
@@ -312,6 +314,7 @@ fn stored_calls_cut_argument_previews() {
         error: None,
         duration_ms: 1,
         ends_turn: false,
+        calls: vec![],
     }]);
     let args = &stored[0]["arguments"];
     assert_eq!(args["name"], "a");

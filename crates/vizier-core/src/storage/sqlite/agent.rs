@@ -151,6 +151,8 @@ impl AgentStorage for SqlStorage {
         )?;
         // Secret values and their change log never outlive their agent (spec 027 FR-005).
         super::secret::delete_agent_secrets(&conn, agent_id)?;
+        // Its custom tools, versions, categories and their log (spec 061).
+        super::delete_agent_custom_tools(&conn, agent_id)?;
         // Its notifications go with it; their read rows cascade (spec 029).
         super::notification::delete_agent_notifications(&conn, agent_id)?;
         // It leaves every Workspace it was in; the messages it wrote stay under its name (spec 053).

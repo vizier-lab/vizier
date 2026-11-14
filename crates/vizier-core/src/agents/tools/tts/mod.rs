@@ -48,6 +48,11 @@ impl VizierTool for TtsGenerate {
         "tts_generate".to_string()
     }
 
+    /// Its result comes from a model (spec 061 R7).
+    fn model_backed() -> bool {
+        true
+    }
+
     fn description(&self) -> String {
         format!(
             "Generate speech audio from text using TTS. The audio file is saved to the session files. Default voice: \"{}\", speed: {}.",

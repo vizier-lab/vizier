@@ -1688,3 +1688,118 @@ async fn http_client_saves_a_download_as_a_session_file() {
 
     runtime.shutdown().await.unwrap();
 }
+
+/// One `execute_python` request as dummyplug's §3 JSON.
+fn python(code: &str) -> String {
+    serde_json::json!({ "tool": "execute_python", "arguments": { "intent": "custom tools", "code": code } })
+        .to_string()
+}
+
+/// `specs/061-agent-custom-tools` quickstart §0–§2, §4 and §6 through the real agent loop: a
+/// script saves a tool, a later turn and another conversation call it, discovery lists it, and
+/// versions and categories change as the agent asks.
+#[tokio::test(flavor = "multi_thread")]
+async fn custom_tools_are_saved_and_called_through_the_agent_loop() {
+    let Some((_dummyplug, runtime, _dir)) = detached_harness().await else {
+        return;
+    };
+    let transport = runtime.transport();
+    let session = web_session("custom-a");
+
+    // §0: the authoring category, before any custom tool.
+    let listing = chat(
+        transport,
+        &session,
+        r#"{"tool":"list_tool_functions","arguments":{"category":"custom_tools"}}"#,
+    )
+    .await;
+    for name in ["create_custom_tool", "update_custom_tool", "custom_tool_history", "update_custom_tool_category"] {
+        assert!(listing.contains(name), "{name} in {listing}");
+    }
+
+    // §1: create, with every problem of a bad definition at once.
+    let created = chat(
+        transport,
+        &session,
+        &python(
+            "create_custom_tool(name='echo_sum', description='Add two numbers', category='maths', \
+             category_description='Small arithmetic helpers', \
+             input_schema={'type':'object','properties':{'a':{'type':'integer'},'b':{'type':'integer'}},'required':['a','b']}, \
+             script=\"input['a'] + input['b']\")",
+        ),
+    )
+    .await;
+    assert!(created.contains("\"status\": \"created\"") || created.contains("\"status\":\"created\""), "{created}");
+    assert!(created.contains("echo_sum"), "{created}");
+    let bad = chat(
+        transport,
+        &session,
+        &python("create_custom_tool(name='bad', description='x', input_schema={'type':'string'}, script='memory_serch(query=1')"),
+    )
+    .await;
+    assert!(bad.contains("schema_not_object") && bad.contains("script_syntax"), "{bad}");
+    let typo = chat(
+        transport,
+        &session,
+        &python("create_custom_tool(name='bad', description='x', input_schema={'type':'object'}, script='current_tme()')"),
+    )
+    .await;
+    // This agent has no indexer, so no memory tools: the time tools are always there.
+    assert!(typo.contains("unknown_tool") && typo.contains("\"current_time\""), "{typo}");
+
+    // No prefix: a name one of the agent's tools already has is refused.
+    let clash = chat(
+        transport,
+        &session,
+        &python("create_custom_tool(name='current_time', description='x', input_schema={'type':'object'}, script='1')['problems'][0]['code']"),
+    )
+    .await;
+    assert!(clash.contains("name_taken"), "{clash}");
+
+    // §2: called from the next turn, with a bad input refused before anything runs.
+    let five = chat(transport, &session, &python("echo_sum(a=2, b=3)")).await;
+    assert!(five.contains("\"result\": 5") || five.contains("\"result\":5"), "{five}");
+    let refused = chat(transport, &session, &python("echo_sum(a='2', b=3)")).await;
+    assert!(refused.contains("echo_sum: invalid input: $.a: expected integer, got string"), "{refused}");
+    let listed = chat(transport, &session, r#"{"tool":"list_tool_functions","arguments":{"category":"maths"}}"#).await;
+    assert!(listed.contains("echo_sum"), "{listed}");
+    let described =
+        chat(transport, &session, r#"{"tool":"describe_tool_function","arguments":{"name":"echo_sum"}}"#).await;
+    assert!(described.contains("\"author\"") && described.contains("you"), "{described}");
+
+    // In another conversation too.
+    let other = web_session("custom-b");
+    let two = chat(transport, &other, &python("echo_sum(a=1, b=1)")).await;
+    assert!(two.contains("\"result\": 2") || two.contains("\"result\":2"), "{two}");
+
+    // §4: versions, and a stale write refused.
+    let v2 = chat(
+        transport,
+        &session,
+        &python("update_custom_tool(name='echo_sum', script=\"input['a'] + input['b'] + 0\", reason='tidy')['version']"),
+    )
+    .await;
+    assert!(v2.contains("\"result\": 2") || v2.contains("\"result\":2"), "{v2}");
+    let stale = chat(
+        transport,
+        &session,
+        &python("update_custom_tool(name='echo_sum', script='1', expected_version=1)['status']"),
+    )
+    .await;
+    assert!(stale.contains("out_of_date"), "{stale}");
+
+    // §6: a category rename keeps the call name.
+    let renamed = chat(
+        transport,
+        &session,
+        &python("update_custom_tool_category(name='maths', new_name='arith')['status']"),
+    )
+    .await;
+    assert!(renamed.contains("updated"), "{renamed}");
+    let still = chat(transport, &session, &python("echo_sum(a=3, b=4)")).await;
+    assert!(still.contains("\"result\": 7") || still.contains("\"result\":7"), "{still}");
+    let arith = chat(transport, &session, r#"{"tool":"list_tool_functions","arguments":{"category":"arith"}}"#).await;
+    assert!(arith.contains("echo_sum"), "{arith}");
+
+    runtime.shutdown().await.unwrap();
+}

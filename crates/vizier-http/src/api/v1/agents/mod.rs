@@ -27,6 +27,7 @@ pub mod artifacts;
 pub mod channel;
 pub mod conversations;
 pub mod core;
+pub mod custom_tools;
 pub mod dream;
 pub mod integrations;
 pub mod detached;
@@ -125,6 +126,8 @@ pub fn agents() -> Router<HTTPState> {
         .nest("/{agent_id}/core", core())
         .nest("/{agent_id}/memory", memory())
         .nest("/{agent_id}/secrets", secrets())
+        .nest("/{agent_id}/custom-tools", custom_tools::custom_tools())
+        .nest("/{agent_id}/custom-tool-categories", custom_tools::custom_tool_categories())
         .nest("/{agent_id}/projects", projects::projects())
         .nest("/{agent_id}/skills", agent_skills())
         .nest("/{agent_id}/tasks", task())

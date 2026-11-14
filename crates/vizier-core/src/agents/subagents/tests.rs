@@ -147,6 +147,7 @@ mod service {
             project: None,
             detached: false,
             parent_detached_id: None,
+            custom: Default::default(),
         }
     }
 
@@ -441,6 +442,7 @@ fn who_is_offered_which_subagent_tool() {
         project: None,
         detached: false,
         parent_detached_id: None,
+        custom: Default::default(),
     };
     let main = base(VizierSession("a".into(), VizierChannelId::HTTP("u".into(), "c".into()), Some("t".into())), 0);
     let worker = base(VizierSession("a".into(), VizierChannelId::Subagent, Some("w".into())), 1);

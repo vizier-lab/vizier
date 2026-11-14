@@ -139,6 +139,7 @@ mod tests {
             project: Some(Arc::new(project)),
             detached: false,
             parent_detached_id: None,
+            custom: Default::default(),
         }
     }
 
