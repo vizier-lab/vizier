@@ -70,6 +70,27 @@ impl DreamScheduler {
         Self { deps }
     }
 
+    /// A cycle runs in a task of the process that holds control, so a status still non-idle when
+    /// control is claimed was left by a process that stopped mid-dream: nothing is running it.
+    /// Reset it, or neither the schedule nor "Dream now" would ever start that agent's dream again.
+    pub async fn recover(&self) {
+        let agents = match self.deps.storage.list_agents().await {
+            Ok(agents) => agents,
+            Err(e) => {
+                tracing::warn!("could not read agents to recover dream status: {e}");
+                return;
+            }
+        };
+        for (agent_id, _) in agents {
+            if let Ok(Some(status)) = self.deps.storage.get_dream_status(&agent_id).await
+                && !matches!(status, DreamStatus::Idle)
+            {
+                tracing::info!("resetting the interrupted dream status of agent '{}'", agent_id);
+                let _ = self.deps.storage.set_dream_status(&agent_id, DreamStatus::Idle).await;
+            }
+        }
+    }
+
     /// Check all agents and trigger dream cycles as needed (called every scheduler tick)
     pub async fn tick(&self) -> Result<()> {
         let agents = self.deps.storage.list_agents().await?;
@@ -200,6 +221,13 @@ impl DreamScheduler {
             return Ok(());
         }
 
+        // One cycle at a time: a second "Dream now" while one runs is a no-op.
+        let status = self.deps.storage.get_dream_status(agent_id).await.unwrap_or(None);
+        if !matches!(status, Some(DreamStatus::Idle) | None) {
+            tracing::info!("Agent '{}' is already dreaming; trigger ignored", agent_id);
+            return Ok(());
+        }
+
         let cycle_id = uuid::Uuid::new_v4().to_string();
         let now = crate::time::now();
         let last_dream = self
@@ -225,17 +253,8 @@ impl DreamScheduler {
 
         let total = sessions.len();
 
-        // Pre-dream checkpoint: delegate to the agent's checkpoint command for each
-        // source session so extraction sees a Checkpoint row as the prior context.
-        if let Err(e) = self.pre_check_sessions(agent_id, &sessions).await {
-            tracing::warn!(
-                "Pre-dream checkpoint phase failed for agent '{}': {}",
-                agent_id,
-                e
-            );
-        }
-
-        // Set status → Extracting
+        // Set status → Extracting before anything slow, so the cycle reads as running (and
+        // cannot be triggered twice) from the moment it is accepted, checkpoints included.
         self.deps
             .storage
             .set_dream_status(
@@ -259,6 +278,17 @@ impl DreamScheduler {
         let source_session_slugs: Vec<String> = sessions.iter().map(|s| s.to_slug()).collect();
 
         tokio::spawn(async move {
+            // Pre-dream checkpoint: delegate to the agent's checkpoint command for each
+            // source session so extraction sees a Checkpoint row as the prior context. It runs
+            // here, off the scheduler loop, because it is one model call per session.
+            if let Err(e) = Self::pre_check_sessions(&deps, &agent_id, &sessions).await {
+                tracing::warn!(
+                    "Pre-dream checkpoint phase failed for agent '{}': {}",
+                    agent_id,
+                    e
+                );
+            }
+
             // Send all extraction requests, collect response channels
             let mut response_rxs = vec![];
             for session in &sessions {
@@ -505,7 +535,11 @@ impl DreamScheduler {
     ///
     /// Sessions with no new history since the last checkpoint are skipped so
     /// we don't redundantly regenerate the same handover.
-    async fn pre_check_sessions(&self, agent_id: &str, sessions: &[VizierSession]) -> Result<()> {
+    async fn pre_check_sessions(
+        deps: &VizierDependencies,
+        agent_id: &str,
+        sessions: &[VizierSession],
+    ) -> Result<()> {
         if sessions.is_empty() {
             return Ok(());
         }
@@ -513,8 +547,7 @@ impl DreamScheduler {
         for session in sessions {
             let slug = session.to_slug();
 
-            let (history, _prior_handover) = self
-                .deps
+            let (history, _prior_handover) = deps
                 .storage
                 .list_session_history_until_checkpoint(session.clone(), None)
                 .await?;
@@ -527,9 +560,8 @@ impl DreamScheduler {
                 continue;
             }
 
-            let (resp_tx, resp_rx) = self.deps.transport.reply_channel().await?;
-            if let Err(e) = self
-                .deps
+            let (resp_tx, resp_rx) = deps.transport.reply_channel().await?;
+            if let Err(e) = deps
                 .transport
                 .send_request(
                     session.clone(),
