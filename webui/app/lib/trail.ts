@@ -22,6 +22,7 @@ import type {
   VizierResponseContent,
 } from '../api/frames'
 import { parseDelivery } from './detached'
+import { splitDelivery } from './subagents'
 
 // Same key set as the server's `ExecutionReport::looks_like`. The live stream carries no
 // correlation id, so shape is the only way to tell a python report from any other tool
@@ -203,8 +204,12 @@ export function groupHistory(entries: ChatMessage[]): Turn[] {
           block = { kind: 'trail', events: [], startedAt: entry.timestamp }
           open.blocks.push(block)
         }
-        for (const s of parseDelivery(delivered.detached_delivery)) {
+        const { scripts, workers } = splitDelivery(delivered.detached_delivery)
+        for (const s of parseDelivery(scripts)) {
           push(block.events, { kind: 'delivery', id: `${entry.uid}:${s.handle}`, ...s })
+        }
+        for (const w of workers) {
+          push(block.events, { kind: 'worker_update', id: `${entry.uid}:${w.handle}`, ...w })
         }
         if (entry.timestamp) block.endedAt = entry.timestamp
         continue
@@ -515,7 +520,7 @@ export function appendLiveEvent(
 export function trailSummary(trail: TrailEvent[], durationMs?: number): string {
   // A narration is the agent's prose between rounds, counted with its reasoning: the head says
   // what the work was, not that it spoke.
-  const counts = { thought: 0, tool: 0, python: 0, delivery: 0 }
+  const counts = { thought: 0, tool: 0, python: 0, delivery: 0, worker_update: 0 }
   for (const event of trail) counts[event.kind === 'narration' ? 'thought' : event.kind] += 1
 
   const parts: string[] = []
@@ -524,6 +529,7 @@ export function trailSummary(trail: TrailEvent[], durationMs?: number): string {
   if (counts.tool) parts.push(plural(counts.tool, 'tool', 'tools'))
   if (counts.python) parts.push(plural(counts.python, 'python run', 'python runs'))
   if (counts.delivery) parts.push(plural(counts.delivery, 'background result', 'background results'))
+  if (counts.worker_update) parts.push(plural(counts.worker_update, 'subagent update', 'subagent updates'))
 
   const label = parts.length > 0 ? parts.join(', ') : 'no activity'
   return durationMs === undefined

@@ -728,6 +728,30 @@ test('a mid-turn delivery is a step of its turn, which stays one turn', () => {
   assert.ok(second.kind === 'delivery' && second.took === '10m 0s' && second.state === 'timed out')
 })
 
+// Spec 059: a worker's update rides the same delivery, after any scripts.
+test('a mid-turn subagent update is a step of its turn, one per worker', () => {
+  const turns = groupHistory([
+    request('split it'),
+    delivery(`${DELIVERED}
+
+[Subagent update] s_k3x9a1b2 — task 2 of 3 "find the EU sheet"
+state: asking
+question: Which one?
+reply with reply_subagent(id="s_k3x9a1b2", text=...)`),
+    response('done'),
+  ])
+  assert.equal(turns.length, 1)
+  const events = turnEvents(turns[0])
+  assert.deepEqual(kinds(events), ['delivery', 'delivery', 'worker_update'])
+  const update = events[2]
+  assert.ok(update.kind === 'worker_update')
+  assert.equal(update.handle, 's_k3x9a1b2')
+  assert.equal(update.position, 2)
+  assert.equal(update.state, 'asking')
+  assert.equal(update.body, 'question: Which one?')
+  assert.equal(events[1].kind === 'delivery' && events[1].body, "reason: the script's time limit (600s) was reached")
+})
+
 test('a delivery that wakes an idle agent starts its own turn', () => {
   const wake = delivery(DELIVERED)
   const turns = groupHistory([request('hi'), response('hello'), wake, python('p3', { intent: 'x', code: '3' }), response('noted')])

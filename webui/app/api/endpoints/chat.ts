@@ -1,6 +1,14 @@
 import { api, paged, request, type Page } from '../client'
 import type { components } from '../schema'
-import type { ChatMessage, DetachedScriptDetail, DetachedScriptSnapshot, ModelOverride, SessionFileRecord, Topic } from '../frames'
+import type {
+    ChatMessage,
+    DetachedScriptDetail,
+    DetachedScriptSnapshot,
+    ModelOverride,
+    SessionFileRecord,
+    SubagentSnapshot,
+    Topic,
+} from '../frames'
 
 /** The channel every WebUI conversation lives on. */
 export const CHANNEL = 'vizier-webui'
@@ -40,6 +48,18 @@ export const detachedScript = (agentId: string, topicId: string, scriptId: strin
     api.get<DetachedScriptDetail>(
         `${base(agentId, topicId, channel)}/detached-scripts/${encodeURIComponent(scriptId)}`
     )
+
+/** The topic's workers: the running and asking ones, then the last 50 that ended. Read-only. */
+export const topicSubagents = (agentId: string, topicId: string, channel: string = CHANNEL) =>
+    api.get<SubagentSnapshot[]>(`${base(agentId, topicId, channel)}/subagents`)
+
+/** One worker with its whole task and result. */
+export const subagent = (agentId: string, topicId: string, id: string, channel: string = CHANNEL) =>
+    api.get<SubagentSnapshot>(`${base(agentId, topicId, channel)}/subagents/${encodeURIComponent(id)}`)
+
+/** A worker's own conversation, in stored order: its steps. */
+export const subagentHistory = (agentId: string, topicId: string, id: string, channel: string = CHANNEL) =>
+    api.get<ChatMessage[]>(`${base(agentId, topicId, channel)}/subagents/${encodeURIComponent(id)}/history`)
 
 export const topicFiles = (
     agentId: string,

@@ -8,6 +8,7 @@
 
 import type {
     DetachedScriptSnapshot,
+    SubagentSnapshot,
     ChatMessage,
     Frame,
     QuestionRefusal,
@@ -53,6 +54,8 @@ export interface TopicState {
     queued: QueuedMessage[]
     /** Detached scripts of the topic by id; a final one stays for the panel's Done tab. */
     scripts: Record<string, DetachedScriptSnapshot>
+    /** Workers the topic hired, by id (spec 059); a final one stays for the panel. */
+    workers: Record<string, SubagentSnapshot>
     /** Newest first. */
     files: SessionFileRecord[]
     /** From the latest reply's stats: feeds the context ring. */
@@ -84,6 +87,7 @@ export type Action =
     | { type: 'command'; command: 'checkpoint' | 'lobotomy'; now?: string }
     | { type: 'files'; files: SessionFileRecord[] }
     | { type: 'scripts'; scripts: DetachedScriptSnapshot[] }
+    | { type: 'workers'; workers: SubagentSnapshot[] }
 
 export const isLive = (entry: ChatMessage) => entry.uid.startsWith('live-')
 
@@ -94,6 +98,7 @@ export function emptyTopic(session: ChatMessage['vizier_session'] = { agent_id: 
         label: null,
         queued: [],
         scripts: {},
+        workers: {},
         files: [],
         context: null,
         error: null,
@@ -262,6 +267,8 @@ export function reduce(state: TopicState, action: Action): TopicState {
                 }
                 case 'detached_script':
                     return { ...state, scripts: { ...state.scripts, [frame.script.id]: frame.script } }
+                case 'subagent':
+                    return { ...state, workers: { ...state.workers, [frame.worker.id]: frame.worker } }
                 case 'reactions':
                     return {
                         ...state,
@@ -421,6 +428,8 @@ export function reduce(state: TopicState, action: Action): TopicState {
 
         case 'scripts':
             return { ...state, scripts: Object.fromEntries(action.scripts.map((s) => [s.id, s])) }
+        case 'workers':
+            return { ...state, workers: Object.fromEntries(action.workers.map((w) => [w.id, w])) }
     }
 }
 

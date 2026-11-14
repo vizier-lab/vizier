@@ -14,7 +14,7 @@ import {
 } from '@vizier/design'
 import { useEffect, useMemo, useState } from 'react'
 import { useLocation } from 'react-router'
-import type { DetachedScriptDetail, DetachedScriptSnapshot, SessionFileRecord } from '../../api/frames'
+import type { DetachedScriptDetail, DetachedScriptSnapshot, SessionFileRecord, SubagentSnapshot } from '../../api/frames'
 import { detachedScript } from '../../api/endpoints/chat'
 import { detachedReport, scriptElapsed } from '../../lib/detached'
 import { Run } from './Trail'
@@ -37,6 +37,8 @@ import { readyCount, stripLabel, worstDot } from '../../lib/lsp'
 import { useProjects } from '../../stores/projects'
 import { toast } from '../../stores/toasts'
 import { LspPanel } from './LspPanel'
+import { SubagentsPanel } from './SubagentsPanel'
+import { workerStrip } from '../../lib/subagents'
 import { FilePreviewDialog } from './FilePreviewDialog'
 import { ConfirmDialog } from '../shared/ConfirmDialog'
 
@@ -46,6 +48,12 @@ type Props = {
   recalled: Recalled[]
   /** The topic's detached scripts (spec 058). */
   scripts: DetachedScriptSnapshot[]
+  /** The workers the topic hired (spec 059): their own item and panel, apart from Background work. */
+  workers: SubagentSnapshot[]
+  /** The agent's name, for "Waiting for <name>". */
+  agentName: string
+  /** The conversation's channel, for the worker reads. */
+  channel?: string
   files: SessionFileRecord[]
   canPromote: boolean
   onFilesCleared: () => void
@@ -119,6 +127,9 @@ export function ChatStatusStrip({
   topicId,
   recalled,
   scripts,
+  workers,
+  agentName,
+  channel,
   files,
   canPromote,
   onFilesCleared,
@@ -140,13 +151,14 @@ export function ChatStatusStrip({
 
   const running = scripts.filter((s) => s.state === 'running')
   const counts = workCounts(scripts)
+  const atWork = workerStrip(workers)
 
   // The elapsed times tick while work runs, and stop when nothing does.
   useEffect(() => {
-    if (running.length === 0) return
+    if (running.length === 0 && atWork.count === 0) return
     const t = setInterval(() => setNow(Date.now()), 1000)
     return () => clearInterval(t)
-  }, [running.length])
+  }, [running.length, atWork.count])
 
   const items: StatusStripItem[] = [
     { id: 'memory', icon: 'memory', label: 'recalled passages', count: recalled.length },
@@ -156,6 +168,13 @@ export function ChatStatusStrip({
       label: 'background work running',
       count: running.length,
       busy: running.length > 0,
+    },
+    {
+      id: 'subagents',
+      icon: 'users',
+      label: atWork.dot === 'warn' ? 'subagents at work, one is asking' : 'subagents at work',
+      count: atWork.count,
+      dot: atWork.dot,
     },
     { id: 'files', icon: 'file', label: 'session files', count: files.length },
   ]
@@ -423,6 +442,16 @@ export function ChatStatusStrip({
       memoryPanel(close)
     ) : id === 'work' ? (
       workPanel(close)
+    ) : id === 'subagents' ? (
+      <SubagentsPanel
+        agentId={agentId}
+        topicId={topicId}
+        channel={channel}
+        agentName={agentName}
+        workers={workers}
+        now={now}
+        onClose={close}
+      />
     ) : id === 'lsp' && lsp ? (
       <LspPanel agentId={agentId} projectId={lsp.projectId} onClose={close} />
     ) : (
@@ -438,9 +467,9 @@ export function ChatStatusStrip({
       onOpenChange={setOpen}
       panelGap={panelGap}
       panelWidth={panelWidth}
-      // The language-server item is left out of the key: its status changes under an open panel,
-      // and remounting would drop what a person is typing in an override form.
-      key={`${items.filter((i) => i.id !== 'lsp').map((i) => i.count).join('-')}`}
+      // The language-server and subagents items are left out of the key: their status changes under
+      // an open panel, and remounting would drop an override form's text or close an expanded worker.
+      key={`${items.filter((i) => i.id !== 'lsp' && i.id !== 'subagents').map((i) => i.count).join('-')}`}
     >
       {(item, close) => panelFor(item.id, close)}
     </StatusStrip>

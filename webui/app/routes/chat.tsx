@@ -253,6 +253,7 @@ export default function Chat() {
 
     const recalled = useMemo(() => recalledFrom(state.entries), [state.entries])
     const scripts = useMemo(() => Object.values(state.scripts), [state.scripts])
+    const workers = useMemo(() => Object.values(state.workers), [state.workers])
 
     const lastRequestText = () => {
         for (let i = state.entries.length - 1; i >= 0; i--) {
@@ -572,6 +573,9 @@ export default function Chat() {
                         topicId={topicId ?? ''}
                         recalled={recalled}
                         scripts={scripts}
+                        workers={workers}
+                        agentName={agentName}
+                        channel={channel}
                         files={state.files}
                         canPromote={agent ? canManageArtifacts(agent) : false}
                         onFilesCleared={() => dispatch(agentId, topicId ?? '', { type: 'files', files: [] })}

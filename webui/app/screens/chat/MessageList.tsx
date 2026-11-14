@@ -31,6 +31,7 @@ import {
     time,
 } from '../../lib/messages'
 import { parseDelivery } from '../../lib/detached'
+import { splitDelivery } from '../../lib/subagents'
 import { Enter, stagger } from '../../lib/motion'
 import { usePrices } from '../../lib/prices'
 import { blockDurationMs, groupHistory, lastBlockOf, outcomeDurationMs } from '../../lib/trail'
@@ -39,7 +40,7 @@ import { useSession } from '../../stores/session'
 import { Markdown } from '../shared/Markdown'
 import { ReplyMedia } from './ReplyMedia'
 import { Reactions } from './Reactions'
-import { DeliveryRow, Trail } from './Trail'
+import { DeliveryRow, Trail, WorkerUpdateRow } from './Trail'
 import { DetachedSource } from './detachedSource'
 import { mentionsAsCode } from '../../lib/mentions'
 import { planActionsVisible, planOf } from '../../lib/plans'
@@ -252,17 +253,29 @@ export function MessageList({ state, agent, topicId, greeting, hasOlder, bottomI
                 // Delivered mid-turn, it is a step of that turn's trail (`groupHistory`); only a
                 // delivery that woke an idle agent is drawn here, as the card its turn answers.
                 if (!wakers.has(e.uid)) continue
-                const scripts = parseDelivery(content.detached_delivery)
+                // One delivery may carry finished scripts and worker updates (spec 059).
+                const parts = splitDelivery(content.detached_delivery)
+                const scripts = parseDelivery(parts.scripts)
+                const workers = parts.workers
+                const meta = [
+                    scripts.length ? (scripts.length === 1 ? '1 script' : `${scripts.length} scripts`) : null,
+                    workers.length ? (workers.length === 1 ? '1 subagent' : `${workers.length} subagents`) : null,
+                ]
+                    .filter(Boolean)
+                    .join(' · ')
                 arrive(
                     <BackgroundReportCard
                         key={e.uid}
                         agentId={agent.id}
-                        title="Background work finished"
-                        meta={scripts.length === 1 ? '1 script' : `${scripts.length} scripts`}
+                        title={workers.length && !scripts.length ? 'Subagent update' : 'Background work finished'}
+                        meta={meta || '0 scripts'}
                     >
                         <ul className="flex flex-col gap-8">
                             {scripts.map((script) => (
                                 <DeliveryRow key={script.handle} script={script} />
+                            ))}
+                            {workers.map((update) => (
+                                <WorkerUpdateRow key={update.handle} update={update} />
                             ))}
                         </ul>
                     </BackgroundReportCard>,

@@ -2,7 +2,7 @@ import { renderToString } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
 import { MemoryRouter } from 'react-router'
 import { ChatStatusStrip } from './ChatStatusStrip'
-import type { DetachedScriptSnapshot, SessionFileRecord } from '../../api/frames'
+import type { DetachedScriptSnapshot, SessionFileRecord, SubagentSnapshot } from '../../api/frames'
 import type { Recalled } from '../../lib/recall'
 
 // renderToString reads a zustand store's initial state, so the strip is drawn against a stand-in.
@@ -45,7 +45,8 @@ const file: SessionFileRecord = {
 const draw = (
   jobs: DetachedScriptSnapshot[] = [],
   files: SessionFileRecord[] = [],
-  passages = recalled
+  passages = recalled,
+  workers: SubagentSnapshot[] = []
 ) =>
   renderToString(
     <MemoryRouter initialEntries={['/oz/chat/t1']}>
@@ -54,6 +55,8 @@ const draw = (
         topicId="t1"
         recalled={passages}
         scripts={jobs}
+        workers={workers}
+        agentName="Oz"
         files={files}
         canPromote={false}
         onFilesCleared={() => {}}
@@ -90,6 +93,44 @@ describe("the chat's status strip", () => {
   })
 })
 
+const worker = (id: string, state: SubagentSnapshot['state']): SubagentSnapshot => ({
+  id,
+  position: 1,
+  group_size: 2,
+  task: 'compare prices',
+  state,
+  stop_reason: null,
+  question: state === 'asking' ? 'Which sheet?' : null,
+  result: null,
+  truncated: false,
+  error: null,
+  started_at: '2026-11-04T09:00:00Z',
+  ended_at: null,
+  topic: `w_${id}`,
+  group: 'g_1',
+  parent_detached_id: null,
+  handed_over: false,
+  updated_at: '2026-11-04T09:00:00Z',
+})
+
+describe('the subagents item', () => {
+  it('is its own item, apart from background work', () => {
+    const html = draw([job('running')], [], recalled, [worker('s_1', 'running')])
+    expect(html).toContain('aria-label="1 subagents at work"')
+    expect(html).toContain('aria-label="1 background work running"')
+  })
+
+  it('counts running and asking workers, and says when one is asking', () => {
+    const html = draw([], [], recalled, [worker('s_1', 'running'), worker('s_2', 'asking'), worker('s_3', 'answered')])
+    expect(html).toContain('aria-label="2 subagents at work, one is asking"')
+    expect(html).toContain('bg-retrying')
+  })
+
+  it('shows zero with no workers', () => {
+    expect(draw()).toContain('aria-label="0 subagents at work"')
+  })
+})
+
 describe('the language-server item', () => {
   const server = (state: 'ready' | 'starting' | 'missing' | 'failed', language = 'rust') => ({
     language,
@@ -109,6 +150,8 @@ describe('the language-server item', () => {
           topicId="t1"
           recalled={[]}
           scripts={[]}
+          workers={[]}
+          agentName="Oz"
           files={[]}
           canPromote={false}
           onFilesCleared={() => {}}
