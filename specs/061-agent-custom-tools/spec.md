@@ -505,7 +505,8 @@ the category is gone.
   from the agent's page, and the agent stops seeing it on its next lookup.
 - **SC-006**: After any update, the previous working version can be restored in one action by the
   agent or a person.
-- **SC-007**: An agent without custom tools sees a prompt byte-identical to today's.
+- **SC-007**: An agent without custom tools sees today's prompt plus exactly one line, the authoring
+  tools' category; no custom tool category line appears until it has a custom tool.
 - **SC-008**: Given conversations that repeat a fixed workflow at least twice, one dream cycle turns
   it into exactly one custom tool (or one new version of an existing one), and a second cycle over
   the same conversations creates no duplicate.

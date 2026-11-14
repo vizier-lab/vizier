@@ -46,3 +46,6 @@
   discovery path for built-in and custom tools, WebUI grouped by category with rename/redescribe/move
   (Story 5 scenarios 7–8, FR-021/FR-022), dreams may tidy categories (Story 7 scenario 7).
   Re-validated: every item still passes.
+- Planning pass (2026-11-15): SC-007 reworded — the authoring tools add one always-present
+  category line, so "byte-identical" now means "today's prompt plus that one line, no custom
+  category lines until a tool exists" (contracts/prompt-and-dream.md §1).
