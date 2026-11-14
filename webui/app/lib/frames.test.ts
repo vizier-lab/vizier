@@ -358,3 +358,18 @@ describe('questions the agent asked (spec 042)', () => {
         expect(JSON.stringify(s)).not.toContain('value')
     })
 })
+
+describe('an error the conversation ended on', () => {
+    const failed = (uid = 'e1') =>
+        entry(uid, { Response: { timestamp: 't', content: { error: { kind: 'rate_limited', message: 'credit exhausted' } }, attachments: [] } } as ChatMessage['content'])
+
+    it('is shown again when the topic is reopened', () => {
+        const s = run(start(), { type: 'history', entries: [request(), failed()] })
+        expect(s.error).toEqual({ kind: 'rate_limited', message: 'credit exhausted' })
+    })
+
+    it('is not shown once something was said after it', () => {
+        const s = run(start(), { type: 'history', entries: [request(), failed(), request('r2')] })
+        expect(s.error).toBeNull()
+    })
+})

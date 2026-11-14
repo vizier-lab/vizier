@@ -125,7 +125,7 @@ export function SubagentsPanel({
     onClose: () => void
 }) {
     const [query, setQuery] = useState('')
-    const [tab, setTab] = useState<WorkerTab>('all')
+    const [tab, setTab] = useState<WorkerTab>('running')
     const counts = workerCounts(workers)
     const groups = useMemo(() => groupWorkers(workers, query, tab), [workers, query, tab])
     const shown = groups.reduce((n, g) => n + g.workers.length, 0)
@@ -150,7 +150,6 @@ export function SubagentsPanel({
                     value={tab}
                     onChange={(v) => setTab(v as WorkerTab)}
                     options={[
-                        { value: 'all', label: 'All', count: counts.all },
                         { value: 'running', label: 'Running', count: counts.running, tone: 'live' },
                         { value: 'asking', label: 'Asking', count: counts.asking },
                         { value: 'done', label: 'Done', count: counts.done },
@@ -163,7 +162,7 @@ export function SubagentsPanel({
             {groups.length === 0 ? (
                 <EmptyState
                     kind="empty"
-                    icon="users"
+                    icon="agent"
                     title={workers.length === 0 ? 'No subagents' : 'Nothing here'}
                     message={`Workers ${agentName} hires for a task appear here.`}
                 />

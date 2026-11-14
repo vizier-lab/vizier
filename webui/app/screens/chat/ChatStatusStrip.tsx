@@ -154,19 +154,19 @@ export function ChatStatusStrip({
   const items: StatusStripItem[] = [
     {
       id: 'work',
-      icon: 'layers',
+      icon: 'briefcase',
       label: 'background work running',
       count: running.length,
       busy: running.length > 0,
     },
     {
       id: 'subagents',
-      icon: 'users',
+      icon: 'agent',
       label: atWork.dot === 'warn' ? 'subagents at work, one is asking' : 'subagents at work',
       count: atWork.count,
       dot: atWork.dot,
     },
-    { id: 'files', icon: 'file', label: 'session files', count: files.length },
+    { id: 'files', icon: 'attach', label: 'session files', count: files.length },
   ]
   if (changes) {
     items.push({
@@ -258,7 +258,7 @@ export function ChatStatusStrip({
       {workRows.length === 0 ? (
         <EmptyState
           kind="empty"
-          icon="layers"
+          icon="briefcase"
           title={
             scripts.length === 0 ? 'No background work' : `Nothing ${WORK_EMPTY[(tab ?? 'running') as WorkTab]}`
           }
@@ -317,7 +317,7 @@ export function ChatStatusStrip({
       {fileRows.length === 0 ? (
         <EmptyState
           kind="empty"
-          icon="file"
+          icon="attach"
           title="No files yet"
           message="Files the agent makes or you attach appear here."
         />

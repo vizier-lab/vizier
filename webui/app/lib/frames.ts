@@ -182,6 +182,26 @@ function contextOfHistory(entries: ChatMessage[]): TopicState['context'] {
     return null
 }
 
+/**
+ * The error the conversation last ended on, read from what is stored: the server saves a failed
+ * turn's error as its reply, so a reopened topic shows the notice the live frame showed. Anything
+ * said after it (a request, a reply, a command) means it is behind the conversation.
+ */
+function errorOfHistory(entries: ChatMessage[]): TopicError | null {
+    for (let i = entries.length - 1; i >= 0; i--) {
+        const content = entries[i].content
+        if (typeof content !== 'object' || content === null) continue
+        if ('Request' in content || 'Command' in content || 'Checkpoint' in content) return null
+        if (!('Response' in content) || !content.Response) continue
+        const reply = content.Response.content
+        if (typeof reply === 'object' && reply !== null && 'error' in reply) {
+            return { kind: reply.error.kind, message: reply.error.message }
+        }
+        return null
+    }
+    return null
+}
+
 function onResponse(state: TopicState, response: WebSocketResponse, now: string): TopicState {
     const { content } = response
 
@@ -359,6 +379,8 @@ export function reduce(state: TopicState, action: Action): TopicState {
                 queued: answered,
                 context: state.context ?? contextOfHistory(stored),
                 entries: mergePage(state.entries, stored),
+                // Only an idle topic: a running turn's own frames decide its outcome.
+                error: state.error ?? (state.phase === 'idle' ? errorOfHistory(stored) : null),
             }
         }
 
