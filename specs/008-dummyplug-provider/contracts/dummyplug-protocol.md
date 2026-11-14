@@ -112,9 +112,26 @@ Added by `specs/013-reaction-awareness` (`contracts/dummyplug-context.md`).
 
 Usage is zero, as in §5.
 
-**Precedence**: checked after §1 (`tools`) and before §2 (tool name), §3 (JSON) and §5 (lorem). No built-in tool is named `context`, so §2 can't shadow it.
+**Precedence**: checked after §1 (`tools`) and before §7 (`pruned`), §2 (tool name), §3 (JSON) and §5 (lorem). No built-in tool is named `context`, so §2 can't shadow it.
 
 **Compatibility**: additive. Every message that produced a §1 to §5 reply before still produces the same reply, so existing quickstart scripts are unaffected. It exists because what the agent *receives* (for example the `## Reactions` section) is otherwise unobservable offline.
+
+## 7. `pruned`: list the placeholders the model was sent
+
+Added by `specs/060-prune-tool-outputs` (`contracts/dummyplug-pruned.md`).
+
+**Behaviour**: when the command text of the incoming user message, trimmed, is exactly `pruned` (case-insensitive), the reply is one text message listing every tool result in the received request that is a pruning placeholder (`[output pruned (<size>) - use recall_history("<record>") to recall]`), in order:
+
+```text
+<n> pruned:
+- <call_id> <record> <size>
+```
+
+or `(nothing pruned)` when there is none. Usage is zero, as in §5.
+
+**Precedence**: checked after §1 (`tools`) and §6 (`context`), before §2 (tool name), §3 (JSON) and §5 (lorem). No built-in tool is named `pruned`.
+
+**Compatibility**: additive, like §6. It exists because which outputs the model was sent pruned is otherwise unobservable offline.
 
 ## Provider API
 

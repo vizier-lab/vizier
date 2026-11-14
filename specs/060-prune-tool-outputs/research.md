@@ -100,7 +100,7 @@ storage query (agent and channel slug, topic included), so no extra check is nee
 
 ## R7. The category and the guidance sentence
 
-**Decision**: add `History` to `ToolCategory` after `Scratchpad` in `ALL`, with the name `history`
+**Decision**: append `History` to `ToolCategory` and to the end of `ALL` (the convention `a_new_category_is_appended_to_the_end_of_the_list` pins: older prompts and scripts already saw the order), with the name `history`
 and the description "Recall tool outputs pruned from this conversation's view; recall them in a
 script and return only what you need". Add `recall_history` to `every_tool_is_in_its_category`.
 

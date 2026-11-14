@@ -47,8 +47,8 @@ use crate::{
         AgentConfig, AgentId, ErrorKind, IntegrationStatus, MemoryPassageResult, SessionHistory,
         SessionHistoryContent, Skill, VizierAttachment, VizierAttachmentContent, VizierRequest,
         VizierRequestContent, VizierResponse, VizierResponseContent, VizierResponseStats,
-        VizierSession, history_entries_to_messages, message_for_model, messages_for_model,
-        seal_tool_calls,
+        PruneStats, VizierSession, history_entries_to_messages, message_for_model,
+        messages_for_model, prune_for_model, seal_tool_calls,
     },
     skill::invocation::Invoked,
     storage::{
@@ -565,6 +565,8 @@ impl VizierAgent {
             vizier.queue.wait_ms = req.trace.queue_wait_ms(),
             vizier.dream = dream,
             vizier.turn.ended_by_tool = tracing::field::Empty,
+            vizier.prune.outputs = tracing::field::Empty,
+            vizier.prune.tokens_removed = tracing::field::Empty,
             vizier.subagent.id = tracing::field::Empty,
             vizier.subagent.position = tracing::field::Empty,
         );
@@ -1221,9 +1223,16 @@ impl VizierAgent {
 
             // The model gets the narrowed view; `full_history` keeps the full record,
             // which is what storage and the WebUI are served from.
+            let (completion, pruned) =
+                pruned_completion_request(&history, &message, &tools, wrapping_up);
+            // The span ends with the last request's numbers: pruning is one-way, so that is
+            // the turn's state (spec 060 FR-017).
+            tracing::Span::current()
+                .record("vizier.prune.outputs", pruned.pruned as u64)
+                .record("vizier.prune.tokens_removed", pruned.tokens_removed);
             let response = model
                 .complete_until(
-                    completion_request(&history, &message, &tools, wrapping_up),
+                    completion,
                     Some(start + prompt_timeout),
                     &UsageScope::turn(Some(ctx.session.clone()), guard.turn(), turn_depth as u32),
                 )
@@ -1445,18 +1454,22 @@ impl VizierAgent {
                     self.withdraw_question_set(ctx, &set_id).await;
                 }
 
-                let response_content = tool_res
+                let mut response_content = tool_res
                     .to_tool_result(call_id.clone(), self.deps.artifacts.as_ref())
                     .await
                     .map_err(|e| {
                         fail_turn(e, full_history.clone(), None, tool_responses.clone())
                     })?;
                 // Saved the moment it exists, so the trail shows the call finished even if
-                // the next one runs for minutes.
+                // the next one runs for minutes. The uid it is saved under goes on the
+                // message, as replay puts it there, so pruning names the same id (spec 060).
                 if let Some(recorder) = steps.as_deref_mut() {
-                    recorder
+                    let uids = recorder
                         .record(&self.storage, &self.transport, &response_content)
                         .await;
+                    if let Message::ToolResult { record, .. } = &mut response_content {
+                        *record = uids.into_iter().next();
+                    }
                 }
                 tool_responses.push(response_content);
             }
@@ -2272,7 +2285,28 @@ fn completion_request(
     tools: &[ToolDefinition],
     answer_only: bool,
 ) -> CompletionRequest {
-    let mut messages = messages_for_model(history);
+    request_from(messages_for_model(history), message, tools, answer_only)
+}
+
+/// [`completion_request`] with old tool outputs pruned from `history` (spec 060). The current
+/// `message` is the newest round, never pruned, so it is not walked. Every turn that can reach
+/// `recall_history` uses this; the dream cycle, which cannot, uses [`completion_request`].
+fn pruned_completion_request(
+    history: &[Message],
+    message: &Message,
+    tools: &[ToolDefinition],
+    answer_only: bool,
+) -> (CompletionRequest, PruneStats) {
+    let (messages, stats) = prune_for_model(&messages_for_model(history));
+    (request_from(messages, message, tools, answer_only), stats)
+}
+
+fn request_from(
+    mut messages: Vec<Message>,
+    message: &Message,
+    tools: &[ToolDefinition],
+    answer_only: bool,
+) -> CompletionRequest {
     messages.push(message_for_model(message));
     CompletionRequest {
         messages,
@@ -2347,9 +2381,14 @@ fn with_wrap_up_note(message: Message, thinking_depth: usize) -> Message {
         Message::ToolResult {
             call_id,
             mut content,
+            record,
         } => {
             content.push(Part::Text(note));
-            Message::ToolResult { call_id, content }
+            Message::ToolResult {
+                call_id,
+                content,
+                record,
+            }
         }
         other => other,
     }
@@ -2436,7 +2475,9 @@ pub async fn generate_handover_with_model(
     reactions: Option<&str>,
     scope: &UsageScope,
 ) -> Result<Option<String>> {
-    let mut summary_history = messages_for_model(history);
+    // The pruned view (spec 060): compaction triggers on its size, so the full one may not
+    // fit the window the handover runs in.
+    let (mut summary_history, _) = prune_for_model(&messages_for_model(history));
 
     if let Some(list) = reactions {
         summary_history.push(Message::user_text(format!(
@@ -2537,7 +2578,7 @@ mod wrap_up_tests {
     #[test]
     fn the_note_follows_the_tool_results_in_the_same_message() {
         let results = Message::tool_result("call-1", "done");
-        let Message::ToolResult { call_id, content } = with_wrap_up_note(results, 3) else {
+        let Message::ToolResult { call_id, content, .. } = with_wrap_up_note(results, 3) else {
             panic!("still a tool result");
         };
         assert_eq!(call_id, "call-1");

@@ -186,7 +186,11 @@ impl VizierResponse {
         for attachment in &self.attachments {
             content.push(attachment.to_part(resolver).await?);
         }
-        Ok(Message::ToolResult { call_id, content })
+        Ok(Message::ToolResult {
+            call_id,
+            content,
+            record: None,
+        })
     }
 }
 

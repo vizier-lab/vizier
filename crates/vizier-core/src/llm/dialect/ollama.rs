@@ -209,7 +209,7 @@ fn encode_message(message: &Message) -> Value {
             }
             msg
         }
-        Message::ToolResult { call_id, content } => {
+        Message::ToolResult { call_id, content, .. } => {
             let (content, _) = text_of(content, "\n");
             json!({"role": "tool", "tool_name": call_id, "content": content})
         }

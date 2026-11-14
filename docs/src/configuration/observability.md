@@ -68,6 +68,8 @@ A message from a person (WebUI, Discord, Telegram), a scheduled task run and a d
 | `vizier.background_depth` | how many background hops led to this turn (0 for a person's message) |
 | `vizier.queue.wait_ms` | time spent queued before the turn started: behind a running turn, or while the agent restarted |
 | `vizier.dream` | `true` for a dream-cycle turn |
+| `vizier.prune.outputs` | tool outputs replaced by a pruning placeholder in the turn's last request (see [Pruned tool outputs](./tools-embedding.md#pruned-tool-outputs)) |
+| `vizier.prune.tokens_removed` | the estimated tokens that pruning removed from that request |
 
 ### `chat {model}`: one request to a provider
 

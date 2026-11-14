@@ -152,7 +152,7 @@ pub fn record_input(span: &Span, req: &CompletionRequest) {
                 "role": "assistant",
                 "parts": parts.iter().map(assistant_part).collect::<Vec<_>>(),
             }),
-            Message::ToolResult { call_id, content } => serde_json::json!({
+            Message::ToolResult { call_id, content, .. } => serde_json::json!({
                 "role": "tool",
                 "parts": [{
                     "type": "tool_call_response",

@@ -286,7 +286,7 @@ fn encode_message(message: &Message) -> Vec<Value> {
             reasoning.extend(others);
             reasoning
         }
-        Message::ToolResult { call_id, content } => vec![json!({
+        Message::ToolResult { call_id, content, .. } => vec![json!({
             "type": "function_call_output",
             "call_id": call_id,
             "output": content

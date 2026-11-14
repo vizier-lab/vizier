@@ -7,6 +7,8 @@ tool-result echo.
 
 Each script below returns 76,000 characters, about 19,000 estimated tokens.
 
+Steps 1–6 are also automated: `cargo test -p vizier-core --test dummyplug_e2e old_tool_outputs` (needs Node and the `dummyplug` submodule).
+
 ## 1. Below the mark nothing changes
 
 | Send | Expect |
@@ -21,7 +23,7 @@ Each script below returns 76,000 characters, about 19,000 estimated tokens.
 | Send | Expect |
 |---|---|
 | `{"tool":"execute_python","arguments":{"code":"'d'*76000"}}` | echo |
-| `pruned` | `3 pruned:` with the results of the `a`, `b` and `c` scripts, each about `74.2 KB`. The `d` result is whole (19,000 tokens is under the low mark). Note the first `<record>` as **A** |
+| `pruned` | `3 pruned:` with the results of the `a`, `b` and `c` scripts, each `74.3 KB`. The `d` result is whole (19,000 tokens is under the low mark). Note the first `<record>` as **A** |
 | `pruned` | the same three lines: pruning is one-way, and the reply is stable across turns |
 
 ## 3. Small outputs are never pruned
@@ -62,6 +64,7 @@ second `pruned` turn: `vizier.prune.outputs = 3`, and `vizier.prune.tokens_remov
 ## 8. Unit tests
 
 ```sh
+cargo test -p vizier-core --test dummyplug_e2e old_tool_outputs
 cargo test -p vizier-core prune
 cargo test -p vizier-core recall_history
 cargo test -p vizier-core every_tool_is_in_its_category
