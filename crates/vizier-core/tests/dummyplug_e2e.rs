@@ -1171,6 +1171,8 @@ async fn a_detached_script_returns_at_once_and_wakes_the_idle_conversation() {
     use vizier_core::schema::DetachedScriptState;
     let Some((_dummyplug, runtime, _dir)) = detached_harness().await else { return };
     let session = web_session("idle");
+    // A page that watches the conversation is shown the delivery as it starts the turn.
+    let mut events = runtime.transport().subscribe_session_events();
 
     let started = std::time::Instant::now();
     let code = "shell_exec(commands='sleep 2')\n'done'";
@@ -1193,6 +1195,21 @@ async fn a_detached_script_returns_at_once_and_wakes_the_idle_conversation() {
     assert!(delivery.starts_with("[Background work finished]"), "{delivery}");
     assert!(delivery.contains(&id) && delivery.contains("succeeded"), "{delivery}");
     assert!(delivery.contains("result: done"), "{delivery}");
+    let mut pushed = false;
+    loop {
+        let event = match events.try_recv() {
+            Ok(event) => event,
+            Err(tokio::sync::broadcast::error::TryRecvError::Lagged(_)) => continue,
+            Err(_) => break,
+        };
+        if let vizier_core::transport::SessionFrame::HistoryEntry(entry) = &event.frame
+            && let SessionHistoryContent::Request(request) = &entry.content
+            && matches!(&request.content, vizier_core::schema::VizierRequestContent::DetachedDelivery(t) if !t.is_empty())
+        {
+            pushed = true;
+        }
+    }
+    assert!(pushed, "the woken delivery was saved but not pushed to the page");
 
     runtime.shutdown().await.unwrap();
 }

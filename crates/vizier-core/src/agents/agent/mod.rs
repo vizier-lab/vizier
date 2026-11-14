@@ -877,9 +877,14 @@ impl VizierAgent {
             None => {
                 let mut saved = req.clone();
                 saved.attachments = shown_attachments;
-                if matches!(saved.content, VizierRequestContent::AudioChat(..)) {
+                if matches!(
+                    saved.content,
+                    VizierRequestContent::AudioChat(..) | VizierRequestContent::DetachedDelivery(_)
+                ) {
                     // The voice message and its transcript are ready now; whoever watches the
-                    // session shouldn't wait for the turn to end to see them.
+                    // session shouldn't wait for the turn to end to see them. A delivery that
+                    // woke the agent (spec 058) has no page that sent it, so it is pushed too,
+                    // or its card would appear only on a reload.
                     crate::agents::steps::record_step(
                         &self.storage,
                         &self.transport,
