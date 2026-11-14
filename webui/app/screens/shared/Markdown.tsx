@@ -52,6 +52,9 @@ const components: ComponentProps<typeof ReactMarkdown>['components'] = {
     // A link into the app (a memory wiki link) stays in the tab; anything else opens a new one.
     a: ({ node: _n, href, ...p }) =>
         href?.startsWith('/') && !href.startsWith('//') ? <Link to={href} {...p} /> : <a href={href} {...p} target="_blank" rel="noreferrer noopener" />,
+    // An image from another site is sent no referrer: the app's origin is nobody's business, and
+    // hosts that refuse foreign referrers (hotlink protection) still serve a request without one.
+    img: ({ node: _n, ...p }) => <img {...p} referrerPolicy="no-referrer" loading="lazy" />,
     // No rehype pass may rewrite a block: `code` reads its children as the source text, and a plugin
     // that highlights (rehype-highlight) replaces that text with elements, which draws as [object Object].
     pre: ({ children }) => <>{children}</>,
