@@ -53,7 +53,7 @@ export function FunctionRow({
       title={<span className={cx(!enabled && "text-faint")}>{callAs}</span>}
       subtitle={
         <span className="flex min-w-0 flex-col gap-4">
-          {description && <span className={cx("truncate", enabled ? "text-muted" : "text-faint")}>{description}</span>}
+          {description && <span className={cx("truncate type-small", enabled ? "text-muted" : "text-faint")}>{description}</span>}
           {!enabled && offNote && <span className="type-small text-faint">{offNote}</span>}
           {attention && (
             <span className="inline-flex w-fit items-center gap-4 rounded-pill border border-dashed border-border-strong px-6 type-small text-fg">
