@@ -537,6 +537,17 @@ export function trailSummary(trail: TrailEvent[], durationMs?: number): string {
     : `Reasoning · ${label} · ${(durationMs / 1000).toFixed(1)}s`
 }
 
+/** The intent of the newest `execute_python` run that stated one: what the agent says it is doing now. */
+export function latestIntent(trail: TrailEvent[]): string | null {
+  for (let i = trail.length - 1; i >= 0; i--) {
+    const event = trail[i]
+    if (event.kind !== 'python') continue
+    const intent = event.intent?.trim()
+    if (intent) return intent
+  }
+  return null
+}
+
 /** The turn duration a closing `Response` reports, in milliseconds, when it reports one. */
 export function outcomeDurationMs(outcome?: ChatMessage): number | undefined {
   const content = outcome?.content.Response?.content

@@ -16,6 +16,7 @@ import {
   applyClientState,
   blockDurationMs,
   groupHistory,
+  latestIntent,
   liveEvent,
   mergeEntries,
   openTurn,
@@ -758,4 +759,13 @@ test('a delivery that wakes an idle agent starts its own turn', () => {
   assert.equal(turns.length, 2)
   assert.equal(turns[1].request?.uid, wake.uid)
   assert.deepEqual(kinds(turnEvents(turns[1])), ['python'])
+})
+
+test('latestIntent is the newest python run that stated one', () => {
+  const py = (id: string, intent: string | null): TrailEvent => ({ kind: 'python', id, intent, code: null, report: null })
+  assert.equal(latestIntent([]), null)
+  assert.equal(latestIntent([{ kind: 'thought', id: 't', text: 'hm' } as TrailEvent]), null)
+  assert.equal(latestIntent([py('1', 'Read the config'), py('2', 'Search memory')]), 'Search memory')
+  // A later run with no intent (or only whitespace) keeps the last stated one.
+  assert.equal(latestIntent([py('1', 'Read the config'), py('2', null), py('3', '  ')]), 'Read the config')
 })

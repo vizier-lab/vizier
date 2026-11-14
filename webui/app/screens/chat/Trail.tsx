@@ -14,7 +14,7 @@ import { Markdown } from '../shared/Markdown'
 import { useThinkingWord } from '../../lib/thinkingWords'
 import type { ExecutionReport, TrailEvent } from '../../api/frames'
 import { duration } from '../../lib/format'
-import { miniDots, trailSummary } from '../../lib/trail'
+import { latestIntent, miniDots, trailSummary } from '../../lib/trail'
 import { useMobile } from '../../lib/useMobile'
 import { detachedScript } from '../../api/endpoints/chat'
 import type { DetachedScriptDetail } from '../../api/frames'
@@ -289,14 +289,16 @@ export function Trail({
     turnRunning,
 }: Props) {
     const [all, setAll] = useState(false)
-    // The line says what the agent is doing, and changes while the turn works.
+    // The line says what the agent is doing: the intent of its newest script, or, before it has
+    // stated one, an idle word that changes while the turn works.
     const word = useThinkingWord(live)
+    const intent = live ? latestIntent(trail) : null
     const mobile = useMobile()
     if (trail.length === 0 && !live) return null
     const hidden = !all && trail.length > VISIBLE ? trail.length - VISIBLE : 0
     const shown = hidden ? trail.slice(hidden) : trail
     const title = live
-        ? `${agentName ? `${agentName} is ` : ''}${word}`
+        ? intent ?? `${agentName ? `${agentName} is ` : ''}${word}`
         : failed
           ? `Failed${durationMs != null ? ` after ${duration(durationMs)}` : ''}`
           : aborted

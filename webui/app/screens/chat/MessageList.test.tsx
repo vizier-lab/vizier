@@ -102,7 +102,10 @@ describe('a turn that spoke while it worked (spec 053, revised)', () => {
         const html = renderToString(
             <MessageList state={state} agent={{ id: 'oz', name: 'Oz' }} hasOlder={false} loadingOlder={false} onLoadOlder={() => {}} onReact={() => {}} />
         )
-        expect(html).toContain('Oz is ')
-        expect(html.indexOf('The log points at the deploy.')).toBeGreaterThan(html.indexOf('Oz is '))
+        // The running head names the newest script's intent, not an idle word.
+        expect(html).not.toContain('Oz is ')
+        const head = html.indexOf('>second<')
+        expect(head).toBeGreaterThan(-1)
+        expect(html.indexOf('The log points at the deploy.')).toBeGreaterThan(head)
     })
 })
