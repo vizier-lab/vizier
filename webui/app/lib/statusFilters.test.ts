@@ -97,7 +97,6 @@ test('the work tab keeps only its state, and the counts agree with it', () => {
   assert.equal(filterWork(scripts, '', 'running').length, counts.running)
   assert.equal(filterWork(scripts, '', 'done').length, counts.done)
   assert.equal(filterWork(scripts, '', 'stopped').length, counts.stopped)
-  assert.equal(filterWork(scripts, '', 'all').length, 3)
 })
 
 test('the work query matches the intent or the handle, newest first', () => {
@@ -105,9 +104,9 @@ test('the work query matches the intent or the handle, newest first', () => {
     script('d_1', 'running', 'index the docs', '2026-11-04T09:00:00Z'),
     script('d_2', 'running', 'email mira', '2026-11-04T09:05:00Z'),
   ]
-  assert.equal(filterWork(scripts, 'email', 'all').length, 1)
-  assert.equal(filterWork(scripts, 'd_1', 'all').length, 1)
-  assert.deepEqual(filterWork(scripts, '', 'all').map((r) => r.key), ['d_2', 'd_1'])
+  assert.equal(filterWork(scripts, 'email', 'running').length, 1)
+  assert.equal(filterWork(scripts, 'd_1', 'running').length, 1)
+  assert.deepEqual(filterWork(scripts, '', 'running').map((r) => r.key), ['d_2', 'd_1'])
 })
 
 test('file kinds count by extension, with images as one kind', () => {

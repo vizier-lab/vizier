@@ -44,10 +44,10 @@ export function filterMemory(
   return rows
 }
 
-export type WorkTab = 'all' | 'running' | 'done' | 'stopped'
+export type WorkTab = 'running' | 'done' | 'stopped'
 
 /** Which tab a script falls under: done is ended on its own, stopped is cut short. */
-export function workTab(state: DetachedScriptSnapshot['state']): Exclude<WorkTab, 'all'> {
+export function workTab(state: DetachedScriptSnapshot['state']): WorkTab {
   if (state === 'running') return 'running'
   if (state === 'succeeded' || state === 'failed') return 'done'
   return 'stopped'
@@ -66,7 +66,7 @@ export function filterWork(scripts: DetachedScriptSnapshot[], query: string, tab
   const rows: StatusRow[] = []
   const newest = [...scripts].sort((a, b) => b.created_at.localeCompare(a.created_at) || b.id.localeCompare(a.id))
   for (const s of newest) {
-    if (tab !== 'all' && workTab(s.state) !== tab) continue
+    if (workTab(s.state) !== tab) continue
     if (!matches(query, s.intent, s.id)) continue
     rows.push({ kind: 'script', key: s.id, script: s })
   }

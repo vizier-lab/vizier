@@ -196,7 +196,7 @@ export function ChatStatusStrip({
       filterMemory(recalled, query, tab, (p) => docFromChat(agentId, p.bundle, p.path, pathname)),
     [recalled, query, tab, agentId, pathname]
   )
-  const workRows = useMemo(() => filterWork(scripts, query, (tab ?? 'all') as WorkTab), [scripts, query, tab])
+  const workRows = useMemo(() => filterWork(scripts, query, (tab ?? 'running') as WorkTab), [scripts, query, tab])
   const fileRows = useMemo(() => filterFiles(files, query, tab), [files, query, tab])
 
   const doClear = async () => {
@@ -282,6 +282,8 @@ export function ChatStatusStrip({
     </StatusPanel>
   )
 
+  const WORK_EMPTY: Record<WorkTab, string> = { running: 'running', done: 'done yet', stopped: 'stopped' }
+
   const workPanel = (close: () => void) => (
     <StatusPanel
       title="Background work"
@@ -299,10 +301,9 @@ export function ChatStatusStrip({
       tabs={
         <FilterTabs
           aria-label="Filter background work by state"
-          value={tab ?? 'all'}
-          onChange={(v) => setTab(v === 'all' ? null : v)}
+          value={tab ?? 'running'}
+          onChange={(v) => setTab(v === 'running' ? null : v)}
           options={[
-            { value: 'all', label: 'All', count: counts.total },
             { value: 'running', label: 'Running', count: counts.running, tone: 'live' },
             { value: 'done', label: 'Done', count: counts.done },
             { value: 'stopped', label: 'Stopped', count: counts.stopped },
@@ -315,7 +316,9 @@ export function ChatStatusStrip({
         <EmptyState
           kind="empty"
           icon="layers"
-          title="No background work"
+          title={
+            scripts.length === 0 ? 'No background work' : `Nothing ${WORK_EMPTY[(tab ?? 'running') as WorkTab]}`
+          }
           message="Scripts the agent runs in the background appear here."
         />
       ) : (
