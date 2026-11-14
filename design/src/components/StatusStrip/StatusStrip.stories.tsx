@@ -8,6 +8,7 @@ import { StatusPanel } from "./StatusPanel";
 const items = [
   { id: "memory" as const, icon: "memory" as const, label: "recalled passages", count: 3 },
   { id: "work" as const, icon: "layers" as const, label: "background work running", count: 2, busy: true },
+  { id: "subagents" as const, icon: "users" as const, label: "subagents at work", count: 2, dot: "warn" as const },
   { id: "files" as const, icon: "file" as const, label: "session files", count: 4 },
   { id: "changes" as const, icon: "git-branch" as const, label: "changed files", count: 5 },
 ];
@@ -29,7 +30,7 @@ export const Default: Story = {};
 export const WithChanges: Story = {};
 
 /** A chat that has done nothing yet: every section still shows, at zero. */
-export const Idle: Story = { args: { items: items.map((i) => ({ ...i, count: 0, busy: false })) } };
+export const Idle: Story = { args: { items: items.map((i) => ({ ...i, count: 0, busy: false, dot: undefined })) } };
 
 /**
  * The strip and its panel, as the chat draws them: click a count to open the panel,
@@ -43,7 +44,7 @@ export const Interactive: Story = {
         <StatusStrip items={items} panelGap={100}>
           {(item, close) => (
             <StatusPanel
-              title={item.id === "memory" ? "Recalled memory" : item.id === "work" ? "Background work" : "Session files"}
+              title={item.id === "memory" ? "Recalled memory" : item.id === "work" ? "Background work" : item.id === "subagents" ? "Subagents" : "Session files"}
               meta={item.count}
               onClose={close}
             >
@@ -71,7 +72,7 @@ export const WithPanel: Story = {
         <StatusStrip items={items} open="memory" panelGap={100}>
           {(item, close) => (
             <StatusPanel
-              title={item.id === "memory" ? "Recalled memory" : item.id === "work" ? "Background work" : "Session files"}
+              title={item.id === "memory" ? "Recalled memory" : item.id === "work" ? "Background work" : item.id === "subagents" ? "Subagents" : "Session files"}
               meta={item.id === "work" ? "2 running" : item.count}
               onClose={close}
               search={<div className="h-34 rounded-md border border-border-strong bg-surface" />}

@@ -6,14 +6,14 @@ import { useDismiss } from "../../lib/dismiss";
 import { cx } from "../../lib/cx";
 
 /** What a strip item counts. */
-export type StatusStripItemId = "memory" | "work" | "files" | "changes" | "lsp";
+export type StatusStripItemId = "memory" | "work" | "subagents" | "files" | "changes" | "lsp";
 
 /** The dot beside a count: running (steady), starting (pulsing), needs attention, or failed. */
 export type StatusStripDot = "live" | "pulse" | "warn" | "fail";
 
 export type StatusStripItem = {
   id: StatusStripItemId;
-  /** The glyph: memory (book), work (layers), files (file), changes (git branch), lsp (code). */
+  /** The glyph: memory (book), work (layers), subagents (users), files (file), changes (git branch), lsp (code). */
   icon: IconName;
   /** What the count is of, for the accessible name: "recalled passages". */
   label: string;
