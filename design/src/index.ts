@@ -31,7 +31,7 @@ export * from "./components/AgentSwitcher";
 export * from "./components/Attachment";
 export * from "./components/AudioPlayer";
 export * from "./components/Avatar";
-export * from "./components/BackgroundJob";
+export * from "./components/BackgroundWork";
 export * from "./components/BackgroundReportCard";
 export * from "./components/Badge";
 export * from "./components/OriginBadge";
