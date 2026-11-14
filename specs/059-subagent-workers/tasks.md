@@ -146,7 +146,7 @@ description: "Task list for 059-subagent-workers"
 - [X] T049 [P] Update the docs in `docs/src/` that mention subagents or `parallel_subagents` (find them with a search) and document `subagents.max_depth` beside `lsp` in the configuration docs
 - [X] T050 [P] Update `specs/008-dummyplug-provider/contracts/dummyplug-protocol.md` only if a quickstart step needed a protocol change (expected: none)
 - [ ] T051 Run quickstart step 12 (**live**, real model) and record whether worker reports avoid addressing a person (SC-001)
-- [ ] T052 Run `cargo clippy --workspace`, `cargo test --workspace`, `cargo test -p vizier-core --no-default-features`, and the PostgreSQL storage tests with `VIZIER_TEST_DATABASE_URL`; fix anything they report
+- [X] T052 (2026-11-14, WSL Ubuntu: `cargo test --workspace --no-fail-fast` all green, `cargo clippy --workspace --all-features --tests` no finding in this change; PostgreSQL storage tests not run locally, CI's `managed-storage` job runs them) Run `cargo clippy --workspace`, `cargo test --workspace`, `cargo test -p vizier-core --no-default-features`, and the PostgreSQL storage tests with `VIZIER_TEST_DATABASE_URL`; fix anything they report
 - [ ] T053 Open the PR titled `feat(agents)!: subagents as temporary workers`, with the quickstart results and the #82 draft in the description
 
 ---
