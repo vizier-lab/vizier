@@ -117,11 +117,19 @@ impl Refusal {
     }
 }
 
+/// The tool whose call ends a worker's turn in `asking`.
+pub const ASK_TOOL: &str = "ask_main_agent";
+
 /// How a worker's turn ended, as `agent_process` saw it.
 #[derive(Debug, Clone)]
 pub enum TurnEnd {
     /// The turn returned a reply (its text).
     Replied(String),
+    /// The turn ended by asking the main agent. Its outcome is the question, already recorded
+    /// by the tool, so it settles nothing: the main agent may have replied (and the worker be
+    /// running again) before this turn finished, and settling here would take the next turn's
+    /// answer away.
+    Asked,
     /// The turn failed or panicked.
     Failed(String),
 }
@@ -269,6 +277,7 @@ impl Subagents {
             }
         };
         let settled = match end {
+            TurnEnd::Asked => return,
             TurnEnd::Replied(text) => {
                 let (result, truncated) = cut(&text, MAX_RESULT_CHARS);
                 Settled::Answered { result, truncated }
@@ -646,6 +655,31 @@ impl Inner {
     fn disarm(&self, id: &str) {
         if let Some(handle) = self.timers.lock().remove(id) {
             handle.abort();
+        }
+    }
+}
+
+/// Delete the conversations of a deleted conversation's workers (`Subagents::delete_session`).
+/// A worker whose turn was just aborted still reads as active for a moment, so each delete is
+/// retried for up to five seconds before it is given up with a warning.
+pub async fn delete_worker_conversations(
+    files: &crate::session_files::SessionFiles,
+    workers: Vec<VizierSession>,
+) {
+    for worker in workers {
+        let mut attempts = 0;
+        loop {
+            match files.delete_conversation(&worker).await {
+                Ok(_) => break,
+                Err(crate::session_files::ClearError::TurnActive) if attempts < 50 => {
+                    attempts += 1;
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+                Err(e) => {
+                    tracing::warn!(session = %worker.to_slug(), "could not delete a worker's conversation: {e}");
+                    break;
+                }
+            }
         }
     }
 }

@@ -1292,11 +1292,8 @@ pub async fn delete_worktree(
         Some(worktree.topic.clone()),
     );
     s.deps().detached.delete_session(&session).await;
-    for worker in s.deps().subagents.delete_session(&session).await {
-        if let Err(e) = s.deps().session_files.delete_conversation(&worker).await {
-            tracing::warn!(session = %worker.to_slug(), "could not delete a worker's conversation: {e:?}");
-        }
-    }
+    let workers = s.deps().subagents.delete_session(&session).await;
+    crate::agents::subagents::delete_worker_conversations(&s.deps().session_files, workers).await;
     s.deps()
         .session_files
         .delete_conversation(&session)

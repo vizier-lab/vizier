@@ -2,8 +2,15 @@
 
 **Feature**: `059-subagent-workers`
 
-Setup for every dummyplug step: `just run` with an agent `dp` on the offline `dummyplug` provider,
-local shell enabled, open its chat in the WebUI. A worker is a turn of `dp` too, so dummyplug
+**Automated**: steps 2–11 are scripted in [`scripts/subagent-e2e.mjs`](../../scripts/subagent-e2e.mjs)
+(33 checks). Start dummyplug (`cd dummyplug && node src/server.mjs`) and vizier, then run
+`VIZIER_URL=ws://localhost:9999 VIZIER_SETUP_USER=e2e node scripts/subagent-e2e.mjs`; set
+`VIZIER_STOP`/`VIZIER_START` (commands that stop and restart vizier) to include step 8. The script
+creates an agent `workers` with a local `shell` integration (the shell is an integration, not an
+agent field). Checked on 2026-11-14 in WSL Ubuntu: 33/33, three runs in a row.
+
+Setup for every dummyplug step done by hand: `just run` with an agent `dp` on the offline
+`dummyplug` provider, a local `shell` integration attached, open its chat in the WebUI. A worker is a turn of `dp` too, so dummyplug
 treats a worker's **task text** as its own message: a task that is a dummyplug JSON request makes
 the worker run that tool. Dummyplug cannot read a delivery or write a report, so steps check
 stored state and history. Steps that need a real model are marked **live**. On Windows use

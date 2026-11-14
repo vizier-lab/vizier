@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     agents::{
-        subagents::{Until, is_worker, may_hire, validate_timeout},
+        subagents::{ASK_TOOL, Until, is_worker, may_hire, validate_timeout},
         tools::{ToolCategory, ToolContext, VizierTool},
     },
     dependencies::VizierDependencies,
@@ -383,7 +383,7 @@ impl VizierTool for AskMainAgentTool {
     }
 
     fn name() -> String {
-        "ask_main_agent".to_string()
+        ASK_TOOL.to_string()
     }
 
     fn description(&self) -> String {

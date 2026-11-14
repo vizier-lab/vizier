@@ -1687,13 +1687,17 @@ pub async fn handle_request(
             // A worker's turn ended with a reply (spec 059 research D5): its row records the
             // answer, unless the turn ended by asking (the row is `asking`, and stays so).
             if matches!(session.1, VizierChannelId::Subagent) {
-                let text = match &res.content {
-                    VizierResponseContent::Message { content, .. } => content.clone(),
-                    _ => String::new(),
+                use crate::agents::subagents::{ASK_TOOL, TurnEnd};
+                let end = match &res.content {
+                    VizierResponseContent::Message { stats: Some(stats), .. }
+                        if stats.ended_by_tool.as_deref() == Some(ASK_TOOL) =>
+                    {
+                        TurnEnd::Asked
+                    }
+                    VizierResponseContent::Message { content, .. } => TurnEnd::Replied(content.clone()),
+                    _ => TurnEnd::Replied(String::new()),
                 };
-                deps.subagents
-                    .turn_ended(&session, crate::agents::subagents::TurnEnd::Replied(text))
-                    .await;
+                deps.subagents.turn_ended(&session, end).await;
             }
             if notifies_chat
                 && matches!(

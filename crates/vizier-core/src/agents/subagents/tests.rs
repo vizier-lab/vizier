@@ -326,6 +326,26 @@ mod service {
         assert!(f.subagents.claim(&chat()).await.is_empty(), "read through get_subagent");
     }
 
+    /// Found end to end: the main agent can read a question and reply before the asking turn has
+    /// finished. That turn's end must not settle the worker, or the reply turn's answer is lost.
+    #[tokio::test]
+    async fn an_asking_turn_that_ends_after_the_reply_settles_nothing() {
+        let f = fixture().await;
+        let hirer = ctx(chat(), 1);
+        let workers = f.subagents.spawn(&hirer, vec!["ask".into()], 600).await.unwrap();
+        f.subagents.ask(&ctx(workers[0].worker_session(), 1), "which?").await.unwrap();
+        f.subagents.reply(&hirer, &workers[0].id, "this one").await.unwrap().unwrap();
+        // The asking turn ends only now.
+        f.subagents.turn_ended(&workers[0].worker_session(), TurnEnd::Asked).await;
+        let got = f.subagents.get(&hirer, &workers[0].id).await.unwrap().unwrap();
+        assert_eq!(got.state, SubagentState::Running, "the reply turn is still to come");
+        // The reply turn answers.
+        reply(&f, &workers[0], "the real answer").await;
+        let got = f.subagents.get(&hirer, &workers[0].id).await.unwrap().unwrap();
+        assert_eq!(got.state, SubagentState::Answered);
+        assert_eq!(got.result.as_deref(), Some("the real answer"));
+    }
+
     #[tokio::test]
     async fn an_unseen_answer_is_delivered_once_beside_other_sources() {
         let f = fixture().await;
