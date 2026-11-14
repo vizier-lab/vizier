@@ -9,24 +9,12 @@ import { test } from 'vitest'
 import assert from 'node:assert/strict'
 
 import type { DetachedScriptSnapshot, SessionFileRecord } from '../api/frames.ts'
-import type { Recalled } from './recall.ts'
 import {
   fileKinds,
   filterFiles,
-  filterMemory,
   filterWork,
   workCounts,
-  memoryBundles,
 } from './statusFilters.ts'
-
-const passage = (bundle: string, path: string, score = 0.8): Recalled => ({
-  bundle,
-  path,
-  ordinal: 1,
-  score,
-  origin: 'auto',
-  uid: `${bundle}-${path}`,
-})
 
 const script = (
   id: string,
@@ -54,29 +42,6 @@ const file = (id: string, filename: string): SessionFileRecord => ({
   size: 1024,
   file_id: id,
   added_at: '2026-11-04T09:00:00Z',
-})
-
-test('memory bundles are counted and ranked by how many passages they hold', () => {
-  const recalled = [passage('ops', 'a.md'), passage('ops', 'b.md'), passage('people', 'c.md')]
-  assert.deepEqual(memoryBundles(recalled), [
-    { value: 'ops', label: 'ops', count: 2 },
-    { value: 'people', label: 'people', count: 1 },
-  ])
-})
-
-test('the memory query matches the path, the bundle or the title', () => {
-  const recalled = [passage('ops', 'on-call.md'), passage('people', 'mira.md')]
-  const href = () => '/memory'
-  assert.equal(filterMemory(recalled, 'on-call', null, href).length, 1)
-  assert.equal(filterMemory(recalled, 'people', null, href).length, 1)
-  assert.equal(filterMemory(recalled, 'nothing', null, href).length, 0)
-})
-
-test('the memory bundle tab keeps only that bundle', () => {
-  const recalled = [passage('ops', 'a.md'), passage('people', 'b.md')]
-  const href = () => '/memory'
-  assert.equal(filterMemory(recalled, '', 'ops', href).length, 1)
-  assert.equal(filterMemory(recalled, '', null, href).length, 2)
 })
 
 test('work counts split the states the tabs show', () => {

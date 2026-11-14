@@ -4,7 +4,6 @@ import {
   FileRow,
   FileTypeTag,
   FilterTabs,
-  RecalledMemoryRow,
   SearchField,
   StatusPanel,
   StatusStrip,
@@ -13,25 +12,20 @@ import {
   type StatusStripItemId,
 } from '@vizier/design'
 import { useEffect, useMemo, useState } from 'react'
-import { useLocation } from 'react-router'
 import type { DetachedScriptDetail, DetachedScriptSnapshot, SessionFileRecord, SubagentSnapshot } from '../../api/frames'
 import { detachedScript } from '../../api/endpoints/chat'
 import { detachedReport, scriptElapsed } from '../../lib/detached'
 import { Run } from './Trail'
 import { clearTopicFiles, promoteTopicFile } from '../../api/endpoints/artifacts'
-import { docFromChat } from '../../lib/memoryTree'
-import type { Recalled } from '../../lib/recall'
 import { time } from '../../lib/messages'
 import { fileSize } from '../../lib/upload'
 import {
   PAGE,
   fileKinds,
   filterFiles,
-  filterMemory,
   filterWork,
   workCounts,
   type WorkTab,
-  memoryBundles,
 } from '../../lib/statusFilters'
 import { readyCount, stripLabel, worstDot } from '../../lib/lsp'
 import { useProjects } from '../../stores/projects'
@@ -45,7 +39,6 @@ import { ConfirmDialog } from '../shared/ConfirmDialog'
 type Props = {
   agentId: string
   topicId: string
-  recalled: Recalled[]
   /** The topic's detached scripts (spec 058). */
   scripts: DetachedScriptSnapshot[]
   /** The workers the topic hired (spec 059): their own item and panel, apart from Background work. */
@@ -118,14 +111,13 @@ function WorkEntry({
 }
 
 /**
- * The chat's status strip (D62): the counts of what the agent recalled, what it is
- * still working on and what it left in the conversation. Each count opens a panel
+ * The chat's status strip (D62): the counts of what the agent is still working on and
+ * what it left in the conversation. Each count opens a panel
  * that hovers above the composer; a project's changes open their own dialog.
  */
 export function ChatStatusStrip({
   agentId,
   topicId,
-  recalled,
   scripts,
   workers,
   agentName,
@@ -147,7 +139,6 @@ export function ChatStatusStrip({
   const [preview, setPreview] = useState<number | null>(null)
   const [confirmClear, setConfirmClear] = useState(false)
   const [clearing, setClearing] = useState(false)
-  const { pathname } = useLocation()
 
   const running = scripts.filter((s) => s.state === 'running')
   const counts = workCounts(scripts)
@@ -161,7 +152,6 @@ export function ChatStatusStrip({
   }, [running.length, atWork.count])
 
   const items: StatusStripItem[] = [
-    { id: 'memory', icon: 'memory', label: 'recalled passages', count: recalled.length },
     {
       id: 'work',
       icon: 'layers',
@@ -207,14 +197,8 @@ export function ChatStatusStrip({
     })
   }
 
-  const bundles = useMemo(() => memoryBundles(recalled), [recalled])
   const kinds = useMemo(() => fileKinds(files), [files])
 
-  const memoryRows = useMemo(
-    () =>
-      filterMemory(recalled, query, tab, (p) => docFromChat(agentId, p.bundle, p.path, pathname)),
-    [recalled, query, tab, agentId, pathname]
-  )
   const workRows = useMemo(() => filterWork(scripts, query, (tab ?? 'running') as WorkTab), [scripts, query, tab])
   const fileRows = useMemo(() => filterFiles(files, query, tab), [files, query, tab])
 
@@ -240,66 +224,6 @@ export function ChatStatusStrip({
       toast.error("Couldn't promote the file", e instanceof Error ? e.message : undefined)
     }
   }
-
-  const memoryPanel = (close: () => void) => (
-    <StatusPanel
-      title="Recalled memory"
-      meta={`${recalled.length} passage${recalled.length === 1 ? '' : 's'}`}
-      onClose={close}
-      search={
-        <SearchField
-          value={query}
-          onValueChange={setQuery}
-          aria-label="Search recalled memory"
-          placeholder="Search recalled memory..."
-          count={memoryRows.length}
-        />
-      }
-      tabs={
-        <FilterTabs
-          aria-label="Filter recalled memory by bundle"
-          value={tab ?? 'all'}
-          onChange={(v) => setTab(v === 'all' ? null : v)}
-          options={[
-            { value: 'all', label: 'All', count: recalled.length },
-            ...bundles.slice(0, 4).map((b) => ({ value: b.value, label: b.label, count: b.count })),
-          ]}
-        />
-      }
-      footer={
-        <>
-          <span className="type-small text-faint">Ranked by relevance</span>
-          <TextLink href={`/${agentId}/memory`} arrow="forward">
-            Open all in Memory
-          </TextLink>
-        </>
-      }
-    >
-      {memoryRows.length === 0 ? (
-        <EmptyState
-          kind="empty"
-          icon="memory"
-          title="Nothing recalled"
-          message="Passages the agent reads from memory appear here."
-        />
-      ) : (
-        <ul className="flex flex-col">
-          {memoryRows.slice(0, PAGE).map((row) =>
-            row.kind === 'memory' ? (
-              <li key={row.key}>
-                <RecalledMemoryRow
-                  bundle={row.passage.bundle}
-                  path={`${row.passage.path}#${row.passage.ordinal}`}
-                  score={row.passage.score}
-                  href={row.href}
-                />
-              </li>
-            ) : null
-          )}
-        </ul>
-      )}
-    </StatusPanel>
-  )
 
   const WORK_EMPTY: Record<WorkTab, string> = { running: 'running', done: 'done yet', stopped: 'stopped' }
 
@@ -438,9 +362,7 @@ export function ChatStatusStrip({
   )
 
   const panelFor = (id: StatusStripItem['id'], close: () => void) =>
-    id === 'memory' ? (
-      memoryPanel(close)
-    ) : id === 'work' ? (
+    id === 'work' ? (
       workPanel(close)
     ) : id === 'subagents' ? (
       <SubagentsPanel

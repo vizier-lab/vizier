@@ -3,7 +3,6 @@ import { describe, expect, it, vi } from 'vitest'
 import { MemoryRouter } from 'react-router'
 import { ChatStatusStrip } from './ChatStatusStrip'
 import type { DetachedScriptSnapshot, SessionFileRecord, SubagentSnapshot } from '../../api/frames'
-import type { Recalled } from '../../lib/recall'
 
 // renderToString reads a zustand store's initial state, so the strip is drawn against a stand-in.
 const fake = vi.hoisted(() => ({
@@ -14,10 +13,6 @@ vi.mock('../../stores/projects', () => ({
     getState: () => fake.state,
   }),
 }))
-
-const recalled: Recalled[] = [
-  { bundle: 'ops', path: 'on-call.md', ordinal: 1, score: 0.84, origin: 'auto', uid: 'u1' },
-]
 
 const job = (state: DetachedScriptSnapshot['state']): DetachedScriptSnapshot => ({
   id: `d_${state}`,
@@ -45,7 +40,6 @@ const file: SessionFileRecord = {
 const draw = (
   jobs: DetachedScriptSnapshot[] = [],
   files: SessionFileRecord[] = [],
-  passages = recalled,
   workers: SubagentSnapshot[] = []
 ) =>
   renderToString(
@@ -53,7 +47,6 @@ const draw = (
       <ChatStatusStrip
         agentId="oz"
         topicId="t1"
-        recalled={passages}
         scripts={jobs}
         workers={workers}
         agentName="Oz"
@@ -65,16 +58,15 @@ const draw = (
   )
 
 describe("the chat's status strip", () => {
-  it('draws a count for what the agent recalled, what it runs and what it left', () => {
+  it('draws a count for what the agent runs and what it left', () => {
     const html = draw([job('running')], [file])
-    expect(html).toContain('aria-label="1 recalled passages"')
     expect(html).toContain('aria-label="1 background work running"')
     expect(html).toContain('aria-label="1 session files"')
+    expect(html).not.toContain('recalled passages')
   })
 
   it('shows every section, even the empty ones', () => {
     const html = draw([], [])
-    expect(html).toContain('aria-label="1 recalled passages"')
     expect(html).toContain('aria-label="0 background work running"')
     expect(html).toContain('aria-label="0 session files"')
   })
@@ -86,8 +78,7 @@ describe("the chat's status strip", () => {
   })
 
   it('shows zeroes when nothing has happened yet', () => {
-    const html = draw([], [], [])
-    expect(html).toContain('aria-label="0 recalled passages"')
+    const html = draw([], [])
     expect(html).toContain('aria-label="0 background work running"')
     expect(html).toContain('aria-label="0 session files"')
   })
@@ -115,13 +106,13 @@ const worker = (id: string, state: SubagentSnapshot['state']): SubagentSnapshot 
 
 describe('the subagents item', () => {
   it('is its own item, apart from background work', () => {
-    const html = draw([job('running')], [], recalled, [worker('s_1', 'running')])
+    const html = draw([job('running')], [], [worker('s_1', 'running')])
     expect(html).toContain('aria-label="1 subagents at work"')
     expect(html).toContain('aria-label="1 background work running"')
   })
 
   it('counts running and asking workers, and says when one is asking', () => {
-    const html = draw([], [], recalled, [worker('s_1', 'running'), worker('s_2', 'asking'), worker('s_3', 'answered')])
+    const html = draw([], [], [worker('s_1', 'running'), worker('s_2', 'asking'), worker('s_3', 'answered')])
     expect(html).toContain('aria-label="2 subagents at work, one is asking"')
     expect(html).toContain('bg-retrying')
   })
@@ -148,7 +139,6 @@ describe('the language-server item', () => {
         <ChatStatusStrip
           agentId="oz"
           topicId="t1"
-          recalled={[]}
           scripts={[]}
           workers={[]}
           agentName="Oz"

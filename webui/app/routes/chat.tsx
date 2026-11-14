@@ -23,7 +23,6 @@ import { Composer } from '../screens/chat/Composer'
 import { SideChatPanel } from '../screens/chat/SideChatPanel'
 import { ErrorNotice } from '../screens/chat/ErrorNotice'
 import { MessageList } from '../screens/chat/MessageList'
-import { recalledFrom } from '../lib/recall'
 import { ChatStatusStrip } from '../screens/chat/ChatStatusStrip'
 import { ModelOverridePicker } from '../screens/chat/ModelOverridePicker'
 import { readModelOverride, writeModelOverride } from '../lib/modelOverride'
@@ -251,7 +250,6 @@ export default function Chat() {
         }
     }, [connection])
 
-    const recalled = useMemo(() => recalledFrom(state.entries), [state.entries])
     const scripts = useMemo(() => Object.values(state.scripts), [state.scripts])
     const workers = useMemo(() => Object.values(state.workers), [state.workers])
 
@@ -327,8 +325,7 @@ export default function Chat() {
         />
     )
 
-    // What the agent recalled, what it is still working on, what it left behind and
-    // what it changed all live in the status strip under the composer.
+    // What the agent is still working on, what it left behind and what it changed all live in the status strip under the composer.
     const changes =
         projectId && topicId && gitAvailable
             ? {
@@ -460,7 +457,6 @@ export default function Chat() {
                             <OpenProjectButton agentId={agentId} />
                         ) : undefined
                     }
-                    recalledFor={() => recalled.length}
                     error={
                         state.error && (
                             <ErrorNotice
@@ -564,14 +560,12 @@ export default function Chat() {
                         }
                     />
                     </div>
-                    {/* The status strip: what the agent recalled, what it is still working
-                        on, what it left in this conversation and what it changed. */}
+                    {/* The status strip: what the agent is still working on, what it left in this conversation and what it changed. */}
                     <div className="mt-8 flex min-w-0 items-center gap-16">
                     <ChatStatusStrip
                         className="shrink-0"
                         agentId={agentId}
                         topicId={topicId ?? ''}
-                        recalled={recalled}
                         scripts={scripts}
                         workers={workers}
                         agentName={agentName}

@@ -25,7 +25,7 @@ import type { WorkerUpdate } from '../../lib/subagents'
 /** Past this many steps a trail shows its newest and folds the rest behind a toggle. */
 const VISIBLE = 8
 
-function counts(trail: TrailEvent[], recalled: number): string {
+function counts(trail: TrailEvent[]): string {
     const python = trail.filter((e) => e.kind === 'python').length
     const failed = trail.filter(
         (e) => e.kind === 'python' && e.report && !e.report.ok
@@ -42,8 +42,6 @@ function counts(trail: TrailEvent[], recalled: number): string {
         parts.push(`${delivered} background result${delivered === 1 ? '' : 's'}`)
     const updates = trail.filter((e) => e.kind === 'worker_update').length
     if (updates) parts.push(`${updates} subagent update${updates === 1 ? '' : 's'}`)
-    if (recalled)
-        parts.push(`${recalled} passage${recalled === 1 ? '' : 's'} recalled`)
     return parts.join(' · ')
 }
 
@@ -269,7 +267,6 @@ type Props = {
     live: boolean
     /** Milliseconds the turn took, once it ended. */
     durationMs?: number
-    recalled?: number
     failed?: boolean
     aborted?: boolean
     /** The agent's name, for the line shown while it works. */
@@ -286,7 +283,6 @@ export function Trail({
     trail,
     live,
     durationMs,
-    recalled = 0,
     failed,
     aborted,
     agentName,
@@ -312,7 +308,7 @@ export function Trail({
             state={live ? 'live' : failed || aborted ? 'failed' : 'done'}
             title={title}
             counts={
-                counts(trail, recalled) ||
+                counts(trail) ||
                 trailSummary(trail).replace('Reasoning · ', '')
             }
             defaultExpanded={live}

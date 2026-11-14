@@ -73,8 +73,6 @@ type Props = {
     onBuildPlan?: (plan: { title: string; steps: string[] }) => void
     /** Build was pressed and the chat is switching mode. */
     buildingPlan?: boolean
-    /** How many passages the turn recalled, for its trail summary. */
-    recalledFor?: (turn: Turn) => number
     /** A Discord or Telegram conversation: people's messages carry their own names, not "You". */
     byPlatformName?: boolean
     /** Shown under the greeting of an empty conversation, e.g. "Open a Project" on desktop. */
@@ -113,7 +111,7 @@ function inParts(turn: Turn) {
     return turn.blocks.length > 1
 }
 
-export function MessageList({ state, agent, topicId, greeting, hasOlder, bottomInset = 0, insetRight = 0, loadingOlder, onLoadOlder, onReact, error, clientCalls, questions, recalledFor, byPlatformName, emptyAction, onBuildPlan, buildingPlan }: Props) {
+export function MessageList({ state, agent, topicId, greeting, hasOlder, bottomInset = 0, insetRight = 0, loadingOlder, onLoadOlder, onReact, error, clientCalls, questions, byPlatformName, emptyAction, onBuildPlan, buildingPlan }: Props) {
     const { entries } = state
     const me = useSession((s) => s.user)
     const turns = useMemo(() => groupHistory(entries), [entries])
@@ -199,7 +197,6 @@ export function MessageList({ state, agent, topicId, greeting, hasOlder, bottomI
     // A turn's parts in the order they happened: each stretch of work folded into the flow, and
     // what the agent said on the way at the size of its reply. `live`: the last part is still open.
     const parts = (turn: Turn, live: boolean) => {
-        const firstTrail = turn.blocks.findIndex((b) => b.kind === 'trail')
         const lastTrail = lastBlockOf(turn, 'trail')
         const failed = !!(turn.outcome && replyError(turn.outcome.content.Response!.content))
         return turn.blocks.map((block, i) => {
@@ -213,7 +210,6 @@ export function MessageList({ state, agent, topicId, greeting, hasOlder, bottomI
                     live={open}
                     turnRunning={live}
                     durationMs={inParts(turn) ? blockDurationMs(block) : (outcomeDurationMs(turn.outcome) ?? blockDurationMs(block))}
-                    recalled={i === firstTrail ? recalledFor?.(turn) : undefined}
                     failed={i === lastTrail && failed}
                     aborted={i === lastTrail && turn.aborted}
                     agentName={agent.name}
@@ -353,7 +349,7 @@ export function MessageList({ state, agent, topicId, greeting, hasOlder, bottomI
                 <AgentHeader agentId={agent.id} name={agent.name} live={agent.live} />
                 {parts(open, running)}
                 {/* Between rounds there is no open trail yet, but the agent is still working. */}
-                {running && open.blocks[open.blocks.length - 1]?.kind !== 'trail' && <Trail trail={[]} live recalled={open.blocks.length ? undefined : recalledFor?.(open)} agentName={agent.name} />}
+                {running && open.blocks[open.blocks.length - 1]?.kind !== 'trail' && <Trail trail={[]} live agentName={agent.name} />}
                 {clientCalls?.(open, true)}
                 {questions?.(open)}
             </div>

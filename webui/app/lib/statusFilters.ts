@@ -1,12 +1,10 @@
 import type { DetachedScriptSnapshot, SessionFileRecord } from '../api/frames'
-import type { Recalled } from './recall'
 
 /** The sections the chat's status strip holds. */
-export type StatusSection = 'memory' | 'work' | 'files'
+export type StatusSection = 'work' | 'files'
 
 /** A row in a section's list, flattened for the shared row renderer. */
 export type StatusRow =
-  | { kind: 'memory'; key: string; passage: Recalled; href: string }
   | { kind: 'script'; key: string; script: DetachedScriptSnapshot }
   | { kind: 'file'; key: string; file: SessionFileRecord }
 
@@ -17,31 +15,6 @@ const matches = (query: string, ...parts: (string | undefined | null)[]) => {
   const q = query.trim().toLowerCase()
   if (!q) return true
   return parts.some((p) => (p ?? '').toLowerCase().includes(q))
-}
-
-/** The bundles a memory section holds, most passages first, for the filter tabs. */
-export function memoryBundles(recalled: Recalled[]): { value: string; label: string; count: number }[] {
-  const counts = new Map<string, number>()
-  for (const p of recalled) counts.set(p.bundle, (counts.get(p.bundle) ?? 0) + 1)
-  return [...counts.entries()]
-    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-    .map(([bundle, count]) => ({ value: bundle, label: bundle, count }))
-}
-
-/** The passages a memory section shows: the query and the bundle tab narrow them. */
-export function filterMemory(
-  recalled: Recalled[],
-  query: string,
-  bundle: string | null,
-  href: (p: Recalled) => string,
-): StatusRow[] {
-  const rows: StatusRow[] = []
-  for (const p of recalled) {
-    if (bundle && p.bundle !== bundle) continue
-    if (!matches(query, p.path, p.bundle, p.title)) continue
-    rows.push({ kind: 'memory', key: `${p.uid}-${p.bundle}-${p.path}-${p.ordinal}`, passage: p, href: href(p) })
-  }
-  return rows
 }
 
 export type WorkTab = 'running' | 'done' | 'stopped'
