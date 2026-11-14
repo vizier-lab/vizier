@@ -1479,6 +1479,16 @@ ask_question(questions=[])", true, None)).await);
     eventually(20, || async { script(&runtime, &id).await.state.is_final() }).await;
     let row = script(&runtime, &id).await;
     assert!(serde_json::to_string(&row.outcome).unwrap().contains("NameError"), "{:?}", row.outcome);
+    // Its delivery wakes the agent; let that turn finish first, or it can land at the next
+    // request's round boundary and dummyplug answers the delivery instead of the refusal.
+    eventually(20, || async { !deliveries(&history_of(&runtime, &session).await).is_empty() }).await;
+    eventually(20, || async {
+        history_of(&runtime, &session)
+            .await
+            .last()
+            .is_some_and(|entry| matches!(entry.content, vizier_core::schema::SessionHistoryContent::Response(..)))
+    })
+    .await;
     // An out-of-range limit on a detached call.
     let refused = chat(runtime.transport(), &session, &run_python("1", true, Some(0))).await;
     assert!(refused.contains("between 1 and 3600"), "{refused}");
