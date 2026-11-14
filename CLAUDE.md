@@ -424,5 +424,5 @@ The website is the submodule `vizier-lab/landing`, an Astro 7 + Starlight site s
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
 shell commands, and other important information for the current feature, read
-`specs/059-subagent-workers/plan.md`.
+`specs/060-prune-tool-outputs/plan.md`.
 <!-- SPECKIT END -->
