@@ -9,6 +9,7 @@ export const PAGE_PATH: Record<AgentPage, string> = {
     artifacts: '/artifacts',
     tasks: '/tasks',
     skills: '/skills',
+    functions: '/functions',
     dreams: '/dream',
     channels: '/integrations/channels',
     addons: '/integrations/addons',
