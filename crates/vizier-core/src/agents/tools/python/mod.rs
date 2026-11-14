@@ -96,7 +96,7 @@ impl ExecutePython {
         let code = args.code.clone();
         let run: crate::agents::detached::ScriptRunner = Box::new(move |ctx, progress| {
             Box::pin(async move {
-                run_script(&router, &code, limits, limits.timeout, &ctx, Some(progress)).await
+                run_script(&router, &code, limits, limits.timeout, &ctx, Some(progress), None).await
             })
         });
         let script = detached
@@ -157,7 +157,7 @@ impl VizierTool for ExecutePython {
             return self.launch_detached(args, timeout_secs, ctx).await;
         }
         let (report, attachments) =
-            run_script(&self.router, &args.code, self.limits, self.limits.timeout, ctx, None).await;
+            run_script(&self.router, &args.code, self.limits, self.limits.timeout, ctx, None, None).await;
 
         Ok(VizierResponse {
             timestamp: crate::time::now(),
@@ -183,6 +183,7 @@ pub(crate) async fn run_script(
     tool_timeout: std::time::Duration,
     ctx: &ToolContext,
     progress: Option<ProgressFn>,
+    input: Option<serde_json::Value>,
 ) -> (ExecutionReport, Vec<VizierAttachment>) {
     let span = tracing::info_span!(
         "python_exec",
@@ -203,7 +204,7 @@ pub(crate) async fn run_script(
         None => Arc::new(NoToolsBridge),
     };
 
-    let mut report = sandbox::execute(code, limits, engine_bridge)
+    let mut report = sandbox::execute_with_input(code, input, limits, engine_bridge)
         .instrument(span.clone())
         .await;
 
@@ -365,6 +366,7 @@ mod tests {
             project: None,
             detached: false,
             parent_detached_id: None,
+            custom: Default::default(),
         };
         let tool = ExecutePython::new(
             router,

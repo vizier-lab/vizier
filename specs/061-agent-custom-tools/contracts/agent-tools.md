@@ -25,7 +25,7 @@ Everything available to an `execute_python` script is available here, under the 
 | `update_custom_tool` | `name`, any of the create fields plus `new_name?`, `expected_version?`, `reason?` | `{status: "updated", tool, version}` | ✅ |
 | `list_custom_tools` | `category?`, `include_disabled?` (default true) | `{tools: [{name, call_as, category, version, enabled, disabled_by?, needs_attention?, model_backed, author, updated_at, last_called_at}], categories: [{name, description, tools}]}` | ✅ |
 | `get_custom_tool` | `name`, `version?` | full definition of that version + `calls`, `callers`, `needs_attention`, `model_backed` | ✅ |
-| `custom_tool_history` | `name` | `{versions: [{version, author, trigger, dream_cycle_id?, reason?, restored_from?, at}], events: [...]}` | ✅ |
+| `get_custom_tool_history` | `name` | `{versions: [{version, author, trigger, dream_cycle_id?, reason?, restored_from?, at}], events: [...]}` | ✅ |
 | `diff_custom_tool` | `name`, `from`, `to?` (default current) | `{description: RevisionDiff, input_schema: RevisionDiff, script: RevisionDiff, category?: {from, to}}` | ✅ |
 | `rollback_custom_tool` | `name`, `to_version`, `reason?` | `{status: "rolled_back", version, restored_from}` (validated as an update) | ✅ |
 | `delete_custom_tool` | `name` | `{status: "deleted"}` | ❌ |

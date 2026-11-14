@@ -33,6 +33,8 @@ mod question;
 mod reaction;
 mod scratch;
 mod secret;
+mod custom_tool;
+pub(crate) use custom_tool::delete_agent_custom_tools;
 mod session;
 mod session_file;
 mod sso_session;
@@ -476,6 +478,7 @@ impl SqlStorage {
         init_notification_schema(conn)?;
         init_detached_script_schema(conn)?;
         init_subagent_schema(conn)?;
+        init_custom_tool_schema(conn)?;
         project::init_project_schema(conn)?;
         workspace::init_workspace_schema(conn)?;
         // Spec 053 US7, revised: an agent's prose between tool rounds is no longer shown, but its
@@ -754,6 +757,84 @@ pub fn init_notification_schema(conn: &Connection) -> Result<()> {
     conn.execute("DELETE FROM notification WHERE category = 'channel_replies'", [])?;
     Ok(())
 }
+
+/// The custom tool tables (`specs/061-agent-custom-tools/data-model.md`): tools, their
+/// immutable versions, agent-owned categories and the lifecycle event log. New tables, so no
+/// migration is needed. Split out so the storage tests can stand them up in memory.
+pub fn init_custom_tool_schema(conn: &Connection) -> Result<()> {
+    conn.execute_batch(CUSTOM_TOOL_SCHEMA)?;
+    Ok(())
+}
+
+/// Shared by SQLite init and the PostgreSQL migration `0010_custom_tools.sql`, which spells
+/// the same tables.
+const CUSTOM_TOOL_SCHEMA: &str = "
+        CREATE TABLE IF NOT EXISTS custom_tool (
+            id             TEXT PRIMARY KEY,
+            agent_id       TEXT NOT NULL,
+            name           TEXT NOT NULL,
+            category       TEXT NOT NULL,
+            current_seq    INTEGER NOT NULL,
+            enabled        INTEGER NOT NULL DEFAULT 1,
+            disabled_by    TEXT,
+            last_called_at INTEGER,
+            created_at     INTEGER NOT NULL,
+            updated_at     INTEGER NOT NULL,
+            UNIQUE (agent_id, name)
+        );
+        CREATE INDEX IF NOT EXISTS idx_custom_tool_agent
+            ON custom_tool(agent_id, enabled, category);
+
+        CREATE TABLE IF NOT EXISTS custom_tool_version (
+            agent_id           TEXT NOT NULL,
+            tool_id            TEXT NOT NULL,
+            seq                INTEGER NOT NULL,
+            name               TEXT NOT NULL,
+            category           TEXT NOT NULL,
+            description        TEXT NOT NULL,
+            input_schema       TEXT NOT NULL,
+            output_description TEXT,
+            script             TEXT NOT NULL,
+            calls              TEXT NOT NULL,
+            sample_input       TEXT,
+            actor_kind         TEXT NOT NULL,
+            actor_id           TEXT,
+            actor_name         TEXT,
+            dream_cycle_id     TEXT,
+            trigger_kind       TEXT NOT NULL,
+            restored_from      INTEGER,
+            reason             TEXT,
+            created_at         INTEGER NOT NULL,
+            PRIMARY KEY (tool_id, seq)
+        );
+        CREATE INDEX IF NOT EXISTS idx_custom_tool_version_agent
+            ON custom_tool_version(agent_id);
+
+        CREATE TABLE IF NOT EXISTS custom_tool_category (
+            agent_id    TEXT NOT NULL,
+            name        TEXT NOT NULL,
+            description TEXT NOT NULL,
+            updated_by  TEXT,
+            updated_at  INTEGER NOT NULL,
+            PRIMARY KEY (agent_id, name)
+        );
+
+        CREATE TABLE IF NOT EXISTS custom_tool_event (
+            id             TEXT PRIMARY KEY,
+            agent_id       TEXT NOT NULL,
+            tool_id        TEXT,
+            tool_name      TEXT,
+            kind           TEXT NOT NULL,
+            detail         TEXT,
+            actor_kind     TEXT NOT NULL,
+            actor_id       TEXT,
+            actor_name     TEXT,
+            dream_cycle_id TEXT,
+            at             INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_custom_tool_event_agent
+            ON custom_tool_event(agent_id, at DESC);
+";
 
 /// The `agent_secret` and `agent_secret_event` tables (`specs/027-agent-secrets/data-model.md`
 /// §1–2): an agent's named values and the append-only log of who changed which name. New

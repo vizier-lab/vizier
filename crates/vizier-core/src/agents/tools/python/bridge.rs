@@ -14,6 +14,7 @@ use crate::{
         tools::{
             CatalogueEntry, ToolContext, ToolRouter, ToolTarget, VizierToolDyn,
             retired_hint, tool_output_to_response, turn_catalogue,
+            turn_source::{self, BridgeEnv},
         },
     },
     agents::tools::python::docs_tools::entry_doc,
@@ -37,8 +38,11 @@ pub struct RouterBridge {
 }
 
 impl RouterBridge {
-    pub fn new(router: ToolRouter, ctx: ToolContext, tool_timeout: Duration) -> Self {
+    pub fn new(router: ToolRouter, mut ctx: ToolContext, tool_timeout: Duration) -> Self {
         let (cancelled, _) = watch::channel(false);
+        // The authoring tools check names against, and sample-run with, this router
+        // (`specs/061-agent-custom-tools` R9).
+        ctx.custom.script_router = Some(router.clone());
         Self {
             router,
             ctx,
@@ -72,14 +76,24 @@ impl RouterBridge {
         self.entries().await.iter().find(|entry| entry.name == function)
     }
 
-    /// One nested call, exactly as the agent loop makes a direct one. A client tool goes to
-    /// the client instead of the router, inside the same hooks and timeout.
-    /// The call id is a client call's history uid, `None` for every other call.
-    async fn dispatch(&self, tool: String, arguments: String) -> (Option<String>, Result<serde_json::Value, String>) {
+    /// One nested call, exactly as the agent loop makes a direct one. A per-turn tool (client,
+    /// project, custom) goes to its source instead of the router, inside the same hooks and
+    /// timeout. The call id is a client call's history uid, `None` for every other call; the
+    /// nested records are a custom tool's own calls.
+    async fn dispatch(
+        &self,
+        tool: String,
+        arguments: String,
+    ) -> (Option<String>, Vec<ToolInvocationRecord>, Result<serde_json::Value, String>) {
         let target = self.entry(&tool).await.map(|entry| entry.target.clone());
         let call_id = std::sync::Mutex::new(None);
-        let result = self.dispatch_to(tool, arguments, target, &call_id).await;
-        (call_id.into_inner().unwrap_or_default(), result)
+        let nested = std::sync::Mutex::new(vec![]);
+        let result = self.dispatch_to(tool, arguments, target, &call_id, &nested).await;
+        (
+            call_id.into_inner().unwrap_or_default(),
+            nested.into_inner().unwrap_or_default(),
+            result,
+        )
     }
 
     async fn dispatch_to(
@@ -88,6 +102,7 @@ impl RouterBridge {
         arguments: String,
         target: Option<ToolTarget>,
         call_id: &std::sync::Mutex<Option<String>>,
+        nested: &std::sync::Mutex<Vec<ToolInvocationRecord>>,
     ) -> Result<serde_json::Value, String> {
         let (mut tool, mut arguments) = (tool, arguments);
         if let Some(hooks) = &self.ctx.hooks {
@@ -99,27 +114,17 @@ impl RouterBridge {
 
         let call = async {
             match &target {
-                Some(ToolTarget::Client { .. }) => {
-                    let Some(client) = self.ctx.client.clone() else {
-                        return Err(anyhow::anyhow!("{tool} is no longer offered by this client"));
+                Some(ToolTarget::Turn { source }) => {
+                    let Some(source) = turn_source::source(source) else {
+                        return Err(anyhow::anyhow!("{tool} is not offered in this turn"));
                     };
-                    let arguments = serde_json::from_str(&arguments).map_err(anyhow::Error::from)?;
-                    let (id, result) = client.call(&tool, arguments, Some(&self.ctx.secret_redactor)).await;
-                    if let Ok(mut slot) = call_id.lock() {
-                        *slot = id;
-                    }
-                    result
-                }
-                // Project coding tools live only in this turn's catalogue, not in the
-                // router's; the registry re-checks what this turn may use (contract §1).
-                Some(ToolTarget::Project) => {
-                    let value = crate::projects::tools::call(&tool, arguments, &self.ctx).await?;
-                    Ok(crate::schema::VizierResponse {
-                        timestamp: crate::time::now(),
-                        content: VizierResponseContent::ToolResponse { response: value },
-                        attachments: vec![],
-                        ..Default::default()
-                    })
+                    let env = BridgeEnv {
+                        router: &self.router,
+                        tool_timeout: self.tool_timeout,
+                        call_id,
+                        nested,
+                    };
+                    source.call(&tool, arguments, &self.ctx, &env).await
                 }
                 _ => self.router.call(tool.clone(), arguments, &self.ctx).await,
             }
@@ -181,7 +186,7 @@ impl SandboxBridge for RouterBridge {
     }
 
     async fn describe(&self, function: &str) -> Option<ToolFunctionDoc> {
-        Some(entry_doc(&self.router, &self.ctx, self.entry(function).await?))
+        Some(entry_doc(&self.router, &self.ctx, self.entry(function).await?).await)
     }
 
     async fn call(
@@ -200,11 +205,12 @@ impl SandboxBridge for RouterBridge {
             }
         };
         let tool = entry.name.clone();
-        let is_client = matches!(entry.target, ToolTarget::Client { .. });
+        let is_client = entry.target
+            == ToolTarget::Turn { source: crate::agents::client::ClientSource::ID };
         let flagged = entry.ends_turn;
 
         let started = Instant::now();
-        let (call_id, result) = self.dispatch(tool.clone(), arguments.to_string()).await;
+        let (call_id, calls, result) = self.dispatch(tool.clone(), arguments.to_string()).await;
         let duration_ms = started.elapsed().as_millis() as u64;
         let ends_turn = flagged && result.as_ref().is_ok_and(|value| !is_deferred(value));
 
@@ -245,6 +251,7 @@ impl SandboxBridge for RouterBridge {
                 error: logged_error,
                 duration_ms,
                 ends_turn,
+                calls,
             });
             if let Some(progress) = &self.progress {
                 progress(&invocations);
@@ -346,6 +353,7 @@ mod tests {
             project: None,
             detached: false,
             parent_detached_id: None,
+            custom: Default::default(),
         };
         ctx.secret_redactor.arm(TOKEN);
         RouterBridge::new(router, ctx, Duration::from_secs(5))

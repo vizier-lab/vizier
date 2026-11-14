@@ -28,6 +28,66 @@ use crate::{
 };
 
 pub mod connection;
+
+/// The person's client tools as a per-turn source (`specs/061-agent-custom-tools` R1): offered
+/// only while `ToolContext.client` is set, answered by the declaring connection.
+pub struct ClientSource;
+
+impl ClientSource {
+    pub const ID: &'static str = "client";
+}
+
+#[async_trait::async_trait]
+impl crate::agents::tools::turn_source::TurnToolSource for ClientSource {
+    fn id(&self) -> &'static str {
+        Self::ID
+    }
+
+    async fn entries(
+        &self,
+        _router: &crate::agents::tools::ToolRouter,
+        ctx: &crate::agents::tools::ToolContext,
+    ) -> Vec<CatalogueEntry> {
+        ctx.client.as_ref().map(|client| client.catalogue().to_vec()).unwrap_or_default()
+    }
+
+    fn categories(
+        &self,
+        _router: &crate::agents::tools::ToolRouter,
+        ctx: &crate::agents::tools::ToolContext,
+    ) -> Vec<CategorySummary> {
+        ctx.client.as_ref().map(|client| client.categories().to_vec()).unwrap_or_default()
+    }
+
+    fn output_schema(
+        &self,
+        ctx: &crate::agents::tools::ToolContext,
+        name: &str,
+    ) -> Option<serde_json::Value> {
+        ctx.client
+            .as_ref()
+            .and_then(|client| client.declaration(name))
+            .and_then(|declaration| declaration.output_schema.clone())
+    }
+
+    async fn call(
+        &self,
+        name: &str,
+        arguments: String,
+        ctx: &crate::agents::tools::ToolContext,
+        env: &crate::agents::tools::turn_source::BridgeEnv<'_>,
+    ) -> anyhow::Result<VizierResponse> {
+        let Some(client) = ctx.client.clone() else {
+            return Err(anyhow::anyhow!("{name} is no longer offered by this client"));
+        };
+        let arguments = serde_json::from_str(&arguments).map_err(anyhow::Error::from)?;
+        let (id, result) = client.call(name, arguments, Some(&ctx.secret_redactor)).await;
+        if let Ok(mut slot) = env.call_id.lock() {
+            *slot = id;
+        }
+        result
+    }
+}
 pub mod declare;
 
 pub use connection::{ClientAnswer, ClientConnection};
@@ -201,10 +261,7 @@ impl ClientTools {
             .map(|entry| CatalogueEntry {
                 name: entry.name.clone(),
                 category: entry.category_name.clone(),
-                target: ToolTarget::Client {
-                    category: entry.declaration.category().to_string(),
-                    tool: entry.declaration.name.clone(),
-                },
+                target: ToolTarget::Turn { source: ClientSource::ID },
                 definition: ToolDefinition {
                     name: entry.name.clone(),
                     description: with_ends_turn_notice(

@@ -765,7 +765,30 @@ impl VizierAgent {
             // A sub-agent turn a detached script started: a script it detaches records that
             // script as its parent (spec 058).
             parent_detached_id: req.parent_detached_id.clone(),
+            // The agent's custom tools (spec 061): offered to every script this turn runs, with
+            // the category lines snapshotted now so `SANDBOX.md` stays the same for the turn.
+            custom: crate::custom_tools::CustomTurn {
+                tools: Some(self.deps.custom_tools.clone()),
+                categories: Arc::new(
+                    self.deps.custom_tools.turn_categories(&session.0, &tools.router).await,
+                ),
+                ..Default::default()
+            },
         };
+        // What the gateway checks a person's custom tool edit against (spec 061 R8), kept fresh
+        // off the turn's path.
+        {
+            let router = tools.router.clone();
+            let publisher = crate::agents::views::Publisher::new(&self.transport);
+            let agent_id = session.0.clone();
+            tokio::spawn(async move {
+                let names = crate::custom_tools::ToolNames {
+                    names: router.all_names().await,
+                    model_backed: router.model_backed_names(),
+                };
+                publisher.publish_tool_names(&agent_id, &names);
+            });
+        }
 
         // The tools the person's client declared for this turn, if its connection is still
         // open now that the turn has started (specs/019-client-tools R4). They are named
@@ -1931,6 +1954,15 @@ impl VizierAgent {
             _ => vec![],
         };
 
+        // The cycle a dream-made custom tool is authored by (spec 061 R14).
+        let dream_cycle = Some(
+            req.metadata
+                .get("dream_cycle_id")
+                .and_then(|value| value.as_str())
+                .unwrap_or("unknown")
+                .to_string(),
+        );
+
         let (output, stats) = self
             .dream_prompt(
                 &snapshot,
@@ -1964,6 +1996,10 @@ impl VizierAgent {
                     project: None,
                     detached: false,
                     parent_detached_id: None,
+                    custom: crate::custom_tools::CustomTurn {
+                        dream_cycle,
+                        ..Default::default()
+                    },
                 },
             )
             .await?;

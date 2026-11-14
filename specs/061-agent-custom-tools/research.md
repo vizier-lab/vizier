@@ -256,7 +256,7 @@ logged).
   and `list_skills` first, update rather than duplicate, prefer an existing category, suggest
   merging categories of one or two tools"; the audit step adds "N skills, M custom tools created or
   updated; workflows left alone and why".
-- `DREAM_TOOL_NAMES` adds `list_custom_tools`, `get_custom_tool`, `custom_tool_history`,
+- `DREAM_TOOL_NAMES` adds `list_custom_tools`, `get_custom_tool`, `get_custom_tool_history`,
   `diff_custom_tool`, `create_custom_tool`, `update_custom_tool`, `rollback_custom_tool`,
   `update_custom_tool_category`; never `delete_custom_tool` or `set_custom_tool_enabled`; the
   custom tools themselves are never dream tools (FR-009). A test pins both lists.

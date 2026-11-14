@@ -127,6 +127,8 @@ any-tts = { version = "0.2.0", default-features = false, features = ["kokoro"] }
 similar = { version = "3", default-features = false, features = ["text"] }
 monty = "=1.0.0"
 monty-types = "=1.0.0"
+ruff_python_ast = "=0.0.14"
+ruff_python_parser = "=0.0.14"
 opentelemetry = { version = "0.33" }
 opentelemetry_sdk = { version = "0.33" }
 tracing-opentelemetry = { version = "0.34" }
