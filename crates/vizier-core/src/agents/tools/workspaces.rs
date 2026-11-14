@@ -553,6 +553,8 @@ mod tests {
             secret_redactor: Default::default(),
             dream_sources: vec![],
             project: None,
+            detached: false,
+            parent_detached_id: None,
         }
     }
 

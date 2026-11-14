@@ -16,7 +16,7 @@ use crate::{
     },
     session_files::ClearError,
     storage::{
-        agent::AgentStorage, background_job::BackgroundJobStorage, history::HistoryStorage,
+        agent::AgentStorage, detached_script::DetachedScriptStorage, history::HistoryStorage,
         project::ProjectStorage, session::SessionStorage, session_file::SessionFileStorage,
     },
 };
@@ -29,8 +29,8 @@ pub struct TopicEntry {
     pub agent_id: String,
     pub channel: String,
     pub is_thinking: bool,
-    /// Background jobs launched from this topic that are still in flight.
-    pub running_jobs: usize,
+    /// Detached scripts launched from this topic that are still running (spec 058).
+    pub running_scripts: usize,
 }
 
 impl From<VizierSessionDetail> for TopicEntry {
@@ -41,7 +41,7 @@ impl From<VizierSessionDetail> for TopicEntry {
             agent_id: detail.agent_id,
             channel: format!("{:?}", detail.channel),
             is_thinking: detail.is_thinking,
-            running_jobs: 0,
+            running_scripts: 0,
         }
     }
 }
@@ -69,8 +69,7 @@ pub fn readable_channel(username: &str, channel_id: &str) -> (VizierChannelId, b
     {
         return (VizierChannelId::TelegramChannel(id), true);
     }
-    // A blocking subagent's conversation is addressable by its topic, even though it has
-    // no background job row of its own.
+    // A subagent's conversation is addressable by its topic.
     if channel_id.eq_ignore_ascii_case("SUBAGENT") {
         return (VizierChannelId::Subagent, false);
     }
@@ -299,12 +298,12 @@ pub async fn list(
         .await;
 
     // One count query for the whole list; a failure only loses the badge.
-    let running_jobs = deps
+    let running = deps
         .storage
-        .count_running_background_jobs(agent_id.to_string(), channel)
+        .count_running_scripts(agent_id, &channel)
         .await
         .unwrap_or_else(|e| {
-            tracing::warn!("failed to count running background jobs: {}", e);
+            tracing::warn!("failed to count running detached scripts: {}", e);
             Default::default()
         });
 
@@ -312,9 +311,9 @@ pub async fn list(
     Ok(details
         .into_iter()
         .map(|detail| {
-            let running = running_jobs.get(&detail.topic).copied().unwrap_or(0);
+            let running = running.get(&detail.topic).copied().unwrap_or(0);
             let mut entry = TopicEntry::from(detail);
-            entry.running_jobs = running;
+            entry.running_scripts = running;
             entry
         })
         .collect())
@@ -413,6 +412,9 @@ pub async fn delete(
     if files.has_active_turn(&session).await {
         return Err(conflict(TURN_ACTIVE));
     }
+    // Its detached scripts stop and go (spec 058). A script another process runs stops at its
+    // next progress write, when it finds its row gone.
+    s.deps().detached.delete_session(&session).await;
     match files.delete_conversation(&session).await {
         Ok(_) => {
             // The stale-read ledger is per conversation and dies with it.

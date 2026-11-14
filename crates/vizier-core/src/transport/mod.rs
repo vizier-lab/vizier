@@ -18,7 +18,7 @@ pub use reply::{
 
 use crate::storage::{history::HistoryStorage, turn::TurnStorage};
 use crate::schema::{
-    AgentCommand, AgentHealthStatus, AgentId, BackgroundJobSnapshot, CommandRequest, CommandResponse, IntegrationChanged,
+    AgentCommand, AgentHealthStatus, AgentId, CommandRequest, CommandResponse, IntegrationChanged,
     ReactionEntry, VizierAttachment, VizierRequest, VizierResponse, VizierSession,
 };
 
@@ -57,7 +57,8 @@ pub struct SessionEvent {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum SessionFrame {
     Response(VizierResponse),
-    Job(BackgroundJobSnapshot),
+    /// A detached script changed (spec 058): launched, made a call, ended or was cancelled.
+    DetachedScript(crate::schema::DetachedScriptSnapshot),
     /// The full current reaction set of one message, after any change to it.
     Reactions {
         history_uid: String,
@@ -527,8 +528,8 @@ impl VizierTransport {
         &self,
         session: &VizierSession,
         since: Timestamp,
-    ) -> crate::agents::background::PieceOutcome {
-        use crate::agents::background::{AGENT_RESTARTED, PieceOutcome, classify};
+    ) -> crate::agents::subagents::PieceOutcome {
+        use crate::agents::subagents::{AGENT_RESTARTED, PieceOutcome, classify};
         use crate::schema::SessionHistoryContent;
         let mut events = self.subscribe_session_events();
         loop {

@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     agents::mcp::McpServer,
     agents::tools::{
-        background_jobs::{CancelBackgroundJob, ListBackgroundJobs},
+        detached::{CancelDetachedScript, GetDetachedScript, ListDetachedScripts},
         dream_journal::ReadDreamJournal,
         fetch::FetchWebpage,
         http_client::HttpClient,
@@ -37,7 +37,7 @@ use crate::{
             ReadSkillResource, UpdateSkill, UseSkill,
         },
         stt::SttTranscribe,
-        subagents::{BackgroundSubagentsTool, ParallelSubagentsTool},
+        subagents::ParallelSubagentsTool,
         think::ThinkTool,
         tts::TtsGenerate,
         vector_memory::{RecallSettings, SEARCH_THRESHOLD, init_vector_memory},
@@ -55,7 +55,7 @@ use crate::{
 };
 
 mod artifacts;
-mod background_jobs;
+mod detached;
 pub mod brave_search;
 #[cfg(feature = "channel-discord")]
 pub mod discord;
@@ -211,10 +211,25 @@ impl ToolCategory {
 /// Names that were retired rather than aliased, with the guidance to show when a
 /// caller still uses one. Keep this table until the pre-1.0 removal tracker (#82)
 /// says these compatibility hints can go.
+/// The one hint for the three background-job tools spec 058 retired.
+const BACKGROUND_REPLACED: &str = "background_subagents was replaced: run execute_python with detached=true and call parallel_subagents (or any tool) inside it; see list_detached_scripts, get_detached_script and cancel_detached_script.";
+
 pub const RETIRED_TOOL_NAMES: &[(&str, &str)] = &[
     (
         "paralel_subtasks",
-        "paralel_subtasks was replaced by parallel_subagents (waits for the results) and background_subagents (results arrive later as a background report)",
+        "paralel_subtasks was replaced by parallel_subagents; to have it run in the background, call it inside execute_python with detached=true",
+    ),
+    (
+        "background_subagents",
+        BACKGROUND_REPLACED,
+    ),
+    (
+        "list_background_jobs",
+        BACKGROUND_REPLACED,
+    ),
+    (
+        "cancel_background_job",
+        BACKGROUND_REPLACED,
     ),
     (
         "consult_agent",
@@ -245,7 +260,7 @@ pub struct ToolContext {
     /// The session's hooks, so tools that dispatch other tools (the Python
     /// sandbox bridge) run them through the same hook pipeline as direct calls.
     pub hooks: Option<Arc<crate::agents::hook::VizierSessionHooks>>,
-    /// The turn's `VizierRequest::background_depth`, which `BackgroundJobs::launch` checks
+    /// The turn's `VizierRequest::background_depth`, which a detached launch checks
     /// against `MAX_BACKGROUND_DEPTH`. 0 outside an ordinary chat turn.
     pub background_depth: u8,
     /// Images a tool loaded for the model to see (`read_image_file`), however it was called —
@@ -282,6 +297,15 @@ pub struct ToolContext {
     /// The project this turn belongs to (`specs/040-projects-mode`): set only for a project
     /// session, resolved once and shared by the prompt and `workspace_shell`.
     pub project: Option<Arc<crate::projects::context::ProjectTurnContext>>,
+    /// Inside a detached script (spec 058): the turn that launched it may already be over, so
+    /// nothing that needs the live turn is offered. With `interactive: false` and
+    /// `client: None` it takes the question tools and client tools out; this flag also drops
+    /// every turn-ending entry from [`turn_catalogue`].
+    pub detached: bool,
+    /// The detached script this context runs inside, if any. `parallel_subagents` copies it
+    /// onto its requests (`VizierRequest.parent_detached_id`), so a script launched by a
+    /// sub-agent records its parent and a cancel cascades to it.
+    pub parent_detached_id: Option<String>,
 }
 
 /// Whether somebody is there to answer this turn (`specs/042-agent-asking-question` research R2).
@@ -306,8 +330,12 @@ pub fn is_interactive_turn(content: &VizierRequestContent, session: &VizierSessi
         VizierRequestContent::Command(_) => false,
         // An unattended voice turn, dispatched beside `Prompt`/`Unattended`.
         VizierRequestContent::AudioPrompt(..) => false,
-        // The result of background work: nobody asked for it and nobody is waiting.
+        // A pre-058 report, read from history only (#82).
         VizierRequestContent::BackgroundReport(_) => false,
+        // Finished detached scripts (spec 058 research D2): the conversation the person is on,
+        // continuing, so the agent may ask its follow-up question here. The conversation test
+        // below still keeps it out of task, dream and sub-agent conversations.
+        VizierRequestContent::DetachedDelivery(_) => true,
         // An off-the-record aside: nothing above or around it is saved, so an answer would have
         // nowhere to land.
         VizierRequestContent::Btw(_) => false,
@@ -794,6 +822,10 @@ pub async fn turn_catalogue(router: &ToolRouter, ctx: &ToolContext) -> Vec<Catal
     if let Some(project) = &ctx.project {
         entries.extend(crate::projects::tools::offered(project));
     }
+    // A detached script has no turn to end (spec 058 contracts/detached-flag.md §2).
+    if ctx.detached {
+        entries.retain(|entry| !entry.ends_turn);
+    }
     entries
 }
 
@@ -1239,6 +1271,9 @@ pub struct BaseTools {
     limits: crate::sandbox::SandboxLimits,
     timeout: String,
     reserved: Arc<Vec<String>>,
+    /// Where `execute_python` sends a detached script (spec 058). `None` in tests of the
+    /// integration layer, which never detach.
+    detached: Option<crate::agents::detached::DetachedScripts>,
 }
 
 impl BaseTools {
@@ -1292,10 +1327,13 @@ impl BaseTools {
             .tool(SendMessageToWorkspace { hub: crate::workspaces::Hub::from(&deps) })
             .tool(ListWorkspaces { hub: crate::workspaces::Hub::from(&deps) })
             .tool(ReadWorkspaceMessages { hub: crate::workspaces::Hub::from(&deps) })
-            .tool(BackgroundSubagentsTool::new(deps.clone()))
             .tool(ParallelSubagentsTool::new(deps.clone()))
-            .tool(ListBackgroundJobs::new(deps.clone()))
-            .tool(CancelBackgroundJob::new(deps.clone()))
+            .tool(ListDetachedScripts { storage: deps.storage.clone() })
+            .tool(GetDetachedScript { storage: deps.storage.clone() })
+            .tool(CancelDetachedScript {
+                storage: deps.storage.clone(),
+                scripts: deps.detached.clone(),
+            })
             .tool(CreateSkill::new(
                 agent_id.clone(),
                 deps.clone(),
@@ -1505,8 +1543,19 @@ impl BaseTools {
             limits,
             timeout: agent_config.tools.timeout.to_string(),
             reserved: Arc::new(deps.integration_kinds.addon_ids()),
+            detached: Some(deps.detached.clone()),
         })
     }
+}
+
+/// An `execute_python` over `router`, for tests outside the tools module.
+#[cfg(test)]
+pub(crate) fn python_for_tests(
+    router: ToolRouter,
+    limits: crate::sandbox::SandboxLimits,
+    detached: Option<crate::agents::detached::DetachedScripts>,
+) -> python::ExecutePython {
+    python::ExecutePython::new(router, limits, "5s").with_detached(detached)
 }
 
 #[cfg(test)]
@@ -1522,6 +1571,7 @@ impl BaseTools {
             },
             timeout: "30s".into(),
             reserved: Arc::new(reserved),
+            detached: None,
         }
     }
 }
@@ -1549,11 +1599,10 @@ pub fn compose(
 
     let sandbox_toolset = VizierToolSet::new()
         .tool(ThinkTool)
-        .tool(ExecutePython::new(
-            router.clone(),
-            base.limits,
-            &base.timeout,
-        ))
+        .tool(
+            ExecutePython::new(router.clone(), base.limits, &base.timeout)
+                .with_detached(base.detached.clone()),
+        )
         .tool(ListToolFunctions::new(router.clone(), categories.clone()))
         .tool(DescribeToolFunction::new(router.clone()));
 
@@ -1665,10 +1714,10 @@ mod tests {
             entry::<SendMessageToWorkspace>(),
             entry::<ListWorkspaces>(),
             entry::<ReadWorkspaceMessages>(),
-            entry::<BackgroundSubagentsTool>(),
             entry::<ParallelSubagentsTool>(),
-            entry::<ListBackgroundJobs>(),
-            entry::<CancelBackgroundJob>(),
+            entry::<ListDetachedScripts>(),
+            entry::<GetDetachedScript>(),
+            entry::<CancelDetachedScript>(),
             entry::<CreateSkill>(),
             entry::<UpdateSkill>(),
             entry::<DeleteSkill>(),
@@ -1784,10 +1833,10 @@ mod tests {
             ("send_message_to_workspace", Workspaces),
             ("list_workspaces", Workspaces),
             ("read_workspace_messages", Workspaces),
-            ("background_subagents", Agents),
             ("parallel_subagents", Agents),
-            ("list_background_jobs", Agents),
-            ("cancel_background_job", Agents),
+            ("list_detached_scripts", Agents),
+            ("get_detached_script", Agents),
+            ("cancel_detached_script", Agents),
             ("create_skill", Skills),
             ("update_skill", Skills),
             ("delete_skill", Skills),
@@ -1945,21 +1994,29 @@ mod tests {
     }
 
     #[test]
-    fn retired_names_point_to_both_new_subagent_tools() {
+    fn retired_names_point_at_what_replaced_them() {
         let hint = retired_hint("paralel_subtasks").expect("retired name has a hint");
-        assert!(hint.contains("parallel_subagents"));
-        assert!(hint.contains("background_subagents"));
+        assert!(hint.contains("parallel_subagents") && hint.contains("detached=true"));
         assert!(retired_hint("parallel_subagents").is_none());
         assert_eq!(
             retired_hint("ui_render_interactive_ui"),
             Some("render_interactive_ui was replaced by ui_render. Start with ui_components().")
         );
-        assert!(retired_hint("background_subagents").is_none());
+        // Spec 058 contracts/detached-flag.md §5.
+        for name in ["background_subagents", "list_background_jobs", "cancel_background_job"] {
+            let hint = retired_hint(name).unwrap_or_else(|| panic!("{name} has a hint"));
+            assert!(hint.starts_with("background_subagents was replaced: run execute_python with detached=true"), "{hint}");
+        }
     }
 
     #[test]
     fn subagent_tools_never_reach_the_dream_cycle() {
-        for name in ["parallel_subagents", "background_subagents"] {
+        for name in [
+            "parallel_subagents",
+            "list_detached_scripts",
+            "get_detached_script",
+            "cancel_detached_script",
+        ] {
             assert!(
                 !VizierTools::DREAM_TOOL_NAMES.contains(&name),
                 "{name} is a dream tool"
@@ -2270,6 +2327,8 @@ mod tests {
             dream_sources: vec![],
             secret_redactor: Arc::new(crate::secrets::SecretRedactor::default()),
             project: None,
+            detached: false,
+            parent_detached_id: None,
         }
     }
 

@@ -1291,6 +1291,7 @@ pub async fn delete_worktree(
         VizierChannelId::Project(worktree.owner_name.clone(), project.id.clone()),
         Some(worktree.topic.clone()),
     );
+    s.deps().detached.delete_session(&session).await;
     s.deps()
         .session_files
         .delete_conversation(&session)

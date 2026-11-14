@@ -18,8 +18,10 @@ Read-only in this feature. **Cancelling from the WebUI is deferred** (see "Defer
 `SessionFrame::DetachedScript(DetachedScriptSnapshot)` replaces `SessionFrame::Job`. It is published on every state change of a script (launch, final, cancel) over the existing session-event broadcast, after the database commit, and reaches every socket subscribed to the session. The topic socket sends it as:
 
 ```json
-{ "type": "detached_script", "script": { "id": "d_k3x9a1b2", "intent": "check both vendor pages", "state": "running", … } }
+{ "detached_script": { "id": "d_k3x9a1b2", "intent": "check both vendor pages", "state": "running", … } }
 ```
+
+(One key per frame kind, like every other frame on the topic socket: `history_entry`, `session_file`, `question_set`.)
 
 and the WebUI's `lib/frames.ts` reducer keeps a map of scripts by id (a final script stays in the map for the panel's Done tab). A reopened page reads the list route first, then applies frames.
 

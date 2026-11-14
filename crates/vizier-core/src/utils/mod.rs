@@ -141,7 +141,6 @@ pub fn format_thinking(name: &String, args: &serde_json::Value) -> String {
         "mention_agent" => "📣 Mentioning agents:".to_string(),
         "send_message_to_workspace" => "📨 Posting to a Workspace:".to_string(),
         "parallel_subagents" => "⚡ Running subagents".to_string(),
-        "background_subagents" => "⚡ Starting background subagents".to_string(),
         "create_skill" => "🎯 Creating skill:".to_string(),
         "discord_send_message" => "💬 Discord message".to_string(),
         "discord_react_message" => "👍 Discord reaction".to_string(),

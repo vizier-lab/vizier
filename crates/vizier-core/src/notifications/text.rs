@@ -4,7 +4,7 @@
 //! never from model output, a secret or an integration setting value.
 
 use crate::schema::{
-    EventAction, IntegrationFamily, JobKind, JobState, NotificationTone, TaskRunState,
+    EventAction, IntegrationFamily, NotificationTone, TaskRunState,
 };
 
 /// `{who} added {what}.` and friends, as the old feed worded it.
@@ -67,32 +67,29 @@ pub fn dream(entries: u64) -> String {
     }
 }
 
-/// A background job that reached a terminal state, or `None` while it is in flight (`running`
-/// and `reporting` are never notified).
-pub fn background_job(
-    kind: JobKind,
-    state: JobState,
-    reason: Option<&str>,
+/// A detached script reached a final state (spec 058). A cancelled one says nothing: the agent
+/// cancelled it and is told so in its own turn.
+pub fn background_work(
+    intent: &str,
+    state: crate::schema::DetachedScriptState,
 ) -> Option<(String, NotificationTone)> {
-    let what = match kind {
-        JobKind::Batch => "Background batch",
-        JobKind::Delegation => "Delegation",
-    };
+    use crate::schema::DetachedScriptState as S;
     let (outcome, tone) = match state {
-        JobState::Reported => ("reported back", NotificationTone::Default),
-        JobState::Cancelled => ("was cancelled", NotificationTone::Default),
-        JobState::Undelivered => (
-            "finished, but its report could not be delivered",
-            NotificationTone::Failed,
-        ),
-        JobState::Interrupted => ("was lost when vizier restarted", NotificationTone::Failed),
-        JobState::Running | JobState::Reporting => return None,
+        S::Succeeded => ("finished", NotificationTone::Success),
+        S::Failed => ("failed", NotificationTone::Failed),
+        S::TimedOut => ("ran out of time", NotificationTone::Failed),
+        S::Interrupted => ("was interrupted by a restart", NotificationTone::Failed),
+        S::Running | S::Cancelled => return None,
     };
-    let reason = reason
-        .filter(|r| !r.is_empty())
-        .map(|r| format!(" ({r})"))
-        .unwrap_or_default();
-    Some((format!("{what} {outcome}{reason}."), tone))
+    let intent = intent.trim().trim_end_matches('.');
+    let what = if intent.is_empty() {
+        "Background work".to_string()
+    } else {
+        let mut chars = intent.chars();
+        let first: String = chars.next().map(|c| c.to_uppercase().collect()).unwrap_or_default();
+        format!("{first}{}", chars.as_str())
+    };
+    Some((format!("{what}: {outcome}."), tone))
 }
 
 /// A WebUI conversation's reply, for the person whose conversation it is.
@@ -169,40 +166,15 @@ mod tests {
     }
 
     #[test]
-    fn background_jobs_only_speak_when_they_are_over() {
+    fn background_work_speaks_once_it_is_over_and_not_when_cancelled() {
+        use crate::schema::DetachedScriptState as S;
         assert_eq!(
-            background_job(JobKind::Batch, JobState::Reported, None),
-            Some((
-                "Background batch reported back.".into(),
-                NotificationTone::Default
-            ))
+            background_work("check the vendor pages.", S::Succeeded),
+            Some(("Check the vendor pages: finished.".into(), NotificationTone::Success))
         );
-        assert_eq!(
-            background_job(JobKind::Delegation, JobState::Cancelled, Some("user")),
-            Some((
-                "Delegation was cancelled (user).".into(),
-                NotificationTone::Default
-            ))
-        );
-        assert_eq!(
-            background_job(JobKind::Delegation, JobState::Undelivered, None),
-            Some((
-                "Delegation finished, but its report could not be delivered.".into(),
-                NotificationTone::Failed
-            ))
-        );
-        assert_eq!(
-            background_job(JobKind::Batch, JobState::Interrupted, None),
-            Some((
-                "Background batch was lost when vizier restarted.".into(),
-                NotificationTone::Failed
-            ))
-        );
-        assert_eq!(background_job(JobKind::Batch, JobState::Running, None), None);
-        assert_eq!(
-            background_job(JobKind::Batch, JobState::Reporting, None),
-            None
-        );
+        assert_eq!(background_work("", S::Failed).unwrap().0, "Background work: failed.");
+        assert!(background_work("x", S::Cancelled).is_none());
+        assert!(background_work("x", S::Running).is_none());
     }
 
     #[test]

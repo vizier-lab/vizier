@@ -25,7 +25,6 @@ use crate::{
     service::catalogue::entry_pricing,
     storage::{
         VizierStorage,
-        background_job::BackgroundJobStorage,
         integration::IntegrationStorage,
         project::ProjectStorage,
         provider::ProviderStorage,
@@ -938,8 +937,8 @@ async fn place_label(
         ),
         "dreams" => ("Dream cycle".into(), Some("Unattended reflection".into())),
         "background" => (
-            "Background jobs".into(),
-            Some("Subtasks, delegations and consults".into()),
+            "Subagents".into(),
+            Some("Sub-agent work, inline or in the background".into()),
         ),
         _ => ("System".into(), None),
     }
@@ -1046,33 +1045,9 @@ async fn conversation_link(
             format!("/{agent_id}/tasks?task={slug}"),
         ),
         SlugKind::Dream(_) => link(UsageLinkKind::Dream, format!("/{agent_id}/dream")),
-        SlugKind::Background => {
-            let job = match topic {
-                Some(t) => storage
-                    .background_job_by_piece(agent_id, t)
-                    .await
-                    .ok()
-                    .flatten(),
-                None => None,
-            };
-            match job {
-                Some(job) => match (&job.origin.1, &job.origin.2) {
-                    (channel, Some(origin_topic)) if channel.web_user().is_some() => {
-                        // A background job launched from a project chat opens that chat.
-                        let path = match channel.project_id() {
-                            Some(project_id) => format!(
-                                "/{}/projects/{project_id}/chat/{origin_topic}",
-                                job.origin.0
-                            ),
-                            None => format!("/{}/chat/{origin_topic}", job.origin.0),
-                        };
-                        link(UsageLinkKind::Topic, path)
-                    }
-                    _ => none(NoLinkReason::NoWebPage),
-                },
-                None => none(NoLinkReason::NoWebPage),
-            }
-        }
+        // A subagent's conversation has no page of its own, and since spec 058 no row names
+        // the conversation that started it.
+        SlugKind::Background => none(NoLinkReason::NoWebPage),
         SlugKind::Discord(_) | SlugKind::Telegram(_) | SlugKind::System => {
             none(NoLinkReason::NoWebPage)
         }

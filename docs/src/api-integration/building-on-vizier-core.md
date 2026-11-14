@@ -46,7 +46,7 @@ Operations return `ServiceError`:
 ## Events
 
 - `runtime.events()` — lifecycle: `Started`, subsystem stopped.
-- `runtime.session_events()` — everything pushed to conversations: turn frames, background job changes, reactions.
+- `runtime.session_events()` — everything pushed to conversations: turn frames, detached script changes, reactions.
 - `runtime.transport()` — send requests to an agent and receive its frames.
 
 ## Embedding the HTTP surface

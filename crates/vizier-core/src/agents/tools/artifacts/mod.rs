@@ -345,6 +345,8 @@ mod tests {
             secret_redactor: Default::default(),
             dream_sources,
             project: None,
+            detached: false,
+            parent_detached_id: None,
         }
     }
 

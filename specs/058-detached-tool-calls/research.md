@@ -4,7 +4,7 @@ Every decision below was checked against the code as of branch `058-detached-too
 
 ## D1. Where the `detached` option lives
 
-**Decision**: two new fields on `ExecutePythonInput` (`agents/tools/python/mod.rs`): `detached: bool` (default false) and `timeout_secs: Option<u64>` (1..=3600, default 600, used only when `detached` is true; setting it without `detached` is an error). `ExecutePython::call` keeps its inline path unchanged and, when `detached`, hands the same script to `DetachedScripts::launch` and returns a handle.
+**Decision**: two new fields on `ExecutePythonInput` (`agents/tools/python/mod.rs`): `detached: bool` (default false) and `timeout_secs: Option<u64>` (1..=3600, default 600, used only when `detached` is true and ignored otherwise: refusing it was dropped during implementation, because models fill in optional fields they do not use and dummyplug's sample request does the same). `ExecutePython::call` keeps its inline path unchanged and, when `detached`, hands the same script to `DetachedScripts::launch` and returns a handle.
 
 **Rationale**: every tool is called from `execute_python`, so one flag there detaches any tool call and needs no change to the sandbox, the bridge's argument handling, or any tool's schema. It also removes two problems of the per-call design: a tool that declares its own `detached` argument, and group semantics.
 
@@ -26,7 +26,9 @@ Every decision below was checked against the code as of branch `058-detached-too
 
 **Rationale**: the existing bridge already gives the same permissions, hooks, per-tool timeout, redaction and invocation records (FR-009), and `RouterBridge` needs no change except deleting the `tool == "parallel_subagents"` name check: cancelling a detached script calls `SandboxBridge::cancel` (which the bridge already implements to stop an in-flight nested call) and aborts the task, and `parallel_subagents` aborts its own pieces when dropped.
 
-**Hooks after the turn ends**: the session hooks publish thinking and tool frames to the turn's channel; once the turn is gone those sends fail quietly. The task ignores send failures. What a person sees is the Background work panel and the delivery. Verified in the quickstart (step 6).
+**The sandbox limit is CPU time, not wall time** (checked for T002): `SandboxLimits.timeout` becomes Monty's `max_feed_duration`, which stops counting while the script is suspended on a host call (`sandbox::runtime::tests::waiting_on_a_tool_does_not_count_against_the_limit`: a 600 ms tool call under a 200 ms limit succeeds). An inline script is bounded in wall time only because the agent loop's tool timeout drops the `execute` future. So the detached task wraps `run_script` in `tokio::time::timeout(timeout_secs)` and also passes `timeout_secs` as the sandbox limit. Dropping the future sets the interpreter's cancel flag and calls `SandboxBridge::cancel`, the same path as an inline timeout.
+
+**Hooks after the turn ends**: the session hooks publish thinking and tool frames to the turn's channel; once the turn is gone those sends fail quietly. Every hook already discards the send result (`let _ = …send_async`), and publishing to a reply subject with no subscriber succeeds on the bus (`publish_without_subscribers` conformance case), so nothing is logged. Pinned by `agents::hook::tool_calls::tests::hooks_tolerate_a_turn_that_has_ended` (T003). What a person sees is the Background work panel and the delivery. Verified end to end in the quickstart (step 6).
 
 **Tracing**: the task is instrumented with a `detached_script` span created inside the launching span, so it is a child of the turn's trace (FR-009); `vizier.detached.id`, `.timeout_secs`, `.depth` are span attributes.
 

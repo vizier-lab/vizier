@@ -1036,3 +1036,462 @@ async fn a_runtime_needs_an_explicit_workspace() {
     }).await.err();
     assert!(error.expect("refused").to_string().contains("workspace"));
 }
+
+// ---- Spec 058: detached scripts (quickstart steps 2 to 5, 9 and 11) ----------------------------
+
+/// A running runtime with one dummyplug agent `plug` that has a local shell.
+async fn detached_harness() -> Option<(Dummyplug, VizierRuntime, tempfile::TempDir)> {
+    let dummyplug = Dummyplug::start()?;
+    dummyplug.ready().await;
+    let dir = tempfile::tempdir().unwrap();
+    let runtime = VizierRuntime::start(RuntimeOptions {
+        config: VizierConfig::with_workspace(dir.path().to_path_buf()),
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+    runtime
+        .deps()
+        .storage
+        .upsert_provider(&ProviderEntry {
+            id: ProviderId::DUMMYPLUG,
+            credentials: ProviderCredentials {
+                base_url: Some(dummyplug.base_url()),
+                ..Default::default()
+            },
+        })
+        .await
+        .unwrap();
+    let (resp, created) = tokio::sync::oneshot::channel();
+    runtime
+        .transport()
+        .send_agent_command(AgentCommand::Create {
+            agent_id: "plug".into(),
+            config: agent_config("plug"),
+            resp,
+        })
+        .await
+        .unwrap();
+    match tokio::time::timeout(TURN_TIMEOUT, created).await.unwrap().unwrap() {
+        AgentCommandResult::Ok(_) => {}
+        AgentCommandResult::Error(e) => panic!("create failed: {e}"),
+    }
+    // The Shell addon, as a person adds it on the agent's Addons page.
+    let shell = dir.path().join("shell");
+    std::fs::create_dir_all(&shell).unwrap();
+    vizier_core::integrations::service::seed_with_settings(
+        runtime.deps(),
+        "plug",
+        None,
+        vizier_core::integrations::kinds::shell::ID,
+        vizier_core::integrations::kinds::shell::DEFAULT_NAME,
+        serde_json::json!({ "path": shell.to_string_lossy() }),
+    )
+    .await
+    .unwrap();
+    // The agent recomposes its tools for its next turn once it hears of the change.
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    Some((dummyplug, runtime, dir))
+}
+
+fn web_session(topic: &str) -> VizierSession {
+    VizierSession(
+        "plug".into(),
+        VizierChannelId::HTTP("e2e".into(), "harness".into()),
+        Some(topic.into()),
+    )
+}
+
+fn run_python(code: &str, detached: bool, timeout_secs: Option<u64>) -> String {
+    let mut arguments = serde_json::json!({ "intent": "run a slow command", "code": code });
+    if detached {
+        arguments["detached"] = true.into();
+    }
+    if let Some(secs) = timeout_secs {
+        arguments["timeout_secs"] = secs.into();
+    }
+    serde_json::json!({ "tool": "execute_python", "arguments": arguments }).to_string()
+}
+
+/// The id in a reply that echoes a detached handle.
+fn handle_id(reply: &str) -> String {
+    let start = reply.find("\"d_").expect("a handle id in the reply") + 1;
+    reply[start..start + 10].to_string()
+}
+
+fn deliveries(history: &[vizier_core::schema::SessionHistory]) -> Vec<String> {
+    history
+        .iter()
+        .filter_map(|h| match &h.content {
+            SessionHistoryContent::Request(request) => match &request.content {
+                VizierRequestContent::DetachedDelivery(text) => Some(text.clone()),
+                _ => None,
+            },
+            _ => None,
+        })
+        .collect()
+}
+
+async fn history_of(
+    runtime: &VizierRuntime,
+    session: &VizierSession,
+) -> Vec<vizier_core::schema::SessionHistory> {
+    runtime.deps().storage.list_session_history(session.clone(), None, None, None).await.unwrap()
+}
+
+async fn script(runtime: &VizierRuntime, id: &str) -> vizier_core::schema::DetachedScript {
+    use vizier_core::storage::detached_script::DetachedScriptStorage;
+    runtime.deps().storage.get_detached_script(id).await.unwrap().expect("the script's row")
+}
+
+/// Wait until `check` holds, for up to `secs` seconds.
+async fn eventually<F, Fut>(secs: u64, mut check: F)
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = bool>,
+{
+    let deadline = std::time::Instant::now() + Duration::from_secs(secs);
+    while std::time::Instant::now() < deadline {
+        if check().await {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    panic!("the condition did not hold within {secs}s");
+}
+
+fn is_delivery(h: &vizier_core::schema::SessionHistory) -> bool {
+    matches!(&h.content, SessionHistoryContent::Request(r) if matches!(r.content, VizierRequestContent::DetachedDelivery(_)))
+}
+
+/// Quickstart steps 2 and 3: the detach returns at once with a handle, and when the script
+/// ends while nothing runs it wakes the conversation with one delivery turn.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_detached_script_returns_at_once_and_wakes_the_idle_conversation() {
+    use vizier_core::schema::DetachedScriptState;
+    let Some((_dummyplug, runtime, _dir)) = detached_harness().await else { return };
+    let session = web_session("idle");
+
+    let started = std::time::Instant::now();
+    let code = "shell_exec(commands='sleep 2')\n'done'";
+    let reply = chat(runtime.transport(), &session, &run_python(code, true, None)).await;
+    assert!(started.elapsed() < Duration::from_secs(2), "the detach waited for the script");
+    assert!(reply.contains("detached"), "{reply}");
+    let id = handle_id(&reply);
+    let row = script(&runtime, &id).await;
+    assert_eq!(row.state, DetachedScriptState::Running, "{:?}", row.outcome);
+
+    eventually(30, || async { script(&runtime, &id).await.delivered_at.is_some() }).await;
+    assert_eq!(script(&runtime, &id).await.state, DetachedScriptState::Succeeded);
+    eventually(30, || async {
+        let history = history_of(&runtime, &session).await;
+        deliveries(&history).len() == 1
+            && matches!(history.last().map(|h| &h.content), Some(SessionHistoryContent::Response(_)))
+    })
+    .await;
+    let delivery = deliveries(&history_of(&runtime, &session).await).remove(0);
+    assert!(delivery.starts_with("[Background work finished]"), "{delivery}");
+    assert!(delivery.contains(&id) && delivery.contains("succeeded"), "{delivery}");
+    assert!(delivery.contains("result: done"), "{delivery}");
+
+    runtime.shutdown().await.unwrap();
+}
+
+/// Quickstart step 4: a script that ends while another turn runs is delivered into that turn's
+/// next round, and the conversation gets no extra turn.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_script_that_ends_mid_turn_is_delivered_in_the_next_round() {
+    let Some((_dummyplug, runtime, _dir)) = detached_harness().await else { return };
+    let session = web_session("busy");
+
+    let early = "shell_exec(commands='sleep 1')\n'early'";
+    let reply = chat(runtime.transport(), &session, &run_python(early, true, None)).await;
+    let id = handle_id(&reply);
+    let busy = "shell_exec(commands='sleep 4')\n'done'";
+    // Dummyplug answers the delivery that closes the round with its canned text.
+    chat(runtime.transport(), &session, &run_python(busy, false, None)).await;
+
+    assert!(script(&runtime, &id).await.delivered_at.is_some(), "delivered at the round boundary");
+    // Give a stray wake-up turn the chance to appear before counting.
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    let history = history_of(&runtime, &session).await;
+    assert_eq!(deliveries(&history).len(), 1, "{history:#?}");
+    // The delivery sits inside the second turn: after its tool result, before its reply.
+    let at = history.iter().position(is_delivery).unwrap();
+    // Nothing was injected into the running script: its own result is untouched.
+    assert!(
+        matches!(&history[at - 1].content, SessionHistoryContent::ToolResult { content, .. } if content.contains("done")),
+        "{history:#?}"
+    );
+    assert!(matches!(history.last().unwrap().content, SessionHistoryContent::Response(_)));
+    let responses = history
+        .iter()
+        .filter(|h| matches!(h.content, SessionHistoryContent::Response(_)))
+        .count();
+    assert_eq!(responses, 2, "two turns, no extra wake-up turn: {history:#?}");
+
+    runtime.shutdown().await.unwrap();
+}
+
+/// Quickstart step 5: scripts ending just as a turn closes are delivered exactly once each.
+#[tokio::test(flavor = "multi_thread")]
+async fn scripts_ending_as_a_turn_closes_are_delivered_once() {
+    use vizier_core::storage::detached_script::DetachedScriptStorage;
+    let Some((_dummyplug, runtime, _dir)) = detached_harness().await else { return };
+    let session = web_session("race");
+    let mut ids = vec![];
+    for _ in 0..5 {
+        let detached = run_python("shell_exec(commands='sleep 1')\n1", true, None);
+        ids.push(handle_id(&chat(runtime.transport(), &session, &detached).await));
+        let inline = run_python("shell_exec(commands='sleep 1')\n2", false, None);
+        chat(runtime.transport(), &session, &inline).await;
+    }
+    eventually(60, || async {
+        let mut all = true;
+        for id in &ids {
+            all &= script(&runtime, id).await.delivered_at.is_some();
+        }
+        all
+    })
+    .await;
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    let history = history_of(&runtime, &session).await;
+    let delivered: usize = deliveries(&history)
+        .iter()
+        .map(|text| ids.iter().filter(|id| text.contains(id.as_str())).count())
+        .sum();
+    assert_eq!(delivered, ids.len(), "each script in exactly one delivery: {:#?}", deliveries(&history));
+    assert!(runtime.deps().storage.claim_deliverable_scripts(&session).await.unwrap().is_empty());
+
+    runtime.shutdown().await.unwrap();
+}
+
+/// Quickstart step 9: the script's own limit stops it and the delivery says so.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_detached_script_past_its_limit_times_out() {
+    use vizier_core::schema::DetachedScriptState;
+    let Some((_dummyplug, runtime, _dir)) = detached_harness().await else { return };
+    let session = web_session("slow");
+    let request = run_python("shell_exec(commands='sleep 30')", true, Some(2));
+    let id = handle_id(&chat(runtime.transport(), &session, &request).await);
+    eventually(20, || async { script(&runtime, &id).await.state.is_final() }).await;
+    assert_eq!(script(&runtime, &id).await.state, DetachedScriptState::TimedOut);
+    eventually(20, || async { !deliveries(&history_of(&runtime, &session).await).is_empty() }).await;
+    let delivery = deliveries(&history_of(&runtime, &session).await).remove(0);
+    assert!(delivery.contains("timed out") && delivery.contains("time limit (2s)"), "{delivery}");
+
+    runtime.shutdown().await.unwrap();
+}
+
+/// Quickstart step 11: a secret the script reads is scrubbed from the stored outcome and the
+/// delivery.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_detached_scripts_secret_is_stored_nowhere() {
+    const VALUE: &str = "ghp_e2e-detached-secret-31337";
+    let Some((_dummyplug, runtime, _dir)) = detached_harness().await else { return };
+    let session = web_session("secret");
+    let set = run_python(&format!("set_secret(name='TOKEN', value='{VALUE}')"), false, None);
+    chat(runtime.transport(), &session, &set).await;
+    let get = run_python("get_secret(name='TOKEN')", true, None);
+    let id = handle_id(&chat(runtime.transport(), &session, &get).await);
+    eventually(30, || async { !deliveries(&history_of(&runtime, &session).await).is_empty() }).await;
+
+    let row = script(&runtime, &id).await;
+    assert!(!serde_json::to_string(&row).unwrap().contains(VALUE), "{row:?}");
+    let delivery = deliveries(&history_of(&runtime, &session).await).remove(0);
+    assert!(!delivery.contains(VALUE) && delivery.contains("[redacted]"), "{delivery}");
+
+    runtime.shutdown().await.unwrap();
+}
+
+/// Quickstart step 10c: a script detached from a Workspace mention wakes the agent in its own
+/// session for that topic, and the woken reply reaches the timeline like a reply to a mention.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_detached_script_from_a_workspace_mention_replies_on_the_timeline() {
+    use vizier_core::{
+        auth::AuthMethod,
+        schema::EntryKind,
+        service::{
+            Services,
+            workspaces::{self as ws, AddMemberRequest, CreateWorkspaceRequest, PostRequest},
+        },
+        storage::workspace::WorkspaceStorage,
+    };
+    let Some((_dummyplug, runtime, _dir)) = detached_harness().await else { return };
+    let storage = runtime.deps().storage.clone();
+    let role = storage
+        .create_role("maker", vec!["workspaces:create".into(), "all_agents:edit".into(), "all_agents:view".into()], false)
+        .await
+        .unwrap();
+    let user = storage.create_user("rafi", "", &role.role_id).await.unwrap();
+    let s = Services::new(runtime.deps().clone());
+    let rafi = s.principal_for(&user.user_id, AuthMethod::Jwt).await.unwrap();
+    let made = ws::create(&s, &rafi, CreateWorkspaceRequest { name: "ops".into(), first_topic: None })
+        .await
+        .unwrap();
+    let (wid, tid) = (made.workspace.id.clone(), made.workspace.topics[0].id.clone());
+    ws::add_member(&s, &rafi, &wid, AddMemberRequest { kind: "agent".into(), handle: "plug".into(), role: None })
+        .await
+        .unwrap();
+
+    let request = run_python("shell_exec(commands='sleep 2')
+'checked'", true, None);
+    ws::post(&s, &rafi, &wid, &tid, PostRequest { text: format!("@plug {request}"), files: vec![] })
+        .await
+        .unwrap();
+
+    let session = VizierSession("plug".into(), VizierChannelId::Workspace(wid.clone()), Some(tid.clone()));
+    // The mention's reply, then the woken delivery's reply: two agent messages on the timeline.
+    eventually(60, || async {
+        storage
+            .list_entries(&tid, None, 50)
+            .await
+            .unwrap()
+            .iter()
+            .filter(|e| e.kind == EntryKind::Agent && e.is_final)
+            .count()
+            >= 2
+    })
+    .await;
+    let history = history_of(&runtime, &session).await;
+    let delivery = deliveries(&history);
+    assert_eq!(delivery.len(), 1, "{history:#?}");
+    assert!(delivery[0].contains("result: checked"), "{}", delivery[0]);
+
+    runtime.shutdown().await.unwrap();
+}
+
+/// Quickstart step 12: a file a detached script writes is a session file of its conversation,
+/// and the delivery names it.
+#[cfg(feature = "addon-documents")]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_file_a_detached_script_writes_is_a_session_file() {
+    use vizier_core::storage::session_file::SessionFileStorage;
+    let Some((_dummyplug, runtime, _dir)) = detached_harness().await else { return };
+    let session = web_session("files");
+    // The Office addon, which an agent created through the API is given.
+    vizier_core::integrations::service::seed_default(
+        runtime.deps(),
+        "plug",
+        None,
+        vizier_core::integrations::kinds::office::ID,
+        vizier_core::integrations::kinds::office::DEFAULT_NAME,
+    )
+    .await
+    .unwrap();
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let code = "office_docx_write_from_md(filename='notes.docx', markdown='# Hello')";
+    chat(runtime.transport(), &session, &run_python(code, true, None)).await;
+    eventually(30, || async { !deliveries(&history_of(&runtime, &session).await).is_empty() }).await;
+
+    let files = runtime.deps().storage.list_session_files(&session).await.unwrap();
+    assert!(
+        files.iter().any(|f| f.filename == "notes.docx"),
+        "{files:?} {:?}",
+        deliveries(&history_of(&runtime, &session).await)
+    );
+    let delivery = deliveries(&history_of(&runtime, &session).await).remove(0);
+    assert!(delivery.contains("notes.docx"), "{delivery}");
+
+    runtime.shutdown().await.unwrap();
+}
+
+/// The JSON a tool call through dummyplug echoes back as `**Tool result** (...)`.
+async fn call_tool(runtime: &VizierRuntime, session: &VizierSession, tool: &str, arguments: serde_json::Value) -> String {
+    let request = serde_json::json!({ "tool": "execute_python", "arguments": {
+        "intent": format!("call {tool}"),
+        "code": format!("{tool}(**{arguments})"),
+    }});
+    chat(runtime.transport(), session, &request.to_string()).await
+}
+
+/// Quickstart step 6: a detached script fans out to sub-agents; one delivery carries both
+/// answers when it ends.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_detached_fan_out_is_delivered_once_with_every_answer() {
+    let Some((_dummyplug, runtime, _dir)) = detached_harness().await else { return };
+    let session = web_session("fanout");
+    let code = "r = parallel_subagents(tasks=[{'prompt': 'tools'}, {'prompt': 'tools'}])
+[x['state'] for x in r['results']]";
+    let id = handle_id(&chat(runtime.transport(), &session, &run_python(code, true, None)).await);
+    eventually(60, || async { !deliveries(&history_of(&runtime, &session).await).is_empty() }).await;
+    let row = script(&runtime, &id).await;
+    assert_eq!(row.state, vizier_core::schema::DetachedScriptState::Succeeded, "{:?}", row.outcome);
+    let delivery = deliveries(&history_of(&runtime, &session).await).remove(0);
+    assert!(delivery.contains(r#"["answered","answered"]"#), "{delivery}");
+    assert_eq!(deliveries(&history_of(&runtime, &session).await).len(), 1);
+
+    runtime.shutdown().await.unwrap();
+}
+
+/// Quickstart steps 7 and 8: the agent inspects and cancels its script; nothing is delivered;
+/// the refusals answer as the contract says.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_agent_inspects_and_cancels_its_background_work() {
+    let Some((_dummyplug, runtime, _dir)) = detached_harness().await else { return };
+    let session = web_session("cancel");
+    let id = handle_id(&chat(runtime.transport(), &session, &run_python("shell_exec(commands='sleep 60')", true, None)).await);
+
+    let got = call_tool(&runtime, &session, "get_detached_script", serde_json::json!({ "id": id })).await;
+    assert!(got.contains("running") && got.contains("run a slow command"), "{got}");
+    let listed = call_tool(&runtime, &session, "list_detached_scripts", serde_json::json!({ "state": "running" })).await;
+    assert!(listed.contains(&id), "{listed}");
+    // Another conversation cannot see it.
+    let other = call_tool(&runtime, &web_session("elsewhere"), "get_detached_script", serde_json::json!({ "id": id })).await;
+    assert!(other.contains("not_found"), "{other}");
+
+    let cancelled = call_tool(&runtime, &session, "cancel_detached_script", serde_json::json!({ "id": id })).await;
+    assert!(cancelled.contains("\"cancelled\""), "{cancelled}");
+    assert_eq!(script(&runtime, &id).await.state, vizier_core::schema::DetachedScriptState::Cancelled);
+    let again = call_tool(&runtime, &session, "cancel_detached_script", serde_json::json!({ "id": id })).await;
+    assert!(again.contains("already_finished"), "{again}");
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    assert!(deliveries(&history_of(&runtime, &session).await).is_empty(), "a cancelled script is never delivered");
+
+    // Inside a detached script the question tools do not exist.
+    let id = handle_id(&chat(runtime.transport(), &session, &run_python("ask_question(questions=[])", true, None)).await);
+    eventually(20, || async { script(&runtime, &id).await.state.is_final() }).await;
+    let row = script(&runtime, &id).await;
+    assert!(serde_json::to_string(&row.outcome).unwrap().contains("NameError"), "{:?}", row.outcome);
+    // An out-of-range limit on a detached call.
+    let refused = chat(runtime.transport(), &session, &run_python("1", true, Some(0))).await;
+    assert!(refused.contains("between 1 and 3600"), "{refused}");
+
+    runtime.shutdown().await.unwrap();
+}
+
+/// Quickstart step 10b: updating the agent interrupts its running script and the new instance
+/// is told; deleting it leaves no row.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_agent_update_interrupts_its_scripts_and_a_delete_forgets_them() {
+    use vizier_core::storage::detached_script::DetachedScriptStorage;
+    let Some((_dummyplug, runtime, _dir)) = detached_harness().await else { return };
+    let session = web_session("lifecycle");
+    let id = handle_id(&chat(runtime.transport(), &session, &run_python("shell_exec(commands='sleep 60')", true, None)).await);
+
+    let mut config = agent_config("plug");
+    config.description = Some("updated".into());
+    let (resp, updated) = tokio::sync::oneshot::channel();
+    runtime
+        .transport()
+        .send_agent_command(AgentCommand::Update { agent_id: "plug".into(), config, resp })
+        .await
+        .unwrap();
+    assert!(matches!(tokio::time::timeout(TURN_TIMEOUT, updated).await.unwrap().unwrap(), AgentCommandResult::Ok(_)));
+    eventually(30, || async { script(&runtime, &id).await.state.is_final() }).await;
+    assert_eq!(script(&runtime, &id).await.state, vizier_core::schema::DetachedScriptState::Interrupted);
+    eventually(30, || async { !deliveries(&history_of(&runtime, &session).await).is_empty() }).await;
+    assert!(deliveries(&history_of(&runtime, &session).await)[0].contains("interrupted"));
+
+    let id = handle_id(&chat(runtime.transport(), &session, &run_python("shell_exec(commands='sleep 60')", true, None)).await);
+    let (resp, deleted) = tokio::sync::oneshot::channel();
+    runtime
+        .transport()
+        .send_agent_command(AgentCommand::Delete { agent_id: "plug".into(), delete_workspace: false, resp })
+        .await
+        .unwrap();
+    tokio::time::timeout(TURN_TIMEOUT, deleted).await.unwrap().unwrap();
+    eventually(30, || async { runtime.deps().storage.get_detached_script(&id).await.unwrap().is_none() }).await;
+
+    runtime.shutdown().await.unwrap();
+}

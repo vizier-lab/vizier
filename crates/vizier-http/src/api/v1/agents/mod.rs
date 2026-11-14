@@ -29,7 +29,7 @@ pub mod conversations;
 pub mod core;
 pub mod dream;
 pub mod integrations;
-pub mod jobs;
+pub mod detached;
 pub mod memory;
 pub mod projects;
 pub mod secrets;
@@ -41,7 +41,7 @@ use vizier_core::storage::session::SessionStorage;
 use channel::channel;
 use core::core;
 use dream::dream;
-use jobs::jobs;
+use detached::detached_scripts;
 use memory::memory;
 use secrets::secrets;
 use skills::agent_skills;
@@ -118,7 +118,7 @@ pub fn agents() -> Router<HTTPState> {
             "/{agent_id}/sharing",
             get(get_sharing).patch(update_sharing),
         )
-        .nest("/{agent_id}/channel", channel().merge(jobs()))
+        .nest("/{agent_id}/channel", channel().merge(detached_scripts()))
         .nest("/{agent_id}/artifacts", artifacts::artifacts())
         .nest("/{agent_id}/core", core())
         .nest("/{agent_id}/memory", memory())

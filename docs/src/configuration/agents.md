@@ -114,6 +114,19 @@ Clients see a `checkpoint` response event with the handover text. Manual variant
 - Roles with `all_agents:view` / `all_agents:edit` / `all_agents:delete` bypass ownership; `owned_agents:delete` allows deleting own agents. The `superadmin` system role has everything.
 - `DELETE /api/v1/agents/{id}?delete_workspace=true` also removes `agents/<id>/` (memory, skills) from disk.
 
+## Background work
+
+An agent runs slow work in the background by calling `execute_python` with `detached: true`. The call returns a handle such as `{"detached": true, "id": "d_k3x9a1b2", "state": "running", "timeout_secs": 600}` at once, the script runs in its own task, and the agent carries on: it can keep talking to the person while a test suite runs or several pages are fetched. Any tool the script calls runs in the background with it, so a sub-agent fan-out is `parallel_subagents` inside a detached script.
+
+- **Time limit.** `timeout_secs` (1 to 3600, default 600) bounds the whole script, every tool and sub-agent wait included. Without `detached` the field is ignored.
+- **What is not available inside.** Asking the person (`ask_question`, `ask_sensitive_input`), the person's client tools (the WebUI's `ui_render` and the like) and every tool that ends the turn: the turn that launched the script may be over. They are absent from `list_tools()` there.
+- **Delivery.** When the script ends, its result reaches the agent exactly once as a message starting `[Background work finished]`: in the agent's next step if it is working on a turn of that conversation, otherwise as a new turn that wakes it. Files the script produced become session files of the conversation and are named in the message.
+- **The agent's tools.** `list_detached_scripts`, `get_detached_script` and `cancel_detached_script` (category `agents`) list, inspect and stop the conversation's background work. A cancel also stops what the script was waiting on and any background work started beneath it; nothing is delivered for a cancelled script.
+- **People.** The chat's status strip shows **Background work** with a count while something runs; its panel lists each script by its intent and opens it the way the activity trail shows a script (code, the calls inside, the result). Each finished script also raises one notification. Cancelling from the WebUI is not available yet; ask the agent to cancel.
+- **Lifecycle.** Updating or restarting the agent, or restarting the server, interrupts its running scripts; the agent is told in a delivery. Deleting the agent or the conversation stops and removes them. Scheduled-task and dream turns cannot detach (nobody is waiting to be told), and a script at the third level of background nesting cannot start another.
+
+`background_subagents`, `list_background_jobs` and `cancel_background_job` were removed in this release; an agent that calls one is told what replaced it.
+
 ## Dream cycle
 
 An optional, scheduled reflection pass. When `dream_enabled` is true and `dream_schedule` is a valid cron expression, the scheduler runs (per agent, never concurrently):
@@ -149,14 +162,14 @@ A task's prompt runs as the agent in a dedicated `Task` session; the agent can r
 
 ## Usage
 
-Every model call an agent makes is recorded as it is answered, whether or not a reply is delivered: chat turns (each tool round on its own), scheduled runs, background jobs and consults, dream cycles, checkpoint summaries, and image reads on a vision model. Rounds of a turn that failed, timed out or was aborted still count, and are marked as spent on a failed turn. Each call records its provider, the model requested and the model version the provider says it served.
+Every model call an agent makes is recorded as it is answered, whether or not a reply is delivered: chat turns (each tool round on its own), scheduled runs, sub-agent work (inline or in a detached script), dream cycles, checkpoint summaries, and image reads on a vision model. Rounds of a turn that failed, timed out or was aborted still count, and are marked as spent on a failed turn. Each call records its provider, the model requested and the model version the provider says it served.
 
 Each call has one **activity**:
 
 | Activity | What it covers |
 |---|---|
-| Chat | Turns answering a person on Discord, Telegram, the WebUI or the HTTP API, including the turn a finished background job wakes |
-| Background | Subagents (`parallel_subagents` and `background_subagents`), counted for the agent that ran them |
+| Chat | Turns answering a person on Discord, Telegram, the WebUI or the HTTP API, including the turn a finished detached script wakes |
+| Subagents | `parallel_subagents` pieces, inline or inside a detached script, counted for the agent that ran them |
 | Scheduled | Scheduled task runs |
 | Dreams | Dream extraction and consolidation |
 | Compaction | Checkpoint summaries, automatic and `/checkpoint` |

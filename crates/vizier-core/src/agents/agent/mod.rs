@@ -776,6 +776,10 @@ impl VizierAgent {
             dream_sources: vec![],
             secret_redactor: Arc::new(crate::secrets::SecretRedactor::default()),
             project: project.clone(),
+            detached: false,
+            // A sub-agent turn a detached script started: a script it detaches records that
+            // script as its parent (spec 058).
+            parent_detached_id: req.parent_detached_id.clone(),
         };
 
         // The tools the person's client declared for this turn, if its connection is still
@@ -1544,7 +1548,45 @@ impl VizierAgent {
                 break;
             }
 
-            if pending_images.is_empty() {
+            // Detached scripts that finished while this round ran (spec 058): delivered now,
+            // after the round's results and before the next completion, as one user message.
+            // The claim is the exactly-once guard: a waiting wake-up poke then finds nothing.
+            let delivery = match self.deps.detached.claim(&ctx.session).await {
+                claimed if claimed.is_empty() => None,
+                claimed => {
+                    let request = VizierRequest {
+                        timestamp: crate::time::now(),
+                        user: ctx.session.0.clone(),
+                        content: VizierRequestContent::DetachedDelivery(
+                            crate::agents::detached::render_delivery(&claimed),
+                        ),
+                        metadata: serde_json::json!({}),
+                        ..Default::default()
+                    };
+                    let text = request.to_prompt().unwrap_or_else(|_| request.content.to_string());
+                    if let Some(recorder) = steps.as_deref_mut() {
+                        recorder
+                            .record_entry(
+                                &self.storage,
+                                &self.transport,
+                                SessionHistoryContent::Request(request),
+                            )
+                            .await;
+                    }
+                    Some(Message::User(vec![Part::Text(text)]))
+                }
+            };
+
+            if let Some(delivery) = delivery {
+                history.extend(tool_responses.iter().cloned());
+                full_history.extend(tool_responses);
+                for img in pending_images {
+                    let img_msg = Message::User(vec![img]);
+                    history.push(img_msg.clone());
+                    full_history.push(img_msg);
+                }
+                message = delivery;
+            } else if pending_images.is_empty() {
                 // Every result but the last joins the history now; the last is the message
                 // the next completion carries.
                 message = tool_responses.pop().expect("checked non-empty");
@@ -1958,6 +2000,8 @@ impl VizierAgent {
                     dream_sources,
                     secret_redactor: Arc::new(crate::secrets::SecretRedactor::default()),
                     project: None,
+                    detached: false,
+                    parent_detached_id: None,
                 },
             )
             .await?;

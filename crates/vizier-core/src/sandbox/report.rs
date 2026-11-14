@@ -168,6 +168,15 @@ impl ExecutionReport {
 
 #[cfg(test)]
 mod tests {
+    /// Spec 058: a detached `execute_python` returns a handle, not a report. It never ends
+    /// the turn, is not streamed as a report and is not narrowed for the model.
+    #[test]
+    fn a_detached_handle_is_not_a_report() {
+        let handle = serde_json::json!({"detached": true, "id": "d_k3x9a1b2", "state": "running", "timeout_secs": 600});
+        assert!(!ExecutionReport::looks_like(&handle));
+        assert_eq!(ExecutionReport::ending_call(&handle), None);
+    }
+
     use serde_json::json;
 
     use super::*;

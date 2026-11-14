@@ -32,6 +32,8 @@ pub struct RouterBridge {
     attachments: Mutex<Vec<VizierAttachment>>,
     /// Signals an in-flight nested call to stop when the sandbox is dropped.
     cancelled: watch::Sender<bool>,
+    /// Told the records so far after every nested call (a detached script's progress).
+    progress: Option<super::ProgressFn>,
 }
 
 impl RouterBridge {
@@ -45,7 +47,14 @@ impl RouterBridge {
             invocations: Mutex::new(vec![]),
             attachments: Mutex::new(vec![]),
             cancelled,
+            progress: None,
         }
+    }
+
+    /// Report each finished nested call to `progress` (spec 058: a detached script's panel).
+    pub fn with_progress(mut self, progress: super::ProgressFn) -> Self {
+        self.progress = Some(progress);
+        self
     }
 
     /// The invocation records and nested attachments collected during the run.
@@ -115,19 +124,17 @@ impl RouterBridge {
                 _ => self.router.call(tool.clone(), arguments, &self.ctx).await,
             }
         };
+        // A cancel (the sandbox dropped, or a detached script cancelled) stops whatever call
+        // is in flight, whichever tool it is: dropping the call's future runs its own drop
+        // guards (`parallel_subagents` aborts its pieces, a shell call kills its process).
         let mut cancelled = self.cancelled.subscribe();
-        let cancellable = tool == "parallel_subagents";
-        if cancellable && *cancelled.borrow() {
+        if *cancelled.borrow() {
             return Err("tool call cancelled".to_string());
         }
         let timed = tokio::time::timeout(self.tool_timeout, call);
-        let result = if cancellable {
-            tokio::select! {
-                result = timed => result,
-                _ = cancelled.changed() => return Err("tool call cancelled".to_string()),
-            }
-        } else {
-            timed.await
+        let result = tokio::select! {
+            result = timed => result,
+            _ = cancelled.changed() => return Err("tool call cancelled".to_string()),
         };
         let mut response = result
             .map_err(|_| format!("timed out after {:?}", self.tool_timeout))?
@@ -239,6 +246,9 @@ impl SandboxBridge for RouterBridge {
                 duration_ms,
                 ends_turn,
             });
+            if let Some(progress) = &self.progress {
+                progress(&invocations);
+            }
         }
 
         result.map_err(|err| BridgeError::Tool(self.ctx.secret_redactor.text(&err)))
@@ -334,6 +344,8 @@ mod tests {
             secret_redactor: Arc::new(crate::secrets::SecretRedactor::default()),
             dream_sources: vec![],
             project: None,
+            detached: false,
+            parent_detached_id: None,
         };
         ctx.secret_redactor.arm(TOKEN);
         RouterBridge::new(router, ctx, Duration::from_secs(5))
@@ -368,5 +380,92 @@ mod tests {
         let recorded = serde_json::to_string(&records).unwrap();
         assert!(!recorded.contains(TOKEN), "a recorded call still carries the value: {recorded}");
         assert!(recorded.contains("[redacted]"));
+    }
+
+    /// A tool that ends the turn, like `ui_render` or `propose_plan`.
+    struct Finish;
+
+    #[async_trait::async_trait]
+    impl VizierTool for Finish {
+        type Input = serde_json::Value;
+        type Output = String;
+        fn category() -> Option<ToolCategory> {
+            Some(ToolCategory::Webui)
+        }
+        fn name() -> String {
+            "finish_with_page".into()
+        }
+        fn ends_turn() -> bool {
+            true
+        }
+        fn description(&self) -> String {
+            "Test.".into()
+        }
+        async fn call(&self, _: Self::Input, _: &ToolContext) -> Result<Self::Output, VizierError> {
+            Ok("shown".into())
+        }
+    }
+
+    /// A tool that needs a person to answer, like `ask_question` and `ask_sensitive_input`.
+    struct Ask;
+
+    #[async_trait::async_trait]
+    impl VizierTool for Ask {
+        type Input = serde_json::Value;
+        type Output = String;
+        fn category() -> Option<ToolCategory> {
+            Some(ToolCategory::Questions)
+        }
+        fn name() -> String {
+            "ask_the_person".into()
+        }
+        fn available(&self, ctx: &ToolContext) -> bool {
+            ctx.interactive
+        }
+        fn description(&self) -> String {
+            "Test.".into()
+        }
+        async fn call(&self, _: Self::Input, _: &ToolContext) -> Result<Self::Output, VizierError> {
+            Ok("answered".into())
+        }
+    }
+
+    /// Spec 058 contracts/detached-flag.md §2: inside a detached script the live-turn tools are
+    /// gone from the catalogue and from `list_tools()`, and calling one is an unknown function.
+    #[tokio::test]
+    async fn a_detached_script_sees_no_live_turn_tools() {
+        let router = ToolRouter {
+            default_toolset: VizierToolSet::new().tool(Probe).tool(Finish).tool(Ask),
+            user_toolset: VizierToolSet::new(),
+            integration_toolset: VizierToolSet::new(),
+            addons: Default::default(),
+            mcp: Default::default(),
+            reserved: Arc::new(vec![]),
+        };
+        let inline = bridge().ctx;
+        let names = |entries: Vec<CatalogueEntry>| -> Vec<String> {
+            entries.into_iter().map(|e| e.name).collect()
+        };
+        let all = names(turn_catalogue(&router, &inline).await);
+        assert!(all.contains(&"finish_with_page".to_string()) && all.contains(&"ask_the_person".to_string()), "{all:?}");
+
+        let mut detached = inline.clone();
+        detached.detached = true;
+        detached.interactive = false;
+        detached.client = None;
+        let seen = names(turn_catalogue(&router, &detached).await);
+        assert_eq!(seen, vec!["probe_credential".to_string()]);
+
+        let bridge = RouterBridge::new(router, detached, Duration::from_secs(5));
+        let listed: Vec<String> = bridge.catalogue().await.into_iter().map(|d| d.name).collect();
+        assert_eq!(listed, seen);
+        assert!(matches!(
+            bridge.call("ask_the_person", serde_json::json!({})).await,
+            Err(BridgeError::UnknownFunction)
+        ));
+        assert!(matches!(
+            bridge.call("finish_with_page", serde_json::json!({})).await,
+            Err(BridgeError::UnknownFunction)
+        ));
     }
 }

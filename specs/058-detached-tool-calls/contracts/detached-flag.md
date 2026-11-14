@@ -9,7 +9,7 @@ What a model sees and does. All of it is written into the agent's guidance (`sys
 | Field | Type | Meaning |
 |---|---|---|
 | `detached` | boolean, default `false` | Run the script in the background and return a handle at once. |
-| `timeout_secs` | integer 1..=3600, default 600 | The whole script's time limit, tool and sub-agent waits included. Only with `detached`; without it, an error. |
+| `timeout_secs` | integer 1..=3600, default 600 | The whole script's time limit, tool and sub-agent waits included. Read only with `detached`; an inline call ignores it (models fill in optional fields they do not use, and dummyplug's sample request does too). |
 
 ```json
 { "intent": "check both vendor pages and run the tests", "detached": true,
@@ -39,7 +39,7 @@ A launch is refused (the `execute_python` reply is an error, no handle) when:
 |---|---|
 | Scheduled-task or dream session | `cannot detach here: nobody is waiting to be told` |
 | Nesting limit reached | `nesting limit (3) reached` |
-| `timeout_secs` without `detached`, or out of range | `timeout_secs must be between 1 and 3600, and needs detached` |
+| `timeout_secs` out of range on a detached call | `timeout_secs must be between 1 and 3600` |
 
 ## 3. Delivery
 

@@ -263,6 +263,8 @@ fn env() -> Env {
         dream_sources: vec![],
         secret_redactor: Arc::new(crate::secrets::SecretRedactor::default()),
         project: None,
+        detached: false,
+        parent_detached_id: None,
     };
     Env { storage, manager, ctx, _dir: dir }
 }

@@ -97,16 +97,15 @@ A turn makes one `chat` call per model step, and each retry attempt is its own s
 
 Tools the model calls directly (`execute_python`, `list_tool_functions`, …) and tools a script calls (`memory_search`, MCP tools, …) both get this span. Script calls nest under the script's `python_exec` span.
 
-### `background_job {kind}`: a background job
+### `detached_script {id}`: a detached script
 
-It opens when `background_subagents` launches the job and closes when the job is reported or cancelled, so its duration is the job's. The blocking `parallel_subagents` tool has no background-job span: its pieces are children of the tool call itself.
+It opens when `execute_python` runs with `detached: true` and closes when the script ends, is cancelled or is interrupted, so its duration is the script's. It is created inside the launching call's span, so it continues that turn's trace, and the tool calls the script makes (and the turns of any sub-agents it starts) are its children. The blocking `parallel_subagents` tool has no span of its own beyond the tool call.
 
 | Attribute | Value |
 |-----------|-------|
-| `vizier.job.id` | the job id, as shown in the WebUI's jobs tray |
-| `vizier.job.kind` | `batch` or `delegation` |
-| `vizier.job.pieces` | the number of pieces |
-| `vizier.job.timeout_secs` | the per-piece time limit |
+| `vizier.detached.id` | the script's handle, e.g. `d_k3x9a1b2`, as shown in the WebUI's Background work panel |
+| `vizier.detached.timeout_secs` | the script's time limit |
+| `vizier.detached.depth` | how many background hops led to the turn that launched it |
 
 ### `python_exec`
 

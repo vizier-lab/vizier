@@ -67,7 +67,7 @@ impl VizierScheduler {
             let deps = self.deps.clone();
             tracing::info!(task = %run.task_slug, "recovering a task run");
             tokio::spawn(async move {
-                use crate::agents::background::PieceOutcome;
+                use crate::agents::subagents::PieceOutcome;
                 let state = match deps.transport.await_session_outcome(&session, run.ran_at).await {
                     PieceOutcome::Answered(_) => TaskRunState::Answered,
                     PieceOutcome::Failed(_) => TaskRunState::NoResponse,

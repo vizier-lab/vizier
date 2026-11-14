@@ -9,10 +9,10 @@ use crate::config::VizierConfig;
 use crate::dependencies::VizierDependencies;
 use crate::recovery::{recover_agent, recover_control};
 use crate::schema::{
-    BackgroundJob, BackgroundPiece, ClientCallOutcome, JobKind, JobState, PieceState, TaskRunState,
+    Canceller, ClientCallOutcome, DetachedScript, DetachedScriptState, TaskRunState,
     VizierChannelId, VizierRequest, VizierRequestContent, VizierSession,
 };
-use crate::storage::background_job::BackgroundJobStorage;
+use crate::storage::detached_script::DetachedScriptStorage;
 use crate::storage::client_call::ClientCallStorage;
 use crate::storage::fence::{Fence, FenceStorage, Scope};
 use crate::storage::question::SensitiveAskStorage;
@@ -41,37 +41,43 @@ fn session(agent: &str, topic: &str) -> VizierSession {
     )
 }
 
-fn job(id: &str, origin: &str, piece_agent: &str) -> BackgroundJob {
-    let now = crate::time::now();
-    BackgroundJob {
+fn script(id: &str, session: VizierSession) -> DetachedScript {
+    DetachedScript {
         id: id.into(),
-        kind: JobKind::Batch,
-        origin: session(origin, "main"),
+        agent_id: session.0.clone(),
+        session,
+        parent_id: None,
         depth: 0,
+        intent: "i".into(),
+        state: DetachedScriptState::Running,
         timeout_secs: 600,
-        created_at: now,
+        code: "1".into(),
+        tool_calls: serde_json::json!([]),
+        created_at: crate::time::now(),
         finished_at: None,
-        state: JobState::Running,
+        outcome: None,
+        delivered_at: None,
         cancelled_by: None,
-        reason: None,
-        pieces: vec![BackgroundPiece {
-            ordinal: 0,
-            prompt: "p".into(),
-            session: VizierSession(
-                piece_agent.into(),
-                VizierChannelId::Subagent,
-                Some(format!("{id}-0")),
-            ),
-            started_at: now,
-            finished_at: None,
-            state: PieceState::Running,
-            reason: None,
-        }],
     }
 }
 
-async fn job_state(deps: &VizierDependencies, id: &str) -> JobState {
-    deps.storage.get_background_job(id).await.unwrap().unwrap().state
+async fn script_state(deps: &VizierDependencies, id: &str) -> DetachedScriptState {
+    deps.storage.get_detached_script(id).await.unwrap().unwrap().state
+}
+
+/// The delivery pokes waiting in the agent's queue, by session (recovery spawns them).
+async fn pokes(inbox: &crate::transport::Inbox, expected: usize) -> Vec<VizierSession> {
+    let mut seen = vec![];
+    while seen.len() < expected {
+        let envelope = tokio::time::timeout(std::time::Duration::from_secs(5), inbox.recv_request())
+            .await
+            .expect("a delivery poke")
+            .unwrap();
+        if matches!(envelope.request.content, VizierRequestContent::DetachedDelivery(_)) {
+            seen.push(envelope.session);
+        }
+    }
+    seen
 }
 
 #[tokio::test]
@@ -268,69 +274,80 @@ async fn control_takeover_interrupts_unbacked_runs_once_and_keeps_backed_ones() 
     assert!(recover_control(&deps, &fence).await.complete);
 }
 
+/// Spec 058: a new owner interrupts the scripts its predecessor left running, once, never
+/// touches a cancelled one or another agent's, and pokes each conversation with work to deliver.
 #[tokio::test]
-async fn agent_takeover_interrupts_unbacked_jobs_once_and_picks_up_backed_ones() {
+async fn agent_takeover_interrupts_running_scripts_once_and_pokes_their_conversations() {
     let (deps, _dir) = setup().await;
     let scope = Scope::Agent("x".into());
     claim(&deps, &scope).await;
     claim(&deps, &Scope::Agent("z".into())).await;
-    deps.storage.open_background_job(job("lost", "x", "x")).await.unwrap();
-    deps.storage.open_background_job(job("backed", "x", "x")).await.unwrap();
-    // A live owner's job, launched by another agent.
-    deps.storage.open_background_job(job("elsewhere", "z", "z")).await.unwrap();
-    // `backed`'s piece has a pending turn; a `reporting` job is backed by its report turn.
+    deps.storage.open_detached_script(script("d_lost", session("x", "a"))).await.unwrap();
+    deps.storage.open_detached_script(script("d_gone", session("x", "a"))).await.unwrap();
     deps.storage
-        .accept_turn(
-            &VizierSession("x".into(), VizierChannelId::Subagent, Some("backed-0".into())),
-            &VizierRequest::default(),
-        )
+        .cancel_detached_script("d_gone", Canceller::Agent("x".into()), crate::time::now())
         .await
         .unwrap();
-    deps.storage.open_background_job(job("report", "x", "x")).await.unwrap();
+    deps.storage.open_detached_script(script("d_done", session("x", "b"))).await.unwrap();
     deps.storage
-        .transition_background_job(
-            "report",
-            JobState::Running,
-            JobState::Reporting,
-            None,
-            None,
+        .close_detached_script(
+            "d_done",
+            DetachedScriptState::Succeeded,
+            serde_json::json!({"ok": true}),
+            serde_json::json!([]),
             crate::time::now(),
         )
         .await
         .unwrap();
-    deps.storage
-        .accept_turn(
-            &session("x", "main"),
-            &VizierRequest {
-                content: VizierRequestContent::BackgroundReport(crate::schema::BackgroundReport {
-                    job_id: "report".into(),
-                    kind: JobKind::Batch,
-                    delegated_to: None,
-                    entries: vec![],
-                }),
-                ..Default::default()
-            },
-        )
-        .await
-        .unwrap();
+    deps.storage.open_detached_script(script("d_elsewhere", session("z", "a"))).await.unwrap();
 
     let fence = claim(&deps, &scope).await;
-    let _inbox = deps.transport.register_agent("x".into()).await;
+    let inbox = deps.transport.register_agent("x".into()).await;
     assert!(recover_agent(&deps, &"x".to_string(), &fence).await.complete);
 
-    assert_eq!(job_state(&deps, "lost").await, JobState::Interrupted);
-    assert_eq!(job_state(&deps, "backed").await, JobState::Running);
-    assert_eq!(job_state(&deps, "report").await, JobState::Reported);
-    assert_eq!(
-        job_state(&deps, "elsewhere").await,
-        JobState::Running,
-        "a live origin's job is untouched"
+    assert_eq!(script_state(&deps, "d_lost").await, DetachedScriptState::Interrupted);
+    assert_eq!(script_state(&deps, "d_gone").await, DetachedScriptState::Cancelled);
+    assert_eq!(script_state(&deps, "d_elsewhere").await, DetachedScriptState::Running);
+    let mut poked = pokes(&inbox, 2).await;
+    poked.sort_by_key(|s| s.2.clone());
+    assert_eq!(poked, vec![session("x", "a"), session("x", "b")]);
+
+    // Nothing is left to interrupt a second time.
+    assert!(recover_agent(&deps, &"x".to_string(), &fence).await.complete);
+    assert!(
+        deps.storage
+            .interrupt_running_scripts("x", Some(fence.token), None)
+            .await
+            .unwrap()
+            .is_empty()
     );
+}
 
-    // Nothing is left to resolve a second time.
-    assert!(deps.storage.expired_background_jobs("x", fence.token).await.unwrap().is_empty());
+/// SC-002: fifty scripts running across several conversations when the owner died are each
+/// interrupted once and delivered exactly once.
+#[tokio::test]
+async fn fifty_interrupted_scripts_are_each_delivered_once() {
+    let (deps, _dir) = setup().await;
+    let scope = Scope::Agent("x".into());
+    claim(&deps, &scope).await;
+    for i in 0..50 {
+        let topic = format!("t{}", i % 5);
+        deps.storage.open_detached_script(script(&format!("d_{i:02}"), session("x", &topic))).await.unwrap();
+    }
+    let fence = claim(&deps, &scope).await;
+    let inbox = deps.transport.register_agent("x".into()).await;
     assert!(recover_agent(&deps, &"x".to_string(), &fence).await.complete);
-    assert_eq!(job_state(&deps, "lost").await, JobState::Interrupted);
+
+    let sessions = pokes(&inbox, 5).await;
+    let mut delivered = vec![];
+    // Every poke handled, and every session claimed twice: the second claim finds nothing.
+    for session in sessions.iter().chain(sessions.iter()) {
+        delivered.extend(deps.detached.claim(session).await.into_iter().map(|s| s.id));
+    }
+    delivered.sort();
+    assert_eq!(delivered.len(), 50);
+    delivered.dedup();
+    assert_eq!(delivered.len(), 50, "a script was delivered twice");
 }
 
 #[tokio::test]
@@ -405,7 +422,7 @@ async fn single_node_restart_outcome_unchanged() {
     deps.storage.write_scratch(&session("x", "t"), "n", "k").await.unwrap();
     deps.storage.write_scratch(&session("x", "gone"), "n", "k").await.unwrap();
     deps.storage.open_client_call("c", &session("x", "t")).await.unwrap();
-    deps.storage.open_background_job(job("j", "x", "x")).await.unwrap();
+    deps.storage.open_detached_script(script("d_j", session("x", "t"))).await.unwrap();
     let run_id = deps
         .storage
         .open_task_run("x".into(), "r".into(), now, "k".into())
@@ -431,7 +448,7 @@ async fn single_node_restart_outcome_unchanged() {
             .unwrap(),
         "the pending call was interrupted"
     );
-    assert_eq!(job_state(&deps, "j").await, JobState::Interrupted);
+    assert_eq!(script_state(&deps, "d_j").await, DetachedScriptState::Interrupted);
     let run = deps.storage.get_task_run("x".into(), "r".into(), now).await.unwrap().unwrap();
     assert_eq!(run.state, TaskRunState::Interrupted);
     assert_eq!(run.id, run_id);
@@ -473,7 +490,7 @@ async fn single_node_never_refused() {
         .unwrap();
     deps.storage.open_client_call("c", &s).await.unwrap();
     deps.storage.finish_client_call("c", &ClientCallOutcome::Cancelled).await.unwrap();
-    deps.storage.open_background_job(job("j", "x", "x")).await.unwrap();
+    deps.storage.open_detached_script(script("d_j", session("x", "t"))).await.unwrap();
     deps.storage
         .open_task_run("x".into(), "r".into(), crate::time::now(), "k".into())
         .await

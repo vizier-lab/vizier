@@ -68,13 +68,14 @@ Also check: the queued delivery request found no rows and produced no turn (log 
 Run step 2 with `sleep 3` and an inline `sleep 3` script right after it, ten times.
 Expected: every script is delivered exactly once, either in the turn's closing round or as one wake-up turn, never both and never neither (count `delivered_at IS NOT NULL` rows against delivery messages in history: equal).
 
-## 6. A detached sub-agent fan-out (dummyplug, two agents)
+## 6. A detached sub-agent fan-out (dummyplug)
 
-With a second dummyplug agent `dq`, send to `dp`:
+`parallel_subagents` runs its pieces on the calling agent, each in a fresh `Subagent` conversation. Send to `dp`:
 ```json
-{"tool": "execute_python", "arguments": {"intent": "ask dq two things", "detached": true, "code": "parallel_subagents(tasks=[{'agent': 'dq', 'prompt': 'one'}, {'agent': 'dq', 'prompt': 'two'}])"}}
+{"tool": "execute_python", "arguments": {"intent": "fan out two things", "detached": true, "code": "r = parallel_subagents(tasks=[{'prompt': 'tools'}, {'prompt': 'tools'}])
+[x['state'] for x in r['results']]"}}
 ```
-Expected: one row; one delivery carrying both answers when the script ends; each `dq` conversation exists under its own `Subagent` session. No error above `debug` in the log from hooks that could not publish to the ended turn.
+Expected: one row; one delivery carrying `["answered","answered"]` when the script ends; each piece exists under its own `Subagent` session. No error above `debug` in the log from hooks that could not publish to the ended turn.
 
 ## 7. Inspect and cancel (dummyplug)
 
@@ -83,7 +84,7 @@ Expected: one row; one delivery carrying both answers when the script ends; each
 2. Open the Background work panel: the script shows with no cancel control (WebUI cancel is deferred); expand it and see its code, the calls made so far, and no result yet, as the activity trail would show it.
 3. Send `{"tool": "cancel_detached_script", "arguments": {"id": "<id>"}}`.
    Expected: the script reads `cancelled` (the panel updates without a reload), the sleeping process is gone, no delivery turn and no notification appear, and a repeat cancel answers `already_finished`.
-4. Detach a script that calls `parallel_subagents` to a `dq` that runs its own detached script; cancel the outer.
+4. Detach a script that calls `parallel_subagents` whose piece detaches its own script; cancel the outer.
    Expected: the outer and the inner both read `cancelled`.
 
 ## 8. Refusals and what is absent (dummyplug)
@@ -91,7 +92,7 @@ Expected: one row; one delivery carrying both answers when the script ends; each
 - A detached script that calls `ask_question(...)` ends `failed` with a `NameError`; `list_tools()` inside it does not list `ask_question` or any `ui_*` function.
 - Detaching four levels deep (each level a sub-agent that detaches) is refused with `nesting limit (3) reached`.
 - In a scheduled-task run, `execute_python` with `detached: true` answers `cannot detach here: …`.
-- `timeout_secs` without `detached` answers the range-and-needs-detached error.
+- A detached call with `timeout_secs: 0` answers the range error; an inline call with `timeout_secs` set runs as usual (the field is ignored).
 
 ## 9. Timeout (dummyplug)
 

@@ -13,7 +13,7 @@ use crate::{
     storage::{
         agent::AgentStorage,
         artifact::ArtifactStorage,
-        background_job::BackgroundJobStorage,
+        detached_script::DetachedScriptStorage,
         catalogue::{CachedLogo, CatalogueCacheStorage, CatalogueSnapshotRow},
         client_call::ClientCallStorage,
         dream::DreamStorage,
@@ -46,7 +46,7 @@ use crate::{
 
 pub mod agent;
 pub mod artifact;
-pub mod background_job;
+pub mod detached_script;
 pub mod blob;
 pub mod catalogue;
 pub mod chunk;
@@ -124,7 +124,7 @@ where
         + ArtifactStorage
         + TaskStorage
         + TaskRunStorage
-        + BackgroundJobStorage
+        + DetachedScriptStorage
         + HistoryStorage
         + SessionStorage
         + StateStorage

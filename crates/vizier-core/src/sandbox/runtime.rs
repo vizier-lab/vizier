@@ -670,6 +670,35 @@ mod tests {
         assert_eq!(bridge.calls().len(), 2000);
     }
 
+    /// The limit is Monty's CPU clock, which stops while a host call is
+    /// suspended: a script that mostly waits on tools is bounded only by the
+    /// caller dropping the future (the tool timeout inline, the script's own
+    /// limit when detached, spec 058 research D3).
+    #[tokio::test]
+    async fn waiting_on_a_tool_does_not_count_against_the_limit() {
+        let limits = SandboxLimits {
+            timeout: Duration::from_millis(200),
+            tools_enabled: true,
+        };
+        struct SlowBridge;
+        #[async_trait::async_trait]
+        impl SandboxBridge for SlowBridge {
+            async fn catalogue(&self) -> Vec<ToolFunctionDoc> {
+                vec![doc("slow", "misc", &[])]
+            }
+            async fn describe(&self, _: &str) -> Option<ToolFunctionDoc> {
+                Some(doc("slow", "misc", &[]))
+            }
+            async fn call(&self, _: &str, _: serde_json::Value) -> Result<serde_json::Value, BridgeError> {
+                tokio::time::sleep(Duration::from_millis(600)).await;
+                Ok(serde_json::json!("slept"))
+            }
+        }
+        let report = execute("slow()", limits, Arc::new(SlowBridge)).await;
+        assert!(report.ok, "{report:?}");
+        assert_eq!(report.result, serde_json::json!("slept"));
+    }
+
     #[tokio::test]
     async fn a_dropped_run_aborts_at_the_next_host_call() {
         let bridge = FakeBridge::new();

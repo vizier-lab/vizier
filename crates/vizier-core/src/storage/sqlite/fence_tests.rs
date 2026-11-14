@@ -6,12 +6,11 @@ use std::sync::Arc;
 
 use super::SqlStorage;
 use crate::schema::{
-    BackgroundJob, BackgroundPiece, ClientCallOutcome, JobKind, JobState, PieceState,
-    SessionHistoryContent, TaskRunState, VizierChannelId, VizierRequest, VizierRequestContent,
-    VizierSession,
+    ClientCallOutcome, SessionHistoryContent, TaskRunState, VizierChannelId, VizierRequest,
+    VizierRequestContent, VizierSession,
 };
-use crate::storage::background_job::BackgroundJobStorage;
 use crate::storage::client_call::ClientCallStorage;
+use crate::storage::detached_script::{CancelOutcome, DetachedScriptStorage};
 use crate::storage::fence::{FenceStorage, Scope, is_ownership_lost};
 use crate::storage::history::HistoryStorage;
 use crate::storage::question::SensitiveAskStorage;
@@ -233,65 +232,124 @@ async fn stale_sensitive_ask_write_refused() {
     n.b.open_sensitive_ask(&ask("s2")).await.unwrap();
 }
 
-fn job(id: &str) -> BackgroundJob {
-    let now = crate::time::now();
-    BackgroundJob {
+fn detached(id: &str, parent: Option<&str>) -> crate::schema::DetachedScript {
+    crate::schema::DetachedScript {
         id: id.into(),
-        kind: JobKind::Batch,
-        origin: session("x"),
+        agent_id: "x".into(),
+        session: session("x"),
+        parent_id: parent.map(str::to_string),
         depth: 0,
+        intent: "i".into(),
+        state: crate::schema::DetachedScriptState::Running,
         timeout_secs: 600,
-        created_at: now,
+        code: "1".into(),
+        tool_calls: serde_json::json!([]),
+        created_at: crate::time::now(),
         finished_at: None,
-        state: JobState::Running,
+        outcome: None,
+        delivered_at: None,
         cancelled_by: None,
-        reason: None,
-        pieces: vec![BackgroundPiece {
-            ordinal: 0,
-            prompt: "p".into(),
-            session: VizierSession("x".into(), VizierChannelId::Subagent, Some(format!("{id}-0"))),
-            started_at: now,
-            finished_at: None,
-            state: PieceState::Running,
-            reason: None,
-        }],
     }
 }
 
+/// Spec 058: every write that advances a detached script is fenced on its agent's scope.
 #[tokio::test]
-async fn stale_background_job_write_refused() {
+async fn stale_detached_script_write_refused() {
+    use crate::schema::{Canceller, DetachedScriptState};
     let n = nodes();
     let scope = Scope::Agent("x".into());
     n.a_then_b(&scope).await;
-    n.a.open_background_job(job("j1")).await.unwrap();
+    n.a.open_detached_script(detached("d_1", None)).await.unwrap();
+    n.a.open_detached_script(detached("d_2", None)).await.unwrap();
     n.b_takes_over(&scope).await;
     let now = crate::time::now();
+    let done = || serde_json::json!({"ok": true});
 
-    n.assert_refused(&scope, n.a.open_background_job(job("j2")).await);
+    n.assert_refused(&scope, n.a.open_detached_script(detached("d_3", None)).await);
+    n.assert_refused(&scope, n.a.record_detached_progress("d_1", serde_json::json!([1])).await);
     n.assert_refused(
         &scope,
-        n.a.close_background_piece("j1", 0, PieceState::Answered, None, now)
+        n.a.close_detached_script("d_1", DetachedScriptState::Succeeded, done(), serde_json::json!([]), now)
             .await,
     );
     n.assert_refused(
         &scope,
-        n.a.transition_background_job("j1", JobState::Running, JobState::Reporting, None, None, now)
-            .await,
+        n.a.cancel_detached_script("d_2", Canceller::Agent("x".into()), now).await,
     );
-    assert!(n.b.get_background_job("j2").await.unwrap().is_none());
-    let kept = n.b.get_background_job("j1").await.unwrap().unwrap();
-    assert_eq!(kept.state, JobState::Running);
-    assert_eq!(kept.pieces[0].state, PieceState::Running);
+    n.assert_refused(&scope, n.a.claim_deliverable_scripts(&session("x")).await);
+    n.assert_refused(&scope, n.a.interrupt_running_scripts("x", None, None).await);
+    assert!(n.b.get_detached_script("d_3").await.unwrap().is_none());
+    let kept = n.b.get_detached_script("d_1").await.unwrap().unwrap();
+    assert_eq!(kept.state, DetachedScriptState::Running);
+    assert_eq!(kept.tool_call_count(), 0);
 
-    n.b.close_background_piece("j1", 0, PieceState::Answered, None, now)
-        .await
-        .unwrap();
+    // The same writes by the new owner succeed.
+    n.b.open_detached_script(detached("d_3", None)).await.unwrap();
+    n.b.record_detached_progress("d_1", serde_json::json!([1])).await.unwrap();
     assert!(
-        n.b.transition_background_job("j1", JobState::Running, JobState::Reporting, None, None, now)
+        n.b.close_detached_script("d_1", DetachedScriptState::Succeeded, done(), serde_json::json!([]), now)
             .await
             .unwrap()
     );
-    n.b.open_background_job(job("j2")).await.unwrap();
+    assert_eq!(
+        n.b.cancel_detached_script("d_2", Canceller::Agent("x".into()), now).await.unwrap(),
+        CancelOutcome::Cancelled(vec!["d_2".into()])
+    );
+    assert_eq!(n.b.claim_deliverable_scripts(&session("x")).await.unwrap().len(), 1);
+    assert_eq!(n.b.interrupt_running_scripts("x", None, None).await.unwrap().len(), 1);
+}
+
+/// Two claimers on two connections race for the same rows: each script is taken once.
+#[tokio::test]
+async fn detached_claims_race_and_split_the_rows() {
+    use crate::schema::DetachedScriptState;
+    let n = nodes();
+    for i in 0..20 {
+        let id = format!("d_{i}");
+        n.a.open_detached_script(detached(&id, None)).await.unwrap();
+        assert!(
+            n.a.close_detached_script(
+                &id,
+                DetachedScriptState::Succeeded,
+                serde_json::json!({}),
+                serde_json::json!([]),
+                crate::time::now(),
+            )
+            .await
+            .unwrap()
+        );
+    }
+    let (a, b) = (n.a.clone(), n.b.clone());
+    let ta = tokio::spawn(async move { a.claim_deliverable_scripts(&session("x")).await.unwrap() });
+    let tb = tokio::spawn(async move { b.claim_deliverable_scripts(&session("x")).await.unwrap() });
+    let mut ids: Vec<String> = ta.await.unwrap().into_iter().chain(tb.await.unwrap()).map(|s| s.id).collect();
+    assert_eq!(ids.len(), 20);
+    ids.sort();
+    ids.dedup();
+    assert_eq!(ids.len(), 20, "a script was claimed twice");
+}
+
+/// Cancel and finish race on two connections: exactly one of them wins.
+#[tokio::test]
+async fn detached_cancel_and_close_race() {
+    use crate::schema::{Canceller, DetachedScriptState};
+    let n = nodes();
+    for round in 0..10 {
+        let id = format!("d_{round}");
+        n.a.open_detached_script(detached(&id, None)).await.unwrap();
+        let (a, b, ia, ib) = (n.a.clone(), n.b.clone(), id.clone(), id.clone());
+        let close = tokio::spawn(async move {
+            a.close_detached_script(&ia, DetachedScriptState::Succeeded, serde_json::json!({}), serde_json::json!([]), crate::time::now())
+                .await
+                .unwrap()
+        });
+        let cancel = tokio::spawn(async move {
+            b.cancel_detached_script(&ib, Canceller::Agent("x".into()), crate::time::now()).await.unwrap()
+        });
+        let closed = close.await.unwrap();
+        let cancelled = matches!(cancel.await.unwrap(), CancelOutcome::Cancelled(_));
+        assert!(closed ^ cancelled, "round {round}: closed {closed}, cancelled {cancelled}");
+    }
 }
 
 #[tokio::test]
@@ -416,7 +474,9 @@ crate::postgres_tests!(
     stale_turn_transition_refused,
     stale_client_call_write_refused,
     stale_sensitive_ask_write_refused,
-    stale_background_job_write_refused,
+    stale_detached_script_write_refused,
+    detached_claims_race_and_split_the_rows,
+    detached_cancel_and_close_race,
     stale_task_run_write_refused,
     opened_rows_carry_the_owner,
     unfenced_writer_unaffected,

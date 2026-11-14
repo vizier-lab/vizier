@@ -24,7 +24,7 @@ One row per detached `execute_python` run. Replaces `background_job` and `backgr
 
 **Validation**
 
-- `depth` < 3 at launch; `timeout_secs` in 1..=3600 and only with `detached`.
+- `depth` < 3 at launch; `timeout_secs` in 1..=3600 (read only with `detached`; an inline call ignores it).
 - Refused at launch with no row: a scheduled-task or dream session.
 - `intent`, `code`, `tool_calls` and `outcome` pass the turn's `SecretRedactor` before they are stored.
 
